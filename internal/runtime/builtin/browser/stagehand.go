@@ -189,9 +189,16 @@ const selectorVisibleExpression = `(() => {
 // that is the network error code and the host of the page that did not
 // load, which Chrome uses as the error page's title, with the status of an
 // HTTP error answer without a body, which the page shows as "HTTP ERROR
-// 403" in every language; on a page, its host, HTTP status, title, and the
-// start of its text.
-var pageOutcomeExpression = fmt.Sprintf(`(() => {
+// 403" in every language; on a page, its host, HTTP status, title, the
+// start of its text, and the bot check it shows in a frame, if any: a frame
+// of challengeFrames that is shown. A check's widget that shows nothing
+// until it must, as an invisible reCAPTCHA's badge, is not a check shown.
+var pageOutcomeExpression = func() string {
+	frames, err := json.Marshal(challengeFrames)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`(() => {
 	const text = ((document.body && document.body.innerText) || "").slice(0, 500);
 	if (location.protocol === "chrome-error:") {
 		const code = document.querySelector(".error-code");
@@ -201,9 +208,25 @@ var pageOutcomeExpression = fmt.Sprintf(`(() => {
 		const match = shown.match(/ERR_[A-Z0-9_]+/);
 		return {code: match ? match[0] : "ERR_FAILED", host: document.title, status: 0, title: "", text: ""};
 	}
+	`+shownDocumentsFunction+`
+	const checks = %s;
+	const shownCheck = () => {
+		for (const {doc} of shownDocuments(document)) {
+			for (const frame of doc.querySelectorAll("frame, iframe")) {
+				let url;
+				try { url = new URL(frame.src, doc.baseURI); } catch { continue; }
+				const check = checks.find(({host, path}) => (url.hostname === host || url.hostname.endsWith("." + host)) && url.pathname.startsWith(path));
+				if (!check || (url.search + url.hash).includes("size=invisible")) continue;
+				const box = frame.getBoundingClientRect();
+				if (box.width > 0 && box.height > 0 && frame.checkVisibility({visibilityProperty: true})) return check.kind;
+			}
+		}
+		return "";
+	};
 	const entry = performance.getEntriesByType("navigation")[0];
-	return {code: "", host: location.hostname, status: (entry && entry.responseStatus) || 0, title: document.title, text};
-})()`, httpErrorCode)
+	return {code: "", host: location.hostname, status: (entry && entry.responseStatus) || 0, title: document.title, text, botCheck: shownCheck()};
+})()`, httpErrorCode, frames)
+}()
 
 var errImageInput = errors.New("browser: image input to the model is not supported")
 
@@ -1458,10 +1481,11 @@ func (e *stagehandEngine) PageOutcome(ctx context.Context) (pageOutcome, error) 
 	if hostpattern.Validate(outcome.Host) != nil || strings.Contains(outcome.Host, "*") {
 		outcome.Host = ""
 	}
-	// The answer the host gave the page tells whether it was a bot check.
-	// An answer of another status was to an earlier page.
+	// The answer the host gave the page tells whether it was a bot check,
+	// over a check the page shows in a frame. An answer of another status
+	// was to an earlier page.
 	if e.responses != nil && outcome.Host != "" {
-		if response, ok := e.responses.Response(outcome.Host); ok && response.Status == outcome.Status {
+		if response, ok := e.responses.Response(outcome.Host); ok && response.Status == outcome.Status && response.BotCheck != "" {
 			outcome.BotCheck = response.BotCheck
 		}
 	}

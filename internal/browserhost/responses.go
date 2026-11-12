@@ -14,10 +14,18 @@ import (
 	"github.com/coder/websocket"
 )
 
-// BotCheckCloudflare names Cloudflare's check of whether a browser is run
-// by a person, which a site behind Cloudflare answers with in place of the
-// page.
-const BotCheckCloudflare = "cloudflare"
+// The checks of whether a browser is run by a person that a site answers
+// with in place of the page, told by the answer's headers.
+const (
+	// BotCheckCloudflare is Cloudflare's check.
+	BotCheckCloudflare = "cloudflare"
+	// BotCheckAWSWAFChallenge is the challenge AWS WAF runs in the browser
+	// without a person, answered with HTTP 202.
+	BotCheckAWSWAFChallenge = "aws-waf-challenge"
+	// BotCheckAWSWAFCaptcha is the CAPTCHA AWS WAF asks a person to solve,
+	// answered with HTTP 405.
+	BotCheckAWSWAFCaptcha = "aws-waf-captcha"
+)
 
 const (
 	resourceTypeDocument = "Document"
@@ -25,6 +33,11 @@ const (
 	// cloudflareChallenge on every answer that is one of its checks.
 	cloudflareMitigated = "cf-mitigated"
 	cloudflareChallenge = "challenge"
+	// awsWAFAction is the header AWS WAF sets on every answer that is one
+	// of its checks, to the action it took.
+	awsWAFAction    = "x-amzn-waf-action"
+	awsWAFChallenge = "challenge"
+	awsWAFCaptcha   = "captcha"
 )
 
 // PageResponse is how a site answered the document a page loaded.
@@ -180,8 +193,14 @@ func (w *PageResponseWatcher) read(ctx context.Context, acknowledged chan<- erro
 // a response that is not one.
 func botCheck(headers map[string]string) string {
 	for name, value := range headers {
-		if strings.EqualFold(name, cloudflareMitigated) && strings.EqualFold(strings.TrimSpace(value), cloudflareChallenge) {
+		value = strings.ToLower(strings.TrimSpace(value))
+		switch {
+		case strings.EqualFold(name, cloudflareMitigated) && value == cloudflareChallenge:
 			return BotCheckCloudflare
+		case strings.EqualFold(name, awsWAFAction) && value == awsWAFChallenge:
+			return BotCheckAWSWAFChallenge
+		case strings.EqualFold(name, awsWAFAction) && value == awsWAFCaptcha:
+			return BotCheckAWSWAFCaptcha
 		}
 	}
 	return ""

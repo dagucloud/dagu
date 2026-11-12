@@ -10,8 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// A page counts as refused when the site answered with a bot check, or said
-// the page is forbidden or asked for too often, with or without a body.
+// A page counts as refused when the site answered with a bot check, or the
+// page shows one in a frame, or the site said the page is forbidden or asked
+// for too often, with or without a body. The sentence names the check.
 func TestRefusalOf(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +41,30 @@ func TestRefusalOf(t *testing.T) {
 		"unreachable":             {page: pageOutcome{Code: "ERR_CONNECTION_REFUSED", Host: "shop.example.com"}},
 		"no host to name":         {page: pageOutcome{Status: 403}},
 		"bot check of any status": {page: pageOutcome{Host: "shop.example.com", Status: 200, BotCheck: browserhost.BotCheckCloudflare}, message: "shop.example.com answered with a Cloudflare bot check (HTTP 200) in place of the page"},
+		"AWS WAF challenge": {
+			page:    pageOutcome{Host: "api.example.com", Status: 202, BotCheck: browserhost.BotCheckAWSWAFChallenge},
+			message: "api.example.com answered with an AWS WAF challenge (HTTP 202) in place of the page",
+		},
+		"AWS WAF CAPTCHA": {
+			page:    pageOutcome{Host: "store.example.com", Status: 405, BotCheck: browserhost.BotCheckAWSWAFCaptcha},
+			message: "store.example.com answered with an AWS WAF CAPTCHA (HTTP 405) in place of the page",
+		},
+		"reCAPTCHA frame": {
+			page:    pageOutcome{Host: "portal.example.com", Status: 200, Title: "Sign in", BotCheck: botCheckRecaptcha},
+			message: "portal.example.com shows a reCAPTCHA challenge (HTTP 200)",
+		},
+		"hCaptcha frame": {
+			page:    pageOutcome{Host: "portal.example.com", Status: 200, BotCheck: botCheckHCaptcha},
+			message: "portal.example.com shows an hCaptcha challenge (HTTP 200)",
+		},
+		"Turnstile frame": {
+			page:    pageOutcome{Host: "portal.example.com", Status: 200, BotCheck: botCheckTurnstile},
+			message: "portal.example.com shows a Cloudflare Turnstile challenge (HTTP 200)",
+		},
+		"unknown check": {
+			page:    pageOutcome{Host: "shop.example.com", Status: 403, BotCheck: "datadome"},
+			message: "shop.example.com answered with a datadome bot check (HTTP 403) in place of the page",
+		},
 	} {
 		refused, ok := refusalOf(tc.page)
 		assert.Equal(t, tc.message != "", ok, name)
