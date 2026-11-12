@@ -229,8 +229,9 @@ type startedBrowser struct {
 	gate *writegate.Handle
 }
 
-// end terminates the browser, waiting for its processes to exit so its
-// profile is free, and then its certificate proxy and its write gate.
+// end asks the browser to exit and terminates one that does not, waiting
+// for its processes to exit so its profile is free, and then terminates its
+// certificate proxy and its write gate.
 func (b startedBrowser) end(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
@@ -238,6 +239,7 @@ func (b startedBrowser) end(ctx context.Context) error {
 		return browserhost.BrowserProcessID(ctx, b.cdpURL)
 	})
 	startedAt, _ := procutil.StartTime(pid)
+	exitLaunchedBrowser(ctx, browserHandle{CDPURL: b.cdpURL, BrowserPID: pid, BrowserStartedAt: startedAt})
 	return errors.Join(closeBrowser(ctx, pid, startedAt, b.browser.Close), killCertProxy(b.proxy), killWriteGate(b.gate))
 }
 
