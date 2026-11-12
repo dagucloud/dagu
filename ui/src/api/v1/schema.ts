@@ -6052,7 +6052,7 @@ export interface components {
          */
         TriggerType: TriggerType;
         /**
-         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
+         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and queues the next run restartWaitSec seconds after the previous one ends, longer while runs fail soon after they start; a busy queue can start it later. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
          * @enum {string}
          */
         RestartPolicy: RestartPolicy;
