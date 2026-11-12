@@ -66,14 +66,27 @@ func (e *APIError) Unwrap() error {
 const maxReasonRunes = 200
 
 // Reason returns the provider's explanation of the failure as a single
-// bounded line: the message of a JSON error body (`error.message`, a string
-// `error`, or a top-level `message`), else the body itself. Whitespace is
-// collapsed and text beyond maxReasonRunes is replaced by an ellipsis. An
-// empty body yields "".
-func (e *APIError) Reason() string {
-	reason := e.Message
-	if _, messages := apiErrorDetails(e.Message); len(messages) > 0 && strings.TrimSpace(messages[0]) != "" {
-		reason = messages[0]
+// bounded line: the first non-blank message of a JSON error body
+// (`error.message`, a string `error`, or a top-level `message`), else the
+// body itself. Whitespace is collapsed and text beyond maxReasonRunes is
+// replaced by an ellipsis. An empty body yields "".
+//
+// mask, when non-nil, rewrites the body and the extracted message before
+// they are collapsed or cut, so a secret containing whitespace or crossing
+// the length bound is still matched whole. It runs on the decoded message
+// as well because JSON escaping can hide a secret in the raw body.
+func (e *APIError) Reason(mask func(string) string) string {
+	if mask == nil {
+		mask = func(s string) string { return s }
+	}
+	body := mask(e.Message)
+	reason := body
+	_, messages := apiErrorDetails(body)
+	for _, message := range messages {
+		if strings.TrimSpace(message) != "" {
+			reason = mask(message)
+			break
+		}
 	}
 	reason = strings.Join(strings.Fields(reason), " ")
 	if runes := []rune(reason); len(runes) > maxReasonRunes {

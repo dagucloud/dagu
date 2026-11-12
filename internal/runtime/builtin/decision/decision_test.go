@@ -283,27 +283,41 @@ func TestHTTPFailures(t *testing.T) {
 	}
 }
 
-// The provider's reason reaches the step error through the same masker as the
-// response, so a secret echoed back in the error body stays hidden.
+// A secret echoed in the provider's error body stays hidden in the step
+// error, even when JSON escaping, whitespace, or the length bound would keep
+// the masker from seeing it whole.
 func TestHTTPFailureMasked(t *testing.T) {
 	t.Parallel()
-	const secret = "secret-\"quoted\"-value"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = io.WriteString(w, `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`)
-	}))
-	defer server.Close()
-	raw := testConfig(t)
-	raw["base_url"] = server.URL
-	scope := value.NewEnvScope(nil, false).WithEntry("OPENROUTER_API_KEY", secret, value.EnvSourceSecret)
-	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
-	exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
-	require.NoError(t, err)
-	defer exec.(*decisionExecutor).Close()
-	exec.SetStdout(io.Discard)
-	err = exec.Run(ctx)
-	require.ErrorContains(t, err, "(HTTP 401): invalid key *******")
-	assert.NotContains(t, err.Error(), secret)
+	const whitespace = "multi word\nsecret"
+	for _, tc := range []struct{ name, secret, body, wantErr string }{
+		{"escaped", "secret-\"quoted\"-value", `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`, "(HTTP 401): invalid key *******"},
+		{"whitespace", whitespace, "denied for multi word\nsecret here", "(HTTP 401): denied for ******* here"},
+		{"boundary", whitespace, strings.Repeat("a", 195) + whitespace, "(HTTP 401): " + strings.Repeat("a", 195) + "*****..."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			raw := testConfig(t)
+			raw["base_url"] = server.URL
+			scope := value.NewEnvScope(nil, false).
+				WithEntry("OPENROUTER_API_KEY", "test-key", value.EnvSourceSecret).
+				WithEntry("ECHOED", tc.secret, value.EnvSourceSecret)
+			ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
+			exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
+			require.NoError(t, err)
+			defer exec.(*decisionExecutor).Close()
+			exec.SetStdout(io.Discard)
+			err = exec.Run(ctx)
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.NotContains(t, err.Error(), tc.secret)
+			assert.NotContains(t, err.Error(), "multi")
+			assert.NotContains(t, err.Error(), "quoted")
+		})
+	}
 }
 
 func TestCancellation(t *testing.T) {

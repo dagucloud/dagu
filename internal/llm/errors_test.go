@@ -48,6 +48,7 @@ func TestAPIError_Reason(t *testing.T) {
 		{"anthropic", `{"type":"error","error":{"type":"not_found_error","message":"model: no-such-model"}}`, "model: no-such-model"},
 		{"error_string", `{"error":"busy"}`, "busy"},
 		{"top_level_message", `{"message":"quota exceeded"}`, "quota exceeded"},
+		{"blank_then_nested", `{"message":"","error":{"message":"Insufficient credits"}}`, "Insufficient credits"},
 		{"message_whitespace", `{"error":{"message":"  line one\n\n  line two  "}}`, "line one line two"},
 		{"message_empty", `{"error":{"message":""}}`, `{"error":{"message":""}}`},
 		{"json_array", `["unexpected"]`, `["unexpected"]`},
@@ -57,7 +58,25 @@ func TestAPIError_Reason(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
-			assert.Equal(t, tc.want, err.Reason())
+			assert.Equal(t, tc.want, err.Reason(nil))
+		})
+	}
+}
+
+// The mask sees the text before whitespace is collapsed or the length bound
+// is applied, and sees the decoded message where JSON escaping hid the secret.
+func TestAPIError_ReasonMasked(t *testing.T) {
+	t.Parallel()
+	mask := strings.NewReplacer("multi word\nsecret", "*******", `quoted-"secret"`, "*******").Replace
+	for _, tc := range []struct{ name, message, want string }{
+		{"whitespace", "denied for multi word\nsecret here", "denied for ******* here"},
+		{"boundary", strings.Repeat("a", 195) + "multi word\nsecret", strings.Repeat("a", 195) + "*****..."},
+		{"escaped", `{"error":{"message":"bad key quoted-\"secret\""}}`, "bad key *******"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
+			assert.Equal(t, tc.want, err.Reason(mask))
 		})
 	}
 }

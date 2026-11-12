@@ -30,6 +30,9 @@ type client struct {
 	provider         string
 	endpoint         string
 	apiKey           string
+	// mask hides declared secrets in a provider error before it is bounded;
+	// the step masks the final error again, which is harmless.
+	mask func(string) string
 }
 
 type request struct {
@@ -46,9 +49,8 @@ func (c *client) evaluate(ctx context.Context, req request) (map[string]any, err
 	response, err := c.http.Do(ctx, c.endpoint, body, map[string]string{"Authorization": "Bearer " + c.apiKey})
 	if err != nil {
 		if apiErr, ok := errors.AsType[*llm.APIError](err); ok {
-			// The reason may echo the request, so the caller masks the error
-			// before it leaves the step.
-			if reason := apiErr.Reason(); reason != "" {
+			// The reason may echo the request, which was sent unmasked.
+			if reason := apiErr.Reason(c.mask); reason != "" {
 				return nil, fmt.Errorf("decision request failed (HTTP %d): %s", apiErr.StatusCode, reason)
 			}
 			return nil, fmt.Errorf("decision request failed (HTTP %d)", apiErr.StatusCode)
