@@ -4,8 +4,8 @@
 - **Date:** 2026-11-12
 - **Affected areas:** a new `inventory` package, `persis/file`, `secret`,
   `runtime/builtin/ssh`, `service/frontend` (API, UI), `service/scheduler`,
-  `service/coordinator`, `service/worker`, `service/mcp`, `cmd`, `api/v1`,
-  `proto`, `ui`, and `docs`
+  `service/coordinator`, `service/worker`, `service/mcp`, `cmn/config`,
+  `cmd`, `api/v1`, `proto`, `ui`, and `docs`
 
 ## Summary
 
@@ -13,7 +13,8 @@ Give each project a list of the hosts it runs commands on. A node has a name,
 a hostname, tags, attributes, and SSH settings whose credentials come from the
 secret store. Nodes are declared in a `nodes.yaml` file, read from Rundeck
 resource files and Ansible inventories, produced by scripts or URLs, or
-discovered from connected workers.
+discovered from connected workers. A form or one command adds a host, so
+nobody has to edit the file.
 
 A filter selects nodes with Rundeck's filter syntax:
 
@@ -23,7 +24,8 @@ tags: web+prod !name: web03
 
 This RFC defines the inventory, the filter language, and the surfaces that
 show them. [RFC 013](013-node-targeting.md) runs steps on the nodes a filter
-selects.
+selects. A server can also keep its inventory in Dagu Cloud, which is off by
+default.
 
 RFCs 015 to 018, cited below, and the RFC for DAG-scoped grants are not
 written yet. [#3777](https://github.com/dagucloud/dagu/issues/3777) lists
@@ -64,6 +66,8 @@ Dagu has no such list:
 5. A user can see which nodes a filter matches, and check that Dagu can reach
    a node, before any DAG runs on it.
 6. Nothing changes for installs that have no `nodes.yaml`.
+7. A host is added with one form or one command.
+8. Keeping the inventory in Dagu Cloud is a choice, and no run depends on it.
 
 ## Non-goals
 
@@ -97,10 +101,10 @@ The inventory belongs to a project, as defined in
 [RFC 003](003-remove-workspaces.md). Until RFC 003 ships, the installation has
 one inventory, at the default project's location.
 
-| Project | Inventory file | With `paths.inventory_dir` set | Snapshots and trusted host keys |
-| --- | --- | --- | --- |
-| Default project | `nodes.yaml` beside the global `base.yaml` | `<inventory_dir>/nodes.yaml` | `<data dir>/nodes/` |
-| Project | `projects/<name>/nodes.yaml` | `<inventory_dir>/<name>/nodes.yaml` | `projects/<name>/data/nodes/` |
+| Project | Inventory file | Snapshots and trusted host keys |
+| --- | --- | --- |
+| Default project | `nodes.yaml` beside the global `base.yaml` | `<data dir>/nodes/` |
+| Project | `projects/<name>/nodes.yaml` | `projects/<name>/data/nodes/` |
 
 The inventory belongs to the server, not to the DAG files. A DAG is the same
 in every environment and names a role, such as `tags: web`. Which hosts have
@@ -109,11 +113,9 @@ lives in a DAG directory, with or without `paths.projects_dags_dir`, and git
 sync never reads or writes it. Two servers that sync the same DAG repository
 each keep their own inventory.
 
-`paths.inventory_dir` lets a team keep inventories in git and still give
-each environment its own. A repository holds one directory per environment,
-such as `inventories/prod/` and `inventories/staging/`, and each server's
-`config.yaml` names the one it reads. DAGs move between environments
-unchanged as long as the inventories use the same tags and attribute names.
+DAGs move between environments unchanged as long as the inventories use the
+same tags and attribute names. Servers that should share one inventory turn
+on [Dagu Cloud sync](#dagu-cloud-sync).
 
 A project without `nodes.yaml` has no nodes.
 
@@ -177,8 +179,6 @@ sources:
     command: [ansible-inventory, -i, /etc/ansible/hosts, --list]
     format: ansible
     refresh: 1h
-
-workers: true
 ```
 
 | Root field | Meaning |
@@ -186,7 +186,7 @@ workers: true
 | `defaults` | Node fields applied to every node that does not set them |
 | `nodes` | Nodes declared in this file, keyed by name |
 | `sources` | Other places nodes come from, in order |
-| `workers` | When `true`, connected workers are nodes. Default `false` |
+| `workers` | When `false`, workers are not nodes. Default `true` |
 
 Unknown root fields are a validation error.
 
@@ -201,9 +201,10 @@ Unknown root fields are a validation error.
 | `tags` | A list, or a comma-separated string |
 | `ssh` | Connection settings. See below. These are not attributes |
 | `disabled` | `true` keeps runs off the node. Default `false`. This is not an attribute |
+| `transport` | `ssh` or `worker`. Set only to settle a name that a worker and an SSH node both use |
 | Any other key | A custom attribute. The value must be a scalar and is kept as a string |
 
-Dagu adds three read-only attributes to every node:
+Dagu sets three attributes on every node:
 
 | Attribute | Value |
 | --- | --- |
@@ -292,10 +293,16 @@ sources, in listed order ─▶ workers ─▶ nodes block in nodes.yaml
 - `transport` never changes in a merge. A worker whose ID is the name of a
   node from a source, or of a `nodes` entry that sets `hostname` or `ssh`,
   conflicts with it. The node is listed with a problem naming both, so RFC 013
-  fails items that target it instead of choosing a transport.
+  fails items that target it instead of choosing a transport. A `nodes`
+  entry that sets `transport` settles it: the name means that one, and the
+  other is left out with a warning.
+- Two sources that give one name different hostnames are a warning on the
+  node, since one may be overwriting another host.
 - A `nodes` entry that sets neither `hostname` nor `ssh` adds tags and
-  attributes to the worker of the same name. While that worker is not
-  connected, the entry is listed with a problem.
+  attributes to the worker of the same name. This is how an operator tags a
+  worker. Tags and attributes set this way are assigned, the labels a worker
+  sends are claimed, and the Nodes page and the API show which is which. An
+  entry whose worker has never connected is listed with a problem.
 
 The `nodes` block goes last, so a short entry in `nodes.yaml` can add tags or
 credentials to a node that a script discovers, and keeps the user and key the
@@ -396,7 +403,8 @@ hold two keys.
 
 ### Workers
 
-With `workers: true`, every worker connected to the coordinator is a node:
+Every worker that connects to the coordinator is a node, unless `workers` is
+`false`:
 
 | Node field | Value |
 | --- | --- |
@@ -405,12 +413,15 @@ With `workers: true`, every worker connected to the coordinator is a node:
 | `hostname` | The host the worker reports in its heartbeat |
 | Attributes | The worker's labels. A label whose name is invalid or reserved is dropped, with a warning |
 
-A worker that stops sending heartbeats leaves the list. Worker IDs default to
-`hostname@pid`, which changes on restart, so a worker meant to be targeted as
-a node should set `worker.id`.
+A worker that sets `worker.id`, which its heartbeat says, stays listed after
+it disconnects. It is `offline`, with the time it was last seen. That is a
+problem on the node, so RFC 013 fails an item that targets it. Otherwise a
+step would run on the workers that happen to be up and say nothing of the
+rest. **Forget** on the Nodes page, or `dagu nodes forget`, removes one.
 
-Workers are off by default. Turning them on changes what broad filters such as
-`.*` match, and that should be a choice.
+A worker with the default ID, `hostname@pid`, gets a new ID on every restart,
+so it leaves the list when its heartbeats stop. A worker meant to be targeted
+sets `worker.id`.
 
 ### Filters
 
@@ -615,6 +626,44 @@ RFC 017's `adhoc` is another. System names are reserved:
 
 `strict_host_key: false` is allowed. The Nodes page marks such nodes.
 
+### Dagu Cloud sync
+
+A server connected to Dagu Cloud ([RFC 002](002-dagu-cloud-connector.md)) can
+keep each project's inventory there. It is off by default, and an admin of
+the server turns it on, in the UI or in configuration:
+
+```yaml
+cloud:
+  inventory_sync: false          # omit to choose in the UI
+```
+
+In Dagu Cloud, an inventory belongs to the workspace the server is connected
+to, and to the project. Every server of that workspace that syncs the project
+shares one inventory. RFC 018 of the Dagu Cloud repository defines that side.
+
+| Data | Synced |
+| --- | --- |
+| `nodes.yaml` and the `file` sources it names | Yes, up to 4 MiB together |
+| Secret values | No. The inventory holds refs, and each server keeps its own values |
+| Trusted host keys | No. Each server decides which hosts it trusts. A key pinned with `ssh.host_key` is in the file and travels with it |
+| Snapshots, test results, known workers | No. Each server rebuilds them |
+
+- **Local first.** Dagu reads and writes the local files as before. A run
+  never reads Dagu Cloud.
+- **Push.** After a local change, the server sends the files. Dagu Cloud
+  gives them the next version number and keeps the earlier versions.
+- **Pull.** The server asks for a newer version at startup, every 10
+  minutes, and after its own push. It validates a version before it replaces
+  the local files.
+- **The last change wins.** Two servers that change one project are not
+  merged. The later push becomes current, and the Nodes page says which
+  version it replaced. **History** lists the versions and restores one, as a
+  new version.
+- **Turning it on.** A server with no inventory takes Dagu Cloud's, which is
+  how a rebuilt server gets its inventory back. When both hold one and they
+  differ, nothing is copied until an admin chooses which to keep.
+- **Turning it off** leaves both copies as they are.
+
 ### Surfaces
 
 #### UI
@@ -632,7 +681,7 @@ A **Nodes** page in each project:
 │ ☐ web01   10.0.1.11    deploy  ssh       web,prod    nodes.yaml  │
 │ ☐ web02   10.0.1.12    deploy  ssh       web,prod    nodes.yaml  │
 │ ...                                                              │
-│ [Test connection] [Refresh sources] [Edit nodes.yaml]            │
+│ [Add node] [Import] [Test connection] [Refresh sources]          │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -646,11 +695,18 @@ A **Nodes** page in each project:
   selected node. **Test all matches** tests the whole match of the current
   filter, and **Trust all unknown keys** sends every unknown key's
   fingerprint from that test's results.
-- A node's drawer shows its attributes, tags, the sources that contributed to
-  it, its SSH settings with secret refs (never values), and its last test
-  result.
-- **Edit nodes.yaml** opens the file in an editor with schema validation, as
-  the base config page does. An invalid file cannot be saved.
+- A node's drawer shows its attributes and tags with where each came from,
+  its SSH settings with secret refs (never values), and its last test
+  result. It also edits the node's tags and attributes, disables it, and
+  removes it.
+- **Add node** is a form for one host: name, hostname, user, tags, key, and
+  the worker that reaches it. It tests the connection and shows the host key
+  to trust before it saves. **Import** takes a Rundeck or Ansible file and
+  adds it as a `file` source.
+- The forms write `nodes.yaml`. Each changes only its own entry and keeps the
+  rest of the file, comments included. **Edit as YAML** opens the whole file
+  with schema validation, for what the forms do not cover, such as `command`
+  sources. An invalid file cannot be saved.
 - A source with an error shows the error and its stderr.
 
 The **Remote Nodes** page is renamed **Remote servers**.
@@ -666,7 +722,10 @@ The **Remote Nodes** page is renamed **Remote servers**.
 | `POST /node-host-keys` | Trust host keys, given each node and the fingerprint the user saw, with the same origin choice |
 | `GET /node-sources` | Each source's status: name, kind, node count, last refresh, and error |
 | `POST /node-sources/refresh` | Refresh every source, or one with `?source=` |
+| `PUT /nodes/{name}`, `DELETE /nodes/{name}` | Add, change, or remove one entry of the `nodes` block. `DELETE` also forgets an offline worker of that name |
+| `POST /node-imports` | Add an uploaded Rundeck or Ansible file as a `file` source |
 | `GET /node-inventory`, `PUT /node-inventory` | Read and write `nodes.yaml` |
+| `GET /node-inventory/versions`, `POST /node-inventory/versions/{n}/restore` | With Dagu Cloud sync on, list the versions kept there, and make one current |
 
 Collection operations sit outside `/nodes/{name}`, so every valid node name
 reaches its node. Once RFC 003 ships, every path takes `project`. Tests and
@@ -677,6 +736,9 @@ test event has the fields of the existing
 #### CLI
 
 ```sh
+dagu nodes add web01 --hostname 10.0.1.11 --user deploy --tags web,prod
+dagu nodes remove web01
+dagu nodes forget osaka-1           # an offline worker
 dagu nodes list 'tags: web'         # matched nodes
 dagu nodes show web01
 dagu nodes test 'tags: web'         # streams results, in 500-node requests
@@ -687,7 +749,8 @@ dagu nodes list 'tags: web' --inventory ./out/nodes.yaml --output json
 ```
 
 Each command works against a remote server like the other remote CLI
-commands, and takes `--project` once RFC 003 ships.
+commands, and takes `--project` once RFC 003 ships. `add` tests the
+connection and asks before it trusts the host key.
 
 `list` and `validate` take `--output json`, which prints nodes with secret
 refs, as the API does, and filter errors with their positions. `list` also
@@ -711,7 +774,8 @@ never decoded into a space.
 | List nodes, preview a filter, view source status | `viewer` |
 | Test connection, refresh sources | `operator` |
 | Read `nodes.yaml` | The role that reads the project's base config |
-| Trust a host key, edit `nodes.yaml` | The role that edits the project's base config |
+| Trust a host key, add, change, remove, or import nodes, forget a worker, edit `nodes.yaml`, restore a version | The role that edits the project's base config |
+| Turn Dagu Cloud sync on or off | `admin` |
 
 Editing `nodes.yaml` can add a `command` source, which runs on the server.
 That is why it takes the same role as editing base config, which can already
@@ -740,6 +804,13 @@ like every other entry.
   can write or run a DAG that targets nodes, in any workspace, reaches every
   node with those credentials. An install that divides access by workspace
   should not add a `nodes.yaml` until its projects exist.
+- Dagu Cloud sync sends hostnames, users, tags, attributes, and secret refs
+  to Dagu Cloud, and nothing else. A server that pulls a version runs its
+  `command` sources, so servers that sync one project trust each other's
+  inventory editors. Host key trust is never synced, so a hostname changed
+  in a pulled version still meets strict checking.
+- The labels a worker sends are its own claim. Tags and attributes set in
+  `nodes.yaml` are the operator's.
 - Attribute values from scripts, URLs, and Ansible are untrusted text. RFC 013
   inserts them into commands only where the author writes `${node.*}`, and
   its Security section covers quoting.
@@ -761,6 +832,9 @@ like every other entry.
 | A filter does not parse, uses a regex construct RE2 lacks, or excludes by an item that does not compile | The API, CLI, and UI report the position and the error |
 | The coordinator is unreachable from a worker | Resolution fails, as secret resolution does |
 | No connected worker matches a test's worker ID or `worker_selector` | The test fails at once, naming them |
+| A worker with a set ID is offline | It is listed as `offline`, and RFC 013 fails an item that targets it |
+| Dagu Cloud is unreachable with sync on | Runs and local edits are unaffected. The change is sent when Dagu Cloud returns, and the Nodes page shows the delay |
+| A pulled version does not validate | It is not applied. The local files stay, and the Nodes page shows the error |
 
 Failing a step that cannot see its whole inventory is safer than running it on
 part of the fleet.
@@ -768,7 +842,9 @@ part of the fleet.
 ## Compatibility and rollout
 
 - Additive. An install without `nodes.yaml` behaves as before.
-- `paths.inventory_dir` is a new setting.
+- `cloud.inventory_sync` is a new setting in RFC 002's `cloud` section, off
+  by default. With it on, Dagu Cloud holds host lists, which RFC 002's
+  reports never send.
 - RFC 003's migration must handle workspace DAGs that target nodes, as
   [Where the inventory lives](#where-the-inventory-lives) says. That work,
   with acceptance item 12, is part of RFC 003 and blocks v3.0.
@@ -781,25 +857,26 @@ Rollout:
 
 1. **Credentials from secrets** for `ssh.run`, `sftp.*`, and DAG-level `ssh`,
    with Spec 042 updated.
-2. **Inventory core**: `nodes.yaml` with `defaults` and `nodes`,
-   `paths.inventory_dir`, the filter
+2. **Inventory core**: `nodes.yaml` with `defaults` and `nodes`, the filter
    language, `GET /nodes`, `GET /node-attributes`,
    `dagu nodes list|show|validate`, with `--output json` and `list
    --inventory`, the reserved system DAG names, and a read-only Nodes page.
-   A new spec
-   defines the file format and the filter language, with conformance tests
-   through `dagu nodes list`.
+   A new spec defines the file format and the filter language, with
+   conformance tests through `dagu nodes list`.
 3. **Sources**: `file`, `command`, and `url`, the three formats, snapshots
    refreshed by the active scheduler, and source status.
-4. **Workers** as nodes, and the `ResolveNodes` RPC with node secret refs,
-   the `node` field on `ResolveSecretReference`, and trusted host keys.
+4. **Workers** as nodes, kept while offline, with assigned and claimed
+   labels told apart, and the `ResolveNodes` RPC with node secret refs, the
+   `node` field on `ResolveSecretReference`, and trusted host keys.
 5. **Host keys**: streamed bulk test connection and trust by fingerprint
    from the server, and the project's trusted host keys by node name.
-6. **Editing**: the `nodes.yaml` editor, refresh, and the MCP targets.
+6. **Editing**: the forms, `dagu nodes add|remove|forget`, the YAML editor,
+   refresh, and the MCP targets.
 7. **Rename** remote nodes to remote servers in the UI and docs.
 8. **Tests from a worker**: the `node-test` run, and the worker origin in the
    UI, API, and `dagu nodes test --worker-selector`, once RFC 013 runs node
    items on workers.
+9. **Dagu Cloud sync**, once Dagu Cloud accepts inventories.
 
 ## Verification and acceptance criteria
 
@@ -832,11 +909,14 @@ checked with RFC 013's first rollout phase.
 12. With RFC 003, migrating a workspace DAG that targets nodes refuses until
     its project has an inventory, and reaches the same nodes with the same
     keys after `--copy-inventory`.
+13. With Dagu Cloud sync on, a rebuilt server gets its inventory back, two
+    servers of one workspace share a project's inventory, and runs keep
+    working while Dagu Cloud is unreachable.
 
 ## Alternatives considered
 
 - **Install a worker on every host.** Works today with worker labels and
-  `worker_selector`, and stays supported through `workers: true`. Rundeck and
+  `worker_selector`, and stays supported, since workers are nodes. Rundeck and
   Ansible users chose agentless SSH, and installing an agent on hundreds of
   hosts is a migration of its own.
 - **Declare nodes in `base.yaml` or in DAG files.** Puts fleet data into the
@@ -845,8 +925,10 @@ checked with RFC 013's first rollout phase.
 - **`nodes.yaml` in the DAG directory, synced with the DAGs.** One review
   path for DAGs and hosts, but every server that syncs the repository would
   get the same hosts, and a staging server would hold production's.
-- **A store managed through the UI**, like remote nodes. Not reviewable in git,
-  and imports would land in a database-like file nobody edits by hand.
+- **A store only the UI can read**, like remote nodes. A file can be read,
+  copied, compared, and imported into, and the forms write it.
+- **Dagu Cloud as the only place the inventory lives.** Nothing to keep on
+  the server, but runs would stop whenever Dagu Cloud is unreachable.
 - **A new selector syntax**, such as Kubernetes label selectors or CEL. Cleaner,
   but every Rundeck filter would need rewriting, and `attr: value` already
   covers labels.
@@ -866,3 +948,4 @@ checked with RFC 013's first rollout phase.
   background work. It is bounded by `refresh`, `timeout`, and the output
   limit.
 - "Node" now means an inventory entry in the UI and docs.
+- With sync on, Dagu Cloud holds host lists for the first time.
