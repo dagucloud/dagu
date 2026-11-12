@@ -266,7 +266,8 @@ func TestClaudeFailureKinds(t *testing.T) {
 // call, or the last file when there are fewer. It exits with the code in the
 // file exit.<n>, or 0. It keeps a copy of the MCP config (mcp.<n>.json, with its
 // mode in mcp.<n>.mode) and a copy of the directory of --add-dir (adddir.<n>),
-// because Dagu deletes them at the end of the attempt. It waits for the file
+// because Dagu deletes them at the end of the attempt. The config appears under its
+// name in one step, with its mode already written. It waits for the file
 // go.<n> when the file wait.<n> exists, and it writes the file stderr.<n> to its
 // stderr.
 const fakeClaude = `#!/bin/sh
@@ -279,8 +280,8 @@ for a in "$@"; do printf '%s\n' "$a" >> "$dir/argv.$n"; done
 previous=""
 for a in "$@"; do
   if [ "$previous" = "--mcp-config" ] && [ -f "$a" ]; then
-    cp "$a" "$dir/mcp.$n.json"
     ls -ln "$a" | cut -c1-10 > "$dir/mcp.$n.mode"
+    cp "$a" "$dir/mcp.$n.part" && mv "$dir/mcp.$n.part" "$dir/mcp.$n.json"
   fi
   if [ "$previous" = "--add-dir" ]; then
     cp -R "$a" "$dir/adddir.$n"
