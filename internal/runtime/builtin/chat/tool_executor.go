@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -235,11 +236,8 @@ func formatArgValue(value any) string {
 	case string:
 		return v
 	case float64:
-		// JSON numbers are float64
-		if v == float64(int64(v)) {
-			return fmt.Sprintf("%d", int64(v))
-		}
-		return fmt.Sprintf("%g", v)
+		// JSON numbers decode as float64 and insert in decimal form.
+		return cmnvalue.FormatScalar(v)
 	case bool:
 		return fmt.Sprintf("%t", v)
 	case nil:

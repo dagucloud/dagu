@@ -174,6 +174,31 @@ func TestParams_AsStringMap(t *testing.T) {
 		assert.Equal(t, "42", m["count"])
 	})
 
+	// Numbers render as base-10 decimal text, never in exponent form, and
+	// integers beyond float64 precision keep every digit.
+	t.Run("RichNumbers", func(t *testing.T) {
+		params := NewRichParams(map[string]any{
+			"big":   json.Number("1234567890123456789"),
+			"exp":   1e21,
+			"small": 0.00001,
+		})
+		m, err := params.AsStringMap()
+		require.NoError(t, err)
+		assert.Equal(t, "1234567890123456789", m["big"])
+		assert.Equal(t, "1000000000000000000000", m["exp"])
+		assert.Equal(t, "0.00001", m["small"])
+	})
+
+	t.Run("RawNumbers", func(t *testing.T) {
+		raw := json.RawMessage(`{"big":1234567890123456789,"exp":1e21,"small":0.00001}`)
+		params := NewRawParams(raw)
+		m, err := params.AsStringMap()
+		require.NoError(t, err)
+		assert.Equal(t, "1234567890123456789", m["big"])
+		assert.Equal(t, "1000000000000000000000", m["exp"])
+		assert.Equal(t, "0.00001", m["small"])
+	})
+
 	t.Run("Empty", func(t *testing.T) {
 		params := Params{}
 		m, err := params.AsStringMap()
