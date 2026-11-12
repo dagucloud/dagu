@@ -29,9 +29,15 @@ const (
 	DefaultMaxWidth = 80
 	// DefaultMaxSubRunDepth is the default nesting limit when expanding sub-DAG runs.
 	DefaultMaxSubRunDepth = 5
-	// maxExpandedSubRuns caps the total number of sub-run trees rendered so runs
-	// with many children cannot produce unbounded output.
-	maxExpandedSubRuns = 100
+	// maxSubRunLookups caps the sub-run status lookups of one render, so the
+	// cost stays bounded however many sub-runs a run has.
+	maxSubRunLookups = 1000
+	// maxExpandedFailedSubRuns caps the failed sub-run trees rendered. Failed
+	// sub-runs have their own budget so that succeeded ones cannot use it up.
+	maxExpandedFailedSubRuns = 20
+	// maxExpandedSubRuns caps the sub-run trees rendered for sub-runs that did
+	// not fail.
+	maxExpandedSubRuns = 30
 )
 
 // SubRunResolver loads the status of a sub-DAG run for tree expansion.
@@ -62,8 +68,21 @@ func DefaultConfig() Config {
 
 // Renderer renders DAG execution status as a tree structure.
 type Renderer struct {
-	config          Config
-	expandedSubRuns int
+	config  Config
+	subRuns subRunExpansion
+}
+
+// subRunExpansion tracks sub-run expansion within one render.
+type subRunExpansion struct {
+	lookups        int // Status lookups made.
+	failedExpanded int // Failed sub-runs rendered as a tree.
+	otherExpanded  int // Other sub-runs rendered as a tree.
+
+	// Sub-runs left as a reference line, by reason.
+	failedSkipped int // Failed, over maxExpandedFailedSubRuns.
+	otherSkipped  int // Not failed, over maxExpandedSubRuns.
+	unresolved    int // Status could not be loaded.
+	tooDeep       int // Nested below MaxSubRunDepth.
 }
 
 // text applies a soft light blue color (ANSI 256 color 110) for visual distinction.
@@ -105,7 +124,7 @@ func NewRenderer(config Config) *Renderer {
 
 // RenderDAGStatus renders the complete DAG status as a tree structure.
 func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *ir.DAGRunStatus) string {
-	r.expandedSubRuns = 0
+	r.subRuns = subRunExpansion{}
 	var buf strings.Builder
 
 	buf.WriteString(r.renderHeader(status))
@@ -127,6 +146,7 @@ func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *ir.DAGRunStatus) string 
 		buf.WriteString(r.renderStep(node, i == len(nodes)-1, "", 0))
 	}
 
+	buf.WriteString(r.renderSubRunNotice(status))
 	buf.WriteString(r.renderFinalStatus(status))
 
 	return buf.String()
@@ -583,10 +603,15 @@ func (r *Renderer) writeContentLine(buf *strings.Builder, line string, contPrefi
 }
 
 // renderSubRuns renders references to sub-DAG runs. When a SubRunResolver is
-// configured, each resolved run's steps render as a nested tree under its
-// subdag line, bounded by MaxSubRunDepth and maxExpandedSubRuns.
+// configured, a resolved run's line also names the sub-DAG and its status, and
+// its steps render as a nested tree under that line. Failed sub-runs are
+// expanded ahead of the others; sub-runs over a limit keep the reference line
+// and are reported by renderSubRunNotice.
 func (r *Renderer) renderSubRuns(subRuns []ir.SubDAGRun, isLastSection bool, prefix string, depth int) string {
 	var buf strings.Builder
+
+	statuses := r.resolveSubRuns(subRuns, depth)
+	expand := r.chooseSubRunsToExpand(statuses)
 
 	for i, sub := range subRuns {
 		isLastItem := i == len(subRuns)-1 && isLastSection
@@ -594,15 +619,16 @@ func (r *Renderer) renderSubRuns(subRuns []ir.SubDAGRun, isLastSection bool, pre
 		if sub.Params != "" {
 			subInfo += fmt.Sprintf(" [%s]", sub.Params)
 		}
+		if status := statuses[i]; status != nil {
+			subInfo += " " + subRunStatusSuffix(sub, status)
+		}
 		buf.WriteString(prefix + branchChar(isLastItem) + r.text(subInfo) + "\n")
 
-		status := r.resolveSubRun(sub, depth)
-		if status == nil {
+		if !expand[i] {
 			continue
 		}
-		r.expandedSubRuns++
 		subPrefix := childPrefix(prefix, isLastItem)
-		nodes := status.NodesInRunOrder()
+		nodes := statuses[i].NodesInRunOrder()
 		for j, subNode := range nodes {
 			buf.WriteString(r.renderStep(subNode, j == len(nodes)-1, subPrefix, depth+1))
 		}
@@ -611,20 +637,107 @@ func (r *Renderer) renderSubRuns(subRuns []ir.SubDAGRun, isLastSection bool, pre
 	return buf.String()
 }
 
-// resolveSubRun loads a sub-run's status, honoring the depth and expansion
-// limits. It returns nil when expansion is disabled, capped, or the status
-// cannot be loaded.
-func (r *Renderer) resolveSubRun(sub ir.SubDAGRun, depth int) *ir.DAGRunStatus {
-	if r.config.SubRunResolver == nil ||
-		depth+1 > r.config.MaxSubRunDepth ||
-		r.expandedSubRuns >= maxExpandedSubRuns {
-		return nil
+// resolveSubRuns loads the status of each sub-run, honoring the depth and
+// lookup limits. An entry is nil when expansion is disabled or the status was
+// not loaded.
+func (r *Renderer) resolveSubRuns(subRuns []ir.SubDAGRun, depth int) []*ir.DAGRunStatus {
+	statuses := make([]*ir.DAGRunStatus, len(subRuns))
+	if r.config.SubRunResolver == nil || r.config.MaxSubRunDepth <= 0 {
+		return statuses
 	}
-	status, err := r.config.SubRunResolver(sub)
-	if err != nil || status == nil {
-		return nil
+	if depth+1 > r.config.MaxSubRunDepth {
+		r.subRuns.tooDeep += len(subRuns)
+		return statuses
 	}
-	return status
+	for i, sub := range subRuns {
+		if r.subRuns.lookups >= maxSubRunLookups {
+			r.subRuns.unresolved += len(subRuns) - i
+			break
+		}
+		r.subRuns.lookups++
+		status, err := r.config.SubRunResolver(sub)
+		if err != nil || status == nil {
+			r.subRuns.unresolved++
+			continue
+		}
+		statuses[i] = status
+	}
+	return statuses
+}
+
+// chooseSubRunsToExpand reports which resolved sub-runs render as a tree.
+// Failed and other sub-runs draw on separate budgets.
+func (r *Renderer) chooseSubRunsToExpand(statuses []*ir.DAGRunStatus) []bool {
+	expand := make([]bool, len(statuses))
+	for i, status := range statuses {
+		switch {
+		case status == nil:
+		case subRunFailed(status.Status):
+			if r.subRuns.failedExpanded < maxExpandedFailedSubRuns {
+				r.subRuns.failedExpanded++
+				expand[i] = true
+			} else {
+				r.subRuns.failedSkipped++
+			}
+		default:
+			if r.subRuns.otherExpanded < maxExpandedSubRuns {
+				r.subRuns.otherExpanded++
+				expand[i] = true
+			} else {
+				r.subRuns.otherSkipped++
+			}
+		}
+	}
+	return expand
+}
+
+// subRunFailed reports whether a sub-run ended with a failure worth showing
+// first.
+func subRunFailed(status ir.Status) bool {
+	return status == ir.Failed || status == ir.Aborted || status == ir.Rejected || status == ir.PartiallySucceeded
+}
+
+// subRunStatusSuffix returns the "(name: status)" suffix of a resolved
+// sub-run's reference line.
+func subRunStatusSuffix(sub ir.SubDAGRun, status *ir.DAGRunStatus) string {
+	name := status.Name
+	if name == "" {
+		name = sub.DAGName
+	}
+	if name == "" {
+		return fmt.Sprintf("(%s)", status.Status)
+	}
+	return fmt.Sprintf("(%s: %s)", name, status.Status)
+}
+
+// renderSubRunNotice reports the sub-runs that were not expanded and how to
+// inspect one. It returns an empty string when every sub-run was expanded.
+func (r *Renderer) renderSubRunNotice(status *ir.DAGRunStatus) string {
+	var parts []string
+	add := func(count int, format string, args ...any) {
+		if count > 0 {
+			parts = append(parts, fmt.Sprintf("%d ", count)+fmt.Sprintf(format, args...))
+		}
+	}
+	add(r.subRuns.failedSkipped, "failed")
+	add(r.subRuns.otherSkipped, "not failed")
+	add(r.subRuns.unresolved, "not loaded")
+	add(r.subRuns.tooDeep, "below depth %d", r.config.MaxSubRunDepth)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	name, runID := status.Name, status.DAGRunID
+	if name == "" {
+		name = "<dag>"
+	}
+	if runID == "" {
+		runID = "<run-id>"
+	}
+	return fmt.Sprintf(
+		"\nSub-runs not expanded: %s\nInspect one: dagu status %s --run-id %s --sub-run-id <sub-run-id>\n",
+		strings.Join(parts, ", "), name, runID,
+	)
 }
 
 // renderError renders an error message with wrapping.
