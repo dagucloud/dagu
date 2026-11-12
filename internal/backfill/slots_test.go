@@ -194,7 +194,10 @@ func TestSlotStates(t *testing.T) {
 				Runs:   tc.runs,
 			})
 			require.Len(t, states, 1)
-			assert.Equal(t, want, states[0])
+			got := states[0]
+			assert.Equal(t, got.RunID != "", !got.RecordedAt.IsZero(), "a slot with a run knows when it was recorded")
+			got.RecordedAt = time.Time{}
+			assert.Equal(t, want, got)
 		})
 	}
 }

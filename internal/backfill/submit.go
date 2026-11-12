@@ -56,14 +56,14 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 	}
 	defer unlock()
 
-	records, err := s.Store.List(ctx, req.Plan.DAG.Name)
+	records, err := s.Store.Open(ctx)
 	if err != nil {
 		return SubmitResult{}, err
 	}
 	pending := make(map[time.Time]bool)
 	var existing *Record
 	for _, record := range records {
-		if !record.Open() {
+		if record.DAGName != req.Plan.DAG.Name {
 			continue
 		}
 		if existing == nil && record.Options.Equal(req.Options) {

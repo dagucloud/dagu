@@ -81,3 +81,41 @@ func TestStoreLockDAGSerializes(t *testing.T) {
 	wg.Wait()
 	assert.Zero(t, overlaps.Load())
 }
+
+func TestStoreProgressAndEnd(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := filebackfill.New(t.TempDir())
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.ErrorIs(t, store.Append(ctx, "missing1", backfill.Progress{}), backfill.ErrNotFound)
+
+	slot := time.Date(2026, 10, 1, 2, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Append(ctx, "aaaaaaaa", backfill.Progress{Slot: slot, Kind: backfill.ProgressEnqueued, RunID: "r1", At: now}))
+	require.NoError(t, store.Append(ctx, "aaaaaaaa",
+		backfill.Progress{Slot: slot.AddDate(0, 0, 1), Kind: backfill.ProgressSkipped, At: now},
+		backfill.Progress{Slot: slot.AddDate(0, 0, 2), Kind: backfill.ProgressNotRun, At: now},
+	))
+	events, err := store.Progress(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	require.Len(t, events, 3)
+	assert.Equal(t, backfill.ProgressEnqueued, events[0].Kind)
+	assert.Equal(t, "r1", events[0].RunID)
+	assert.Equal(t, backfill.ProgressNotRun, events[2].Kind)
+
+	open, err := store.Open(ctx)
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+
+	require.NoError(t, store.End(ctx, "aaaaaaaa", backfill.StatusFailed, now.Add(time.Hour)))
+	open, err = store.Open(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, open, "an ended backfill is not open")
+	ended, err := store.Get(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	assert.False(t, ended.Open())
+	assert.Equal(t, backfill.StatusFailed, ended.Status)
+	records, err := store.List(ctx, "etl")
+	require.NoError(t, err)
+	assert.Len(t, records, 1, "progress files are not records")
+}

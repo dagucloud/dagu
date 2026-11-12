@@ -73,8 +73,47 @@ type Record struct {
 	// window it owns.
 	Slots    []RecordSlot `json:"slots"`
 	Revision string       `json:"revision"`
+	// Generation counts the resumes of the backfill. Each gives its slots
+	// new runs.
+	Generation int `json:"generation,omitempty"`
+	// Status is how the backfill ended; empty while it is open.
+	Status Status `json:"status,omitempty"`
 	// EndedAt is set when the backfill has ended.
 	EndedAt time.Time `json:"endedAt,omitzero"`
+}
+
+// Status is how a backfill ended.
+type Status string
+
+const (
+	// StatusSucceeded is a backfill whose every slot succeeded or was
+	// skipped at its turn.
+	StatusSucceeded Status = "succeeded"
+	// StatusFailed is a backfill with a slot that did not succeed.
+	StatusFailed Status = "failed"
+	// StatusCancelled is a backfill an operator cancelled.
+	StatusCancelled Status = "cancelled"
+)
+
+// ProgressKind is what happened to a slot of a backfill.
+type ProgressKind string
+
+const (
+	// ProgressEnqueued records that the slot's run was queued.
+	ProgressEnqueued ProgressKind = "enqueued"
+	// ProgressSkipped records that the slot gained a run after planning
+	// that --rerun skips, so the backfill ran nothing for it.
+	ProgressSkipped ProgressKind = "skipped"
+	// ProgressNotRun records that the backfill stopped before the slot.
+	ProgressNotRun ProgressKind = "not_run"
+)
+
+// Progress is one event of a backfill's slots.
+type Progress struct {
+	Slot  time.Time    `json:"slot"`
+	Kind  ProgressKind `json:"kind"`
+	RunID string       `json:"runId,omitempty"`
+	At    time.Time    `json:"at"`
 }
 
 // RecordSlot is one slot a backfill runs.
@@ -98,9 +137,18 @@ type Store interface {
 	// List returns the records of a DAG, or of every DAG when dagName is
 	// empty, oldest first.
 	List(ctx context.Context, dagName string) ([]*Record, error)
+	// Open returns the records of every open backfill, oldest first, without
+	// reading those that ended.
+	Open(ctx context.Context) ([]*Record, error)
 	// LockDAG holds a lock that serializes submits for a DAG across
 	// processes until unlock is called.
 	LockDAG(ctx context.Context, dagName string) (unlock func(), err error)
+	// Append adds progress events to a backfill.
+	Append(ctx context.Context, id string, events ...Progress) error
+	// Progress returns a backfill's progress events in the order appended.
+	Progress(ctx context.Context, id string) ([]Progress, error)
+	// End records how a backfill ended.
+	End(ctx context.Context, id string, status Status, at time.Time) error
 }
 
 var (

@@ -35,6 +35,8 @@ type Slot struct {
 	// RunID names the run the status comes from. It is empty for a missing
 	// slot and for one the scheduler skipped.
 	RunID string
+	// RecordedAt is when that run was first recorded in the slot index.
+	RecordedAt time.Time
 	// CoveredAt is the scheduled time of that run when it fired under an
 	// earlier schedule of the same cadence, or zero.
 	CoveredAt time.Time
@@ -115,7 +117,7 @@ func SlotStates(slots []time.Time, sched SlotSchedule, history History) []Slot {
 		state := Slot{At: at}
 		counted := bySlot[key]
 		if latest := latestRun(counted); latest != nil {
-			state.RunID = latest.id
+			state.RunID, state.RecordedAt = latest.id, latest.recordedAt
 			state.Status = SlotFailed
 			if latest.status.IsSuccess() {
 				state.Status = SlotSucceeded
@@ -125,7 +127,7 @@ func SlotStates(slots []time.Time, sched SlotSchedule, history History) []Slot {
 			}
 			if active := slices.IndexFunc(counted, func(r *slotRun) bool { return r.status.IsActive() }); active >= 0 {
 				state.Status = SlotActive
-				state.RunID = counted[active].id
+				state.RunID, state.RecordedAt = counted[active].id, counted[active].recordedAt
 				state.CoveredAt = time.Time{}
 			}
 		} else if skippedSucceeded[key] {

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -95,6 +96,8 @@ type Scheduler struct {
 	retryScanner        *RetryScanner // DAG-level retry scanner
 	planner             *TickPlanner  // Unified scheduling decision module
 	restartScanner      *RestartScanner
+	pauseStore          schedulerstate.PauseStore
+	backfills           *backfill.Dispatcher
 	stopOnce            sync.Once
 	lock                sync.Mutex
 	lifecycleMu         sync.Mutex
@@ -115,17 +118,19 @@ type schedulerHooks struct {
 
 // Dependencies contains the stores and services used by Scheduler.
 type Dependencies struct {
-	EntryReader          EntryReader
-	DAGRunManager        runtime.Manager
-	DAGRepository        *persis.DAGRepository
-	DAGRunRepository     *persis.DAGRunRepository
-	QueueStore           queuedomain.QueueStore
-	ProcRepository       *persis.ProcRepository
-	ServiceRegistry      serviceregistry.ServiceRegistry
-	CoordinatorClient    dispatch.Dispatcher
-	SchedulerStateStore  schedulerstate.Store
-	SchedulerPauseStore  schedulerstate.PauseStore
-	RestartBackoffStore  schedulerstate.RestartBackoffStore
+	EntryReader         EntryReader
+	DAGRunManager       runtime.Manager
+	DAGRepository       *persis.DAGRepository
+	DAGRunRepository    *persis.DAGRunRepository
+	QueueStore          queuedomain.QueueStore
+	ProcRepository      *persis.ProcRepository
+	ServiceRegistry     serviceregistry.ServiceRegistry
+	CoordinatorClient   dispatch.Dispatcher
+	SchedulerStateStore schedulerstate.Store
+	SchedulerPauseStore schedulerstate.PauseStore
+	RestartBackoffStore schedulerstate.RestartBackoffStore
+	// BackfillStore holds the backfills the scheduler runs. Nil runs none.
+	BackfillStore        backfill.Store
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
 	DispatchTaskStore    dispatch.DispatchTaskStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
@@ -190,6 +195,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	}
 	scheduler.eventCollector = deps.EventCollector
 	scheduler.restartScanner.cfg.BackoffStore = deps.RestartBackoffStore
+	scheduler.backfills = scheduler.newBackfillDispatcher(deps.BackfillStore)
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
@@ -455,6 +461,7 @@ func newScheduler(
 		planner:          planner,
 		clock:            defaultClock,
 		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
+		pauseStore:       pauseStore,
 	}
 	s.folderWatcher = newFolderWatcher(folderWatcherConfig{
 		Entries:     er.Entries,
@@ -806,6 +813,10 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 
 	wg.Go(func() {
 		s.startRestartScanner(ctx)
+	})
+
+	wg.Go(func() {
+		s.startBackfillDispatcher(ctx)
 	})
 
 	wg.Go(func() {

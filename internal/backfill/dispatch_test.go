@@ -1,0 +1,244 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package backfill_test
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/backfill"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
+	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// dispatchFixture runs a dispatcher whose queue is the test: queued runs
+// stay queued until finish settles them.
+type dispatchFixture struct {
+	t          *testing.T
+	ctx        context.Context
+	repository *persis.DAGRunRepository
+	store      *filebackfill.Store
+	dispatcher *backfill.Dispatcher
+	service    *backfill.Service
+	dag        *ir.DAG
+	sched      backfill.SlotSchedule
+	queued     []string
+}
+
+func newDispatchFixture(t *testing.T) *dispatchFixture {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	f := &dispatchFixture{t: t, ctx: ctx}
+	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
+		SlotIndex: slotindex.New(filepath.Join(dir, "slot-index")),
+		Location:  time.UTC,
+	})
+	dag, err := spec.LoadYAML(ctx, []byte("name: etl\nschedule: \"0 2 * * *\"\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	f.dag = dag
+	f.sched = backfill.SlotSchedule{Schedules: dag.Schedule, Location: time.UTC}
+	f.store = filebackfill.New(filepath.Join(dir, "backfills"))
+	now := func() time.Time { return at(20, 0) }
+	f.service = &backfill.Service{Store: f.store, History: f.repository, Now: now}
+	f.dispatcher = &backfill.Dispatcher{
+		Store:   f.store,
+		History: f.repository,
+		ReadRun: func(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+			attempt, err := f.repository.FindAttempt(ctx, ref)
+			if err != nil {
+				return nil, err
+			}
+			return attempt.ReadStatus(ctx)
+		},
+		Target: func(context.Context, *backfill.Record) (backfill.Target, error) {
+			return backfill.Target{DAG: f.dag, Schedule: f.sched}, nil
+		},
+		Enqueue: func(_ context.Context, record *backfill.Record, _ backfill.Target, slot backfill.RecordSlot, runID string) error {
+			if err := f.write(runID, slot.At, ir.Queued, ir.TriggerTypeBackfill, record.ID); err != nil {
+				return err
+			}
+			f.queued = append(f.queued, runID)
+			return nil
+		},
+		Now: now,
+	}
+	return f
+}
+
+func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, trigger ir.TriggerType, backfillID string) error {
+	attempt, err := f.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	if err != nil {
+		return err
+	}
+	if err := attempt.Open(f.ctx); err != nil {
+		return err
+	}
+	if err := attempt.Write(f.ctx, ir.DAGRunStatus{
+		Name: f.dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: status,
+		ScheduleTime: slot.Format(time.RFC3339), TriggerType: trigger, BackfillID: backfillID,
+		StartedAt: "2026-11-01T00:00:00Z",
+	}); err != nil {
+		return err
+	}
+	return attempt.Close(f.ctx)
+}
+
+// finish settles a queued run as the queue would.
+func (f *dispatchFixture) finish(runID string, status ir.Status) {
+	f.t.Helper()
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	require.NoError(f.t, err)
+	current, err := attempt.ReadStatusUncached(f.ctx)
+	require.NoError(f.t, err)
+	require.NoError(f.t, attempt.Open(f.ctx))
+	current.Status = status
+	require.NoError(f.t, attempt.Write(f.ctx, *current))
+	require.NoError(f.t, attempt.Close(f.ctx))
+}
+
+func (f *dispatchFixture) submit(options backfill.Options) *backfill.Record {
+	f.t.Helper()
+	if options.MaxConcurrency == 0 {
+		options.MaxConcurrency = 1
+	}
+	if options.OnFailure == "" {
+		options.OnFailure = backfill.OnFailureStop
+	}
+	options.From, options.To, options.Rerun = at(1, 0), at(3, 23), backfill.RerunNone
+	result, err := f.service.Submit(f.ctx, backfill.SubmitRequest{
+		Plan:    backfill.PlanRequest{DAG: f.dag, Schedule: f.sched, From: options.From, To: options.To, Rerun: options.Rerun},
+		Options: options,
+	})
+	require.NoError(f.t, err)
+	require.NotNil(f.t, result.Record)
+	return result.Record
+}
+
+func (f *dispatchFixture) tick() {
+	f.t.Helper()
+	require.NoError(f.t, f.dispatcher.Tick(f.ctx))
+}
+
+func (f *dispatchFixture) record(id string) *backfill.Record {
+	f.t.Helper()
+	record, err := f.store.Get(f.ctx, id)
+	require.NoError(f.t, err)
+	return record
+}
+
+// With a concurrency of one, each slot is queued only after the one before
+// it finishes, and the backfill succeeds after the last.
+func TestDispatchRunsSlotsInOrder(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+
+	for i, slot := range []time.Time{at(1, 2), at(2, 2), at(3, 2)} {
+		f.tick()
+		f.tick()
+		require.Len(t, f.queued, i+1, "one run at a time")
+		assert.Equal(t, backfill.RunID(record, slot), f.queued[i])
+		f.finish(f.queued[i], ir.Succeeded)
+	}
+	assert.True(t, f.record(record.ID).Open(), "the last run has just finished")
+	f.tick()
+	assert.Equal(t, backfill.StatusSucceeded, f.record(record.ID).Status)
+}
+
+func TestDispatchHonorsConcurrency(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	f.submit(backfill.Options{MaxConcurrency: 2})
+
+	f.tick()
+	require.Len(t, f.queued, 2)
+	f.finish(f.queued[0], ir.Succeeded)
+	f.tick()
+	assert.Len(t, f.queued, 3)
+}
+
+// A failed slot stops the backfill by default: the slots it did not reach
+// are not run.
+func TestDispatchStopsOnFailure(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+
+	assert.Len(t, f.queued, 1)
+	assert.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+	progress, err := f.store.Progress(f.ctx, record.ID)
+	require.NoError(t, err)
+	var notRun int
+	for _, event := range progress {
+		if event.Kind == backfill.ProgressNotRun {
+			notRun++
+		}
+	}
+	assert.Equal(t, 2, notRun)
+}
+
+func TestDispatchContinuesOnFailure(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{OnFailure: backfill.OnFailureContinue})
+
+	for range 3 {
+		f.tick()
+		f.finish(f.queued[len(f.queued)-1], ir.Failed)
+	}
+	f.tick()
+	assert.Len(t, f.queued, 3)
+	assert.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+}
+
+// A slot that gained a successful run after planning is skipped at its turn.
+func TestDispatchSkipsSlotThatGainedARun(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	require.NoError(t, f.write("manual", at(2, 2), ir.Succeeded, ir.TriggerTypeManual, ""))
+
+	f.tick()
+	f.finish(f.queued[0], ir.Succeeded)
+	f.tick()
+
+	require.Len(t, f.queued, 2)
+	assert.Equal(t, backfill.RunID(record, at(3, 2)), f.queued[1], "the slot that gained a run is skipped")
+}
+
+// A run queued just before a crash is found again instead of queued twice.
+func TestDispatchFindsARunQueuedBeforeACrash(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	require.NoError(t, f.write(backfill.RunID(record, at(1, 2)), at(1, 2), ir.Queued, ir.TriggerTypeBackfill, record.ID))
+	enqueue := f.dispatcher.Enqueue
+	f.dispatcher.Enqueue = func(ctx context.Context, r *backfill.Record, target backfill.Target, slot backfill.RecordSlot, runID string) error {
+		if runID == backfill.RunID(record, at(1, 2)) {
+			return errors.Join(errors.New("create attempt"), dagrun.ErrDAGRunAlreadyExists)
+		}
+		return enqueue(ctx, r, target, slot, runID)
+	}
+
+	f.tick()
+	assert.Empty(t, f.queued, "the run found counts as active")
+	f.finish(backfill.RunID(record, at(1, 2)), ir.Succeeded)
+	f.tick()
+	assert.Equal(t, []string{backfill.RunID(record, at(2, 2))}, f.queued)
+}
