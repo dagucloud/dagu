@@ -171,6 +171,25 @@ func TestSlotIndexKeepsFinalStatusThroughRetention(t *testing.T) {
 	assert.Equal(t, ir.Succeeded, events[1].Status)
 }
 
+// A run cancelled while queued never ran its slot, so retention drops it
+// rather than keep its status.
+func TestSlotIndexDropsNeverStartedRunOnRetention(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newSlotFixture(t)
+	f.writeRun(t, "run-1", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Queued, slotOct1, ir.TriggerTypeScheduler),
+		scheduledStatus(ir.Aborted, slotOct1, ir.TriggerTypeScheduler))
+
+	cutoff := time.Now().Add(time.Hour)
+	_, err := f.repository.RemoveOldDAGRuns(ctx, f.dag.Name, 0, persis.DAGRunRetentionOptions{OlderThan: &cutoff})
+	require.NoError(t, err)
+
+	events := f.events(t)
+	require.Len(t, events, 2)
+	assert.Equal(t, persis.SlotEventDropped, events[1].Kind)
+}
+
 func TestSlotIndexDropsRunsAnOperatorDeletes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

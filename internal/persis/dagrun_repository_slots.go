@@ -188,7 +188,8 @@ type slotRecorder struct {
 
 // recordSlotRemoval records, before a run is removed, what the removal means
 // for its slot: retention keeps the run's final status, and an operator's
-// delete drops the run. The event is written first so a removal never loses
+// delete drops the run. A run that never started is dropped either way, as
+// it counts for no slot. The event is written first so a removal never loses
 // it; a removal that then fails leaves the run, whose own status supersedes
 // the event. An error means the run must not be removed.
 func (r *DAGRunRepository) recordSlotRemoval(ctx context.Context, ref ir.DAGRunRef, drop, rejectActive bool) error {
@@ -214,7 +215,7 @@ func (r *DAGRunRepository) recordSlotRemoval(ctx context.Context, ref ir.DAGRunR
 		RunID:       status.DAGRunID,
 		TriggerType: status.TriggerType,
 	}
-	if !drop {
+	if !drop && !status.NeverStarted() {
 		event.Kind = SlotEventFinal
 		event.Status = status.Status
 	}
