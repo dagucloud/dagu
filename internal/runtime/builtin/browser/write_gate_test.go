@@ -627,6 +627,21 @@ func TestAskSettlesDownloadsBeforeItWaits(t *testing.T) {
 	assert.Equal(t, []string{"goto:completed", "act:completed", "download:completed", "write_gate:waiting"}, eventNames(waiting.exec.GetAgentSession()))
 }
 
+// Where the browser cannot outlive the step process, write_gate ask fails
+// before starting a browser, and the error names the alternative: signing
+// the profile in once in a headed browser session.
+func TestWriteGateAskFailsBeforeLaunchWithoutAskSupport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.noAsk = true
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "ask", "profile": "books"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
+	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open https://books.example.com/deals --headed --profile books`)
+	assert.Empty(t, run.launcher.launches)
+}
+
 // A write the gate kept back decides the step before the page it left does:
 // a rehearsal that stops at a write sent on a refused page partially
 // succeeds and keeps its commit point, whether an operation follows or not.

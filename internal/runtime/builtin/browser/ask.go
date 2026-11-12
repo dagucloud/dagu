@@ -4,6 +4,7 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +18,41 @@ import (
 )
 
 const askQuestionHeader = "Browser input"
+
+// What a step waits for a person on, as askUnsupported names it.
+const (
+	askOperations = "ask operations are"
+	writeGateAsk  = "write_gate ask is"
+)
+
+// hasUnguardedAsk reports whether an ask operation certainly runs: one
+// without a when. A when-guarded ask may be skipped.
+func (r *run) hasUnguardedAsk() bool {
+	for _, op := range r.cfg.Do {
+		if op.Ask != nil && op.When == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// askUnsupported explains that what, askOperations or writeGateAsk, cannot
+// run where the browser cannot outlive the step process, as on Windows,
+// and names the alternative: signing the profile in once in a headed
+// browser session. The URL it names may hold a secret, so the message is
+// masked.
+func (r *run) askUnsupported(what string) error {
+	url := r.cfg.URL
+	for _, op := range r.cfg.Do {
+		if url != "" {
+			break
+		}
+		url = op.Goto
+	}
+	message := fmt.Sprintf("%s not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open %s --headed --profile %s",
+		what, cmp.Or(url, "<url>"), cmp.Or(r.cfg.Browser.Profile, "<name>"))
+	return errors.New(r.masker.MaskString(message))
+}
 
 // waitForInput leaves the browser running, records where to resume, and
 // puts the step into Waiting until a person answers.

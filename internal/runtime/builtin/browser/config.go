@@ -4,7 +4,6 @@
 package browser
 
 import (
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -349,32 +348,6 @@ func (c config) dismissesConfirm() bool {
 func (c config) capturesFinalScreenshot() bool {
 	policy := c.screenshotPolicy()
 	return policy == screenshotsFinal || policy == screenshotsEach
-}
-
-// hasUnguardedAsk reports whether an ask operation certainly runs: one
-// without a when. A when-guarded ask may be skipped.
-func (c config) hasUnguardedAsk() bool {
-	for _, op := range c.Do {
-		if op.Ask != nil && op.When == nil {
-			return true
-		}
-	}
-	return false
-}
-
-// askUnsupportedError explains that an ask cannot run where the browser
-// cannot outlive the step process, as on Windows, and names the
-// alternative: signing the profile in once in a headed browser session.
-func (c config) askUnsupportedError() error {
-	url := c.URL
-	for _, op := range c.Do {
-		if url != "" {
-			break
-		}
-		url = op.Goto
-	}
-	return fmt.Errorf("ask operations are not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open %s --headed --profile %s",
-		cmp.Or(url, "<url>"), cmp.Or(c.Browser.Profile, "<name>"))
 }
 
 func parseConfig(raw map[string]any) (config, error) {
