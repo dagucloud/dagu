@@ -352,6 +352,8 @@ dagu config
 
 ## Server & Scheduling
 
+To operate a running server (MCP, REST, remote contexts), see `server-operations.md`.
+
 ### dagu start-all
 
 Start server + scheduler + optionally coordinator in one process. Coordinator enabled by default (disable with `DAGU_COORDINATOR_ENABLED=false`).
