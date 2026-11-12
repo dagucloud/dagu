@@ -167,6 +167,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A queued or running backfill run does not make the scheduler skip a live
   slot because the DAG is queued or running, and does not count for
   `skip_if_successful`. The live slot's run is queued instead.
+- Catchup skips a slot whose latest backfill run is active or succeeded.
+  A manual run does not keep catchup off a slot.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs

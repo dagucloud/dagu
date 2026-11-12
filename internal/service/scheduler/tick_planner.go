@@ -79,6 +79,10 @@ type HasGlobalQueueFunc func(dag *ir.DAG) bool
 // RunExistsFunc checks whether a durable dag-run record already exists.
 type RunExistsFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
 
+// BackfillHoldsFunc reports whether a backfill holds a slot: its latest
+// backfill run is active or succeeded.
+type BackfillHoldsFunc func(ctx context.Context, dag *ir.DAG, slot time.Time) (bool, error)
+
 // RecordSkippedSlotFunc records that a schedule slot was not run, and why.
 type RecordSkippedSlotFunc func(ctx context.Context, dagName string, slot time.Time, schedule, reason string) error
 
@@ -112,6 +116,9 @@ type TickPlannerConfig struct {
 	// RecordSkippedSlot records a slot the planner declined to run. Nil
 	// records nothing.
 	RecordSkippedSlot RecordSkippedSlotFunc
+	// BackfillHolds keeps catchup off a slot a backfill holds. Nil holds
+	// none.
+	BackfillHolds BackfillHoldsFunc
 	// RecoveryWindow returns how far back startup replays slots missed while
 	// the lock passed from a failed scheduler, or 0 after a normal start.
 	RecoveryWindow func() time.Duration
@@ -1918,6 +1925,23 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 					return
 				}
 				if exists {
+					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+					tp.recordStartSlot(run, schedulerstate.SlotDone)
+					return
+				}
+			}
+			if tp.cfg.BackfillHolds != nil {
+				held, heldErr := tp.cfg.BackfillHolds(ctx, run.DAG, run.ScheduledTime)
+				if heldErr != nil {
+					logger.Error(ctx, "Failed to check whether a backfill holds the catchup slot",
+						tag.DAG(run.DAG.Name),
+						tag.ScheduledTime(run.ScheduledTime),
+						tag.Error(heldErr),
+					)
+					tp.reinsertCatchupItem(ctx, run)
+					return
+				}
+				if held {
 					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
 					tp.recordStartSlot(run, schedulerstate.SlotDone)
 					return

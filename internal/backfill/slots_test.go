@@ -209,3 +209,26 @@ func TestHistoryRange(t *testing.T) {
 	assert.Equal(t, at(4, 2), from)
 	assert.Equal(t, at(8, 2), to)
 }
+
+// Catchup leaves a slot to a backfill whose latest run of it is active or
+// succeeded. A manual run does not hold the slot.
+func TestHeldByBackfill(t *testing.T) {
+	t.Parallel()
+
+	slot := at(5, 2)
+	sched := dailyAt(t, "0 2 * * *")
+	backfillRun := func(status ir.Status) backfill.History {
+		return backfill.History{
+			Events: (&eventLog{}).run("b", slot, ir.TriggerTypeBackfill, "0 2 * * *").events,
+			Runs:   live(started("b", status)),
+		}
+	}
+	assert.True(t, backfill.HeldByBackfill(slot, sched, backfillRun(ir.Succeeded)))
+	assert.True(t, backfill.HeldByBackfill(slot, sched, backfillRun(ir.Queued)))
+	assert.False(t, backfill.HeldByBackfill(slot, sched, backfillRun(ir.Failed)))
+	manual := backfill.History{
+		Events: (&eventLog{}).run("m", slot, ir.TriggerTypeManual, "0 2 * * *").events,
+		Runs:   live(started("m", ir.Succeeded)),
+	}
+	assert.False(t, backfill.HeldByBackfill(slot, sched, manual))
+}

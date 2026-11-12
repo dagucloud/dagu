@@ -292,3 +292,22 @@ func LoadHistory(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched S
 	}
 	return history, nil
 }
+
+// HeldByBackfill reports whether a slot's latest backfill run is active or
+// succeeded, which leaves the slot to the backfill rather than to catchup.
+func HeldByBackfill(slot time.Time, sched SlotSchedule, history History) bool {
+	backfillRuns := make(map[string]bool)
+	for _, event := range history.Events {
+		if event.TriggerType == ir.TriggerTypeBackfill {
+			backfillRuns[event.RunID] = true
+		}
+	}
+	filtered := History{Runs: history.Runs}
+	for _, event := range history.Events {
+		if backfillRuns[event.RunID] {
+			filtered.Events = append(filtered.Events, event)
+		}
+	}
+	state := SlotStates([]time.Time{slot}, sched, filtered)[0]
+	return state.RunID != "" && (state.Status == SlotActive || state.Status == SlotSucceeded)
+}

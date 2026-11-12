@@ -372,6 +372,14 @@ func newScheduler(
 		IsQueued:          isQueued,
 		RunExists:         runExists,
 		RecordSkippedSlot: dagRunRepository.RecordSkippedSlot,
+		BackfillHolds: func(ctx context.Context, dag *ir.DAG, slot time.Time) (bool, error) {
+			sched := backfill.SlotSchedule{Schedules: dag.Schedule, Location: timeLoc}
+			history, err := backfill.LoadHistory(ctx, dagRunRepository, dag, sched, slot, slot)
+			if err != nil {
+				return false, err
+			}
+			return backfill.HeldByBackfill(slot, sched, history), nil
+		},
 		RecoveryWindow: func() time.Duration {
 			if tookOverStaleLock.Load() {
 				return cfg.Scheduler.FailoverRecoveryWindow
