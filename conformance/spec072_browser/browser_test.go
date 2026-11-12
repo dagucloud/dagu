@@ -843,6 +843,7 @@ func TestBrowserValidation(t *testing.T) {
 	for _, tc := range []struct{ fixture, message string }{
 		{"missing_llm.yaml", "browser actions need a model"},
 		{"duplicate_output.yaml", `output "order" is already extracted by do[0]`},
+		{"blank_text.yaml", "do[0]: expect: text must contain a character other than whitespace"},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()

@@ -127,7 +127,9 @@ A condition is either:
   A `text` check compares the page text and its text after folding
   full-width characters to half-width and collapsing whitespace, as a
   computer check does, so a check written in ASCII finds a number a page
-  shows in full-width; a `url` check compares the URL as written.
+  shows in full-width; a `url` check compares the URL as written. A
+  `text` with no character other than whitespace would match every page, so
+  it fails validation.
 
 A fixed check may set `within`, a duration during which it keeps reading the
 page until it holds. A fixed `when` reads the page once unless `within` is set;
