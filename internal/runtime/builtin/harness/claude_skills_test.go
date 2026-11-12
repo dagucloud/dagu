@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -61,6 +62,10 @@ func TestMaterializeSkillsMountsTheFolderVerbatim(t *testing.T) {
 	assert.Equal(t, "# A\n", string(got))
 	assert.FileExists(t, filepath.Join(root, "references", ".gitkeep"))
 
+	// Windows does not report the permission bits of a POSIX file.
+	if runtime.GOOS == "windows" {
+		return
+	}
 	for _, rel := range []string{"SKILL.md", "assets/logo.bin", "scripts/run.sh"} {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
 		require.NoError(t, err)
