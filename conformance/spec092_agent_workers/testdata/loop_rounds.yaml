@@ -1,0 +1,138 @@
+# The verify loop of Spec 092, "A verify loop", on a small project that the DAG makes.
+# The fake claude fixes the file one.txt in round 1. The verify script also needs two.txt.
+# The log of the verify says what it needs. The fake claude reads the log in round 2.
+# The steps check_paths and push give the marker files that the tests read.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: setup
+    untrusted: false
+    run: |
+      mkdir -p repo/scripts
+      echo broken > repo/one.txt
+      echo broken > repo/two.txt
+      cat > repo/scripts/test.sh <<'EOF'
+      #!/bin/sh
+      cd "$(dirname "$0")/.." || exit 2
+      [ "$(cat one.txt)" = fixed ] || { echo "FAIL: one.txt is not fixed"; exit 1; }
+      echo "test: ok"
+      EOF
+      cat > repo/scripts/verify.sh <<'EOF'
+      #!/bin/sh
+      cd "$(dirname "$0")/.." || exit 2
+      ./scripts/test.sh || exit 1
+      [ "$(cat two.txt)" = fixed ] || { echo "FAIL: two.txt is not fixed"; echo "need: two.txt must say fixed"; exit 1; }
+      echo "verify: ok"
+      EOF
+      chmod +x repo/scripts/test.sh repo/scripts/verify.sh
+
+  - id: code_1
+    depends: [setup]
+    working_dir: repo
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: |
+        Fix the failing test. Run ./scripts/test.sh.
+      tools:
+        builtin:
+          read: true
+          edit: true
+          shell:
+            allow: ["./scripts/test.sh"]
+
+  - id: verify_1
+    depends: [code_1]
+    working_dir: repo
+    continue_on: { failure: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  - id: code_2
+    depends: [verify_1]
+    working_dir: repo
+    action: agent.run
+    preconditions:
+      - condition: "${verify_1.exit_code}"
+        expected: "0"
+        negate: true
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: |
+        Fix the failing test. Run ./scripts/test.sh.
+        The check of the project failed after your last change.
+        The log is in ${DAG_RUN_WORK_DIR}/verify_1.log
+        Read it, fix the code, and run ./scripts/test.sh again.
+      tools:
+        builtin:
+          read: true
+          edit: true
+          shell:
+            allow: ["./scripts/test.sh"]
+
+  - id: verify_2
+    depends: [code_2]
+    working_dir: repo
+    continue_on: { failure: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  - id: code_3
+    depends: [verify_2]
+    working_dir: repo
+    action: agent.run
+    preconditions:
+      - condition: "${verify_2.exit_code}"
+        expected: "0"
+        negate: true
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: |
+        Fix the failing test. Run ./scripts/test.sh.
+        The check of the project failed after your last change.
+        The log is in ${DAG_RUN_WORK_DIR}/verify_2.log
+        Read it, fix the code, and run ./scripts/test.sh again.
+      tools:
+        builtin:
+          read: true
+          edit: true
+          shell:
+            allow: ["./scripts/test.sh"]
+
+  - id: verify_3
+    depends: [code_3]
+    working_dir: repo
+    continue_on: { skipped: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  - id: check_paths
+    depends: [verify_3]
+    untrusted: false
+    working_dir: repo
+    run: test -f one.txt && echo "check_paths:ran" > "${DAG_RUN_WORK_DIR}/check_paths.marker"
+
+  - id: push
+    depends: [check_paths]
+    untrusted: false
+    run: echo pushed > "${DAG_RUN_WORK_DIR}/push.marker"

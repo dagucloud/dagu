@@ -1,0 +1,214 @@
+description: Claude develops, a script verifies, the code pushes to a branch. A failed verify gives Claude its log for a new round, with 3 rounds at most. One DAG, one run.
+type: graph
+params:
+  - name: TASK
+    type: string
+    default: Fix the failing test of the calculator.
+  - name: REPO
+    type: string
+    default: http://git-server:8080/app.git
+  - name: BRANCH
+    type: string
+    default: agent/fix-calculator
+  - name: MCP_URL
+    type: string
+    default: http://docs.internal:8080/mcp
+secrets:
+  - name: GIT_TOKEN
+    ref: git-token
+steps:
+  - id: clone
+    action: git.checkout
+    secrets: [GIT_TOKEN]
+    with: { repository: "${REPO}", path: repo, token: "${GIT_TOKEN}" }
+
+  # Round 1.
+  - id: code_1
+    depends: [clone]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    preconditions:
+      - condition: "${TASK}"
+        expected: "re:.+"
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+        summary: { type: string }
+      required: [verdict, summary]
+    with:
+      prompt: |
+        ${TASK}
+        Run ./scripts/test.sh and fix the code until it passes.
+      system: Write small, tested changes. Never edit the files of the CI.
+      provider: claude
+      endpoint:
+        name: cle1
+        model: sonnet
+      max_tool_iterations: 40
+      max_tool_calls: 50
+      dags:
+        - name: lookup-ticket
+          params:
+            CUSTOMER_ID:
+              from_ai:
+                description: The ID of the customer of the ticket
+        - name: ops_notify
+          params:
+            text:
+              from_ai:
+                description: The message to post on the ops channel
+      tools:
+        mcp:
+          - name: docs
+            url: ${MCP_URL}
+            headers: { X-Team: dev }
+            allow: [search]
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  # The verify runs a stricter script than the one that Claude knows. This step is untrusted
+  # by default, so it runs as the restricted user. Its exit code is the verdict. The log goes
+  # to a file in the work directory, for the next round.
+  - id: verify_1
+    depends: [code_1]
+    working_dir: repo
+    continue_on: { failure: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  # Round 2. The step runs only when verify_1 failed. Dagu skips it, and the steps of the
+  # last round, when verify_1 passed.
+  - id: code_2
+    depends: [verify_1]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    preconditions:
+      - condition: "${verify_1.exit_code}"
+        expected: "0"
+        negate: true
+    with:
+      prompt: |
+        ${TASK}
+        The check of the project failed after your last change. The log is in the file
+        ${DAG_RUN_WORK_DIR}/verify_1.log
+        Read the log, fix the code, and run ./scripts/test.sh again.
+      system: Write small, tested changes. Never edit the files of the CI.
+      provider: claude
+      endpoint:
+        name: cle1
+        model: sonnet
+      max_tool_iterations: 40
+      tools:
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  - id: verify_2
+    depends: [code_2]
+    working_dir: repo
+    continue_on: { failure: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  # Round 3, the last. The step verify_3 does not continue after a failure: a failed
+  # verify_3 fails the run, and the steps after the loop do not run.
+  - id: code_3
+    depends: [verify_2]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    preconditions:
+      - condition: "${verify_2.exit_code}"
+        expected: "0"
+        negate: true
+    with:
+      prompt: |
+        ${TASK}
+        The check of the project failed after your last change. The log is in the file
+        ${DAG_RUN_WORK_DIR}/verify_2.log
+        Read the log, fix the code, and run ./scripts/test.sh again.
+      system: Write small, tested changes. Never edit the files of the CI.
+      provider: claude
+      endpoint:
+        name: cle1
+        model: sonnet
+      max_tool_iterations: 40
+      tools:
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  # This step also runs when a round before it passed. Then Dagu skipped code_3.
+  - id: verify_3
+    depends: [code_3]
+    working_dir: repo
+    continue_on: { skipped: true }
+    run: |
+      rc=0
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
+      exit $rc
+
+  # The steps after the loop run on the last verify. They are trusted: untrusted: false.
+  # The verify script is a file of the repository, so the agent must not change it.
+  - id: check_paths
+    depends: [verify_3]
+    untrusted: false
+    working_dir: repo
+    run: |
+      if git status --porcelain | cut -c4- | grep -Eq '^(scripts/|test_|\.github/)'; then
+        echo "the agent changed a test, a script or the CI" >&2; exit 1
+      fi
+
+  - id: message
+    depends: [check_paths]
+    action: chat.completion
+    with:
+      provider: local
+      model: mock
+      base_url: http://mock-llm:8099/v1
+      stream: false
+      prompt: "Write a one-line commit message for: ${TASK}"
+    output: COMMIT_MSG
+
+  - id: push
+    depends: [message]
+    working_dir: repo
+    untrusted: false
+    secrets: [GIT_TOKEN]
+    env:
+      - MESSAGE: ${COMMIT_MSG}
+    run: |
+      git checkout -b "${BRANCH}"
+      git add -A
+      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$MESSAGE"
+      git -c credential.helper='!f() { echo username=git; echo "password=$GIT_TOKEN"; }; f' push origin "${BRANCH}"

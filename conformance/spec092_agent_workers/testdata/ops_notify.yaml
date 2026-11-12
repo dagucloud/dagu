@@ -1,0 +1,11 @@
+description: Post a message on the ops channel
+params:
+  - name: text
+    type: string
+    description: Message to post
+    required: true
+steps:
+  - id: post
+    action: log.write
+    with:
+      message: ${text}

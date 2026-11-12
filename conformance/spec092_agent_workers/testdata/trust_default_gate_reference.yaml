@@ -1,0 +1,20 @@
+# The step verify is untrusted by default, so its outputs are data of the agent.
+# The trusted step gate puts one of them in its command: this is an error.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the failing test.
+  - id: verify
+    depends: [code]
+    run: echo "verdict=ok" > "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: verdict
+  - id: gate
+    depends: [verify]
+    untrusted: false
+    run: echo '${steps.verify.outputs.verdict}'

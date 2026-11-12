@@ -1,0 +1,41 @@
+steps:
+  - id: prepare
+    run: |
+      mkdir -p repo/.git/hooks repo/src
+      printf '[core]\n' > repo/.git/config
+      printf 'main\n' > repo/src/main.txt
+      # A file of the worker outside the work directory of the run.
+      printf 'worker only\n' > "/tmp/spec092-worker-only.$DAG_RUN_ID"
+      chmod 0400 "/tmp/spec092-worker-only.$DAG_RUN_ID"
+
+  - id: verify
+    depends: [prepare]
+    untrusted: true
+    working_dir: repo
+    run: |
+      printf 'uid='; id -u
+      cat "/tmp/spec092-worker-only.$DAG_RUN_ID" >/dev/null 2>&1 && echo "read:allowed" || echo "read:denied"
+      (echo x > .git/hooks/x) 2>/dev/null && echo "git:allowed" || echo "git:denied"
+      mv .git .gitx 2>/dev/null && echo "move:allowed" || echo "move:denied"
+      echo agent > src/agent.txt && echo "write:allowed"
+      printf 'home='; stat -c '%a:%u' "$HOME"
+      echo "result=ok" > "$DAGU_OUTPUT_FILE"
+      setsid sleep 1000 </dev/null >/dev/null 2>&1 &
+    outputs:
+      - name: result
+
+  - id: check
+    depends: [verify]
+    working_dir: repo
+    env:
+      - RESULT: ${steps.verify.outputs.result}
+    run: |
+      printf 'owner='; stat -c '%u' src/agent.txt
+      test ! -e .git/hooks/x && echo "hook:absent"
+      left=0
+      for f in /proc/[0-9]*/status; do
+        if grep -q '^Uid:[[:space:]]*64021[[:space:]]' "$f" 2>/dev/null && ! grep -q '^State:[[:space:]]*Z' "$f" 2>/dev/null; then left=1; fi
+      done
+      echo "leftover=$left"
+      rm -f "/tmp/spec092-worker-only.$DAG_RUN_ID"
+      echo "result=$RESULT"

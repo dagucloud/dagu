@@ -1,0 +1,11 @@
+# The limit is 64 bytes. The capture of the step gets 64 bytes, then the line
+# [OUTPUT TRUNCATED]. The step still succeeds.
+max_output_size: 64
+working_dir: .
+steps:
+  - id: produce
+    run: head -c 200 /dev/zero | tr '\0' 'a'
+    output: BIG
+  - id: write
+    depends: [produce]
+    run: printf '%s' "$BIG" > big.out

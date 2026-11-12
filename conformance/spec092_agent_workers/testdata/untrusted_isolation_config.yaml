@@ -1,0 +1,8 @@
+untrusted:
+  uid: 64021
+  gid: 64021
+paths:
+  # The restricted user must reach the work directory of the run. The test
+  # home of the harness is a private folder, so the work directories go below
+  # the system temp folder.
+  dag_run_work_dir: /tmp/dagu-spec092-untrusted-work

@@ -1,0 +1,58 @@
+# The parent calls three sub-DAGs. The step read writes the outputs that it reads to a file.
+# A sub-DAG publishes with outputs.write, with stdout.outputs, or with a plain output variable.
+working_dir: .
+steps:
+  - id: call_write
+    action: dag.run
+    with:
+      dag: verify_child_write
+  - id: call_stdout
+    action: dag.run
+    with:
+      dag: verify_child_stdout
+  - id: call_plain
+    action: dag.run
+    with:
+      dag: verify_child_plain
+  - id: read
+    depends: [call_write, call_stdout, call_plain]
+    env:
+      - FROM_WRITE: ${steps.call_write.outputs.verdict}
+      - FROM_STDOUT: ${steps.call_stdout.outputs.verdict}
+      - FROM_PLAIN: ${steps.call_plain.outputs.SCRATCH}
+      - FROM_WRITE_SCRATCH: ${steps.call_write.outputs.SCRATCH}
+    run: |
+      printf 'write=%s\nstdout=%s\nplain=%s\nwrite_scratch=%s\n' \
+        "$FROM_WRITE" "$FROM_STDOUT" "$FROM_PLAIN" "$FROM_WRITE_SCRATCH" > read.out
+
+---
+name: verify_child_write
+steps:
+  - id: load
+    run: echo scratch-value
+    output: SCRATCH
+  - id: publish
+    depends: [load]
+    action: outputs.write
+    with:
+      values:
+        verdict: clean-write
+
+---
+name: verify_child_stdout
+steps:
+  - id: emit
+    run: printf '{"verdict":"clean-stdout"}'
+    stdout:
+      outputs:
+        fields:
+          verdict:
+            decode: json
+            select: .verdict
+
+---
+name: verify_child_plain
+steps:
+  - id: load
+    run: echo scratch-value
+    output: SCRATCH

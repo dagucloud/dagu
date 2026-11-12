@@ -1,0 +1,5 @@
+untrusted:
+  uid: 64031
+  gid: 64031
+paths:
+  dag_run_work_dir: /tmp/dagu-review-work

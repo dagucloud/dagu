@@ -1,0 +1,27 @@
+# The step repeats while its exit code is 0. The agent step always ends with the code 0.
+# The limit stops the step after three executions.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ok
+steps:
+  - id: code
+    action: agent.run
+    stdout: code.out
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [accept] }
+      required: [verdict]
+    repeat_policy:
+      repeat: while
+      exit_code: [0]
+      interval_sec: 0
+      limit: 3
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.

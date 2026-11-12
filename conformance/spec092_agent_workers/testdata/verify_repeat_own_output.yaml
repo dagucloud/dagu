@@ -1,0 +1,30 @@
+# The condition reads the typed result of the step itself. Spec 007 does not let a step read
+# its own output, so the condition never holds and the step runs until the limit.
+# The fake claude gives the verdict done at its third call.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: sequence
+  - FAKE_CLAUDE_DONE_AT: "3"
+steps:
+  - id: code
+    action: agent.run
+    stdout: code.out
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+      required: [verdict]
+    repeat_policy:
+      repeat: until
+      condition: "${steps.code.outputs.verdict}"
+      expected: done
+      interval_sec: 0
+      limit: 5
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.

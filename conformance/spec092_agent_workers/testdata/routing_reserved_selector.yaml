@@ -1,0 +1,6 @@
+description: Dagu sets the labels that start with agent., so the author cannot select them.
+worker_selector:
+  agent.provider.claude: "true"
+steps:
+  - id: hello
+    run: echo hello

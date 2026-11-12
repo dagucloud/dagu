@@ -1,0 +1,58 @@
+# In a DAG that has an agent.run step, a step that runs a process is untrusted by default.
+# A trusted step keeps the variables DAGU_. An untrusted step does not get them.
+# Each step prints one line: <step>:trusted or <step>:untrusted.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+secrets:
+  - name: GIT_TOKEN
+    provider: env
+    key: SPEC092_GIT_TOKEN
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.
+
+  - id: by_run
+    depends: [code]
+    run: if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'by_run:%s\n' trusted; else printf 'by_run:%s\n' untrusted; fi
+
+  - id: by_command
+    depends: [code]
+    command: sh -c 'if env | grep -q "^DAGU_SPEC092_MARKER="; then printf "by_command:%s " trusted; else printf "by_command:%s " untrusted; fi'
+
+  - id: by_script
+    depends: [code]
+    script: |
+      if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'by_script:%s\n' trusted; else printf 'by_script:%s\n' untrusted; fi
+
+  - id: marked
+    depends: [code]
+    untrusted: true
+    run: if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'marked:%s\n' trusted; else printf 'marked:%s\n' untrusted; fi
+
+  - id: opted_out
+    depends: [code]
+    untrusted: false
+    run: if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'opted_out:%s\n' trusted; else printf 'opted_out:%s\n' untrusted; fi
+
+  # A step that lists secrets must have untrusted: false. Without it, the DAG does not load.
+  - id: opted_out_listed
+    depends: [code]
+    untrusted: false
+    secrets: [GIT_TOKEN]
+    run: |
+      if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'opted_out_listed:%s\n' trusted; else printf 'opted_out_listed:%s\n' untrusted; fi
+      test "$GIT_TOKEN" = "spec092-token-value" && printf 'opted_out_listed:%s\n' has-secret
+
+  # A step with another action is not a process: the rule does not apply.
+  - id: action
+    depends: [code]
+    action: log.write
+    with:
+      message: "action:ran"

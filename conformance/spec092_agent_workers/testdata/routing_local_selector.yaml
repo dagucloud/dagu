@@ -1,0 +1,11 @@
+description: A DAG that needs a CLI provider goes to an agent worker, so it cannot stay local.
+worker_selector: local
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the test.

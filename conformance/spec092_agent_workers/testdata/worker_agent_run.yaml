@@ -1,0 +1,17 @@
+description: A run that needs the provider claude goes to the agent worker of claude.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.
+      # The skill is in testdata/skills. It reaches the agent worker in the workspace bundle.
+      skills: [project-rules]
+  # The step writes a file outside the work directory, so it is a trusted step.
+  - id: mark
+    depends: [code]
+    untrusted: false
+    run: printf '%s\n' "$SPEC092_WORKER_MARKER" > "$SPEC092_AGENT_RUN_FILE"

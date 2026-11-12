@@ -1,0 +1,16 @@
+description: One agent worker runs the whole run, so a DAG cannot need two CLI providers.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the test.
+  - id: review
+    depends: [code]
+    action: agent.run
+    with:
+      provider: codex
+      prompt: Review the change.

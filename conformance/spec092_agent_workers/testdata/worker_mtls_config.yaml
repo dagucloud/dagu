@@ -1,0 +1,9 @@
+# The configuration of an agent worker with mutual TLS to the coordinator. The
+# checks at start read the keys only, so the files need not exist.
+peer:
+  insecure: false
+  cert_file: tls/agent-claude.crt
+  key_file: tls/agent-claude.key
+  client_ca_file: tls/dagu-ca.crt
+worker:
+  coordinators: [127.0.0.1:1]

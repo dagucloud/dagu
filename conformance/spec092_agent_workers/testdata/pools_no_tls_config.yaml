@@ -1,0 +1,7 @@
+# Worker pools bind labels to the identity of a verified client certificate, so
+# they need mutual TLS on the coordinator. This file has no TLS key.
+coordinator:
+  worker_pools:
+    - name: general
+      identities: [general-worker]
+  dispatchers: [server]

@@ -1,0 +1,10 @@
+description: Look up a ticket by the ID of its customer
+params:
+  - name: CUSTOMER_ID
+    type: string
+    description: Customer ID
+    required: true
+steps:
+  - id: lookup
+    run: echo "{\"id\":\"$CUSTOMER_ID\",\"plan\":\"gold\",\"open_tickets\":2}"
+    output: CUSTOMER

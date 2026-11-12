@@ -1,0 +1,28 @@
+# The step repeats until the command of the condition succeeds. The fake claude creates the
+# file done at its third call.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: sequence
+  - FAKE_CLAUDE_DONE_AT: "3"
+steps:
+  - id: code
+    action: agent.run
+    stdout: code.out
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+      required: [verdict]
+    repeat_policy:
+      repeat: until
+      condition: test -f "${FAKE_CLAUDE_DIR}/done"
+      interval_sec: 0
+      limit: 5
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.
