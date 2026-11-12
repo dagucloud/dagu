@@ -128,10 +128,7 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	// A cached read checks the formulas of the cells it returns, column
 	// and row, against their cached values; evaluating nothing else keeps
 	// the check cheap.
-	var stale *staleCells
-	if opts.Formulas.cached() {
-		stale = &staleCells{w: w, sheet: sheet}
-	}
+	stale := w.staleChecker(sheet, opts.Formulas)
 	readCols := plan.readColumns(reg)
 
 	// Empty rows are held back until a later row proves they are not

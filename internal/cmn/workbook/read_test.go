@@ -56,7 +56,7 @@ func custom(code string) *excelize.Style {
 }
 
 // rawBook writes a hand-authored workbook whose one sheet is named Raw.
-func rawBook(t *testing.T, sheetXML string) string {
+func rawBook(t testing.TB, sheetXML string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "raw.xlsx")
 	xlsxtest.RawWorkbook(t, path, "Raw", sheetXML)
@@ -1152,6 +1152,43 @@ func staleBook(t *testing.T, rows int) string {
 	}
 	b.WriteString(`</sheetData>`)
 	return rawBook(t, b.String())
+}
+
+// BenchmarkReadStaleCheck times a default read of a 5000-row, 20-column
+// sheet whose last two columns are formulas with current cached values,
+// which the read checks cell by cell. The workbook is opened once so the
+// read, not the parse, is what is measured.
+func BenchmarkReadStaleCheck(b *testing.B) {
+	const rows, cols = 5000, 20
+	var sb strings.Builder
+	sb.WriteString(`<sheetData><row r="1">`)
+	for c := 1; c <= cols; c++ {
+		sb.WriteString(inline(cellName(c, 1), fmt.Sprintf("c%d", c)))
+	}
+	sb.WriteString(`</row>`)
+	for r := 2; r <= rows+1; r++ {
+		fmt.Fprintf(&sb, `<row r="%d">`, r)
+		for c := 1; c <= cols-2; c++ {
+			fmt.Fprintf(&sb, `<c r="%s"><v>%d</v></c>`, cellName(c, r), r*c)
+		}
+		fmt.Fprintf(&sb, `<c r="S%d"><f>A%d*B%d</f><v>%d</v></c>`, r, r, r, r*r*2)
+		fmt.Fprintf(&sb, `<c r="T%d" t="str"><f>"x"&amp;C%d</f><v>x%d</v></c></row>`, r, r, r*3)
+	}
+	sb.WriteString(`</sheetData>`)
+	w, err := open(rawBook(b, sb.String()), "")
+	require.NoError(b, err)
+	defer w.close()
+	opts := ReadOptions{MaxRows: rows}
+	read := func() {
+		result, err := w.read(context.Background(), opts)
+		require.NoError(b, err)
+		require.Equal(b, rows, result.Count)
+		require.Empty(b, result.Warnings)
+	}
+	read() // fills the grid cache
+	for b.Loop() {
+		read()
+	}
 }
 
 // A cached read says which formula cells hold a value their formula no
