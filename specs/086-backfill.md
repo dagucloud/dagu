@@ -237,7 +237,8 @@ dagu backfill status <backfill id> [--watch] [--format text|json]
   ahead in the queue`, or `Waiting: next in the queue`.
 - `status --watch` prints a line each time the backfill's progress changes,
   then the status when the backfill ends. It exits 0 only when the backfill
-  succeeded.
+  succeeded. With `--format json`, the progress lines go to stderr and stdout
+  holds only the final status.
 
 ### Cancelling and resuming
 

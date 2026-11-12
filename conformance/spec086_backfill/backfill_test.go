@@ -257,8 +257,8 @@ func TestSchedulerRunsBackfill(t *testing.T) {
 			RunID string `json:"runId"`
 		} `json:"slots"`
 	}
-	lines := strings.Split(strings.TrimSpace(watched.Stdout()), "\n")
-	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &status); err != nil || status.Status != "succeeded" {
+	// Progress goes to stderr, so stdout is the final status alone.
+	if err := json.Unmarshal([]byte(watched.Stdout()), &status); err != nil || status.Status != "succeeded" {
 		t.Fatalf("decoding the final status: %v\n%s", err, watched.Stdout())
 	}
 	for i, want := range []string{"2025-10-01T02:00:00Z", "2025-10-02T02:00:00Z"} {

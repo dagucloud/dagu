@@ -337,6 +337,11 @@ func runBackfillStatus(ctx *Context, args []string) error {
 		return writeBackfillStatus(ctx, out, format, status)
 	}
 
+	// With JSON output, stdout carries only the final status.
+	progress := out
+	if format == backfillFormatJSON {
+		progress = ctx.Command.ErrOrStderr()
+	}
 	ticker := time.NewTicker(backfillWatchInterval)
 	defer ticker.Stop()
 	last := ""
@@ -359,7 +364,7 @@ func runBackfillStatus(ctx *Context, args []string) error {
 			line += "; " + status.wait
 		}
 		if line != last {
-			if _, err := fmt.Fprintf(out, "%s %s\n", time.Now().In(ctx.Config.Core.Location).Format(time.TimeOnly), line); err != nil {
+			if _, err := fmt.Fprintf(progress, "%s %s\n", time.Now().In(ctx.Config.Core.Location).Format(time.TimeOnly), line); err != nil {
 				return err
 			}
 			last = line
