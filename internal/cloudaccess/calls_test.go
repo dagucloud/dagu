@@ -131,7 +131,8 @@ func TestACallRunsAsTheUserDaguCloudVouchesFor(t *testing.T) {
 }
 
 // The latest call is kept with the app and the person, so the server can
-// show that a client reached it, also after a restart.
+// show that a client reached it, also after a restart, but only under the
+// license it was served under.
 func TestAServedCallIsRemembered(t *testing.T) {
 	f := newCallFixture(t, config.RemoteAccessOperator)
 	store := filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-last-call.json"))
@@ -139,12 +140,19 @@ func TestAServedCallIsRemembered(t *testing.T) {
 	require.Equal(t, http.StatusOK, f.call(mcpPath, testBody, f.key.assertion(t, testBody, nil)).Code)
 
 	restarted := &lastCalls{store: store, now: time.Now}
-	call, found, err := restarted.get(context.Background())
-	require.NoError(t, err)
-	require.True(t, found)
+	var call LastCall
+	require.Eventually(t, func() bool {
+		var found bool
+		call, found, _ = restarted.get(context.Background(), testCreds.LicenseID)
+		return found
+	}, waitFor, 10*time.Millisecond)
 	assert.Equal(t, "Claude", call.Client)
 	assert.Equal(t, "ana@example.com", call.User)
 	assert.WithinDuration(t, time.Now(), call.At, time.Minute)
+
+	_, found, err := restarted.get(context.Background(), "lic-other")
+	require.NoError(t, err)
+	assert.False(t, found, "a call under another license, as before moving workspaces")
 }
 
 func TestCallsWithInvalidAssertionsAreRefused(t *testing.T) {

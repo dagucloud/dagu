@@ -114,13 +114,14 @@ func New(cfg Config) *Service {
 	}
 }
 
-// LastCall returns the latest call from Dagu Cloud the server served, and
-// false while there is none.
+// LastCall returns the latest call from Dagu Cloud the server served under
+// its current license, and false while there is none.
 func (s *Service) LastCall(ctx context.Context) (LastCall, bool, error) {
-	if s.calls.lastCalls == nil {
+	creds, connected := s.cfg.Credentials()
+	if s.calls.lastCalls == nil || !connected {
 		return LastCall{}, false, nil
 	}
-	return s.calls.lastCalls.get(ctx)
+	return s.calls.lastCalls.get(ctx, creds.LicenseID)
 }
 
 // State returns how the connection stands.

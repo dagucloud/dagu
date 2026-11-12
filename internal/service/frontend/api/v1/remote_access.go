@@ -10,6 +10,8 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 )
 
 // GetLicenseRemoteAccess returns how far calls from Dagu Cloud may go on this
@@ -118,11 +120,12 @@ func (a *API) licenseRemoteAccess(ctx context.Context) (api.LicenseRemoteAccess,
 	if state.Error != "" {
 		access.Error = ptrOf(state.Error)
 	}
+	// The last call only adds to the rest, which stays available without it.
 	last, found, err := a.cloudAccess.LastCall(ctx)
 	if err != nil {
-		return api.LicenseRemoteAccess{}, internalError(err)
+		logger.Warn(ctx, "Remote access: the last call could not be read", tag.Error(err))
 	}
-	if found {
+	if err == nil && found {
 		access.LastCall = &api.LicenseRemoteAccessLastCall{At: last.At, Client: optionalString(last.Client), User: optionalString(last.User)}
 	}
 	return access, nil

@@ -106,7 +106,7 @@ func (c *calls) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	logger.Debug(ctx, "Remote access: serving a call", slog.String("user", user.ID), slog.String("role", string(user.Role)))
 	if c.lastCalls != nil {
-		c.lastCalls.note(ctx, a.Client, a.Email)
+		c.lastCalls.note(ctx, creds.LicenseID, a.Client, a.Email)
 	}
 
 	r = r.WithContext(ctx)
