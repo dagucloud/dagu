@@ -362,7 +362,7 @@ func (r *run) execute(ctx context.Context) error {
 	}
 	// A refusal no operation answered for is the step's to report.
 	if refused := r.reportRefusal(ctx, last); refused != nil {
-		return r.fail(ctx, -1, "", errors.New(refused.String()))
+		return r.fail(ctx, -1, "", refusedPage{*refused})
 	}
 	return r.succeed(ctx)
 }
@@ -373,15 +373,24 @@ func (r *run) execute(ctx context.Context) error {
 // runs, since the step chose to go on there, except an extract, which
 // never reads a refused page. A goto leaves the page, a wait can outlast a
 // rate limit, a screenshot keeps what the page shows, and an ask lets a
-// person pass the check, so they run. The page is read again, since a
-// when can wait while the check passes; one that cannot be read keeps the
-// refusal seen on it.
+// person pass the check, so they run. The refusal is the one reported
+// after the operation before, read again after a when, which can wait
+// while the check passes; a page that cannot be read keeps the refusal
+// seen on it.
 func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
-	if op.Goto != "" || op.Wait != nil || op.Screenshot != "" || op.Ask != nil || op.When != nil && op.Extract == nil {
+	switch op.kind() {
+	case opGoto, opWait, opScreenshot, opAsk:
 		return nil
 	}
-	if refused := r.reportRefusal(ctx, index-1); refused != nil {
-		return errors.New(refused.String())
+	if op.When != nil && op.Extract == nil {
+		return nil
+	}
+	refused := r.refused
+	if op.When != nil {
+		refused = r.reportRefusal(ctx, index-1)
+	}
+	if refused != nil {
+		return refusedPage{*refused}
 	}
 	return nil
 }
@@ -743,19 +752,15 @@ func (r *run) reportRefusal(ctx context.Context, index int) *refusal {
 	if r.eng == nil {
 		return nil
 	}
-	refused, ok, err := r.pageRefusal(ctx)
+	refused, err := r.pageRefusal(ctx)
 	if err != nil {
 		return r.refused
 	}
-	if !ok {
-		r.refused = nil
-		return nil
+	if refused != nil && (r.refused == nil || *r.refused != *refused) {
+		logRefusal(r.timeline, index, *refused)
 	}
-	if r.refused == nil || *r.refused != refused {
-		r.refused = &refused
-		logRefusal(r.timeline, index, refused)
-	}
-	return &refused
+	r.refused = refused
+	return refused
 }
 
 // settleDownloads waits for downloads that are still running and records the
@@ -1070,10 +1075,12 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	}
 	r.takeCertificateEvents(ctx, index)
 	// A page the site refused explains a failure that follows, however long
-	// after the refusal.
-	var refused *refusal
-	if ctx.Err() == nil && !errors.Is(cause, errBrowserUnresponsive) {
-		refused = r.reportRefusal(ctx, index)
+	// after the refusal, unless the failure is the refusal itself.
+	_, isRefusal := errors.AsType[refusedPage](cause)
+	refused := isRefusal || r.refused != nil
+	note := ""
+	if !isRefusal && r.refused != nil {
+		note = r.masker.MaskString(r.refused.String())
 	}
 	var files []string
 	shots := r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil
@@ -1099,15 +1106,13 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		}
 	}
 	_ = r.shutdown(ctx)
-	r.forgetReplays(ctx, index, kind, cause, refused != nil)
+	r.forgetReplays(ctx, index, kind, cause, refused)
 	message := r.masker.MaskString(cause.Error())
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
 	}
-	if refused != nil {
-		if note := r.masker.MaskString(refused.String()); !strings.Contains(message, note) {
-			message += "; " + note
-		}
+	if note != "" {
+		message += "; " + note
 	}
 	if behind != "" {
 		message += "; " + r.masker.MaskString(behind)

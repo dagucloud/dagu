@@ -51,6 +51,16 @@ type refusal struct {
 	BotCheck string `json:"botCheck,omitempty"`
 }
 
+// refusedPage is the error of an operation or a step that has nothing to do
+// on a page the site refused.
+type refusedPage struct {
+	refusal
+}
+
+func (r refusedPage) Error() string {
+	return r.String()
+}
+
 // refusalOf returns the refusal page shows, if it shows one: a bot check,
 // or an answer that the page is forbidden or asked for too often.
 func refusalOf(page pageOutcome) (refusal, bool) {

@@ -468,7 +468,7 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	if opts.URL != "" {
 		if _, err := op.gotoURL(ctx, -1, opts.URL, defaultOperationTimeout); err != nil {
 			message := "open " + opts.URL + ": " + err.Error()
-			if refused, ok, err := op.pageRefusal(ctx); err == nil && ok {
+			if refused, err := op.pageRefusal(ctx); err == nil && refused != nil {
 				message += "; " + refused.String()
 			}
 			return OpenResult{}, errors.Join(&SessionError{Code: CodeOperationFailed, Message: message}, closeSession(ctx, eng, store, record))
@@ -1315,14 +1315,14 @@ func (s *Sessions) view(ctx context.Context, eng engine, masker *masking.Masker,
 // browser reattached since cannot tell it, as when a person reloaded the
 // page between commands.
 func pageRefusal(ctx context.Context, op *operator, before sessionPage, pageURL string) *refusal {
-	refused, ok, err := op.pageRefusal(ctx)
-	if err != nil || !ok {
+	refused, err := op.pageRefusal(ctx)
+	if err != nil || refused == nil {
 		return nil
 	}
 	if seen := before.Refused; refused.BotCheck == "" && seen != nil && before.URL == pageURL && seen.Host == refused.Host && seen.Status == refused.Status {
 		refused.BotCheck = seen.BotCheck
 	}
-	return &refused
+	return refused
 }
 
 // sessionRefusal reports refused in a command's result.

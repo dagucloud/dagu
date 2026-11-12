@@ -516,7 +516,7 @@ func TestRefusedPageIsReported(t *testing.T) {
 
 	require.EqualError(t, execution.err, `browser: do[2] expect failed: expectation not met: the page text does not contain "Order placed"; `+cloudflareRefusal)
 	assert.Equal(t, []string{"goto:completed", "page:refused", "act:completed", "wait:completed"}, eventNames(execution.exec.GetAgentSession()))
-	assert.Contains(t, execution.stderr.String(), "page refused "+cloudflareRefusal+"\n")
+	assert.Contains(t, execution.stderr.String(), "page refused: "+cloudflareRefusal+"\n")
 }
 
 // A step that fails on a page the site refused keeps the recordings it
@@ -2000,7 +2000,7 @@ func TestRefusedPageKeptWhenUnreadable(t *testing.T) {
 
 			run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}, "The page asks to verify"))
 			run.engine.outcome = cloudflareCheck
-			run.engine.onAct = func() { run.engine.setOutcomeErr(unreadable) }
+			run.engine.outcomeErr, run.engine.outcomeErrAfterActs = unreadable, 1
 			execution := run.execute(steps, nil)
 
 			require.ErrorContains(t, execution.err, cloudflareRefusal)

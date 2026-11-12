@@ -115,10 +115,11 @@ type fakeEngine struct {
 	endErr   error
 	// outcome is what the browser shows after a page opened, at outcomeAt
 	// when set, else at every address; outcomeErr, if set, is what reading
-	// it reports instead.
-	outcome    pageOutcome
-	outcomeAt  string
-	outcomeErr error
+	// it reports instead, once outcomeErrAfterActs more acts have run.
+	outcome             pageOutcome
+	outcomeAt           string
+	outcomeErr          error
+	outcomeErrAfterActs int
 	// pending are the connections the certificate proxy waits on.
 	pending []certproxy.Pending
 	// verifiedHosts are the hosts the certificate proxy vouches for.
@@ -257,20 +258,13 @@ func (e *fakeEngine) EndWrites(context.Context) error {
 func (e *fakeEngine) PageOutcome(context.Context) (pageOutcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.outcomeErr != nil {
+	if e.outcomeErr != nil && e.outcomeErrAfterActs == 0 {
 		return pageOutcome{}, e.outcomeErr
 	}
 	if e.outcomeAt != "" && e.url != e.outcomeAt {
 		return pageOutcome{}, nil
 	}
 	return e.outcome, nil
-}
-
-// setOutcomeErr makes every read of the page fail while a step runs.
-func (e *fakeEngine) setOutcomeErr(err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.outcomeErr = err
 }
 
 func (e *fakeEngine) PendingConnections(context.Context) ([]certproxy.Pending, error) {
@@ -327,6 +321,9 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	losesPage, pageLoss := e.actLosesPage > 0, cmp.Or(e.pageLoss, errFakeSessionLost)
 	if losesPage {
 		e.actLosesPage--
+	}
+	if e.outcomeErrAfterActs > 0 {
+		e.outcomeErrAfterActs--
 	}
 	e.mu.Unlock()
 	if onAct != nil {
