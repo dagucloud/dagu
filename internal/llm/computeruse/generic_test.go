@@ -180,6 +180,24 @@ func TestGenericSessionWarnsThatReturnMayPressTheDefaultButton(t *testing.T) {
 	assert.NotContains(t, system, "press Return", "no example presses Return")
 }
 
+// The task decides whether to save: a dialog's save prompt is declined only
+// when the task says nothing about saving, so a task that keeps its change is
+// not told to discard it.
+func TestGenericSessionLeavesSavingToTheTask(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{responses: []*llm.ChatResponse{
+		{ToolCalls: []llm.ToolCall{toolCall("d1", "done", `{"success":true,"summary":"Settings open"}`)}},
+	}}
+	session := newGeneric(t, provider)
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("a")})
+	require.NoError(t, err)
+
+	system := provider.requests[0].Messages[0].Content
+	assert.Contains(t, system, "When a dialog asks whether to save and the task does not say to save, choose not to save.")
+	assert.NotContains(t, system, "asks whether to save, choose not to save", "the rule is not unconditional")
+}
+
 // Only the latest screenshots are sent; older ones are replaced with a note.
 func TestGenericSessionKeepsLatestScreenshots(t *testing.T) {
 	t.Parallel()

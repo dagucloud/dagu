@@ -223,7 +223,9 @@ performs the pointer and keyboard actions it answers with, in order, mapping
 positions back to display pixels. After each round of actions the step waits
 for the screen to stop changing and sends the new screenshot with the results.
 In generic mode a round may instead go with the window's elements alone (see
-Elements). An action that fails skips the rest of the round and is reported
+Elements), and the model is told to decline a dialog that asks whether to
+save only when the task does not say to save, so a task that says to save
+decides. An action that fails skips the rest of the round and is reported
 to the model.
 
 The act ends when the model reports the task done. A report made in the
