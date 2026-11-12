@@ -72,6 +72,7 @@ func TestAPIError_ReasonMasked(t *testing.T) {
 		{"whitespace", "denied for multi word\nsecret here", "denied for ******* here"},
 		{"boundary", strings.Repeat("a", 195) + "multi word\nsecret", strings.Repeat("a", 195) + "*****..."},
 		{"escaped", `{"error":{"message":"bad key quoted-\"secret\""}}`, "bad key *******"},
+		{"escaped_no_message", `{"state":"quoted-\"secret\"","detail":["quoted-\"secret\""],"code":402}`, `{"code":402,"detail":["*******"],"state":"*******"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

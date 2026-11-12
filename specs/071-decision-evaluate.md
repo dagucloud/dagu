@@ -102,6 +102,8 @@ or a top-level `message`), otherwise the body itself, collapsed to one line
 and bounded to 200 characters. Declared secrets are masked in the body and in
 the extracted message before either is collapsed or bounded, so a secret
 containing whitespace or crossing the bound does not leak into the step error.
+A JSON body without a message is masked string by string after decoding and
+re-encoded, so JSON escaping cannot hide a secret either.
 
 ## Example
 

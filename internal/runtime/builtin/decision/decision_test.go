@@ -291,6 +291,7 @@ func TestHTTPFailureMasked(t *testing.T) {
 	const whitespace = "multi word\nsecret"
 	for _, tc := range []struct{ name, secret, body, wantErr string }{
 		{"escaped", "secret-\"quoted\"-value", `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`, "(HTTP 401): invalid key *******"},
+		{"escaped_no_message", "secret-\"quoted\"-value", `{"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"state":"*******"}`},
 		{"whitespace", whitespace, "denied for multi word\nsecret here", "(HTTP 401): denied for ******* here"},
 		{"boundary", whitespace, strings.Repeat("a", 195) + whitespace, "(HTTP 401): " + strings.Repeat("a", 195) + "*****..."},
 	} {

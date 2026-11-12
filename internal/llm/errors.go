@@ -73,14 +73,16 @@ const maxReasonRunes = 200
 //
 // mask, when non-nil, rewrites the body and the extracted message before
 // they are collapsed or cut, so a secret containing whitespace or crossing
-// the length bound is still matched whole. It runs on the decoded message
-// as well because JSON escaping can hide a secret in the raw body.
+// the length bound is still matched whole. JSON escaping can hide a secret
+// in the raw body, so the mask also runs on decoded text: the message, or
+// every string of a JSON body that carries no message, which is then
+// re-encoded.
 func (e *APIError) Reason(mask func(string) string) string {
 	if mask == nil {
 		mask = func(s string) string { return s }
 	}
 	body := mask(e.Message)
-	reason := body
+	reason := ""
 	_, messages := apiErrorDetails(body)
 	for _, message := range messages {
 		if strings.TrimSpace(message) != "" {
@@ -88,11 +90,53 @@ func (e *APIError) Reason(mask func(string) string) string {
 			break
 		}
 	}
+	if reason == "" {
+		reason = maskJSONStrings(body, mask)
+	}
 	reason = strings.Join(strings.Fields(reason), " ")
 	if runes := []rune(reason); len(runes) > maxReasonRunes {
 		reason = string(runes[:maxReasonRunes]) + "..."
 	}
 	return reason
+}
+
+// maskJSONStrings applies mask to every string in a JSON document, keys
+// included, and returns the compact re-encoding. Text that is not JSON is
+// returned unchanged.
+func maskJSONStrings(body string, mask func(string) string) string {
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return body
+	}
+	var maskValue func(v any) any
+	maskValue = func(v any) any {
+		switch v := v.(type) {
+		case string:
+			return mask(v)
+		case map[string]any:
+			masked := make(map[string]any, len(v))
+			for key, val := range v {
+				masked[mask(key)] = maskValue(val)
+			}
+			return masked
+		case []any:
+			for i, val := range v {
+				v[i] = maskValue(val)
+			}
+			return v
+		default:
+			return v
+		}
+	}
+	var buf strings.Builder
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(maskValue(decoded)); err != nil {
+		return body
+	}
+	return buf.String()
 }
 
 // NewAPIError creates a new APIError with the given parameters.
