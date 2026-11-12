@@ -50,7 +50,7 @@ type PlannedRun struct {
 }
 
 // DispatchFunc dispatches a catch-up or scheduled run for the given DAG.
-type DispatchFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error
+type DispatchFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error
 
 // IsRunningFunc checks if a DAG has any active run.
 type IsRunningFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
@@ -68,7 +68,7 @@ type StopFunc func(ctx context.Context, dag *ir.DAG) error
 type RestartFunc func(ctx context.Context, entry DAGEntry, scheduleTime time.Time) error
 
 // EnqueueFunc enqueues a catchup run for the given DAG.
-type EnqueueFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error
+type EnqueueFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error
 
 // IsQueuedFunc checks if a DAG has any pending queued items.
 type IsQueuedFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
@@ -241,7 +241,7 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 		cfg.RecoveryWindow = func() time.Duration { return 0 }
 	}
 	if cfg.Dispatch == nil {
-		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 			return fmt.Errorf("dispatch not configured")
 		}
 	}
@@ -1788,14 +1788,23 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, acti
 		// Keep compatible pending slots and execute the updated definition.
 		schedules := make(map[string]ir.Schedule, len(active.start))
 		for _, schedule := range active.start {
-			schedules[schedule.Fingerprint()] = schedule
+			fingerprint := schedule.Fingerprint()
+			if _, exists := schedules[fingerprint]; !exists {
+				schedules[fingerprint] = schedule
+			}
 		}
 		for _, item := range pending.items {
 			// A calendar edit keeps the fingerprint but can drop the slot's
 			// date, so the slot must still be a fire of the schedule.
 			if schedule, ok := schedules[item.Schedule.Fingerprint()]; ok && scheduleMatchesFireTime(schedule, item.ScheduledTime) {
 				item.DAGEntry = entry
-				item.Schedule = schedule
+				// Re-select the first active entry in case the order or overlap changed.
+				for _, candidate := range active.start {
+					if candidate.IsCron() && scheduleMatchesFireTime(candidate, item.ScheduledTime) {
+						item.Schedule = candidate
+						break
+					}
+				}
 				q.items = append(q.items, item)
 				seen[item.ScheduledTime.UTC()] = true
 			}
@@ -1933,7 +1942,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				}
 			}
 			enqueue := func() error {
-				err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+				err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime, string(run.Schedule.Params))
 				// An enqueue error is handled below as for any dispatch.
 				return nil
 			}
@@ -1957,9 +1966,9 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				}
 			}
 		} else if tp.queuesRun(run.DAG) {
-			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime, string(run.Schedule.Params))
 		} else {
-			err = tp.cfg.Dispatch(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+			err = tp.cfg.Dispatch(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime, string(run.Schedule.Params))
 		}
 	case ScheduleTypeStop:
 		err = tp.cfg.Stop(ctx, run.DAG)

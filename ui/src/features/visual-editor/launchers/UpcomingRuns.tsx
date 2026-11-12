@@ -78,6 +78,16 @@ export function UpcomingRuns({
                     {scheduleSummary(schedule)}
                   </span>
                 )}
+                {!!schedule?.paramOverrideCount && (
+                  <span>
+                    {' · '}
+                    {schedule.paramOverrideCount === 1
+                      ? ts('1 parameter override')
+                      : ts('{count} parameter overrides', {
+                          count: schedule.paramOverrideCount,
+                        })}
+                  </span>
+                )}
                 {notes.length > 0 && (
                   <span className="text-foreground/80">
                     {' · '}

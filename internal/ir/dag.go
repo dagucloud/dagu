@@ -4,6 +4,7 @@
 package ir
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -605,8 +606,9 @@ type ScheduleFire struct {
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
 // earliest first. Schedules that fire at the same instant yield one fire,
-// attributed to the first of them. The result ignores scheduler state such
-// as suspension, pauses, and consumed one-off schedules.
+// attributed to a one-off if present, then to the first entry of that kind.
+// The result ignores scheduler state such as suspension, pauses, and consumed
+// one-off schedules.
 func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 	if limit <= 0 || len(d.Schedule) == 0 {
 		return nil
@@ -620,7 +622,11 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 	for len(fires) < limit {
 		earliest := -1
 		for i, cursor := range cursors {
-			if !cursor.at.IsZero() && (earliest < 0 || cursor.at.Before(cursors[earliest].at)) {
+			if cursor.at.IsZero() {
+				continue
+			}
+			if earliest < 0 || cursor.at.Before(cursors[earliest].at) ||
+				(cursor.at.Equal(cursors[earliest].at) && d.Schedule[i].IsOneOff() && !d.Schedule[earliest].IsOneOff()) {
 				earliest = i
 			}
 		}
@@ -1033,6 +1039,8 @@ func cloneConfigValue(value any) any {
 
 // Schedule contains the cron expression and the parsed cron schedule.
 type Schedule struct {
+	// Params is a JSON object of literal runtime parameter overrides.
+	Params json.RawMessage `json:"params,omitempty"`
 	// Kind identifies the schedule type.
 	Kind ScheduleKind `json:"kind,omitempty"`
 	// Expression is the cron expression.
@@ -1064,13 +1072,14 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(struct {
-		Kind         ScheduleKind `json:"kind,omitempty"`
-		Expression   string       `json:"expression,omitempty"`
-		At           string       `json:"at,omitempty"`
-		Profile      string       `json:"profile,omitempty"`
-		Calendar     string       `json:"calendar,omitempty"`
-		BusinessDays []int        `json:"business_days,omitempty"`
-		Warnings     []string     `json:"warnings,omitempty"`
+		Kind         ScheduleKind    `json:"kind,omitempty"`
+		Expression   string          `json:"expression,omitempty"`
+		At           string          `json:"at,omitempty"`
+		Profile      string          `json:"profile,omitempty"`
+		Calendar     string          `json:"calendar,omitempty"`
+		BusinessDays []int           `json:"business_days,omitempty"`
+		Warnings     []string        `json:"warnings,omitempty"`
+		Params       json.RawMessage `json:"params,omitempty"`
 	}{
 		Kind:         normalized.Kind,
 		Expression:   normalized.Expression,
@@ -1079,6 +1088,7 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 		Calendar:     normalized.Calendar,
 		BusinessDays: normalized.BusinessDays,
 		Warnings:     normalized.Warnings,
+		Params:       normalized.Params,
 	})
 }
 
@@ -1086,7 +1096,9 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 // It also parses the cron expression to populate the Parsed field.
 func (s *Schedule) UnmarshalJSON(data []byte) error {
 	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return err
 	}
 	delete(raw, "warnings")
@@ -1096,7 +1108,7 @@ func (s *Schedule) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true, AllowCalendar: true})
+	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true, AllowCalendar: true, AllowParams: true})
 	if err != nil {
 		return err
 	}

@@ -30,6 +30,7 @@ func TestEnqueueCatchupRun_PersistsQueuedCatchupMetadata(t *testing.T) {
 
 	th := test.Setup(t)
 	dag := th.DAG(t, `name: enqueue-catchup-dag
+params: {mode: default, region: north}
 steps:
   - name: step1
     run: echo enqueue
@@ -58,6 +59,7 @@ steps:
 		scheduleTime,
 		window,
 		"prod",
+		`{"mode":"z"}`,
 	)
 	require.NoError(t, err)
 
@@ -72,6 +74,7 @@ steps:
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
 	require.Equal(t, window, status.ScheduleWindow())
 	require.Equal(t, "prod", status.ProfileName)
+	require.ElementsMatch(t, []string{"mode=z", "region=north"}, status.ParamsList)
 	require.NotEmpty(t, status.Log)
 	assert.Contains(t, status.Log, filepath.Join(th.Config.Paths.LogDir, dag.Name))
 
@@ -138,6 +141,7 @@ steps:
 				time.Now(),
 				ir.ScheduleWindow{},
 				"",
+				"",
 			)
 			require.NoError(t, err)
 
@@ -197,6 +201,7 @@ steps:
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		ir.ScheduleWindow{},
+		"",
 		"",
 	)
 	require.NoError(t, err)
@@ -280,6 +285,7 @@ steps:
 			ir.TriggerTypeCatchUp,
 			time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
 			ir.ScheduleWindow{},
+			"",
 			"",
 		)
 		require.NoError(t, err)

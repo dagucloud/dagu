@@ -1,0 +1,14 @@
+params:
+  - name: mode
+    type: string
+    default: manual
+    enum: [manual, y, z]
+schedule:
+  - expression: "0 5 * * *"
+    params: {mode: y}
+  - expression: "0 6 * * *"
+    params: {mode: z}
+  - at: "2030-01-01T05:00:00Z"
+    params: {mode: z}
+steps:
+  - run: echo "${params.mode}"

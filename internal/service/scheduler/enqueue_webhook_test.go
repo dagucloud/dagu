@@ -60,6 +60,7 @@ func TestEnqueueCatchupRunPropagatesFindAttemptErrors(t *testing.T) {
 		time.Now(),
 		ir.ScheduleWindow{},
 		"",
+		"",
 	)
 	require.ErrorIs(t, err, storeErr)
 	assert.Contains(t, err.Error(), "failed to check existing run")

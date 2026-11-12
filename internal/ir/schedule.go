@@ -4,6 +4,7 @@
 package ir
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -34,6 +35,8 @@ const (
 // ScheduleParseOptions controls which schedule kinds are accepted.
 type ScheduleParseOptions struct {
 	AllowAt bool
+	// AllowParams accepts overrides on start schedules.
+	AllowParams bool
 	// AllowCalendar accepts the calendar and business_days keys.
 	AllowCalendar bool
 }
@@ -261,6 +264,7 @@ func normalizeSchedule(s Schedule) (Schedule, error) {
 		return Schedule{}, err
 	}
 	schedule.Profile = profile
+	schedule.Params = s.Params
 	schedule.Calendar = s.Calendar
 	schedule.BusinessDays = s.BusinessDays
 	if schedule.HasCalendar() {
@@ -278,6 +282,7 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 		profile      string
 		calendar     string
 		businessDays []int
+		params       json.RawMessage
 	)
 
 	for key, value := range m {
@@ -308,6 +313,21 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 			profile = strings.TrimSpace(val)
 			if !runtimeProfileNameRe.MatchString(profile) {
 				return Schedule{}, fmt.Errorf("invalid profile name: %q", profile)
+			}
+		case "params":
+			if !opts.AllowParams {
+				return Schedule{}, fmt.Errorf("params are only supported for start schedules")
+			}
+			values, ok := value.(map[string]any)
+			if !ok {
+				return Schedule{}, fmt.Errorf("params must be a mapping of named overrides")
+			}
+			if len(values) > 0 {
+				var err error
+				params, err = json.Marshal(values)
+				if err != nil {
+					return Schedule{}, fmt.Errorf("invalid schedule params: %w", err)
+				}
 			}
 		case "calendar":
 			val, ok := value.(string)
@@ -379,6 +399,7 @@ func parseScheduleMap(m map[string]any, opts ScheduleParseOptions) (Schedule, er
 		Profile:      profile,
 		Calendar:     calendar,
 		BusinessDays: businessDays,
+		Params:       params,
 	})
 	if err != nil {
 		return Schedule{}, err
@@ -425,6 +446,9 @@ func integerValue(value any) (int, bool) {
 		return int(v), true
 	case float64:
 		return int(v), v == float64(int(v))
+	case json.Number:
+		f, err := v.Float64()
+		return int(f), err == nil && f == float64(int(f))
 	default:
 		return 0, false
 	}

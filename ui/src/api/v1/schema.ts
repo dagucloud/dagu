@@ -6128,6 +6128,8 @@ export interface components {
             profile?: components["schemas"]["RuntimeProfileName"];
             /** @description Calendar whose business days the schedule fires on */
             calendar?: string;
+            /** @description Number of named parameter overrides on this schedule entry */
+            paramOverrideCount?: number;
             /** @description Business days of the month the schedule keeps; negative values count from the end. 0 is never listed. */
             businessDays?: number[];
         };

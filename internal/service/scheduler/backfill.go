@@ -199,6 +199,18 @@ func (s *Scheduler) enqueueBackfillRun(ctx context.Context, record *backfill.Rec
 	var params any
 	if record.Options.Params != "" {
 		params = record.Options.Params
+	} else {
+		loc := target.Schedule.Location
+		if loc == nil {
+			loc = time.Local
+		}
+		for _, schedule := range target.Schedule.Schedules {
+			if schedule.IsCron() && scheduleMatchesProfile(schedule, target.Schedule.Profile) &&
+				scheduleMatchesFireTime(schedule, slot.At.In(loc)) {
+				params = string(schedule.Params)
+				break
+			}
+		}
 	}
 	dag, err := rehydrateExecutionDAG(ctx, target.DAG, params, s.config.Paths.BaseConfig, workspace.BaseConfigDir(s.config.Paths.DAGsDir))
 	if err != nil {

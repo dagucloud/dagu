@@ -268,6 +268,19 @@ func TestUpcomingFires(t *testing.T) {
 		}, fires)
 	})
 
+	t.Run("a one-off takes precedence over a recurring fire", func(t *testing.T) {
+		t.Parallel()
+
+		oneOff, err := ir.NewOneOffSchedule("2027-01-01T06:00:00Z")
+		require.NoError(t, err)
+		dag := &ir.DAG{Schedule: []ir.Schedule{newCron(t, "0 6 * * *"), oneOff}}
+		from := time.Date(2027, 1, 1, 5, 0, 0, 0, time.UTC)
+		fires := dag.UpcomingFires(from, 2)
+		require.Len(t, fires, 2)
+		assert.Equal(t, 1, fires[0].ScheduleIndex)
+		assert.Equal(t, 0, fires[1].ScheduleIndex)
+	})
+
 	t.Run("reports fires in the schedule zone", func(t *testing.T) {
 		t.Parallel()
 

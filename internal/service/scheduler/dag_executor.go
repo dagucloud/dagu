@@ -126,6 +126,7 @@ func (e *DAGExecutor) HandleJob(
 	runID string,
 	triggerType ir.TriggerType,
 	scheduleTime time.Time,
+	params string,
 ) error {
 	dag := entry.DAG
 	profileName := ""
@@ -146,7 +147,7 @@ func (e *DAGExecutor) HandleJob(
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
 		)
-		dag, err := e.prepareDAGForSubprocess(ctx, dag, "")
+		dag, err := e.prepareDAGForSubprocess(ctx, dag, params)
 		if err != nil {
 			return fmt.Errorf("failed to prepare DAG env for enqueue: %w", err)
 		}
@@ -156,6 +157,7 @@ func (e *DAGExecutor) HandleJob(
 		)
 
 		spec := e.subCmdBuilder.Enqueue(dag, launcher.EnqueueOptions{
+			Params:       params,
 			DAGRunID:     runID,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: stringutil.FormatTime(scheduleTime),
@@ -169,7 +171,7 @@ func (e *DAGExecutor) HandleJob(
 	}
 
 	// For all other cases (local execution or non-START operations), use ExecuteDAG
-	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, entry.DefinitionID, "")
+	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, entry.DefinitionID, "", params)
 }
 
 // ExecuteDAG executes or dispatches an already-persisted DAG.
@@ -190,7 +192,7 @@ func (e *DAGExecutor) ExecuteDAG(
 	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), "")
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), "", "")
 }
 
 func (e *DAGExecutor) ExecuteDAGWithAdmission(
@@ -203,7 +205,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	scheduleTime string,
 	admissionReservationToken string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), admissionReservationToken)
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), admissionReservationToken, "")
 }
 
 func (e *DAGExecutor) executeDAG(
@@ -217,6 +219,7 @@ func (e *DAGExecutor) executeDAG(
 	defaultProfileName string,
 	definitionID string,
 	admissionReservationToken string,
+	startParams string,
 ) error {
 	if err := validateDispatchOperation(operation); err != nil {
 		return err
@@ -287,7 +290,7 @@ func (e *DAGExecutor) executeDAG(
 	}
 
 	// Local execution
-	var params any
+	var params any = startParams
 	if previousStatus != nil {
 		params = previousStatus.ParamsList
 	}
@@ -308,6 +311,7 @@ func (e *DAGExecutor) executeDAG(
 
 	case dispatch.DispatchOperationStart:
 		spec := e.subCmdBuilder.Start(dag, launcher.StartOptions{
+			Params:       startParams,
 			DAGRunID:     runID,
 			Quiet:        true,
 			TriggerType:  triggerType.String(),

@@ -101,6 +101,30 @@ steps:
     expect(view.others).toBe(1);
   });
 
+  it('removes the selected duplicate while keeping the override in place', () => {
+    const text = `schedule:
+  - "0 6 * * *"
+  - expression: "0 6 * * *"
+    params:
+      mode: z
+  - "0 6 * * *"
+`;
+    const result = applyEdit(text, {
+      kind: 'setSchedule',
+      expressions: ['0 6 * * *'],
+      removedIndex: 0,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.text).toBe(`schedule:
+  - expression: "0 6 * * *"
+    params:
+      mode: z
+  - "0 6 * * *"
+`);
+    }
+  });
+
   it('changes only start in the map form', () => {
     const text = 'schedule:\n  start: "0 8 * * *"\n  stop: "0 18 * * *"\n';
     const next = set(text, ['0 9 * * *']);

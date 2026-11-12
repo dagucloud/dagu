@@ -42,6 +42,12 @@ func toSchedule(s ir.Schedule) api.Schedule {
 	if len(s.BusinessDays) > 0 {
 		schedule.BusinessDays = ptrOf(append([]int(nil), s.BusinessDays...))
 	}
+	if len(s.Params) > 0 {
+		var overrides map[string]json.RawMessage
+		if err := json.Unmarshal(s.Params, &overrides); err == nil && len(overrides) > 0 {
+			schedule.ParamOverrideCount = ptrOf(len(overrides))
+		}
+	}
 	return schedule
 }
 

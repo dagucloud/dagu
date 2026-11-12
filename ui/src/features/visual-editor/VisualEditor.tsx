@@ -1420,9 +1420,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (closing === 'webhook' && launcherHost) launcherHost.guard(done);
     else done();
   };
-  const setSchedule = (expressions: string[]) => {
+  const setSchedule = (expressions: string[], removedIndex?: number) => {
     if (!canEdit) return;
-    afterEdit(session.apply({ kind: 'setSchedule', expressions }));
+    afterEdit(
+      session.apply({ kind: 'setSchedule', expressions, removedIndex })
+    );
   };
   const toggleYaml = (open?: boolean) => {
     if (!onYamlVisibleChange) return;

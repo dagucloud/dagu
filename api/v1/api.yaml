@@ -15890,6 +15890,10 @@ components:
         calendar:
           type: string
           description: "Calendar whose business days the schedule fires on"
+        paramOverrideCount:
+          type: integer
+          minimum: 1
+          description: "Number of named parameter overrides on this schedule entry"
         businessDays:
           type: array
           description: "Business days of the month the schedule keeps; negative values count from the end. 0 is never listed."

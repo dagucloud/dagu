@@ -961,6 +961,10 @@
           "type": "string",
           "description": "Cron expression or descriptor (e.g. '@daily', '@every 30m') for a recurring schedule entry"
         },
+        "params": {
+          "type": "object",
+          "description": "Literal named parameter overrides for this scheduled run."
+        },
         "profile": {
           "type": "string",
           "minLength": 1,
@@ -1006,6 +1010,10 @@
           "type": "string",
           "format": "date-time",
           "description": "RFC 3339 timestamp with explicit offset and minute precision for a one-off schedule entry"
+        },
+        "params": {
+          "type": "object",
+          "description": "Literal named parameter overrides for this scheduled run."
         },
         "profile": {
           "type": "string",
