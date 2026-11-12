@@ -15676,6 +15676,7 @@ components:
         - "catchup"
         - "file"
         - "restart"
+        - "backfill"
 
     RestartPolicy:
       type: string

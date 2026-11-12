@@ -23970,7 +23970,8 @@ export enum TriggerType {
     retry = "retry",
     catchup = "catchup",
     file = "file",
-    restart = "restart"
+    restart = "restart",
+    backfill = "backfill"
 }
 export enum RestartPolicy {
     always = "always",
