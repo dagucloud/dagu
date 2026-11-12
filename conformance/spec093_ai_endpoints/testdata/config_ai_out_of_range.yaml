@@ -1,0 +1,3 @@
+ai:
+  relay:
+    max_streams_per_run: 0

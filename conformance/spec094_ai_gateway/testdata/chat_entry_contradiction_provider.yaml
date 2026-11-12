@@ -1,0 +1,11 @@
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      prompt: Say hello.
+      model:
+        - name: first
+          provider: local
+        - name: second
+          endpoint: test-endpoint
+          provider: anthropic

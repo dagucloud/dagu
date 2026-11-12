@@ -1,0 +1,10 @@
+description: An agent step that names the endpoint nope, for the tests of the gateway of Spec 094.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: nope
+        model: claude-test
+      prompt: Fix the failing test.

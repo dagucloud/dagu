@@ -1,0 +1,6 @@
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint: 5
+      prompt: Say hello.

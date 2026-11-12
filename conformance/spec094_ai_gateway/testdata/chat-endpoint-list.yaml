@@ -1,0 +1,18 @@
+description: A model list. The first entry names an endpoint, and the second entry uses the old method.
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - OLD_METHOD_KEY: ${OLD_METHOD_KEY}
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      prompt: Say hello.
+      model:
+        - name: bad-model
+          endpoint: test-endpoint
+        - name: good-model
+          provider: local
+          base_url: $LLM_BASE_URL
+          api_key_name: OLD_METHOD_KEY

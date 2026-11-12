@@ -1,0 +1,3 @@
+ai:
+  upstream:
+    proxy_url: "http://user:hunter2@proxy.example.com:3128"

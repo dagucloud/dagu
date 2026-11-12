@@ -1,0 +1,23 @@
+description: A chat step with an endpoint and a structured answer.
+working_dir: .
+steps:
+  - id: classify
+    action: chat.completion
+    stdout: result.out
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Classify this note, please refund 12.50.
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [refund, complaint, question]
+        amount:
+          type: number
+      required: [category]
+  - id: record
+    depends: classify
+    run: echo "category=${steps.classify.outputs.category}"

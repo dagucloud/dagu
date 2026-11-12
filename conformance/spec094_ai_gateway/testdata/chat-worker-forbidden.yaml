@@ -1,0 +1,11 @@
+description: A chat step on a general worker with an endpoint that the allow list does not give to this DAG.
+worker_selector:
+  zone: eu
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say hello.

@@ -1,0 +1,13 @@
+description: A local run of an agent step with an endpoint (Spec 094, "Local mode").
+working_dir: .
+env:
+  - AITEST_DIR: ${AITEST_DIR}
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the failing test.

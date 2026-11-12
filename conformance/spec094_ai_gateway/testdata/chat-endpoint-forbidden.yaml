@@ -1,0 +1,11 @@
+description: A chat step with an endpoint that the allow list does not give to this DAG.
+working_dir: .
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say hello.

@@ -1,0 +1,16 @@
+description: A chat step with two model entries on one endpoint, for the model check of Spec 093.
+working_dir: .
+env:
+  - MODEL: ${MODEL}
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      stream: false
+      prompt: Say hello.
+      model:
+        - name: claude-a
+          endpoint: test-endpoint
+        - name: ${MODEL}
+          endpoint: test-endpoint

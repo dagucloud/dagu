@@ -1,0 +1,11 @@
+description: A chat step on a general worker with a listed model, for the model check of Spec 093.
+worker_selector:
+  zone: eu
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-a
+      prompt: Say hello.

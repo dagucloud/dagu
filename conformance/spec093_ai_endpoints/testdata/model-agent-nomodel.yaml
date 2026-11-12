@@ -1,0 +1,12 @@
+description: An agent step with an endpoint and no model. The DAG does not load (Spec 091).
+working_dir: .
+env:
+  - AITEST_DIR: ${AITEST_DIR}
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+      prompt: Fix the failing test.
