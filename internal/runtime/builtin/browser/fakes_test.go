@@ -86,7 +86,10 @@ type fakeEngine struct {
 	onAct func()
 	// actDialogs are the dialogs the next act opens and the browser answers.
 	actDialogs []dialog
-	dialogs    []dialog
+	// lateDialogs are the dialogs the page opens, and the browser answers,
+	// during the next wait that allows downloads to begin.
+	lateDialogs []dialog
+	dialogs     []dialog
 	// actBlocked counts the requests per host allowed_domains blocks while
 	// the next act runs.
 	actBlocked map[string]int
@@ -509,6 +512,8 @@ func (e *fakeEngine) WaitForDownloads(_ context.Context, grace time.Duration, ti
 	if grace > 0 {
 		downloads = append(downloads, e.lateDownloads...)
 		e.lateDownloads = nil
+		e.dialogs = append(e.dialogs, e.lateDialogs...)
+		e.lateDialogs = nil
 	}
 	return downloads, e.downloadErr
 }
