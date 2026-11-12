@@ -214,6 +214,32 @@ func RecentScheduleFires(schedules []Schedule, profile string, loc *time.Locatio
 	return fires
 }
 
+// ScheduleFiresBetween returns the fires of the recurring start schedules
+// for the profile in [from, to], earliest first, each in the zone of the
+// schedule that fires. It returns at most limit fires and reports whether
+// more fall in the range.
+func ScheduleFiresBetween(schedules []Schedule, profile string, loc *time.Location, from, to time.Time, limit int) ([]time.Time, bool) {
+	if loc == nil {
+		loc = time.Local
+	}
+	active := activeWindowSchedules(schedules, profile)
+	var fires []time.Time
+	for at := nextFire(active, loc, from.Add(-time.Second)); !at.IsZero() && !at.After(to); at = nextFire(active, loc, at) {
+		if at.Before(from) {
+			continue
+		}
+		if len(fires) == limit {
+			return fires, true
+		}
+		zone := loc
+		if i := slices.IndexFunc(active, func(s Schedule) bool { return firesAt(s, at.In(loc)) }); i >= 0 {
+			zone = scheduleZone(active[i], loc)
+		}
+		fires = append(fires, at.In(zone))
+	}
+	return fires, false
+}
+
 func latestFire(active []Schedule, loc *time.Location, now time.Time) time.Time {
 	cutoff := now.In(loc).Truncate(time.Minute).Add(time.Minute)
 	return windowOf(active, loc, cutoff).Start

@@ -221,3 +221,34 @@ func TestRecentScheduleFires(t *testing.T) {
 	}, fires)
 	assert.Equal(t, "Asia/Tokyo", fires[0].Location().String())
 }
+
+func TestScheduleFiresBetween(t *testing.T) {
+	t.Parallel()
+
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+	daily, err := ir.NewCronSchedule("CRON_TZ=Asia/Tokyo 0 2 * * *")
+	require.NoError(t, err)
+	sameTime, err := ir.NewCronSchedule("CRON_TZ=Asia/Tokyo 0 2 * * *")
+	require.NoError(t, err)
+	oneOff, err := ir.NewOneOffSchedule("2026-10-02T01:00:00Z")
+	require.NoError(t, err)
+	schedules := []ir.Schedule{daily, sameTime, oneOff}
+	from := time.Date(2026, 10, 2, 2, 0, 0, 0, tokyo)
+	to := time.Date(2026, 10, 4, 2, 0, 0, 0, tokyo)
+
+	// Both bounds are inclusive, schedules firing together yield one slot,
+	// and a one-off fire is no slot.
+	fires, more := ir.ScheduleFiresBetween(schedules, "", time.UTC, from, to, 10)
+	assert.False(t, more)
+	assert.Equal(t, []time.Time{from, from.AddDate(0, 0, 1), to}, fires)
+	assert.Equal(t, "Asia/Tokyo", fires[0].Location().String())
+
+	fires, more = ir.ScheduleFiresBetween(schedules, "", time.UTC, from, to, 2)
+	assert.True(t, more)
+	assert.Len(t, fires, 2)
+
+	fires, more = ir.ScheduleFiresBetween(schedules, "", time.UTC, from.Add(time.Minute), to.Add(-time.Minute), 10)
+	assert.False(t, more)
+	assert.Equal(t, []time.Time{from.AddDate(0, 0, 1)}, fires)
+}
