@@ -26,6 +26,7 @@ type DAGRunRepository struct {
 	now               func() time.Time
 	removalEnqueuer   DAGRunRemovalEnqueuer
 	ephemeral         DAGRunStore
+	slotIndex         SlotIndex
 }
 
 // NewDAGRunRepository creates a repository backed by store.
@@ -49,6 +50,7 @@ func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, option
 		now:               now,
 		removalEnqueuer:   options.RemovalEnqueuer,
 		ephemeral:         options.EphemeralStore,
+		slotIndex:         options.SlotIndex,
 	}
 }
 
@@ -81,7 +83,12 @@ func (r *DAGRunRepository) CreateAttempt(
 	if err != nil {
 		return nil, err
 	}
-	return newEventingAttempt(attempt, dag, ephemeral), nil
+	wrapped := newEventingAttempt(attempt, dag, ephemeral)
+	// Only a new top-level run is a run of its slot; a retry is the same run.
+	if r.slotIndex != nil && !ephemeral && !options.Retry && options.RootDAGRun.Zero() {
+		wrapped.(*eventingAttempt).slots = &slotRecorder{index: r.slotIndex, location: r.location}
+	}
+	return wrapped, nil
 }
 
 // RecentStatuses returns the newest readable status for recent DAG runs.
@@ -274,11 +281,11 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 			return nil, nil
 		}
 		request.KeepRuns = *options.RetentionRuns
-		return r.removeOldDAGRuns(ctx, request)
+		return r.removeOldDAGRuns(ctx, request, options.DropSlots)
 	}
 	if options.OlderThan != nil {
 		request.OlderThan = NewUTC(*options.OlderThan)
-		return r.removeOldDAGRuns(ctx, request)
+		return r.removeOldDAGRuns(ctx, request, options.DropSlots)
 	}
 	if retentionDays < 0 {
 		logger.Warn(ctx, "Negative retentionDays, no DAG runs will be removed",
@@ -286,23 +293,28 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 		return nil, nil
 	}
 	request.OlderThan = NewUTC(r.now().AddDate(0, 0, -retentionDays))
-	return r.removeOldDAGRuns(ctx, request)
+	return r.removeOldDAGRuns(ctx, request, options.DropSlots)
 }
 
-func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunRetentionRequest) ([]string, error) {
-	if !request.DryRun && r.removalEnqueuer != nil {
+func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunRetentionRequest, dropSlots bool) ([]string, error) {
+	// Each run is removed on its own when something must be done for it
+	// first: its agent sessions queued for cleanup, or its slot recorded.
+	if !request.DryRun && (r.removalEnqueuer != nil || r.slotIndex != nil) {
 		preview := request
 		preview.DryRun = true
 		refs, err := r.store.RemoveOldDAGRuns(ctx, preview)
 		if err != nil {
 			return nil, err
 		}
-		if err := r.enqueueDAGRunRemovals(ctx, refs); err != nil {
-			return nil, err
+		if r.removalEnqueuer != nil {
+			if err := r.enqueueDAGRunRemovals(ctx, refs); err != nil {
+				return nil, err
+			}
 		}
 		removed := make([]ir.DAGRunRef, 0, len(refs))
 		var removeErrs []error
 		for _, ref := range refs {
+			removal := r.prepareSlotRemoval(ctx, ref, dropSlots)
 			err := r.store.RemoveDAGRun(ctx, DAGRunRemoveRequest{DAGRun: ref, RejectActive: true})
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrDAGRunActive) {
 				continue
@@ -311,6 +323,7 @@ func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunR
 				removeErrs = append(removeErrs, err)
 				continue
 			}
+			removal.done(ctx)
 			removed = append(removed, ref)
 		}
 		return r.finishDAGRunRemovals(ctx, removed, errors.Join(removeErrs...))
@@ -355,6 +368,9 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 		}
 	}
 	store, _ := r.storeHolding(ctx, ref)
+	// Every caller deletes the run outright, so it stops counting for its
+	// slot: an operator's delete, a rollback, or a dequeue before it ran.
+	removal := r.prepareSlotRemoval(ctx, ref, true)
 	err := store.RemoveDAGRun(ctx, DAGRunRemoveRequest{
 		DAGRun:            ref,
 		RejectActive:      options.RejectActive,
@@ -362,6 +378,9 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 	})
 	if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return err
+	}
+	if err == nil {
+		removal.done(ctx)
 	}
 	workDirRef, normalizeErr := normalizeWorkDirRef(dagrun.WorkDirRef{DAGRun: ref})
 	if normalizeErr != nil {

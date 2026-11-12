@@ -102,6 +102,24 @@ func PreviousFire(schedules []Schedule, t time.Time) time.Time {
 	return latest
 }
 
+// FiringScheduleExpression returns the expression of the first recurring
+// schedule whose cron expression fires at t, or empty when none does. A
+// schedule without its own time zone fires in loc. A business calendar is
+// ignored, so a schedule read back unbound from a run snapshot is still found.
+func FiringScheduleExpression(schedules []Schedule, loc *time.Location, t time.Time) string {
+	for _, sched := range schedules {
+		if !sched.IsCron() {
+			continue
+		}
+		base, ok := sched.baseCron()
+		at := t.In(scheduleZone(sched, loc))
+		if ok && base.Next(at.Add(-time.Second)).Equal(at) {
+			return sched.Expression
+		}
+	}
+	return ""
+}
+
 // previousFire returns the schedule's latest fire strictly before slot, or
 // zero when none falls within the longest lookback.
 func previousFire(sched Schedule, slot time.Time) time.Time {
