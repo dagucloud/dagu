@@ -1,0 +1,11 @@
+working_dir: .
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say hello.
+      max_tool_iterations: 0

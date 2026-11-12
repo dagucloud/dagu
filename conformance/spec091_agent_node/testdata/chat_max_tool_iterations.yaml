@@ -1,0 +1,23 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: ask.out
+    with:
+      provider: local
+      model: api-model
+      prompt: "Look up the patch."
+      max_tool_iterations: 2
+      stream: false
+      base_url: $LLM_BASE_URL
+      dags:
+        - name: lookup
+---
+name: lookup
+description: Look up a patch
+params: [PATCH]
+steps:
+  - command: echo "patch=$PATCH"
+    output: INFO

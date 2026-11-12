@@ -1,0 +1,14 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    stderr: review.err
+    with:
+      provider: codex
+      model: gpt-x
+      prompt: "Say hello."

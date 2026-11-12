@@ -1,0 +1,39 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - PATCH_ID: p-42
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: "Review the patch ${PATCH_ID}."
+      system: Be brief.
+      max_tool_iterations: 7
+      tools:
+        builtin:
+          read: true
+          search: true
+          shell:
+            allow: ['git diff *']
+            deny: ['git push *']
+        mcp:
+          - name: docs
+            url: http://127.0.0.1:1/mcp
+            headers:
+              Authorization: Bearer abc
+            allow: [search]
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict:
+          type: string
+          enum: [accept, reject]
+      required: [verdict]

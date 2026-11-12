@@ -1,0 +1,7 @@
+{
+  "calls": [
+    { "tool": "lookup", "arguments": { "CUSTOMER_ID": "c-1" } },
+    { "tool": "lookup", "arguments": { "CUSTOMER_ID": "c-2" } },
+    { "tool": "lookup", "arguments": { "CUSTOMER_ID": "c-3" } }
+  ]
+}

@@ -1,0 +1,6 @@
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      prompt: "Say hello."

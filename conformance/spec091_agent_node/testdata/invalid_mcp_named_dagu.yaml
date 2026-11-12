@@ -1,0 +1,22 @@
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: hi
+      dags:
+        - name: lookup
+      tools:
+        mcp:
+          - name: dagu
+            url: http://127.0.0.1:1/mcp
+            allow: [search]
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "customer=$CUSTOMER_ID"

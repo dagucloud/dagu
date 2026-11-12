@@ -1,0 +1,20 @@
+working_dir: .
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Help the customer.
+      tools:
+        dags:
+          - name: lookup
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "customer=$CUSTOMER_ID"
+    output: INFO

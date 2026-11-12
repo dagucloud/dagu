@@ -1,0 +1,12 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: codex
+      prompt: "Say hello."
+      max_tool_calls: 3

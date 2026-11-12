@@ -1,0 +1,17 @@
+steps:
+  - id: review
+    action: agent.run
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        item:
+          type: object
+          properties:
+            a: { type: string }
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: hi

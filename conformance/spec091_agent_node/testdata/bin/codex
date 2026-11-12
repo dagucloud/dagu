@@ -1,0 +1,9 @@
+#!/bin/sh
+# A fake codex CLI for the conformance tests of Spec 091. It records its argv
+# and prints one line.
+dir="${FAKE_CLAUDE_DIR:?FAKE_CLAUDE_DIR is required}"
+: > "$dir/codex.argv"
+for arg in "$@"; do
+  printf '%s\0' "$arg" >> "$dir/codex.argv"
+done
+echo "codex says hi"

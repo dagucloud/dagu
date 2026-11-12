@@ -1,0 +1,23 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - PATCH_ID: p-42
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: "Say hello."
+  - id: show
+    depends: review
+    # The outputs of an untrusted step reach the command through env (Spec 092).
+    env:
+      - CALLS: ${steps.review.outputs.tool_calls}
+    run: printf 'calls=%s\n' "$CALLS"
+    stdout: show.out

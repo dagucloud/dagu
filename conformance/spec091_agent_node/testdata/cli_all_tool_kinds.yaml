@@ -1,0 +1,63 @@
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+  - CUSTOMER: c-42
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    stderr: review.err
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Help the customer c-42.
+      max_tool_calls: 20
+      dags:
+        - name: lookup-ticket
+          params:
+            CUSTOMER_ID: ${CUSTOMER}
+            QUESTION:
+              from_ai:
+                description: The question of the customer
+        - name: ops_notify
+      tools:
+        mcp:
+          - name: docs
+            url: http://127.0.0.1:1/mcp
+            headers:
+              Authorization: Bearer abc
+            allow: [search]
+        builtin:
+          read: true
+          search: true
+          shell:
+            allow: ['git diff *']
+  - id: show
+    depends: review
+    env:
+      - CALLS: ${steps.review.outputs.tool_calls}
+    run: printf 'calls=%s\n' "$CALLS"
+    stdout: show.out
+---
+name: ops_notify
+description: Post a message on the ops channel
+params:
+  - name: text
+    type: string
+    description: Message to post
+steps:
+  - command: echo "$text"
+---
+name: lookup-ticket
+description: Look up the ticket of a customer
+params:
+  - name: CUSTOMER_ID
+    type: string
+  - name: QUESTION
+    type: string
+steps:
+  - command: echo "ticket of $CUSTOMER_ID about $QUESTION"
+    output: TICKET

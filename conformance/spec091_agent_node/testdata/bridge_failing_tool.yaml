@@ -1,0 +1,23 @@
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    stderr: review.err
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Help the customer.
+      dags:
+        - name: broken
+---
+name: broken
+description: A tool whose child run fails
+params: [CUSTOMER_ID]
+steps:
+  - command: exit 3

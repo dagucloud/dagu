@@ -1,0 +1,123 @@
+#!/bin/sh
+# A fake claude CLI for the conformance tests of Spec 091.
+#
+# It records its argv, prints a canned stream-json stream and exits with a
+# canned code. The test sets these variables:
+#   FAKE_CLAUDE_DIR       a directory that the script writes to
+#   FAKE_CLAUDE_SCENARIO  the stream to print (see the cases below)
+#
+# The scenarios demo, loop, loop_stuck, endpoint and isolation are for examples/agent-worker-demo.
+# They need no FAKE_CLAUDE_DIR. They run demo_agent.py, which edits the files of the current
+# directory. The scenario isolation probes the sandbox. The scenarios loop and loop_stuck
+# play the rounds of the verify loop.
+case "${FAKE_CLAUDE_SCENARIO:-}" in
+  demo | loop | loop_stuck | endpoint | isolation)
+    exec python3 "$(dirname "$0")/demo_agent.py" "$@"
+    ;;
+esac
+dir="${FAKE_CLAUDE_DIR:?FAKE_CLAUDE_DIR is required}"
+scenario="${FAKE_CLAUDE_SCENARIO:-ok}"
+
+n=$(($(cat "$dir/count" 2>/dev/null || echo 0) + 1))
+echo "$n" > "$dir/count"
+
+# One argument for each NUL byte of argv.<n>.
+: > "$dir/argv.$n"
+for arg in "$@"; do
+  printf '%s\0' "$arg" >> "$dir/argv.$n"
+done
+
+# Keep a copy of the MCP config and of the directory of --add-dir, because Dagu
+# deletes them after the attempt.
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--mcp-config" ]; then
+    cp "$arg" "$dir/mcp.$n.json"
+    ls -ln "$arg" | cut -c1-10 > "$dir/mcp.$n.mode"
+  fi
+  if [ "$previous" = "--add-dir" ]; then
+    cp -R "$arg" "$dir/adddir.$n"
+    printf '%s' "$arg" > "$dir/adddir.$n.path"
+  fi
+  previous="$arg"
+done
+
+# A scenario that starts with bridge_ talks to the tool bridge as the CLI does.
+# The client is a Python script with the standard library only. It reads the plan
+# plans/<scenario>.json, records what it saw, and prints the stream.
+case "$scenario" in
+  bridge_*)
+    exec python3 "$(dirname "$0")/mcp_client.py" "$dir" "$n" "$(dirname "$0")/../plans/$scenario.json"
+    ;;
+esac
+
+init='{"type":"system","subtype":"init","model":"sonnet","mcp_servers":[]}'
+use_grep='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","id":"t1","input":{}},{"type":"tool_use","name":"mcp__docs__search","id":"t2","input":{}}]}}'
+use_bash='{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"t3","input":{}},{"type":"tool_use","name":"StructuredOutput","id":"t4","input":{}}]}}'
+usage='"modelUsage":{"sonnet":{"inputTokens":120,"outputTokens":30,"cacheReadInputTokens":7,"cacheCreationInputTokens":3,"costUSD":9.99}},"total_cost_usd":9.99'
+
+case "$scenario" in
+  ok)
+    echo "$init"
+    echo "$use_grep"
+    echo "$use_bash"
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"done","structured_output":{"verdict":"accept"},'"$usage"'}'
+    ;;
+  quiet)
+    echo "$init"
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"done","structured_output":{"verdict":"accept"},'"$usage"'}'
+    ;;
+  text)
+    echo "$init"
+    echo 'this line is not JSON and Dagu ignores it'
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"{\"verdict\":\"from the text\"}",'"$usage"'}'
+    ;;
+  duplicate_field)
+    echo "$init"
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"structured_output":{"verdict":"accept","verdict":"reject"}}'
+    ;;
+  unknown_field)
+    echo "$init"
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"structured_output":{"verdict":"accept","extra":1}}'
+    ;;
+  no_structured_output)
+    echo "$init"
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"{\"verdict\":\"accept\"}"}'
+    ;;
+  auth)
+    echo "$init"
+    echo '{"type":"assistant","error":"authentication_failed","message":{"content":[]}}'
+    echo '{"type":"result","subtype":"success","is_error":true,"num_turns":1,"result":"Please run /login"}'
+    exit 1
+    ;;
+  rate_limit)
+    echo "$init"
+    echo '{"type":"assistant","error":"rate_limit","message":{"content":[]}}'
+    echo '{"type":"result","subtype":"success","is_error":true,"num_turns":1,"result":"You'"'"'ve hit your session limit"}'
+    exit 1
+    ;;
+  rate_limit_then_ok)
+    # The first attempt hits the limit. The next one succeeds.
+    if [ "$n" -eq 1 ]; then
+      echo "$init"
+      echo '{"type":"assistant","error":"rate_limit","message":{"content":[]}}'
+      echo '{"type":"result","subtype":"success","is_error":true,"num_turns":1,"result":"limit"}'
+      exit 1
+    fi
+    echo "$init"
+    echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"done after the limit","structured_output":{"verdict":"accept"},'"$usage"'}'
+    ;;
+  max_turns)
+    echo "$init"
+    echo '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3}'
+    exit 1
+    ;;
+  no_result)
+    echo "$init"
+    exit 2
+    ;;
+  *)
+    echo "unknown scenario $scenario" >&2
+    exit 64
+    ;;
+esac
