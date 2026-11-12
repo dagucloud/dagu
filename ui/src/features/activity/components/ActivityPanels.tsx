@@ -14,6 +14,7 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
+import { ServiceDAGFailure } from '@/features/service-dags/components/ServiceDAGState';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
 import { PeekLink } from '@/features/peek/PeekLink';
 import { peekPageURL } from '@/features/peek/peekParams';
@@ -270,11 +271,16 @@ export function NeedsAttention({
                 >
                   {item.name}
                 </RunLink>
-                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                {/* On a phone the description takes a line of its own, as
+                    there is no room beside the name. */}
+                <span className="order-last min-w-0 basis-full text-sm text-muted-foreground sm:order-none sm:flex-1 sm:basis-0 sm:truncate">
                   {item.kind === 'failing' &&
                     (item.run.failedStep
                       ? `${item.run.failedStep}: ${item.run.error ?? ''}`
                       : (item.run.error ?? ''))}
+                  {item.kind === 'serviceFailing' && (
+                    <ServiceDAGFailure dag={item.dag} />
+                  )}
                   {item.kind === 'waiting' && ts('Waiting for input')}
                   {item.kind === 'slow' && (
                     <Ticker intervalMs={1000}>

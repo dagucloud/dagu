@@ -9,6 +9,7 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import QueueList from '../../features/queues/components/QueueList';
+import { useServiceDAGs } from '../../features/service-dags/hooks/useServiceDAGs';
 import { useQuery } from '../../hooks/api';
 import { useQueuesListSSE } from '../../hooks/useQueuesListSSE';
 import {
@@ -106,6 +107,7 @@ function Queues() {
     sseFallbackOptions(queuesSSE, 3000)
   );
   useSSECacheSync(queuesSSE, mutate);
+  const { serviceDAGs } = useServiceDAGs();
 
   async function handleRefresh(): Promise<void> {
     await mutate();
@@ -125,6 +127,14 @@ function Queues() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.queues, searchText]);
+  // Only a service DAG that owns its queue gets a card, and that queue has the
+  // name of the DAG. A server older than the queue field leaves it out.
+  const filteredServiceDAGs = React.useMemo(() => {
+    const search = searchText.toLowerCase();
+    return serviceDAGs.filter((dag) =>
+      dag.name.toLowerCase().includes(search)
+    );
+  }, [serviceDAGs, searchText]);
 
   if (error) {
     const errorData = error as components['schemas']['Error'];
@@ -179,7 +189,11 @@ function Queues() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto pr-1">
-        <QueueList queues={filteredQueues} isLoading={isLoading && !data} />
+        <QueueList
+          queues={filteredQueues}
+          isLoading={isLoading && !data}
+          serviceDAGs={filteredServiceDAGs}
+        />
       </div>
     </div>
   );

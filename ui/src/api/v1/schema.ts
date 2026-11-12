@@ -7636,6 +7636,7 @@ export interface components {
          * @description What a service DAG does, as its latest run shows it:
          *     - pending: no run is alive yet, or the latest run waits in the queue.
          *     - running: a run is alive.
+         *     - waiting: a run is alive but waits for a person, such as an approval.
          *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
          *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
          *     - suspended: the DAG gets no new run.
@@ -7644,6 +7645,14 @@ export interface components {
          * @enum {string}
          */
         ServiceDAGState: ServiceDAGState;
+        /**
+         * @description Why the next run of a service DAG does not start, set with the states restarting and failing in place of nextRestartAt:
+         *     - paused: an operator paused the scheduler.
+         *     - noScheduler: no scheduler is running.
+         *
+         * @enum {string}
+         */
+        ServiceDAGRestartHold: ServiceDAGRestartHold;
         /** @description The latest run of a service DAG */
         ServiceDAGRun: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -7669,6 +7678,14 @@ export interface components {
             restartPolicy: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. */
             restartWaitSec: number;
+            /** @description Queue that the runs of the DAG enter: the queue the DAG sets, or its name when it sets none. */
+            queue: string;
+            /**
+             * Format: date-time
+             * @description When the scheduler starts the next run: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. Set only with the states restarting and failing, and not with restartHold.
+             */
+            nextRestartAt?: string;
+            restartHold?: components["schemas"]["ServiceDAGRestartHold"];
             state: components["schemas"]["ServiceDAGState"];
             /** @description Whether the DAG is suspended */
             suspended: boolean;
@@ -24173,10 +24190,15 @@ export enum RepeatMode {
 export enum ServiceDAGState {
     pending = "pending",
     running = "running",
+    waiting = "waiting",
     restarting = "restarting",
     failing = "failing",
     suspended = "suspended",
     stopped = "stopped"
+}
+export enum ServiceDAGRestartHold {
+    paused = "paused",
+    noScheduler = "noScheduler"
 }
 export enum QueueType {
     global = "global",

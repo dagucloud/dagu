@@ -125,6 +125,7 @@ type Dependencies struct {
 	CoordinatorClient    dispatch.Dispatcher
 	SchedulerStateStore  schedulerstate.Store
 	SchedulerPauseStore  schedulerstate.PauseStore
+	RestartBackoffStore  schedulerstate.RestartBackoffStore
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
 	DispatchTaskStore    dispatch.DispatchTaskStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
@@ -188,6 +189,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		return nil, err
 	}
 	scheduler.eventCollector = deps.EventCollector
+	scheduler.restartScanner.cfg.BackoffStore = deps.RestartBackoffStore
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
