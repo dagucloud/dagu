@@ -143,9 +143,17 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A dry run starts nothing and prints the plan a submit would then record.
 - Planning and recording hold a lock per DAG, so two submits never select the
   same slot.
+- The plan states the concurrency, which is the lower of `--max-concurrency`
+  and the limit of the DAG's queue. It also states the queue's limit. When
+  the DAG has recent successful runs, the plan gives an estimate: the median
+  duration of up to 20 of those runs, times the number of rounds the runs
+  take at that concurrency.
 - The plan warns when no scheduler is running, when the DAG is suspended,
-  which `handler_on` steps will run once per slot, and how many slots run
-  because the schedule's cadence changed since their runs.
+  when the queue's limit lowers the concurrency, when the backfill can fill
+  the queue so live runs may wait behind an executing backfill run (with the
+  median duration when known), which `handler_on` steps will run once per
+  slot, and how many slots run because the schedule's cadence changed since
+  their runs.
 
 ### Running a backfill
 
@@ -173,6 +181,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A queued or running backfill run does not make the scheduler skip a live
   slot because the DAG is queued or running, and does not count for
   `skip_if_successful`. The live slot's run is queued instead.
+- A DAG's run history, in the API and its live feed, leaves out backfill
+  runs unless asked for them with `includeBackfill`, so a long backfill does
+  not push the live runs out of a page. A DAG whose only runs are backfill
+  runs lists them.
 - `mail_on` and notification routes do not fire for a backfill run, except
   for a run waiting for a person. A backfill run neither opens nor resolves
   an incident. `handler_on` steps still run.
@@ -182,6 +194,11 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
   shows the newest of them.
+- A DAG's latest backfill is its newest open backfill. Without one, it is
+  the DAG's newest backfill that ended `failed`, while a slot that backfill
+  failed has not succeeded since. `GET /api/v1/dags/{fileName}` returns it
+  as `latestBackfill`. `dagu status <DAG>` without `--run-id` prints it
+  after the latest run, except in a remote context.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's params and
   profile, and has its slot's scheduled time and window. Its
@@ -202,17 +219,26 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 
 ```sh
 dagu backfill ls [<DAG>]
-dagu backfill status <backfill id> [--format text|json]
+dagu backfill status <backfill id> [--watch] [--format text|json]
 ```
 
 - `ls` lists the backfills of every DAG, or of one, oldest first, with their
   status and number of slots.
 - `status` shows a backfill's status and each slot's state: `pending`,
-  `queued`, `running`, `waiting`, `succeeded`, `failed`, `skipped`, or
-  `not run`, with the slot's run ID once queued.
+  `queued`, `running`, `waiting`, `succeeded`, `failed`, `skipped`,
+  `not run`, or `cancelled`, with the slot's run ID once queued.
 - An open backfill's status is `running`, or `waiting for scheduler` when no
   scheduler runs. An ended backfill's status is `succeeded`, `failed`, or
   `cancelled`.
+- `status` also says why an open backfill makes no progress. A run waiting
+  for a person gives `Blocked: the run of slot <slot> is waiting for a
+  person`. Otherwise, the backfill's oldest queued run gives `Waiting: queue
+  at limit, <n> runs ahead` when the queue runs its limit, `Waiting: <n> runs
+  ahead in the queue`, or `Waiting: next in the queue`.
+- `status --watch` prints a line each time the backfill's progress changes,
+  then the status when the backfill ends. It exits 0 only when the backfill
+  succeeded. With `--format json`, the progress lines go to stderr and stdout
+  holds only the final status.
 
 ### Cancelling and resuming
 
@@ -234,6 +260,26 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   `--on-failure` replace the backfill's.
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
   run prints the plan the resume then runs. The backfill keeps its ID.
+
+### API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/dags/{fileName}/backfills` | Plan and submit, with the options of `dagu backfill start`. `dryRun` returns the plan only. |
+| `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`. |
+| `GET /api/v1/backfills` | Backfills, oldest first, of every DAG or of `dag`. |
+| `GET /api/v1/backfills/{id}` | A backfill's status, the number of slots in each state, and `waiting`, the reason `status` gives. |
+| `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |
+| `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
+| `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
+
+- A plan carries the number of slots each `rerun` value would run and a
+  `revision`. A submit or resume that sends a `revision` the plan no longer
+  has starts nothing and answers 409 with the new plan.
+- Submitting, cancelling, and resuming need permission to run DAGs and are
+  recorded in the audit log.
+- A request with invalid times or options answers 400, an unknown DAG or
+  backfill 404, and cancelling an ended backfill 409.
 
 ## Configuration
 

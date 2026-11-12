@@ -532,3 +532,45 @@ func TestLatestRunSkipsBackfillRuns(t *testing.T) {
 	require.Len(t, statuses, 1)
 	assert.Equal(t, "backfill-2", statuses[0].DAGRunID)
 }
+
+// A DAG's history page leaves out backfill runs, so a long backfill does not
+// push the live runs out of it, unless the DAG has no other runs; then the
+// pages that follow list them too.
+func TestRecentStatusesPageLeavesOutBackfillRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backfillRun := func(f slotFixture, runID string) {
+		t.Helper()
+		status := scheduledStatus(ir.Succeeded, slotOct1, ir.TriggerTypeBackfill)
+		status.BackfillID = "bf123456"
+		f.writeRun(t, runID, persis.DAGRunCreateAttemptOptions{}, status)
+	}
+	ids := func(page persis.DAGRunStatusPage) []string {
+		var out []string
+		for _, status := range page.Items {
+			out = append(out, status.DAGRunID)
+		}
+		return out
+	}
+
+	only := newSlotFixture(t)
+	backfillRun(only, "backfill-1")
+	backfillRun(only, "backfill-2")
+	first, err := only.repository.RecentStatusesPage(ctx, only.dag.Name, persis.RecentStatusesPageOptions{Limit: 1, ExcludeBackfill: true})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"backfill-2"}, ids(first))
+	require.NotEmpty(t, first.NextCursor)
+	second, err := only.repository.RecentStatusesPage(ctx, only.dag.Name, persis.RecentStatusesPageOptions{Limit: 1, Cursor: first.NextCursor, ExcludeBackfill: true})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"backfill-1"}, ids(second))
+
+	mixed := newSlotFixture(t)
+	mixed.writeRun(t, "live", persis.DAGRunCreateAttemptOptions{}, scheduledStatus(ir.Succeeded, slotOct2, ir.TriggerTypeScheduler))
+	backfillRun(mixed, "backfill-1")
+	page, err := mixed.repository.RecentStatusesPage(ctx, mixed.dag.Name, persis.RecentStatusesPageOptions{Limit: 10, ExcludeBackfill: true})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"live"}, ids(page))
+	page, err = mixed.repository.RecentStatusesPage(ctx, mixed.dag.Name, persis.RecentStatusesPageOptions{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"backfill-1", "live"}, ids(page))
+}

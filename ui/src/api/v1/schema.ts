@@ -409,6 +409,143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/backfills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan and submit a backfill
+         * @description Plans a backfill over a range of past slots, or named slots, and records it unless dryRun is set. The scheduler then queues one run per slot that needs one, oldest first. Submitting the same backfill while it is open returns it.
+         */
+        post: operations["submitBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a DAG's schedule slots and their state
+         * @description Lists the fire times of the DAG's schedules in a range, each with the state its history gives it.
+         */
+        get: operations["listDAGSlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List backfills
+         * @description Lists backfills, oldest first, of every DAG or of one.
+         */
+        get: operations["listBackfills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a backfill */
+        get: operations["getBackfill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the slots of a backfill
+         * @description Lists a backfill's slots, oldest first, with their state and run, a page at a time.
+         */
+        get: operations["listBackfillSlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a backfill
+         * @description Ends an open backfill. Its queued runs are withdrawn and the slots it has not reached are cancelled. Running runs finish unless stopRunning is set.
+         */
+        post: operations["cancelBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume a backfill
+         * @description Plans again the slots of a backfill that have not succeeded, with the DAG's current definition, and runs them with new runs. On an open backfill the queued runs are withdrawn first.
+         */
+        post: operations["resumeBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/dag-runs": {
         parameters: {
             query?: never;
@@ -4832,6 +4969,144 @@ export interface components {
             /** @description Whether this request durably queued the DAG-run retry */
             queued: boolean;
         };
+        /**
+         * @description Which slots that already have a run a backfill runs again
+         * @enum {string}
+         */
+        BackfillRerun: BackfillRerun;
+        /**
+         * @description What a backfill does after a slot fails
+         * @enum {string}
+         */
+        BackfillOnFailure: BackfillOnFailure;
+        /** @description A backfill over a range of slots, or over named slots */
+        BackfillRequest: {
+            /** @description First slot, inclusive: a date, a time without an offset, or an RFC 3339 time. Required without slots. */
+            from?: string;
+            /** @description Last slot, inclusive. Defaults to now. */
+            to?: string;
+            /** @description Slots to run instead of a range. Excludes from, to, and rerun. */
+            slots?: string[];
+            rerun?: components["schemas"]["BackfillRerun"];
+            /** @description Runs of the backfill allowed at once. Defaults to 1. */
+            maxConcurrency?: number;
+            onFailure?: components["schemas"]["BackfillOnFailure"];
+            /** @description Params for every run */
+            params?: string;
+            /** @description Runtime profile for every run */
+            profile?: string;
+            /**
+             * @description Return the plan without submitting
+             * @default false
+             */
+            dryRun: boolean;
+            /** @description Revision of the plan the caller saw; a changed plan submits nothing */
+            revision?: string;
+        };
+        BackfillPlanSlot: {
+            /** Format: date-time */
+            slot: string;
+            /**
+             * Format: date-time
+             * @description Start of the window the slot owns
+             */
+            windowStart?: string;
+            /**
+             * Format: date-time
+             * @description End of the window the slot owns, its scheduled time
+             */
+            windowEnd: string;
+            /** @enum {string} */
+            action: BackfillPlanSlotAction;
+            /** @description Run a skip relies on */
+            runId?: string;
+            /**
+             * Format: date-time
+             * @description Scheduled time of the run under an earlier schedule that a skip relies on
+             */
+            coveredBy?: string;
+        };
+        BackfillPlan: {
+            dag: string;
+            /** Format: date-time */
+            from?: string;
+            /**
+             * Format: date-time
+             * @description End of the range after clamping to now
+             */
+            to?: string;
+            /** @description The range ended later than now */
+            clamped?: boolean;
+            rerun: components["schemas"]["BackfillRerun"];
+            /** @description Slots each rerun value would run */
+            runCounts: {
+                none: number;
+                failed: number;
+                all: number;
+            };
+            /** @description Slots that run because their nearest run fired under a schedule of another cadence */
+            otherCadence?: number;
+            /** @description Runs of the backfill at once: the lower of its max concurrency and the queue's limit */
+            concurrency: number;
+            /** @description Runs of the DAG's queue at once */
+            queueLimit: number;
+            /** @description How long the plan's runs take, from the median duration of the DAG's recent successful runs. Absent without such runs. */
+            estimateSeconds?: number;
+            revision: string;
+            slots: components["schemas"]["BackfillPlanSlot"][];
+            warnings?: string[];
+        };
+        /** @enum {string} */
+        BackfillStatus: BackfillStatus;
+        /** @enum {string} */
+        BackfillSlotState: BackfillSlotState;
+        BackfillSlot: {
+            /** Format: date-time */
+            slot: string;
+            state: components["schemas"]["BackfillSlotState"];
+            runId?: string;
+        };
+        Backfill: {
+            id: string;
+            dag: string;
+            status: components["schemas"]["BackfillStatus"];
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: date-time */
+            endedAt?: string;
+            actor?: string;
+            /** @description Number of resumes */
+            generation?: number;
+            rerun: components["schemas"]["BackfillRerun"];
+            maxConcurrency: number;
+            onFailure: components["schemas"]["BackfillOnFailure"];
+            slotCount: number;
+            /** @description Slots in each state */
+            counts: {
+                [key: string]: number;
+            };
+            /** @description Why an open backfill makes no progress: a run waits for a person, or its next run waits in the queue. Set only when one backfill is read. */
+            waiting?: string;
+        };
+        /** @description The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since */
+        LatestBackfill: components["schemas"]["Backfill"];
+        BackfillSubmitResponse: {
+            plan: components["schemas"]["BackfillPlan"];
+            backfill?: components["schemas"]["Backfill"];
+            /** @description The backfill was already open with the same options */
+            existing?: boolean;
+        };
+        DAGSlot: {
+            /** Format: date-time */
+            slot: string;
+            /** Format: date-time */
+            windowStart?: string;
+            /** @enum {string} */
+            status: DAGSlotStatus;
+            runId?: string;
+            /** Format: date-time */
+            coveredBy?: string;
+        };
         /** @description Generic error response object */
         Error: {
             code: components["schemas"]["ErrorCode"];
@@ -8748,6 +9023,8 @@ export interface components {
         SearchMatchLimit: number;
         /** @description the name of the DAG file */
         DAGFileName: components["schemas"]["DAGFileName"];
+        /** @description the ID of the backfill */
+        BackfillId: string;
         /** @description name of the calendar */
         CalendarName: components["schemas"]["CalendarName"];
         /** @description name of the DAG */
@@ -10044,6 +10321,7 @@ export interface operations {
                         /** @description List of local DAGs that are part of this DAG */
                         localDags: components["schemas"]["LocalDag"][];
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
+                        latestBackfill?: components["schemas"]["LatestBackfill"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;
                         /** @description Whether the DAG is pinned to the top of the DAG list */
@@ -10417,6 +10695,394 @@ export interface operations {
             };
         };
     };
+    submitBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan, and the backfill when one was recorded or was already open */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The plan changed since the revision the request sent; nothing was submitted and the new plan is returned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDAGSlots: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description First slot, inclusive: a date, a time without an offset, or an RFC 3339 time */
+                from: string;
+                /** @description Last slot, inclusive. Defaults to now. */
+                to?: string;
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The slots of the range */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        slots: components["schemas"]["DAGSlot"][];
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listBackfills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the DAG whose backfills to list */
+                dag?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backfills */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        backfills: components["schemas"]["Backfill"][];
+                    };
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backfill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backfill"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listBackfillSlots: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description List only slots in this state */
+                state?: components["schemas"]["BackfillSlotState"];
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the backfill's slots */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        slots: components["schemas"]["BackfillSlot"][];
+                        /** @description Number of slots that match, over every page */
+                        total: number;
+                    };
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    cancelBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Also stop the backfill's running and waiting runs
+                     * @default false
+                     */
+                    stopRunning?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The cancelled backfill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backfill"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The backfill has already ended */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resumeBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Replaces the backfill's concurrency */
+                    maxConcurrency?: number;
+                    onFailure?: components["schemas"]["BackfillOnFailure"];
+                    /**
+                     * @description Return the plan without resuming
+                     * @default false
+                     */
+                    dryRun?: boolean;
+                    /** @description Revision of the plan the caller saw; a changed plan resumes nothing */
+                    revision?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The plan, and the backfill when it was resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The plan changed since the revision the request sent; the new plan is returned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getDAGDAGRunHistory: {
         parameters: {
             query?: {
@@ -10424,6 +11090,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them. */
                 includeEphemeral?: boolean;
+                /** @description If true, include backfill runs. By default they are left out, so a long backfill does not push the live runs out of the page, unless the DAG has no other runs. */
+                includeBackfill?: boolean;
                 /** @description Maximum number of DAG-runs per page, not counting ephemeral runs */
                 limit?: number;
                 /** @description Opaque cursor for loading the next page of older DAG-runs */
@@ -23818,6 +24486,45 @@ export enum AgentInteractionResponseRequestDecision {
     session = "session",
     reject = "reject",
     skip = "skip"
+}
+export enum BackfillRerun {
+    none = "none",
+    failed = "failed",
+    all = "all"
+}
+export enum BackfillOnFailure {
+    stop = "stop",
+    continue = "continue"
+}
+export enum BackfillPlanSlotAction {
+    run = "run",
+    skip_succeeded = "skip: succeeded",
+    skip_failed = "skip: failed",
+    skip_active = "skip: active"
+}
+export enum BackfillStatus {
+    running = "running",
+    waiting_for_scheduler = "waiting for scheduler",
+    succeeded = "succeeded",
+    failed = "failed",
+    cancelled = "cancelled"
+}
+export enum BackfillSlotState {
+    pending = "pending",
+    queued = "queued",
+    running = "running",
+    waiting = "waiting",
+    succeeded = "succeeded",
+    failed = "failed",
+    skipped = "skipped",
+    not_run = "not run",
+    cancelled = "cancelled"
+}
+export enum DAGSlotStatus {
+    missing = "missing",
+    succeeded = "succeeded",
+    failed = "failed",
+    active = "active"
 }
 export enum ErrorCode {
     forbidden = "forbidden",

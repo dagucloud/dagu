@@ -115,6 +115,7 @@ type WarningInput struct {
 	SchedulerRunning bool
 	Suspended        bool
 	DAG              *ir.DAG
+	Outlook          Outlook
 }
 
 // Warnings lists what an operator should know before starting a plan.
@@ -125,6 +126,16 @@ func (p Plan) Warnings(in WarningInput) []string {
 	}
 	if in.Suspended {
 		warnings = append(warnings, "The DAG is suspended; its backfill runs still run.")
+	}
+	if out := in.Outlook; out.MaxConcurrency > out.Concurrency {
+		warnings = append(warnings, fmt.Sprintf("The queue %s runs %d at once, so the backfill runs %d at a time.", out.QueueName, out.QueueLimit, out.Concurrency))
+	}
+	if out := in.Outlook; out.FillsQueue() && len(p.Runs()) > 0 {
+		if out.RunDuration > 0 {
+			warnings = append(warnings, fmt.Sprintf("Live runs may wait behind an executing backfill run, which typically takes %s.", roughDuration(out.RunDuration)))
+		} else {
+			warnings = append(warnings, "Live runs may wait behind an executing backfill run.")
+		}
 	}
 	if handlers := handlerNames(in.DAG); len(handlers) > 0 {
 		warnings = append(warnings, fmt.Sprintf("handler_on steps run once per slot: %s.", strings.Join(handlers, ", ")))

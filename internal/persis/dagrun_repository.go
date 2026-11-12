@@ -170,31 +170,18 @@ func (r *DAGRunRepository) LatestStatuses(ctx context.Context, query DAGRunLates
 	return statuses, nil
 }
 
-// latestLivePageSize is how many runs a search for a DAG's newest run that
-// is not a backfill run reads at a time.
-const latestLivePageSize = 200
-
 // latestLiveStatus returns the newest top-level run matching options that is
 // not a backfill run, or nil when there is none. A backfill of old slots must
 // not decide how a DAG's live state reads.
 func (r *DAGRunRepository) latestLiveStatus(ctx context.Context, options DAGRunListOptions) (*ir.DAGRunStatus, error) {
 	options.AllHistory = options.From.IsZero()
-	options.Limit = latestLivePageSize
-	for {
-		page, err := r.ListStatusesPage(ctx, options)
-		if err != nil {
-			return nil, err
-		}
-		for _, status := range page.Items {
-			if status.BackfillID == "" {
-				return status, nil
-			}
-		}
-		if page.NextCursor == "" {
-			return nil, nil
-		}
-		options.Cursor = page.NextCursor
+	options.ExcludeBackfill = true
+	options.Limit = 1
+	page, err := r.ListStatusesPage(ctx, options)
+	if err != nil || len(page.Items) == 0 {
+		return nil, err
 	}
+	return page.Items[0], nil
 }
 
 // ListStatuses returns statuses in canonical list order.
@@ -225,6 +212,7 @@ func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQu
 		WorkspaceFilter: options.WorkspaceFilter,
 		FullStatus:      options.FullStatus,
 		ExcludeDAGNames: options.ExcludeDAGNames,
+		ExcludeBackfill: options.ExcludeBackfill,
 	}
 	if !options.AllHistory && query.From.IsZero() && query.To.IsZero() {
 		query.From = NewUTC(r.startOfDay())

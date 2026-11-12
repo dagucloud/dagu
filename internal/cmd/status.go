@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/output"
@@ -114,8 +115,26 @@ func runStatus(ctx *Context, args []string) error {
 		subRuns = subRunStatusResolver(ctx, dagStatus, name, dagRunID)
 	}
 	displayTreeStatus(dag, dagStatus, subRuns)
-
+	if dagRunID == "" {
+		return showLatestBackfill(ctx, dag)
+	}
 	return nil
+}
+
+// showLatestBackfill prints the DAG's backfill an operator should see, as
+// backfill.Latest picks it.
+func showLatestBackfill(ctx *Context, dag *ir.DAG) error {
+	if ctx.Persistence.BackfillStore == nil {
+		return nil
+	}
+	sched := backfill.SlotSchedule{Schedules: boundStartSchedules(ctx, dag), Location: ctx.Config.Core.Location}
+	report, err := backfill.Latest(ctx, ctx.Persistence.BackfillStore, latestRunStatus(ctx.Persistence.DAGRunRepository), ctx.Persistence.DAGRunRepository, dag, sched)
+	if err != nil || report == nil {
+		return err
+	}
+	_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "\nLatest backfill %s: %s; %s (dagu backfill status %s)\n",
+		report.Record.ID, backfillStatusLabel(ctx, report.Record), backfillSlotCounts(*report), report.Record.ID)
+	return err
 }
 
 // displayTreeStatus prints the status tree of a run. A non-nil subRuns
