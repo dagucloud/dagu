@@ -171,24 +171,19 @@ func (s *Store) Append(_ context.Context, id string, events ...backfill.Progress
 		}
 		return fmt.Errorf("backfill store: stat %s: %w", id, err)
 	}
-	var buf []byte
+	lines := make([][]byte, 0, len(events))
 	for _, event := range events {
 		event.Slot, event.At = event.Slot.UTC(), event.At.UTC()
 		line, err := json.Marshal(event)
 		if err != nil {
 			return fmt.Errorf("backfill store: encode progress of %s: %w", id, err)
 		}
-		buf = append(append(buf, line...), '\n')
+		lines = append(lines, line)
 	}
-	f, err := os.OpenFile(s.progressPath(id), os.O_APPEND|os.O_CREATE|os.O_WRONLY, filePerms) //nolint:gosec // path is built from the store's own layout
-	if err != nil {
-		return fmt.Errorf("backfill store: open progress of %s: %w", id, err)
-	}
-	if _, err := f.Write(buf); err != nil {
-		_ = f.Close()
+	if err := fileutil.AppendLines(s.progressPath(id), filePerms, lines...); err != nil {
 		return fmt.Errorf("backfill store: append progress of %s: %w", id, err)
 	}
-	return f.Close()
+	return nil
 }
 
 // Progress reads the backfill's progress events. A line a crash cut short

@@ -75,44 +75,13 @@ func (s *Store) Record(ctx context.Context, event persis.SlotEvent) error {
 	})
 }
 
-// appendLines appends JSON lines to the file of a slot's day. A last line
-// that a crash cut short is ended first, so the new lines stay readable.
+// appendLines appends JSON lines to the file of a slot's day.
 func (s *Store) appendLines(dagName string, slot time.Time, lines ...[]byte) error {
 	path := filepath.Join(s.dagDir(dagName), slot.UTC().Format(dayLayout)+dayFileSuffix)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, filePerms) //nolint:gosec // path is built from the store's own layout
-	if err != nil {
-		return fmt.Errorf("slot index: open %s: %w", path, err)
-	}
-	var buf []byte
-	torn, err := endsTorn(f)
-	if err != nil {
-		_ = f.Close()
-		return fmt.Errorf("slot index: read %s: %w", path, err)
-	}
-	if torn {
-		buf = append(buf, '\n')
-	}
-	for _, line := range lines {
-		buf = append(append(buf, line...), '\n')
-	}
-	if _, err := f.Write(buf); err != nil {
-		_ = f.Close()
+	if err := fileutil.AppendLines(path, filePerms, lines...); err != nil {
 		return fmt.Errorf("slot index: append to %s: %w", path, err)
 	}
-	return f.Close()
-}
-
-// endsTorn reports whether a non-empty file lacks a final newline.
-func endsTorn(f *os.File) (bool, error) {
-	info, err := f.Stat()
-	if err != nil || info.Size() == 0 {
-		return false, err
-	}
-	last := make([]byte, 1)
-	if _, err := f.ReadAt(last, info.Size()-1); err != nil {
-		return false, err
-	}
-	return last[0] != '\n', nil
+	return nil
 }
 
 // Events returns the events of a DAG whose slots fall in [from, to].

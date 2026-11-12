@@ -5,6 +5,8 @@ package backfill_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -118,4 +120,22 @@ func TestStoreProgressAndEnd(t *testing.T) {
 	records, err := store.List(ctx, "etl")
 	require.NoError(t, err)
 	assert.Len(t, records, 1, "progress files are not records")
+}
+
+// Progress appended after a crash cut the last event short is read back.
+func TestStoreAppendsAfterATornEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "aaaaaaaa.progress.jsonl"), []byte(`{"slot":"2026-10-01T02:00:00Z","ki`), 0o600))
+
+	slot := time.Date(2026, 10, 2, 2, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Append(ctx, "aaaaaaaa", backfill.Progress{Slot: slot, Kind: backfill.ProgressSkipped, At: now}))
+	events, err := store.Progress(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, backfill.ProgressSkipped, events[0].Kind)
 }
