@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -142,6 +143,9 @@ func TestUnreadableFolderNamesNoServerPath(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a folder of mode 0000")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder mode of 0 does not stop a read on Windows")
+	}
 	dir := writeSkill(t, "demo", map[string]string{"SKILL.md": skillMD("name: demo\ndescription: A description of the skill."), "references/a.md": "a"})
 	locked := filepath.Join(dir, "references")
 	require.NoError(t, os.Chmod(locked, 0))
@@ -208,6 +212,9 @@ func TestFolderRules(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			if runtime.GOOS == "windows" && strings.Contains(tc.file, "\\") {
+				t.Skip("a file name cannot have a backslash on Windows")
+			}
 			dir := writeSkill(t, "demo", tc.files)
 			s, err := skill.Read(dir)
 			require.NoError(t, err)
@@ -288,6 +295,9 @@ func TestFolderRules(t *testing.T) {
 
 	t.Run("hard link", func(t *testing.T) {
 		t.Parallel()
+		if runtime.GOOS == "windows" {
+			t.Skip("the link count of a file is not read on Windows")
+		}
 		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
 		require.NoError(t, os.Link(filepath.Join(dir, "references", "a.md"), filepath.Join(dir, "references", "b.md")))
 		s, err := skill.Read(dir)
@@ -298,6 +308,9 @@ func TestFolderRules(t *testing.T) {
 
 	t.Run("hard link of SKILL.md", func(t *testing.T) {
 		t.Parallel()
+		if runtime.GOOS == "windows" {
+			t.Skip("the link count of a file is not read on Windows")
+		}
 		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
 		require.NoError(t, os.Link(filepath.Join(dir, "SKILL.md"), filepath.Join(t.TempDir(), "outside.md")))
 		s, err := skill.Read(dir)
