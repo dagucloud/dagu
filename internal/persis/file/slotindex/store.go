@@ -69,19 +69,49 @@ func (s *Store) Record(ctx context.Context, event persis.SlotEvent) error {
 	if err != nil {
 		return fmt.Errorf("slot index: encode event: %w", err)
 	}
-	line = append(line, '\n')
-	path := filepath.Join(s.dagDir(event.DAGName), event.Slot.Format(dayLayout)+dayFileSuffix)
 	return s.withDAGLock(ctx, event.DAGName, func() error {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, filePerms) //nolint:gosec // path is built from the store's own layout
-		if err != nil {
-			return fmt.Errorf("slot index: open %s: %w", path, err)
-		}
-		if _, err := f.Write(line); err != nil {
-			_ = f.Close()
-			return fmt.Errorf("slot index: append to %s: %w", path, err)
-		}
-		return f.Close()
+		return s.appendLines(event.DAGName, event.Slot, line)
 	})
+}
+
+// appendLines appends JSON lines to the file of a slot's day. A last line
+// that a crash cut short is ended first, so the new lines stay readable.
+func (s *Store) appendLines(dagName string, slot time.Time, lines ...[]byte) error {
+	path := filepath.Join(s.dagDir(dagName), slot.UTC().Format(dayLayout)+dayFileSuffix)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, filePerms) //nolint:gosec // path is built from the store's own layout
+	if err != nil {
+		return fmt.Errorf("slot index: open %s: %w", path, err)
+	}
+	var buf []byte
+	torn, err := endsTorn(f)
+	if err != nil {
+		_ = f.Close()
+		return fmt.Errorf("slot index: read %s: %w", path, err)
+	}
+	if torn {
+		buf = append(buf, '\n')
+	}
+	for _, line := range lines {
+		buf = append(append(buf, line...), '\n')
+	}
+	if _, err := f.Write(buf); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("slot index: append to %s: %w", path, err)
+	}
+	return f.Close()
+}
+
+// endsTorn reports whether a non-empty file lacks a final newline.
+func endsTorn(f *os.File) (bool, error) {
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return false, err
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, info.Size()-1); err != nil {
+		return false, err
+	}
+	return last[0] != '\n', nil
 }
 
 // Events returns the events of a DAG whose slots fall in [from, to].
@@ -144,13 +174,56 @@ func (s *Store) Imported(_ context.Context, dagName string) (bool, error) {
 	}
 }
 
-// MarkImported writes the import marker of a DAG.
-func (s *Store) MarkImported(_ context.Context, dagName string) error {
-	dir := s.dagDir(dagName)
-	if err := os.MkdirAll(dir, dirPermissions); err != nil {
-		return fmt.Errorf("slot index: create %s: %w", dir, err)
+// Import appends, under the DAG's lock, the events whose runs have no event
+// in their day yet, then writes the import marker.
+func (s *Store) Import(ctx context.Context, dagName string, events []persis.SlotEvent) error {
+	byDay := make(map[string][]persis.SlotEvent)
+	for _, event := range events {
+		if event.DAGName != dagName || event.Slot.IsZero() {
+			return errors.New("slot index: import event of another DAG or without a slot")
+		}
+		day := event.Slot.UTC().Format(dayLayout)
+		byDay[day] = append(byDay[day], event)
 	}
-	return fileutil.WriteFileAtomic(filepath.Join(dir, importedMarker), nil, filePerms)
+	return s.withDAGLock(ctx, dagName, func() error {
+		for day, dayEvents := range byDay {
+			if err := s.importDay(dagName, day, dayEvents); err != nil {
+				return err
+			}
+		}
+		return fileutil.WriteFileAtomic(filepath.Join(s.dagDir(dagName), importedMarker), nil, filePerms)
+	})
+}
+
+func (s *Store) importDay(dagName, day string, events []persis.SlotEvent) error {
+	recorded, err := s.readDay(dagName, day)
+	if err != nil {
+		return err
+	}
+	known := make(map[string]bool, len(recorded))
+	for _, event := range recorded {
+		known[event.RunID] = true
+	}
+	var lines [][]byte
+	for _, event := range events {
+		if known[event.RunID] {
+			continue
+		}
+		known[event.RunID] = true
+		event.Slot = event.Slot.UTC()
+		if event.RecordedAt.IsZero() {
+			event.RecordedAt = time.Now().UTC()
+		}
+		line, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("slot index: encode event: %w", err)
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return s.appendLines(dagName, events[0].Slot, lines...)
 }
 
 func (s *Store) dagDir(dagName string) string {

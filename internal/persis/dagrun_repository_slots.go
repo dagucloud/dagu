@@ -20,21 +20,22 @@ import (
 var maxSlotTime = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 
 // SlotEvents returns the slot events of a DAG whose slots fall in [from, to].
-// The first call for a DAG adds the runs already in its history.
-func (r *DAGRunRepository) SlotEvents(ctx context.Context, dagName string, from, to time.Time) ([]SlotEvent, error) {
+// The first call for a DAG adds the runs already in its history whose slots
+// are within its slot retention.
+func (r *DAGRunRepository) SlotEvents(ctx context.Context, dag *ir.DAG, from, to time.Time) ([]SlotEvent, error) {
 	if r.slotIndex == nil {
 		return nil, nil
 	}
-	imported, err := r.slotIndex.Imported(ctx, dagName)
+	imported, err := r.slotIndex.Imported(ctx, dag.Name)
 	if err != nil {
 		return nil, err
 	}
 	if !imported {
-		if err := r.importSlots(ctx, dagName); err != nil {
-			return nil, fmt.Errorf("add the run history of %s to the slot index: %w", dagName, err)
+		if err := r.importSlots(ctx, dag); err != nil {
+			return nil, fmt.Errorf("add the run history of %s to the slot index: %w", dag.Name, err)
 		}
 	}
-	return r.slotIndex.Events(ctx, dagName, from, to)
+	return r.slotIndex.Events(ctx, dag.Name, from, to)
 }
 
 // RecordSkippedSlot records that the scheduler did not run a slot, and why.
@@ -56,14 +57,23 @@ func (r *DAGRunRepository) PruneSlots(ctx context.Context, dagName string, reten
 	if r.slotIndex == nil || retentionDays <= 0 {
 		return nil
 	}
-	return r.slotIndex.Prune(ctx, dagName, r.now().AddDate(0, 0, -retentionDays))
+	return r.slotIndex.Prune(ctx, dagName, r.slotCutoff(retentionDays))
 }
 
-// importSlots records a run event for every run in the DAG's history that
-// has a slot and is not recorded yet. Two concurrent imports can record a run
-// twice; readers count each run once.
-func (r *DAGRunRepository) importSlots(ctx context.Context, dagName string) error {
-	recorded, err := r.slotIndex.Events(ctx, dagName, time.Time{}, maxSlotTime)
+func (r *DAGRunRepository) slotCutoff(retentionDays int) time.Time {
+	return r.now().AddDate(0, 0, -retentionDays)
+}
+
+// importSlots adds a run event for every run in the DAG's history that has a
+// slot within the slot retention and no event yet.
+func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
+	var cutoff time.Time
+	if dag.SlotRetentionDays > 0 {
+		cutoff = r.slotCutoff(dag.SlotRetentionDays)
+	}
+	// Skips reading the snapshot of a run already recorded; Import drops
+	// those again under the index's lock.
+	recorded, err := r.slotIndex.Events(ctx, dag.Name, cutoff, maxSlotTime)
 	if err != nil {
 		return err
 	}
@@ -72,23 +82,23 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dagName string) erro
 		known[event.RunID] = true
 	}
 	statuses, err := r.ListStatuses(ctx, DAGRunListOptions{
-		ExactName:  dagName,
+		ExactName:  dag.Name,
 		AllHistory: true,
 		Unbounded:  true,
 	})
 	if err != nil {
 		return err
 	}
+	var events []SlotEvent
 	for _, status := range statuses {
-		if _, ok := slotOfStatus(status); !ok || known[status.DAGRunID] {
+		slot, ok := slotOfStatus(status)
+		if !ok || slot.Before(cutoff) || known[status.DAGRunID] {
 			continue
 		}
 		event, _ := slotRunEvent(r.runDAG(ctx, status), r.location, status)
-		if err := r.slotIndex.Record(ctx, event); err != nil {
-			return err
-		}
+		events = append(events, event)
 	}
-	return r.slotIndex.MarkImported(ctx, dagName)
+	return r.slotIndex.Import(ctx, dag.Name, events)
 }
 
 // runDAG returns the DAG snapshot a run was created with, or nil when it
@@ -123,7 +133,7 @@ func slotRunEvent(dag *ir.DAG, loc *time.Location, status *ir.DAGRunStatus) (Slo
 		Slot:        slot,
 		RunID:       status.DAGRunID,
 		TriggerType: status.TriggerType,
-		Schedule:    ir.FiringScheduleExpression(dag.Schedule, loc, slot),
+		Schedule:    ir.FiringScheduleExpression(dag.Schedule, status.ProfileName, loc, slot),
 	}, true
 }
 
@@ -148,56 +158,42 @@ type slotRecorder struct {
 	location *time.Location
 }
 
-// slotRemoval records what removing a run means for its slot.
-type slotRemoval struct {
-	index SlotIndex
-	// dropped is recorded once the run is removed.
-	dropped *SlotEvent
-}
-
-// prepareSlotRemoval runs before a run is removed. Retention records the run's
-// final status first, so the slot keeps it whether or not the removal
-// completes. An operator's delete makes the run stop counting for its slot
-// once the removal succeeds.
-func (r *DAGRunRepository) prepareSlotRemoval(ctx context.Context, ref ir.DAGRunRef, drop bool) slotRemoval {
+// recordSlotRemoval records, before a run is removed, what the removal means
+// for its slot: retention keeps the run's final status, and an operator's
+// delete drops the run. The event is written first so a removal never loses
+// it; a removal that then fails leaves the run, whose own status supersedes
+// the event. An error means the run must not be removed.
+func (r *DAGRunRepository) recordSlotRemoval(ctx context.Context, ref ir.DAGRunRef, drop, rejectActive bool) error {
 	if r.slotIndex == nil {
-		return slotRemoval{}
+		return nil
 	}
 	status, err := r.latestStatus(ctx, ref)
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
+		return nil
+	}
 	if err != nil {
-		if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) && !errors.Is(err, dagrun.ErrNoStatusData) {
-			logger.Warn(ctx, "Failed to read a run before removing it from its slot",
-				tag.RunID(ref.ID), tag.Error(err))
-		}
-		return slotRemoval{}
+		return fmt.Errorf("read dag-run %s before removing it from its slot: %w", ref.ID, err)
 	}
 	slot, ok := slotOfStatus(status)
-	if !ok {
-		return slotRemoval{}
+	// An active run that the removal will refuse keeps counting as it is.
+	if !ok || (rejectActive && status.Status.IsActive()) {
+		return nil
 	}
-	event := SlotEvent{DAGName: status.Name, Slot: slot, RunID: status.DAGRunID, TriggerType: status.TriggerType}
-	if drop {
-		event.Kind = SlotEventDropped
-		return slotRemoval{index: r.slotIndex, dropped: &event}
+	event := SlotEvent{
+		Kind:        SlotEventDropped,
+		DAGName:     status.Name,
+		Slot:        slot,
+		RunID:       status.DAGRunID,
+		TriggerType: status.TriggerType,
 	}
-	event.Kind = SlotEventFinal
-	event.Status = status.Status
+	if !drop {
+		event.Kind = SlotEventFinal
+		event.Status = status.Status
+	}
 	if err := r.slotIndex.Record(ctx, event); err != nil {
-		logger.Warn(ctx, "Failed to record the final status of a run in its slot",
-			tag.RunID(ref.ID), tag.Error(err))
+		return fmt.Errorf("record dag-run %s in its slot before removing it: %w", ref.ID, err)
 	}
-	return slotRemoval{}
-}
-
-// done records the drop of an operator's delete after the run is removed.
-func (s slotRemoval) done(ctx context.Context) {
-	if s.dropped == nil {
-		return
-	}
-	if err := s.index.Record(ctx, *s.dropped); err != nil {
-		logger.Warn(ctx, "Failed to drop a deleted run from its slot",
-			tag.RunID(s.dropped.RunID), tag.Error(err))
-	}
+	return nil
 }
 
 func (r *DAGRunRepository) latestStatus(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
@@ -208,20 +204,22 @@ func (r *DAGRunRepository) latestStatus(ctx context.Context, ref ir.DAGRunRef) (
 	return attempt.ReadStatus(ctx)
 }
 
-// recordSlotRun records the run event of a new top-level run on its first
-// status write that carries a scheduled time.
+// recordSlotRun records the run event of a new top-level run on the first
+// status write that carries a scheduled time. A failed record is tried
+// again on the attempt's next write.
 func (a *eventingAttempt) recordSlotRun(ctx context.Context, status *ir.DAGRunStatus) {
 	if a.slots == nil || status.ScheduleTime == "" {
 		return
 	}
-	slots := a.slots
-	a.slots = nil
-	event, ok := slotRunEvent(a.dag, slots.location, status)
+	event, ok := slotRunEvent(a.dag, a.slots.location, status)
 	if !ok {
+		a.slots = nil
 		return
 	}
-	if err := slots.index.Record(ctx, event); err != nil {
+	if err := a.slots.index.Record(ctx, event); err != nil {
 		logger.Warn(ctx, "Failed to record a run in its schedule slot",
 			tag.RunID(status.DAGRunID), tag.Error(err))
+		return
 	}
+	a.slots = nil
 }

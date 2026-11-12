@@ -43,6 +43,9 @@ a slot is done.
 - When an operator removes a run, the run no longer counts for its slot. This
   covers `dagu rm --history`, `dagu cleanup`, and deleting a run from the API
   or the UI. A removal refused because the run is active changes nothing.
+- A run whose removal the slot history cannot record is not removed. The
+  removal fails with an error, and other runs in the same retention pass are
+  still removed.
 - The scheduler records a slot that comes due and that it does not run, with
   one of these reasons:
 
@@ -56,7 +59,9 @@ a slot is done.
   A slot whose checks failed is not recorded as skipped. A slot that already
   has a run is recorded through that run.
 - Runs that were in history before slot history existed are added to it the
-  first time the DAG's slot history is read.
+  first time the DAG's slot history is read, except runs whose slots are
+  older than `slot_retention_days`. A run removed while its history is being
+  added stays removed.
 - A slot stays in the history for at least `slot_retention_days` days after
   its scheduled time, whatever `hist_retention_days` or `hist_retention_runs`
   remove.

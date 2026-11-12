@@ -64,8 +64,8 @@ func TestStoreStoresSlotsInUTC(t *testing.T) {
 	assert.Equal(t, slotAt(1, 16), events[0].Slot)
 }
 
-// A line cut short by a crash during an append does not hide the events
-// around it.
+// A line cut short by a crash during an append, without its newline, does
+// not hide the events before it or swallow the next one.
 func TestStoreSkipsTornLine(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -78,7 +78,7 @@ func TestStoreSkipsTornLine(t *testing.T) {
 	require.Len(t, matches, 1)
 	f, err := os.OpenFile(matches[0], os.O_APPEND|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
-	_, err = f.WriteString(`{"kind":"run","dagName":"etl","slo` + "\n")
+	_, err = f.WriteString(`{"kind":"run","dagName":"etl","slo`)
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 	require.NoError(t, store.Record(ctx, persis.SlotEvent{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(1, 3), RunID: "b"}))
@@ -107,19 +107,34 @@ func TestStorePrunesWholeDaysBeforeCutoff(t *testing.T) {
 	assert.Equal(t, "3", events[1].RunID)
 }
 
-func TestStoreImportMarker(t *testing.T) {
+// Import adds only runs that have no event yet, so a repeated import or one
+// racing a delete leaves each run's events as recorded.
+func TestStoreImport(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := slotindex.New(t.TempDir())
+	require.NoError(t, store.Record(ctx, persis.SlotEvent{Kind: persis.SlotEventDropped, DAGName: "etl", Slot: slotAt(1, 2), RunID: "deleted"}))
 
 	imported, err := store.Imported(ctx, "etl")
 	require.NoError(t, err)
 	assert.False(t, imported)
 
-	require.NoError(t, store.MarkImported(ctx, "etl"))
+	history := []persis.SlotEvent{
+		{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(1, 2), RunID: "deleted"},
+		{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(2, 2), RunID: "kept"},
+	}
+	for range 2 {
+		require.NoError(t, store.Import(ctx, "etl", history))
+	}
+
 	imported, err = store.Imported(ctx, "etl")
 	require.NoError(t, err)
 	assert.True(t, imported)
+	events, err := store.Events(ctx, "etl", slotAt(1, 0), slotAt(2, 23))
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	assert.Equal(t, persis.SlotEventDropped, events[0].Kind)
+	assert.Equal(t, "kept", events[1].RunID)
 
 	imported, err = store.Imported(ctx, "other")
 	require.NoError(t, err)

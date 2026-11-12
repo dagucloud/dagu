@@ -103,16 +103,20 @@ func PreviousFire(schedules []Schedule, t time.Time) time.Time {
 }
 
 // FiringScheduleExpression returns the expression of the first recurring
-// schedule whose cron expression fires at t, or empty when none does. A
-// schedule without its own time zone fires in loc. A business calendar is
-// ignored, so a schedule read back unbound from a run snapshot is still found.
-func FiringScheduleExpression(schedules []Schedule, loc *time.Location, t time.Time) string {
-	for _, sched := range schedules {
-		if !sched.IsCron() {
+// schedule active for profile that fires at t, or empty when none does. A
+// schedule without its own time zone fires in loc. A schedule whose business
+// calendar is not bound, as one read back from a run snapshot, is matched by
+// its cron expression alone.
+func FiringScheduleExpression(schedules []Schedule, profile string, loc *time.Location, t time.Time) string {
+	for _, sched := range activeWindowSchedules(schedules, profile) {
+		at := t.In(scheduleZone(sched, loc))
+		if _, bound := sched.BoundCalendar(); bound {
+			if firesAt(sched, at) {
+				return sched.Expression
+			}
 			continue
 		}
 		base, ok := sched.baseCron()
-		at := t.In(scheduleZone(sched, loc))
 		if ok && base.Next(at.Add(-time.Second)).Equal(at) {
 			return sched.Expression
 		}

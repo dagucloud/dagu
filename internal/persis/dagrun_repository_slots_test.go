@@ -5,6 +5,7 @@ package persis_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -234,13 +235,115 @@ func TestSlotEventsImportsExistingHistory(t *testing.T) {
 		scheduledStatus(ir.Succeeded, slotOct2, ir.TriggerTypeScheduler))
 
 	for range 2 {
-		events, err := repository.SlotEvents(ctx, dag.Name, slotOct1.AddDate(0, 0, -1), slotOct2.AddDate(0, 0, 1))
+		events, err := repository.SlotEvents(ctx, dag, slotOct1.AddDate(0, 0, -1), slotOct2.AddDate(0, 0, 1))
 		require.NoError(t, err)
 		require.Len(t, events, 2, "each run is recorded once")
 		assert.Equal(t, "run-1", events[0].RunID)
 		assert.Equal(t, "0 2 * * *", events[0].Schedule)
 		assert.Equal(t, "run-2", events[1].RunID)
 	}
+}
+
+// The first read adds only the runs whose slots are within the DAG's slot
+// retention, so pruned slots stay pruned.
+func TestSlotEventsImportsWithinRetention(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	dag, err := spec.LoadYAML(ctx, []byte(slotDAGYAML+"slot_retention_days: 30\n"))
+	require.NoError(t, err)
+	old := slotFixture{repository: testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{}), dag: dag}
+	old.writeRun(t, "expired", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, slotOct1, ir.TriggerTypeScheduler))
+	old.writeRun(t, "recent", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, slotOct2.AddDate(0, 0, 30), ir.TriggerTypeScheduler))
+
+	now := slotOct2.AddDate(0, 0, 31)
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
+		SlotIndex: slotindex.New(filepath.Join(dir, "slot-index")),
+		Location:  time.UTC,
+		Now:       func() time.Time { return now },
+	})
+
+	events, err := repository.SlotEvents(ctx, dag, slotOct1.AddDate(0, 0, -1), now)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "recent", events[0].RunID)
+}
+
+// A run whose slot event cannot be written is not removed, so its slot never
+// loses track of it.
+func TestSlotIndexBlocksRemovalItCannotRecord(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	index := &flakySlotIndex{SlotIndex: slotindex.New(filepath.Join(dir, "slot-index"))}
+	f := newSlotFixture(t)
+	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
+		SlotIndex: index,
+		Location:  time.UTC,
+	})
+	f.writeRun(t, "run-1", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, slotOct1, ir.TriggerTypeScheduler))
+	f.writeRun(t, "run-2", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, slotOct2, ir.TriggerTypeScheduler))
+	exists := func(runID string) bool {
+		_, err := f.repository.FindAttempt(ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+		return err == nil
+	}
+
+	index.failures = 1
+	err := f.repository.RemoveDAGRun(ctx, ir.NewDAGRunRef(f.dag.Name, "run-1"), persis.DAGRunRemoveOptions{})
+	require.Error(t, err)
+	assert.True(t, exists("run-1"))
+
+	// Retention keeps the one run it could not record and removes the other.
+	index.failures = 1
+	cutoff := time.Now().Add(time.Hour)
+	removed, err := f.repository.RemoveOldDAGRuns(ctx, f.dag.Name, 0, persis.DAGRunRetentionOptions{OlderThan: &cutoff})
+	require.Error(t, err)
+	require.Len(t, removed, 1)
+	for _, runID := range []string{"run-1", "run-2"} {
+		assert.Equal(t, runID != removed[0], exists(runID), runID)
+	}
+}
+
+// A run event that fails to write is written on the attempt's next status
+// write.
+func TestSlotIndexRetriesFailedRunRecord(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	index := &flakySlotIndex{SlotIndex: slotindex.New(filepath.Join(dir, "slot-index")), failures: 1}
+	f := newSlotFixture(t)
+	f.index = index.SlotIndex.(*slotindex.Store)
+	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
+		SlotIndex: index,
+		Location:  time.UTC,
+	})
+
+	f.writeRun(t, "run-1", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Queued, slotOct1, ir.TriggerTypeScheduler),
+		scheduledStatus(ir.Running, slotOct1, ir.TriggerTypeScheduler),
+		scheduledStatus(ir.Succeeded, slotOct1, ir.TriggerTypeScheduler),
+	)
+
+	events := f.events(t)
+	require.Len(t, events, 1)
+	assert.Equal(t, "run-1", events[0].RunID)
+}
+
+// flakySlotIndex fails its next failures records.
+type flakySlotIndex struct {
+	persis.SlotIndex
+	failures int
+}
+
+func (f *flakySlotIndex) Record(ctx context.Context, event persis.SlotEvent) error {
+	if f.failures > 0 {
+		f.failures--
+		return errors.New("slot index unavailable")
+	}
+	return f.SlotIndex.Record(ctx, event)
 }
 
 func TestSlotIndexPrunesByRetentionDays(t *testing.T) {

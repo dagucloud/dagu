@@ -314,7 +314,10 @@ func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunR
 		removed := make([]ir.DAGRunRef, 0, len(refs))
 		var removeErrs []error
 		for _, ref := range refs {
-			removal := r.prepareSlotRemoval(ctx, ref, dropSlots)
+			if err := r.recordSlotRemoval(ctx, ref, dropSlots, true); err != nil {
+				removeErrs = append(removeErrs, err)
+				continue
+			}
 			err := r.store.RemoveDAGRun(ctx, DAGRunRemoveRequest{DAGRun: ref, RejectActive: true})
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrDAGRunActive) {
 				continue
@@ -323,7 +326,6 @@ func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunR
 				removeErrs = append(removeErrs, err)
 				continue
 			}
-			removal.done(ctx)
 			removed = append(removed, ref)
 		}
 		return r.finishDAGRunRemovals(ctx, removed, errors.Join(removeErrs...))
@@ -370,7 +372,9 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 	store, _ := r.storeHolding(ctx, ref)
 	// Every caller deletes the run outright, so it stops counting for its
 	// slot: an operator's delete, a rollback, or a dequeue before it ran.
-	removal := r.prepareSlotRemoval(ctx, ref, true)
+	if err := r.recordSlotRemoval(ctx, ref, true, options.RejectActive); err != nil {
+		return err
+	}
 	err := store.RemoveDAGRun(ctx, DAGRunRemoveRequest{
 		DAGRun:            ref,
 		RejectActive:      options.RejectActive,
@@ -378,9 +382,6 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 	})
 	if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return err
-	}
-	if err == nil {
-		removal.done(ctx)
 	}
 	workDirRef, normalizeErr := normalizeWorkDirRef(dagrun.WorkDirRef{DAGRun: ref})
 	if normalizeErr != nil {
