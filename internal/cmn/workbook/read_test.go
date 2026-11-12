@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/test/xlsxtest"
 	"github.com/richardlehane/mscfb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,35 +55,11 @@ func custom(code string) *excelize.Style {
 	return &excelize.Style{CustomNumFmt: &code}
 }
 
-// rawBook writes a minimal xlsx by hand so the test can author cell kinds
-// excelize cannot: error cells, ISO date cells, and formulas with and
-// without cached values.
-func rawBook(t *testing.T, sheetXML string) string {
+// rawBook writes a hand-authored workbook whose one sheet is named Raw.
+func rawBook(t testing.TB, sheetXML string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "raw.xlsx")
-	out, err := os.Create(path)
-	require.NoError(t, err)
-	zw := zip.NewWriter(out)
-	parts := map[string]string{
-		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
-		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-		"xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Raw" sheetId="1" r:id="rId1"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` + sheetXML + `</worksheet>`,
-	}
-	for name, body := range parts {
-		w, err := zw.Create(name)
-		require.NoError(t, err)
-		_, err = w.Write([]byte(body))
-		require.NoError(t, err)
-	}
-	require.NoError(t, zw.Close())
-	require.NoError(t, out.Close())
+	xlsxtest.RawWorkbook(t, path, "Raw", sheetXML)
 	return path
 }
 
@@ -1175,6 +1152,43 @@ func staleBook(t *testing.T, rows int) string {
 	}
 	b.WriteString(`</sheetData>`)
 	return rawBook(t, b.String())
+}
+
+// BenchmarkReadStaleCheck times a default read of a 5000-row, 20-column
+// sheet whose last two columns are formulas with current cached values,
+// which the read checks cell by cell. The workbook is opened once so the
+// read, not the parse, is what is measured.
+func BenchmarkReadStaleCheck(b *testing.B) {
+	const rows, cols = 5000, 20
+	var sb strings.Builder
+	sb.WriteString(`<sheetData><row r="1">`)
+	for c := 1; c <= cols; c++ {
+		sb.WriteString(inline(cellName(c, 1), fmt.Sprintf("c%d", c)))
+	}
+	sb.WriteString(`</row>`)
+	for r := 2; r <= rows+1; r++ {
+		fmt.Fprintf(&sb, `<row r="%d">`, r)
+		for c := 1; c <= cols-2; c++ {
+			fmt.Fprintf(&sb, `<c r="%s"><v>%d</v></c>`, cellName(c, r), r*c)
+		}
+		fmt.Fprintf(&sb, `<c r="S%d"><f>A%d*B%d</f><v>%d</v></c>`, r, r, r, r*r*2)
+		fmt.Fprintf(&sb, `<c r="T%d" t="str"><f>"x"&amp;C%d</f><v>x%d</v></c></row>`, r, r, r*3)
+	}
+	sb.WriteString(`</sheetData>`)
+	w, err := open(rawBook(b, sb.String()), "")
+	require.NoError(b, err)
+	defer w.close()
+	opts := ReadOptions{MaxRows: rows}
+	read := func() {
+		result, err := w.read(context.Background(), opts)
+		require.NoError(b, err)
+		require.Equal(b, rows, result.Count)
+		require.Empty(b, result.Warnings)
+	}
+	read() // fills the grid cache
+	for b.Loop() {
+		read()
+	}
 }
 
 // A cached read says which formula cells hold a value their formula no
