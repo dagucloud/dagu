@@ -510,3 +510,87 @@ func TestStreamErrorChunk(t *testing.T) {
 	require.ErrorContains(t, last.Error, "Provider disconnected")
 	assert.True(t, llm.IsRetryable(last.Error))
 }
+
+// reasoningDetails is the reasoning OpenRouter returns with a tool-calling
+// turn, which the next request must carry back unchanged.
+const reasoningDetails = `[
+	{"type":"reasoning.encrypted","id":"rs_1","data":"opaque","format":"openai-responses-v1","index":0},
+	{"type":"reasoning.text","text":"Look up a.","signature":"sig-1","format":"anthropic-claude-v1","index":1}
+]`
+
+// A turn's reasoning_details go back on that assistant message exactly as
+// received, next to its content and tool calls, so the model keeps its
+// reasoning across the turns of a tool loop.
+func TestChatReplaysReasoningDetails(t *testing.T) {
+	t.Parallel()
+
+	server := &llmtest.Server{Path: defaultChatEndpoint, Responses: []string{
+		`{"choices":[{"message":{"role":"assistant","content":"","reasoning":"Look up a.","reasoning_details":` + reasoningDetails + `,
+			"tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"a\"}"}}]},"finish_reason":"tool_calls"}]}`,
+		okAnswer,
+	}}
+	provider, err := New(llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
+	require.NoError(t, err)
+
+	user := llm.Message{Role: llm.RoleUser, Content: "look up a"}
+	first, err := provider.Chat(context.Background(), &llm.ChatRequest{Model: "openai/gpt-6.1-terra", Messages: []llm.Message{user}})
+	require.NoError(t, err)
+	require.Len(t, first.ToolCalls, 1)
+	assert.Equal(t, "Look up a.", first.ReasoningContent)
+	require.NotNil(t, first.ProviderState)
+	assert.Equal(t, llm.ProviderOpenRouter, first.ProviderState.Provider)
+	assert.JSONEq(t, reasoningDetails, string(first.ProviderState.Data))
+
+	_, err = provider.Chat(context.Background(), &llm.ChatRequest{
+		Model: "openai/gpt-6.1-terra",
+		Messages: []llm.Message{
+			user,
+			{Role: llm.RoleAssistant, Content: first.Content, ToolCalls: first.ToolCalls, ProviderState: first.ProviderState},
+			{Role: llm.RoleTool, ToolCallID: "call-1", Content: "A"},
+		},
+	})
+	require.NoError(t, err)
+
+	requests := server.Requests()
+	require.Len(t, requests, 2)
+	assistant := requests[1]["messages"].([]any)[1].(map[string]any)
+	replayed, err := json.Marshal(assistant["reasoning_details"])
+	require.NoError(t, err)
+	assert.JSONEq(t, reasoningDetails, string(replayed))
+	assert.Len(t, assistant["tool_calls"], 1)
+}
+
+// A turn without reasoning, and a record from another provider, send no
+// reasoning_details.
+func TestChatSendsNoReasoningDetailsWithoutThem(t *testing.T) {
+	t.Parallel()
+
+	server := &llmtest.Server{Path: defaultChatEndpoint, Responses: []string{okAnswer, okAnswer}}
+	provider, err := New(llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
+	require.NoError(t, err)
+
+	first, err := provider.Chat(context.Background(), &llm.ChatRequest{
+		Model:    "openai/gpt-6.1-terra",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+	})
+	require.NoError(t, err)
+	assert.Nil(t, first.ProviderState)
+	assert.Empty(t, first.ReasoningContent)
+
+	_, err = provider.Chat(context.Background(), &llm.ChatRequest{
+		Model: "openai/gpt-6.1-terra",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "hi"},
+			{
+				Role:          llm.RoleAssistant,
+				Content:       "ok",
+				ProviderState: &llm.ProviderState{Provider: llm.ProviderAnthropic, Data: []byte(`[{"type":"thinking"}]`)},
+			},
+			{Role: llm.RoleUser, Content: "again"},
+		},
+	})
+	require.NoError(t, err)
+
+	assistant := server.Requests()[1]["messages"].([]any)[1].(map[string]any)
+	assert.NotContains(t, assistant, "reasoning_details")
+}
