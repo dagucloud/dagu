@@ -132,7 +132,7 @@ func (p Plan) Warnings(in WarningInput) []string {
 	}
 	if out := in.Outlook; out.FillsQueue() && len(p.Runs()) > 0 {
 		if out.RunDuration > 0 {
-			warnings = append(warnings, fmt.Sprintf("Live runs may wait up to %s behind an executing backfill run.", roughDuration(out.RunDuration)))
+			warnings = append(warnings, fmt.Sprintf("Live runs may wait behind an executing backfill run, which typically takes %s.", roughDuration(out.RunDuration)))
 		} else {
 			warnings = append(warnings, "Live runs may wait behind an executing backfill run.")
 		}

@@ -70,7 +70,7 @@ func TestPlanWarningsOfOutlook(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"The queue etl runs 1 at once, so the backfill runs 1 at a time.",
-		"Live runs may wait up to 5m behind an executing backfill run.",
+		"Live runs may wait behind an executing backfill run, which typically takes 5m.",
 	}, warnings(backfill.Outlook{MaxConcurrency: 3, Concurrency: 1, QueueName: "etl", QueueLimit: 1, RunDuration: 5 * time.Minute}))
 	assert.Equal(t, []string{
 		"Live runs may wait behind an executing backfill run.",
