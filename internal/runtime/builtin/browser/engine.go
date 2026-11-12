@@ -217,8 +217,9 @@ type pageOutcome struct {
 	// Text is the start of the page's visible text.
 	Text string `json:"text"`
 	// BotCheck names the check the site answered with in place of the page,
-	// such as browserhost.BotCheckCloudflare, or is empty.
-	BotCheck string `json:"-"`
+	// such as browserhost.BotCheckCloudflare, or the check the page shows
+	// in a frame, such as botCheckRecaptcha, or is empty.
+	BotCheck string `json:"botCheck"`
 }
 
 // pageSnapshot is the accessibility tree of a page.

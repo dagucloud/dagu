@@ -382,16 +382,30 @@ connection closes, the step log warns once.
 ### Refused pages
 
 A page counts as refused when its site answered with a bot check in place of
-it, which for Cloudflare is any answer with the header `cf-mitigated:
-challenge`, or answered `403` or `429`, with a body or without one, which
-Chrome shows as its own error page. A page a client certificate kept from
-opening is not counted; Client certificates explains it.
+it, when the page shows a bot check in a frame, or when the site answered
+`403` or `429`, with a body or without one, which Chrome shows as its own
+error page. A site answered with a bot check when the answer carries the
+header `cf-mitigated: challenge`, which is Cloudflare's check, or the header
+`x-amzn-waf-action: challenge` or `x-amzn-waf-action: captcha`, which are
+AWS WAF's challenge, answered with `202`, and CAPTCHA, answered with `405`.
+A page shows a bot check when a frame it shows, nested in a frame it shows
+too, loads a known challenge: `www.google.com/recaptcha/` or
+`recaptcha.net/recaptcha/` is a reCAPTCHA, a subdomain of `hcaptcha.com` an
+hCaptcha, and `challenges.cloudflare.com` a Cloudflare Turnstile. A frame
+that is not rendered or is hidden, or whose address says `size=invisible`,
+as an invisible reCAPTCHA's badge does, shows no check. A page a client
+certificate kept from opening is not counted; Client certificates explains
+it.
 
 After the start URL and after every operation, a refused page adds a line to
-the timeline and the step log, such as `page refused shop.example.com
-answered with a Cloudflare bot check (HTTP 403) in place of the page` or
-`page refused portal.example.com refused the page (HTTP 403 Forbidden)`, once
-while the browser keeps showing it.
+the timeline and the step log that names the check or the refusal, such as
+`page refused shop.example.com answered with a Cloudflare bot check (HTTP
+403) in place of the page`, `page refused shop.example.com answered with an
+AWS WAF CAPTCHA (HTTP 405) in place of the page`, `page refused
+portal.example.com shows a reCAPTCHA challenge (HTTP 200)`, or `page refused
+portal.example.com refused the page (HTTP 403 Forbidden)`, once while the
+browser keeps showing it. The sentence names an AWS WAF challenge, an
+hCaptcha challenge, and a Cloudflare Turnstile challenge the same way.
 
 A refused page is not one to work on. An `act`, an `upload`, an `expect`, or
 an `extract` that would run on it fails before it runs, with the same
@@ -413,11 +427,12 @@ replayed, since the refusal says nothing about them. A page that cannot be
 read keeps the refusal seen on it, since the read says nothing about the
 page, and shows none that was not seen.
 
-An action that leaves the browser on a bot check, such as `goto` or an `act`
-that loads a page, waits up to 10 seconds for the check to pass, as a check
-that needs no person does by loading the page it stood in for, and then
-lets the page settle as any new page does. A check still shown after the
-wait is reported as above and fails the operations that follow as above.
+An action that leaves the browser on a bot check of any of these kinds, such
+as `goto` or an `act` that loads a page, waits up to 10 seconds for the
+check to pass, as a check that needs no person does by loading the page it
+stood in for, and then lets the page settle as any new page does. A check
+still shown after the wait is reported as above and fails the operations
+that follow as above.
 
 ### Artifacts
 

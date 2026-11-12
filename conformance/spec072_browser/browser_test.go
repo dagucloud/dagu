@@ -313,6 +313,21 @@ func startShop(t *testing.T) string {
 			_, _ = io.WriteString(w, `<title>Just a moment...</title><p>Checking your browser</p>`)
 			return
 		}
+		if r.URL.Path == "/captcha" {
+			// AWS WAF answers its CAPTCHA action with 405 and names the action.
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("X-Amzn-Waf-Action", "captcha")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = io.WriteString(w, `<title>Human verification</title><p>Solve the puzzle</p>`)
+			return
+		}
+		if r.URL.Path == "/recaptcha" {
+			// A sign-in page served as a page that shows a reCAPTCHA checkbox.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<title>Sign in</title><form><iframe title="reCAPTCHA" width="304" height="78"
+ src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=site-key&co=aHR0cHM&hl=en&size=normal"></iframe></form>`)
+			return
+		}
 		if r.URL.Path == "/passing" {
 			if _, err := r.Cookie("passed"); err == nil {
 				w.Header().Set("Content-Type", "text/html")
@@ -599,6 +614,28 @@ func TestBrowserBotCheckFailsExtract(t *testing.T) {
 	result.ExpectStderrContains("do[0] extract failed: 127.0.0.1 answered with a Cloudflare bot check (HTTP 403) in place of the page")
 	b.dagu.ExpectNoFile("orders.out")
 	require.Zero(t, b.model.count(kindExtract))
+}
+
+// A step that fails on a page AWS WAF answered with its CAPTCHA, which it
+// marks with a header and HTTP 405, names the check.
+func TestBrowserNamesAWSWAFCaptcha(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	result := b.dagu.RunWithEnv(b.env, "start", "bot_check_captcha.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("answered with an AWS WAF CAPTCHA (HTTP 405) in place of the page")
+}
+
+// A step that fails on a page that shows a known challenge frame, as a
+// reCAPTCHA checkbox, names the check, though the site served the page.
+func TestBrowserNamesChallengeFrame(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	result := b.dagu.RunWithEnv(b.env, "start", "bot_check_frame.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("shows a reCAPTCHA challenge (HTTP 200)")
 }
 
 // A bot check that passes on its own is waited out, so the step reads the

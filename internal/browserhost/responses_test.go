@@ -30,8 +30,9 @@ func documentAnswered(session, frame, url string, status int, headers map[string
 }
 
 // A site's answer to the document a page loaded is kept by host, the last
-// one standing, with the bot check it is, if any. Frames, scripts, and
-// targets other than pages are not pages' documents.
+// one standing, with the bot check it is, if any: Cloudflare's, or an AWS
+// WAF challenge or CAPTCHA. Frames, scripts, and targets other than pages
+// are not pages' documents.
 func TestPageResponseWatcherKeepsPageDocuments(t *testing.T) {
 	t.Parallel()
 
@@ -44,6 +45,8 @@ func TestPageResponseWatcherKeepsPageDocuments(t *testing.T) {
 				documentAnswered("page-1", "frame-main", "https://Shop.example.com/", 403, map[string]any{"CF-Mitigated": "challenge"}),
 				documentAnswered("page-1", "frame-main", "https://portal.example.com/", 403, map[string]any{"content-type": "text/html"}),
 				documentAnswered("page-1", "frame-main", "https://portal.example.com/home", 200, nil),
+				documentAnswered("page-1", "frame-main", "https://api.example.com/", 202, map[string]any{"X-Amzn-Waf-Action": "challenge"}),
+				documentAnswered("page-1", "frame-main", "https://store.example.com/", 405, map[string]any{"x-amzn-waf-action": "CAPTCHA"}),
 				documentAnswered("page-1", "frame-ad", "https://ads.example.net/", 403, nil),
 				{Method: "Network.responseReceived", SessionID: "page-1", Params: map[string]any{
 					"type": "Script", "frameId": "frame-main", "response": map[string]any{"url": "https://cdn.example.net/app.js", "status": 403},
@@ -64,6 +67,12 @@ func TestPageResponseWatcherKeepsPageDocuments(t *testing.T) {
 	response, ok := watcher.Response("shop.example.com")
 	require.True(t, ok)
 	assert.Equal(t, browserhost.PageResponse{Status: 403, BotCheck: browserhost.BotCheckCloudflare}, response)
+	response, ok = watcher.Response("api.example.com")
+	require.True(t, ok)
+	assert.Equal(t, browserhost.PageResponse{Status: 202, BotCheck: browserhost.BotCheckAWSWAFChallenge}, response, "AWS WAF answers its Challenge action with 202")
+	response, ok = watcher.Response("store.example.com")
+	require.True(t, ok)
+	assert.Equal(t, browserhost.PageResponse{Status: 405, BotCheck: browserhost.BotCheckAWSWAFCaptcha}, response, "AWS WAF answers its CAPTCHA action with 405")
 	_, ok = watcher.Response("ads.example.net")
 	assert.False(t, ok, "a frame's document is not the page's")
 	_, ok = watcher.Response("cdn.example.net")
