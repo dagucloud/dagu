@@ -72,14 +72,27 @@ func openOrCreate(path, password, sheet string) (w *file, created bool, err erro
 // to is replaced rather than the link. A sharing violation, or a rename
 // another program's hold on the workbook refuses, becomes LockedError.
 func (w *file) save(inPlace bool) error {
-	if inPlace {
-		return classifyError(w.path, w.f.SaveAs(w.path))
+	// The file is opened here rather than by excelize's SaveAs, which
+	// refuses paths over excelize.MaxFilePathLength that the filesystem
+	// allows. excelize chooses the container format from the extension of
+	// its Path, which SaveAs would have set, so a new workbook learns its
+	// target here.
+	w.f.Path = w.path
+	fill := func(name string) error {
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, os.ModePerm) //nolint:gosec // the path is the workbook the step names, with the mode excelize's SaveAs gives
+		if err != nil {
+			return err
+		}
+		if err := w.f.Write(f); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
 	}
-	// excelize chooses the container format from the extension, so the
-	// temporary name keeps it.
-	return replaceAtomically(w.path, filepath.Ext(w.base), func(tmp string) error {
-		return w.f.SaveAs(tmp)
-	})
+	if inPlace {
+		return classifyError(w.path, fill(w.path))
+	}
+	return replaceAtomically(w.path, filepath.Ext(w.base), fill)
 }
 
 // replaceAtomically fills a short temporary name beside target and renames
