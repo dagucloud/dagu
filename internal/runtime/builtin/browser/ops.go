@@ -297,7 +297,7 @@ func (r *run) execute(ctx context.Context) error {
 		if err == nil {
 			r.reportResult(ctx, result)
 		}
-		r.reportDialogs(i)
+		dialogErr := r.reportDialogs(i)
 		r.reportBlocked(i)
 		// A write the gate kept back ends the step there, whatever the
 		// operation made of the page that did not get its answer: a
@@ -314,6 +314,8 @@ func (r *run) execute(ctx context.Context) error {
 			return r.rehearsed(ctx, i, *stop)
 		case err != nil:
 			return r.fail(ctx, i, op.kind(), err)
+		case dialogErr != nil:
+			return r.fail(ctx, i, op.kind(), dialogErr)
 		}
 		if err := r.checkPage(ctx, i); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
@@ -361,17 +363,28 @@ func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
 	return nil
 }
 
-// reportDialogs records the dialogs the browser accepted while the operation
-// at index ran.
-func (r *run) reportDialogs(index int) {
+// reportDialogs records the dialogs the browser answered while the operation
+// at index ran. Its error is the first confirm on_confirm: fail did not
+// expect, which fails the operation.
+func (r *run) reportDialogs(index int) error {
 	if r.eng == nil {
-		return
+		return nil
 	}
+	var unexpected error
 	for _, d := range r.eng.TakeDialogs() {
-		r.timeline.Operation(agentstep.Report{
-			Index: index, Kind: kindDialog, Subject: d.Message, Status: agentstep.StatusCompleted, Detail: "accepted " + d.Type,
-		})
+		report := agentstep.Report{Index: index, Kind: kindDialog, Subject: d.Message, Status: agentstep.StatusCompleted, Detail: "accepted " + d.Type}
+		if d.Dismissed {
+			report.Detail = "dismissed " + d.Type
+		}
+		if d.Dismissed && r.cfg.onConfirm() == onConfirmFail {
+			report.Status = agentstep.StatusFailed
+			if unexpected == nil {
+				unexpected = fmt.Errorf("%s dialog %q was not expected", d.Type, d.Message)
+			}
+		}
+		r.timeline.Operation(report)
 	}
+	return unexpected
 }
 
 // reportBlocked records the requests allowed_domains blocked while the
@@ -845,6 +858,7 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Proxy:          r.cfg.Browser.Proxy,
 		DownloadsDir:   downloads,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		DismissConfirm: r.cfg.dismissesConfirm(),
 		NoSandbox:      cmnconfig.GetConfig(ctx).Browser.NoSandbox,
 		Generate:       r.bridge.generate,
 

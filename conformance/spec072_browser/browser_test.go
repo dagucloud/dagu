@@ -564,6 +564,26 @@ func TestBrowserDialogs(t *testing.T) {
 	require.Equal(t, 1, b.model.count(kindAct))
 }
 
+// Under on_confirm: dismiss, the confirm an act raises is cancelled, so the
+// page keeps its row, and the step goes on.
+func TestBrowserDismissesConfirm(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "dialogs_dismiss.yaml").ExpectExitCode(0)
+}
+
+// Under on_confirm: fail, the confirm an act raises is cancelled and fails
+// the act with the dialog's message.
+func TestBrowserFailsOnConfirm(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	result := b.dagu.RunWithEnv(b.env, "start", "dialogs_fail.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains(`do[0] act failed: confirm dialog "Delete the row?" was not expected`)
+}
+
 // A browser without a window sends the user agent the same browser sends
 // with one, learned on the first run and kept for the next, and reports a
 // screen that holds its window.

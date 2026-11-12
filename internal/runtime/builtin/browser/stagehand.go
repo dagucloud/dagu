@@ -552,7 +552,7 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 	}
 	// An unanswered dialog blocks its page, and the runtime does not answer
 	// dialogs itself.
-	if eng.dialogs, err = browserhost.WatchDialogs(ctx, cdpURL); err != nil {
+	if eng.dialogs, err = browserhost.WatchDialogs(ctx, cdpURL, browserhost.DialogOptions{DismissConfirm: opts.DismissConfirm}); err != nil {
 		return nil, errors.Join(fmt.Errorf("watch dialogs: %w", err), eng.release(context.WithoutCancel(ctx)))
 	}
 	// A site that refuses the browser answers with a status or a bot check
@@ -1416,10 +1416,10 @@ func (e *stagehandEngine) TakeDialogs() []dialog {
 	if e.dialogs == nil {
 		return nil
 	}
-	accepted := e.dialogs.Take()
-	dialogs := make([]dialog, 0, len(accepted))
-	for _, d := range accepted {
-		dialogs = append(dialogs, dialog{Type: d.Type, Message: d.Message})
+	answered := e.dialogs.Take()
+	dialogs := make([]dialog, 0, len(answered))
+	for _, d := range answered {
+		dialogs = append(dialogs, dialog{Type: d.Type, Message: d.Message, Dismissed: d.Dismissed})
 	}
 	return dialogs
 }

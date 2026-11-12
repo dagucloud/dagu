@@ -53,6 +53,13 @@ const (
 	aiNever    = "never"
 )
 
+// What a confirm dialog gets: OK, cancel, or cancel and a failed operation.
+const (
+	onConfirmAccept  = "accept"
+	onConfirmDismiss = "dismiss"
+	onConfirmFail    = "fail"
+)
+
 const (
 	defaultOperationTimeout = 2 * time.Minute
 	defaultAskTimeout       = time.Hour
@@ -81,7 +88,10 @@ type browserOptions struct {
 	Proxy          string    `json:"proxy,omitempty"`
 	AllowedDomains []string  `json:"allowed_domains,omitempty"`
 	Screenshots    string    `json:"screenshots,omitempty"`
-	Profile        string    `json:"profile,omitempty"`
+	// OnConfirm is what a confirm dialog gets: accept (the default),
+	// dismiss, or fail, which dismisses it and fails the operation.
+	OnConfirm string `json:"on_confirm,omitempty"`
+	Profile   string `json:"profile,omitempty"`
 	// ClientCertificates are presented to the hosts they name, before
 	// those configured for the host.
 	ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates,omitempty"`
@@ -313,6 +323,20 @@ func (c config) screenshotPolicy() string {
 		return screenshotsOnFailure
 	}
 	return c.Browser.Screenshots
+}
+
+// onConfirm returns what the step gives a confirm dialog.
+func (c config) onConfirm() string {
+	if c.Browser.OnConfirm == "" {
+		return onConfirmAccept
+	}
+	return c.Browser.OnConfirm
+}
+
+// dismissesConfirm reports whether the browser answers a confirm with
+// cancel, which both dismiss and fail do.
+func (c config) dismissesConfirm() bool {
+	return c.onConfirm() != onConfirmAccept
 }
 
 // capturesFinalScreenshot reports whether a successful step saves a
@@ -673,6 +697,7 @@ var configSchema = &jsonschema.Schema{
 				"proxy":           agentstep.NonEmptyString(),
 				"allowed_domains": {Type: "array", Items: agentstep.NonEmptyString()},
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
+				"on_confirm":      {Type: "string", Enum: []any{onConfirmAccept, onConfirmDismiss, onConfirmFail}},
 				"profile":         agentstep.NonEmptyString(),
 				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeAsk, writegate.ModeRehearse}},
 				"client_certificates": {

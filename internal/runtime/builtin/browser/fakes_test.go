@@ -84,7 +84,7 @@ type fakeEngine struct {
 	pageLoss error
 	// onAct runs while an act asks the model, for what happens meanwhile.
 	onAct func()
-	// actDialogs are the dialogs the next act opens and the browser accepts.
+	// actDialogs are the dialogs the next act opens and the browser answers.
 	actDialogs []dialog
 	dialogs    []dialog
 	// actBlocked counts the requests per host allowed_domains blocks while
