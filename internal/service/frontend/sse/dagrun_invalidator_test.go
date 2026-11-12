@@ -345,6 +345,129 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 	}, 200*time.Millisecond, 20*time.Millisecond)
 }
 
+// fakeWakeClock drives a wakeLimiter by hand.
+type fakeWakeClock struct {
+	mu     sync.Mutex
+	now    time.Time
+	timers []*fakeWakeTimer
+}
+
+type fakeWakeTimer struct {
+	at      time.Time
+	fire    func()
+	stopped bool
+}
+
+func (c *fakeWakeClock) time() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeWakeClock) after(d time.Duration, f func()) func() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	timer := &fakeWakeTimer{at: c.now.Add(d), fire: f}
+	c.timers = append(c.timers, timer)
+	return func() bool { timer.stopped = true; return true }
+}
+
+// advance moves the time and fires the timers that are due, in order.
+func (c *fakeWakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	target := c.now.Add(d)
+	c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		var next *fakeWakeTimer
+		for _, timer := range c.timers {
+			if !timer.stopped && !timer.at.After(target) && (next == nil || timer.at.Before(next.at)) {
+				next = timer
+			}
+		}
+		if next == nil {
+			c.now = target
+			c.mu.Unlock()
+			return
+		}
+		next.stopped = true
+		c.now = next.at
+		c.mu.Unlock()
+		next.fire()
+	}
+}
+
+// The runs of a service DAG wake the list and the DAG topics at most once in
+// a window. A wake inside the window fires at its end; a normal DAG wakes at
+// once.
+func TestDAGRunInvalidatorLimitsServiceDAGWakes(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+	clock := &fakeWakeClock{now: time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)}
+	mux.serviceWakes.now = clock.time
+	mux.serviceWakes.after = clock.after
+
+	var lists, dags, histories atomic.Int64
+	for topicType, counter := range map[TopicType]*atomic.Int64{
+		TopicTypeDAGsList: &lists, TopicTypeDAG: &dags, TopicTypeDAGHistory: &histories,
+	} {
+		mux.RegisterFetcher(topicType, func(_ context.Context, _ string) (any, error) {
+			counter.Add(1)
+			return nil, nil
+		})
+		mux.SetRefreshMode(topicType, TopicRefreshModeOnDemand)
+	}
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(),
+		[]string{"dagslist:page=1", "dag:svc.yaml", "daghistory:svc.yaml"}, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+	newEvent := func(runID string, data map[string]any) *eventstore.Event {
+		return eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceServer},
+			eventstore.TypeDAGRunSucceeded,
+			&ir.DAGRunStatus{Name: "svc", DAGRunID: runID, AttemptID: "a", Status: ir.Succeeded},
+			data,
+		)
+	}
+	service := map[string]any{eventstore.DAGFileNameDataKey: "svc", eventstore.ServiceDAGDataKey: true}
+	normal := map[string]any{eventstore.DAGFileNameDataKey: "svc"}
+	waitCounts := func(want int64) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			return lists.Load() == want && dags.Load() == want && histories.Load() == want
+		}, time.Second, 10*time.Millisecond)
+	}
+	holdCounts := func(want int64) {
+		t.Helper()
+		require.Never(t, func() bool {
+			return lists.Load() != want || dags.Load() != want || histories.Load() != want
+		}, 150*time.Millisecond, 20*time.Millisecond)
+	}
+
+	// The first wake passes. The two next ones stay pending, as one wake.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r1", service)}, nil)
+	waitCounts(1)
+	clock.advance(3 * time.Second)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r2", service), newEvent("r3", service)}, nil)
+	holdCounts(1)
+
+	// The pending wake fires at the end of the window of the first wake.
+	clock.advance(6 * time.Second)
+	holdCounts(1)
+	clock.advance(time.Second)
+	waitCounts(2)
+
+	// A wake after the window passes at once.
+	clock.advance(10 * time.Second)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r4", service)}, nil)
+	waitCounts(3)
+
+	// A normal DAG wakes at once, also inside the window.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r5", normal)}, nil)
+	waitCounts(4)
+}
+
 // countingTopics subscribes to the topics, all of one type, and returns the
 // multiplexer with a count of the refetches of each topic.
 func countingTopics(t *testing.T, topicType TopicType, topics ...string) (*Multiplexer, func(topic string) int64) {

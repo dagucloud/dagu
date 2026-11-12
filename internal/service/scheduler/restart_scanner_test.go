@@ -161,6 +161,9 @@ type restartHarness struct {
 	stopChecks int
 	reads      int
 	queueReads int
+	latestRead int
+	recentRead int
+	order      []string
 	failWith   error
 	enqueued   []enqueuedRun
 	failed     []string
@@ -210,9 +213,11 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		},
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
 			h.reads++
+			h.latestRead++
 			return h.latest, h.latestErr
 		},
 		RecentRuns: func(context.Context, *ir.DAG) ([]ir.DAGRunStatus, error) {
+			h.recentRead++
 			return h.recent, h.recentErr
 		},
 		IsStopRequested: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
@@ -238,6 +243,7 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 				return h.failWith
 			}
 			h.enqueued = append(h.enqueued, enqueuedRun{dag: entry.DAG.Name, runID: runID, triggerType: triggerType})
+			h.order = append(h.order, "enqueue")
 			return nil
 		},
 		Clock: func() time.Time { return h.now },
@@ -251,6 +257,14 @@ func (h *restartHarness) withEvents() *fakeRunEvents {
 	events := &fakeRunEvents{}
 	h.scanner.events = events
 	return events
+}
+
+// withHistory gives the scanner a run history on a fake store. The store notes
+// each sample in the order of the harness, with each queued run.
+func (h *restartHarness) withHistory() *fakeHistoryStore {
+	store := &fakeHistoryStore{order: &h.order}
+	h.scanner.cfg.History = store.history(func() time.Time { return h.now })
+	return store
 }
 
 type fakeRunEvents struct {
@@ -882,4 +896,182 @@ func TestRestartScanner(t *testing.T) {
 func TestRestartIsSchedulerManaged(t *testing.T) {
 	t.Parallel()
 	assert.True(t, isSchedulerManagedTriggerType(ir.TriggerTypeRestart))
+}
+
+func TestRestartScannerHistory(t *testing.T) {
+	t.Parallel()
+
+	svc := func() *ir.DAG { return serviceDAG("svc", ir.RestartPolicyAlways) }
+
+	// The retention applies when a run starts, so the sample of a run must exist
+	// before the run that follows it is queued.
+	t.Run("SampleBeforeEnqueue", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.latest = ir.DAGRunStatus{
+			DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Failed,
+			StartedAt:  h.now.Add(-30 * time.Second).Format(time.RFC3339),
+			FinishedAt: h.now.Add(-20 * time.Second).Format(time.RFC3339),
+		}
+		h.scan()
+		assert.Equal(t, []string{"sample:run-1", "enqueue"}, h.order)
+		require.Len(t, store.samples, 1)
+		assert.Equal(t, 1, store.samples[0].ExitCode)
+		assert.Equal(t, 10*time.Second, store.samples[0].Duration)
+	})
+
+	t.Run("SuspendedDAG", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.suspended["svc"] = true
+		h.endRun(ir.Succeeded, time.Minute)
+		h.scan()
+		assert.Empty(t, h.enqueued)
+		assert.Len(t, store.samples, 1, "the last run of a suspended DAG records")
+	})
+
+	t.Run("QueuesDisabled", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.scanner.cfg.Enqueue = nil
+		h.endRun(ir.Succeeded, time.Minute)
+		h.scan()
+		assert.Len(t, store.samples, 1)
+	})
+
+	// With hist_retention_runs: 1, the repository holds the latest run only.
+	t.Run("EveryRunRecords", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		var want []string
+		for i := range 5 {
+			id := fmt.Sprintf("run-%d", i)
+			want = append(want, id)
+			h.waitBeforeRestart(id, ir.Succeeded, time.Second)
+			h.recent = []ir.DAGRunStatus{h.latest}
+		}
+		assert.Equal(t, want, runIDs(store.samples))
+		assert.Len(t, h.enqueued, 5)
+	})
+
+	t.Run("HistoryErrorKeepsRestart", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		store.openErr = errors.New("disk full")
+		h.waitBeforeRestart("run-1", ir.Succeeded, time.Second)
+		h.waitBeforeRestart("run-2", ir.Succeeded, time.Second)
+		assert.Len(t, h.enqueued, 2, "the DAG restarts as usual")
+		assert.Empty(t, store.samples)
+		assert.Equal(t, 1, store.opens, "the store opens again later, not at each scan")
+		assert.Equal(t, 1, h.logged("Run history is not recorded"), "one log in 30 s")
+	})
+
+	// An unchanged latest status costs no more than the scan did before.
+	t.Run("NoExtraReads", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.endRun(ir.Failed, time.Minute)
+		h.recent = []ir.DAGRunStatus{h.latest}
+		for range 5 {
+			h.scan()
+		}
+		assert.Equal(t, 1, store.dirCalls, "History sees the status once")
+		assert.Equal(t, 5, h.recentRead, "the recent runs are read once for each scan")
+		assert.Len(t, store.samples, 1)
+
+		h.endRun(ir.Failed, time.Minute)
+		h.latest.AttemptID = "attempt-2"
+		h.scan()
+		assert.Equal(t, 2, store.dirCalls, "a new attempt is seen")
+		assert.Len(t, store.samples, 2)
+	})
+
+	t.Run("ActiveRunOpensOnce", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.latest = ir.DAGRunStatus{DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Running}
+		for range 3 {
+			h.scan()
+		}
+		assert.Equal(t, 1, store.opens, "the first sight of a DAG opens and imports")
+		assert.Equal(t, 1, store.dirCalls)
+		assert.Zero(t, h.recentRead)
+
+		h.latest.Status = ir.Succeeded
+		h.latest.FinishedAt = h.now.Format(time.RFC3339)
+		h.scan()
+		assert.Len(t, store.samples, 1)
+	})
+
+	t.Run("OverlappingRun", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		older := ir.DAGRunStatus{
+			DAGRunID: "hand", AttemptID: "hand-1", Status: ir.Succeeded,
+			StartedAt: h.now.Add(-time.Minute).Format(time.RFC3339), FinishedAt: h.now.Add(-30 * time.Second).Format(time.RFC3339),
+		}
+		h.endRun(ir.Succeeded, time.Minute)
+		h.recent = []ir.DAGRunStatus{h.latest, older}
+		h.scan()
+		assert.ElementsMatch(t, []string{"run-1", "hand"}, runIDs(store.samples))
+	})
+
+	// A suspended DAG reads its status again only when a run ends, or after the
+	// reconcile interval.
+	t.Run("SuspendedReads", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		events := h.withEvents()
+		h.suspended["svc"] = true
+		h.latest = ir.DAGRunStatus{DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Running}
+		h.scan()
+		for range 10 {
+			h.now = h.now.Add(time.Second)
+			h.scan()
+		}
+		assert.Equal(t, 1, h.latestRead)
+
+		h.endRun(ir.Succeeded, 0)
+		events.add("svc", ir.Succeeded)
+		h.scan()
+		assert.Equal(t, 2, h.latestRead)
+		assert.Len(t, store.samples, 1)
+	})
+
+	t.Run("ForgetsOthers", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.endRun(ir.Succeeded, time.Minute)
+		h.scan()
+		require.Zero(t, store.closes)
+		h.entries = nil
+		h.scan()
+		assert.Equal(t, 1, store.closes, "a DAG that is not a service DAG closes its store")
+	})
+
+	t.Run("StartClosesStores", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		ctx, cancel := context.WithCancel(h.ctx)
+		enqueue := h.scanner.cfg.Enqueue
+		h.scanner.cfg.Enqueue = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, at time.Time) error {
+			cancel()
+			return enqueue(ctx, entry, runID, triggerType, at)
+		}
+		h.endRun(ir.Succeeded, time.Minute)
+		h.scanner.Start(ctx)
+		assert.Equal(t, 1, store.opens)
+		assert.Equal(t, 1, store.closes, "Start closes the stores when it returns")
+	})
 }

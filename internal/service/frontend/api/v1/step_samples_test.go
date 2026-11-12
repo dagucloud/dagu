@@ -27,6 +27,7 @@ type fakeSamplesReader struct {
 	series       samples.Series
 	page         samples.EventPage
 	availability samples.Availability
+	uptime       samples.Uptime
 
 	sampleQuery samples.SampleQuery
 	eventQuery  samples.EventQuery
@@ -46,6 +47,10 @@ func (f *fakeSamplesReader) Events(_ context.Context, q samples.EventQuery) (sam
 
 func (f *fakeSamplesReader) Availability(_ context.Context, _ time.Time) (samples.Availability, error) {
 	return f.availability, nil
+}
+
+func (f *fakeSamplesReader) Uptime(_ context.Context, _, _ time.Time) (samples.Uptime, error) {
+	return f.uptime, nil
 }
 
 func continuousNode(name string) *ir.Node {

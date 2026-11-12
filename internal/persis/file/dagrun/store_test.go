@@ -178,6 +178,16 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
 }
 
+// The run history of a DAG sits beside its dag-runs directory, which the
+// retention prunes, under the same DAG directory name.
+func TestRunHistoryDir(t *testing.T) {
+	base := t.TempDir()
+	store := NewStore(base)
+	assert.Equal(t, filepath.Join(base, "svc", "run-history"), store.RunHistoryDir("svc"))
+	assert.Equal(t, filepath.Join(base, dagDirName("a/b c"), "run-history"), store.RunHistoryDir("a/b c"))
+	assert.Equal(t, filepath.Dir(NewDataRoot(base, "svc").dagRunsDir), filepath.Dir(store.RunHistoryDir("svc")))
+}
+
 func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
 	ctx := context.Background()
 	workRoot := t.TempDir()

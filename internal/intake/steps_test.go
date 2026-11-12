@@ -6,6 +6,7 @@ package intake_test
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/require"
@@ -407,6 +408,48 @@ func TestSelectedStepNodesReusedInputs(t *testing.T) {
 		}, reused)
 	})
 
+	// A step that the source run skipped by retry and did not carry has no
+	// finish time: it gives nothing to the new run.
+	t.Run("UncarriedStepIsNotReused", func(t *testing.T) {
+		t.Parallel()
+
+		partial := &ir.DAGRunStatus{
+			DAGRunID: "partial",
+			Status:   ir.Succeeded,
+			Nodes: []*ir.Node{
+				{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSkipped, SkippedByRetry: true},
+				{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSkipped, SkippedByRetry: true, FinishedAt: "2026-10-26T10:01:00Z"},
+			},
+		}
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"label"}, partial, nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "fetch", RunID: "partial", CapturedAt: "2026-10-26T10:01:00Z", FinishedAt: "2026-10-26T10:01:00Z", Via: ir.ReusedInputViaRun},
+		}, reused)
+	})
+
+	// A step that got supplied outputs has values and no times: it carried them.
+	t.Run("SuppliedOutputsAreReused", func(t *testing.T) {
+		t.Parallel()
+
+		supplied := `{"token":"mine"}`
+		suppliedRun := &ir.DAGRunStatus{
+			DAGRunID: "supplied",
+			Status:   ir.Succeeded,
+			Nodes: []*ir.Node{
+				{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSkipped, SkippedByRetry: true, StepOutputsValue: &supplied},
+				{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSkipped, SkippedByRetry: true, OutputVariables: &collections.SyncMap{}},
+			},
+		}
+		suppliedRun.Nodes[1].OutputVariables.Store("RESULT", "RESULT=x")
+		_, reused, err := intake.SelectedStepNodes(outputsDAG(), []string{"label"}, suppliedRun, nil, nil, nil)
+		require.NoError(t, err)
+		require.Equal(t, []ir.ReusedInput{
+			{Step: "Log in", RunID: "supplied", Via: ir.ReusedInputViaRun},
+			{Step: "fetch", RunID: "supplied", Via: ir.ReusedInputViaRun},
+		}, reused)
+	})
+
 	t.Run("SelectedStepHasNone", func(t *testing.T) {
 		t.Parallel()
 
@@ -453,6 +496,23 @@ func TestSelectedStepNodesFromRuns(t *testing.T) {
 		}, reused)
 	})
 
+	// A run that got supplied outputs for a step, with no times, is a source.
+	t.Run("SuppliedOutputsAreASource", func(t *testing.T) {
+		t.Parallel()
+
+		supplied := `{"token":"mine"}`
+		suppliedRun := &ir.DAGRunStatus{
+			DAGRunID: "supplied",
+			Status:   ir.Succeeded,
+			Nodes: []*ir.Node{
+				{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSkipped, SkippedByRetry: true, StepOutputsValue: &supplied},
+			},
+		}
+		nodes, _, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, main, intake.RunStepSources{"login": suppliedRun}, nil, nil)
+		require.NoError(t, err)
+		require.JSONEq(t, supplied, *nodes[0].State.StepOutputsValue)
+	})
+
 	t.Run("WorksWithoutMainSource", func(t *testing.T) {
 		t.Parallel()
 
@@ -485,6 +545,13 @@ func TestSelectedStepNodesFromRuns(t *testing.T) {
 			steps:   []string{"report"},
 			from:    intake.RunStepSources{"fetch": other},
 			wantErr: "step fetch cannot be reused from run other: the step did not succeed there",
+		},
+		{
+			// A step skipped by retry that carried nothing has no times.
+			name:    "StepNotCarried",
+			steps:   []string{"report"},
+			from:    intake.RunStepSources{"fetch": {DAGRunID: "partial", Status: ir.Succeeded, Nodes: []*ir.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSkipped, SkippedByRetry: true}}}},
+			wantErr: "step fetch cannot be reused from run partial: the step did not succeed there",
 		},
 		{
 			name:    "RunNotFinished",

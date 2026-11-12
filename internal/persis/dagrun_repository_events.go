@@ -171,10 +171,11 @@ func dagRunEventData(dag *ir.DAG) map[string]any {
 	if fileName == "" && dag.SourceFile != "" {
 		fileName = fileutil.TrimYAMLFileExtension(filepath.Base(dag.SourceFile))
 	}
-	if fileName == "" && len(dag.WorkerSelector) == 0 {
+	service := dag.RestartPolicy.Enabled()
+	if fileName == "" && len(dag.WorkerSelector) == 0 && !service {
 		return nil
 	}
-	data := make(map[string]any, 2)
+	data := make(map[string]any, 3)
 	if fileName != "" {
 		data[eventstore.DAGFileNameDataKey] = fileName
 	}
@@ -182,6 +183,9 @@ func dagRunEventData(dag *ir.DAG) map[string]any {
 		// A consumer that opens worker capacity on demand reads which labels a
 		// waiting run needs from here.
 		data[eventstore.WorkerSelectorDataKey] = maps.Clone(dag.WorkerSelector)
+	}
+	if service {
+		data[eventstore.ServiceDAGDataKey] = true
 	}
 	return data
 }

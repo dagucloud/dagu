@@ -97,25 +97,33 @@ func checkIntRange(name string, value *int, lo, hi int) error {
 	return nil
 }
 
+// sampleQueryOf checks the query of a samples route and applies the defaults.
+func sampleQueryOf(from, to *time.Time, points *int) (samples.SampleQuery, error) {
+	if err := checkIntRange("points", points, minSamplePoints, maxSamplePoints); err != nil {
+		return samples.SampleQuery{}, err
+	}
+	q := samples.SampleQuery{To: time.Now().UTC(), MaxPoints: defaultSamplePoints}
+	if to != nil {
+		q.To = to.UTC()
+	}
+	q.From = q.To.Add(-defaultSampleWindow)
+	if from != nil {
+		q.From = from.UTC()
+	}
+	if q.From.After(q.To) {
+		return samples.SampleQuery{}, badRequest("from must not be after to")
+	}
+	if points != nil {
+		q.MaxPoints = *points
+	}
+	return q, nil
+}
+
 func (a *API) GetDAGRunStepSamples(ctx context.Context, request api.GetDAGRunStepSamplesRequestObject) (api.GetDAGRunStepSamplesResponseObject, error) {
 	p := request.Params
-	if err := checkIntRange("points", p.Points, minSamplePoints, maxSamplePoints); err != nil {
+	query, err := sampleQueryOf(p.From, p.To, p.Points)
+	if err != nil {
 		return nil, err
-	}
-	to := time.Now().UTC()
-	if p.To != nil {
-		to = p.To.UTC()
-	}
-	from := to.Add(-defaultSampleWindow)
-	if p.From != nil {
-		from = p.From.UTC()
-	}
-	if from.After(to) {
-		return nil, badRequest("from must not be after to")
-	}
-	points := defaultSamplePoints
-	if p.Points != nil {
-		points = *p.Points
 	}
 
 	reader, notFound, err := a.continuousStepReader(ctx, request.Name, request.DagRunId, request.StepName)
@@ -126,11 +134,11 @@ func (a *API) GetDAGRunStepSamples(ctx context.Context, request api.GetDAGRunSte
 		return api.GetDAGRunStepSamples404JSONResponse{Code: api.ErrorCodeNotFound, Message: notFound}, nil
 	}
 
-	series, err := reader.Samples(ctx, samples.SampleQuery{From: from, To: to, MaxPoints: points})
+	series, err := reader.Samples(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("error reading samples: %w", err)
 	}
-	return api.GetDAGRunStepSamples200JSONResponse(toStepSamples(series, from, to)), nil
+	return api.GetDAGRunStepSamples200JSONResponse(toStepSamples(series, query.From, query.To)), nil
 }
 
 func toStepSamples(series samples.Series, from, to time.Time) api.StepSamples {
@@ -142,7 +150,7 @@ func toStepSamples(series samples.Series, from, to time.Time) api.StepSamples {
 	}
 	buckets := make([]api.SampleBucket, 0, len(series.Buckets))
 	for _, b := range series.Buckets {
-		buckets = append(buckets, api.SampleBucket{
+		bucket := api.SampleBucket{
 			Time:     b.Time.UTC(),
 			Count:    countInt64(b.Count),
 			Failures: countInt64(b.Failures),
@@ -150,7 +158,11 @@ func toStepSamples(series samples.Series, from, to time.Time) api.StepSamples {
 			MaxMs:    b.Max.Milliseconds(),
 			P50Ms:    b.P50.Milliseconds(),
 			P95Ms:    b.P95.Milliseconds(),
-		})
+		}
+		if b.Up > 0 {
+			bucket.UpMs = ptrOf(b.Up.Milliseconds())
+		}
+		buckets = append(buckets, bucket)
 	}
 	return api.StepSamples{
 		From:              from.UTC(),
@@ -160,26 +172,35 @@ func toStepSamples(series samples.Series, from, to time.Time) api.StepSamples {
 	}
 }
 
-func (a *API) GetDAGRunStepEvents(ctx context.Context, request api.GetDAGRunStepEventsRequestObject) (api.GetDAGRunStepEventsResponseObject, error) {
-	p := request.Params
-	if err := checkIntRange("limit", p.Limit, 1, maxEventLimit); err != nil {
-		return nil, err
+// eventQueryOf checks the query of an events route and applies the defaults.
+func eventQueryOf(from, to *time.Time, limit *int, before *string) (samples.EventQuery, error) {
+	if err := checkIntRange("limit", limit, 1, maxEventLimit); err != nil {
+		return samples.EventQuery{}, err
 	}
 	query := samples.EventQuery{Limit: defaultEventLimit}
-	if p.Limit != nil {
-		query.Limit = *p.Limit
+	if limit != nil {
+		query.Limit = *limit
 	}
-	if p.From != nil {
-		query.From = p.From.UTC()
+	if from != nil {
+		query.From = from.UTC()
 	}
-	if p.To != nil {
-		query.To = p.To.UTC()
+	if to != nil {
+		query.To = to.UTC()
 	}
-	if p.From != nil && p.To != nil && query.From.After(query.To) {
-		return nil, badRequest("from must not be after to")
+	if from != nil && to != nil && query.From.After(query.To) {
+		return samples.EventQuery{}, badRequest("from must not be after to")
 	}
-	if p.Before != nil {
-		query.Before = *p.Before
+	if before != nil {
+		query.Before = *before
+	}
+	return query, nil
+}
+
+func (a *API) GetDAGRunStepEvents(ctx context.Context, request api.GetDAGRunStepEventsRequestObject) (api.GetDAGRunStepEventsResponseObject, error) {
+	p := request.Params
+	query, err := eventQueryOf(p.From, p.To, p.Limit, p.Before)
+	if err != nil {
+		return nil, err
 	}
 
 	reader, notFound, err := a.continuousStepReader(ctx, request.Name, request.DagRunId, request.StepName)
@@ -263,6 +284,9 @@ func toStepAvailability(av samples.Availability) api.StepAvailability {
 		out := api.AvailabilityWindow{Window: w.api, Count: countInt64(stat.Count), Failures: countInt64(stat.Failures)}
 		if stat.Count > 0 {
 			out.Availability = new(float64(stat.Count-min(stat.Failures, stat.Count)) / float64(stat.Count))
+		}
+		if ratio, ok := stat.Uptime.Ratio(); ok {
+			out.Uptime = new(ratio)
 		}
 		windows = append(windows, out)
 	}

@@ -93,6 +93,7 @@ It must not be treated as product behavior until implementation catches up.
 | [094: AI Gateway](094-ai-gateway.md) | Implemented |
 | [095: MCP Servers](095-mcp-servers.md) | Implemented |
 | [096: Skills](096-skills.md) | Implemented |
+| [097: Service Run History](097-service-run-history.md) | Implemented |
 
 **Writing guidelines:**
 

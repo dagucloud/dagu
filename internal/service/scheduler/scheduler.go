@@ -40,6 +40,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/publicwebhook"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/samples"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/chatbridge"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -417,7 +418,16 @@ func newScheduler(
 			return err
 		},
 		Enqueue: enqueueFunc,
-		Clock:   defaultClock,
+		History: NewServiceHistory(ServiceHistoryConfig{
+			Dir: dagRunRepository.RunHistoryDir,
+			RecentRuns: func(ctx context.Context, dagName string, limit int) ([]ir.DAGRunStatus, error) {
+				return dagRunRepository.RecentStatuses(ctx, dagName, limit)
+			},
+			Open:      samples.OpenRecorder,
+			NewestEnd: samples.NewestEnd,
+			Clock:     defaultClock,
+		}),
+		Clock: defaultClock,
 	})
 
 	retryScanner, err := NewRetryScanner(

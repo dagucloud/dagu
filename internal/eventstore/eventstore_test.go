@@ -428,3 +428,13 @@ func TestLegacyNodeLogPaths(t *testing.T) {
 		t.Fatal("nil snapshot changed")
 	}
 }
+
+func TestIsServiceDAGEvent(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, IsServiceDAGEvent(nil))
+	assert.False(t, IsServiceDAGEvent(&Event{}))
+	assert.False(t, IsServiceDAGEvent(&Event{Data: map[string]any{ServiceDAGDataKey: false}}))
+	assert.False(t, IsServiceDAGEvent(&Event{Data: map[string]any{ServiceDAGDataKey: "true"}}))
+	assert.True(t, IsServiceDAGEvent(&Event{Data: map[string]any{ServiceDAGDataKey: true}}))
+}

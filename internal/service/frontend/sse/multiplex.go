@@ -123,6 +123,8 @@ type Multiplexer struct {
 	cancel              context.CancelFunc
 	eventIDMu           sync.Mutex
 	nextEventID         uint64
+	// serviceWakes limits the wakes that the runs of service DAGs cause.
+	serviceWakes *wakeLimiter
 }
 
 // NewMultiplexer creates a multiplexed SSE manager.
@@ -165,6 +167,7 @@ func NewMultiplexer(cfg StreamConfig, metrics *Metrics) *Multiplexer {
 		metrics:             metrics,
 		ctx:                 ctx,
 		cancel:              cancel,
+		serviceWakes:        newWakeLimiter(serviceWakeWindow),
 	}
 }
 
@@ -314,6 +317,7 @@ func (m *Multiplexer) wakeTopicKey(key string) {
 // Shutdown stops all multiplexed sessions and topic watchers.
 func (m *Multiplexer) Shutdown() {
 	m.cancel()
+	m.serviceWakes.stop()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -206,3 +206,58 @@ func TestOutputsFromRunsRejects(t *testing.T) {
 		"outputsFromRuns": map[string]string{"build": good},
 	}).ExpectStatus(http.StatusBadRequest).Send(t)
 }
+
+// A selected-steps run records each step that it did not carry as skipped,
+// with no outputs and no times: such a step cannot be the source of another
+// run.
+func TestOutputsFromRunsRejectsUncarriedStep(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixtures assume a POSIX sh is available")
+	}
+	server := newServer(t)
+	const name = "from_runs_uncarried"
+	createDAG(t, server, name, stepRunDAG)
+	path := "/api/v1/dags/" + name + "/start"
+
+	source := startRun(t, server, path, map[string]any{"steps": []string{"build"}})
+	waitForStatus(t, server, name, source, api.StatusSuccess)
+
+	body := server.Client().Post(path, map[string]any{
+		"steps":           []string{"consume"},
+		"outputsFromRuns": map[string]string{"capture": source},
+	}).ExpectStatus(http.StatusBadRequest).Send(t).Body
+	assert.Contains(t, body,
+		fmt.Sprintf("step capture cannot be reused from run %s: the step did not succeed there", source))
+}
+
+// A step that got supplied outputs carried them, with no times: its run is a
+// source for outputsFromRuns, and for outputsFromRunId with a reused input.
+func TestOutputsFromRunsAcceptsSuppliedOutputs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixtures assume a POSIX sh is available")
+	}
+	server := newServer(t)
+	const name = "from_runs_supplied"
+	createDAG(t, server, name, stepRunDAG)
+	path := "/api/v1/dags/" + name + "/start"
+
+	source := startRun(t, server, path, stepsOnly(explicitOutputs, nil))
+	waitForStatus(t, server, name, source, api.StatusSuccess)
+
+	viaRuns := startRun(t, server, path, map[string]any{
+		"steps":           []string{"consume"},
+		"outputsFromRuns": map[string]string{"build": source, "capture": source},
+	})
+	waitForStatus(t, server, name, viaRuns, api.StatusSuccess)
+	assert.Contains(t, stepLog(t, server, name, viaRuns, "consume"), "tag=v9.9.9 captured=from-the-front")
+
+	viaRunID := startRun(t, server, path, map[string]any{
+		"steps":            []string{"consume"},
+		"outputsFromRunId": source,
+	})
+	waitForStatus(t, server, name, viaRunID, api.StatusSuccess)
+	assert.Contains(t, stepLog(t, server, name, viaRunID, "consume"), "tag=v9.9.9 captured=from-the-front")
+	details := runDetails(t, server, name, viaRunID)
+	require.NotNil(t, details.ReusedInputs)
+	assert.Len(t, *details.ReusedInputs, 2)
+}

@@ -106,6 +106,24 @@ func (r *DAGRunRepository) RecentStatuses(ctx context.Context, name string, limi
 	return r.store.RecentStatuses(ctx, name, recentLimit(ctx, limit))
 }
 
+// RunHistoryLocator is implemented by a DAG-run store that keeps the run
+// history of a DAG (specs/097-service-run-history.md) in a directory.
+type RunHistoryLocator interface {
+	// RunHistoryDir returns the directory of the run history of a DAG. The
+	// retention of the runs of the DAG never removes it.
+	RunHistoryDir(dagName string) string
+}
+
+// RunHistoryDir returns the directory of the run history of a DAG. It reports
+// false when the store keeps no run history.
+func (r *DAGRunRepository) RunHistoryDir(dagName string) (string, bool) {
+	locator, ok := r.store.(RunHistoryLocator)
+	if !ok || dagName == "" {
+		return "", false
+	}
+	return locator.RunHistoryDir(dagName), true
+}
+
 // recentLimit returns limit, or the default for a limit that is not positive.
 func recentLimit(ctx context.Context, limit int) int {
 	if limit <= 0 {

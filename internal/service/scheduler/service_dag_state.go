@@ -18,7 +18,7 @@ type ServiceDAGState string
 
 const (
 	// ServiceDAGStatePending means no run is alive yet: the DAG has no run, or
-	// its latest run waits in the queue.
+	// its first run waits in the queue.
 	ServiceDAGStatePending ServiceDAGState = "pending"
 	// ServiceDAGStateRunning means a run is alive.
 	ServiceDAGStateRunning ServiceDAGState = "running"
@@ -26,7 +26,8 @@ const (
 	// as an approval, and does nothing until someone acts on it.
 	ServiceDAGStateWaiting ServiceDAGState = "waiting"
 	// ServiceDAGStateRestarting means the latest run succeeded, or an operator
-	// stopped the latest run of an always DAG, and the next run is due.
+	// stopped the latest run of an always DAG, and the next run is due or waits
+	// in the queue.
 	ServiceDAGStateRestarting ServiceDAGState = "restarting"
 	// ServiceDAGStateFailing means the latest run did not succeed, with no stop
 	// request, and the next run is due.
@@ -56,6 +57,10 @@ func DescribeServiceDAG(
 	case latest.Status == ir.Running:
 		return ServiceDAGStateRunning, nil
 	case latest.Status == ir.NotStarted || latest.Status == ir.Queued:
+		// The restart of a DAG that ran waits in the queue for a short time.
+		if latest.TriggerType == ir.TriggerTypeRestart && !suspended {
+			return ServiceDAGStateRestarting, nil
+		}
 		return pendingOrSuspended(suspended), nil
 	case suspended:
 		return ServiceDAGStateSuspended, nil

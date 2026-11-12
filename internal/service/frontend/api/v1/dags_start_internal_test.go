@@ -128,6 +128,23 @@ func TestWaitForLocalDAGStartReturnsErrorWhenStarterExitedWithoutStatus(t *testi
 	require.Contains(t, apiErr.Message, "exit status 1")
 }
 
+// The coordinator accepted the dispatch, so the run is enqueued and a worker
+// takes it later. The start does not fail when no worker took it during the
+// wait.
+func TestDispatchStartToCoordinatorAcceptsEnqueuedRun(t *testing.T) {
+	t.Parallel()
+
+	api := newLocalStartTestAPI(t)
+	api.config = &config.Config{}
+	recorder := &retryCoordinatorRecorder{}
+	api.coordinatorCli = recorder
+	dag := &ir.DAG{Name: "waiting", YamlData: []byte("steps:\n  - run: echo waiting\n")}
+
+	err := api.dispatchStartToCoordinator(context.Background(), dag, startDAGRunOptions{dagRunID: "run-waiting"}, "", 50*time.Millisecond)
+	require.NoError(t, err)
+	require.Len(t, recorder.dispatched, 1)
+}
+
 func newLocalStartTestAPI(t *testing.T) *API {
 	t.Helper()
 

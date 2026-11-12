@@ -4,9 +4,11 @@
 package samples
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"strconv"
@@ -35,12 +37,15 @@ type eventJSON struct {
 	M string    `json:"m,omitempty"`
 	N uint64    `json:"n,omitempty"`
 	O int64     `json:"o,omitempty"` // outage, milliseconds
+	R string    `json:"r,omitempty"` // run ID
+	G int64     `json:"g,omitempty"` // gap, milliseconds
 }
 
 func (e Event) encode() []byte {
 	b, _ := json.Marshal(eventJSON{
 		T: e.Time.UnixMilli(), K: e.Kind, C: e.ExitCode, M: e.Message,
 		N: e.FailedCount, O: e.Outage.Milliseconds(),
+		R: e.RunID, G: e.Gap.Milliseconds(),
 	})
 	return append(b, '\n')
 }
@@ -53,6 +58,7 @@ func parseEvent(line []byte) (Event, bool) {
 	return Event{
 		Time: time.UnixMilli(j.T).UTC(), Kind: j.K, ExitCode: j.C, Message: j.M,
 		FailedCount: j.N, Outage: time.Duration(j.O) * time.Millisecond,
+		RunID: j.R, Gap: time.Duration(j.G) * time.Millisecond,
 	}, true
 }
 
@@ -135,7 +141,7 @@ func (s *store) loadTracker() (t tracker, lastEvent int64, err error) {
 			if failed == 0 {
 				failed, countAt = e.FailedCount, e.Time.UnixMilli()
 			}
-		case EventStarted:
+		case EventStarted, EventGap:
 		}
 		return scanned < maxScan
 	})
@@ -176,6 +182,82 @@ func (s *store) failedAfter(ms int64) (uint64, error) {
 }
 
 const cursorPrefix = "e"
+
+// The events file can start with a header line {"b":N}. N is the count of
+// bytes that a compaction dropped before the first kept event. A cursor is the
+// offset of an event since the first event ever written, so it stays exact
+// after a compaction. parseEvent ignores the header.
+const (
+	headerPrefix = `{"b":`
+	// maxHeader is more than the longest header line.
+	maxHeader = 32
+)
+
+func encodeHeader(base int64) []byte {
+	return fmt.Appendf(nil, "%s%d}\n", headerPrefix, base)
+}
+
+// eventsBase reads the header of the start of an events file. It returns the
+// dropped bytes and the length of the header line, with its end of line. A file
+// with no header gives zero for both.
+func eventsBase(head []byte) (base, hdr int64) {
+	rest, ok := bytes.CutPrefix(head, []byte(headerPrefix))
+	if !ok {
+		return 0, 0
+	}
+	end := bytes.Index(rest, []byte("}\n"))
+	if end < 0 {
+		return 0, 0
+	}
+	v, err := strconv.ParseInt(string(rest[:end]), 10, 64)
+	if err != nil || v < 0 {
+		return 0, 0
+	}
+	return v, int64(len(headerPrefix) + end + 2)
+}
+
+func readBase(f *os.File) (base, hdr int64, err error) {
+	buf := make([]byte, maxHeader)
+	n, err := f.ReadAt(buf, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, 0, err
+	}
+	base, hdr = eventsBase(buf[:n])
+	return base, hdr, nil
+}
+
+// compactEvents replaces the events file with a file that holds its newest
+// events, at most half of limit bytes, when the file is larger than limit. The
+// cut is at the start of a line.
+func (s *store) compactEvents(limit int64) error {
+	st, err := os.Stat(s.eventsPath())
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if st.Size() <= limit {
+		return nil
+	}
+	b, err := os.ReadFile(s.eventsPath())
+	if err != nil {
+		return err
+	}
+	base, hdr := eventsBase(b)
+	body := b[hdr:]
+	n := int64(len(body))
+	cut := n - max(limit/2-maxHeader, 0)
+	if cut > 0 && cut < n && body[cut-1] != '\n' {
+		if i := bytes.IndexByte(body[cut:], '\n'); i >= 0 {
+			cut += int64(i) + 1
+		} else {
+			cut = n
+		}
+	}
+	cut = min(max(cut, 0), n)
+	return writeFile(s.eventsPath(), append(encodeHeader(base+cut), body[cut:]...))
+}
 
 func encodeCursor(off int64) string { return cursorPrefix + strconv.FormatInt(off, 36) }
 

@@ -303,6 +303,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithDAGsDir(a.config.Paths.DAGsDir),
 		spec.WithCalendars(a.calendarSource()),
 	}
 	if a.config.Paths.BaseConfig != "" {
@@ -974,7 +975,14 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.listDAGsData(ctx, persis.DAGListOptions{
+	var activityWindow time.Duration
+	if request.Params.ActivityWindow != nil {
+		activityWindow, err = activityWindowFromSeconds(*request.Params.ActivityWindow)
+		if err != nil {
+			return nil, err
+		}
+	}
+	resp, err := a.listDAGsDataWithSearchPaths(ctx, persis.DAGListOptions{
 		Paginator:       &pg,
 		Name:            valueOf(request.Params.Name),
 		Labels:          labels,
@@ -982,7 +990,7 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 		Sort:            sortField,
 		Order:           sortOrder,
 		WorkspaceFilter: workspaceFilter,
-	})
+	}, dagListSource{pinnedFirst: true, activityWindow: activityWindow})
 	if err != nil {
 		return nil, err
 	}
@@ -1755,10 +1763,13 @@ func localStartProcessStillRunning(started *launcher.StartResult) bool {
 
 // dispatchStartToCoordinator dispatches a DAG start operation to the coordinator
 // and waits for the DAG status to change from NotStarted within the given timeout.
+// A dispatch that the coordinator accepted is a run that waits for a worker, so
+// the start succeeds also when no worker took the run within the timeout. The
+// coordinator fails the run when no worker takes it before its deadline.
 func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts startDAGRunOptions, params string, timeout time.Duration) error {
 	var taskOpts []executor.TaskOption
-	if len(dag.WorkerSelector) > 0 {
-		taskOpts = append(taskOpts, executor.WithWorkerSelector(dag.WorkerSelector))
+	if selector := dag.DispatchWorkerSelector(); len(selector) > 0 {
+		taskOpts = append(taskOpts, executor.WithWorkerSelector(selector))
 	}
 	if params != "" {
 		taskOpts = append(taskOpts, executor.WithTaskParams(params))
@@ -1800,13 +1811,12 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 		return dagStartWaitContextError(err)
 	}
 	if !statusChanged {
-		return &Error{
-			HTTPStatus: http.StatusInternalServerError,
-			Code:       api.ErrorCodeInternalError,
-			Message:    "DAG did not start after coordinator dispatch",
-		}
+		logger.Info(ctx, "The coordinator accepted the run, and no worker took it yet; the run waits for a worker",
+			tag.RunID(opts.dagRunID),
+			tag.DAG(dag.Name),
+			tag.Timeout(timeout),
+		)
 	}
-
 	return nil
 }
 
@@ -2363,6 +2373,9 @@ func (a *API) GetDAGsListDataIncludingAltDirs(ctx context.Context, queryString s
 type dagListSource struct {
 	includeSearchPaths bool
 	pinnedFirst        bool
+	// activityWindow, when above zero, adds the activity of each DAG over a
+	// window of this length that ends now.
+	activityWindow time.Duration
 }
 
 func (a *API) getDAGsListData(ctx context.Context, queryString string, source dagListSource) (any, error) {
@@ -2370,6 +2383,11 @@ func (a *API) getDAGsListData(ctx context.Context, queryString string, source da
 		endpoint: "/dags",
 	}, func(readCtx context.Context) (any, error) {
 		listOpts, err := a.buildDAGListOptions(readCtx, queryString)
+		if err != nil {
+			return nil, err
+		}
+		params, _ := url.ParseQuery(queryString)
+		source.activityWindow, err = activityWindowFromQuery(params)
 		if err != nil {
 			return nil, err
 		}
@@ -2434,10 +2452,6 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 	}, nil
 }
 
-func (a *API) listDAGsData(ctx context.Context, listOpts persis.DAGListOptions) (api.ListDAGs200JSONResponse, error) {
-	return a.listDAGsDataWithSearchPaths(ctx, listOpts, dagListSource{pinnedFirst: true})
-}
-
 // listDAGsDataWithSearchPaths lists DAGs and, when source.includeSearchPaths
 // is true, also includes DAGs found under the configured alternate directory
 // (paths.alt_dags_dir). Query semantics are applied to the combined collection.
@@ -2497,6 +2511,13 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 		}
 		if statusErr != nil {
 			errList = append(errList, statusErr.Error())
+		}
+		if source.activityWindow > 0 {
+			activity, activityErr := a.dagActivity(ctx, item.DAG, dagStatus, projectionTime.Add(-source.activityWindow))
+			if activityErr != nil {
+				errList = append(errList, activityErr.Error())
+			}
+			dagFile.Activity = activity
 		}
 		dagFiles = append(dagFiles, dagFile)
 	}

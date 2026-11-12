@@ -20,6 +20,9 @@ const (
 	// WorkerSelectorDataKey carries the worker labels a run requires, so a
 	// consumer can open matching capacity for a run that waits for a worker.
 	WorkerSelectorDataKey = "worker_selector"
+	// ServiceDAGDataKey is true when the DAG of the run is a service DAG. A
+	// consumer can then limit how often these runs wake a stream.
+	ServiceDAGDataKey = "service_dag"
 )
 
 type DAGRunCursor struct {
@@ -328,6 +331,15 @@ func dagRunStatusSnapshotFromData(data map[string]any) (*DAGRunStatusSnapshot, e
 		return nil, err
 	}
 	return &snapshot, nil
+}
+
+// IsServiceDAGEvent reports whether the event is of a run of a service DAG.
+func IsServiceDAGEvent(event *Event) bool {
+	if event == nil {
+		return false
+	}
+	service, _ := event.Data[ServiceDAGDataKey].(bool)
+	return service
 }
 
 func dagRunFileNameFromData(data map[string]any) string {
