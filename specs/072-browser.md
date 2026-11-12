@@ -124,6 +124,10 @@ A condition is either:
 - an object with exactly one of `text` (the page's visible text contains it),
   `selector` (a CSS selector matches a visible element), or `url` (the current
   URL contains it). These fixed checks read the page and make no model request.
+  A `text` check compares the page text and its text after folding
+  full-width characters to half-width and collapsing whitespace, as a
+  computer check does, so a check written in ASCII finds a number a page
+  shows in full-width; a `url` check compares the URL as written.
 
 A fixed check may set `within`, a duration during which it keeps reading the
 page until it holds. A fixed `when` reads the page once unless `within` is set;

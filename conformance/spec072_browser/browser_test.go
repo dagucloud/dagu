@@ -53,6 +53,13 @@ const signinPage = `<!doctype html><html><head><title>Sign in</title>
 <p id="status">Signing in</p>
 </body></html>`
 
+// orderPage shows its order number in full-width characters, as Japanese
+// sites often do, with the ideographic space around it.
+const orderPage = `<!doctype html><html><head><meta charset="utf-8"><title>Order</title></head><body>
+<h1>ご注文ありがとうございます</h1>
+<p id="number">注文番号：　ＡＢＣ１２３　</p>
+</body></html>`
+
 const reportBody = "id,total\n1,10\n2,20\n"
 
 // receiptsPage sends the files its hidden file input gets to the server,
@@ -289,6 +296,11 @@ func startShop(t *testing.T) string {
 		if r.URL.Path == "/rows" {
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, rowsPage)
+			return
+		}
+		if r.URL.Path == "/order" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, orderPage)
 			return
 		}
 		if r.URL.Path == "/signin" {
@@ -531,6 +543,20 @@ func TestBrowserRunCheckout(t *testing.T) {
 	b.dagu.ExpectTextFileContent("order.out", "A-100\n")
 	b.dagu.ExpectFileContains("shots.out", "confirmation.png", "final.png")
 	require.Equal(t, 1, b.model.count(kindAct))
+}
+
+// A fixed text check folds full-width characters and whitespace on both
+// sides, so a check written in ASCII finds an order number the page shows
+// in full-width, in expect and in when alike.
+func TestBrowserTextCheckFoldsWidth(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "text_width.yaml").ExpectExitCode(0)
+
+	b.dagu.ExpectFileContains("shots.out", "receipt.png")
+	b.dagu.ExpectFileNotContains("shots.out", "never.png")
+	require.Equal(t, 0, b.model.count(kindAct))
 }
 
 // A file the page downloads is saved in the run artifacts before the step
