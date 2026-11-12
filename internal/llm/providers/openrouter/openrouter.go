@@ -179,22 +179,6 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	if len(req.Stop) > 0 {
 		chatReq.Stop = req.Stop
 	}
-	// allow_fallbacks keeps OpenRouter's default. The account's data policy
-	// still filters every fallback endpoint, and refusing fallbacks would
-	// fail the request whenever the named endpoints are unavailable.
-	//
-	// require_parameters is set whenever the request needs tool support:
-	// OpenRouter otherwise only makes a best effort to pick an endpoint that
-	// supports tools and tool_choice, and an endpoint that lacks them drops
-	// the parameters, so a forced tool call comes back as plain text.
-	routing := providerPreferences{
-		Order:             p.config.ProviderOrder,
-		RequireParameters: len(req.Tools) > 0 || (req.ToolChoice != "" && req.ToolChoice != "auto"),
-	}
-	if len(routing.Order) > 0 || routing.RequireParameters {
-		chatReq.Provider = &routing
-	}
-
 	// Add reasoning configuration if enabled
 	// OpenRouter normalizes reasoning across different providers
 	// Note: max_tokens must be strictly higher than reasoning budget
@@ -246,6 +230,23 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		if claudeRejectsForcedChoice(req) {
 			chatReq.ToolChoice = "auto"
 		}
+	}
+
+	// allow_fallbacks keeps OpenRouter's default. The account's data policy
+	// still filters every fallback endpoint, and refusing fallbacks would
+	// fail the request whenever the named endpoints are unavailable.
+	//
+	// require_parameters is set whenever the request as sent needs tool
+	// support: OpenRouter otherwise only makes a best effort to pick an
+	// endpoint that supports tools and tool_choice, and an endpoint that
+	// lacks them drops the parameters, so a forced tool call comes back as
+	// plain text.
+	routing := providerPreferences{
+		Order:             p.config.ProviderOrder,
+		RequireParameters: len(chatReq.Tools) > 0 || (chatReq.ToolChoice != nil && chatReq.ToolChoice != "auto"),
+	}
+	if len(routing.Order) > 0 || routing.RequireParameters {
+		chatReq.Provider = &routing
 	}
 
 	// Append web search plugin if enabled.

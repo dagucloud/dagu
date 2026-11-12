@@ -422,6 +422,7 @@ func TestChatRequireParameters(t *testing.T) {
 	tools := []llm.Tool{{Type: "function", Function: llm.ToolFunction{Name: "respond", Parameters: map[string]any{"type": "object"}}}}
 	for _, tc := range []struct {
 		name       string
+		model      string
 		order      []string
 		tools      []llm.Tool
 		toolChoice string
@@ -433,6 +434,10 @@ func TestChatRequireParameters(t *testing.T) {
 		{name: "tool_choice auto", toolChoice: "auto"},
 		{name: "no tools"},
 		{name: "no tools with order", order: []string{"azure/eu"}, want: map[string]any{"order": []any{"azure/eu"}}},
+		// A forced choice the model rejects is sent as auto, which no endpoint
+		// has to support; the tools still need one that does.
+		{name: "forced choice downgraded", model: "anthropic/claude-sonnet-5.5", toolChoice: "required"},
+		{name: "forced choice downgraded with tools", model: "anthropic/claude-sonnet-5.5", toolChoice: "required", tools: tools, want: map[string]any{"require_parameters": true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -445,10 +450,14 @@ func TestChatRequireParameters(t *testing.T) {
 			}))
 			defer server.Close()
 
+			model := tc.model
+			if model == "" {
+				model = "openai/gpt-6.1-terra"
+			}
 			provider, err := New(llm.Config{APIKey: "test-key", BaseURL: server.URL, ProviderOrder: tc.order})
 			require.NoError(t, err)
 			_, err = provider.Chat(context.Background(), &llm.ChatRequest{
-				Model:      "openai/gpt-6.1-terra",
+				Model:      model,
 				Messages:   []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
 				Tools:      tc.tools,
 				ToolChoice: tc.toolChoice,
