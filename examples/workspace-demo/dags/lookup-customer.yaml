@@ -1,0 +1,10 @@
+description: Look up a customer record by id
+params:
+  - name: CUSTOMER_ID
+    type: string
+    description: Customer id
+    required: true
+steps:
+  - id: lookup
+    run: echo "{\"id\":\"$CUSTOMER_ID\",\"plan\":\"gold\",\"open_tickets\":2}"
+    output: CUSTOMER
