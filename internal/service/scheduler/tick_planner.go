@@ -474,6 +474,13 @@ func latestCronSlot(schedules []ir.Schedule, from, to time.Time) (time.Time, boo
 // recordSlot keeps what came of a start slot as the DAG's latest, unless a
 // later slot is kept, the same slot was dispatched, or it is only planned
 // again. It reports whether the state changed.
+// declinedSlot is a due cron slot a guard held back.
+type declinedSlot struct {
+	at       time.Time
+	schedule ir.Schedule
+	outcome  schedulerstate.SlotOutcome
+}
+
 // recordSkippedSlot adds a slot the planner declined to run to the slot
 // index. A failed check is not a decision, and a slot that already has a run
 // is recorded by that run.
@@ -801,7 +808,10 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 		}
 
-		// Evaluate cron schedules for live start runs.
+		// Evaluate cron schedules for live start runs. A declined slot is
+		// recorded as skipped once the candidate is chosen, since another
+		// schedule firing at the same time may still run it.
+		var declined []declinedSlot
 		for _, schedule := range active.start {
 			if !schedule.IsCron() {
 				continue
@@ -812,7 +822,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 			if ok, skipped := tp.shouldRun(ctx, entry.DAG, next, schedule); !ok {
 				tp.recordSlot(dagName, next, skipped)
-				tp.recordSkippedSlot(ctx, dagName, next, schedule, skipped)
+				declined = append(declined, declinedSlot{at: next, schedule: schedule, outcome: skipped})
 				continue
 			}
 			run := tp.createPlannedRun(entry.DAGEntry, schedule, next, ir.TriggerTypeScheduler)
@@ -829,6 +839,12 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 				tp.recordSlot(dagName, startCandidate.ScheduledTime, schedulerstate.SlotPlanned)
 			}
 			candidates = append(candidates, startCandidate)
+		}
+		for _, slot := range declined {
+			if hasStartCandidate && slot.at.Equal(startCandidate.ScheduledTime) {
+				continue
+			}
+			tp.recordSkippedSlot(ctx, dagName, slot.at, slot.schedule, slot.outcome)
 		}
 
 		// Evaluate stop schedules.

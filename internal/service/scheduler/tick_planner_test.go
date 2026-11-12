@@ -2995,6 +2995,36 @@ func TestTickPlanner_SlotOutcomes(t *testing.T) {
 	}
 }
 
+// A slot one schedule declines but another schedule firing at the same time
+// runs is not recorded as skipped: its run records it.
+func TestTickPlanner_SlotRunByAnotherScheduleIsNotSkipped(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	var skipped []string
+	tp.cfg.RecordSkippedSlot = func(_ context.Context, _ string, _ time.Time, schedule, reason string) error {
+		skipped = append(skipped, schedule+" "+reason)
+		return nil
+	}
+	// The 11:15 success holds back the hourly slot, whose previous fire is
+	// 11:00, but not the half-hourly one, whose previous fire is 11:30.
+	tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+		return ir.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2026-02-07T11:15:00Z"}, nil
+	}
+	dag := &ir.DAG{Name: "twice", SkipIfSuccessful: true, Schedule: []ir.Schedule{
+		mustParseSchedule(t, "0 * * * *"),
+		mustParseSchedule(t, "*/30 * * * *"),
+	}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	runs := tp.Plan(t.Context(), slot)
+
+	require.Len(t, runs, 1)
+	assert.Equal(t, slot, runs[0].ScheduledTime)
+	assert.Empty(t, skipped)
+}
+
 // A planned slot settles as dispatched or failed by its dispatch, even when
 // the dispatch finishes before the tick advances; planning it again changes
 // nothing.
