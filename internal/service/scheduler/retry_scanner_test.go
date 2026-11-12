@@ -290,7 +290,7 @@ func TestRetryScannerDefersLiveSource(t *testing.T) {
 	}
 	store := newRetryScannerStore(dag, status)
 	queueStore := &testutil.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityHigh, status.DAGRun()).
 		Return(nil).
 		Once()
 	processes := &sequenceRetryScannerProcesses{alive: []bool{true, false}}
@@ -412,7 +412,7 @@ func TestRetryScannerScanSkipsDisabledRetryPolicy(t *testing.T) {
 	assert.Equal(t, 0, store.latestAttemptCalls)
 	assert.Len(t, store.listCalls, 1)
 	assert.Equal(t, 0, store.findAttemptCalls)
-	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun())
+	queueStore.AssertNotCalled(t, "Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityHigh, status.DAGRun())
 }
 
 func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
@@ -440,7 +440,7 @@ func TestRetryScannerScanEnqueuesRetryWithoutLiveTargets(t *testing.T) {
 	}
 	store := newRetryScannerStore(dag, status)
 	queueStore := &testutil.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityHigh, status.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -493,7 +493,7 @@ func TestRetryScannerScanRetriesOlderFailedRunEvenWhenNewerRunExists(t *testing.
 
 	store := newRetryScannerStore(dag, failed, active)
 	queueStore := &testutil.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, failed.DAGRun()).
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityHigh, failed.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -554,7 +554,7 @@ func TestRetryScannerScanUsesPersistedRetryPolicy(t *testing.T) {
 		retryScannerStoreEntry{dag: noRetryDAG, status: plainStatus},
 	)
 	queueStore := &testutil.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, retryDAG.ProcGroup(), queuedomain.QueuePriorityLow, retryStatus.DAGRun()).
+	queueStore.On("Enqueue", mock.Anything, retryDAG.ProcGroup(), queuedomain.QueuePriorityHigh, retryStatus.DAGRun()).
 		Return(nil).
 		Once()
 
@@ -787,7 +787,7 @@ func TestRetryScannerScanIsIdempotentForQueuedRun(t *testing.T) {
 	}
 	store := newRetryScannerStore(dag, status)
 	queueStore := &testutil.MockQueueStore{}
-	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityLow, status.DAGRun()).
+	queueStore.On("Enqueue", mock.Anything, dag.ProcGroup(), queuedomain.QueuePriorityHigh, status.DAGRun()).
 		Return(nil).
 		Once()
 

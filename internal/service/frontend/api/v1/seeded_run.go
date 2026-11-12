@@ -79,7 +79,7 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		if a.queueStore == nil {
 			return false, fmt.Errorf("queue store is not configured")
 		}
-		if err := a.queueStore.Enqueue(ctx, run.dag.ProcGroup(), queue.QueuePriorityLow, seedStatus.DAGRun()); err != nil {
+		if err := a.queueStore.Enqueue(ctx, run.dag.ProcGroup(), queue.PriorityOf(seedStatus), seedStatus.DAGRun()); err != nil {
 			return false, fmt.Errorf("failed to enqueue seeded dag-run: %w", err)
 		}
 		return true, nil

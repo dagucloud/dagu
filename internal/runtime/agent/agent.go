@@ -1623,6 +1623,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithEphemeral(source.Ephemeral),
 				ir.WithSkipHandlers(source.SkipHandlers),
 				ir.WithReusedInputs(source.ReusedInputs),
+				ir.WithBackfillID(source.BackfillID),
 			)
 			if source.ScheduleTime != "" {
 				statusOpts = append(statusOpts,
@@ -1695,6 +1696,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithEphemeral(source.Ephemeral),
 			ir.WithSkipHandlers(source.SkipHandlers),
 			ir.WithReusedInputs(source.ReusedInputs),
+			ir.WithBackfillID(source.BackfillID),
 		)
 		if source.ScheduleTime != "" {
 			opts = append(opts,
