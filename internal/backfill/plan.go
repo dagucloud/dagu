@@ -133,6 +133,13 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 		slots := slices.Clone(req.Slots)
 		slices.SortFunc(slots, func(a, b time.Time) int { return a.Compare(b) })
 		slots = slices.CompactFunc(slots, func(a, b time.Time) bool { return a.Equal(b) })
+		for i, slot := range slots {
+			// A slot reads in the zone of the schedule that fires at it, as
+			// the slots of a range do.
+			if fires, _ := ir.ScheduleFiresBetween(req.Schedule.Schedules, req.Schedule.Profile, req.Schedule.Location, slot, slot, 1); len(fires) == 1 {
+				slots[i] = fires[0]
+			}
+		}
 		return SlotRange{Slots: slots}, checkMaxSlots(len(slots), req.MaxSlots)
 	}
 	if req.From.After(req.Now) {
@@ -185,7 +192,8 @@ func MakePlan(req PlanRequest, rng SlotRange, states []Slot, pending map[time.Ti
 	for i, at := range rng.Slots {
 		state := states[i]
 		if pending[at.UTC()] {
-			state.Status = SlotActive
+			// An open backfill holds the slot, not the slot's past runs.
+			state = Slot{At: at, Status: SlotActive}
 		}
 		slot := PlanSlot{
 			At:     at,
@@ -242,6 +250,14 @@ func (p Plan) revision() string {
 		b.WriteString(slot.At.UTC().Format(time.RFC3339))
 		b.WriteString("=")
 		b.WriteString(string(slot.Action))
+		// A submit records each slot's window, so a changed window is a
+		// changed plan.
+		b.WriteString("@")
+		b.WriteString(slot.Window.Start.UTC().Format(time.RFC3339))
+		b.WriteString(",")
+		b.WriteString(slot.Window.Next.UTC().Format(time.RFC3339))
+		b.WriteString(",")
+		b.WriteString(slot.Window.Timezone)
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:8])

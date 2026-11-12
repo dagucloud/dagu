@@ -169,6 +169,21 @@ func TestSlotStates(t *testing.T) {
 			want:     backfill.Slot{At: at(5, 1), Status: backfill.SlotMissing, OtherCadence: true},
 		},
 		{
+			// The hourly run at 02:00 loaded one hour, not the day the daily
+			// 02:00 slot owns.
+			name:   "a run of another cadence at a current fire time covers nothing",
+			events: (&eventLog{}).run("a", slot, scheduler, "0 * * * *"),
+			runs:   live(started("a", ir.Succeeded)),
+			want:   backfill.Slot{Status: backfill.SlotMissing, OtherCadence: true},
+		},
+		{
+			name:     "a run of a schedule the DAG still has counts at its fire time",
+			schedule: "*/30 * * * *",
+			events:   (&eventLog{}).run("a", slot, scheduler, "*/30 * * * *"),
+			runs:     live(started("a", ir.Succeeded)),
+			want:     backfill.Slot{Status: backfill.SlotSucceeded, RunID: "a"},
+		},
+		{
 			// 13:00 is as far from 01:00 on October 5 as from 01:00 on
 			// October 6.
 			name:     "a tie goes to the later slot",

@@ -174,6 +174,9 @@ func runBackfillResume(ctx *Context, args []string) error {
 	dryRun, _ := flags.GetBool("dry-run")
 	yes, _ := flags.GetBool("yes")
 	format, _ := flags.GetString("format")
+	if format != backfillFormatText && format != backfillFormatJSON {
+		return fmt.Errorf("invalid --format %q: use text or json", format)
+	}
 	if !dryRun && !yes && (format == backfillFormatJSON || !isTerminal(os.Stdin)) {
 		return errors.New("no terminal to confirm the resume on; pass --yes to resume")
 	}

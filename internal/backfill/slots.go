@@ -95,8 +95,18 @@ func SlotStates(slots []time.Time, sched SlotSchedule, history History) []Slot {
 			continue
 		}
 		run.status = status
-		if ir.FiringScheduleExpression(sched.Schedules, sched.Profile, sched.Location, run.slot) != "" || !run.coversNearest() {
+		if !run.coversNearest() {
 			bySlot[run.slot] = append(bySlot[run.slot], run)
+			continue
+		}
+		if current := ir.FiringScheduleExpression(sched.Schedules, sched.Profile, sched.Location, run.slot); current != "" {
+			// A run at a current fire time stands for that slot only when
+			// its schedule covered the same period.
+			if run.schedule == "" || hasSchedule(sched, run.schedule) || ir.SameCadence(run.schedule, current) {
+				bySlot[run.slot] = append(bySlot[run.slot], run)
+			} else {
+				otherCadence[run.slot] = true
+			}
 			continue
 		}
 		nearest := nearestFire(sched, run.slot)
@@ -138,6 +148,11 @@ func SlotStates(slots []time.Time, sched SlotSchedule, history History) []Slot {
 		states = append(states, state)
 	}
 	return states
+}
+
+// hasSchedule reports whether expr is one of the schedule's expressions.
+func hasSchedule(sched SlotSchedule, expr string) bool {
+	return slices.ContainsFunc(sched.Schedules, func(s ir.Schedule) bool { return s.Expression == expr })
 }
 
 // slotRun is one run the slot index knows of.

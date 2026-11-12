@@ -85,12 +85,21 @@ func TestMakePlanNamedAndPendingSlots(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []time.Time{at(2, 2), at(3, 2)}, rng.Slots, "named slots are sorted and deduplicated")
 
+	tokyo := dailyAt(t, "CRON_TZ=Asia/Tokyo 0 11 * * *")
+	zoned := req
+	zoned.Schedule = tokyo
+	zoned.Slots = []time.Time{at(2, 2)}
+	zonedRange, err := backfill.SlotsOf(zoned)
+	require.NoError(t, err)
+	assert.Equal(t, "Asia/Tokyo", zonedRange.Slots[0].Location().String(), "a named slot reads in its schedule's zone")
+
 	plan := backfill.MakePlan(req, rng, []backfill.Slot{
 		{At: rng.Slots[0], Status: backfill.SlotSucceeded},
-		{At: rng.Slots[1], Status: backfill.SlotMissing},
+		{At: rng.Slots[1], Status: backfill.SlotSucceeded, RunID: "earlier"},
 	}, map[time.Time]bool{at(3, 2): true})
 
 	assert.Equal(t, []backfill.Action{backfill.ActionRun, backfill.ActionSkipActive}, actions(plan))
+	assert.Empty(t, plan.Slots[1].RunID, "an open backfill holds the slot, not its earlier run")
 }
 
 func TestSlotsOfChecksTheRange(t *testing.T) {
@@ -146,4 +155,10 @@ func TestPlanRevisionFollowsActions(t *testing.T) {
 
 	assert.Equal(t, first.Revision, again.Revision)
 	assert.NotEqual(t, first.Revision, changed.Revision)
+
+	// A submit records each slot's window, so a moved schedule changes the
+	// revision even where every action stays the same.
+	moved := req
+	moved.Schedule = dailyAt(t, "0 2 */2 * *")
+	assert.NotEqual(t, first.Revision, backfill.MakePlan(moved, rng, missing, nil).Revision)
 }

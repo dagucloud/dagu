@@ -45,4 +45,13 @@ func TestRequestResolve(t *testing.T) {
 		require.ErrorIs(t, err, backfill.ErrInvalidRequest, tc.name)
 		assert.ErrorContains(t, err, tc.want, tc.name)
 	}
+
+	// A slot named for a profile whose schedules are all another's cannot be
+	// checked against a fire time, so it is refused.
+	staging := dailyAt(t, "0 2 * * *")
+	staging.Schedules[0].Profile = "staging"
+	staging.Profile = "prod"
+	_, _, err = backfill.Request{Slots: []string{"2026-10-02T03:00"}, Profile: "prod"}.Resolve(&ir.DAG{Name: "etl", Schedule: staging.Schedules}, staging, 0, at(20, 0))
+	require.ErrorIs(t, err, backfill.ErrInvalidRequest)
+	assert.ErrorContains(t, err, `no recurring schedule for profile "prod"`)
 }

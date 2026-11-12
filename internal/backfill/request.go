@@ -41,6 +41,9 @@ func (r Request) Resolve(dag *ir.DAG, sched SlotSchedule, maxSlots int, now time
 	if len(dag.Schedule) == 0 {
 		return PlanRequest{}, Options{}, invalid("DAG %q has no schedule to backfill", dag.Name)
 	}
+	if !ir.HasRecurringSchedule(sched.Schedules, sched.Profile) {
+		return PlanRequest{}, Options{}, invalid("DAG %q has no recurring schedule for profile %q to backfill", dag.Name, sched.Profile)
+	}
 	named := len(r.Slots) > 0
 	switch {
 	case named && (r.From != "" || r.To != "" || r.Rerun != ""):
