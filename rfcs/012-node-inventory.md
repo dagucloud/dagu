@@ -771,7 +771,7 @@ part of the fleet.
 - `paths.inventory_dir` is a new setting.
 - RFC 003's migration must handle workspace DAGs that target nodes, as
   [Where the inventory lives](#where-the-inventory-lives) says. That work,
-  with acceptance item 24, is part of RFC 003 and blocks v3.0.
+  with acceptance item 12, is part of RFC 003 and blocks v3.0.
   [#3777](https://github.com/dagucloud/dagu/issues/3777) tracks it.
 - Node name `local` is reserved for RFC 013.
 - The UI and docs say "remote servers" for remote nodes. Nothing in
@@ -803,92 +803,35 @@ Rollout:
 
 ## Verification and acceptance criteria
 
-Items 14, 16, 22, and 26 connect to a node from a step, so they are checked
-with RFC 013's first rollout phase. Item 23 needs its worker nodes.
+The sections above state the rules, and the new spec tests each one. This RFC
+is accepted when the following hold. Item 7 needs a step on a node, so it is
+checked with RFC 013's first rollout phase.
 
-1. The three Rundeck examples in [Filters](#filters) select the stated nodes.
-2. `tags: a+b,x` selects nodes with both `a` and `b`, and nodes with `x`.
-3. `name: web01,web02` matches those two names, `name: web0.` matches as a
-   regular expression against the whole name, and `web.* db01` selects every
-   node whose name starts with `web`, and `db01`. `!name: (?!web).*` is
-   rejected with its position. `name: *.example` is compared for equality,
-   with a warning, and `!name: *.example` is rejected.
-4. An empty filter is an error, and `.*` selects every node.
-5. A Rundeck resource document in YAML map form, YAML list form, JSON, and XML
-   loads into the same nodes, and `ssh-key-storage-path: keys/prod/Web_01.pem`
-   becomes `{ secret: prod/web-01-pem }`. Two nodes whose storage paths map
-   to one ref are each listed with a problem naming both paths.
-6. `ansible-inventory --list` output gives each host the tags of its groups and
-   their parent groups, and its scalar host variables as attributes. A group
-   `web_servers` is a tag that filters match. A host without `ansible_host`
-   connects to its host name. A host with `ansible_connection: local` is
-   listed with a problem.
-7. The merge order and tag union hold for a node listed by a source and by the
-   `nodes` block. A tag-only entry in the `nodes` block keeps the source's
-   `user` and `ssh.key`.
-8. A `command` source that fails after a success keeps its nodes and reports a
-   warning. A required source that never succeeded fails resolution. A
-   missing `file` source with `required: false` leaves its nodes out with a
-   warning.
-9. With `workers: true`, a worker appears as a node while connected and
-   disappears when its heartbeats stop.
-10. Test connection reports a fingerprint for an unknown key, names the hop
-    that presented it, and sends no credential. Trust with that fingerprint
-    makes a strict connection succeed. Trust with a different fingerprint is
-    rejected. A changed host key fails. Two nodes with the same address
-    behind different bastions keep separate trusted keys.
-11. No secret value appears in any API response, snapshot, log, or audit
-    entry. A literal `password`, `Authorization` header, or
-    `X-Rundeck-Auth-Token` header fails validation, as does an HTTP `url`
-    source with a secret header.
-12. `dagu nodes list`, `GET /nodes`, and the Nodes page give the same match
-    for the same filter.
-13. A `viewer` can list nodes and cannot test, refresh, trust, edit, or read
-    `nodes.yaml`.
-14. A DAG dispatched to a worker connects to an inventory node with a key from
-    a secret and a host key trusted in the UI. A node with a `file` key
-    reads it on the worker, and fails there, naming the path and the worker,
-    when the file is missing. The coordinator denies a ref
-    that no `ResolveNodes` response for that attempt returned. A ref returned
-    by one coordinator instance is served by another. `ResolveNodes` with the
-    name `web01.prod` returns only that node while `web01Xprod` exists.
-15. While a worker whose ID is an SSH node's name is connected, that node is
-    listed with a problem, and its transport stays `ssh`.
-16. Before RFC 003, a DAG in a workspace that has a secret with the same ref
-    as an inventory node connects with the global secret, locally and on a
-    worker.
-17. With only `dagu scheduler` and `dagu coordinator` running, sources
-    refresh on time. With two servers and a standby scheduler, a source runs
-    once per refresh interval.
-18. A `command` source that runs `env` shows none of Dagu's own credentials.
-19. With 5,000 nodes, `GET /nodes` returns one page and the total count. A
-    test of 500 nodes, 50 of them unreachable, opens at most 16 connections
-    at once and streams every result. A test request for 501 nodes is
-    rejected with the count, and `dagu nodes test` on 2,000 matches reports
-    all 2,000.
-20. A worker label named `gpu.type` is an attribute that filters can match.
-    An attribute with an invalid name is dropped with a warning, and the node
-    stays targetable.
-21. `dagu_read target=nodes` with `filter: "tags: web+prod"` matches nodes
-    with both tags. A node named `sources` is reachable at `GET /nodes/{name}`.
-22. A step on 500 nodes that share one key ref resolves it once. On a worker,
-    it sends one `ResolveSecretReference`.
-23. A node that only a worker reaches passes a `node-test` run from that
-    worker, and a trust from that worker makes runs there connect strictly.
-    A failed `node-test` run sends no notification. While a user DAG named
-    `node-test` exists in the project, a test from a worker is refused,
-    naming that DAG.
-24. With RFC 003, migrating a v2 install with a workspace DAG that targets
-    nodes refuses until the project has an inventory. After
-    `--copy-inventory`, the DAG reaches the same nodes with the same keys and
-    host keys.
-25. Two servers sync the same DAG repository and set different
-    `paths.inventory_dir`. The same DAG runs on each server's own nodes. A
-    `nodes.yaml` in a DAG directory is not read as an inventory, and git
-    sync never writes one.
-26. A node with `disabled: true` is listed and matched. A step that matches
-    it and two other nodes runs the two, records the third as `disabled`, and
-    succeeds. A step whose matched nodes are all disabled fails.
+1. Rundeck's documented filter examples and the examples in
+   [Filters](#filters) select the stated nodes, and `dagu nodes list`,
+   `GET /nodes`, and the Nodes page give the same match.
+2. A Rundeck resource document in each of its four forms, and
+   `ansible-inventory --list` output, load into the nodes the mapping tables
+   give.
+3. A node listed by a source, a worker, and the `nodes` block merges as
+   [Merging](#merging) states.
+4. Every case in [Failure behavior](#failure-behavior) ends as stated. No
+   filter matches part of the fleet without a warning or an error.
+5. No secret value appears in any API response, snapshot, log, or audit
+   entry, and a literal credential fails validation.
+6. With strict checking, no credential reaches a host whose key is unknown
+   or has changed, and a key is trusted only by the fingerprint the user saw.
+7. A run on a worker reaches a node with a key from a secret and a host key
+   trusted in the UI. The coordinator serves it no ref outside its attempt.
+8. Each role can do what [Permissions](#permissions) lists and nothing more.
+9. The limits hold at size: one page of 5,000 nodes, and a 500-node test
+   with 16 connections at once that streams every result.
+10. Two servers that sync the same DAG repository resolve the same filter to
+    their own nodes.
+11. An install without `nodes.yaml` behaves as before.
+12. With RFC 003, migrating a workspace DAG that targets nodes refuses until
+    its project has an inventory, and reaches the same nodes with the same
+    keys after `--copy-inventory`.
 
 ## Alternatives considered
 
