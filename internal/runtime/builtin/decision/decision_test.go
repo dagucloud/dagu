@@ -292,6 +292,7 @@ func TestHTTPFailureMasked(t *testing.T) {
 	for _, tc := range []struct{ name, secret, body, wantErr string }{
 		{"escaped", "secret-\"quoted\"-value", `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`, "(HTTP 401): invalid key *******"},
 		{"escaped_no_message", "secret-\"quoted\"-value", `{"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"state":"*******"}`},
+		{"token_and_escaped", "secret-\"quoted\"-value", `{"code":4021,"state":"secret-\"quoted\"-value"}`, `(HTTP 401): {"code":*******,"state":"*******"}`},
 		{"whitespace", whitespace, "denied for multi word\nsecret here", "(HTTP 401): denied for ******* here"},
 		{"boundary", whitespace, strings.Repeat("a", 195) + whitespace, "(HTTP 401): " + strings.Repeat("a", 195) + "*****..."},
 	} {
@@ -306,7 +307,8 @@ func TestHTTPFailureMasked(t *testing.T) {
 			raw["base_url"] = server.URL
 			scope := value.NewEnvScope(nil, false).
 				WithEntry("OPENROUTER_API_KEY", "test-key", value.EnvSourceSecret).
-				WithEntry("ECHOED", tc.secret, value.EnvSourceSecret)
+				WithEntry("ECHOED", tc.secret, value.EnvSourceSecret).
+				WithEntry("ACCOUNT", "4021", value.EnvSourceSecret)
 			ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
 			exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
 			require.NoError(t, err)
@@ -317,6 +319,7 @@ func TestHTTPFailureMasked(t *testing.T) {
 			assert.NotContains(t, err.Error(), tc.secret)
 			assert.NotContains(t, err.Error(), "multi")
 			assert.NotContains(t, err.Error(), "quoted")
+			assert.NotContains(t, err.Error(), "4021")
 		})
 	}
 }

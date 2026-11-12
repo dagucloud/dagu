@@ -99,11 +99,12 @@ the step. Response validation errors must not include the response content.
 An HTTP error response fails the step with the status and the provider's
 reason: the message of a JSON error body (`error.message`, a string `error`,
 or a top-level `message`), otherwise the body itself, collapsed to one line
-and bounded to 200 characters. Declared secrets are masked in the body and in
-the extracted message before either is collapsed or bounded, so a secret
-containing whitespace or crossing the bound does not leak into the step error.
-A JSON body without a message is masked string by string after decoding and
-re-encoded, so JSON escaping cannot hide a secret either.
+and bounded to 200 characters. The body is parsed before any masking, and
+declared secrets are masked in the selected text before it is collapsed or
+bounded, so a secret containing whitespace or crossing the bound does not leak
+into the step error. A JSON body without a message is masked string by string
+after decoding, re-encoded, and masked again as text, so neither JSON escaping
+nor a secret matching a bare token can hide one.
 
 ## Example
 

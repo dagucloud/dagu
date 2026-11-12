@@ -71,19 +71,19 @@ const maxReasonRunes = 200
 // body itself. Whitespace is collapsed and text beyond maxReasonRunes is
 // replaced by an ellipsis. An empty body yields "".
 //
-// mask, when non-nil, rewrites the body and the extracted message before
-// they are collapsed or cut, so a secret containing whitespace or crossing
-// the length bound is still matched whole. JSON escaping can hide a secret
-// in the raw body, so the mask also runs on decoded text: the message, or
-// every string of a JSON body that carries no message, which is then
-// re-encoded.
+// mask, when non-nil, rewrites the selected text before it is collapsed or
+// cut, so a secret containing whitespace or crossing the length bound is
+// still matched whole. The body is parsed before any masking, since a
+// secret matching a bare token would otherwise break the JSON and hide the
+// rest; the mask then runs on the decoded message, or on every string and
+// the re-encoding of a JSON body that carries no message, so JSON escaping
+// cannot hide a secret either.
 func (e *APIError) Reason(mask func(string) string) string {
 	if mask == nil {
 		mask = func(s string) string { return s }
 	}
-	body := mask(e.Message)
 	reason := ""
-	_, messages := apiErrorDetails(body)
+	_, messages := apiErrorDetails(e.Message)
 	for _, message := range messages {
 		if strings.TrimSpace(message) != "" {
 			reason = mask(message)
@@ -91,7 +91,7 @@ func (e *APIError) Reason(mask func(string) string) string {
 		}
 	}
 	if reason == "" {
-		reason = maskJSONStrings(body, mask)
+		reason = maskJSONStrings(e.Message, mask)
 	}
 	reason = strings.Join(strings.Fields(reason), " ")
 	if runes := []rune(reason); len(runes) > maxReasonRunes {
@@ -101,14 +101,14 @@ func (e *APIError) Reason(mask func(string) string) string {
 }
 
 // maskJSONStrings applies mask to every string in a JSON document, keys
-// included, and returns the compact re-encoding. Text that is not JSON is
-// returned unchanged.
+// included, and then to its compact re-encoding, which also covers a secret
+// that matches a bare token. Text that is not JSON is masked as a whole.
 func maskJSONStrings(body string, mask func(string) string) string {
 	decoder := json.NewDecoder(strings.NewReader(body))
 	decoder.UseNumber()
 	var decoded any
 	if err := decoder.Decode(&decoded); err != nil {
-		return body
+		return mask(body)
 	}
 	var maskValue func(v any) any
 	maskValue = func(v any) any {
@@ -134,9 +134,9 @@ func maskJSONStrings(body string, mask func(string) string) string {
 	encoder := json.NewEncoder(&buf)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(maskValue(decoded)); err != nil {
-		return body
+		return mask(body)
 	}
-	return buf.String()
+	return mask(buf.String())
 }
 
 // NewAPIError creates a new APIError with the given parameters.
