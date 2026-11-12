@@ -1745,11 +1745,80 @@ describe('LicensePage', () => {
       expect(
         within(card).getByRole('button', { name: 'Copy MCP URL' })
       ).toBeVisible();
+      expect(card).toHaveTextContent(
+        'In Claude, open Customize, then Connectors.'
+      );
+      expect(
+        within(card).getByRole('link', { name: 'chatgpt.com/plugins' })
+      ).toHaveAttribute('href', 'https://chatgpt.com/plugins');
+      expect(
+        within(card).getByText(
+          'claude mcp add --transport http --scope user dagu https://console.example.com/mcp'
+        )
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('button', { name: 'Copy command' })
+      ).toBeVisible();
       expect(
         within(card).getByRole('link', {
-          name: 'Setup steps for Claude, ChatGPT, and more',
+          name: 'Other clients and connections in Dagu Cloud',
         })
       ).toHaveAttribute('href', 'https://console.example.com/mcp-access');
+    });
+
+    // The last call that reached the server shows that a client connected.
+    it('names the last call from Dagu Cloud', async () => {
+      serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.operator,
+        connected: true,
+        lastCall: {
+          at: new Date(Date.now() - 2 * 60_000).toISOString(),
+          client: 'Claude',
+          user: 'ana@example.com',
+        },
+      });
+      const card = await findRemoteAccessCard();
+      const lastCall = (await within(card).findByText('Last call'))
+        .nextElementSibling as HTMLElement;
+      expect(lastCall).toHaveTextContent('Claude ·');
+      expect(lastCall).toHaveTextContent('ana@example.com ·');
+      expect(lastCall).toHaveTextContent('2 minutes ago');
+    });
+
+    it('says when no call reached the server yet', async () => {
+      serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.operator,
+        connected: true,
+      });
+      const card = await findRemoteAccessCard();
+      expect(await within(card).findByText('No calls yet')).toBeVisible();
+    });
+
+    // MCP clients stop working when the trial ends, so the date shows with
+    // a way to keep them.
+    it('says until when the trial includes remote access', async () => {
+      serveRemoteAccess(
+        { ...remoteOff, level: LicenseRemoteAccessLevel.developer },
+        {
+          license: {
+            ...online,
+            plan: 'trial',
+            expiry: '2099-11-25T00:00:00Z',
+          },
+        }
+      );
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText(
+          'Included in your trial until 2099-11-25. Choose a plan to keep MCP clients working.',
+          { exact: false }
+        )
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('link', { name: 'View plans' })
+      ).toHaveAttribute('href', expect.stringContaining('dagu.sh/pricing'));
     });
 
     it('offers remote access as part of a trial', async () => {
