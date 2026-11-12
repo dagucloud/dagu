@@ -128,6 +128,11 @@ type Progress struct {
 // current generation.
 func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
 	byslot := make(map[time.Time]Progress, len(events))
+	for _, slot := range record.Slots {
+		if slot.RunID != "" {
+			byslot[slot.At.UTC()] = Progress{Slot: slot.At, Kind: ProgressEnqueued, RunID: slot.RunID, Generation: record.Generation}
+		}
+	}
 	for _, event := range events {
 		if event.Generation == record.Generation {
 			byslot[event.Slot.UTC()] = event
@@ -140,6 +145,9 @@ func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
 type RecordSlot struct {
 	At     time.Time         `json:"slot"`
 	Window ir.ScheduleWindow `json:"window"`
+	// RunID is a run a resume found active for the slot, which the
+	// resumed backfill follows instead of queueing a new one.
+	RunID string `json:"runId,omitempty"`
 }
 
 // Open reports whether the backfill has not ended.

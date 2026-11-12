@@ -147,13 +147,11 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		record.Slots = append(record.Slots, RecordSlot{At: slot.At.UTC(), Window: slot.Window})
 		planned[slot.At.UTC()] = true
 	}
-	followed := make([]Progress, 0, len(carried))
 	for _, slot := range carried {
 		if planned[slot.At.UTC()] {
 			continue
 		}
-		record.Slots = append(record.Slots, RecordSlot{At: slot.At.UTC(), Window: windows[slot.At.UTC()]})
-		followed = append(followed, Progress{Slot: slot.At, Kind: ProgressEnqueued, RunID: slot.RunID, Generation: record.Generation, At: plan.Now})
+		record.Slots = append(record.Slots, RecordSlot{At: slot.At.UTC(), Window: windows[slot.At.UTC()], RunID: slot.RunID})
 	}
 	slices.SortFunc(record.Slots, func(a, b RecordSlot) int { return a.At.Compare(b.At) })
 	if req.MaxConcurrency > 0 {
@@ -164,11 +162,6 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 	}
 	if err := s.Store.Update(ctx, record); err != nil {
 		return SubmitResult{}, fmt.Errorf("record the resumed backfill: %w", err)
-	}
-	if len(followed) > 0 {
-		if err := s.Store.Append(ctx, record.ID, followed...); err != nil {
-			return SubmitResult{}, fmt.Errorf("record the active runs of the resumed backfill: %w", err)
-		}
 	}
 	result.Record = record
 	return result, nil
