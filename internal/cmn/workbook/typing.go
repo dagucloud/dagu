@@ -205,6 +205,8 @@ func sameCellValue(cached, calculated string, cellType excelize.CellType) bool {
 		return cached == calculated
 	case excelize.CellTypeBool:
 		return boolDigit(cached) == boolDigit(calculated)
+	case excelize.CellTypeNumber, excelize.CellTypeError, excelize.CellTypeUnset:
+		// Compared below: as numbers when both parse, else as text.
 	}
 	a, aerr := strconv.ParseFloat(cached, 64)
 	b, berr := strconv.ParseFloat(calculated, 64)
