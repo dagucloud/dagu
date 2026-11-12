@@ -1037,6 +1037,8 @@ paths:
                       $ref: "#/components/schemas/LocalDag"
                   latestDAGRun:
                     $ref: "#/components/schemas/DAGRunDetails"
+                  latestBackfill:
+                    $ref: "#/components/schemas/LatestBackfill"
                   suspended:
                     type: boolean
                     description: "Whether the DAG is suspended"
@@ -13941,6 +13943,11 @@ components:
         - onFailure
         - slotCount
         - counts
+
+    LatestBackfill:
+      description: "The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since"
+      allOf:
+        - $ref: "#/components/schemas/Backfill"
 
     BackfillSubmitResponse:
       type: object

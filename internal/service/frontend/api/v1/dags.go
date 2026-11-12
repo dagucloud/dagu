@@ -622,6 +622,13 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 			Message:    err.Error(),
 		}
 	}
+	// The live feed leaves the backfill out: reading it reads the run of
+	// every slot the backfill has queued.
+	latest, err := a.latestBackfill(ctx, request.FileName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the latest backfill of a DAG", slog.String("dagFile", request.FileName), tag.Error(err))
+	}
+	resp.LatestBackfill = latest
 	return resp, nil
 }
 

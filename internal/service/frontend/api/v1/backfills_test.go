@@ -56,6 +56,11 @@ steps:
 	stale := submit(api.BackfillRequest{From: &from, To: &to, Rerun: new(api.BackfillRerunAll), Revision: new("stale")}, http.StatusConflict)
 	assert.NotEmpty(t, stale.Plan.Revision, "a stale submit returns the new plan")
 
+	var details api.GetDAGDetails200JSONResponse
+	server.Client().Get("/api/v1/dags/"+fileName).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+	require.NotNil(t, details.LatestBackfill, "the open backfill is the DAG's latest")
+	assert.Equal(t, id, details.LatestBackfill.Id)
+
 	var listed struct{ Backfills []api.Backfill }
 	server.Client().Get("/api/v1/backfills?dag="+dag.Name).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &listed)
 	require.Len(t, listed.Backfills, 1)
@@ -78,6 +83,9 @@ steps:
 	server.Client().Post("/api/v1/backfills/"+id+"/cancel", map[string]any{}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &cancelled)
 	assert.Equal(t, api.BackfillStatusCancelled, cancelled.Status)
 	server.Client().Post("/api/v1/backfills/"+id+"/cancel", map[string]any{}).ExpectStatus(http.StatusConflict).Send(t)
+	details = api.GetDAGDetails200JSONResponse{}
+	server.Client().Get("/api/v1/dags/"+fileName).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+	assert.Nil(t, details.LatestBackfill, "a cancelled backfill is not shown")
 
 	var resumed api.BackfillSubmitResponse
 	server.Client().Post("/api/v1/backfills/"+id+"/resume", map[string]any{"maxConcurrency": 2}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resumed)

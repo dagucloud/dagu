@@ -5088,6 +5088,8 @@ export interface components {
             /** @description Why an open backfill makes no progress: a run waits for a person, or its next run waits in the queue. Set only when one backfill is read. */
             waiting?: string;
         };
+        /** @description The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since */
+        LatestBackfill: components["schemas"]["Backfill"];
         BackfillSubmitResponse: {
             plan: components["schemas"]["BackfillPlan"];
             backfill?: components["schemas"]["Backfill"];
@@ -10319,6 +10321,7 @@ export interface operations {
                         /** @description List of local DAGs that are part of this DAG */
                         localDags: components["schemas"]["LocalDag"][];
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
+                        latestBackfill?: components["schemas"]["LatestBackfill"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;
                         /** @description Whether the DAG is pinned to the top of the DAG list */

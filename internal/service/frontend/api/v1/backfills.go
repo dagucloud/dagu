@@ -364,6 +364,27 @@ func (a *API) backfillSubmitResponse(ctx context.Context, store backfill.Store, 
 	return response, nil
 }
 
+// latestBackfill reports the backfill of a DAG an operator should see, as
+// backfill.Latest picks it, or nil.
+func (a *API) latestBackfill(ctx context.Context, fileName string) (*api.LatestBackfill, error) {
+	if a.backfillStore == nil {
+		return nil, nil
+	}
+	dag, err := a.dagRepository.GetDetails(ctx, fileName, persis.DAGLoadOptions{AllowBuildErrors: true})
+	if err != nil {
+		return nil, err
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, a.calendarSource())
+	sched := backfill.SlotSchedule{Schedules: schedules, Location: a.serverLocation()}
+	report, err := backfill.Latest(ctx, a.backfillStore, a.readRun, a.dagRunRepository, dag, sched)
+	if err != nil || report == nil {
+		return nil, err
+	}
+	item := toAPIBackfill(*report, a.schedulerActive(ctx))
+	return &item, nil
+}
+
 func (a *API) requireBackfillStore() (backfill.Store, error) {
 	if a.backfillStore == nil {
 		return nil, &Error{HTTPStatus: http.StatusServiceUnavailable, Code: api.ErrorCodeInternalError, Message: "backfills are not available on this server"}

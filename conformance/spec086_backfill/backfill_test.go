@@ -322,4 +322,12 @@ func TestCancelAndResume(t *testing.T) {
 	if got, states := status(); got != "waiting for scheduler" || strings.Join(states, ",") != "pending,pending,pending" {
 		t.Fatalf("after resume: %s %v", got, states)
 	}
+
+	// dagu status names the open backfill after the DAG's latest run.
+	p.runSlot("etl.yaml", "2025-10-04T02:00:00Z")
+	shown := p.run("status", "etl")
+	shown.ExpectExitCode(0)
+	if want := "Latest backfill " + submit.ID + ": waiting for scheduler; pending 3"; !strings.Contains(shown.Stdout(), want) {
+		t.Fatalf("dagu status does not show %q:\n%s", want, shown.Stdout())
+	}
 }

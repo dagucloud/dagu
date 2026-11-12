@@ -194,6 +194,11 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
   shows the newest of them.
+- A DAG's latest backfill is its newest open backfill. Without one, it is
+  the DAG's newest backfill that ended `failed`, while a slot that backfill
+  failed has not succeeded since. `GET /api/v1/dags/{fileName}` returns it
+  as `latestBackfill`. `dagu status <DAG>` without `--run-id` prints it
+  after the latest run, except in a remote context.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's params and
   profile, and has its slot's scheduled time and window. Its
