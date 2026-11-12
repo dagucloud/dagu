@@ -6,6 +6,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -1838,4 +1840,81 @@ func TestForeachResourceURIs(t *testing.T) {
 		require.NotNil(t, readErr, raw)
 		require.Equal(t, readErrorInvalidToolInput, readErr.Code, raw)
 	}
+}
+
+func runOutputs(attemptID string, values map[string]string) *ir.DAGRunOutputs {
+	return &ir.DAGRunOutputs{Metadata: ir.OutputsMetadata{AttemptID: attemptID}, Outputs: values}
+}
+
+func TestBoundedRunOutputs(t *testing.T) {
+	require.Nil(t, boundedRunOutputs(nil, "a1", nil))
+	require.Nil(t, boundedRunOutputs(runOutputs("a1", map[string]string{}), "a1", nil))
+
+	require.Equal(t, map[string]any{"outputs": map[string]string{"count": "3", "greeting": "hello"}},
+		boundedRunOutputs(runOutputs("a1", map[string]string{"greeting": "hello", "count": "3"}), "a1", nil))
+
+	require.Equal(t, map[string]any{"outputsError": "outputs could not be read"},
+		boundedRunOutputs(nil, "a1", errors.New("error reading outputs: open /data/outputs.json: permission denied")))
+
+	// Outputs of another attempt are not the returned attempt's outputs.
+	fields := boundedRunOutputs(runOutputs("a2", map[string]string{"greeting": "hello"}), "a1", nil)
+	require.NotContains(t, fields, "outputs")
+	require.Contains(t, fields["outputsError"], "attempt a2")
+}
+
+// A value over a limit is left out whole and counted; the values kept are
+// never cut.
+func TestBoundedRunOutputsLimits(t *testing.T) {
+	big := strings.Repeat("x", runOutputValueMaxBytes+1)
+	fields := boundedRunOutputs(runOutputs("", map[string]string{"big": big, "small": "ok"}), "a1", nil)
+	require.Equal(t, map[string]any{"outputs": map[string]string{"small": "ok"}, "outputsOmitted": 1}, fields)
+
+	many := make(map[string]string)
+	for i := range runOutputsMaxCount + 5 {
+		many[fmt.Sprintf("k%03d", i)] = "v"
+	}
+	fields = boundedRunOutputs(runOutputs("a1", many), "a1", nil)
+	require.Len(t, fields["outputs"], runOutputsMaxCount)
+	require.Equal(t, 5, fields["outputsOmitted"])
+
+	value := strings.Repeat("y", runOutputValueMaxBytes)
+	large := make(map[string]string)
+	for i := range 10 {
+		large[fmt.Sprintf("k%d", i)] = value
+	}
+	fields = boundedRunOutputs(runOutputs("a1", large), "a1", nil)
+	kept := fields["outputs"].(map[string]string)
+	total := 0
+	for key, v := range kept {
+		require.Equal(t, value, v)
+		total += len(key) + len(v)
+	}
+	require.LessOrEqual(t, total, runOutputsMaxBytes)
+	require.Equal(t, 10-len(kept), fields["outputsOmitted"])
+
+	// When no value fits, there is no outputs field, only the count.
+	fields = boundedRunOutputs(runOutputs("a1", map[string]string{"big": big}), "a1", nil)
+	require.Equal(t, map[string]any{"outputsOmitted": 1}, fields)
+}
+
+// A run resource keeps the REST body and adds the output fields next to
+// dagRunDetails. Without outputs, or for an unexpected response, the body is
+// returned as it is.
+func TestWithRunOutputs(t *testing.T) {
+	attemptID := "a1"
+	details := daguapi.GetDAGRunDetails200JSONResponse{DagRunDetails: daguapi.DAGRunDetails{AttemptId: &attemptID}}
+
+	require.Equal(t, details, withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{Details: details}))
+	require.Equal(t, "other", withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{
+		Details: "other",
+		Outputs: runOutputs("a1", map[string]string{"greeting": "hello"}),
+	}))
+
+	require.Equal(t, map[string]any{
+		"dagRunDetails": details.DagRunDetails,
+		"outputs":       map[string]string{"greeting": "hello"},
+	}, withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{
+		Details: details,
+		Outputs: runOutputs("a1", map[string]string{"greeting": "hello"}),
+	}))
 }

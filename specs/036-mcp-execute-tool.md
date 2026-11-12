@@ -186,7 +186,8 @@ Structured output rules:
 - With `wait`, output has `completed` boolean plus the last observed `status`
   and `statusLabel` when at least one poll succeeded.
 - With `wait`, a completed run's output has `run` holding the Spec 021 run
-  detail model, including per-step statuses and errors.
+  detail model, including per-step statuses and errors, and the run's outputs
+  under the same `outputs`, `outputsOmitted`, and `outputsError` rules.
 - With `wait`, a run stopped at a waiting checkpoint has `run` holding the same
   model, including each waiting step's human-task or approval prompt and, when
   the step declares one, its normalized form.
