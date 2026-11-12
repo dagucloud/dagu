@@ -1998,3 +1998,27 @@ func TestUnreadablePageInventsNoRefusal(t *testing.T) {
 	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs())
 	assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
 }
+
+// A fixed text check compares the page text and the check text folding
+// full-width characters to half-width and collapsing whitespace, as a
+// computer check does, so a check written in ASCII finds an order number a
+// page shows in full-width, in expect and in when alike.
+func TestTextCheckFoldsWidth(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.setPageText("注文番号：\n　ＡＢＣ１２３　")
+	execution := run.execute(`{"do": [
+		{"expect": {"text": "ABC123"}},
+		{"act": "Open the receipt", "when": {"text": "注文番号: ABC123"}},
+		{"act": "Close the banner", "when": {"text": "XYZ"}}
+	]}`, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"expect:completed", "act:completed", "act:skipped"}, eventNames(execution.exec.GetAgentSession()))
+	assert.Equal(t, []string{"Open the receipt"}, run.engine.actInstructions())
+
+	missing := newTestRun(t, pageModel(nil))
+	missing.engine.setPageText("注文番号：ＡＢＣ１２３")
+	execution = missing.execute(`{"do": [{"expect": {"text": "ABC124", "within": "1ms"}}]}`, nil)
+	require.ErrorContains(t, execution.err, `expectation not met: the page text does not contain "ABC124"`)
+}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
@@ -562,7 +563,9 @@ func (o *operator) evaluate(ctx context.Context, c condition, timeout time.Durat
 		if err != nil {
 			return false, "", err
 		}
-		if strings.Contains(text, c.Text) {
+		// Both sides are compared as a computer check compares text, so a
+		// check written in ASCII finds a number the page shows in full-width.
+		if strings.Contains(stringutil.NormalizeText(text), stringutil.NormalizeText(c.Text)) {
 			return true, fmt.Sprintf("the page text contains %q", c.Text), nil
 		}
 		return false, fmt.Sprintf("the page text does not contain %q", c.Text), nil
