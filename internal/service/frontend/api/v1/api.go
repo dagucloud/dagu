@@ -185,6 +185,7 @@ type CloudAccessService interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
 	Set(ctx context.Context, level *config.RemoteAccessLevel, approvals *bool) error
 	State() cloudaccess.State
+	LastCall(ctx context.Context) (cloudaccess.LastCall, bool, error)
 }
 
 // AuthService defines the interface for authentication operations.

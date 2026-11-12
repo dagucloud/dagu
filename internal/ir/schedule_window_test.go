@@ -162,3 +162,21 @@ func TestScheduleWindowAt(t *testing.T) {
 		})
 	}
 }
+
+func TestPreviousFire(t *testing.T) {
+	t.Parallel()
+
+	twiceYearly, err := ir.NewCronSchedule("0 0 1 1,7 *")
+	require.NoError(t, err)
+	hourly, err := ir.NewCronSchedule("0 * * * *")
+	require.NoError(t, err)
+	oneOff, err := ir.NewOneOffSchedule("2026-06-30T23:30:00Z")
+	require.NoError(t, err)
+	at := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	assert.Equal(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		ir.PreviousFire([]ir.Schedule{twiceYearly, oneOff}, at), "one-off schedules are not recurring fires")
+	assert.Equal(t, time.Date(2026, 6, 30, 23, 0, 0, 0, time.UTC),
+		ir.PreviousFire([]ir.Schedule{twiceYearly, hourly}, at), "the latest fire across schedules")
+	assert.True(t, ir.PreviousFire(nil, at).IsZero())
+}

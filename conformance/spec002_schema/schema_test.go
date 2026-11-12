@@ -111,3 +111,16 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
+
+// Only validation rejects a name in the entrypoint document. Running such a
+// DAG still works and uses the name, so DAGs written before the rule keep
+// running.
+func TestStartAcceptsEntrypointName(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+
+	result := dagu.Run("start", "entrypoint_name_run.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("dag-name.txt", "deploy\n")
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding/japanese"
 )
 
 type testWriter struct {
@@ -104,6 +105,33 @@ func TestWriteFromInputFileAndDryRun(t *testing.T) {
 	assert.Equal(t, true, tw.exec.GetOutputs()["dry_run"])
 	assert.Equal(t, "Wrote 1 rows to out.xlsx Sheet1 (dry run)\n", tw.stdout.String())
 	_, err = os.Stat(filepath.Join(dir, "out.xlsx"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestWriteDetectsInputEncoding is the regression test for a CSV that Excel
+// on Japanese Windows saved in Shift_JIS: without encoding the file is
+// detected and written as text, and with encoding: utf-8 it fails rather
+// than writing replacement characters.
+func TestWriteDetectsInputEncoding(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	sjis, err := japanese.ShiftJIS.NewEncoder().Bytes([]byte("氏名,金額\n山田太郎,1200\n"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sales.csv"), sjis, 0o600))
+
+	tw, err := newTestWriter(t, dir, opWrite, map[string]any{"path": "out.xlsx", "input": "sales.csv"})
+	require.NoError(t, err)
+	require.NoError(t, tw.exec.Run(context.Background()))
+	back, err := workbook.Read(context.Background(), filepath.Join(dir, "out.xlsx"), workbook.ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"氏名", "金額"}, back.Headers)
+	assert.Equal(t, "山田太郎", back.Rows[0]["氏名"])
+
+	tw, err = newTestWriter(t, dir, opWrite, map[string]any{"path": "strict.xlsx", "input": "sales.csv", "encoding": "utf-8"})
+	require.NoError(t, err)
+	err = tw.exec.Run(context.Background())
+	require.ErrorContains(t, err, "input: "+filepath.Join(dir, "sales.csv")+": not valid UTF-8")
+	_, err = os.Stat(filepath.Join(dir, "strict.xlsx"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 

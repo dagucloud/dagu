@@ -2761,6 +2761,13 @@ func TestComputePrevExecTime(t *testing.T) {
 			next:     time.Date(2020, 1, 13, 9, 0, 0, 0, time.UTC), // Monday
 			want:     time.Date(2020, 1, 6, 9, 0, 0, 0, time.UTC),  // Previous Monday
 		},
+		{
+			// The previous fire is half a year back, beyond a month of lookback.
+			name:     "UnevenTwiceYearly",
+			schedule: "0 0 1 1,7 *",
+			next:     time.Date(2020, 7, 1, 0, 0, 0, 0, time.UTC),
+			want:     time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
 	}
 
 	for _, tt := range tests {
@@ -2770,6 +2777,24 @@ func TestComputePrevExecTime(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// A scheduler down for longer than a month still finds the slot of a sparse
+// schedule that it missed.
+func TestLatestCronSlotFindsSparseSlot(t *testing.T) {
+	t.Parallel()
+
+	quarterly := mustParseSchedule(t, "0 0 1 */3 *")
+	from := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+
+	slot, ok := latestCronSlot([]ir.Schedule{quarterly}, from, to)
+
+	require.True(t, ok)
+	assert.Equal(t, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), slot)
+
+	_, ok = latestCronSlot([]ir.Schedule{quarterly}, time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC), to)
+	assert.False(t, ok, "a slot at or before from is not missed")
 }
 
 func TestInheritedScheduling(t *testing.T) {

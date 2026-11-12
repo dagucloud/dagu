@@ -117,3 +117,17 @@ Review generated diffs with the source change that caused them.
 - Run `make conformance` when workflow semantics or CLI behavior changes.
 - Run frontend tests, type checking, and build checks for UI changes.
 - Run `make test-e2e` for user-visible flows that need browser coverage.
+
+## Pull request CI
+
+- Every push to a pull request runs the light checks: Go lint, Linux unit
+  and integration tests, the frontend build, and the chart and image scans.
+- The heavy checks run only on a pull request with the `full-ci` label:
+  Windows tests, the conformance suite, browser and desktop E2E, the dev
+  image browser test, and the Windows installer test. Pushes to `main` run
+  every check.
+- Draft pull requests run no checks. Marking one ready for review runs them,
+  and turning one back into a draft cancels the run in progress.
+- Add `full-ci` once review is done, then merge only after every check,
+  heavy ones included, passes. A label added earlier runs the heavy checks on
+  every later push.
