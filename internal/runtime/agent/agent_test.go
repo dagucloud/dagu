@@ -339,10 +339,15 @@ func TestStopStartup(t *testing.T) {
 				yaml := fmt.Sprintf("max_clean_up_time_sec: 1\nsteps:\n  - script: %q\nhandler_on:\n  init:\n    script: %q\n  abort:\n    script: %q\n  exit:\n    script: %q\n", script, script, script, script)
 				barrier := &startupBarrier{started: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{})}
 				opts := agent.Options{Dry: phase == "Dry"}
+				// blocksInProvider is whether the phase blocks inside a provider
+				// that ignores cancellation.
+				blocksInProvider := false
 				if phase == "Secrets" {
+					blocksInProvider = true
 					yaml += "secrets:\n  - name: TOKEN\n    ref: prod/token\n"
 					opts.SecretReferenceResolver = startupSecretResolver{barrier: barrier}
 				} else if phase == "Profile" || phase == "LatePanic" {
+					blocksInProvider = true
 					opts.ProfileName = "initial-profile"
 					resolver := startupProfileResolver{barrier: barrier}
 					if phase == "LatePanic" {
@@ -386,7 +391,7 @@ func TestStopStartup(t *testing.T) {
 				// budget applies, so the run is bounded by the platform completion
 				// timeout and must return while the provider is still blocked.
 				waitForCancel(t, done, agentRunCompletionTimeout())
-				if phase == "Secrets" || phase == "Profile" || phase == "LatePanic" {
+				if blocksInProvider {
 					select {
 					case <-barrier.returned:
 						t.Fatal("startup termination waited for the provider")
