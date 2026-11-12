@@ -72,9 +72,13 @@ func (s *ArtifactStore) WriteScreenshot(label string, data []byte) (string, erro
 	if s.sequence == 0 {
 		s.sequence = lastScreenshotSequence(dir)
 	}
+	label = fileutil.NormalizeFilename(strings.TrimSuffix(label, screenshotExt), "_")
+	if runes := []rune(label); len(runes) > fileutil.MaxSafeNameLength {
+		label = string(runes[:fileutil.MaxSafeNameLength])
+	}
 	for {
 		s.sequence++
-		name := fmt.Sprintf("%02d-%s%s", s.sequence, fileutil.SafeName(label), screenshotExt)
+		name := fmt.Sprintf("%02d-%s%s", s.sequence, label, screenshotExt)
 		file, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, artifactFileMode) //nolint:gosec // name is built from a sanitized label
 		if errors.Is(err, fs.ErrExist) {
 			continue
