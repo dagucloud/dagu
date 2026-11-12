@@ -400,6 +400,7 @@ func newCloudAccess(ctx *Context) *cloudaccess.Service {
 		Settings:    newCloudAccessSettings(ctx.Config),
 		Key:         key,
 		Hello:       cloudrelay.Hello{Name: name, Version: config.Version},
+		LastCall:    filemonitor.NewStateStore(filepath.Join(ctx.Config.Paths.DataDir, "cloud", "access-last-call.json")),
 	})
 }
 

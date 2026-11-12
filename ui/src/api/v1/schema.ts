@@ -7921,6 +7921,19 @@ export interface components {
             connected: boolean;
             /** @description Why the last connection failed or Dagu Cloud refused it, such as a workspace without a plan or a trial */
             error?: string;
+            lastCall?: components["schemas"]["LicenseRemoteAccessLastCall"];
+        };
+        /** @description The latest call from Dagu Cloud the server served, absent before the first */
+        LicenseRemoteAccessLastCall: {
+            /**
+             * Format: date-time
+             * @description When the call reached the server, to the minute
+             */
+            at: string;
+            /** @description The MCP client that made the call, such as Claude */
+            client?: string;
+            /** @description The Dagu Cloud user the call ran as */
+            user?: string;
         };
         /** @description Request body for changing password */
         ChangePasswordRequest: {

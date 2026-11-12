@@ -4,6 +4,7 @@
 package cloudaccess
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"io"
@@ -127,6 +128,23 @@ func TestACallRunsAsTheUserDaguCloudVouchesFor(t *testing.T) {
 	require.NotNil(t, f.served)
 	user, _ = auth.UserFromContext(f.served.Context())
 	assert.Equal(t, auth.RoleViewer, user.Role)
+}
+
+// The latest call is kept with the app and the person, so the server can
+// show that a client reached it, also after a restart.
+func TestAServedCallIsRemembered(t *testing.T) {
+	f := newCallFixture(t, config.RemoteAccessOperator)
+	store := filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-last-call.json"))
+	f.calls.lastCalls = &lastCalls{store: store, now: time.Now}
+	require.Equal(t, http.StatusOK, f.call(mcpPath, testBody, f.key.assertion(t, testBody, nil)).Code)
+
+	restarted := &lastCalls{store: store, now: time.Now}
+	call, found, err := restarted.get(context.Background())
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "Claude", call.Client)
+	assert.Equal(t, "ana@example.com", call.User)
+	assert.WithinDuration(t, time.Now(), call.At, time.Minute)
 }
 
 func TestCallsWithInvalidAssertionsAreRefused(t *testing.T) {

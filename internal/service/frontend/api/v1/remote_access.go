@@ -118,6 +118,13 @@ func (a *API) licenseRemoteAccess(ctx context.Context) (api.LicenseRemoteAccess,
 	if state.Error != "" {
 		access.Error = ptrOf(state.Error)
 	}
+	last, found, err := a.cloudAccess.LastCall(ctx)
+	if err != nil {
+		return api.LicenseRemoteAccess{}, internalError(err)
+	}
+	if found {
+		access.LastCall = &api.LicenseRemoteAccessLastCall{At: last.At, Client: optionalString(last.Client), User: optionalString(last.User)}
+	}
 	return access, nil
 }
 

@@ -48,6 +48,8 @@ type calls struct {
 	credentials func() (license.CloudCredentials, bool)
 	verifier    *verifier
 	mcp         http.Handler
+	// lastCalls records each call served, when set.
+	lastCalls *lastCalls
 }
 
 func (c *calls) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +105,9 @@ func (c *calls) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		CloudWorkspace: a.Workspace,
 	})
 	logger.Debug(ctx, "Remote access: serving a call", slog.String("user", user.ID), slog.String("role", string(user.Role)))
+	if c.lastCalls != nil {
+		c.lastCalls.note(ctx, a.Client, a.Email)
+	}
 
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(body))
