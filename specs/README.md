@@ -85,6 +85,7 @@ It must not be treated as product behavior until implementation catches up.
 | [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
 | [084: Business Calendars](084-business-calendars.md) | Implemented |
 | [085: Scheduler High Availability](085-scheduler-ha.md) | Partially implemented |
+| [086: Backfill](086-backfill.md) | Partially implemented |
 
 **Writing guidelines:**
 

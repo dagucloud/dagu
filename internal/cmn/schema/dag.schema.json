@@ -623,6 +623,12 @@
       "minimum": 1,
       "description": "Number of DAG runs to retain in execution history. Mutually exclusive with hist_retention_days."
     },
+    "slot_retention_days": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 730,
+      "description": "Number of days to keep the record of each schedule slot: which runs it had and, after history retention removes a run, its final status. Backfill reads this record to find the slots that still need a run."
+    },
     "max_active_runs": {
       "examples": [1],
       "type": "integer",
