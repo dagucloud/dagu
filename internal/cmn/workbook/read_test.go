@@ -1190,12 +1190,13 @@ func TestStaleCachedFormulasWarn(t *testing.T) {
 func TestStaleCachedFormulasByCellType(t *testing.T) {
 	t.Parallel()
 	const stale = ": cached formula value is stale; set formulas: calculate to read current values"
-	path := rawBook(t, `<sheetData><row r="1">`+inline("A1", "merged")+inline("B1", "covered")+inline("C1", "zeros")+inline("D1", "blank")+inline("E1", "empty")+inline("F1", "number")+`</row>`+
+	path := rawBook(t, `<sheetData><row r="1">`+inline("A1", "merged")+inline("B1", "covered")+inline("C1", "zeros")+inline("D1", "blank")+inline("E1", "empty")+inline("F1", "number")+inline("G1", "errtext")+`</row>`+
 		`<row r="2"><c r="A2"><f>1+2</f><v>5</v></c>`+
 		`<c r="C2" t="str"><f>"123"</f><v>00123</v></c>`+
 		`<c r="D2"><f>H2</f><v>0</v></c>`+
 		`<c r="E2" t="str"><f>""</f><v>old</v></c>`+
-		`<c r="F2"><f>1/3</f><v>0.33333333333333331</v></c></row></sheetData>`+
+		`<c r="F2"><f>1/3</f><v>0.33333333333333331</v></c>`+
+		`<c r="G2" t="str"><f>"#N/A"</f><v>old</v></c></row></sheetData>`+
 		`<mergeCells count="1"><mergeCell ref="A2:B2"/></mergeCells>`)
 
 	covered, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "covered", As: "covered"}}})
@@ -1207,14 +1208,25 @@ func TestStaleCachedFormulasByCellType(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Raw!A2" + stale}, both.Warnings, "an origin read through two cells is named once")
 
-	text, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "zeros", As: "zeros"}, {Source: "empty", As: "empty"}}})
+	text, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "zeros", As: "zeros"}, {Source: "empty", As: "empty"}, {Source: "errtext", As: "errtext"}}})
 	require.NoError(t, err)
 	assert.Equal(t, "00123", text.Rows[0]["zeros"])
-	assert.Equal(t, []string{"Raw!C2, Raw!E2" + stale}, text.Warnings, "text compares exactly and an empty text result is a value")
+	assert.Equal(t, []string{"Raw!C2, Raw!E2, Raw!G2" + stale}, text.Warnings, "text compares exactly; an empty text result, or one spelled like an error, is a value")
 
 	numbers, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "blank", As: "blank"}, {Source: "number", As: "number"}}})
 	require.NoError(t, err)
 	assert.Empty(t, numbers.Warnings, "a blank reference evaluates to nothing, and digits beyond a writer's precision do not count")
+
+	// Error results live in their own book: an error cell warns in every
+	// read of its sheet.
+	errBook := rawBook(t, `<sheetData><row r="1">`+inline("A1", "na")+inline("B1", "iferr")+`</row>`+
+		`<row r="2"><c r="A2" t="e"><f>NA()</f><v>#N/A</v></c>`+
+		`<c r="B2"><f>IF(1,NA(),1)</f><v>1</v></c></row></sheetData>`)
+	errors, err := Read(context.Background(), errBook, ReadOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, errors.Rows[0]["na"])
+	assert.Equal(t, int64(1), errors.Rows[0]["iferr"])
+	assert.Equal(t, []string{"Raw!A2: error cell #N/A"}, errors.Warnings, "an error result, returned as an error or as a value, is not stale")
 }
 
 // Japanese text under a pinned type: full-width digits and punctuation,

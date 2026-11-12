@@ -168,17 +168,20 @@ func (s *staleCells) report(warn func(string)) {
 // staleFormula reports whether a cell holds a formula that evaluates to
 // something other than raw, its cached value. Only a successful evaluation
 // counts: a formula the engine cannot evaluate, or one that evaluates to
-// an Excel error, says nothing about the cache. Nor does an empty
-// evaluation of a number cell: the engine yields nothing for a reference
-// to a blank cell, where Excel caches 0. An empty text result, as from
-// `=""`, is a value and is compared.
+// an Excel error, says nothing about the cache. An error can come back as
+// a value with no error, as IF(1,NA(),1) does, so the result is also
+// checked by name, but only for a cell that is not text: a text cell whose
+// formula yields "#N/A" has evaluated to that text. Nor does an empty
+// evaluation of a number cell count: the engine yields nothing for a
+// reference to a blank cell, where Excel caches 0. An empty text result,
+// as from `=""`, is a value and is compared.
 func (w *file) staleFormula(sheet, cell, raw string) bool {
 	formula, err := w.f.GetCellFormula(sheet, cell)
 	if err != nil || formula == "" {
 		return false
 	}
 	calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
-	if err != nil || excelErrors[calculated] {
+	if err != nil {
 		return false
 	}
 	cellType, err := w.f.GetCellType(sheet, cell)
@@ -186,7 +189,7 @@ func (w *file) staleFormula(sheet, cell, raw string) bool {
 		return false
 	}
 	text := cellType == excelize.CellTypeFormula || cellType == excelize.CellTypeSharedString || cellType == excelize.CellTypeInlineString
-	if calculated == "" && !text {
+	if !text && (calculated == "" || excelErrors[calculated]) {
 		return false
 	}
 	return !sameCellValue(raw, calculated, cellType)
