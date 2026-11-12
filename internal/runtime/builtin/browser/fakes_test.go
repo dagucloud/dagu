@@ -135,10 +135,12 @@ type fakeEngine struct {
 	// work on; empty when no open page opened it.
 	opener string
 	// downloads and downloadErr script what the next download wait reports,
-	// and lateDownloads what only a wait that allows them to begin does.
-	downloads     []string
-	downloadErr   error
-	lateDownloads []string
+	// and lateDownloads and lateDownloadErr what only a wait that allows
+	// them to begin does.
+	downloads       []string
+	downloadErr     error
+	lateDownloads   []string
+	lateDownloadErr error
 	// downloadWaits records the timeout of each download wait.
 	downloadWaits []time.Duration
 	// uploadHow is how uploads report the files reached the page;
@@ -507,15 +509,16 @@ func (e *fakeEngine) WaitForDownloads(_ context.Context, grace time.Duration, ti
 	e.downloadWaits = append(e.downloadWaits, timeout)
 	e.keepWrites(e.downloadWrites)
 	e.downloadWrites = nil
-	downloads := e.downloads
+	downloads, err := e.downloads, e.downloadErr
 	e.downloads = nil
 	if grace > 0 {
 		downloads = append(downloads, e.lateDownloads...)
 		e.lateDownloads = nil
 		e.dialogs = append(e.dialogs, e.lateDialogs...)
 		e.lateDialogs = nil
+		err = cmp.Or(err, e.lateDownloadErr)
 	}
-	return downloads, e.downloadErr
+	return downloads, err
 }
 
 func (e *fakeEngine) Handle() browserHandle {

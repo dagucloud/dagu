@@ -228,21 +228,12 @@ func (r *run) execute(ctx context.Context) error {
 	cancel()
 
 	start, err := r.startSession(ctx)
-	dialogErr := r.reportDialogs(-1)
-	r.reportBlocked(-1)
-	if err == nil {
-		var stop *writegate.Event
-		if stop, err = r.reportWrites(ctx, -1); stop != nil && dialogErr == nil {
-			return r.rehearsed(ctx, start-1, *stop)
-		}
+	// What the browser did while the start URL opened, or while an answered
+	// ask held it, belongs to the operation before start.
+	if done, err := r.afterOperation(ctx, start-1, err); done {
+		return err
 	}
-	if err == nil {
-		err = dialogErr
-	}
-	if err == nil {
-		err = r.checkPage(ctx, -1)
-	}
-	if err != nil {
+	if err := r.checkPage(ctx, -1); err != nil {
 		return r.fail(ctx, -1, "", err)
 	}
 	r.reportRefusal(ctx, -1)
@@ -272,12 +263,7 @@ func (r *run) execute(ctx context.Context) error {
 		// A person sees the page once the downloads of the operations before
 		// have settled.
 		if waits {
-			if err := r.settleDownloads(ctx, i-1, true); err != nil {
-				return r.fail(ctx, i, kindDownload, err)
-			}
-			// A dialog answered during the wait is reported before the
-			// browser detaches, which would lose it.
-			if err := r.checkDialogs(ctx, i-1); err != nil {
+			if err := r.settle(ctx, i-1, true); err != nil {
 				return err
 			}
 		}
@@ -308,30 +294,8 @@ func (r *run) execute(ctx context.Context) error {
 		if err == nil {
 			r.reportResult(ctx, result)
 		}
-		dialogErr := r.reportDialogs(i)
-		r.reportBlocked(i)
-		// A write the gate kept back ends the step there, whatever the
-		// operation made of the page that did not get its answer: a
-		// rehearsal partially succeeds, and in record mode the step fails.
-		stop, gateErr := r.reportWrites(ctx, i)
-		switch {
-		case gateErr != nil:
-			return r.fail(ctx, i, kindWriteGate, gateErr)
-		case stop != nil:
-			r.noteCommit(ctx, *stop)
-			switch {
-			case writegate.Sends(r.writeGate):
-				return r.fail(ctx, i, op.kind(), writeBlocked{write: *stop})
-			case dialogErr != nil:
-				// A confirm the step did not expect fails it even where a
-				// rehearsal would have stopped and partially succeeded.
-				return r.fail(ctx, i, op.kind(), dialogErr)
-			}
-			return r.rehearsed(ctx, i, *stop)
-		case err != nil:
-			return r.fail(ctx, i, op.kind(), err)
-		case dialogErr != nil:
-			return r.fail(ctx, i, op.kind(), dialogErr)
+		if done, err := r.afterOperation(ctx, i, err); done {
+			return err
 		}
 		if err := r.checkPage(ctx, i); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
@@ -340,19 +304,12 @@ func (r *run) execute(ctx context.Context) error {
 		if op.Act != nil || op.Goto != "" {
 			r.downloadWindow = max(r.downloadWindow, op.timeout())
 		}
-		if err := r.settleDownloads(ctx, i, false); err != nil {
-			return r.fail(ctx, i, kindDownload, err)
-		}
-		if err := r.checkDialogs(ctx, i); err != nil {
+		if err := r.settle(ctx, i, false); err != nil {
 			return err
 		}
 	}
 	last := len(r.cfg.Do) - 1
-	if err := r.settleDownloads(ctx, last, true); err != nil {
-		return r.fail(ctx, last, kindDownload, err)
-	}
-	// The page may open a dialog while the step waits for downloads.
-	if err := r.checkDialogs(ctx, last); err != nil {
+	if err := r.settle(ctx, last, true); err != nil {
 		return err
 	}
 	// The allowance left ends as the browser closes with its gate, and a
@@ -386,19 +343,63 @@ func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
 	return nil
 }
 
-// checkDialogs reports the dialogs answered since the operation at index
-// was reported, as during a wait for downloads, and fails the step on a
-// confirm on_confirm: fail did not expect. Its error is the step's.
-func (r *run) checkDialogs(ctx context.Context, index int) error {
-	err := r.reportDialogs(index)
-	if err == nil {
-		return nil
+// afterOperation reports the dialogs the browser answered, the requests
+// allowed_domains blocked, and what the write gate decided while the
+// operation at index ran, or while the start URL opened when index is
+// before the first operation, and ends the step when one of them or opErr,
+// the operation's error, decides it: done is then true with the step's
+// result. A write the gate kept back ends the step there, whatever the
+// operation made of the page that did not get its answer: a rehearsal
+// partially succeeds, and in record mode the step fails. A confirm the
+// step did not expect fails it even where a rehearsal would have stopped
+// and partially succeeded.
+func (r *run) afterOperation(ctx context.Context, index int, opErr error) (done bool, err error) {
+	kind := r.kindAt(index)
+	dialogErr := r.reportDialogs(index)
+	r.reportBlocked(index)
+	stop, gateErr := r.reportWrites(ctx, index)
+	switch {
+	case gateErr != nil:
+		return true, r.fail(ctx, index, kindWriteGate, gateErr)
+	case stop != nil:
+		r.noteCommit(ctx, *stop)
+		switch {
+		case writegate.Sends(r.writeGate):
+			return true, r.fail(ctx, index, kind, writeBlocked{write: *stop})
+		case dialogErr != nil:
+			return true, r.fail(ctx, index, kind, dialogErr)
+		}
+		return true, r.rehearsed(ctx, index, *stop)
+	case opErr != nil:
+		return true, r.fail(ctx, index, kind, opErr)
+	case dialogErr != nil:
+		return true, r.fail(ctx, index, kind, dialogErr)
 	}
-	kind := ""
-	if index >= 0 {
-		kind = r.cfg.Do[index].kind()
+	return false, nil
+}
+
+// settle waits for the downloads the operation at index started, with a
+// moment for one to begin when the step ends or pauses after it, and
+// reports the dialogs the page opened meanwhile, before a browser that
+// detaches would lose them. A download that does not finish, or a confirm
+// on_confirm: fail did not expect, fails the operation; the error is the
+// step's.
+func (r *run) settle(ctx context.Context, index int, final bool) error {
+	if err := r.settleDownloads(ctx, index, final); err != nil {
+		return r.fail(ctx, index, kindDownload, err)
 	}
-	return r.fail(ctx, index, kind, err)
+	if err := r.reportDialogs(index); err != nil {
+		return r.fail(ctx, index, r.kindAt(index), err)
+	}
+	return nil
+}
+
+// kindAt is the kind of the operation at index, or empty before the first.
+func (r *run) kindAt(index int) string {
+	if index < 0 {
+		return ""
+	}
+	return r.cfg.Do[index].kind()
 }
 
 // reportDialogs records the dialogs the browser answered while the operation
@@ -569,13 +570,11 @@ func (r *run) endWrites(ctx context.Context) error {
 // step, with nothing run after the operation at reached, and finishWrites
 // then returns true with the step's result.
 func (r *run) finishWrites(ctx context.Context, reached int) (bool, error) {
-	ran, kind := reached, ""
+	ran := reached
 	if r.opIndex >= 0 {
 		ran = r.opIndex
 	}
-	if ran >= 0 {
-		kind = r.cfg.Do[ran].kind()
-	}
+	kind := r.kindAt(ran)
 	stop, err := r.reportWrites(ctx, ran)
 	switch {
 	case err != nil:

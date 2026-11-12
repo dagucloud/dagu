@@ -442,6 +442,22 @@ func TestConfirmBeforeAskFailsStep(t *testing.T) {
 	assert.Equal(t, []string{"act:completed", "dialog:failed"}, eventNames(execution.exec.GetAgentSession()))
 }
 
+// A download that does not finish while the step waits before an ask fails
+// the operation that started it, not the ask.
+func TestUnfinishedDownloadBeforeAskFailsItsOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.lateDownloadErr = errors.New("download of invoice.pdf did not finish within 2m0s")
+	execution := run.execute(`{"do": [
+		{"act": "Download the latest invoice"},
+		{"ask": {"prompt": "Enter the code", "as": "otp"}}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] download failed: download of invoice.pdf did not finish")
+	assert.False(t, run.engine.detached, "the step fails instead of waiting")
+}
+
 // A confirm the step did not expect fails it even when the same operation
 // sent a write a rehearsal would have stopped at; the write stays reported.
 func TestUnexpectedConfirmFailsRehearsal(t *testing.T) {
