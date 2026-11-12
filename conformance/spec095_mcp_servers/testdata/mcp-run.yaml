@@ -1,0 +1,21 @@
+description: An agent step with a named MCP server and an inline one.
+params:
+  - MCP_INLINE_URL: http://127.0.0.1:1/inline
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Look in the docs.
+      tools:
+        mcp:
+          - name: docs
+            allow: [search]
+          - name: inline
+            url: ${MCP_INLINE_URL}
+            headers:
+              X-Team: t1
+            allow: [ping]

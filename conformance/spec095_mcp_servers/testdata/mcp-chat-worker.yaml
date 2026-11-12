@@ -1,0 +1,16 @@
+description: A chat step with a named MCP server that runs on a general worker.
+worker_selector:
+  zone: eu
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      stream: false
+      prompt: Search the docs for dagu.
+      tools:
+        mcp:
+          - name: docs
+            allow: [search]

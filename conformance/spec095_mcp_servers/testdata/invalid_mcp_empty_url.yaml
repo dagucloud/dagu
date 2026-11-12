@@ -1,0 +1,14 @@
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the test.
+      tools:
+        mcp:
+          - name: docs
+            url: ""
+            allow: [search]

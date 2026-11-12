@@ -1,0 +1,14 @@
+description: An agent step that names the MCP server docs, which this DAG may not use (Spec 093, "Use rule").
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Look in the docs.
+      tools:
+        mcp:
+          - name: docs
+            allow: [search]

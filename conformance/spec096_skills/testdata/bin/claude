@@ -1,0 +1,31 @@
+#!/bin/sh
+# A fake claude CLI for the conformance tests of Spec 096.
+#
+# It records its argv and, for the directory that --add-dir gives, one line for
+# each file under .claude/skills: "<sha256> <mode> <path>". It prints a canned
+# stream-json result. The test sets FAKE_CLAUDE_DIR, a directory that the script
+# writes to.
+dir="${FAKE_CLAUDE_DIR:?FAKE_CLAUDE_DIR is required}"
+
+: > "$dir/argv"
+for arg in "$@"; do
+  printf '%s\0' "$arg" >> "$dir/argv"
+done
+
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--add-dir" ]; then
+    root="$arg/.claude/skills"
+    : > "$dir/manifest"
+    find "$root" -type f | LC_ALL=C sort | while IFS= read -r file; do
+      sum=$(sha256sum "$file" | cut -d' ' -f1)
+      mode=$(stat -c %a "$file")
+      printf '%s %s %s\n' "$sum" "$mode" "${file#"$root"/}" >> "$dir/manifest"
+    done
+    cp -R "$arg" "$dir/adddir"
+  fi
+  previous="$arg"
+done
+
+echo '{"type":"system","subtype":"init","model":"sonnet","mcp_servers":[]}'
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"done"}'
