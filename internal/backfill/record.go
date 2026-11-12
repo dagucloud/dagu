@@ -65,10 +65,13 @@ type Record struct {
 	DAGFile string `json:"dagFile"`
 	// Definition is the DAG's YAML pinned at submit; later slots run it
 	// whatever edits follow.
-	Definition []byte    `json:"definition"`
-	Options    Options   `json:"options"`
-	Actor      string    `json:"actor,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
+	Definition []byte `json:"definition"`
+	// Labels are the DAG's labels with its definition. They place the
+	// backfill in the DAG's workspace, also once the DAG is gone.
+	Labels    ir.Labels `json:"labels,omitempty"`
+	Options   Options   `json:"options"`
+	Actor     string    `json:"actor,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 	// PlannedAt is when the slots were last planned, at submit or resume. A
 	// run recorded later can make a slot skip at its turn.
 	PlannedAt time.Time `json:"plannedAt"`

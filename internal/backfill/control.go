@@ -137,7 +137,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		windows[slot.At.UTC()] = slot.Window
 	}
 	record.Generation++
-	record.Definition = req.DAG.YamlData
+	record.Definition, record.Labels = req.DAG.YamlData, req.DAG.Labels
 	record.PlannedAt = plan.Now.UTC()
 	record.Revision = result.Plan.Revision
 	record.Status, record.EndedAt = "", time.Time{}

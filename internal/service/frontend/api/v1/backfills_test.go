@@ -6,12 +6,18 @@ package api_test
 import (
 	"context"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,4 +122,46 @@ steps:
 	server.Client().Post("/api/v1/dags/missing/backfills", api.BackfillRequest{From: new("2025-10-01")}).
 		ExpectStatus(http.StatusNotFound).Send(t)
 	server.Client().Get("/api/v1/backfills/aaaaaaaa").ExpectStatus(http.StatusNotFound).Send(t)
+}
+
+// A backfill belongs to the workspace of its DAG's labels, which its record
+// keeps, so access holds after the DAG is deleted.
+func TestBackfillWorkspaceAccess(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	dagFile := helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-etl", []byte("labels: [workspace=ops]\nschedule: \"0 2 * * *\"\nsteps:\n  - run: echo ops\n"))
+	store := filebackfill.New(t.TempDir())
+	slot := time.Date(2025, 10, 1, 2, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(context.Background(), &backfill.Record{
+		ID: "ops12345", DAGName: "ops-etl", DAGFile: dagFile, Labels: ir.NewLabels([]string{"workspace=ops"}),
+		Options:   backfill.Options{From: slot, Rerun: backfill.RerunNone, MaxConcurrency: 1, OnFailure: backfill.OnFailureStop},
+		CreatedAt: slot, PlannedAt: slot, Slots: []backfill.RecordSlot{{At: slot}},
+	}))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithBackfillStore(store), localapi.WithAuthService(stubAuthService{}))
+	user := func(name string, role auth.Role) context.Context {
+		return auth.WithUser(context.Background(), &auth.User{
+			Username:        name,
+			Role:            role,
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: name, Role: role}}},
+		})
+	}
+	other, viewer, developer := user("other", auth.RoleDeveloper), user("ops", auth.RoleViewer), user("ops", auth.RoleDeveloper)
+
+	listed, err := apiImpl.ListBackfills(other, api.ListBackfillsRequestObject{})
+	require.NoError(t, err)
+	assert.Empty(t, listed.(api.ListBackfills200JSONResponse).Backfills, "another workspace's backfill is not listed")
+	_, err = apiImpl.GetBackfill(other, api.GetBackfillRequestObject{BackfillId: "ops12345"})
+	requireAPIErrorStatus(t, err, http.StatusNotFound)
+	_, err = apiImpl.GetBackfill(viewer, api.GetBackfillRequestObject{BackfillId: "ops12345"})
+	require.NoError(t, err)
+
+	require.NoError(t, os.Remove(dagFile))
+	cancel := api.CancelBackfillRequestObject{BackfillId: "ops12345", Body: &api.CancelBackfillJSONRequestBody{}}
+	_, err = apiImpl.CancelBackfill(other, cancel)
+	requireAPIErrorStatus(t, err, http.StatusNotFound)
+	_, err = apiImpl.CancelBackfill(viewer, cancel)
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+	cancelled, err := apiImpl.CancelBackfill(developer, cancel)
+	require.NoError(t, err)
+	assert.Equal(t, api.BackfillStatusCancelled, cancelled.(api.CancelBackfill200JSONResponse).Status)
 }

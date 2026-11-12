@@ -134,6 +134,9 @@ func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsReques
 	backfills := make([]api.Backfill, 0, len(records))
 	running := a.schedulerActive(ctx)
 	for _, record := range records {
+		if !a.canAccessWorkspace(ctx, backfillWorkspace(record)) {
+			continue
+		}
 		report, err := backfill.Describe(ctx, store, a.readRun, record)
 		if err != nil {
 			return nil, err
@@ -204,7 +207,7 @@ func (a *API) CancelBackfill(ctx context.Context, request api.CancelBackfillRequ
 	if err != nil {
 		return nil, err
 	}
-	if err := a.requireBackfillWorkspace(ctx, store, request.BackfillId); err != nil {
+	if err := a.requireBackfillExecute(ctx, store, request.BackfillId); err != nil {
 		return nil, err
 	}
 	stopRunning := request.Body != nil && valueOf(request.Body.StopRunning)
@@ -237,10 +240,10 @@ func (a *API) ResumeBackfill(ctx context.Context, request api.ResumeBackfillRequ
 	if err != nil {
 		return nil, err
 	}
-	record, err := store.Get(ctx, request.BackfillId)
-	if errors.Is(err, backfill.ErrNotFound) {
-		return nil, backfillNotFound(request.BackfillId)
+	if err := a.requireBackfillExecute(ctx, store, request.BackfillId); err != nil {
+		return nil, err
 	}
+	record, err := store.Get(ctx, request.BackfillId)
 	if err != nil {
 		return nil, err
 	}
@@ -305,8 +308,10 @@ func (a *API) backfillDAG(ctx context.Context, fileName, profile string) (*ir.DA
 	return dag, backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}, nil
 }
 
-// requireBackfillWorkspace checks the caller may run the DAG of a backfill.
-func (a *API) requireBackfillWorkspace(ctx context.Context, store backfill.Store, id string) error {
+// requireBackfillExecute allows changes to a backfill to a user who may run
+// DAGs in the workspace its labels name. The record keeps them, so a
+// backfill whose DAG is gone or does not build is checked alike.
+func (a *API) requireBackfillExecute(ctx context.Context, store backfill.Store, id string) error {
 	record, err := store.Get(ctx, id)
 	if errors.Is(err, backfill.ErrNotFound) {
 		return backfillNotFound(id)
@@ -314,13 +319,15 @@ func (a *API) requireBackfillWorkspace(ctx context.Context, store backfill.Store
 	if err != nil {
 		return err
 	}
-	_, _, err = a.backfillDAG(ctx, backfillFileName(record), record.Options.Profile)
-	var apiErr *Error
-	if errors.As(err, &apiErr) && apiErr.HTTPStatus == http.StatusNotFound {
-		// A backfill of a deleted DAG can still be cancelled.
-		return nil
+	if err := a.requireWorkspaceVisible(ctx, backfillWorkspace(record)); err != nil {
+		return err
 	}
-	return err
+	return a.requireExecuteForWorkspace(ctx, backfillWorkspace(record))
+}
+
+// backfillWorkspace returns the workspace a backfill belongs to.
+func backfillWorkspace(record *backfill.Record) string {
+	return dagWorkspaceName(&ir.DAG{Labels: record.Labels})
 }
 
 func (a *API) backfillReport(ctx context.Context, id string) (backfill.Store, backfill.Report, error) {
@@ -333,6 +340,9 @@ func (a *API) backfillReport(ctx context.Context, id string) (backfill.Store, ba
 		return nil, backfill.Report{}, backfillNotFound(id)
 	}
 	if err != nil {
+		return nil, backfill.Report{}, err
+	}
+	if err := a.requireWorkspaceVisible(ctx, backfillWorkspace(record)); err != nil {
 		return nil, backfill.Report{}, err
 	}
 	report, err := backfill.Describe(ctx, store, a.readRun, record)
