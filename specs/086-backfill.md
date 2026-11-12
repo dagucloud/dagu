@@ -2,10 +2,11 @@
 
 ## Status
 
-Partially implemented. Slot history, `slot_retention_days`, planning, and
-submitting with `dagu backfill start` are implemented, and conformance covers
-them. The scheduler does not yet start the runs of a submitted backfill, so it
-stays open. Further sections are added as the behavior they describe lands.
+Partially implemented. Slot history, `slot_retention_days`, planning,
+submitting with `dagu backfill start`, the scheduler running a backfill, and
+`dagu backfill ls` and `status` are implemented, and conformance covers them.
+Cancelling and resuming a backfill are not implemented. Further sections are
+added as the behavior they describe lands.
 
 ## Scope
 
@@ -143,6 +144,45 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   which `handler_on` steps will run once per slot, and how many slots run
   because the schedule's cadence changed since their runs.
 
+### Running a backfill
+
+- The scheduler that holds the scheduler lock runs open backfills. It queues
+  the next slots of a backfill, oldest first, while fewer than
+  `--max-concurrency` of its runs are queued, running, or waiting. With a
+  concurrency of 1, a slot is queued only after the slot before it finished.
+- A backfill waits while no scheduler runs. A paused scheduler queues no
+  new run of a backfill.
+- Each run is queued through the DAG's queue and counts against its limit.
+  It runs the definition pinned at submit, with the backfill's params and
+  profile, and has its slot's scheduled time and window. Its
+  `context.trigger.type` is `backfill`.
+- A backfill run's ID is `backfill-<backfill id>-<generation>-<slot>`, with
+  the slot in UTC as `20060102T150405Z`. A scheduler that restarts finds the
+  runs it queued before and queues none of them again.
+- When a slot's turn comes, it is skipped instead of run when another run of
+  it is active, or when it gained a run since the backfill was submitted that
+  `--rerun` would skip.
+- A slot whose run did not succeed stops a backfill with `--on-failure stop`:
+  no further slot is queued, active runs finish, and the slots not reached
+  are not run. With `--on-failure continue`, the backfill goes on.
+- A backfill ends `succeeded` when every slot's run succeeded or the slot was
+  skipped, and `failed` otherwise.
+
+### Listing and following backfills
+
+```sh
+dagu backfill ls [<DAG>]
+dagu backfill status <backfill id> [--format text|json]
+```
+
+- `ls` lists the backfills of every DAG, or of one, oldest first, with their
+  status and number of slots.
+- `status` shows a backfill's status and each slot's state: `pending`,
+  `queued`, `running`, `waiting`, `succeeded`, `failed`, `skipped`, or
+  `not run`, with the slot's run ID once queued.
+- An open backfill's status is `running`, or `waiting for scheduler` when no
+  scheduler runs. An ended backfill's status is `succeeded` or `failed`.
+
 ## Configuration
 
 | Key | Default | Meaning |
@@ -188,4 +228,6 @@ longer counts; that a scheduler run under an earlier schedule covers the
 nearest slot after the schedule moves; that `--to` is clamped to now; that the
 rejections under Errors fail with status 1; and that submitting the same
 backfill while it is open starts nothing while an overlapping one leaves the
-open backfill's slots active.
+open backfill's slots active. With a scheduler running, it asserts that a
+backfill's slots each end with a succeeded run of the backfill, that the
+backfill ends `succeeded`, and that `ls` lists it.

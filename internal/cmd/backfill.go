@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -93,7 +95,117 @@ The scheduler starts the runs through the DAG's queue.`,
 		return ctx.Command.Help()
 	})
 	cmd.AddCommand(backfillStartCommand())
+	cmd.AddCommand(backfillLsCommand())
+	cmd.AddCommand(backfillStatusCommand())
 	return cmd
+}
+
+func backfillLsCommand() *cobra.Command {
+	return NewCommand(&cobra.Command{
+		Use:   "ls [DAG]",
+		Short: "List backfills",
+		Long:  `List the backfills of every DAG, or of one, oldest first.`,
+		Args:  cobra.MaximumNArgs(1),
+	}, nil, runBackfillLs)
+}
+
+func runBackfillLs(ctx *Context, args []string) error {
+	dagName := ""
+	if len(args) == 1 {
+		dagName = args[0]
+	}
+	records, err := ctx.Persistence.BackfillStore.List(ctx, dagName)
+	if err != nil {
+		return err
+	}
+	out := ctx.Command.OutOrStdout()
+	if len(records) == 0 {
+		_, err := fmt.Fprintln(out, "No backfills.")
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "ID\tDAG\tSTATUS\tSLOTS\tSUBMITTED")
+	for _, record := range records {
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n", record.ID, record.DAGName, backfillStatusLabel(ctx, record),
+			len(record.Slots), record.CreatedAt.In(ctx.Config.Core.Location).Format(backfillTimeLayout))
+	}
+	return w.Flush()
+}
+
+func backfillStatusCommand() *cobra.Command {
+	return NewCommand(&cobra.Command{
+		Use:   "status <backfill id>",
+		Short: "Show where a backfill stands",
+		Long: `Show a backfill's status and the state of each of its slots: pending,
+queued, running, waiting, succeeded, failed, skipped, or not run.`,
+		Args: cobra.ExactArgs(1),
+	}, []commandLineFlag{backfillFormatFlag}, runBackfillStatus)
+}
+
+func runBackfillStatus(ctx *Context, args []string) error {
+	record, err := ctx.Persistence.BackfillStore.Get(ctx, args[0])
+	if errors.Is(err, backfill.ErrNotFound) {
+		return fmt.Errorf("backfill %q not found", args[0])
+	}
+	if err != nil {
+		return err
+	}
+	report, err := backfill.Describe(ctx, ctx.Persistence.BackfillStore, latestRunStatus(ctx.Persistence.DAGRunRepository), record)
+	if err != nil {
+		return err
+	}
+	format, _ := ctx.Command.Flags().GetString("format")
+	out := ctx.Command.OutOrStdout()
+	if format == backfillFormatJSON {
+		return json.NewEncoder(out).Encode(map[string]any{
+			"id":     record.ID,
+			"dag":    record.DAGName,
+			"status": backfillStatusLabel(ctx, record),
+			"counts": report.Counts,
+			"slots":  report.Slots,
+		})
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Backfill %s of %s: %s\n", record.ID, record.DAGName, backfillStatusLabel(ctx, record))
+	var parts []string
+	for _, state := range backfill.SlotStateOrder {
+		if n := report.Counts[state]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", state, n))
+		}
+	}
+	fmt.Fprintf(&b, "%d slots: %s\n\n", len(report.Slots), strings.Join(parts, ", "))
+	if _, err := io.WriteString(out, b.String()); err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "SLOT\tSTATE\tRUN ID")
+	for _, slot := range report.Slots {
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", formatBackfillTime(slot.At.In(ctx.Config.Core.Location)), slot.State, slot.RunID)
+	}
+	return w.Flush()
+}
+
+// latestRunStatus reads the latest status of a run.
+func latestRunStatus(repository *persis.DAGRunRepository) func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+	return func(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+		attempt, err := repository.FindAttempt(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		return attempt.ReadStatus(ctx)
+	}
+}
+
+// backfillStatusLabel names how a backfill ended, or that it is open, and
+// whether it waits for a scheduler.
+func backfillStatusLabel(ctx *Context, record *backfill.Record) string {
+	if !record.Open() {
+		return string(record.Status)
+	}
+	if !schedulerRunning(ctx) {
+		return "waiting for scheduler"
+	}
+	return "running"
 }
 
 func backfillStartCommand() *cobra.Command {

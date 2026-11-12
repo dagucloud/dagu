@@ -5,10 +5,13 @@ package spec086_backfill_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
@@ -217,4 +220,65 @@ func TestSubmitWhileOpen(t *testing.T) {
 	}
 
 	expectActions(t, p.plan(t, "etl.yaml", "--from", "2025-10-03", "--to", "2025-10-04"), "skip: active", "run")
+}
+
+// A running scheduler queues a backfill's runs, one slot after another, and
+// the backfill ends succeeded once every slot's run has.
+func TestSchedulerRunsBackfill(t *testing.T) {
+	t.Parallel()
+	p := newProject(t)
+	env := append(slices.Clone(p.env), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(t)))
+	scheduler := p.StartWithEnv(env, "scheduler", "--dags="+p.ProjectPath("."))
+	t.Cleanup(func() {
+		scheduler.Stop()
+		if t.Failed() {
+			t.Logf("scheduler output:\n%s", scheduler.FailureOutput())
+		}
+	})
+
+	submitted := p.run("backfill", "start", "etl.yaml", "--from", "2025-10-01", "--to", "2025-10-02", "--yes", "--format", "json")
+	submitted.ExpectExitCode(0)
+	var submit struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(submitted.Stdout()), &submit); err != nil || submit.ID == "" {
+		t.Fatalf("decoding submit: %v\n%s", err, submitted.Stdout())
+	}
+
+	type statusJSON struct {
+		Status string `json:"status"`
+		Slots  []struct {
+			Slot  string `json:"slot"`
+			State string `json:"state"`
+			RunID string `json:"runId"`
+		} `json:"slots"`
+	}
+	var status statusJSON
+	deadline := time.Now().Add(2 * harness.WaitTimeout(t))
+	for {
+		result := p.run("backfill", "status", submit.ID, "--format", "json")
+		result.ExpectExitCode(0)
+		status = statusJSON{}
+		if err := json.Unmarshal([]byte(result.Stdout()), &status); err != nil {
+			t.Fatalf("decoding status: %v\n%s", err, result.Stdout())
+		}
+		if status.Status == "succeeded" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("backfill did not succeed: %+v", status)
+		}
+		time.Sleep(time.Second)
+	}
+	for i, want := range []string{"2025-10-01T02:00:00Z", "2025-10-02T02:00:00Z"} {
+		slot := status.Slots[i]
+		if slot.Slot != want || slot.State != "succeeded" || !strings.HasPrefix(slot.RunID, "backfill-"+submit.ID+"-") {
+			t.Fatalf("slot %d = %+v, want %s succeeded by a run of the backfill", i, slot, want)
+		}
+	}
+	listed := p.run("backfill", "ls", "etl")
+	listed.ExpectExitCode(0)
+	if !strings.Contains(listed.Stdout(), submit.ID) {
+		t.Fatalf("backfill ls does not list %s:\n%s", submit.ID, listed.Stdout())
+	}
 }
