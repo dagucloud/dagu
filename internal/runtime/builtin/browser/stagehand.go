@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/sysproxy"
@@ -1567,15 +1568,22 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 	defer e.slot.Release()
 	releaseErr := e.release(ctx)
 	// The runtime asks a browser it reattached to exit itself.
-	if e.browser.Origin() == stagehand.BrowserOriginLaunched {
+	launched := e.browser.Origin() == stagehand.BrowserOriginLaunched
+	if launched {
 		exitLaunchedBrowser(ctx, e.handle)
 	}
-	return errors.Join(
+	errs := []error{
 		releaseErr,
 		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close),
 		killCertProxy(e.handle.CertProxy),
 		killWriteGate(e.handle.WriteGate),
-	)
+	}
+	// The runtime unpacks its extension for each browser it launches and
+	// leaves it behind, so the extension goes with the browser.
+	if launched && e.handle.ExtensionDir != "" {
+		errs = append(errs, fileutil.RemoveAll(e.handle.ExtensionDir))
+	}
+	return errors.Join(errs...)
 }
 
 // exitLaunchedBrowser asks a browser it launched to exit over DevTools and
