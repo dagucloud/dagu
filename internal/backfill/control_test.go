@@ -5,6 +5,7 @@ package backfill_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -131,4 +132,78 @@ func TestResumeAnOpenBackfill(t *testing.T) {
 
 	f.tick()
 	assert.Len(t, f.queued, 5, "every slot gets a new run at once")
+}
+
+// A resume keeps following a run that is still active: it counts against the
+// concurrency and decides how its slot ends.
+func TestResumeKeepsActiveRuns(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{MaxConcurrency: 2})
+	f.tick()
+	require.Len(t, f.queued, 2)
+	f.finish(f.queued[0], ir.Running)
+
+	var stopped []string
+	resumed, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	require.NotNil(t, resumed.Record)
+	assert.Len(t, resumed.Record.Slots, 3)
+	assert.Equal(t, []backfill.SlotState{backfill.SlotStateRunning, backfill.SlotStatePending, backfill.SlotStatePending}, f.states(record.ID))
+
+	f.tick()
+	assert.Len(t, f.queued, 3, "the running run takes one place of two")
+	f.finish(f.queued[0], ir.Failed)
+	assert.Equal(t, backfill.SlotStateFailed, f.states(record.ID)[0])
+}
+
+// After a resume, a slot that gained a successful run since is skipped at
+// its turn, whatever --rerun the backfill was submitted with.
+func TestResumedBackfillSkipsSlotThatSucceededSince(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	result, err := f.service.Submit(f.ctx, backfill.SubmitRequest{
+		Plan:    backfill.PlanRequest{DAG: f.dag, Schedule: f.sched, From: at(1, 0), To: at(3, 23), Rerun: backfill.RerunAll},
+		Options: backfill.Options{From: at(1, 0), To: at(3, 23), Rerun: backfill.RerunAll, MaxConcurrency: 1, OnFailure: backfill.OnFailureStop},
+	})
+	require.NoError(t, err)
+	record := result.Record
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	var stopped []string
+	_, err = f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	require.NoError(t, f.write("live", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+
+	f.tick()
+	f.finish(f.queued[1], ir.Succeeded)
+	f.tick()
+	assert.Equal(t, backfill.SlotStateSkipped, f.states(record.ID)[1])
+}
+
+// A cancel that fails part way records the runs it withdrew, so they are not
+// taken for failed runs.
+func TestCancelRecordsRunsWithdrawnBeforeAFailure(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{MaxConcurrency: 3})
+	f.tick()
+	require.Len(t, f.queued, 3)
+
+	var stopped []string
+	control := f.control(&stopped)
+	withdraw := control.Withdraw
+	control.Withdraw = func(ctx context.Context, ref ir.DAGRunRef) error {
+		if ref.ID == f.queued[1] {
+			return errors.New("queue unavailable")
+		}
+		return withdraw(ctx, ref)
+	}
+	_, err := f.service.Cancel(f.ctx, record.ID, control, false)
+	require.ErrorContains(t, err, "queue unavailable")
+	assert.Equal(t, backfill.SlotStateCancelled, f.states(record.ID)[0])
+	assert.True(t, f.record(record.ID).Open(), "the cancel did not finish")
 }

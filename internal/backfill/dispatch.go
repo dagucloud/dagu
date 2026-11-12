@@ -12,6 +12,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // runIDSlotLayout writes a slot into a run ID.
@@ -184,8 +185,7 @@ func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress
 	}
 	status, err := d.ReadRun(ctx, ir.NewDAGRunRef(record.DAGName, event.RunID))
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		// A run removed before it succeeded did not load its slot.
-		return slotFailed, nil
+		return d.removedOutcome(ctx, record, event)
 	}
 	if err != nil {
 		return slotPending, err
@@ -198,6 +198,25 @@ func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress
 	default:
 		return slotFailed, nil
 	}
+}
+
+// removedOutcome reads how a run that is gone ended from the status history
+// retention kept for its slot. A run removed otherwise did not load its slot.
+func (d *Dispatcher) removedOutcome(ctx context.Context, record *Record, event Progress) (slotOutcome, error) {
+	target, err := d.Target(ctx, record)
+	if err != nil {
+		return slotPending, err
+	}
+	events, err := d.History.SlotEvents(ctx, target.DAG, event.Slot, event.Slot)
+	if err != nil {
+		return slotPending, err
+	}
+	for _, slotEvent := range events {
+		if slotEvent.RunID == event.RunID && slotEvent.Kind == persis.SlotEventFinal && slotEvent.Status.IsSuccess() {
+			return slotSucceeded, nil
+		}
+	}
+	return slotFailed, nil
 }
 
 // dispatch queues the run of a slot unless the recheck skips it, and
@@ -234,7 +253,12 @@ func (d *Dispatcher) recheck(ctx context.Context, record *Record, target Target,
 	if !state.RecordedAt.After(record.PlannedAt) {
 		return false, nil
 	}
-	return actionFor(state.Status, record.Options.Rerun, len(record.Options.Slots) > 0) != ActionRun, nil
+	rerun, named := record.Options.Rerun, len(record.Options.Slots) > 0
+	if record.Generation > 0 {
+		// A resume plans its slots as --rerun failed does.
+		rerun, named = RerunFailed, false
+	}
+	return actionFor(state.Status, rerun, named) != ActionRun, nil
 }
 
 // cancelRemaining ends a backfill whose DAG is gone, with the slots it did

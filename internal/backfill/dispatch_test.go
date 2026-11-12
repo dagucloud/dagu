@@ -260,3 +260,22 @@ func TestDispatchFindsARunQueuedBeforeACrash(t *testing.T) {
 	f.tick()
 	assert.Equal(t, []string{backfill.RunID(record, at(2, 2))}, f.queued)
 }
+
+// A run that history retention removed keeps its final status for the
+// backfill, so a slot that succeeded does not stop the backfill.
+func TestDispatchReadsRetainedStatusOfARemovedRun(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Succeeded)
+
+	cutoff := time.Now().Add(time.Hour)
+	removed, err := f.repository.RemoveOldDAGRuns(f.ctx, f.dag.Name, 0, persis.DAGRunRetentionOptions{OlderThan: &cutoff})
+	require.NoError(t, err)
+	require.Equal(t, []string{f.queued[0]}, removed)
+
+	f.tick()
+	assert.True(t, f.record(record.ID).Open(), "the backfill goes on")
+	assert.Len(t, f.queued, 2, "the next slot is queued")
+}

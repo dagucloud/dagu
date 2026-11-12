@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -76,6 +77,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		return SubmitResult{}, err
 	}
 	var remaining []time.Time
+	var carried []SlotReport
 	withdrawn := make(map[string]bool)
 	for _, slot := range report.Slots {
 		switch slot.State {
@@ -83,8 +85,12 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		case SlotStateQueued:
 			withdrawn[slot.RunID] = true
 			remaining = append(remaining, slot.At)
-		case SlotStatePending, SlotStateRunning, SlotStateWaiting,
-			SlotStateFailed, SlotStateNotRun, SlotStateCancelled:
+		case SlotStateRunning, SlotStateWaiting:
+			// The resumed backfill keeps following an active run, so it
+			// counts against the concurrency and decides how the slot ends.
+			carried = append(carried, slot)
+			remaining = append(remaining, slot.At)
+		case SlotStatePending, SlotStateFailed, SlotStateNotRun, SlotStateCancelled:
 			remaining = append(remaining, slot.At)
 		}
 	}
@@ -126,15 +132,30 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		}
 	}
 
+	windows := make(map[time.Time]ir.ScheduleWindow, len(record.Slots))
+	for _, slot := range record.Slots {
+		windows[slot.At.UTC()] = slot.Window
+	}
 	record.Generation++
 	record.Definition = req.DAG.YamlData
 	record.PlannedAt = plan.Now.UTC()
 	record.Revision = result.Plan.Revision
 	record.Status, record.EndedAt = "", time.Time{}
 	record.Slots = record.Slots[:0]
+	planned := make(map[time.Time]bool, len(runs))
 	for _, slot := range runs {
 		record.Slots = append(record.Slots, RecordSlot{At: slot.At.UTC(), Window: slot.Window})
+		planned[slot.At.UTC()] = true
 	}
+	followed := make([]Progress, 0, len(carried))
+	for _, slot := range carried {
+		if planned[slot.At.UTC()] {
+			continue
+		}
+		record.Slots = append(record.Slots, RecordSlot{At: slot.At.UTC(), Window: windows[slot.At.UTC()]})
+		followed = append(followed, Progress{Slot: slot.At, Kind: ProgressEnqueued, RunID: slot.RunID, Generation: record.Generation, At: plan.Now})
+	}
+	slices.SortFunc(record.Slots, func(a, b RecordSlot) int { return a.At.Compare(b.At) })
 	if req.MaxConcurrency > 0 {
 		record.Options.MaxConcurrency = req.MaxConcurrency
 	}
@@ -143,6 +164,11 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 	}
 	if err := s.Store.Update(ctx, record); err != nil {
 		return SubmitResult{}, fmt.Errorf("record the resumed backfill: %w", err)
+	}
+	if len(followed) > 0 {
+		if err := s.Store.Append(ctx, record.ID, followed...); err != nil {
+			return SubmitResult{}, fmt.Errorf("record the active runs of the resumed backfill: %w", err)
+		}
 	}
 	result.Record = record
 	return result, nil
@@ -157,17 +183,25 @@ func (s *Service) withdraw(ctx context.Context, record *Record, control RunContr
 	}
 	var events []Progress
 	now := s.now()
+	// failed records the slots already withdrawn before it reports err, so
+	// a retry finds them cancelled rather than failed.
+	failed := func(err error) error {
+		if len(events) == 0 {
+			return err
+		}
+		return errors.Join(err, s.Store.Append(ctx, record.ID, events...))
+	}
 	for _, slot := range report.Slots {
 		ref := ir.NewDAGRunRef(record.DAGName, slot.RunID)
 		switch slot.State {
 		case SlotStateQueued:
 			if err := control.Withdraw(ctx, ref); err != nil {
-				return fmt.Errorf("withdraw run %s: %w", slot.RunID, err)
+				return failed(fmt.Errorf("withdraw run %s: %w", slot.RunID, err))
 			}
 		case SlotStateRunning, SlotStateWaiting:
 			if stopRunning {
 				if err := control.Stop(ctx, ref); err != nil {
-					return fmt.Errorf("stop run %s: %w", slot.RunID, err)
+					return failed(fmt.Errorf("stop run %s: %w", slot.RunID, err))
 				}
 			}
 			continue
