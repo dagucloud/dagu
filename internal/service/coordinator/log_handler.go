@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -295,6 +296,9 @@ func StreamTypeToExtension(streamType coordinatorv1.LogStreamType) string {
 		return "stderr.log"
 	case coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER:
 		return "scheduler.log"
+	case coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM:
+		// The file is next to the stdout log, as for a local run.
+		return "stdout.log" + ir.AgentStreamSuffix
 	case coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED:
 		return "log"
 	}
