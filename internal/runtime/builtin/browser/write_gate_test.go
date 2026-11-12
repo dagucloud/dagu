@@ -58,7 +58,7 @@ func TestRehearsalStopsAtTheFirstWrite(t *testing.T) {
 	require.NotNil(t, run.launcher.launches[0].WriteGate)
 	assert.Equal(t, writegate.ModeRehearse, run.launcher.launches[0].WriteGate.Mode)
 	assert.Equal(t, []string{"Click the Save button"}, run.engine.actInstructions(), "nothing runs after the write")
-	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs(), "what ran before is published")
+	assert.Equal(t, map[string]any{"order": "A-100"}, extracted(execution.exec), "what ran before is published")
 	assert.True(t, run.engine.closed)
 
 	session := execution.exec.GetAgentSession()

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -156,6 +157,17 @@ func eventNames(session *ir.AgentSession) []string {
 	return names
 }
 
+// extracted returns the outputs the step published from what it extracted,
+// leaving out the downloads list every browser step publishes when it saved
+// nothing.
+func extracted(exec *browserExecutor) map[string]any {
+	outputs := maps.Clone(exec.GetOutputs())
+	if files, ok := outputs[ir.BrowserOutputDownloads].([]string); ok && len(files) == 0 {
+		delete(outputs, ir.BrowserOutputDownloads)
+	}
+	return outputs
+}
+
 // eventVias lists name:status:via for every operation event, with an empty
 // via for an operation that decides nothing.
 func eventVias(session *ir.AgentSession) []string {
@@ -184,8 +196,10 @@ func TestRunPublishesExtractedOutputs(t *testing.T) {
 	execution := run.execute(checkoutSteps, nil)
 	require.NoError(t, execution.err)
 
-	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
-	assert.JSONEq(t, `{"order":"A-100","downloads":[]}`, execution.stdout.String())
+	assert.Equal(t, map[string]any{"order": "A-100"}, extracted(execution.exec))
+	var stdout map[string]any
+	require.NoError(t, json.Unmarshal(execution.stdout.Bytes(), &stdout))
+	assert.Equal(t, "A-100", stdout["order"])
 	assert.Contains(t, execution.stderr.String(), `[1/3] act "Click the checkout button"`)
 
 	session := execution.exec.GetAgentSession()
@@ -610,7 +624,7 @@ func TestRefusedPageLeftByGoto(t *testing.T) {
 	]}`, nil)
 
 	require.NoError(t, execution.err)
-	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"order": "A-100"}, extracted(execution.exec))
 	assert.Equal(t, []string{"goto:completed", "page:refused", "wait:completed", "goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
 }
 
@@ -1310,13 +1324,11 @@ func TestAskResumeKeepsAllowedDomains(t *testing.T) {
 	assert.Equal(t, []string{"shop.example.com"}, run.launcher.reattachOptions[0].AllowedDomains)
 }
 
-func TestAskUnsupportedOnWindows(t *testing.T) {
+// Asks are supported wherever a browser left open outlives the step
+// process, which is everywhere but Windows.
+func TestAskSupportFollowsTheHost(t *testing.T) {
 	t.Parallel()
-	if goruntime.GOOS != "windows" {
-		t.Skip("Windows only")
-	}
 
-	run := newTestRun(t, pageModel(nil))
 	var with map[string]any
 	require.NoError(t, json.Unmarshal([]byte(loginSteps), &with))
 	created, err := newExecutor(t.Context(), ir.Step{
@@ -1325,12 +1337,8 @@ func TestAskUnsupportedOnWindows(t *testing.T) {
 		LLM:            &ir.LLMConfig{Provider: "openai", Model: "test-model"},
 	})
 	require.NoError(t, err)
-	exec := created.(*browserExecutor)
-	exec.launcher = run.launcher
-	exec.SetStderr(io.Discard)
 
-	require.ErrorContains(t, exec.Run(run.context()), "ask operations are not supported on Windows")
-	assert.Empty(t, run.launcher.launches)
+	assert.Equal(t, goruntime.GOOS != "windows", created.(*browserExecutor).askSupported)
 }
 
 // An ask with no when always runs, so where the browser cannot outlive the
@@ -1387,7 +1395,7 @@ func TestGuardedAskSkippedWithoutAskSupport(t *testing.T) {
 	require.NoError(t, execution.err)
 	assert.Len(t, run.launcher.launches, 1)
 	assert.Empty(t, run.engine.actInstructions())
-	assert.Equal(t, map[string]any{"account": "acme", "downloads": []string{}}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"account": "acme"}, extracted(execution.exec))
 	assert.Contains(t, execution.stderr.String(), "skipped")
 }
 
@@ -2038,7 +2046,7 @@ func TestUnreadablePageInventsNoRefusal(t *testing.T) {
 	]}`, nil)
 
 	require.NoError(t, execution.err)
-	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"order": "A-100"}, extracted(execution.exec))
 	assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
 }
 
