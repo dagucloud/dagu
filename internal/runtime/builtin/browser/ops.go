@@ -789,7 +789,7 @@ func (r *run) publishDownloads() {
 	if downloads == nil {
 		downloads = []string{}
 	}
-	r.outputs[outputDownloads] = downloads
+	r.outputs[ir.BrowserOutputDownloads] = downloads
 }
 
 // startSession launches a browser, or reattaches to the one an answered ask

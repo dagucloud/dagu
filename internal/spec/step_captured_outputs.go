@@ -127,7 +127,7 @@ func xlsxExtractOutputs(schema any) capturedOutputContract {
 func browserOutputs(operations any) capturedOutputContract {
 	contract := extractOperationOutputs(operations)
 	contract.declarations = append([]ir.StepOutputDeclaration{
-		{Name: "downloads", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: ir.BrowserOutputDownloads, Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 	}, contract.declarations...)
 	return contract
 }
