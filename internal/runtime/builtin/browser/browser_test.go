@@ -463,7 +463,7 @@ func TestRefusedPageLeftByGoto(t *testing.T) {
 	]}`, nil)
 
 	require.NoError(t, execution.err)
-	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
 	assert.Equal(t, []string{"goto:completed", "page:refused", "wait:completed", "goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
 }
 
@@ -1240,7 +1240,7 @@ func TestGuardedAskSkippedWithoutAskSupport(t *testing.T) {
 	require.NoError(t, execution.err)
 	assert.Len(t, run.launcher.launches, 1)
 	assert.Empty(t, run.engine.actInstructions())
-	assert.Equal(t, map[string]any{"account": "acme"}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"account": "acme", "downloads": []string{}}, execution.exec.GetOutputs())
 	assert.Contains(t, execution.stderr.String(), "skipped")
 }
 
@@ -1891,6 +1891,6 @@ func TestUnreadablePageInventsNoRefusal(t *testing.T) {
 	]}`, nil)
 
 	require.NoError(t, execution.err)
-	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs())
+	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
 	assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
 }
