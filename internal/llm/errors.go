@@ -179,8 +179,12 @@ func classifyAPIError(statusCode int, body string) error {
 }
 
 func apiErrorDetails(body string) (codes []string, messages []string) {
+	// Numbers stay as written so a value Go cannot hold, such as 1e400,
+	// does not turn a JSON body into plain text.
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
 	var decoded any
-	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+	if err := decoder.Decode(&decoded); err != nil {
 		return nil, []string{body}
 	}
 	value, ok := decoded.(map[string]any)

@@ -77,6 +77,7 @@ func TestAPIError_ReasonMasked(t *testing.T) {
 		// the escaped one.
 		{"token_and_escaped", `{"code":4021,"state":"quoted-\"secret\""}`, `{"code":*******,"state":"*******"}`},
 		{"token_in_message", `{"code":4021,"error":{"message":"account 4021 is suspended"}}`, "account ******* is suspended"},
+		{"overflow_and_escaped", `{"code":1e400,"state":"quoted-\"secret\""}`, `{"code":1e400,"state":"*******"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
