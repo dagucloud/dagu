@@ -25,6 +25,10 @@ This RFC defines the inventory, the filter language, and the surfaces that
 show them. [RFC 013](013-node-targeting.md) runs steps on the nodes a filter
 selects.
 
+RFCs 014 to 018, cited below, are not written yet.
+[#3777](https://github.com/dagucloud/dagu/issues/3777) lists them and their
+order.
+
 ```text
 nodes.yaml ──┐
 sources ─────┼──▶ inventory ──▶ filter ──▶ matched nodes ──▶ RFC 013 runs steps
@@ -113,6 +117,10 @@ Workspaces do not divide the single inventory that exists before RFC 003:
 | Secret refs in the inventory | Resolve in the global scope only, whatever the workspace of the DAG that uses the node |
 | Roles on the inventory | The caller's server-wide role. A user scoped to workspaces is a server-wide `viewer` |
 | `project` in the API, `--project` in the CLI | Not accepted. Once RFC 003 ships, `default` names this inventory |
+
+Before RFC 003, a DAG in any workspace therefore reaches every node with the
+global credentials. An install that divides access by workspace should not
+add a `nodes.yaml` until its projects exist. See [Security](#security).
 
 RFC 003's migration moves each DAG labelled `workspace=X` into project X,
 which has no `nodes.yaml`. A moved DAG that sets `nodes` or `node: required`
@@ -239,6 +247,13 @@ Vault or another provider is copied into the registry. See
 [Open questions](#open-questions). Literal passwords and literal credential
 headers are rejected, so `nodes.yaml` is safe to commit.
 
+A `file` key, or a path string, names a file on the host that opens the
+connection: the server for a local run or a test from the server, the worker
+for a run or a test there. The path is absolute or starts with `~`, the home
+of the user that runs Dagu on that host. A relative path is a problem on the
+node. A file missing on the connecting host fails the node item or the test,
+naming the path and the host.
+
 The same credential form is added to `ssh.run`, `sftp.upload`,
 `sftp.download`, and the DAG-level `ssh` field by a change to
 [Spec 042](../specs/042-ssh-run.md), which lands before this RFC.
@@ -290,11 +305,11 @@ nodes:
 | `name` | Required, unique, `^[a-z0-9][a-z0-9-]*$` |
 | `file` | Path, relative to `nodes.yaml` |
 | `command` | Argument list, run without a shell |
-| `url` | HTTPS or HTTP URL, fetched with `GET` |
+| `url` | HTTPS or HTTP URL, fetched with `GET`. An HTTP URL with a `{ secret: <ref> }` header is a validation error |
 | `format` | `dagu` (default), `rundeck`, or `ansible` |
 | `refresh` | For `command` and `url`. Default `15m`, minimum `30s` |
 | `timeout` | For `command` and `url`. Default `60s` |
-| `headers` | For `url`. Values are strings or `{ secret: <ref> }`. A header whose name contains `auth`, `token`, `key`, `secret`, or `cookie`, in any case, takes `{ secret: <ref> }` only, as `Authorization` and `X-Rundeck-Auth-Token` do |
+| `headers` | For `url`. Values are strings or `{ secret: <ref> }`. A header whose name contains `auth`, `token`, `key`, `secret`, or `cookie`, in any case, takes `{ secret: <ref> }` only, as `Authorization` and `X-Rundeck-Auth-Token` do. The match is broad on purpose: a harmless header it catches, such as `X-Author`, costs one registry entry |
 | `defaults` | Node fields for this source's nodes |
 | `required` | Default `true`. See [Failure behavior](#failure-behavior) |
 
@@ -303,8 +318,11 @@ Exactly one of `file`, `command`, or `url` is set.
 - **`file`** is read when the inventory is read, and cached until the file
   changes.
 - **`command`** runs in the directory of `nodes.yaml`, as the user that runs
-  Dagu. Its environment is the one a step process starts from, so it holds
-  none of Dagu's own credentials
+  Dagu, on the host that refreshes it: the active scheduler's on the timer,
+  the server's or the CLI's on request. Where these are different hosts, each
+  needs the command and whatever it reads. The source status names the host
+  of the last refresh. Its environment is the one a step process starts
+  from, so it holds none of Dagu's own credentials
   ([Spec 006](../specs/006-value-resolution-env.md)). A non-zero exit is an
   error. Its stdout is parsed. Its stderr is kept in the source status,
   truncated and masked.
@@ -344,6 +362,11 @@ A Key Storage path becomes a secret ref by dropping a leading `keys/`,
 lowercasing, and replacing each run of characters other than `a-z`, `0-9`,
 and `/` with `-`, trimmed at segment edges. `keys/prod/Web_01.pem` becomes
 `prod/web-01-pem`. The Rundeck import tool lists every ref a project needs.
+
+The mapping can give two storage paths one ref: `keys/prod/Web_01.pem` and
+`keys/prod/web-01.pem` both become `prod/web-01-pem`. Each node that uses
+either path is then listed with a problem naming both, since one ref cannot
+hold two keys.
 
 #### Ansible mapping
 
@@ -409,7 +432,10 @@ Rules:
   atomic group (`(?>`), a backreference such as `\1`, or a possessive
   quantifier such as `*+`. Rundeck accepts these, and comparing one for
   equality would make `!name: (?!web).*` exclude nothing. Any other item that
-  does not compile is compared for equality only, as Rundeck does.
+  does not compile is compared for equality only in an include clause, as
+  Rundeck does, with a warning that gives its position. In an exclude clause
+  it is a filter error, since an exclusion that matches nothing widens the
+  selection without saying so.
 - Clauses with the same attribute and the same sign join into one list:
   `name: a name: b` is `name: a,b`. Since each item matches on its own,
   `web.* db01` selects every `web` node and `db01`.
@@ -492,6 +518,7 @@ lease record does not grow. A fetch never reads the inventory again, so a
 source refresh during a step does not deny it. A user who can start such a
 run can already bind it to any node its `node.filter` allows (RFC 013), so
 the check adds no narrower limit.
+
 Limiting targets is the later access work named in [Non-goals](#non-goals).
 
 ### Snapshots
@@ -695,8 +722,13 @@ like every other entry.
   their environment. Editing the inventory is restricted to the role that
   edits base config.
 - `url` sources verify TLS. A header whose name contains `auth`, `token`,
-  `key`, `secret`, or `cookie` takes secret refs only. Source status never
-  shows a source's command or headers.
+  `key`, `secret`, or `cookie` takes secret refs only, and a secret ref is
+  never sent over plain HTTP. Source status never shows a source's command
+  or headers.
+- Before RFC 003, the inventory and its credentials are global. Any user who
+  can write or run a DAG that targets nodes, in any workspace, reaches every
+  node with those credentials. Workspaces do not limit this. Projects do,
+  once RFC 003 ships.
 - Attribute values from scripts, URLs, and Ansible are untrusted text. RFC 013
   inserts them into commands only where the author writes `${node.*}`, and
   its Security section covers quoting.
@@ -710,12 +742,12 @@ like every other entry.
 | Event | Behavior |
 | --- | --- |
 | `nodes.yaml` is invalid | Resolution fails with the file, line, and error. The UI refuses to save an invalid file |
-| A `file` source is missing or invalid | Resolution fails with the source name and the error |
+| A required `file` source is missing or invalid | Resolution fails with the source name and the error |
 | A required `command` or `url` source has never succeeded | Resolution fails with the source name and its last error. When no refresh has run, the error names `dagu nodes refresh` |
 | A `command` or `url` source fails after an earlier success | Its last good nodes are used. Resolution returns a warning naming the source and the age of its snapshot |
-| A source with `required: false` fails | Its nodes are left out, with a warning |
+| A source of any kind with `required: false` fails and has no earlier success to use | Its nodes are left out, with a warning |
 | A node breaks a rule, such as a missing hostname | It is listed and matched, with a problem message |
-| A filter does not parse, or uses a regex construct RE2 lacks | The API, CLI, and UI report the position and the error |
+| A filter does not parse, uses a regex construct RE2 lacks, or excludes by an item that does not compile | The API, CLI, and UI report the position and the error |
 | The coordinator is unreachable from a worker | Resolution fails, as secret resolution does |
 | No connected worker matches a test's worker ID or `worker_selector` | The test fails at once, naming them |
 
@@ -768,12 +800,13 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
 3. `name: web01,web02` matches those two names, `name: web0.` matches as a
    regular expression against the whole name, and `web.* db01` selects every
    node whose name starts with `web`, and `db01`. `!name: (?!web).*` is
-   rejected with its position, and `name: *.example` is compared for
-   equality.
+   rejected with its position. `name: *.example` is compared for equality,
+   with a warning, and `!name: *.example` is rejected.
 4. An empty filter is an error, and `.*` selects every node.
 5. A Rundeck resource document in YAML map form, YAML list form, JSON, and XML
    loads into the same nodes, and `ssh-key-storage-path: keys/prod/Web_01.pem`
-   becomes `{ secret: prod/web-01-pem }`.
+   becomes `{ secret: prod/web-01-pem }`. Two nodes whose storage paths map
+   to one ref are each listed with a problem naming both paths.
 6. `ansible-inventory --list` output gives each host the tags of its groups and
    their parent groups, and its scalar host variables as attributes. A group
    `web_servers` is a tag that filters match. A host without `ansible_host`
@@ -783,7 +816,9 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
    `nodes` block. A tag-only entry in the `nodes` block keeps the source's
    `user` and `ssh.key`.
 8. A `command` source that fails after a success keeps its nodes and reports a
-   warning. A required source that never succeeded fails resolution.
+   warning. A required source that never succeeded fails resolution. A
+   missing `file` source with `required: false` leaves its nodes out with a
+   warning.
 9. With `workers: true`, a worker appears as a node while connected and
    disappears when its heartbeats stop.
 10. Test connection reports a fingerprint for an unknown key, names the hop
@@ -793,13 +828,16 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
     behind different bastions keep separate trusted keys.
 11. No secret value appears in any API response, snapshot, log, or audit
     entry. A literal `password`, `Authorization` header, or
-    `X-Rundeck-Auth-Token` header fails validation.
+    `X-Rundeck-Auth-Token` header fails validation, as does an HTTP `url`
+    source with a secret header.
 12. `dagu nodes list`, `GET /nodes`, and the Nodes page give the same match
     for the same filter.
 13. A `viewer` can list nodes and cannot test, refresh, trust, edit, or read
     `nodes.yaml`.
 14. A DAG dispatched to a worker connects to an inventory node with a key from
-    a secret and a host key trusted in the UI. The coordinator denies a ref
+    a secret and a host key trusted in the UI. A node with a `file` key
+    reads it on the worker, and fails there, naming the path and the worker,
+    when the file is missing. The coordinator denies a ref
     that no `ResolveNodes` response for that attempt returned. A ref returned
     by one coordinator instance is served by another. `ResolveNodes` with the
     name `web01.prod` returns only that node while `web01Xprod` exists.
@@ -866,6 +904,9 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
 - "Node" now means an inventory entry in the UI and docs.
 
 ## Open questions
+
+Questions 6, 8, 9, and 10 change the file format or its location. They are
+settled before the spec of rollout phase 2 is written.
 
 1. Should a server-wide inventory exist, shared by projects that opt in?
 2. Should `workers: true` be the default once targeting ships?
