@@ -279,19 +279,31 @@ describe('useGettingStarted', () => {
     });
   });
 
-  it('counts remote access as a connected AI app on a connected server', () => {
-    serve({ sample: list(examples), remoteAccess: { level: 'viewer' } });
+  // Remote access turned on is not yet a connected app; a call that reached
+  // the server through Dagu Cloud is.
+  it.each([
+    ['without a call yet', { level: 'viewer' }, false],
+    [
+      'after a call',
+      { level: 'viewer', lastCall: { at: '2026-11-12T09:30:00Z' } },
+      true,
+    ],
+  ])(
+    'counts Dagu Cloud remote access as a connected AI app %s',
+    (_, remoteAccess, done) => {
+      serve({ sample: list(examples), remoteAccess });
 
-    const { result } = renderGettingStarted({ license: connected });
+      const { result } = renderGettingStarted({ license: connected });
 
-    expect(requests()).toContainEqual([
-      '/license/remote-access',
-      { remoteNode: 'local' },
-    ]);
-    expect(result.current).toMatchObject({
-      steps: [{}, {}, {}, {}, { id: 'ai', done: true, canUseCloud: true }],
-    });
-  });
+      expect(requests()).toContainEqual([
+        '/license/remote-access',
+        { remoteNode: 'local' },
+      ]);
+      expect(result.current).toMatchObject({
+        steps: [{}, {}, {}, {}, { id: 'ai', done, canUseCloud: true }],
+      });
+    }
+  );
 
   // A key from a server older than key surfaces is accepted on all of them.
   it('counts an API key without surfaces as a connected AI app', () => {

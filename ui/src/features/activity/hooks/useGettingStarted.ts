@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useContext, useEffect } from 'react';
-import {
-  APIKeyAllowedSurfaces,
-  LicenseRemoteAccessLevel,
-} from '@/api/v1/schema';
+import { APIKeyAllowedSurfaces } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   useCanManageNotifications,
@@ -131,8 +128,10 @@ export function useGettingStarted(): GettingStarted {
     progress?.scheduled ??
     (scheduledList ? scheduledList.pagination.totalRecords > 0 : undefined);
   const alerted = !community || !!channelList?.channels?.length;
+  // An app counts once a call of its reached the server, or once there is a
+  // key it may use.
   const connectedAI =
-    (!!remoteAccess && remoteAccess.level !== LicenseRemoteAccessLevel.off) ||
+    !!remoteAccess?.lastCall ||
     !!keyList?.apiKeys.some(
       // A key without surfaces, from an older server, is accepted on all.
       (key) =>
