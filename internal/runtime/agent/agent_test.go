@@ -382,7 +382,17 @@ func TestStopStartup(t *testing.T) {
 					waitForCancel(t, barrier.started, agentRunStartTimeout())
 					go dagAgent.Signal(th.Context, signal)
 				}
-				waitForCancel(t, done, 2*time.Second)
+				// Aborting startup only records the aborted attempt; no cleanup
+				// budget applies, so the run is bounded by the platform completion
+				// timeout and must return while the provider is still blocked.
+				waitForCancel(t, done, agentRunCompletionTimeout())
+				if phase == "Secrets" || phase == "Profile" || phase == "LatePanic" {
+					select {
+					case <-barrier.returned:
+						t.Fatal("startup termination waited for the provider")
+					default:
+					}
+				}
 				require.NoError(t, runErr)
 				if opts.Dry {
 					dag.AssertDAGRunCount(t, 0)
