@@ -16,6 +16,7 @@ import { registerReferenceCompletion } from '@/features/visual-editor/references
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { buildEditorOptions } from './editorOptions';
+import { EditorSkeleton } from './EditorSkeleton';
 import { ISSUE_MARKER_OWNER } from './issueMarkers';
 import {
   registerQuickFixSource,
@@ -152,8 +153,8 @@ function DAGEditor({
   const nextSchemaRegistrationRef = useRef(nextSchemaRegistration);
   nextSchemaRegistrationRef.current = nextSchemaRegistration;
 
-  // Reference completion is global to YAML models, so only an editor that
-  // gives a scope registers it, once for its lifetime.
+  // Only an editor that gives a scope registers reference completion, for its
+  // own model.
   const referenceStateRef = useRef(referenceState);
   referenceStateRef.current = referenceState;
   const wantsReferences = referenceState !== undefined;
@@ -163,10 +164,11 @@ function DAGEditor({
     }
     const registration = registerReferenceCompletion(
       monaco,
-      () => referenceStateRef.current?.() ?? {}
+      () => referenceStateRef.current?.() ?? {},
+      effectiveModelUri
     );
     return () => registration.dispose();
-  }, [wantsReferences]);
+  }, [wantsReferences, effectiveModelUri]);
 
   // The code actions of the quick fixes go to this editor's model only, and
   // go away with it.
@@ -184,11 +186,12 @@ function DAGEditor({
     return () => registration.dispose();
   }, [wantsQuickFixes, effectiveModelUri]);
 
-  // Clean up editor on unmount
+  // The editor and its model are disposed by @monaco-editor/react, which
+  // reads the model from the editor: disposing the editor here first would
+  // leave the model, with its text, for the next editor of the same path.
   useEffect(() => {
     return () => {
       onEditorMountRef.current?.(null);
-      editorRef.current?.dispose();
     };
   }, []);
 
@@ -276,6 +279,23 @@ function DAGEditor({
       registration.dispose();
     };
   }, [isEditorMounted, wantsStepLenses]);
+  const settled = useEditorSettled(
+    isEditorMounted ? editorRef.current : null,
+    (stepLenses?.steps.length ?? 0) > 0,
+    effectiveModelUri
+  );
+  // The skeleton stays for the fade of the editor, which takes its place.
+  const [fadedIn, setFadedIn] = useState<string | null>(null);
+  useEffect(() => {
+    if (!settled) return;
+    const timer = setTimeout(
+      () => setFadedIn(effectiveModelUri),
+      SKELETON_FADE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [settled, effectiveModelUri]);
+  const skeleton = fadedIn !== effectiveModelUri;
+
   const lensKey = stepLenses
     ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
     : '';
@@ -393,19 +413,95 @@ function DAGEditor({
     document.documentElement.classList.contains('dark');
 
   return (
-    <div className={cn('h-full', className)}>
-      <MonacoEditor
-        height="100%"
-        language="yaml"
-        path={effectiveModelUri}
-        theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
-        value={value}
-        onChange={readOnly ? undefined : onChange}
-        onMount={editorDidMount}
-        options={options}
-      />
+    <div className={cn('relative h-full', className)}>
+      {skeleton && (
+        <EditorSkeleton
+          text={value ?? ''}
+          lenses={stepLenses?.steps}
+          className={cn(
+            'transition-opacity duration-80 ease-out motion-reduce:transition-none',
+            settled && 'opacity-0'
+          )}
+        />
+      )}
+      <div
+        data-settled={settled}
+        className={cn(
+          'h-full',
+          // It fades in, and hides at once: the text of a new model never
+          // shows while it is fading out.
+          settled
+            ? 'opacity-100 transition-opacity duration-80 ease-out motion-reduce:transition-none'
+            : 'opacity-0'
+        )}
+      >
+        <MonacoEditor
+          height="100%"
+          language="yaml"
+          path={effectiveModelUri}
+          // A run definition has a model per run. Restoring the view state of
+          // a model seen before makes Monaco cancel a pending word highlight
+          // and leave the rejection unhandled.
+          saveViewState={false}
+          theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
+          value={value}
+          onChange={readOnly ? undefined : onChange}
+          onMount={editorDidMount}
+          options={options}
+          // The skeleton shows while Monaco loads.
+          loading={null}
+        />
+      </div>
     </div>
   );
+}
+
+/** The longest wait for an editor to settle before it shows anyway. */
+const SETTLE_TIMEOUT_MS = 1500;
+/** The fade of the editor over its skeleton (duration-80). */
+const SKELETON_FADE_MS = 80;
+
+/**
+ * Whether the editor has settled since it mounted or took the model of
+ * `modelKey`: its text coloured and, when the text has steps, the lenses
+ * above them drawn. Each of them repaints or moves the text, so the editor
+ * shows once they are done.
+ */
+function useEditorSettled(
+  codeEditor: monaco.editor.IStandaloneCodeEditor | null,
+  expectLenses: boolean,
+  modelKey: string
+): boolean {
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const settled = settledKey === modelKey;
+  const expectLensesRef = useRef(expectLenses);
+  expectLensesRef.current = expectLenses;
+  useEffect(() => {
+    if (settled || !codeEditor) return;
+    const setSettled = () => setSettledKey(modelKey);
+    const node = codeEditor.getDomNode();
+    const done = () =>
+      !node ||
+      ((codeEditor.getModel()?.getValueLength() === 0 ||
+        node.querySelector('.view-line span[class*="mtk"]:not(.mtk1)') !==
+          null) &&
+        (!expectLensesRef.current ||
+          node.querySelector('.codelens-decoration') !== null));
+    if (done()) {
+      setSettled();
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (done()) setSettled();
+    });
+    observer.observe(node!, { childList: true, subtree: true });
+    const timer = setTimeout(setSettled, SETTLE_TIMEOUT_MS);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [codeEditor, settled, modelKey]);
+  return settled;
 }
 
 export default DAGEditor;

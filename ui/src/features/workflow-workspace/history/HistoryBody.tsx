@@ -12,7 +12,7 @@ import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { isContinuousStep } from '@/lib/runDisplayStatus';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
-import { useVisibleRuns } from '../data/useVisibleRuns';
+import { useHistoryRuns } from '../data/useVisibleRuns';
 import { useDockCommands } from '../dock/DockContext';
 import { dockTabId } from '../dock/DockTabStrip';
 import { useDockHidden } from '../dock/FreezeWhenHidden';
@@ -20,7 +20,8 @@ import { RunTabEmpty } from '../dock/tabs/runTabBodies';
 import type { DockTabBodyProps } from '../dock/tabs/types';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepHistory } from './StepHistory';
-import { StepsGrid } from './StepsGrid';
+import { HISTORY_LIMIT } from '../dock/runTimelineModel';
+import { StepsGrid, StepsGridSkeleton } from './StepsGrid';
 import {
   hasRunningStep,
   stepGrid,
@@ -30,10 +31,10 @@ import {
 
 /**
  * The History tab: the steps grid in the run view, the history of the step
- * in a step view. The runs are the ones that the run timeline shows (its
- * count or range, its test runs and trigger types), with the live details of
- * the selected run; the tab makes no request of its own. A pick pushes ?run,
- * so that Back returns to the run before, and keeps the step.
+ * in a step view. The runs are the latest page of the history, and the older
+ * pages that the tab reads as it scrolls back, with the live details of the
+ * selected run (useHistoryRuns). A pick pushes ?run, so that Back returns to
+ * the run before, and keeps the step.
  */
 const HISTORY_KEYS: Partial<Record<string, 'older' | 'newer'>> = {
   ArrowLeft: 'older',
@@ -42,10 +43,10 @@ const HISTORY_KEYS: Partial<Record<string, 'older' | 'newer'>> = {
 
 export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
   const { ts } = useI18n();
-  const visible = useVisibleRuns({ enabled: true, pollTestRuns: true });
+  const history = useHistoryRuns();
   const runs = useMemo(
-    () => withLiveRun(visible.runs, run.details),
-    [visible.runs, run.details]
+    () => withLiveRun(history.runs, run.details),
+    [history.runs, run.details]
   );
 
   // The URL writer changes with the location: the memoized rows get a
@@ -112,13 +113,13 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
 
   // Left and Right on the focused History tab of the Activity panel go to
   // the older and the newer run, as the arrows of the run chip do: the tab
-  // reads as the history itself. Shift with the arrows, Home and End still
-  // move between the tabs.
+  // reads as the history itself. Left on the oldest run reads older runs.
+  // Shift with the arrows, Home and End still move between the tabs.
   const historyTabId = dockTabId('history');
-  const live = useRef({ visible, step, pick, pickColumn });
+  const live = useRef({ history, step, pick, pickColumn });
   // After the commit: the keys act on the history that shows.
   useLayoutEffect(() => {
-    live.current = { visible, step, pick, pickColumn };
+    live.current = { history, step, pick, pickColumn };
   });
   useEffect(() => {
     if (hidden) return;
@@ -131,8 +132,11 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       event.preventDefault();
       event.stopImmediatePropagation();
       const current = live.current;
-      const id = current.visible.adjacentId(dir);
-      if (id === null) return;
+      const id = current.history.adjacentId(dir);
+      if (id === null) {
+        if (dir === 'older') current.history.older.loadMore();
+        return;
+      }
       if (current.step === undefined) current.pickColumn(id);
       else current.pick(id, current.step);
     };
@@ -163,16 +167,19 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
     [pick, selectTab, step]
   );
 
+  // The grid of the run summary keeps its shape while its runs load.
+  if (runs.length === 0 && history.isLoading && step === undefined) {
+    return (
+      <StepsGridSkeleton
+        steps={(dag.steps ?? []).map((definition) => definition.name)}
+        columns={HISTORY_LIMIT}
+      />
+    );
+  }
   if (runs.length === 0) {
     return (
       <RunTabEmpty>
-        {ts(
-          visible.isLoading
-            ? 'Loading runs...'
-            : visible.settings.mode === 'range'
-              ? 'No runs in this time range'
-              : 'No runs yet'
-        )}
+        {ts(history.isLoading ? 'Loading runs...' : 'No runs yet')}
       </RunTabEmpty>
     );
   }
@@ -181,11 +188,12 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       <StepsGrid
         grid={grid}
         runs={runs}
-        selectedId={visible.selectedId}
+        selectedId={history.selectedId}
         onPick={pick}
         onPickRun={pickColumn}
         onOpenStep={showStep}
         onSpotlight={spotlight}
+        older={history.older}
       />
     );
   }
@@ -200,7 +208,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       key={step}
       step={step}
       entries={entries}
-      selectedId={visible.selectedId}
+      selectedId={history.selectedId}
       continuous={continuous}
       subWorkflow={!!(definition?.call || node?.step.call)}
       onPick={pickRun}
@@ -208,6 +216,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
       onContinuous={
         continuous && selectTab ? () => selectTab('continuous') : undefined
       }
+      older={history.older}
     />
   );
 }

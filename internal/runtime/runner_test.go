@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -1919,6 +1920,95 @@ func TestRunner(t *testing.T) {
 		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
 		node := result.nodeByName(t, "1")
 		assert.Equal(t, 2, node.State().DoneCount)
+	})
+
+	// Each repeat resolves the step again, so the index advances in
+	// Dagu-resolved fields and step env as well as in the environment variable.
+	// ACC refers to its own earlier value and must not grow across repeats.
+	t.Run("RepeatIndex", func(t *testing.T) {
+		appendIndexes := func(file string) string {
+			return test.ForOS(
+				"printf '%s|%s|%s|%s\\n' '${context.step.repeat_index}' \"$IDX\" \"$DAG_RUN_STEP_REPEAT_INDEX\" \"$ACC\" >> "+test.PosixQuote(file),
+				"Add-Content -Path "+test.PowerShellQuote(file)+" -Value ('${context.step.repeat_index}' + '|' + $env:IDX + '|' + $env:DAG_RUN_STEP_REPEAT_INDEX + '|' + $env:ACC)",
+			)
+		}
+		cases := []struct {
+			name string
+			run  func(file string) stepOption
+		}{
+			{name: "Script", run: func(file string) stepOption { return withScript(appendIndexes(file)) }},
+			{name: "Command", run: func(file string) stepOption { return withCommand(appendIndexes(file)) }},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				r := setupRunner(t)
+				file := filepath.Join(t.TempDir(), "indexes.log")
+				plan := r.newPlan(t,
+					newStep("1",
+						tc.run(file),
+						withEnvVars("IDX=${context.step.repeat_index}", "ACC=a", "ACC=${ACC}b"),
+						func(step *ir.Step) {
+							step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+							step.RepeatPolicy.Limit = 3
+						},
+					),
+				)
+				result := plan.assertRun(t, ir.Succeeded)
+				assert.Equal(t, 3, result.nodeByName(t, "1").State().DoneCount)
+				data, err := os.ReadFile(file)
+				require.NoError(t, err)
+				// PowerShell's Add-Content writes CRLF line endings.
+				got := strings.ReplaceAll(string(data), "\r\n", "\n")
+				assert.Equal(t, "0|0|0|ab\n1|1|1|ab\n2|2|2|ab\n", got)
+			})
+		}
+	})
+
+	// A parallel parent schedules the retries of its child's steps. The retry
+	// resumes the repeat sequence, so the failed execution runs again with its
+	// own index and the repeat limit still counts the earlier executions.
+	t.Run("RepeatIndexAfterParentRetry", func(t *testing.T) {
+		r := setupRunner(t)
+		dir := t.TempDir()
+		file := filepath.Join(dir, "indexes.log")
+		failedOnce := filepath.Join(dir, "failed-once")
+		step := newStep("1",
+			withScript(test.ForOS(
+				"printf '%s\\n' \"$DAG_RUN_STEP_REPEAT_INDEX\" >> "+test.PosixQuote(file)+"\n"+
+					"if [ \"$DAG_RUN_STEP_REPEAT_INDEX\" = 1 ] && [ ! -e "+test.PosixQuote(failedOnce)+" ]; then : > "+test.PosixQuote(failedOnce)+"; exit 1; fi",
+				"Add-Content -Path "+test.PowerShellQuote(file)+" -Value $env:DAG_RUN_STEP_REPEAT_INDEX\n"+
+					"if ($env:DAG_RUN_STEP_REPEAT_INDEX -eq '1' -and -not (Test-Path "+test.PowerShellQuote(failedOnce)+")) { New-Item -ItemType File -Path "+test.PowerShellQuote(failedOnce)+" | Out-Null; exit 1 }",
+			)),
+			func(step *ir.Step) {
+				step.RetryPolicy.Limit = 1
+				step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+				step.RepeatPolicy.Limit = 3
+			},
+		)
+		dag := &ir.DAG{Name: "test_dag", WorkingDir: dir, Steps: []ir.Step{step}}
+		run := func(plan *runtime.Plan) {
+			ctx := runtime.NewContext(r.Context, dag, r.cfg.DAGRunID,
+				filepath.Join(r.cfg.LogDir, "test_dag.log"),
+				runtime.WithEnvVars(runenv.EnvKeyExternalStepRetry+"=1"),
+			)
+			_ = r.runner.Run(ctx, plan, nil)
+		}
+
+		plan, err := runtime.NewPlan(step)
+		require.NoError(t, err)
+		run(plan)
+		require.Equal(t, ir.NodeRetrying, plan.GetNodeByName("1").State().Status)
+
+		retryPlan, err := runtime.CreateStepRetryPlan(dag, plan.Nodes(), "1")
+		require.NoError(t, err)
+		run(retryPlan)
+
+		assert.Equal(t, ir.NodeSucceeded, retryPlan.GetNodeByName("1").State().Status)
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		// PowerShell's Add-Content writes CRLF line endings.
+		got := strings.ReplaceAll(string(data), "\r\n", "\n")
+		assert.Equal(t, "0\n1\n1\n2\n", got)
 	})
 
 	t.Run("RepeatErrorContinueOn", func(t *testing.T) {

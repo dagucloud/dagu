@@ -79,8 +79,6 @@ type Props = {
    * run' succeeds.
    */
   onRescheduled?: (dagRunId: string, dagName: string) => void;
-  /** Called after the run was removed from the queue, before refresh. */
-  onDequeued?: () => void;
   /**
    * Opens the screen that edits the definition of the run and chooses the
    * steps that run again, for a new run. The Retry dialog links to it.
@@ -101,7 +99,6 @@ function DAGRunActions({
   stopAll,
   markActions = false,
   onRescheduled,
-  onDequeued,
   onEditRetry,
 }: Props) {
   const { ts } = useI18n();
@@ -774,7 +771,6 @@ function DAGRunActions({
                 return;
               }
               showToast('DAG run dequeued');
-              onDequeued?.();
               reloadData();
             }}
           >

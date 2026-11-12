@@ -58,10 +58,11 @@ func TestEnqueueCatchupRunPropagatesFindAttemptErrors(t *testing.T) {
 		"run-1",
 		ir.TriggerTypeCatchUp,
 		time.Now(),
+		ir.ScheduleWindow{},
 		"",
 	)
 	require.ErrorIs(t, err, storeErr)
-	assert.Contains(t, err.Error(), "failed to check existing catchup run")
+	assert.Contains(t, err.Error(), "failed to check existing run")
 }
 
 type findAttemptErrStore struct {

@@ -124,6 +124,7 @@ type API struct {
 	oidcRoleMapping      func() config.OIDCRoleMapping
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
+	serviceDAGFailures   failureStreaks
 }
 
 type processRepository interface {
@@ -184,6 +185,7 @@ type CloudAccessService interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
 	Set(ctx context.Context, level *config.RemoteAccessLevel, approvals *bool) error
 	State() cloudaccess.State
+	LastCall(ctx context.Context) (cloudaccess.LastCall, bool, error)
 }
 
 // AuthService defines the interface for authentication operations.
@@ -569,6 +571,11 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 
 	loginPath := pathutil.BuildPublicEndpointPath(mountedAPIPath, "auth/login")
 
+	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger)
+	if err != nil {
+		return err
+	}
+
 	r.Group(func(r chi.Router) {
 		r.Use(a.restAuditSeedMiddleware())
 		r.Use(frontendauth.ClientIPMiddleware())
@@ -576,8 +583,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(stepLogDownloadFormAuth(mountedAPIPath))
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
-		r.Use(a.syncProxyAuthorization(mountedAPIPath))
-		r.Use(a.licenseProxyAuthorization(mountedAPIPath))
+		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
@@ -1046,6 +1052,15 @@ func (a *API) requireDAGWrite(ctx context.Context) error {
 		return errDAGWritesDisabled
 	}
 	return nil
+}
+
+// RequireDAGAuthoring returns an error unless the caller may author DAGs on
+// this server.
+func (a *API) RequireDAGAuthoring(ctx context.Context) error {
+	if err := a.isAllowed(config.PermissionWriteDAGs); err != nil {
+		return err
+	}
+	return a.requireDeveloperOrAbove(ctx)
 }
 
 // requireUserManagement checks if user management is enabled.

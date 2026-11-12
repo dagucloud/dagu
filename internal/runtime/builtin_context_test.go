@@ -53,13 +53,14 @@ func TestResolveStringBuiltInRunContext(t *testing.T) {
 		runenv.EnvKeyDAGUOutputFile:                filepath.Join(tmpDir, "output.json"),
 		runenv.EnvKeyDAGPushBackIteration:          "2",
 		runenv.EnvKeyDAGPushBackPreviousStdoutFile: filepath.Join(tmpDir, "previous.log"),
+		runenv.EnvKeyDAGRunStepRepeatIndex:         "2",
 	}, cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, env)
 
-	got, err := runtime.ResolveString(ctx, "${context.dag.name}|${context.run.id}|${context.run.status}|${context.attempt.started_at}|${context.run.scheduled_at}|${context.run.root_name}|${context.run.root_id}|${context.attempt.id}|${context.step.id}|${context.step.name}|${context.trigger.type}|${context.paths.log_file}|${context.paths.work_dir}|${context.paths.artifacts_dir}|${context.paths.wiki_dir}|${context.paths.step_stdout_file}|${context.paths.step_stderr_file}|${context.paths.step_output_file}|${context.profile.name}|${context.profile.resolved_at}|${context.pushback.iteration}|${context.pushback.previous_stdout_file}", cmnvalue.WorkflowField("run"))
+	got, err := runtime.ResolveString(ctx, "${context.dag.name}|${context.run.id}|${context.run.status}|${context.attempt.started_at}|${context.run.scheduled_at}|${context.run.root_name}|${context.run.root_id}|${context.attempt.id}|${context.step.id}|${context.step.name}|${context.step.repeat_index}|${context.trigger.type}|${context.paths.log_file}|${context.paths.work_dir}|${context.paths.artifacts_dir}|${context.paths.wiki_dir}|${context.paths.step_stdout_file}|${context.paths.step_stderr_file}|${context.paths.step_output_file}|${context.profile.name}|${context.profile.resolved_at}|${context.pushback.iteration}|${context.pushback.previous_stdout_file}", cmnvalue.WorkflowField("run"))
 	require.NoError(t, err)
 
-	expected := "child|run-1|succeeded|" + startedAt + "|" + scheduledAt + "|root|root-run-1|attempt-1|build-id|build|scheduler|" +
+	expected := "child|run-1|succeeded|" + startedAt + "|" + scheduledAt + "|root|root-run-1|attempt-1|build-id|build|2|scheduler|" +
 		logFile + "|" + workDir + "|" + artifactDir + "|" + filepath.Join(wikiDir, "child") + "|" +
 		filepath.Join(tmpDir, "stdout.log") + "|" + filepath.Join(tmpDir, "stderr.log") + "|" +
 		filepath.Join(tmpDir, "output.json") + "|prod|" + profileResolvedAt + "|2|" + filepath.Join(tmpDir, "previous.log")
@@ -80,7 +81,7 @@ func TestResolveStringUnavailableBuiltInRunContextStaysLiteral(t *testing.T) {
 	env := runtime.NewEnv(ctx, ir.Step{Name: "step"})
 	ctx = runtime.WithEnv(ctx, env)
 
-	input := "${context.run.status} ${context.run.root_name} ${context.run.root_id} ${context.trigger.actor} ${context.profile.name} ${context.pushback.iteration}"
+	input := "${context.run.status} ${context.run.root_name} ${context.run.root_id} ${context.trigger.actor} ${context.profile.name} ${context.pushback.iteration} ${context.step.repeat_index}"
 	got, err := runtime.ResolveString(ctx, input, cmnvalue.WorkflowField("run"))
 	require.NoError(t, err)
 	assert.Equal(t, input, got)

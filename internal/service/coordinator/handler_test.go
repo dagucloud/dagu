@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -413,7 +414,10 @@ type mockAttempt struct {
 	writeStepMessagesError error                      // injected error for WriteStepMessages
 	requireOpenForRead     bool
 	isOpen                 bool
-	mu                     sync.Mutex
+	// sharedReads makes ReadStatus hand every caller the stored status
+	// itself, as the file store's cache does.
+	sharedReads bool
+	mu          sync.Mutex
 }
 
 func (m *mockAttempt) ID() string {
@@ -467,6 +471,26 @@ func (m *mockAttempt) Close(_ context.Context) error {
 	return nil
 }
 func (m *mockAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
+	return m.readStatus(m.sharedReads)
+}
+func (m *mockAttempt) ReadStatusUncached(_ context.Context) (*ir.DAGRunStatus, error) {
+	status, err := m.readStatus(false)
+	if err != nil {
+		return nil, err
+	}
+	// The file store parses the status anew, so nothing is shared with the
+	// stored status, its nodes included.
+	data, err := json.Marshal(status)
+	if err != nil {
+		return nil, err
+	}
+	var parsed ir.DAGRunStatus
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+func (m *mockAttempt) readStatus(shared bool) (*ir.DAGRunStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.requireOpenForRead && !m.isOpen {
@@ -478,11 +502,11 @@ func (m *mockAttempt) ReadStatus(_ context.Context) (*ir.DAGRunStatus, error) {
 	if m.status == nil {
 		return nil, dagrun.ErrNoStatusData
 	}
+	if shared {
+		return m.status, nil
+	}
 	cloned := *m.status
 	return &cloned, nil
-}
-func (m *mockAttempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error) {
-	return m.ReadStatus(ctx)
 }
 func (m *mockAttempt) ReadDAG(_ context.Context) (*ir.DAG, error) { return m.dag, nil }
 func (m *mockAttempt) SetDAG(dag *ir.DAG) {
@@ -1210,10 +1234,14 @@ func TestHandler_Poll(t *testing.T) {
 			context.Background(),
 			attempt,
 			&coordinatorv1.Task{
-				DagRunId:     "run-123",
-				AttemptKey:   "attempt-key",
-				TriggerActor: "alice",
-				ScheduleTime: "2026-03-13T10:00:00Z",
+				DagRunId:         "run-123",
+				AttemptKey:       "attempt-key",
+				TriggerActor:     "alice",
+				TriggerType:      "manual",
+				ScheduleTime:     "2026-03-13T10:00:00Z",
+				IntervalStart:    "2026-03-13T09:00:00Z",
+				NextScheduledAt:  "2026-03-13T11:00:00Z",
+				ScheduleTimezone: "Asia/Tokyo",
 			},
 			"test-dag",
 			ir.DAGRunRef{},
@@ -1224,7 +1252,11 @@ func TestHandler_Poll(t *testing.T) {
 		status, err := attempt.ReadStatus(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, "2026-03-13T10:00:00Z", status.ScheduleTime)
+		require.Equal(t, "2026-03-13T09:00:00Z", status.IntervalStart)
+		require.Equal(t, "2026-03-13T11:00:00Z", status.NextScheduledAt)
+		require.Equal(t, "Asia/Tokyo", status.ScheduleTimezone)
 		require.Equal(t, "alice", status.TriggerActor)
+		require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	})
 
 	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {

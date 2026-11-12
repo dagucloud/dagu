@@ -9,10 +9,10 @@ import { BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { JSONSchema } from '@/lib/schema-utils';
 import { Button } from '@/components/ui/button';
-import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useDebouncedValue } from '../../../../hooks/useDebouncedValue';
 import { useYamlCursorPath } from '../../../../hooks/useYamlCursorPath';
 import { docsPathInScope } from './docsPath';
+import { EditorSkeleton } from './EditorSkeleton';
 import { loadDAGEditor } from './loadDAGEditor';
 import type { CursorPosition } from './DAGEditor';
 import type { QuickFixSource } from './quickFixProvider';
@@ -161,6 +161,13 @@ function DAGEditorWithDocs({
     };
   }, [toggleSidebar]);
 
+  // The bars of the text, while the editor loads and until it first shows.
+  const skeleton = (
+    <div className="relative h-full">
+      <EditorSkeleton text={value} lenses={stepLenses?.steps} />
+    </div>
+  );
+
   return (
     <div
       className={cn(
@@ -196,7 +203,7 @@ function DAGEditorWithDocs({
       {/* In a narrow container the docs go under the editor, not beside it. */}
       <div className="@container flex-1 flex min-h-0 flex-col @[40rem]:flex-row">
         <div className="flex-1 min-w-0 min-h-0">
-          <React.Suspense fallback={<LoadingIndicator fill />}>
+          <React.Suspense fallback={skeleton}>
             {everShown.current ? (
               <DAGEditor
                 value={value}
@@ -214,7 +221,7 @@ function DAGEditorWithDocs({
                 stepLenses={stepLenses}
               />
             ) : (
-              <LoadingIndicator fill />
+              skeleton
             )}
           </React.Suspense>
         </div>

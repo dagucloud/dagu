@@ -12,6 +12,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel } from '@/api/v1/schema';
 import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
+import { copyText } from '@/lib/clipboard';
 import DAGRunHeader from '../DAGRunHeader';
 
 vi.mock('@/lib/clipboard', () => ({
@@ -70,8 +71,8 @@ describe('DAGRunHeader', () => {
     ).not.toBeInTheDocument();
   });
 
-  // The workflow page has no address for a sub-run: its link opens the root run.
-  it('names the root run on the copy link of a sub-run', () => {
+  // The workflow page opens a sub-run on the sub-run stack of its root run.
+  it('copies a link that opens the sub-run', async () => {
     render(
       <MemoryRouter>
         <RemoteNodeProvider remoteNode="local">
@@ -83,9 +84,14 @@ describe('DAGRunHeader', () => {
       </MemoryRouter>
     );
 
-    expect(
-      screen.getByRole('button', { name: 'Copy link to the root run' })
-    ).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Copy link to this run' })
+      );
+    });
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(
+      `${window.location.origin}/dags/nightly?remoteNode=local&run=run-42&subRun=child-1`
+    );
   });
 
   // The run page has the same one-row header as the workflow page.

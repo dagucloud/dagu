@@ -16,6 +16,8 @@ func (windowsBackend) Maximize(WindowID) (bool, error) {
 	return false, nil
 }
 
+func inputWindowAt(int, int) WindowID { return WindowID{} }
+
 func (windowsBackend) CaptureApps([]string) (Capture, error) {
 	return Capture{}, ErrNoWindows
 }

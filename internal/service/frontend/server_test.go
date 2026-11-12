@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -184,6 +186,76 @@ func TestRegisterDedicatedSSEFetchersUsesEventStoreInvalidationForRunTopics(t *t
 			}, time.Second, 10*time.Millisecond)
 		})
 	}
+}
+
+// The service DAG list is built to stay the same while its DAGs keep running,
+// so a wake that finds it unchanged sends nothing.
+func TestServiceDAGsStreamSendsOnlyChanges(t *testing.T) {
+	t.Parallel()
+
+	mux := sse.NewMultiplexer(sse.StreamConfig{HeartbeatInterval: time.Hour}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	srv := &Server{
+		apiV1:        &apiv1.API{},
+		eventService: eventstore.New(nil),
+		appStream:    testAppStream(t),
+	}
+	srv.registerDedicatedSSEFetchers(mux)
+
+	var fetches atomic.Int64
+	mux.RegisterFetcher(sse.TopicTypeServiceDAGs, func(context.Context, string) (any, error) {
+		fetches.Add(1)
+		return map[string]any{"state": "steady-list"}, nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := &lockedStream{header: http.Header{}}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/events/stream?topic="+url.QueryEscape("servicedags:"),
+			nil,
+		).WithContext(ctx)
+		sse.NewMultiplexHandler(mux, nil).HandleStream(stream, req)
+	}()
+
+	require.Eventually(t, func() bool { return stream.count("steady-list") == 1 }, time.Second, 10*time.Millisecond)
+	mux.WakeTopic(sse.TopicTypeServiceDAGs, "")
+	require.Eventually(t, func() bool { return fetches.Load() == 2 }, 3*time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return stream.count("steady-list") > 1 }, 200*time.Millisecond, 20*time.Millisecond)
+
+	cancel()
+	<-done
+}
+
+// lockedStream records what a stream writes, so a test can read it while the
+// stream is still open.
+type lockedStream struct {
+	mu     sync.Mutex
+	header http.Header
+	body   strings.Builder
+}
+
+func (s *lockedStream) Header() http.Header { return s.header }
+
+func (s *lockedStream) WriteHeader(int) {}
+
+func (s *lockedStream) Flush() {}
+
+func (s *lockedStream) Write(data []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.body.Write(data)
+}
+
+func (s *lockedStream) count(text string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strings.Count(s.body.String(), text)
 }
 
 func TestRegisterDedicatedSSEFetchersKeepsDAGsListPollingWithoutAppStream(t *testing.T) {
@@ -557,6 +629,7 @@ func TestServerAuthRoutesUseEvaluatedBasePathAndKeepProxyHeadersScoped(t *testin
 			GroupsHeader:  "X-Proxy-Groups",
 			Provision:     proxyProvision,
 			AuthService:   proxyTokenStub{},
+			TrustedSource: func(*http.Request) bool { return true },
 			LoginBasePath: "/dagu",
 			InitialSetupComplete: func(context.Context) (bool, error) {
 				return true, nil

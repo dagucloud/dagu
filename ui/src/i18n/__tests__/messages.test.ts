@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { messages, translate } from '../messages';
-import { staticMessages, translateStatic } from '../staticMessages';
+import { staticMessages } from '../staticMessages';
+import { translateStatic } from '../translateStatic';
 
 describe('translations', () => {
   it('uses English as the default locale', () => {
@@ -64,6 +65,18 @@ describe('translations', () => {
       )
     ).toBe(
       '同期管理から欠落アイテムを 2 件削除しますか？ファイルはリモートリポジトリに残ります。'
+    );
+  });
+
+  // The setup file loads every catalog. A fresh module starts without them.
+  it('keeps the source text until the catalog loads', async () => {
+    vi.resetModules();
+    const fresh = await import('../translateStatic');
+
+    expect(fresh.translateStatic('ja', 'No runs found')).toBe('No runs found');
+    await fresh.loadStaticMessages('ja');
+    expect(fresh.translateStatic('ja', 'No runs found')).toBe(
+      '実行が見つかりません'
     );
   });
 

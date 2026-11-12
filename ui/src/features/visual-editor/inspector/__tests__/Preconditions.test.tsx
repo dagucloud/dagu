@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { conditionRows, Preconditions } from '../sections/flow/Preconditions';
 import { runStep } from './fixtures';
 import { fieldOp, renderPart } from './flowHarness';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
 
 const withConditions = {
   ...runStep,
@@ -29,6 +34,52 @@ describe('conditionRows', () => {
 });
 
 describe('Preconditions', () => {
+  it('offers references in a condition and a new condition', () => {
+    renderPart(Preconditions, withConditions, {
+      candidates: candidatesSample,
+    });
+    typeOpenReference(screen.getAllByLabelText('Condition')[0]!);
+    expect(referenceList()).toBeInTheDocument();
+    typeOpenReference(screen.getByLabelText('New condition'));
+    expect(referenceList()).toBeInTheDocument();
+  });
+
+  // Spec 033: a build output path exists only while the executor runs.
+  it('offers a build input but no build output', () => {
+    renderPart(Preconditions, withConditions, {
+      candidates: [
+        ...candidatesSample,
+        {
+          token: '${inputs.source}',
+          label: 'source',
+          group: 'inputs',
+          known: 'runtime',
+        },
+        {
+          token: '${outputs.artifact}',
+          label: 'artifact',
+          group: 'outputs',
+          known: 'runtime',
+        },
+      ],
+    });
+    typeOpenReference(screen.getByLabelText('New condition'));
+    const list = referenceList();
+    expect(list).toHaveTextContent('${inputs.source}');
+    expect(list).not.toHaveTextContent('${outputs.artifact}');
+  });
+
+  // Spec 003: `expected` is literal, except for the number of a `num:` form.
+  it('offers no references in an expected value', () => {
+    renderPart(Preconditions, withConditions, {
+      candidates: candidatesSample,
+    });
+    typeOpenReference(screen.getAllByLabelText('Expected')[0]!);
+    expect(referenceList()).not.toBeInTheDocument();
+    typeOpenReference(screen.getByLabelText('New expected value'));
+    expect(referenceList()).not.toBeInTheDocument();
+  });
+
   it('edits one key of one condition', () => {
     const { onEdit, edit } = renderPart(Preconditions, withConditions);
     edit('Expected', 'staging');

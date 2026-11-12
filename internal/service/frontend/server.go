@@ -86,10 +86,20 @@ const (
 	// when no run event wakes it, such as when a queued run records why it
 	// cannot start or the data disk fills.
 	dagRunActivityMaxInterval = 30 * time.Second
+	// dagRunsMaxInterval bounds how stale a live run list gets when no run
+	// event wakes it, such as when a DAG gains or loses a restart policy and
+	// its runs move in or out of the lists that leave service DAG runs out.
+	dagRunsMaxInterval = 30 * time.Second
 	// dagDetailsMaxInterval bounds how stale a DAG details topic gets when no
 	// wake reaches it, such as when its next run time passes or a DAG file
 	// outside the watched directories changes.
 	dagDetailsMaxInterval = 30 * time.Second
+	// serviceDAGsMinInterval is the shortest gap between two refetches of the
+	// service DAG list.
+	serviceDAGsMinInterval = 2 * time.Second
+	// serviceDAGsMaxInterval bounds how stale the list gets when nothing wakes
+	// it, such as an operator stop that no run event reports yet.
+	serviceDAGsMaxInterval = 30 * time.Second
 )
 
 var wikiSSETopicTypes = [...]sse.TopicType{
@@ -466,6 +476,10 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to create proxy authentication provisioning service: %w", err)
 			}
+			proxySources, err := newIPAccessPolicy(cfg.Server.IPAccess)
+			if err != nil {
+				return nil, fmt.Errorf("configure IP access: %w", err)
+			}
 			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
 				Enabled:        true,
 				UserHeader:     trustedProxy.Headers.User,
@@ -477,9 +491,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 					count, err := stores.AuthService.CountUsers(ctx)
 					return count > 0, err
 				},
+				TrustedSource: proxySources.fromTrustedProxy,
 				LoginBasePath: evaluatedBasePath,
 			}
 			logger.Info(ctx, "Proxy authentication enabled",
+				slog.Any("trustedProxies", cfg.Server.IPAccess.TrustedProxies),
 				slog.Bool("autoSignup", trustedProxy.AutoSignup),
 				slog.String("defaultRole", trustedProxy.RoleMapping.DefaultRole),
 				slog.Bool("skipOrgRoleSync", trustedProxy.RoleMapping.SkipOrgRoleSync))
@@ -724,6 +740,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			return
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
 	apiOpts = append(apiOpts, apiv1.WithWikiMutationNotifier(func() {
@@ -1406,7 +1423,11 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 	srv.registerDedicatedSSEFetchers(srv.sseMultiplexer)
 	srv.startAppStreamInvalidationBridge(ctx)
 	if srv.eventService != nil {
-		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, slog.Default(), time.Second)
+		var serviceDAGs sse.ServiceDAGNames
+		if srv.dagRepository != nil {
+			serviceDAGs = srv.dagRepository.SavedServiceDAGNames
+		}
+		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, slog.Default(), time.Second)
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)
@@ -1418,6 +1439,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		r.Use(auth.ClientIPMiddleware())
 		r.Use(auth.Middleware(authOpts))
 		r.Use(srv.injectDefaultStreamUserMiddleware())
+		r.Use(srv.apiV1.RemoteNodeStreamAuthorization)
 
 		r.Get("/stream", multiplexHandler.HandleStream)
 		r.Post("/stream/topics", multiplexHandler.HandleTopicMutation)
@@ -1458,11 +1480,13 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	switch event.Type {
 	case sse.AppEventTypeDAGChanged:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
 	case sse.AppEventTypeScheduler:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	case sse.AppEventTypeQueue:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 		if event.QueueName != "" {
@@ -1486,6 +1510,7 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }
 
@@ -1551,8 +1576,14 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	// are merged into at most one refetch per interval.
 	registrar.SetMinInterval(sse.TopicTypeDAGRunActivity, dagRunActivityMinInterval)
 	registrar.SetMaxInterval(sse.TopicTypeDAGRunActivity, dagRunActivityMaxInterval)
+	registrar.SetMaxInterval(sse.TopicTypeDAGRuns, dagRunsMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
+	registrar.RegisterFetcher(sse.TopicTypeServiceDAGs, srv.apiV1.GetServiceDAGsData)
+	// A service DAG restarts all the time, and a refetch reads the latest run
+	// of every service DAG, so bursts of run events are merged into one refetch.
+	registrar.SetMinInterval(sse.TopicTypeServiceDAGs, serviceDAGsMinInterval)
+	registrar.SetMaxInterval(sse.TopicTypeServiceDAGs, serviceDAGsMaxInterval)
 	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {
 		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageContentData)
 	}
@@ -1590,6 +1621,9 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			// suspension, and scheduler state changes.
 			registrar.SetRefreshMode(sse.TopicTypeDAG, sse.TopicRefreshModeOnDemand)
 			registrar.SetMaxInterval(sse.TopicTypeDAG, dagDetailsMaxInterval)
+			// DAG changes, such as a suspension, reach this topic through the
+			// app stream. A wake that leaves the list unchanged sends nothing.
+			registrar.SetRefreshMode(sse.TopicTypeServiceDAGs, sse.TopicRefreshModeOnDemand)
 		}
 		registrar.SetPublishOnWake(sse.TopicTypeDAGRuns, true)
 		registrar.SetPublishOnWake(sse.TopicTypeQueues, true)

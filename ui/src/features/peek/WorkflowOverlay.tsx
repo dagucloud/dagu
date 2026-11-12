@@ -12,6 +12,11 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate, type Location } from 'react-router-dom';
+import {
+  LeaveGuardHostProvider,
+  type LeaveGuard,
+  type LeaveGuardHost,
+} from '@/contexts/LeaveGuardHostContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { peekPageURL, samePeekTarget, type PeekTarget } from './peekParams';
 
@@ -40,6 +45,8 @@ export interface WorkflowOverlay {
   canStep(delta: -1 | 1): boolean;
   /** Shows the row before or after the shown one in place of it. */
   step(delta: -1 | 1): void;
+  /** The rows before and after the shown one, which a step can show. */
+  neighbours: readonly PeekTarget[];
   /** The row that the overlay shows; null while it is closed. */
   target: PeekTarget | null;
   /**
@@ -138,32 +145,58 @@ export function WorkflowOverlayProvider({
     [navigate, remoteNode]
   );
 
+  // The workflow page asks before close or a step takes it away, while it
+  // still shows: a question after the navigation would show the page below
+  // for a moment.
+  const leaveGuard = useRef<LeaveGuard | null>(null);
+  const guardHost = useMemo<LeaveGuardHost>(
+    () => ({
+      register: (guard) => {
+        leaveGuard.current = guard;
+        return () => {
+          if (leaveGuard.current === guard) leaveGuard.current = null;
+        };
+      },
+    }),
+    []
+  );
+  const leave = useCallback((next: () => void) => {
+    const guard = leaveGuard.current;
+    if (guard) guard(next);
+    else next();
+  }, []);
+
   // A step replaces the entry of the shown row, so that close and Back
   // still go to the page below.
   const step = useCallback(
-    (delta: -1 | 1) => {
-      const current = openedRef.current;
-      if (!current) return;
-      const rows = sequenceRef.current;
-      const at = rows.findIndex((row) => samePeekTarget(row, current.target));
-      const next = at === -1 ? undefined : rows[at + delta];
-      if (!next) return;
-      setOpened({ ...current, target: next });
-      navigate(peekPageURL(next, remoteNode), { replace: true });
-    },
-    [navigate, remoteNode]
+    (delta: -1 | 1) =>
+      leave(() => {
+        const current = openedRef.current;
+        if (!current) return;
+        const rows = sequenceRef.current;
+        const at = rows.findIndex((row) => samePeekTarget(row, current.target));
+        const next = at === -1 ? undefined : rows[at + delta];
+        if (!next) return;
+        setOpened({ ...current, target: next });
+        navigate(peekPageURL(next, remoteNode), { replace: true });
+      }),
+    [leave, navigate, remoteNode]
   );
 
-  const close = useCallback(() => {
-    const current = openedRef.current;
-    if (!current) return;
-    const now = historyIndex();
-    if (current.index !== null && now !== null && now > current.index) {
-      navigate(current.index - now);
-      return;
-    }
-    navigate(current.background);
-  }, [navigate]);
+  const close = useCallback(
+    () =>
+      leave(() => {
+        const current = openedRef.current;
+        if (!current) return;
+        const now = historyIndex();
+        if (current.index !== null && now !== null && now > current.index) {
+          navigate(current.index - now);
+          return;
+        }
+        navigate(current.background);
+      }),
+    [leave, navigate]
+  );
 
   const expand = useCallback(() => setOpened(null), []);
 
@@ -182,6 +215,12 @@ export function WorkflowOverlayProvider({
       setSequence,
       canStep: (delta) => at !== -1 && sequence[at + delta] !== undefined,
       step,
+      neighbours:
+        at === -1
+          ? []
+          : [sequence[at - 1], sequence[at + 1]].filter(
+              (row): row is PeekTarget => row !== undefined
+            ),
       target: isOpen && opened ? opened.target : null,
       shown: isOpen && opened ? opened.target : lastShown,
     }),
@@ -200,7 +239,9 @@ export function WorkflowOverlayProvider({
   );
   return (
     <WorkflowOverlayContext.Provider value={value}>
-      {children}
+      <LeaveGuardHostProvider value={guardHost}>
+        {children}
+      </LeaveGuardHostProvider>
     </WorkflowOverlayContext.Provider>
   );
 }

@@ -94,6 +94,32 @@ function DirtyFlag() {
   return null;
 }
 
+/** An editor with unsaved edits that offers its save, as DAGSpec does. */
+function DirtyEditor({ save }: { save: () => Promise<boolean> }) {
+  const { setHasUnsavedChanges, registerSave } = useUnsavedChanges();
+  useEffect(() => setHasUnsavedChanges(true), [setHasUnsavedChanges]);
+  useEffect(
+    () =>
+      registerSave(async () => {
+        const saved = await save();
+        if (saved) setHasUnsavedChanges(false);
+        return saved;
+      }),
+    [registerSave, save, setHasUnsavedChanges]
+  );
+  return null;
+}
+
+function renderWithEditor(save: () => Promise<boolean>) {
+  return render(
+    <Workspace>
+      <DirtyEditor save={save} />
+      <RunSplitButton fileName={FILE} dag={dag} workspaceName={null} />
+      <OtherZone />
+    </Workspace>
+  );
+}
+
 function Workspace({
   children,
   dagContext,
@@ -244,10 +270,90 @@ describe('RunStartContext', () => {
     );
 
     guard = await requestFromOtherZone();
+    // Without an editor that can save, the guard offers no save.
+    expect(
+      within(guard).queryByRole('button', { name: 'Save & Run' })
+    ).toBeNull();
     fireEvent.click(within(guard).getByRole('button', { name: 'Run anyway' }));
     expect(
       await screen.findByRole('heading', { name: 'Start workflow' })
     ).toBeInTheDocument();
+  });
+
+  it('saves the edits, then opens the dialog of the saved version', async () => {
+    const save = vi.fn(async () => {
+      serveDag({ defaultParams: 'REGION=eu' });
+      return true;
+    });
+    renderWithEditor(save);
+
+    const guard = await requestFromOtherZone();
+    // The last saved version stays a choice.
+    expect(
+      within(guard).getByRole('button', { name: 'Run anyway' })
+    ).toBeInTheDocument();
+    fireEvent.click(within(guard).getByRole('button', { name: 'Save & Run' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Start workflow' })
+    ).toBeInTheDocument();
+    expect(save).toHaveBeenCalledOnce();
+    // The details of the DAG are read after the save, not before it.
+    expect(h.client.GET.mock.invocationCallOrder[0]).toBeGreaterThan(
+      save.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('saves from the guard of the Start button', async () => {
+    const save = vi.fn(async () => true);
+    renderWithEditor(save);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Save & Run',
+      })
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Start workflow' })
+    ).toBeInTheDocument();
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it('starts nothing when the save fails', async () => {
+    const save = vi.fn(async () => false);
+    renderWithEditor(save);
+
+    const guard = await requestFromOtherZone();
+    fireEvent.click(within(guard).getByRole('button', { name: 'Save & Run' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(save).toHaveBeenCalledOnce();
+    expect(h.client.GET).not.toHaveBeenCalledWith(
+      '/dags/{fileName}',
+      expect.anything()
+    );
+  });
+
+  it('saves and starts from the run menu, without the guard', async () => {
+    const save = vi.fn(async () => true);
+    renderWithEditor(save);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'More run options' })
+    );
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Save & Run' })
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Start workflow' })
+    ).toBeInTheDocument();
+    expect(save).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole('heading', { name: 'Unsaved Changes' })
+    ).toBeNull();
   });
 
   it('cannot start without runDags', () => {
@@ -313,6 +419,9 @@ describe('RunStartContext', () => {
       name: 'Run ID (optional)',
     });
     fireEvent.change(runId, { target: { value: 'my-run' } });
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Enqueue' })
+    );
     runId.focus();
     fireEvent.keyDown(document, { key: 'Enter' });
 
@@ -334,13 +443,13 @@ describe('RunStartContext', () => {
   });
 
   // parity:start-modal-enqueue
-  it('enqueues the run when Enqueue is checked', async () => {
+  it('enqueues the run by default', async () => {
     renderWorkspace();
 
     const dialog = await requestFromOtherZone();
-    await userEvent.click(
+    expect(
       await within(dialog).findByRole('checkbox', { name: 'Enqueue' })
-    );
+    ).toBeChecked();
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Enqueue' })
     );
@@ -366,11 +475,11 @@ describe('RunStartContext', () => {
       })
     );
     await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Start' })
+      within(dialog).getByRole('button', { name: 'Enqueue' })
     );
 
     await waitFor(() =>
-      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/start', {
+      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/enqueue', {
         params: { path: { fileName: FILE }, query: { remoteNode: 'local' } },
         body: { params: '', noReuse: true },
       })
@@ -401,7 +510,7 @@ describe('RunStartContext', () => {
 
     const dialog = await requestFromOtherZone();
     const region = await within(dialog).findByLabelText(/region/i);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Enqueue' }));
     expect(
       await within(dialog).findByText(
         'Fix the highlighted parameter errors before submitting.'
@@ -410,9 +519,9 @@ describe('RunStartContext', () => {
     expect(h.client.POST).not.toHaveBeenCalled();
 
     fireEvent.change(region, { target: { value: 'eu' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Enqueue' }));
     await waitFor(() =>
-      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/start', {
+      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/enqueue', {
         params: { path: { fileName: FILE }, query: { remoteNode: 'local' } },
         body: { params: '[{"region":"eu"}]' },
       })

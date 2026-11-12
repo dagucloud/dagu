@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { useEffect, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { SWRConfig } from 'swr';
@@ -102,6 +101,12 @@ vi.mock('@/features/dags/components/artifacts/ArtifactsTab', async () => ({
 vi.mock('@/features/dags/components/human-task/HumanTasksTab', async () => ({
   HumanTasksTab: (await import('./leafStubs')).leaf('humanTasks'),
 }));
+vi.mock(
+  '@/features/dags/components/human-task/HumanTaskResumeAlert',
+  async () => ({
+    HumanTaskResumeAlert: (await import('./leafStubs')).leaf('taskResume'),
+  })
+);
 vi.mock('@/features/dags/components/approval/ApprovalTab', async () => ({
   ApprovalTab: (await import('./leafStubs')).leaf('approval'),
 }));
@@ -260,18 +265,6 @@ function tabNames(): string[] {
   return screen
     .getAllByRole('tab')
     .map((tab) => tab.getAttribute('aria-label') ?? tab.textContent ?? '');
-}
-
-/** The names of the tabs in the More menu of the strip; it closes again. */
-async function moreTabNames(): Promise<string[]> {
-  const more = screen.queryByTestId('ww-dock-more-tabs');
-  if (!more) return [];
-  await userEvent.click(more);
-  const names = (await screen.findAllByRole('menuitem')).map(
-    (item) => item.textContent ?? ''
-  );
-  await userEvent.keyboard('{Escape}');
-  return names;
 }
 
 function setLatest(
@@ -646,6 +639,43 @@ describe('dock tab bodies', () => {
       });
 
       expect(h.refreshDag).toHaveBeenCalledTimes(1);
+    });
+
+    // A failed resume of human tasks may leave no task waiting: the task step
+    // shows the retry instead of saying that it needs nothing.
+    it('shows the retry of a failed resume on the task step', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [node('review', NodeStatus.Success, { step: { humanTask: {} } })],
+          Status.Waiting,
+          { humanTaskResumePending: true }
+        )
+      );
+      await renderBody('actions', `/dags/${FILE_NAME}`, 'review');
+
+      expect(screen.getByTestId('leaf-taskResume')).toBeInTheDocument();
+      expect(
+        screen.queryByText('This step needs no action.')
+      ).not.toBeInTheDocument();
+    });
+
+    // A resume can be pending for an unblocked branch while a task of this
+    // step still waits: the step keeps one form for that task, beside the
+    // retry, and no second list of the tasks of the run.
+    it('keeps one form of a waiting task beside a failed resume', async () => {
+      setLatest(
+        run(
+          'run-1',
+          [node('review', NodeStatus.Waiting, { step: { humanTask: {} } })],
+          Status.Waiting,
+          { humanTaskResumePending: true }
+        )
+      );
+      await renderBody('actions', `/dags/${FILE_NAME}`, 'review');
+
+      expect(screen.getByTestId('leaf-taskResume')).toBeInTheDocument();
+      expect(screen.getAllByTestId('leaf-humanTasks')).toHaveLength(1);
     });
 
     it('shows only the parts that wait', async () => {
@@ -1485,8 +1515,7 @@ describe('dock tab visibility', () => {
     renderDock();
     await screen.findByRole('tab', { name: 'Outputs' });
 
-    // A rarely used tab: in the More menu of the strip.
-    expect((await moreTabNames()).includes('Artifacts')).toBe(shown);
+    expect(tabNames().includes('Artifacts')).toBe(shown);
   });
 
   it('shows the empty state with no request for a workflow that never ran', () => {

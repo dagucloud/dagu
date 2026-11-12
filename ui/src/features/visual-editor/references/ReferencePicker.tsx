@@ -17,6 +17,8 @@ import {
   filterReferenceCandidates,
   REFERENCE_GROUP_LABELS,
   REFERENCE_GROUP_ORDER,
+  SHELL_RISK_LABEL,
+  SHELL_RISK_NOTE,
 } from './candidates';
 
 export interface ReferencePickerHandle {
@@ -32,6 +34,12 @@ export interface ReferencePickerProps {
   showSearch?: boolean;
   /** Filter text from the host, for use without a search box. */
   query?: string;
+  /** No option is active until an arrow key moves to one: Enter stays with the host. */
+  idle?: boolean;
+  /** What to say when the host has no candidates. */
+  emptyMessage?: string;
+  /** The side of the wrapper that the panel lines up with. */
+  align?: 'start' | 'end';
   onPick(candidate: ReferenceCandidate): void;
   onClose(): void;
   /** Id of the active option, or undefined when the list is empty. */
@@ -57,15 +65,20 @@ export function ReferencePicker({
   candidates,
   showSearch,
   query,
+  idle = false,
+  emptyMessage,
+  align = 'start',
   onPick,
   onClose,
   onActiveChange,
   ref,
 }: ReferencePickerProps): ReactElement {
   const { ts } = useI18n();
+  const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const startIndex = idle ? -1 : 0;
+  const [activeIndex, setActiveIndex] = useState(startIndex);
   const [search, setSearch] = useState('');
 
   const filter = showSearch ? search : (query ?? '');
@@ -78,11 +91,11 @@ export function ReferencePicker({
   const optionId = (index: number) => `${id}-opt-${index}`;
   const activeId = active >= 0 ? optionId(active) : undefined;
 
-  // Start at the first option each time the filter changes the list.
+  // Start over each time the filter changes the list.
   const listKey = items.map((c) => c.token).join('\n');
   useEffect(() => {
-    setActiveIndex(0);
-  }, [listKey]);
+    setActiveIndex(startIndex);
+  }, [listKey, startIndex]);
 
   useEffect(() => {
     if (showSearch) searchRef.current?.focus();
@@ -91,6 +104,11 @@ export function ReferencePicker({
   useEffect(() => {
     onActiveChange?.(activeId);
   }, [activeId, onActiveChange]);
+
+  // A panel that opens near the end of a form moves the form just enough.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
 
   useEffect(() => {
     if (active < 0) return;
@@ -106,7 +124,7 @@ export function ReferencePicker({
         if (count > 0) setActiveIndex((active + 1) % count);
         return count > 0;
       case 'ArrowUp':
-        if (count > 0) setActiveIndex((active - 1 + count) % count);
+        if (count > 0) setActiveIndex(active > 0 ? active - 1 : count - 1);
         return count > 0;
       case 'Enter':
         if (!items[active]) return false;
@@ -123,7 +141,11 @@ export function ReferencePicker({
 
   return (
     <div
-      className="absolute left-0 top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      ref={panelRef}
+      className={cn(
+        'absolute top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+        align === 'end' ? 'right-0' : 'left-0'
+      )}
       // Keep the focus where it is: a click inside must not blur the input.
       onMouseDown={(e) => {
         if (e.target !== searchRef.current) e.preventDefault();
@@ -192,15 +214,28 @@ export function ReferencePicker({
                           {c.detail}
                         </span>
                       ) : null}
-                      {c.known === 'runtime' ? (
+                      {c.shellRisk ? (
+                        <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] font-medium text-warning">
+                          {ts(SHELL_RISK_LABEL)}
+                        </span>
+                      ) : c.publish || c.known === 'runtime' ? (
                         <span className="ml-auto shrink-0 rounded-sm bg-warning/10 px-1 text-[10px] text-warning">
-                          {ts('Known after run')}
+                          {ts(
+                            c.publish
+                              ? 'Published when chosen'
+                              : 'Known after run'
+                          )}
                         </span>
                       ) : null}
                     </div>
                     <div className="truncate font-mono text-[10px] text-muted-foreground">
                       {c.token}
                     </div>
+                    {c.shellRisk ? (
+                      <div className="text-[10px] text-warning">
+                        {ts(SHELL_RISK_NOTE)}
+                      </div>
+                    ) : null}
                   </div>
                 )
               )}
@@ -210,9 +245,9 @@ export function ReferencePicker({
       </div>
       {items.length === 0 ? (
         <div role="status" className="px-2 py-2 text-xs text-muted-foreground">
-          {candidates.length === 0
-            ? ts('No references available')
-            : ts('No matching references')}
+          {candidates.length > 0
+            ? ts('No matching references')
+            : (emptyMessage ?? ts('No references available'))}
         </div>
       ) : null}
     </div>

@@ -75,7 +75,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
           remoteNode,
           tab: isStepLog ? 'log' : 'dagRun-log',
           rootDAGRunId: subRun ? dagRun?.rootDAGRunId : dagRunId,
-          rootDAGRunName: subRun ? dagRun?.rootDAGRunName : undefined,
+          rootDAGRunName: subRun ? dagRun?.rootDAGRunName : dagName,
           subDAGRunId: subRun ? dagRun?.dagRunId : undefined,
           step: isStepLog ? stepName : undefined,
           stream:

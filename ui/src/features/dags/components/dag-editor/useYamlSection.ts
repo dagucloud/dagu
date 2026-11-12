@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePanelColumn } from '@/features/dags/components/step-details/PanelShell';
 import type { NdvScope } from './NodeDetailsFrame';
 
 /** The state of the host: the URL flag `ndv` of the workspace. */
@@ -75,6 +76,9 @@ export function useYamlSection(host?: YamlSectionHost): YamlSection {
   const hostState = host?.state ?? null;
   const hostActive = host?.active ?? true;
   const lastStateRef = useRef(hostState);
+  // A host with a right column decides when its YAML tab shows the file:
+  // the section follows it and never opens a step instead.
+  const inColumn = usePanelColumn() !== null;
   useEffect(() => {
     const opensStep =
       hostState === 'expanded' && lastStateRef.current !== 'expanded';
@@ -82,11 +86,15 @@ export function useYamlSection(host?: YamlSectionHost): YamlSection {
     else if (lastStateRef.current === 'docked') yamlUnderViewRef.current = true;
     lastStateRef.current = hostState;
     if (hostState === null || !onStateChange) return;
+    if (inColumn && hostState === 'docked') {
+      setYamlKind('file');
+      return;
+    }
     const wanted = yamlKind === 'file' ? 'docked' : 'expanded';
     if (hostState === wanted) return;
     if (hostActive && !opensStep) onStateChange(wanted);
     else setYamlKind(hostState === 'docked' ? 'file' : 'step');
-  }, [hostState, onStateChange, hostActive, yamlKind]);
+  }, [hostState, onStateChange, hostActive, yamlKind, inColumn]);
 
   return { yamlKind, setYamlKind, sectionOpen, setSectionOpen };
 }

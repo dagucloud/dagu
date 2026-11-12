@@ -105,7 +105,8 @@ once, in the order named, before any request.
 A text file (`.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.jsonl`, `.yaml`,
 `.yml`, `.xml`, `.html`, `.htm`, `.log`), a Word document (`.docx`) and an
 Excel workbook (`.xlsx`, `.xlsm`) are given as text, a paragraph or row a
-line; a text file in Shift_JIS is decoded. A PDF is given page by page,
+line; a text file in Shift_JIS is decoded, and one that is neither UTF-8
+nor Shift_JIS fails as `the text file could not be read`. A PDF is given page by page,
 and a page without text of its own, such as a scan, is rendered to an
 image. An image file (PNG, JPEG, GIF, WebP) is given as an image, scaled
 down to a long edge of 1568 pixels when larger. Files of other kinds, a
@@ -117,12 +118,21 @@ The text goes ahead of the step's last user message, each file in a
 lines; the images go with that message, in the order they are named, and
 the text names each by its place: `[Image 1 is receipt.png.]`, or
 `--- page 2: image 1 ---` for a scanned page. Together the files may hold
-up to 1,000,000 characters of text and 50 images.
+up to `with.max_file_chars` characters of text, 1,000,000 by default, and
+50 images. `max_file_chars` is a positive integer; set it to what the
+model's context window holds, as 1,000,000 characters is about 250K
+tokens of English but 500K or more of Japanese. More text than that fails
+the step before any request, naming both counts and `max_file_chars`.
+
+When a provider refuses the request for its length, the step fails with
+the provider's error followed by `; the files held N characters of text`,
+so the work can be split across steps. The step does not retry such a
+refusal.
 
 The session keeps the text, so a later step of the session still reads it;
 the images go with the one request and are not kept. A push-back resends
-the feedback without the files. `files` is refused in a DAG-level `llm`
-block, since it belongs with the prompt it goes with.
+the feedback without the files. `files` and `max_file_chars` are refused in
+a DAG-level `llm` block, since they belong with the prompt they go with.
 
 ## Errors
 

@@ -4,6 +4,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MonacoField } from '../MonacoField';
+import { completionProviders } from './monacoMock';
+import { candidatesSample } from './referenceHarness';
 
 vi.mock(
   '@monaco-editor/react',
@@ -33,6 +35,33 @@ async function setup(readOnly = false) {
 }
 
 describe('MonacoField', () => {
+  it('completes references while the editor lives, given candidates', async () => {
+    completionProviders.length = 0;
+    const { unmount } = render(
+      <MonacoField
+        value=""
+        language="shell"
+        readOnly={false}
+        ariaLabel="Script"
+        candidates={candidatesSample}
+      />
+    );
+    await screen.findByTestId('monaco');
+    expect(completionProviders).toEqual([
+      { language: 'shell', disposed: false },
+    ]);
+    unmount();
+    expect(completionProviders).toEqual([
+      { language: 'shell', disposed: true },
+    ]);
+  });
+
+  it('completes no references without candidates', async () => {
+    completionProviders.length = 0;
+    await setup();
+    expect(completionProviders).toEqual([]);
+  });
+
   it('reports each change and commits on blur', async () => {
     const { editor, onChange, onCommit } = await setup();
     fireEvent.change(editor, { target: { value: 'echo b' } });

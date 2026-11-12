@@ -17,6 +17,7 @@ const STEP_TITLES: Record<GettingStartedStep['id'], string> = {
   create: 'Create your own workflow',
   schedule: 'Put a workflow on a schedule',
   alert: 'Get alerted when something fails',
+  ai: 'Connect an AI app',
 };
 
 function stepDetail(step: GettingStartedStep): string {
@@ -33,6 +34,8 @@ function stepDetail(step: GettingStartedStep): string {
       return step.canConnect
         ? 'Get an email from Dagu Console when a workflow fails or this server stops, or send failures to a notification channel.'
         : 'Send failures to Slack, email, or a webhook.';
+    case 'ai':
+      return 'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.';
   }
 }
 
@@ -71,6 +74,23 @@ function StepActions({ step }: { step: GettingStartedStep }) {
               <Link to="/notification-channels">
                 {ts('Add a notification channel')}
               </Link>
+            </Button>
+          )}
+        </>
+      );
+    case 'ai':
+      return (
+        <>
+          {step.canUseCloud && (
+            <Button asChild variant="outline">
+              <Link to="/settings#remote-access">
+                {ts('Use from Claude or ChatGPT')}
+              </Link>
+            </Button>
+          )}
+          {step.canCreateKey && (
+            <Button asChild variant="outline">
+              <Link to="/api-keys">{ts('Set up a coding agent')}</Link>
             </Button>
           )}
         </>

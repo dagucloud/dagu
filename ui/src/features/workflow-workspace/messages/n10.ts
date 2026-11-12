@@ -8,6 +8,7 @@ export default defineMessages({
     'The run in the link was not found. The latest run is shown.':
       'The run in the link was not found. The latest run is shown.',
     'Approval saved; resume failed.': 'Approval saved; resume failed.',
+    'Tasks saved; resume failed.': 'Tasks saved; resume failed.',
     'Open actions': 'Open actions',
     'An action is waiting.': 'An action is waiting.',
     '{count} actions are waiting.': '{count} actions are waiting.',
@@ -21,6 +22,7 @@ export default defineMessages({
     'The run in the link was not found. The latest run is shown.':
       '未找到链接中的运行。当前显示最新的运行。',
     'Approval saved; resume failed.': '审批已保存，但恢复运行失败。',
+    'Tasks saved; resume failed.': '任务已保存，但恢复运行失败。',
     'Open actions': '打开操作',
     'An action is waiting.': '有一个操作正在等待。',
     '{count} actions are waiting.': '有 {count} 个操作正在等待。',
@@ -34,6 +36,8 @@ export default defineMessages({
       'リンクの実行が見つかりませんでした。最新の実行を表示しています。',
     'Approval saved; resume failed.':
       '承認は保存されましたが、再開に失敗しました。',
+    'Tasks saved; resume failed.':
+      'タスクは保存されましたが、再開に失敗しました。',
     'Open actions': 'アクションを開く',
     'An action is waiting.': 'アクションが 1 件待機しています。',
     '{count} actions are waiting.': 'アクションが {count} 件待機しています。',

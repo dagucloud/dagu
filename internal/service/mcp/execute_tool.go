@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -50,6 +51,8 @@ const (
 	executeFieldQueue              = "queue"
 	executeFieldSingleton          = "singleton"
 	executeFieldNoReuse            = "noReuse"
+	executeFieldScheduleTime       = "scheduleTime"
+	executeFieldProfile            = "profile"
 	executeFieldLabels             = "labels"
 	executeFieldStepName           = "stepName"
 	executeFieldIncludeDownstream  = "includeDownstream"
@@ -74,6 +77,8 @@ type executeInput struct {
 	Queue              string
 	Singleton          bool
 	NoReuse            bool
+	ScheduleTime       string
+	Profile            string
 	Labels             []string
 	StepName           string
 	IncludeDownstream  bool
@@ -128,6 +133,14 @@ func executeToolInputSchema() json.RawMessage {
 			"noReuse": {
 				"type": "boolean",
 				"description": "Execute eligible build steps without reusing prior materializations for start or enqueue."
+			},
+			"scheduleTime": {
+				"type": "string",
+				"description": "Schedule slot to start or enqueue the DAG for: latest, a date (2006-01-02), a time in the schedule's zone (2006-01-02T15:04), or RFC 3339 with an offset. The run gets that slot's schedule time and window. A slot later than now is rejected. Only for targetType dag."
+			},
+			"profile": {
+				"type": "string",
+				"description": "Runtime profile name for start or enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile."
 			},
 			"labels": {
 				"type": "array",
@@ -221,14 +234,15 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 
 	var (
 		dagRunID string
+		warnings []string
 		err      error
 	)
 
 	switch input.Action {
 	case executeActionStart:
-		dagRunID, err = svc.startDAG(ctx, input.TargetType, input)
+		dagRunID, warnings, err = svc.startDAG(ctx, input.TargetType, input)
 	case executeActionEnqueue:
-		dagRunID, err = svc.enqueueDAG(ctx, input.TargetType, input)
+		dagRunID, warnings, err = svc.enqueueDAG(ctx, input.TargetType, input)
 	case executeActionRetry:
 		err = svc.retryDAGRun(ctx, input)
 		dagRunID = input.DAGRunID
@@ -251,6 +265,9 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 		"dagName":    input.Name,
 		"dagRunId":   dagRunID,
 		"references": defaultReferenceURIs(),
+	}
+	if len(warnings) > 0 {
+		output["warnings"] = warnings
 	}
 	links := []resourceLink{}
 	message := "Dagu execute action completed."
@@ -314,8 +331,9 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 
 	output["completed"] = false
 	for {
-		raw, err := svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+dagRunID)
+		result, err := svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, dagRunID, "")
 		if err == nil {
+			raw := result.Details
 			run, detailsErr := dagRunDetailsFromResponse(raw)
 			if detailsErr != nil {
 				output["waitError"] = detailsErr.Error()
@@ -334,6 +352,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
+				maps.Copy(details, runOutputFields(result, run))
 				output["completed"] = terminal
 				output["run"] = details
 				if waiting {
@@ -429,6 +448,10 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 			input.Singleton, parseErr = executeBoolField(field, value)
 		case executeFieldNoReuse:
 			input.NoReuse, parseErr = executeBoolField(field, value)
+		case executeFieldScheduleTime:
+			input.ScheduleTime, parseErr = executeStringField(field, value)
+		case executeFieldProfile:
+			input.Profile, parseErr = executeStringField(field, value)
 		case executeFieldLabels:
 			if err := json.Unmarshal(value, &input.Labels); err != nil {
 				parseErr = executeInputError("Field labels must be an array of strings.", executeFieldLabels)
@@ -570,9 +593,16 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 			return executeInputError("The singleton field is only valid for start and enqueue.", executeFieldSingleton)
 		case provided[executeFieldNoReuse]:
 			return executeInputError("The noReuse field is only valid for start and enqueue.", executeFieldNoReuse)
+		case provided[executeFieldScheduleTime]:
+			return executeInputError("The scheduleTime field is only valid for start and enqueue.", executeFieldScheduleTime)
+		case input.Profile != "":
+			return executeInputError("The profile field is only valid for start and enqueue.", executeFieldProfile)
 		case provided[executeFieldLabels]:
 			return executeInputError("The labels field is only valid for start and enqueue.", executeFieldLabels)
 		}
+	}
+	if launchAction && provided[executeFieldScheduleTime] && input.TargetType != executeTargetTypeDAG {
+		return executeInputError("The scheduleTime field is only valid for targetType dag.", executeFieldScheduleTime)
 	}
 	if input.Action != executeActionRetry {
 		if input.StepName != "" && !decision {

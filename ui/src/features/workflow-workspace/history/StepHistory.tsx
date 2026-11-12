@@ -13,6 +13,7 @@ import { ELAPSED_SLOT, useStepElapsed } from '@/hooks/useStepElapsed';
 import { shortRunId } from '@/lib/shortRunId';
 import { readableToneText } from '@/lib/statusPalette';
 import { cn, FOCUS_RING } from '@/lib/utils';
+import type { OlderRuns } from '../data/useOlderRuns';
 import { useDockHidden } from '../dock/FreezeWhenHidden';
 import { propsEqual } from '../dock/propsEqual';
 import {
@@ -27,6 +28,7 @@ import {
   entryLabel,
   entryStateText,
 } from './entryLook';
+import { OlderRunsStatus, OlderRunsTrigger } from './OlderRuns';
 import {
   isFailedEntry,
   summarizeStepHistory,
@@ -58,6 +60,8 @@ export interface StepHistoryProps {
   onLog?(runId: string): void;
   /** Opens the Continuous tab; absent where the host has none. */
   onContinuous?(): void;
+  /** The older runs that the list reads at its end. */
+  older?: OlderRuns;
 }
 
 /** The success rate, the usual time and the current failure streak. */
@@ -424,9 +428,9 @@ const HistoryRow = memo(function HistoryRow({
 
 /**
  * The runs of one step: how often it succeeds, how long it usually takes and
- * since when it fails; a bar for each run of the run timeline; and the runs,
- * newest first, with all of them or the failures only. A pick selects the
- * run and keeps the step.
+ * since when it fails; a bar for each run; and the runs, newest first, with
+ * all of them or the failures only. The list reads older runs when its end
+ * comes into view. A pick selects the run and keeps the step.
  */
 export function StepHistory({
   step,
@@ -437,8 +441,10 @@ export function StepHistory({
   onPick,
   onLog,
   onContinuous,
+  older,
 }: StepHistoryProps) {
   const { ts } = useI18n();
+  const listRef = useRef<HTMLUListElement>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const summary = useMemo(() => summarizeStepHistory(entries), [entries]);
   const newestFirst = useMemo(() => [...entries].reverse(), [entries]);
@@ -515,6 +521,7 @@ export function StepHistory({
         </p>
       ) : (
         <ul
+          ref={listRef}
           aria-label={ts('Runs of {step}', { step })}
           className="min-h-0 flex-1 overflow-auto pb-1"
         >
@@ -527,6 +534,12 @@ export function StepHistory({
               onLog={onLog}
             />
           ))}
+          {older && (
+            <li className="flex items-center px-3 py-1">
+              <OlderRunsTrigger older={older} root={listRef} edge="bottom" />
+              <OlderRunsStatus older={older} />
+            </li>
+          )}
         </ul>
       )}
     </section>

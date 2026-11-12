@@ -99,12 +99,17 @@ ${context.dag.name}
 ${context.run.id}
 ${context.run.status}
 ${context.run.scheduled_at}
+${context.run.interval_start}
+${context.run.interval_end}
+${context.run.next_scheduled_at}
+${context.run.timezone}
 ${context.run.root_name}
 ${context.run.root_id}
 ${context.attempt.id}
 ${context.attempt.started_at}
 ${context.step.id}
 ${context.step.name}
+${context.step.repeat_index}
 ${context.trigger.type}
 ${context.trigger.actor}
 ${context.paths.log_file}
@@ -175,7 +180,11 @@ workflow-language specs and makes the trust boundary explicit:
 | --- | --- | --- |
 | `context.run.id` | All run, step, and handler scopes | Unique identifier for the current DAG run. |
 | `context.run.status` | Status-aware scopes only | Canonical lowercase run status. |
-| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs only | UTC RFC3339 timestamp for the logical schedule time that caused the run. |
+| `context.run.scheduled_at` | Scheduled, catchup, and one-off scheduled runs, manual runs started for a slot, reruns of a run with a slot, and sub-DAG runs of a run with a slot | UTC RFC3339 timestamp for the logical schedule time of the run's slot. |
+| `context.run.interval_start` | Runs with a schedule time whose DAG has a recurring start schedule, and sub-DAG runs that inherit a window | UTC RFC3339 timestamp of the latest fire of the active start schedules strictly before `scheduled_at`; for a sub-DAG run, its parent's value. |
+| `context.run.interval_end` | Runs with a schedule time | The same instant as `context.run.scheduled_at`. |
+| `context.run.next_scheduled_at` | Runs with a schedule time whose DAG has a recurring start schedule, and sub-DAG runs that inherit a window | UTC RFC3339 timestamp of the earliest fire of the active start schedules strictly after `scheduled_at`; for a sub-DAG run, its parent's value. |
+| `context.run.timezone` | Runs with a schedule time | IANA name of the zone the slot's schedule is evaluated in, or `UTC±HH:MM` when the zone has no name; for a sub-DAG run, its parent's value. |
 | `context.run.root_name` | Sub-DAG runs only | DAG name of the root DAG run. |
 | `context.run.root_id` | Sub-DAG runs only | DAG-run ID of the root DAG run. |
 
@@ -185,6 +194,38 @@ Rules:
 - `context.run.scheduled_at` is not a unique run identifier. Scheduled, catchup, and
   retry behavior may create multiple runs associated with one logical schedule
   time. Workflow authors must use `context.run.id` when they need identity.
+- A run computes its window from its own DAG's schedules. A sub-DAG run
+  does not; it inherits its parent's window, whatever its own schedules.
+- The window `[interval_start, interval_end)` is derived from the schedule,
+  not from run history. The active start schedules are the recurring start
+  schedules with no `profile` or with the run's profile; one-off `at`
+  schedules never bound a window, and a fire dropped by a business calendar
+  is not a fire.
+- The window and timezone are computed when the run with a schedule time is
+  created and recorded on the run. Retries keep them after the schedule is
+  edited.
+- The slot belongs to the first active schedule that fires at
+  `scheduled_at`, else to the schedule of the previous fire. Its timezone is
+  that schedule's `CRON_TZ` or `TZ` zone, else the server zone. `@every`
+  schedules use `UTC`. A DAG with no recurring start schedule uses the server
+  zone.
+- A manual run started with `dagu start`, `dagu enqueue`, or `dagu restart`
+  and `--scheduled-at` gets the schedule time and window of the slot it
+  names, as the scheduler's run of that slot does. Its trigger type stays
+  `manual`. `--scheduled-at` takes `latest`, a date, a time without an offset
+  read in the schedule's zone, or an RFC 3339 time with an offset. A slot
+  later than now is rejected; `dagu dry` accepts one. A time that no schedule
+  fires is accepted with a warning that names the nearest fire times.
+- A sub-DAG run, started by `dag.run` or `dag.enqueue`, takes the schedule
+  time, window, and timezone of a parent run that has a slot. A sub-DAG of a
+  parent with no slot has none.
+- `dagu restart`, `dagu start --from-run-id`, and the reschedule action start
+  the new run for the historic run's slot, with its recorded window, unless
+  a slot is named. A reschedule from the current DAG file keeps the slot and
+  computes its window from the current schedule.
+- The scheduler reads a manual run by when it ran, not by its slot, so a
+  manual run of a slot does not suppress or settle that slot's scheduled
+  fire.
 - `context.run.status` is available in lifecycle handlers and other explicitly
   status-aware surfaces. It is unavailable in normal step execution unless an
   owning spec explicitly makes that surface status-aware.
@@ -212,6 +253,7 @@ Rules:
 | --- | --- | --- |
 | `context.step.id` | Current executable step only, when that step has an id | Stable value-reference alias from Spec 009. |
 | `context.step.name` | Current step or handler only | Runtime step identity for the current step or handler. |
+| `context.step.repeat_index` | Current step with `repeat_policy` only | Zero-based index of the current execution as a decimal string. |
 
 Rules:
 
@@ -219,6 +261,18 @@ Rules:
 - `context.step.id` is missing when the current executable step has no authored `id`.
 - Handler scopes have `context.step.name` but do not have `context.step.id` unless a
   handler-owning spec defines an id for handlers.
+- `context.step.repeat_index` is `0` for the first execution of a repeating
+  step and increases by one for each repeat. A step retry keeps the index of
+  the execution it retries.
+- Dagu resolves the step again for every repeat, so `run`, `with`, `stdin`,
+  and step `env` see the index of the current execution.
+  `repeat_policy.condition` sees the index of the execution that just
+  finished.
+- Fields resolved once before the first execution keep index `0`: `stdout`,
+  `stderr`, `preconditions`, and the `repeat_policy` and `retry_policy`
+  settings.
+- `context.step.repeat_index` is missing for steps without `repeat_policy` and
+  for handlers.
 
 `context.trigger` fields:
 
@@ -230,7 +284,9 @@ Rules:
 Rules:
 
 - Valid `context.trigger.type` values are `unknown`, `manual`, `scheduler`,
-  `webhook`, `subdag`, `retry`, and `catchup`.
+  `webhook`, `subdag`, `retry`, `catchup`, and `restart`. `restart` is the
+  trigger type of the runs started because of a DAG's `restart_policy`
+  ([Spec 080](080-restart-policy.md)).
 - `context.trigger.actor` must not contain credentials, bearer tokens, session IDs, or
   other authenticators.
 - Webhook payload and headers are object-valued trigger context and are exposed
@@ -327,6 +383,7 @@ Step and handler projection:
 | --- | --- | --- |
 | `PWD` | Current process working directory | Current step only. |
 | `DAG_RUN_STEP_NAME` | `context.step.name` | Current step or handler only. |
+| `DAG_RUN_STEP_REPEAT_INDEX` | `context.step.repeat_index` | Current step with `repeat_policy` only. |
 | `DAG_RUN_STEP_STDOUT_FILE` | `context.paths.step_stdout_file` | Current executable step after stream files are assigned. |
 | `DAG_RUN_STEP_STDERR_FILE` | `context.paths.step_stderr_file` | Current executable step after stream files are assigned. |
 | `DAGU_OUTPUT_FILE` | `context.paths.step_output_file` | Current step attempt after output publication is prepared. |
@@ -421,6 +478,7 @@ Availability rules:
   attempt.
 - Step context is available only while evaluating or executing the current step
   or handler.
+- Repeat context is available only for steps with `repeat_policy`.
 - Step stream paths are available only after stdout and stderr files are
   assigned for the current executable step.
 - Step output file path is available only after step output publication is
@@ -488,6 +546,8 @@ Rules:
 - New environment projection variables should prefer the `DAGU_` prefix unless
   an owning spec explicitly extends an existing compatibility family such as
   `DAG_` or `WEBHOOK_`.
+- `DAG_RUN_STEP_REPEAT_INDEX` extends the `DAG_RUN_STEP_` family that already
+  carries the current step's name and stream files.
 
 Frozen structured-reference aliases:
 

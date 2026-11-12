@@ -32,6 +32,7 @@ import {
   type SubRunStackEntry,
 } from '@/features/dags/components/common/SubRunStackModal';
 import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog';
+import { HumanTaskResumeAlert } from '@/features/dags/components/human-task/HumanTaskResumeAlert';
 import { HumanTasksTab } from '@/features/dags/components/human-task/HumanTasksTab';
 import TimelineChart from '@/features/dags/components/visualization/TimelineChart';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
@@ -343,14 +344,18 @@ function ActionsBody({ run, details, step }: RunTabProps) {
       ...waitingHumanTaskNodes,
       ...waitingSubRunNodes,
     ].some((n) => n.step.name === step);
-    const resumePending =
-      details.status === Status.Waiting && details.approvalResumePending;
-    if (!waits && !resumePending) {
+    const waiting = details.status === Status.Waiting;
+    const resumePending = waiting && details.approvalResumePending;
+    const taskResumePending = waiting && details.humanTaskResumePending;
+    if (!waits && !resumePending && !taskResumePending) {
       return <RunTabEmpty>{ts('This step needs no action.')}</RunTabEmpty>;
     }
     return (
       <div className={`${SCROLL} space-y-4`}>
         {resumePending && <ApprovalResumeAlert dagRun={details} />}
+        {taskResumePending && (
+          <HumanTaskResumeAlert dagRun={details} onChanged={run.refresh} />
+        )}
         <StepManualActions
           holder={details}
           node={run.nodeByStep.get(step)}

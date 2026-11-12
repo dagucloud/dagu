@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -74,6 +75,13 @@ type Scheduler struct {
 	queueStore          queuedomain.QueueStore
 	procRepository      processRepository
 	config              *config.Config
+	lease               *lockLease // Renews dirLock while this instance is active
+	lockLost            atomic.Pointer[error]
+	fenceExit           func(error)
+	fenceExitAfter      time.Duration
+	fenceMu             sync.Mutex
+	fenceWatchdog       *time.Timer
+	startReturned       bool
 	dirLock             dirlock.DirLock // File-based lock to prevent multiple scheduler instances
 	dagExecutor         *DAGExecutor
 	healthServer        *HealthServer // Health check server for monitoring
@@ -86,6 +94,7 @@ type Scheduler struct {
 	queueWatcher        queuedomain.QueueWatcher
 	retryScanner        *RetryScanner // DAG-level retry scanner
 	planner             *TickPlanner  // Unified scheduling decision module
+	restartScanner      *RestartScanner
 	stopOnce            sync.Once
 	lock                sync.Mutex
 	lifecycleMu         sync.Mutex
@@ -120,6 +129,9 @@ type Dependencies struct {
 	DispatchTaskStore    dispatch.DispatchTaskStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	WorkerStaleAfter     time.Duration
+	// LeaseStaleAfter overrides how long a distributed run lease counts toward
+	// queue concurrency after its last heartbeat. Zero keeps the default.
+	LeaseStaleAfter      time.Duration
 	DAGSettingsStore     dagsettings.Store
 	ProfileStore         profile.Store
 	EventService         *eventstore.Service
@@ -179,6 +191,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
+		scheduler.restartScanner.events = deps.EventService
 	}
 	scheduler.publicWebhooks = newPublicWebhooks(cfg, deps, scheduler)
 	scheduler.folderWatcher.cfg.Store = deps.WatchStore
@@ -188,6 +201,15 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.queueProcessor.workerHeartbeatStore = deps.WorkerHeartbeatStore
 	if deps.WorkerStaleAfter != 0 {
 		scheduler.queueProcessor.workerStaleAfter = deps.WorkerStaleAfter
+	}
+	if deps.LeaseStaleAfter != 0 {
+		scheduler.queueProcessor.leaseStaleThreshold = deps.LeaseStaleAfter
+	}
+	if deps.DAGRunLeaseStore != nil {
+		scheduler.restartScanner.cfg.HasDistributedRun = hasFreshLease(deps.DAGRunLeaseStore, scheduler.queueProcessor.leaseStaleThresholdOrDefault())
+	}
+	if deps.DispatchTaskStore != nil {
+		scheduler.restartScanner.cfg.IsDispatchPending = hasPendingDispatch(deps.DispatchTaskStore, scheduler.queueProcessor.leaseStaleThresholdOrDefault())
 	}
 	return scheduler, nil
 }
@@ -220,10 +242,21 @@ func newScheduler(
 	if timeLoc == nil {
 		timeLoc = time.Local
 	}
+	var tookOverStaleLock atomic.Bool
 	lockOpts := &dirlock.LockOptions{
 		StaleThreshold: cfg.Scheduler.LockStaleThreshold,
 		RetryInterval:  cfg.Scheduler.LockRetryInterval,
 		OnWait:         hooks.onLockWait,
+		// Shared storage such as NFS caches directory attributes for longer
+		// than the stale threshold, and hosts can disagree on the time.
+		ObserveHeartbeat: true,
+		OnRetryError: func(err error) {
+			logger.Warn(context.Background(), "Failed to check scheduler lock, will retry", tag.Error(err))
+		},
+		OnStaleTakeover: func() {
+			tookOverStaleLock.Store(true)
+			logger.Warn(context.Background(), "Took over the scheduler lock from a failed instance")
+		},
 	}
 	lockDir := filepath.Join(persisfile.SchedulerStateDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
@@ -283,8 +316,30 @@ func newScheduler(
 				runID,
 				triggerType,
 				scheduleTime,
+				ir.ScheduleWindowAt(dag.Schedule, profileName, timeLoc, scheduleTime),
 				profileName,
 			)
+		}
+	}
+
+	isRunning := func(ctx context.Context, dag *ir.DAG) (bool, error) {
+		count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
+		if err != nil {
+			return false, err
+		}
+		return count > 0, nil
+	}
+	runExists := func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+		_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, dagrun.ErrDAGRunIDNotFound):
+			return false, nil
+		case errors.Is(err, dagrun.ErrNoStatusData):
+			return true, nil
+		default:
+			return false, err
 		}
 	}
 
@@ -292,16 +347,7 @@ func newScheduler(
 		StateStore:      stateStore,
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
-		IsRunning: func(ctx context.Context, dag *ir.DAG) (bool, error) {
-			count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
-			if err != nil {
-				return false, err
-			}
-			return count > 0, nil
-		},
-		GenRunID: func(context.Context) (string, error) {
-			return ir.NewDAGRunID()
-		},
+		IsRunning:       isRunning,
 		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			return dagExecutor.HandleJob(
 				ctx, entry,
@@ -317,6 +363,7 @@ func newScheduler(
 		},
 		Clock:           defaultClock,
 		Location:        timeLoc,
+		DataDir:         cfg.Paths.DataDir,
 		Events:          eventCh,
 		ProfileResolver: profileResolver,
 		QueuesEnabled:   queuesEnabled,
@@ -324,20 +371,51 @@ func newScheduler(
 		HasGlobalQueue: func(dag *ir.DAG) bool {
 			return cfg.FindQueueConfig(dag.ProcGroup()) != nil
 		},
-		IsQueued: isQueued,
-		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-			_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
-			switch {
-			case err == nil:
-				return true, nil
-			case errors.Is(err, dagrun.ErrDAGRunIDNotFound):
-				return false, nil
-			case errors.Is(err, dagrun.ErrNoStatusData):
-				return true, nil
-			default:
-				return false, err
+		IsQueued:  isQueued,
+		RunExists: runExists,
+		RecoveryWindow: func() time.Duration {
+			if tookOverStaleLock.Load() {
+				return cfg.Scheduler.FailoverRecoveryWindow
 			}
+			return 0
 		},
+	})
+
+	// The restart decision follows from the latest run, whatever its day. A
+	// lookup limited to today finds no run for a DAG that ran yesterday, takes
+	// it for a first run, and then finds the deterministic first-run ID taken:
+	// the DAG would never restart.
+	allHistory := drm.AllHistory()
+	restartScanner := NewRestartScanner(RestartScannerConfig{
+		Entries:         er.Entries,
+		IsSuspended:     isSuspended,
+		IsRunning:       isRunning,
+		IsQueued:        isQueued,
+		GetLatestStatus: allHistory.ReadLatestStatus,
+		RecentRuns: func(ctx context.Context, dag *ir.DAG) ([]ir.DAGRunStatus, error) {
+			return dagRunRepository.RecentStatuses(ctx, dag.Name, restartRecentRuns)
+		},
+		IsStopRequested: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+			return IsStopRequested(ctx, dagRunRepository, dag, runID)
+		},
+		FailStuckRun: func(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus, at time.Time) error {
+			_, _, err := dagRunRepository.CompareAndSwapLatestAttemptStatus(ctx,
+				ir.NewDAGRunRef(dag.Name, status.DAGRunID), status.AttemptID, status.Status,
+				func(latest *ir.DAGRunStatus) error {
+					latest.Status = ir.Failed
+					latest.FinishedAt = stringutil.FormatTime(at)
+					latest.Error = stuckRestartRunError
+					latest.WorkerID = ""
+					latest.PID = 0
+					latest.PIDStartedAt = 0
+					latest.LeaseAt = 0
+					return nil
+				}, persis.DAGRunCompareAndSwapOptions{},
+			)
+			return err
+		},
+		Enqueue: enqueueFunc,
+		Clock:   defaultClock,
 	})
 
 	retryScanner, err := NewRetryScanner(
@@ -354,6 +432,8 @@ func newScheduler(
 
 	s := &Scheduler{
 		quit:             make(chan any),
+		fenceExit:        exitOnLostLock,
+		fenceExitAfter:   defaultFenceExitAfter,
 		entryReader:      er,
 		dagRepository:    dagRepository,
 		dagRunRepository: dagRunRepository,
@@ -366,6 +446,7 @@ func newScheduler(
 		serviceRegistry:  reg,
 		queueProcessor:   processor,
 		retryScanner:     retryScanner,
+		restartScanner:   restartScanner,
 		planner:          planner,
 		clock:            defaultClock,
 		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
@@ -386,6 +467,9 @@ func (s *Scheduler) SetClock(clock Clock) {
 	s.planner.cfg.Clock = clock
 	if s.retryScanner != nil {
 		s.retryScanner.clock = clock
+	}
+	if s.restartScanner != nil {
+		s.restartScanner.cfg.Clock = clock
 	}
 }
 
@@ -518,6 +602,13 @@ func (s *Scheduler) updateServiceStatus(ctx context.Context, status serviceregis
 	}
 }
 
+func (s *Scheduler) healthRole() string {
+	if s.lockHeld.Load() {
+		return healthRoleActive
+	}
+	return healthRoleStandby
+}
+
 func (s *Scheduler) stopHealthServer(ctx context.Context, failureMsg string) {
 	if s.healthServer == nil || s.disableHealthServer {
 		return
@@ -557,7 +648,14 @@ func (s *Scheduler) unregisterService(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) Start(ctx context.Context) error {
+func (s *Scheduler) Start(ctx context.Context) (err error) {
+	defer func() {
+		s.disarmFenceWatchdog()
+		if err == nil {
+			err = s.lockLostError()
+		}
+	}()
+
 	ctx, cancel, ok := s.beginStartup(ctx)
 	if !ok {
 		return nil
@@ -606,6 +704,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// on the HA lock. Active/inactive role is tracked separately via the
 	// service registry status.
 	if !s.disableHealthServer {
+		s.healthServer.SetRoleFunc(s.healthRole)
 		if err := s.healthServer.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start health check server: %w", err)
 		}
@@ -619,6 +718,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		}
 		return fmt.Errorf("failed to acquire scheduler lock: %w", err)
 	}
+
+	// Catch signals before reporting the lock as held. A signal during the rest
+	// of startup waits here for the cron loop, which stops cleanly and releases
+	// the lock; without this it would kill the process and leave the lock to go
+	// stale.
+	sig := make(chan os.Signal, 1)
+	if !s.disableSignals {
+		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+		defer signal.Stop(sig)
+	}
+
 	s.lockHeld.Store(true)
 	state.lockAcquired = true
 
@@ -627,6 +737,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if ctx.Err() != nil && s.stopping() {
 		return nil
 	}
+
+	s.lease = newLockLease(s.dirLock, s.config.Scheduler.LockStaleThreshold)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -651,8 +763,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return err
 	}
 
-	sig := make(chan os.Signal, 1)
-
 	queueWatcher := s.queueStore.QueueWatcher(ctx)
 	notifyCh, err := queueWatcher.Start(ctx)
 	if err != nil {
@@ -663,11 +773,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	state.queueWatcherStarted = true
 	s.queueProcessor.Start(ctx, notifyCh)
 	state.queueProcessorStarted = true
-
-	if !s.disableSignals {
-		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-		defer signal.Stop(sig)
-	}
 
 	if err := s.entryReader.Init(ctx); err != nil {
 		logger.Error(ctx, "Failed to initialize entry reader", tag.Error(err))
@@ -692,6 +797,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	wg.Go(func() {
 		s.startRetryScanner(ctx)
+	})
+
+	wg.Go(func() {
+		s.startRestartScanner(ctx)
 	})
 
 	wg.Go(func() {
@@ -815,26 +924,8 @@ func (s *Scheduler) startPublicWebhooks(ctx context.Context) {
 }
 
 func (s *Scheduler) startHeartbeat(ctx context.Context) {
-	ticker := time.NewTicker(time.Second * 7)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.quit:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.dirLock.Heartbeat(ctx); err != nil {
-				logger.Error(ctx, "Heartbeat failed, scheduler self-fencing", tag.Error(err))
-				// Self-fencing protocol: clear lockHeld BEFORE calling Stop().
-				// This makes releaseDirLock skip Unlock, so a scheduler that just
-				// lost ownership cannot remove a replacement lock acquired by another process.
-				s.lockHeld.Store(false)
-				s.Stop(ctx)
-				return
-			}
-		}
+	if err := s.lease.run(ctx, s.quit); err != nil {
+		s.selfFence(ctx, err)
 	}
 }
 
@@ -863,6 +954,58 @@ func (s *Scheduler) startRetryScanner(ctx context.Context) {
 	}()
 
 	s.retryScanner.Start(scanCtx)
+}
+
+// hasFreshLease reports whether a DAG has a run whose distributed lease is
+// fresh, which is how a run on a worker shows it is alive.
+func hasFreshLease(leases dispatch.DAGRunLeaseStore, staleAfter time.Duration) IsRunningFunc {
+	return func(ctx context.Context, dag *ir.DAG) (bool, error) {
+		all, err := leases.ListAll(ctx)
+		if err != nil {
+			return false, err
+		}
+		now := time.Now().UTC()
+		for _, lease := range all {
+			if lease.DAGRun.Name == dag.Name && lease.IsFresh(now, staleAfter) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+}
+
+// hasPendingDispatch reports whether the attempt of a run has a pending or
+// claimed dispatch task, which is how a run waiting in the coordinator shows it
+// will still start.
+func hasPendingDispatch(tasks dispatch.DispatchTaskStore, claimTimeout time.Duration) func(context.Context, *ir.DAGRunStatus) (bool, error) {
+	return func(ctx context.Context, status *ir.DAGRunStatus) (bool, error) {
+		attemptKey := dispatch.AttemptKeyForStatus(status, status.AttemptID)
+		if attemptKey == "" {
+			return false, nil
+		}
+		return tasks.HasOutstandingAttempt(ctx, attemptKey, claimTimeout)
+	}
+}
+
+func (s *Scheduler) startRestartScanner(ctx context.Context) {
+	if s.restartScanner == nil {
+		return
+	}
+
+	logger.Info(ctx, "Started restart scanner", tag.Interval(restartScanInterval))
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		select {
+		case <-s.quit:
+			cancel()
+		case <-ctx.Done():
+			cancel()
+		}
+	}()
+
+	s.restartScanner.Start(scanCtx)
 }
 
 // cronLoop runs the main scheduler loop to invoke jobs at scheduled times.
@@ -920,6 +1063,9 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 
 func (s *Scheduler) runTickSafely(ctx context.Context, tickTime time.Time) (processed time.Time) {
 	processed = tickTime
+	if s.leaseExpired(ctx) {
+		return processed
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(ctx, "Scheduler tick panicked",
@@ -951,6 +1097,9 @@ func (s *Scheduler) runTick(ctx context.Context, tickTime time.Time) {
 // first, as a late tick recovers it. It returns the last tick run.
 func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) (processed time.Time) {
 	processed = since.Truncate(time.Minute)
+	if s.leaseExpired(ctx) {
+		return processed
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(ctx, "Scheduler tick panicked",
@@ -970,6 +1119,17 @@ func (s *Scheduler) runHeldTicks(ctx context.Context, since time.Time) (processe
 		s.planner.Flush(ctx)
 	}
 	return processed
+}
+
+// leaseExpired reports whether the scheduler must not dispatch, because another
+// instance may already be active. It catches a process that was paused long
+// enough to lose its lease and has not yet noticed.
+func (s *Scheduler) leaseExpired(ctx context.Context) bool {
+	if s.lease == nil || !s.lease.expired() {
+		return false
+	}
+	logger.Warn(ctx, "Skipping scheduler tick: scheduler lock lease expired")
+	return true
 }
 
 // NextTick returns the next tick time for the scheduler.

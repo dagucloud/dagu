@@ -223,7 +223,7 @@ function buttonNames(): string[] {
     .map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '');
 }
 
-const COPY = 'Copy to editor';
+const COPY = "Revert to this run's YAML";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -294,6 +294,19 @@ describe('RunActionsCluster', () => {
           subRuns: [{ dagRunId: 'sub-1', params: '' }],
         },
       ],
+    } as unknown as ApiDAGRunDetails);
+    fireEvent.click(screen.getByRole('button', { name: 'Action required' }));
+    expect(h.setDockTab).toHaveBeenCalledWith('actions', { user: true });
+  });
+
+  // No task waits once a resume of the human tasks failed; its retry does.
+  it('leads a run whose resume failed to the Actions tab', () => {
+    setup({
+      ...details('running'),
+      status: Status.Waiting,
+      statusLabel: StatusLabel.waiting,
+      humanTaskResumePending: true,
+      nodes: [],
     } as unknown as ApiDAGRunDetails);
     fireEvent.click(screen.getByRole('button', { name: 'Action required' }));
     expect(h.setDockTab).toHaveBeenCalledWith('actions', { user: true });
@@ -399,15 +412,15 @@ describe('RunActionsCluster', () => {
     ).toBeInTheDocument();
   });
 
-  // The removed run must not stay in the URL as a broken link.
-  it('selects the latest run after a dequeue', async () => {
+  // A dequeued run is kept as aborted, so the page stays on it and reads it
+  // again, where Retry is offered.
+  it('stays on the run after a dequeue', async () => {
     const run = setup(details('queued'));
     fireEvent.click(screen.getByRole('button', { name: 'Dequeue' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Dequeue' }));
-    await waitFor(() =>
-      expect(run.select).toHaveBeenCalledWith('latest', { replace: true })
-    );
+    await waitFor(() => expect(run.refresh).toHaveBeenCalled());
+    expect(run.select).not.toHaveBeenCalled();
   });
 
   it('shows the new run after a reschedule', async () => {
@@ -422,6 +435,24 @@ describe('RunActionsCluster', () => {
     await waitFor(() =>
       expect(screen.getByTestId('where')).toHaveTextContent(
         '/dags/etl.yaml?run=run-9'
+      )
+    );
+  });
+
+  // A run started with --name lives under a name that only the URL holds, and
+  // a reschedule keeps the name.
+  it('names the new run of a reschedule as the run it comes from', async () => {
+    h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
+    setup(details('failed'), '/dags/nightly?run=run-1&dagRunName=etl');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reschedule' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(
+        '/dags/nightly?run=run-9&dagRunName=etl'
       )
     );
   });
@@ -497,12 +528,12 @@ describe('RunActionsCluster', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  describe('Copy to editor', () => {
+  describe("Revert to this run's YAML", () => {
     beforeEach(() => {
       h.runSpec = 'name: etl\nsteps: [a]\n';
     });
 
-    // The icon follows the run actions, with the editor icon.
+    // The icon follows the run actions.
     // parity:test-run-header-meta
     it('shows after the run actions while the run is stale', () => {
       setup(details('failed'));

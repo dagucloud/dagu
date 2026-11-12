@@ -127,6 +127,10 @@ func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step i
 	addBuiltinContextValue(values, "context.run.id", rCtx.DAGRunID)
 	addBuiltinContextValue(values, "context.attempt.started_at", rCtx.RunStartedAt)
 	addBuiltinContextValue(values, "context.run.scheduled_at", rCtx.ScheduleTime)
+	addBuiltinContextValue(values, "context.run.interval_start", rCtx.IntervalStart)
+	addBuiltinContextValue(values, "context.run.interval_end", rCtx.ScheduleTime)
+	addBuiltinContextValue(values, "context.run.next_scheduled_at", rCtx.NextScheduledAt)
+	addBuiltinContextValue(values, "context.run.timezone", rCtx.ScheduleTimezone)
 	if rootDAGRunContextAvailable(rCtx) {
 		addBuiltinContextValue(values, "context.run.root_name", rCtx.RootDAGRun.Name)
 		addBuiltinContextValue(values, "context.run.root_id", rCtx.RootDAGRun.ID)
@@ -134,6 +138,7 @@ func builtinContextFromDAGContext(rCtx Context, scope *cmnvalue.EnvScope, step i
 	addBuiltinContextValue(values, "context.attempt.id", rCtx.AttemptID)
 	addBuiltinContextValue(values, "context.step.id", step.ID)
 	addBuiltinContextValue(values, "context.step.name", step.Name)
+	addBuiltinContextEnvValue(values, "context.step.repeat_index", scope, runenv.EnvKeyDAGRunStepRepeatIndex)
 	addBuiltinContextValue(values, "context.trigger.type", rCtx.TriggerType.String())
 	addBuiltinContextValue(values, "context.trigger.actor", rCtx.TriggerActor)
 	addBuiltinContextEnvValue(values, "context.run.status", scope, runenv.EnvKeyDAGRunStatus)

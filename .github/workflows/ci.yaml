@@ -12,13 +12,12 @@ on:
       - "go.mod"
       - "go.sum"
       - "internal/**"
+      - "llms.txt"
+      - "skills/**"
       - "Makefile"
       - "proto/**"
       - "scripts/ci/**"
       - "scripts/e2e/**"
-      - "scripts/installer.cmd"
-      - "scripts/installer.iss"
-      - "scripts/installer.ps1"
       - "ui/**"
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/ci.yaml"
@@ -30,6 +29,8 @@ on:
       - reopened # new commits are pushed to the branch that the PR is based on
       - synchronize # new commits are pushed to the branch that the PR is based on
       - ready_for_review # PR is ready for review
+      - converted_to_draft # cancels the run in progress
+      - labeled # full-ci runs the heavy jobs; windows-ci the Windows tests
     paths:
       - "api/**"
       - "*.go"
@@ -38,13 +39,12 @@ on:
       - "go.mod"
       - "go.sum"
       - "internal/**"
+      - "llms.txt"
+      - "skills/**"
       - "Makefile"
       - "proto/**"
       - "scripts/ci/**"
       - "scripts/e2e/**"
-      - "scripts/installer.cmd"
-      - "scripts/installer.iss"
-      - "scripts/installer.ps1"
       - "ui/**"
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/ci.yaml"
@@ -59,21 +59,28 @@ concurrency:
   # replaces. Runs for a branch share one group and always finish: one runs
   # at a time, and a newer commit replaces the run still waiting, so a burst
   # of merges to main tests only the latest commit.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A run started by any label but full-ci or windows-ci skips every job,
+  # and its own group keeps it from cancelling the run in progress.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'windows-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  GO_VERSION: "1.27.3"
+  GO_VERSION: "1.27.4"
   NODE_VERSION: "20"
 
 jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.draft != true &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci' ||
+      github.event.label.name == 'windows-ci')
     outputs:
       go: ${{ steps.filter.outputs.go }}
+      windows: ${{ steps.filter.outputs.windows }}
+      windows_specific: ${{ steps.filter.outputs.windows_specific }}
       e2e: ${{ steps.filter.outputs.e2e }}
-      windows_installer: ${{ steps.filter.outputs.windows_installer }}
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -86,8 +93,9 @@ jobs:
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "windows=true" >> "${GITHUB_OUTPUT}"
+            echo "windows_specific=true" >> "${GITHUB_OUTPUT}"
             echo "e2e=true" >> "${GITHUB_OUTPUT}"
-            echo "windows_installer=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -103,16 +111,18 @@ jobs:
 
           if [[ -z "${base_sha}" || "${base_sha}" == "0000000000000000000000000000000000000000" ]]; then
             echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "windows=true" >> "${GITHUB_OUTPUT}"
+            echo "windows_specific=true" >> "${GITHUB_OUTPUT}"
             echo "e2e=true" >> "${GITHUB_OUTPUT}"
-            echo "windows_installer=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
           if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
             echo "Base commit ${base_sha} is not available locally; running CI conservatively."
             echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "windows=true" >> "${GITHUB_OUTPUT}"
+            echo "windows_specific=true" >> "${GITHUB_OUTPUT}"
             echo "e2e=true" >> "${GITHUB_OUTPUT}"
-            echo "windows_installer=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -120,31 +130,48 @@ jobs:
           printf '%s\n' "${changed_files}"
 
           go_changed=false
+          windows_changed=false
+          windows_specific=false
           e2e_changed=false
-          windows_installer_changed=false
           while IFS= read -r file; do
             case "${file}" in
-              *.go|go.mod|go.sum|Makefile|scripts/ci/*|.github/opencode/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
+              *.go|go.mod|go.sum|Makefile|llms.txt|skills/*|scripts/ci/*|.github/opencode/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
                 go_changed=true
                 ;;
             esac
 
+            # The Windows jobs test Go code alone, not docs or skills.
             case "${file}" in
-              ui/*)
+              *.go|go.mod|go.sum|scripts/ci/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
+                windows_changed=true
+                ;;
+            esac
+
+            # Go code that builds only for Windows, by file name or build
+            # constraint, runs the Windows tests on a pull request without a label.
+            case "${file}" in
+              *_windows.go|*_windows_*.go)
+                windows_specific=true
+                ;;
+              *.go)
+                if [[ -f "${file}" ]] && grep -qE '^//go:build( |.*[^!])windows' "${file}"; then
+                  windows_specific=true
+                fi
+                ;;
+            esac
+
+            case "${file}" in
+              ui/*|.github/workflows/ci.yaml)
                 e2e_changed=true
                 ;;
             esac
 
-            case "${file}" in
-              scripts/installer.cmd|scripts/installer.iss|scripts/installer.ps1|.github/workflows/ci.yaml)
-                windows_installer_changed=true
-                ;;
-            esac
           done <<< "${changed_files}"
 
           echo "go=${go_changed}" >> "${GITHUB_OUTPUT}"
+          echo "windows=${windows_changed}" >> "${GITHUB_OUTPUT}"
+          echo "windows_specific=${windows_specific}" >> "${GITHUB_OUTPUT}"
           echo "e2e=${e2e_changed}" >> "${GITHUB_OUTPUT}"
-          echo "windows_installer=${windows_installer_changed}" >> "${GITHUB_OUTPUT}"
 
   # Lint Go code
   golint:
@@ -180,6 +207,11 @@ jobs:
             echo "$diff"
             exit 1
           fi
+
+      - name: Check llms.txt is current
+        run: |
+          make llms
+          git diff --exit-code -- llms.txt || (echo "llms.txt is stale. Please run 'make llms'" && exit 1)
 
       # The linter is built from this module's requirements, as make lint
       # does, so it reads the export data of this module's Go; a release
@@ -376,7 +408,8 @@ jobs:
   e2e:
     name: E2E (${{ matrix.shard }}/${{ matrix.shard_total }})
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    # A pull request runs this job only with the full-ci label.
+    if: needs.changes.outputs.e2e == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # Playwright does not support Chromium on the ubuntu-26.04 image yet.
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -418,9 +451,11 @@ jobs:
         working-directory: ui
         run: pnpm install --frozen-lockfile
 
+      # The runner image has Chromium's libraries. Installing nothing through
+      # apt keeps the job independent of the Ubuntu package mirrors.
       - name: Install Playwright Chromium
         working-directory: ui
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Run browser E2E tests
         env:
@@ -432,256 +467,17 @@ jobs:
           make test-e2e-build
           make test-e2e-run
 
-  test-windows-installer:
-    name: Test Windows installer
-    needs: changes
-    if: needs.changes.outputs.windows_installer == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Test PowerShell installer
-        shell: powershell
-        run: |
-          $installerPath = (Resolve-Path "scripts/installer.ps1").Path
-          $source = [IO.File]::ReadAllText(
-            $installerPath,
-            [Text.Encoding]::UTF8
-          )
-          $installerRepository = "${{ github.event.pull_request.head.repo.full_name }}"
-          $installerRef = "${{ github.event.pull_request.head.sha }}"
-          if (-not $installerRepository) {
-            $installerRepository = $env:GITHUB_REPOSITORY
-            $installerRef = $env:GITHUB_SHA
-          }
-          $installerUrl = "https://raw.githubusercontent.com/$installerRepository/$installerRef/scripts/installer.ps1"
-          $originalLocalAppData = $env:LOCALAPPDATA
-          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "dagu-expression-home"
-          $installDir = Join-Path $env:LOCALAPPDATA "Programs\dagu"
-          $daguExe = Join-Path $installDir "dagu.exe"
-
-          try {
-            if (-not [Console]::IsInputRedirected) {
-              throw "The test requires a non-interactive PowerShell host."
-            }
-            $script:Service = "caller-script-service"
-            $script:DaguHome = "caller-script-home"
-            & {
-              $Service = "caller-local-service"
-              irm $installerUrl | iex
-              if ($Service -ne "caller-local-service") {
-                throw "The installer changed the caller Service variable."
-              }
-            }
-            if ($script:Service -ne "caller-script-service") {
-              throw "The installer changed the caller script Service variable."
-            }
-            if ($script:DaguHome -ne "caller-script-home") {
-              throw "The installer changed the caller script DaguHome variable."
-            }
-
-            if (-not (Test-Path $daguExe)) {
-              throw "The expression-based installer did not install dagu.exe."
-            }
-            & $daguExe version
-            if ($LASTEXITCODE -ne 0) {
-              throw "The installed Dagu binary failed its version check."
-            }
-          }
-          finally {
-            & ([scriptblock]::Create($source)) -NoPrompt -Uninstall -InstallDir $installDir
-            $env:LOCALAPPDATA = $originalLocalAppData
-          }
-          if (Test-Path $daguExe) {
-            throw "The expression-based installer did not clean up dagu.exe."
-          }
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-            -NoPrompt -DryRun -Uninstall -Version latest
-          if ($LASTEXITCODE -eq 0) {
-            throw "The installer accepted install-only flags during uninstall."
-          }
-
-          & ([scriptblock]::Create($source)) `
-            -NoPrompt -DryRun -Service no -OpenBrowser no `
-            -InstallDir "$env:RUNNER_TEMP\dagu-user-install"
-
-          & ([scriptblock]::Create($source)) `
-            -NoPrompt -DryRun -Service yes -OpenBrowser no `
-            -InstallDir "$env:RUNNER_TEMP\dagu-service-install"
-
-          & ([scriptblock]::Create($source)) `
-            -NoPrompt -DryRun -Uninstall `
-            -InstallDir "$env:RUNNER_TEMP\dagu-uninstall"
-
-          $serviceOnlyDir = "$env:RUNNER_TEMP\dagu-service-only"
-          New-Item -ItemType Directory -Force -Path $serviceOnlyDir | Out-Null
-          Set-Content -Path "$serviceOnlyDir\dagu.exe" -Value "stub"
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-            -NoPrompt -DryRun -ServiceOnly -Service no -InstallDir $serviceOnlyDir
-          if ($LASTEXITCODE -eq 0) {
-            throw "-ServiceOnly was accepted without -Service yes."
-          }
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-            -NoPrompt -DryRun -ServiceOnly -Service yes -Version latest -InstallDir $serviceOnlyDir
-          if ($LASTEXITCODE -eq 0) {
-            throw "-ServiceOnly was accepted together with -Version."
-          }
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-            -NoPrompt -DryRun -ServiceOnly -Service yes `
-            -InstallDir "$env:RUNNER_TEMP\dagu-service-only-missing"
-          if ($LASTEXITCODE -eq 0) {
-            throw "-ServiceOnly was accepted without an installed Dagu binary."
-          }
-
-          & ([scriptblock]::Create($source)) `
-            -NoPrompt -DryRun -ServiceOnly -Service yes -OpenBrowser no `
-            -InstallDir $serviceOnlyDir
-
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Build Inno Setup installer
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          go build -trimpath -o dist\dagu-windows-amd64.exe .\cmd
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) {
-            Write-Host "Inno Setup 6 is not preinstalled on this image; installing it."
-            choco install innosetup --no-progress --yes
-          }
-          & $iscc `
-            /DAppVersion=0.0.0 `
-            /DBinaryPath=dist\dagu-windows-amd64.exe `
-            scripts\installer.iss
-          if ($LASTEXITCODE -ne 0) {
-            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
-          }
-
-      # Mirrors how the Inno Setup installer drives the script: the binary is
-      # already in place and only the Windows service should be configured.
-      - name: Test installer service-only mode
-        shell: powershell
-        run: |
-          $installerPath = (Resolve-Path "scripts/installer.ps1").Path
-          $installDir = "$env:RUNNER_TEMP\dagu-service-live"
-          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-          Copy-Item dist\dagu-windows-amd64.exe "$installDir\dagu.exe"
-          $binaryHash = (Get-FileHash "$installDir\dagu.exe").Hash
-          $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-            -NoPrompt -ServiceOnly -Service yes -ServiceScope system `
-            -Port 18080 -OpenBrowser no -InstallDir $installDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Service-only install failed with exit code $LASTEXITCODE."
-          }
-
-          if ((Get-FileHash "$installDir\dagu.exe").Hash -ne $binaryHash) {
-            throw "Service-only install replaced the existing Dagu binary."
-          }
-          if ([Environment]::GetEnvironmentVariable("Path", "Machine") -ne $machinePath) {
-            throw "Service-only install modified the machine PATH."
-          }
-          $service = Get-Service -Name Dagu -ErrorAction SilentlyContinue
-          if (-not $service -or $service.Status -ne "Running") {
-            throw "The Dagu service is not running after a service-only install."
-          }
-          Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/health" -UseBasicParsing | Out-Null
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-            -NoPrompt -Uninstall -ServiceOnly -InstallDir $installDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Service-only uninstall failed with exit code $LASTEXITCODE."
-          }
-          if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
-            throw "The Dagu service survived a service-only uninstall."
-          }
-          if (-not (Test-Path "$installDir\dagu.exe")) {
-            throw "Service-only uninstall removed the Dagu binary."
-          }
-
-          # A busy port must be reported before any service is registered, so a
-          # failed setup cannot leave one behind restarting a process that dies.
-          $blocker = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 18081)
-          $blocker.Start()
-          try {
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
-              -NoPrompt -ServiceOnly -Service yes -ServiceScope system `
-              -Port 18081 -OpenBrowser no -InstallDir $installDir
-            if ($LASTEXITCODE -eq 0) {
-              throw "Service-only install ignored a busy web server port."
-            }
-            if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
-              throw "A rejected port left the Dagu service registered."
-            }
-          }
-          finally {
-            $blocker.Stop()
-          }
-          # A rejected install is the expected outcome above. The step would
-          # otherwise exit with the code that rejection left behind.
-          $global:LASTEXITCODE = 0
-
-      # Exercises the [Code] section of installer.iss, which compilation alone
-      # never runs: the machine PATH must be added on install and restored on
-      # uninstall. The service task is left off; it is covered by the step above.
-      - name: Test Inno Setup installer
-        shell: powershell
-        run: |
-          $installDir = "$env:ProgramFiles\Dagu"
-          $before = [Environment]::GetEnvironmentVariable("Path", "Machine")
-
-          Start-Process -Wait -FilePath "dist\dagu-0.0.0-setup.exe" -ArgumentList @(
-            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=path"
-          )
-          if (-not (Test-Path "$installDir\dagu.exe")) {
-            throw "The installer did not place dagu.exe in $installDir."
-          }
-          if (([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') -notcontains $installDir) {
-            throw "The installer did not add $installDir to the machine PATH."
-          }
-
-          Start-Process -Wait -FilePath "$installDir\unins000.exe" -ArgumentList @(
-            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
-          )
-          # The uninstaller restarts itself from a temporary copy, so the wait above returns early.
-          $deadline = (Get-Date).AddSeconds(60)
-          while ((Test-Path $installDir) -and ((Get-Date) -lt $deadline)) {
-            Start-Sleep -Seconds 1
-          }
-          if (Test-Path $installDir) {
-            throw "The uninstaller did not remove $installDir."
-          }
-          if ([Environment]::GetEnvironmentVariable("Path", "Machine") -ne $before) {
-            throw "The uninstaller did not restore the machine PATH."
-          }
-
-      - name: Test CMD installer
-        shell: cmd
-        env:
-          _DAGU_INSTALLER_PS1_PATH: ${{ github.workspace }}\scripts\installer.ps1
-        run: |
-          scripts\installer.cmd -NoPrompt -Service no -OpenBrowser no -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
-          if errorlevel 1 exit /b 1
-          "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" version
-          if errorlevel 1 exit /b 1
-          scripts\installer.cmd -NoPrompt -Uninstall -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
-          if errorlevel 1 exit /b 1
-          if exist "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" exit /b 1
-
   test-windows:
     name: Test on windows-latest (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    # A pull request runs this job when it changes Go code that builds only
+    # for Windows, or with the full-ci or windows-ci label.
+    if: >-
+      needs.changes.outputs.windows == 'true' && (
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.windows_specific == 'true' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+      contains(github.event.pull_request.labels.*.name, 'windows-ci'))
     runs-on: windows-latest
     timeout-minutes: 30
     strategy:

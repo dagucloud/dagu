@@ -88,7 +88,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -127,7 +127,7 @@ var startWorkerIDFlag = commandLineFlag{
 // triggerTypeFlag identifies how this DAG run was initiated
 var triggerTypeFlag = commandLineFlag{
 	name:         "trigger-type",
-	usage:        "How this DAG run was initiated (scheduler, manual, webhook, subdag, retry, catchup)",
+	usage:        "How this DAG run was initiated (scheduler, manual, webhook, subdag, retry, catchup, restart)",
 	defaultValue: "manual",
 }
 
@@ -139,8 +139,16 @@ var triggerActorFlag = commandLineFlag{
 
 // scheduleTimeFlag records the cron fire time for scheduler-triggered runs
 var scheduleTimeFlag = commandLineFlag{
-	name:  "schedule-time",
-	usage: "RFC 3339 timestamp of when this run was scheduled (set by scheduler, not for manual use)",
+	name:   "schedule-time",
+	usage:  "RFC 3339 timestamp of when this run was scheduled (set by scheduler, not for manual use)",
+	hidden: true,
+}
+
+// scheduledAtFlag names the schedule slot a manual run is started for.
+var scheduledAtFlag = commandLineFlag{
+	name: "scheduled-at",
+	usage: "Schedule slot to run for: latest, a date (2006-01-02), a time in the schedule's zone " +
+		"(2006-01-02T15:04), or RFC 3339 with an offset",
 }
 
 var sourceFileFlag = commandLineFlag{
@@ -177,10 +185,6 @@ func runStart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to get trigger actor: %w", err)
 	}
 
-	scheduleTime, err := parseScheduleTimeParam(ctx)
-	if err != nil {
-		return err
-	}
 	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
@@ -202,6 +206,7 @@ func runStart(ctx *Context, args []string) error {
 		dag             *ir.DAG
 		params          string
 		historicNoReuse bool
+		historicSlot    runSlot
 	)
 
 	if fromRunID != "" {
@@ -230,6 +235,7 @@ func runStart(ctx *Context, args []string) error {
 			profileName = status.ProfileName
 		}
 		historicNoReuse = status.NoReuse
+		historicSlot = runSlot{scheduleTime: status.ScheduleTime, window: status.ScheduleWindow()}
 
 		snapshot, err := attempt.ReadDAG(ctx)
 		if err != nil {
@@ -294,17 +300,28 @@ func runStart(ctx *Context, args []string) error {
 		noReuse = historicNoReuse
 	}
 
+	slot, err := runSlotParams(ctx, dag, profileName, false)
+	if err != nil {
+		return err
+	}
+	// A rerun of a historic run is for the same slot unless the flags name
+	// another.
+	if slot.scheduleTime == "" {
+		slot = historicSlot
+	}
+
 	opts := runOptions{
-		root:         root,
-		workerID:     workerID,
-		attemptID:    attemptID,
-		triggerType:  triggerType,
-		triggerActor: triggerActor,
-		parallelItem: parallelItemFromEnv(dag.Env),
-		scheduleTime: scheduleTime,
-		profileName:  profileName,
-		definitionID: dagDefinitionIDFromEnv(),
-		noReuse:      noReuse,
+		root:           root,
+		workerID:       workerID,
+		attemptID:      attemptID,
+		triggerType:    triggerType,
+		triggerActor:   triggerActor,
+		parallelItem:   parallelItemFromEnv(dag.Env),
+		scheduleTime:   slot.scheduleTime,
+		scheduleWindow: slot.window,
+		profileName:    profileName,
+		definitionID:   dagDefinitionIDFromEnv(),
+		noReuse:        noReuse,
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
@@ -316,6 +333,16 @@ func runStart(ctx *Context, args []string) error {
 		}
 		opts.parent = parent
 		return handleSubDAGRun(ctx, dag, dagRunID, params, opts)
+	}
+
+	if workerID == "local" {
+		definition := dag
+		if fromRunID != "" {
+			definition = serviceDefinition(ctx, dag)
+		}
+		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, definition, dagRunID); err != nil {
+			return err
+		}
 	}
 
 	if len(selection.steps) > 0 {
@@ -703,6 +730,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			ParallelItem:             opts.parallelItem,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             opts.scheduleTime,
+			ScheduleWindow:           opts.scheduleWindow,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
@@ -751,7 +779,10 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts = append(taskOpts, executor.WithSourceFile(d.SourceFile))
 	}
 	if opts.scheduleTime != "" {
-		taskOpts = append(taskOpts, executor.WithScheduleTime(opts.scheduleTime))
+		taskOpts = append(taskOpts,
+			executor.WithScheduleTime(opts.scheduleTime),
+			executor.WithScheduleWindow(opts.scheduleWindow),
+		)
 	}
 	if opts.profileName != "" {
 		taskOpts = append(taskOpts, executor.WithProfileName(opts.profileName))
@@ -759,6 +790,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 
 	operation := dispatch.DispatchOperationStart
 	if opts.seed != nil {

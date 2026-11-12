@@ -422,6 +422,15 @@ describe('DockProvider', () => {
     expect(probe.navigation).toBe('REPLACE');
   });
 
+  // Another workflow, or the run modal opened again, mounts a new panel: it
+  // starts on the tab that the user picked last, unless a ?dock link names one.
+  it('starts on the tab that the user picked last', () => {
+    const first = renderDock();
+    act(() => first.dock.setTab('outputs', { user: true }));
+    expect(renderDock().dock.tab).toBe('outputs');
+    expect(renderDock('/dags/demo?dock=log').dock.tab).toBe('log');
+  });
+
   // The form of a waiting action sits below the fold of the default height.
   it('opens the Actions tab at 60 percent of the window, without storing it', () => {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1000);

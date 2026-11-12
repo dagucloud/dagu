@@ -9,6 +9,7 @@ import type {
   DagDocModel,
   DagEditOp,
   JSONSchema,
+  ReferenceCandidate,
   StepView,
 } from '../../contracts';
 import { MonacoField } from '../MonacoField';
@@ -25,6 +26,8 @@ export interface StepYamlSectionProps {
   schema: JSONSchema;
   readOnly: boolean;
   onEdit(op: DagEditOp): void;
+  /** The references that a field can offer, by its path below the step entry. */
+  candidatesAtPath(path: string[]): ReferenceCandidate[];
 }
 
 /**
@@ -40,6 +43,7 @@ export function StepYamlSection({
   schema,
   readOnly,
   onEdit,
+  candidatesAtPath,
 }: StepYamlSectionProps): ReactElement {
   const { ts } = useI18n();
   const original = useMemo(() => stepYamlFromModel(model, step), [model, step]);
@@ -73,6 +77,7 @@ export function StepYamlSection({
         lines={12}
         readOnly={readOnly}
         ariaLabel={ts('Step YAML')}
+        candidatesAtPath={candidatesAtPath}
         onChange={(next) => {
           setText(next);
           setError(null);

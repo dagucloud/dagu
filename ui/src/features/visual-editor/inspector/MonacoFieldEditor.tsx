@@ -3,6 +3,10 @@
 
 import MonacoEditor from '@monaco-editor/react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  registerFieldReferenceCompletion,
+  registerStepYamlCompletion,
+} from '../references/monacoCompletion';
 import { monacoTheme } from './monacoSetup';
 import {
   fieldEditorHeight,
@@ -12,8 +16,9 @@ import {
 /**
  * Small Monaco editor for one field. It keeps a local draft and sends it
  * on blur when it differs from `value`. The draft resets when `value`
- * changes from outside. The chunk of this module holds Monaco: MonacoField
- * loads it on first use.
+ * changes from outside. Given candidates, it completes references in its
+ * text. The chunk of this module holds Monaco: MonacoField loads it on first
+ * use.
  */
 export function MonacoFieldEditor({
   value,
@@ -21,6 +26,8 @@ export function MonacoFieldEditor({
   readOnly,
   lines = 10,
   ariaLabel,
+  candidates,
+  candidatesAtPath,
   onChange,
   onCommit,
   focusRequest,
@@ -34,6 +41,10 @@ export function MonacoFieldEditor({
   valueRef.current = value;
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
+  const candidatesRef = useRef(candidates);
+  candidatesRef.current = candidates;
+  const candidatesAtPathRef = useRef(candidatesAtPath);
+  candidatesAtPathRef.current = candidatesAtPath;
 
   useEffect(() => {
     if (value !== shown.current) {
@@ -59,10 +70,26 @@ export function MonacoFieldEditor({
           setDraft(next);
           onChange?.(next);
         }}
-        onMount={(editor) => {
+        onMount={(editor, monaco) => {
           if (focusRequest?.current) {
             focusRequest.current = false;
             editor.focus();
+          }
+          const completion = candidatesAtPathRef.current
+            ? registerStepYamlCompletion(
+                monaco,
+                editor,
+                (path) => candidatesAtPathRef.current?.(path) ?? []
+              )
+            : candidatesRef.current &&
+              registerFieldReferenceCompletion(
+                monaco,
+                editor,
+                language,
+                () => candidatesRef.current ?? []
+              );
+          if (completion) {
+            editor.onDidDispose(() => completion.dispose());
           }
           editor.onDidBlurEditorText(() => {
             if (!readOnlyRef.current && draftRef.current !== valueRef.current) {
@@ -80,6 +107,9 @@ export function MonacoFieldEditor({
           fontSize: 12,
           automaticLayout: true,
           ariaLabel,
+          // The frame of the field clips its overflow: the suggest widget
+          // draws in the body.
+          fixedOverflowWidgets: true,
         }}
       />
     </div>

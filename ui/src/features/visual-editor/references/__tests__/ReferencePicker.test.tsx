@@ -3,7 +3,7 @@
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useRef } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReferenceCandidate } from '../../contracts';
 import {
   ReferencePicker,
@@ -104,6 +104,43 @@ describe('ReferencePicker', () => {
     ).toBeNull();
   });
 
+  it('says when a pick makes a step publish its output', () => {
+    renderPicker({
+      candidates: [
+        {
+          token: '${steps.a.outputs.stdout}',
+          label: 'a.stdout',
+          group: 'steps',
+          known: 'runtime',
+          publish: { step: 'steps[0]' },
+        },
+      ],
+    });
+    const option = screen.getByRole('option', { name: /a\.stdout/ });
+    expect(option).toHaveTextContent('Published when chosen');
+    expect(option).not.toHaveTextContent('Known after run');
+  });
+
+  it('warns of a value that is not safe in a shell, and says what to do', () => {
+    renderPicker({
+      candidates: [
+        {
+          token: '${steps.model.outputs.reply}',
+          label: 'model.reply',
+          group: 'steps',
+          known: 'runtime',
+          shellRisk: true,
+        },
+      ],
+    });
+    // Focus stays in the field while the arrow keys move, so a tooltip would
+    // reach nobody who uses the keyboard: the note is part of the option.
+    const option = screen.getByRole('option', { name: /model\.reply/ });
+    expect(option).toHaveTextContent('Not safe in a shell');
+    expect(option).toHaveTextContent('Pass it through env');
+    expect(screen.queryByText('Known after run')).toBeNull();
+  });
+
   it('picks an option on click', () => {
     const { onPick } = renderPicker();
     fireEvent.click(screen.getByRole('option', { name: /HOME/ }));
@@ -114,6 +151,16 @@ describe('ReferencePicker', () => {
     renderPicker({ candidates: [] });
     expect(screen.getByText('No references available')).toBeInTheDocument();
     expect(screen.queryAllByRole('option')).toHaveLength(0);
+  });
+
+  it('shows the message of the host when it has no candidates', () => {
+    renderPicker({
+      candidates: [],
+      emptyMessage: 'Put the cursor in a field value',
+    });
+    expect(
+      screen.getByText('Put the cursor in a field value')
+    ).toBeInTheDocument();
   });
 
   it('moves the active option with the arrow keys and wraps', () => {
@@ -132,6 +179,34 @@ describe('ReferencePicker', () => {
     expect(active()[0]).toHaveTextContent('HOME');
     fireEvent.keyDown(keys, { key: 'ArrowDown' });
     expect(active()[0]).toHaveTextContent('fetch body');
+  });
+
+  describe('when idle', () => {
+    const active = () =>
+      screen
+        .getAllByRole('option')
+        .filter((o) => o.getAttribute('aria-selected') === 'true');
+
+    it('has no active option and leaves Enter to the host', () => {
+      const { onPick } = renderPicker({ idle: true });
+      expect(active()).toHaveLength(0);
+      expect(
+        fireEvent.keyDown(screen.getByLabelText('keys'), { key: 'Enter' })
+      ).toBe(true);
+      expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('moves to the first option with the down arrow', () => {
+      renderPicker({ idle: true });
+      fireEvent.keyDown(screen.getByLabelText('keys'), { key: 'ArrowDown' });
+      expect(active()[0]).toHaveTextContent('fetch body');
+    });
+
+    it('moves to the last option with the up arrow', () => {
+      renderPicker({ idle: true });
+      fireEvent.keyDown(screen.getByLabelText('keys'), { key: 'ArrowUp' });
+      expect(active()[0]).toHaveTextContent('HOME');
+    });
   });
 
   it('reports the active option id', () => {
@@ -206,5 +281,21 @@ describe('ReferencePicker', () => {
     const options = screen.getAllByRole('option');
     expect(options).toHaveLength(1);
     expect(options[0]).toHaveTextContent('API_URL');
+  });
+
+  describe('when it opens', () => {
+    afterEach(() => {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+    });
+
+    // A list near the end of a form must not stay below the fold.
+    it('brings the whole panel into view', () => {
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      renderPicker();
+      expect(scrollIntoView.mock.contexts).toContain(
+        screen.getByRole('listbox').parentElement
+      );
+    });
   });
 });

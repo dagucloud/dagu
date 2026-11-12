@@ -202,16 +202,11 @@ function WebhookTab({
   }, [getRemoteNodeParam]);
 
   // Other views, such as the chip of the workflow bar, read the webhook
-  // through SWR. A create, a toggle or a delete refreshes them.
+  // from the list of webhooks through SWR. A create, a toggle or a delete
+  // refreshes them.
   const refreshSharedWebhook = useCallback(() => {
-    void mutate(
-      (key) =>
-        Array.isArray(key) &&
-        key[1] === '/dags/{fileName}/webhook' &&
-        (key[2] as { params?: { path?: { fileName?: string } } } | undefined)
-          ?.params?.path?.fileName === fileName
-    );
-  }, [mutate, fileName]);
+    void mutate((key) => Array.isArray(key) && key[1] === '/webhooks');
+  }, [mutate]);
 
   // Fetch webhook
   const fetchWebhook = useCallback(async () => {
@@ -1038,9 +1033,7 @@ function WebhookTab({
                 <I18nProps>
                   <CopyButton
                     copied={hmacShellCopy.copied}
-                    onCopy={() =>
-                      void hmacShellCopy.copy(hmacShellExample)
-                    }
+                    onCopy={() => void hmacShellCopy.copy(hmacShellExample)}
                     label="Copy"
                   />
                 </I18nProps>
@@ -1058,9 +1051,7 @@ function WebhookTab({
                 <I18nProps>
                   <CopyButton
                     copied={hmacNodeCopy.copied}
-                    onCopy={() =>
-                      void hmacNodeCopy.copy(hmacNodeExample)
-                    }
+                    onCopy={() => void hmacNodeCopy.copy(hmacNodeExample)}
                     label="Copy"
                   />
                 </I18nProps>

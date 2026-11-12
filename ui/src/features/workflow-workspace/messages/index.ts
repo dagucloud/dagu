@@ -94,6 +94,8 @@ import sr1 from './sr1';
 import rd1 from './rd1';
 import qa1 from './qa1';
 import ux1 from './ux1';
+import hp1 from './hp1';
+import rc1 from './rc1';
 
 export const workspaceModules = {
   q2,
@@ -187,6 +189,8 @@ export const workspaceModules = {
   rd1,
   qa1,
   ux1,
+  hp1,
+  rc1,
 } as const;
 
 export const workspaceMessages = {
@@ -282,6 +286,8 @@ export const workspaceMessages = {
     ...rd1.en,
     ...qa1.en,
     ...ux1.en,
+    ...hp1.en,
+    ...rc1.en,
   },
   'zh-CN': {
     ...q2['zh-CN'],
@@ -375,6 +381,8 @@ export const workspaceMessages = {
     ...rd1['zh-CN'],
     ...qa1['zh-CN'],
     ...ux1['zh-CN'],
+    ...hp1['zh-CN'],
+    ...rc1['zh-CN'],
   },
   ja: {
     ...q2.ja,
@@ -468,5 +476,7 @@ export const workspaceMessages = {
     ...rd1.ja,
     ...qa1.ja,
     ...ux1.ja,
+    ...hp1.ja,
+    ...rc1.ja,
   },
 } as const;

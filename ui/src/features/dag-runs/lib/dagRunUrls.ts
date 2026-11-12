@@ -31,6 +31,7 @@ type LegacyDAGPageURLInput = {
   step?: string;
   stream?: string;
   run?: never;
+  runName?: never;
   dock?: never;
   mode?: never;
 };
@@ -41,6 +42,12 @@ type WorkspaceDAGPageURLInput = {
   remoteNode: string;
   workspace?: string;
   run?: string;
+  /**
+   * The DAG name of the run. The URL names it in ?dagRunName when it is not
+   * the name of the file, as for a run started with --name: the workflow page
+   * takes the name of the file for the DAG name of a run otherwise.
+   */
+  runName?: string;
   /** A sub-run of the run to open on the sub-run stack. ?step is then its step. */
   subRun?: string;
   step?: string;
@@ -54,6 +61,11 @@ type WorkspaceDAGPageURLInput = {
 };
 
 type DAGPageURLInput = LegacyDAGPageURLInput | WorkspaceDAGPageURLInput;
+
+/** True when the name of the file gives the DAG name of the run: a URL need not name it. */
+export function fileGivesRunName(fileName: string, runName: string): boolean {
+  return runName === fileName.replace(/\.ya?ml$/, '');
+}
 
 function appendQuery(path: string, params: URLSearchParams): string {
   const query = params.toString();
@@ -80,6 +92,7 @@ export function buildDAGRunPageURL({
     remoteNode,
     workspace,
     run: rootDAGRunId,
+    runName: fileName ? rootDAGRunName : undefined,
     subRun:
       subDAGRunId && subDAGRunId !== rootDAGRunId ? subDAGRunId : undefined,
     step,
@@ -134,6 +147,7 @@ function buildWorkspaceDAGPageURL({
   remoteNode,
   workspace,
   run,
+  runName,
   subRun,
   step,
   dock,
@@ -145,6 +159,9 @@ function buildWorkspaceDAGPageURL({
   }
   if (run) {
     params.set('run', run);
+    if (runName && !fileGivesRunName(fileName, runName)) {
+      params.set('dagRunName', runName);
+    }
   }
   if (subRun) {
     params.set('subRun', subRun);
@@ -214,20 +231,24 @@ type RunningTaskLike = {
 
 /**
  * The run that a worker task opens: the task itself, or for a child task its
- * root run, or its parent when the root is not known.
+ * root run, or its parent when the root is not known, with the child task as
+ * the sub-run to show.
  */
 export function runningTaskRoot(task: RunningTaskLike): {
   name: string;
   dagRunId: string;
+  subDAGRunId?: string;
 } {
   const isChild = Boolean(task.parentDagRunName && task.parentDagRunId);
+  const dagRunId =
+    (isChild ? task.rootDagRunId || task.parentDagRunId : undefined) ||
+    task.dagRunId;
   return {
     name:
       (isChild ? task.rootDagRunName || task.parentDagRunName : undefined) ||
       task.dagName,
-    dagRunId:
-      (isChild ? task.rootDagRunId || task.parentDagRunId : undefined) ||
-      task.dagRunId,
+    dagRunId,
+    subDAGRunId: dagRunId !== task.dagRunId ? task.dagRunId : undefined,
   };
 }
 
@@ -240,6 +261,7 @@ export function buildRunningTaskURL(
   return buildDAGRunPageURL({
     rootDAGRunName: root.name,
     rootDAGRunId: root.dagRunId,
+    subDAGRunId: root.subDAGRunId,
     remoteNode,
   });
 }

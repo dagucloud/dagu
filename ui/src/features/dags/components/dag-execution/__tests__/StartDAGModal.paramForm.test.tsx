@@ -107,7 +107,7 @@ describe('StartDAGModal schema parameters', () => {
       'confirm',
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
       expect(

@@ -70,8 +70,9 @@ steps:
     await waitForDAGAvailable(request, token, fileName);
     await page.goto(`/dags/${encodeURIComponent(fileName)}`);
 
-    // Warnings do not block a save: Save carries an amber count of them.
-    const warningCount = page.getByTestId('save-warning-count');
+    // Warnings do not block a save: an amber Issues button beside Save lists
+    // them.
+    const warningCount = page.getByTestId('issues-slot');
     const expectWarning = async (shown: boolean) => {
       await expect(warningCount).toHaveCount(shown ? 1 : 0, {
         timeout: 30_000,

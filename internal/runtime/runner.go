@@ -37,6 +37,7 @@ import (
 
 var (
 	ErrUpstreamFailed   = fmt.Errorf("upstream failed")
+	ErrUpstreamAborted  = fmt.Errorf("upstream aborted")
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
@@ -269,6 +270,15 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		}
 	}()
 
+	// A step retry can keep the failed or aborted upstream of a step it selected,
+	// which then never runs and records no failure. This waits for every step to
+	// end, since a repeating step clears the last error.
+	if !r.isError() {
+		if err := upstreamBlock(plan); err != nil {
+			r.setLastError(err)
+		}
+	}
+
 	// Collect final metrics
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
 
@@ -383,6 +393,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	// Buffer size = total nodes to avoid blocking
 	readyCh := make(chan *Node, len(nodes))
 	doneCh := make(chan *Node, len(nodes))
+
+	settleBlockedNodes(ctx, plan, nodes)
 
 	// Find initial ready nodes
 	for _, node := range nodes {
@@ -721,6 +733,14 @@ ExecRepeat: // repeat execution
 			if stagingPath != "" {
 				_ = os.Remove(stagingPath)
 				stagingPath = ""
+			}
+			node.resetForAttempt(declaredStep)
+			ctx, err = r.setupRepeatEnv(spanCtx, plan, node, buildSession)
+			if err != nil {
+				r.setLastError(err)
+				node.MarkError(err)
+				node.SetStatus(ir.NodeFailed)
+				return
 			}
 			r.prepareNodeForRepeat(ctx, node, progressCh, cont)
 			continue
@@ -1093,6 +1113,11 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 		return ctx, err
 	}
 	node.SetWorkingDir(env.WorkingDir)
+	if node.Step().RepeatPolicy.RepeatMode != "" {
+		env.Scope = env.Scope.WithEntry(
+			runenv.EnvKeyDAGRunStepRepeatIndex, strconv.Itoa(node.State().DoneCount), cmnvalue.EnvSourceStepEnv,
+		)
+	}
 
 	// Load output variables and approval inputs from predecessor nodes.
 	for _, predNode := range planPredecessorNodes(plan, node) {
@@ -1486,6 +1511,48 @@ func (r *Runner) isFailed() bool {
 	return r.failed == 1
 }
 
+// upstreamBlock returns the error of a step this attempt set out to run and
+// aborted because a step it depends on failed or was aborted, or nil if there is
+// none. A failed upstream is the root cause of a chain, so it wins wherever its
+// step is listed. Errors restored from earlier attempts do not match these
+// sentinels.
+func upstreamBlock(plan *Plan) error {
+	var block error
+	for _, node := range plan.Nodes() {
+		if !blockedByUpstream(plan, node) {
+			continue
+		}
+		err := node.State().Error
+		if errors.Is(err, ErrUpstreamFailed) {
+			return err
+		}
+		block = err
+	}
+	return block
+}
+
+func blockedByUpstream(plan *Plan, node *Node) bool {
+	err := node.State().Error
+	return plan.inRetrySelection(node) && (errors.Is(err, ErrUpstreamFailed) || errors.Is(err, ErrUpstreamAborted))
+}
+
+// settleBlockedNodes ends every node that the restored state of a retry blocks
+// before anything runs. No completion reaches these nodes later, and a node can
+// be listed before the upstream that blocks it, so the scan repeats until
+// nothing changes.
+func settleBlockedNodes(ctx context.Context, plan *Plan, nodes []*Node) {
+	for changed := true; changed; {
+		changed = false
+		for _, node := range nodes {
+			if node.State().Status != ir.NodeNotStarted {
+				continue
+			}
+			isReady(ctx, plan, node)
+			changed = changed || node.State().Status != ir.NodeNotStarted
+		}
+	}
+}
+
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 	for _, depID := range plan.Dependencies(node.id) {
 		dep := plan.GetNode(depID)
@@ -1528,6 +1595,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			logger.Debug(ctx, "Dependency aborted",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			node.SetStatus(ir.NodeAborted)
+			node.SetError(ErrUpstreamAborted)
 			return false
 
 		case ir.NodeRejected:
@@ -1721,6 +1789,10 @@ func (r *Runner) isPartialSuccess(ctx context.Context, p *Plan) bool {
 				// This disqualifies the DAG from being partial success
 				return false
 			}
+		}
+		// A step the plan set out to run never ran, so its work is not done.
+		if blockedByUpstream(p, node) {
+			return false
 		}
 	}
 
@@ -2124,6 +2196,22 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	}
 	// Unconditional until: repeat until the step succeeds
 	return execErr != nil, nil
+}
+
+// setupRepeatEnv sets up the environment of the node's next repeat the same
+// way as its first execution, so that every value derived from the repeat
+// index follows it. ctx is the context the first execution started from.
+func (r *Runner) setupRepeatEnv(ctx context.Context, plan *Plan, node *Node, session *build.Session) (context.Context, error) {
+	ctx, err := r.setupVariables(ctx, plan, node)
+	if err != nil {
+		return ctx, err
+	}
+	ctx = withStepTraceContext(ctx)
+	ctx = r.setupNodeExecutionEnv(ctx, node)
+	if session == nil {
+		return ctx, nil
+	}
+	return withBuildPaths(ctx, node, session.InputPaths(), nil, !session.HasPathOutput())
 }
 
 // prepareNodeForRepeat sets up a node for repetition

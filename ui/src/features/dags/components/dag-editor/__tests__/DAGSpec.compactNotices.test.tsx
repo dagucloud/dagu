@@ -63,7 +63,10 @@ vi.mock('../../../../../contexts/SchemaContext', () => ({
   useSchema: () => ({ schema: null }),
 }));
 vi.mock('../../../../../contexts/UnsavedChangesContext', () => ({
-  useUnsavedChanges: () => ({ setHasUnsavedChanges: vi.fn() }),
+  useUnsavedChanges: () => ({
+    setHasUnsavedChanges: vi.fn(),
+    registerSave: () => () => {},
+  }),
 }));
 vi.mock('../../../../../hooks/useDAGSSE', () => ({ useDAGSSE: () => null }));
 vi.mock('../../../../../hooks/useSSECacheSync', () => ({
@@ -561,24 +564,15 @@ describe('DAGSpec compact notices: Save and Issues', () => {
 
   // The owner removed the separate Issues pill: the triangle that takes the
   // place of Save is the only trigger. Warnings alone count on Save.
-  it('keeps Save with a warning count, and no Issues button, for warnings only', async () => {
+  // Warnings do not block a save: Save stays a plain button, and an Issues
+  // button beside it, in the colour of a warning, lists them.
+  it('keeps a plain Save and an Issues button beside it for warnings only', async () => {
     await dirtySpec([], ['A warning', 'Another warning']);
 
     expect(save()).toBeInTheDocument();
-    expect(screen.queryByTestId('issues-slot')).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: /^Issues \(/ })
-    ).not.toBeInTheDocument();
-    const badge = screen.getByTestId('save-warning-count');
-    expect(badge).toHaveTextContent('2');
-    expect(badge).toHaveClass('bg-warning', '-right-2', '-top-2');
-    expect(save()).toContainElement(badge);
-    expect(save()).toHaveAttribute('title', expect.stringContaining('2'));
-  });
-
-  it('shows no count on Save without a warning', async () => {
-    await renderSpec();
-    expect(screen.queryByTestId('save-warning-count')).toBeNull();
+    const issues = screen.getByRole('button', { name: 'Issues (2)' });
+    expect(issues).toHaveClass('text-warning');
+    expect(screen.getByTestId('save-slot')).not.toContainElement(issues);
   });
 
   it('has one issues button only, in the place of Save, when there are errors', async () => {
@@ -590,7 +584,6 @@ describe('DAGSpec compact notices: Save and Issues', () => {
     });
     expect(triggers).toHaveLength(1);
     expect(screen.getByTestId('save-slot')).toContainElement(triggers[0]!);
-    expect(screen.queryByTestId('save-warning-count')).toBeNull();
   });
 
   it('brings Save back when the errors are gone', async () => {

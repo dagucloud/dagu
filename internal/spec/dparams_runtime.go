@@ -125,6 +125,11 @@ func runtimeParamLoadOptions(dag *ir.DAG, params any, opts ResolveRuntimeParamsO
 	if dag.Name != "" {
 		loadOpts = append(loadOpts, WithName(dag.Name))
 	}
+	// A child copied to a temporary location keeps resolving relative paths,
+	// such as a params schema, against the file it was authored in.
+	if dag.SourceFile != "" {
+		loadOpts = append(loadOpts, WithSourceFile(dag.SourceFile))
+	}
 	if opts.BaseConfig != "" {
 		loadOpts = append(loadOpts, WithBaseConfig(opts.BaseConfig))
 	}
@@ -504,15 +509,17 @@ func resolveLegacyEntry(
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
+	consts := cmnvalue.Values(inheritedConsts(ctx))
 	var runtimeScope cmnvalue.RuntimeScope
 	if *scope != nil {
 		runtimeScope.Env = *scope
 	}
+	runtimeScope.Consts = consts
 	runtimeScope.Params = params
 	fieldPath := fmt.Sprintf("params[%d].eval", index)
 	reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, fieldPath, base.Eval)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Params: paramDeclarations},
+		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		runtimeScope,
 		cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 	)

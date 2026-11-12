@@ -153,7 +153,7 @@ describe('StartDAGModal', () => {
     );
 
     expect(screen.queryByTestId('start-dag-body')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Start/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enqueue' })).toBeInTheDocument();
   });
 
   it('toggles between compact and fullscreen layouts', async () => {
@@ -199,7 +199,7 @@ describe('StartDAGModal', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Backend unavailable');
@@ -260,13 +260,13 @@ describe('StartDAGModal', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Update schema form' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith(
         '{"region":"us-west-2","count":5}',
         undefined,
-        true
+        false
       )
     );
   });
@@ -385,7 +385,7 @@ describe('StartDAGModal', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     const input = screen.getByRole('textbox', { name: 'region *' });
     await waitFor(() => expect(input).toHaveAttribute('aria-invalid', 'true'));
@@ -454,13 +454,13 @@ describe('StartDAGModal', () => {
     fireEvent.change(screen.getByLabelText(/count/i), {
       target: { value: '5' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith(
         '[{"region":"us-west-2"},{"count":"5"}]',
         undefined,
-        true
+        false
       )
     );
   });
@@ -525,10 +525,37 @@ describe('StartDAGModal', () => {
 
     await user.click(screen.getByRole('combobox', { name: /profile/i }));
     await user.click(await screen.findByRole('option', { name: 'prod' }));
-    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('', undefined, true, 'prod')
+      expect(onSubmit).toHaveBeenCalledWith('', undefined, false, 'prod')
+    );
+  });
+
+  // A run waits in the queue unless the user unchecks Enqueue.
+  it('enqueues by default, and starts at once without Enqueue', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={{ name: 'queue-dag' } as never}
+      />
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'Enqueue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith('', undefined, false)
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: 'Enqueue' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith('', undefined, true)
     );
   });
 
@@ -550,10 +577,10 @@ describe('StartDAGModal', () => {
       screen.getByRole('combobox', { name: /profile/i })
     ).toHaveTextContent(/dag default/i);
 
-    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('', undefined, true)
+      expect(onSubmit).toHaveBeenCalledWith('', undefined, false)
     );
   });
 
@@ -573,11 +600,147 @@ describe('StartDAGModal', () => {
 
     await user.click(screen.getByRole('combobox', { name: /profile/i }));
     await user.click(await screen.findByRole('option', { name: 'No profile' }));
-    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('', undefined, true, '')
+      expect(onSubmit).toHaveBeenCalledWith('', undefined, false, '')
     );
+  });
+
+  describe('scheduled at', () => {
+    const scheduledDag = {
+      name: 'slot-dag',
+      recentFires: [
+        { time: '2026-11-11T02:00:00+09:00', timezone: 'Asia/Tokyo' },
+        { time: '2026-11-10T02:00:00+09:00', timezone: 'Asia/Tokyo' },
+      ],
+    } as never;
+
+    it('starts the run for a recent slot', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={onSubmit}
+          dag={scheduledDag}
+        />
+      );
+
+      await user.click(
+        screen.getByRole('combobox', { name: /scheduled at/i })
+      );
+      await user.click(
+        await screen.findByRole('option', {
+          name: '2026-11-10 02:00 (Asia/Tokyo)',
+        })
+      );
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          '',
+          undefined,
+          false,
+          undefined,
+          undefined,
+          '2026-11-10T02:00:00+09:00'
+        )
+      );
+    });
+
+    // Any time other than a listed slot must be typed on purpose.
+    it('requires a time when Other time is chosen', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={onSubmit}
+          dag={scheduledDag}
+        />
+      );
+
+      await user.click(
+        screen.getByRole('combobox', { name: /scheduled at/i })
+      );
+      await user.click(await screen.findByRole('option', { name: 'Other time' }));
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+      expect(
+        await screen.findByText('Enter the scheduled time, or choose None.')
+      ).toBeInTheDocument();
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await user.type(
+        screen.getByRole('textbox', { name: 'Scheduled time' }),
+        'latest'
+      );
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          '',
+          undefined,
+          false,
+          undefined,
+          undefined,
+          'latest'
+        )
+      );
+    });
+
+    // The slots come from the DAG's default profile, and another profile can
+    // have schedules of its own.
+    it('says which profile the slots follow when another is selected', async () => {
+      const user = userEvent.setup();
+      const hint =
+        "The listed times follow the DAG's default profile. The run's window follows the selected profile.";
+
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          dag={scheduledDag}
+          profiles={[
+            {
+              id: 'prod-id',
+              name: 'prod',
+              status: RuntimeProfileStatus.active,
+              protected: false,
+              description: '',
+              entries: [],
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+            },
+          ]}
+        />
+      );
+
+      expect(screen.queryByText(hint)).not.toBeInTheDocument();
+      await user.click(screen.getByRole('combobox', { name: /profile/i }));
+      await user.click(await screen.findByRole('option', { name: 'prod' }));
+      expect(screen.getByText(hint)).toBeInTheDocument();
+    });
+
+    it('is absent for a DAG with no recent slot', () => {
+      render(
+        <StartDAGModal
+          visible={true}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          dag={{ name: 'manual-dag' } as never}
+        />
+      );
+
+      expect(
+        screen.queryByRole('combobox', { name: /scheduled at/i })
+      ).not.toBeInTheDocument();
+    });
   });
 
   it('can disable reuse for a build run', async () => {
@@ -598,13 +761,13 @@ describe('StartDAGModal', () => {
         name: /disable reuse for this run/i,
       })
     );
-    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith(
         '',
         undefined,
-        true,
+        false,
         undefined,
         true
       )

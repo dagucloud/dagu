@@ -50,4 +50,19 @@ describe('useShowRun', () => {
       '/dags/etl?run=new'
     );
   });
+
+  // ?dagRunName names one run: a new run has it only when given.
+  it.each([
+    ['nightly', '/dags/etl?run=new&dagRunName=nightly'],
+    [null, '/dags/etl?run=new'],
+    [undefined, '/dags/etl?run=new'],
+  ])('names the new run with %s', (runName, url) => {
+    const { result } = renderHook(() => useShowRun(), {
+      wrapper: wrapperAt('/dags/etl?run=old&dagRunName=nightly'),
+    });
+    act(() => result.current('new', runName));
+    expect(document.querySelector('[data-testid="where"]')).toHaveTextContent(
+      new RegExp(`^${url.replace(/[?]/g, '\\?')}$`)
+    );
+  });
 });

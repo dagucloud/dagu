@@ -17,6 +17,7 @@ import { writeLocalStorage } from '@/lib/local-storage-migration';
 import { useWorkspaceData } from '../data/context';
 import type { StepRunTarget } from '../step/StepRunView';
 import {
+  DOCK_TABS,
   isRunRedirect,
   useWorkspaceUrl,
   type DockTab,
@@ -104,6 +105,7 @@ export const DOCK_HEIGHT_KEY = 'dagu.workspace.dockHeight';
 // v2: the first version stored a panel that starts open. A stored value of
 // that version does not apply to a panel that starts collapsed.
 export const DOCK_OPEN_KEY = 'dagu.workspace.dockOpen.v2';
+const DOCK_TAB_KEY = 'dagu.workspace.dockTab';
 
 // The window keeps this much above an open dock: the bar and the floor of
 // the main zone (MAIN_ZONE_FLOOR_CLASS).
@@ -150,6 +152,12 @@ function readStored(key: string): string | null {
     // Storage can be unavailable in privacy-restricted browser contexts.
     return null;
   }
+}
+
+/** The tab that the user picked last, in any workflow, or null. */
+function storedDockTab(): DockTab | null {
+  const stored = readStored(DOCK_TAB_KEY);
+  return DOCK_TABS.find((tab) => tab === stored) ?? null;
 }
 
 /** The open height of the Run panel that the user left, or the default. */
@@ -226,7 +234,9 @@ const NO_DOCK: DockController = {
  * Holds the state of the Run panel. It starts collapsed. It starts open when
  * the URL has ?dock or a ?run that a link made at load, or when the user left it open (stored
  * under DOCK_OPEN_KEY). The open state that the user toggles and the height
- * are stored. A ?dock link selects its tab, at load and when ?dock changes. Without a chosen tab, the Log tab shows when
+ * are stored. A ?dock link selects its tab, at load and when ?dock changes.
+ * Without one, the panel starts on the tab that the user picked last (stored
+ * under DOCK_TAB_KEY). Without a chosen tab, the Log tab shows when
  * a step is selected or the run failed, else the Timeline tab. A tab that
  * the selected run does not have shows 'log'.
  */
@@ -280,7 +290,9 @@ export function DockProvider({ children }: { children: ReactNode }) {
   const [height, setHeight] = useState(storedDockHeight);
   const [maximizedState, setMaximized] = useState(false);
   const maximized = maximizedState && yielded === null;
-  const [chosenTab, setChosenTab] = useState<DockTab | null>(url.dock);
+  const [chosenTab, setChosenTab] = useState<DockTab | null>(
+    () => url.dock ?? storedDockTab()
+  );
   const [seenDock, setSeenDock] = useState(url.dock);
   const [auto, setAuto] = useState<{
     runId: string;
@@ -330,7 +342,10 @@ export function DockProvider({ children }: { children: ReactNode }) {
           Math.max(h, clampDockHeight(Math.round(window.innerHeight * 0.6)))
         );
       }
-      if (o.user) setUrl({ dock: t }, { replace: true });
+      if (o.user) {
+        setUrl({ dock: t }, { replace: true });
+        writeLocalStorage(DOCK_TAB_KEY, t);
+      }
     },
     [setUrl, setOpen]
   );

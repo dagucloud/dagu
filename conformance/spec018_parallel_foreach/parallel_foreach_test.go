@@ -57,6 +57,14 @@ func TestParallelValidation(t *testing.T) {
 			stderrParts: []string{"defaults.max_concurrent", "1000"},
 		},
 		{
+			file:        "parallel_separator_unknown.yaml",
+			stderrParts: []string{"parallel.separator", "newline"},
+		},
+		{
+			file:        "parallel_separator_static_items.yaml",
+			stderrParts: []string{"parallel.separator", "string item source"},
+		},
+		{
 			file:        "parallel_nested_mapping_item.yaml",
 			stderrParts: []string{"parallel"},
 		},
@@ -109,6 +117,22 @@ func TestParallelDAGRunRuntime(t *testing.T) {
 			`"succeeded": 2`,
 			`"CHILD_VALUE": "alpha"`,
 			`"CHILD_VALUE": "beta"`,
+		)
+	})
+
+	// Without an explicit separator the single pipe-delimited line would be
+	// split on pipes into three items.
+	t.Run("explicit separator keeps delimiter characters inside one item", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "parallel_separator_newline.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContains(
+			"parallel-separator-results.txt",
+			`"total": 1`,
+			`"succeeded": 1`,
+			`"CHILD_VALUE": "|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|"`,
 		)
 	})
 }

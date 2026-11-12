@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -43,10 +45,14 @@ func DispatchTaskToProto(task *dispatch.DispatchTask) (*coordinatorv1.Task, erro
 		ProfileName:                task.ProfileName,
 		DefinitionId:               task.DefinitionID,
 		TriggerActor:               task.TriggerActor,
+		TriggerType:                task.TriggerType.String(),
 		BaseConfig:                 task.BaseConfig,
 		BaseConfigWorkspace:        task.BaseConfigWorkspace,
 		Labels:                     task.Labels,
 		ScheduleTime:               task.ScheduleTime,
+		IntervalStart:              formatWindowInstant(task.ScheduleWindow.Start),
+		NextScheduledAt:            formatWindowInstant(task.ScheduleWindow.Next),
+		ScheduleTimezone:           task.ScheduleWindow.Timezone,
 		SourceFile:                 task.SourceFile,
 		WorkerSelector:             maps.Clone(task.WorkerSelector),
 		TargetWorkerId:             task.TargetWorkerID,
@@ -103,10 +109,12 @@ func ProtoToDispatchTask(task *coordinatorv1.Task) (*dispatch.DispatchTask, erro
 		ProfileName:                task.ProfileName,
 		DefinitionID:               task.DefinitionId,
 		TriggerActor:               task.TriggerActor,
+		TriggerType:                ir.ParseTriggerType(task.TriggerType),
 		BaseConfig:                 task.BaseConfig,
 		BaseConfigWorkspace:        task.BaseConfigWorkspace,
 		Labels:                     task.Labels,
 		ScheduleTime:               task.ScheduleTime,
+		ScheduleWindow:             ScheduleWindowFromTask(task),
 		SourceFile:                 task.SourceFile,
 		WorkerSelector:             maps.Clone(task.WorkerSelector),
 		TargetWorkerID:             task.TargetWorkerId,
@@ -258,4 +266,31 @@ func ProtoToRunningTask(task *coordinatorv1.RunningTask) *dispatch.RunningTask {
 		ParentDAGRunID:   task.ParentDagRunId,
 		AttemptKey:       task.AttemptKey,
 	}
+}
+
+// ScheduleWindowFromTask returns the window a task's schedule slot owns.
+func ScheduleWindowFromTask(task *coordinatorv1.Task) ir.ScheduleWindow {
+	if task == nil {
+		return ir.ScheduleWindow{}
+	}
+	return ir.ScheduleWindow{
+		Start:    parseWindowInstant(task.IntervalStart),
+		Next:     parseWindowInstant(task.NextScheduledAt),
+		Timezone: task.ScheduleTimezone,
+	}
+}
+
+func formatWindowInstant(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func parseWindowInstant(value string) time.Time {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return t.UTC()
 }

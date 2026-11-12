@@ -123,6 +123,8 @@ function trackMetrics(narrow: boolean) {
     height: axisY + TICK_LEN + LABELS_HEIGHT,
   };
 }
+// The time ticks of the loading skeleton, evenly apart.
+const SKELETON_TICKS = 6;
 // Heights of the bars of the loading skeleton.
 const SKELETON_HEIGHTS = [
   18, 30, 12, 44, 22, 36, 14, 50, 26, 20, 40, 16, 32, 24, 46, 10, 34, 28, 42,
@@ -750,6 +752,109 @@ const TimeAxes = memo(function TimeAxes({
   );
 });
 
+/**
+ * The chart while its runs load, in the frame of the chart: the gutter of
+ * the duration labels, the grid, the baseline and the time axis with its
+ * labels, and one bar for each run that the chart will show.
+ */
+function TimelineSkeleton({
+  count,
+  metrics,
+  label,
+}: {
+  count: number;
+  metrics: ReturnType<typeof trackMetrics>;
+  label: string;
+}) {
+  const bars = Math.max(1, Math.min(count, SKELETON_HEIGHTS.length));
+  const ticks = Array.from(
+    { length: SKELETON_TICKS },
+    (_, i) => `${((i + 0.5) / SKELETON_TICKS) * 100}%`
+  );
+  const levels = [BAR_MAX_PX / 2, BAR_MAX_PX];
+  return (
+    <div
+      data-testid="ww-run-timeline-loading"
+      aria-busy="true"
+      aria-label={label}
+      role="status"
+      className="relative min-w-0 flex-1 motion-safe:animate-pulse"
+      style={{ height: metrics.height }}
+    >
+      <div
+        aria-hidden="true"
+        className="absolute inset-y-0 left-0"
+        style={{ width: Y_AXIS_PX }}
+      >
+        {[0, ...levels].map((y) => (
+          <span
+            key={y}
+            style={{ top: BASELINE - y - 3 }}
+            className="absolute right-1.5 h-1.5 w-5 rounded-sm bg-muted"
+          />
+        ))}
+      </div>
+      <div
+        aria-hidden="true"
+        className="absolute inset-y-0 right-0"
+        style={{ left: Y_AXIS_PX }}
+      >
+        {levels.map((y) => (
+          <span
+            key={y}
+            style={{ top: BASELINE - y }}
+            className="absolute inset-x-0 h-px bg-foreground/10"
+          />
+        ))}
+        {ticks.map((left) => (
+          <span
+            key={`g${left}`}
+            style={{
+              left,
+              top: PLOT_TOP,
+              height: metrics.axisY + TICK_LEN - PLOT_TOP,
+            }}
+            className="absolute w-px bg-foreground/10"
+          />
+        ))}
+        <span
+          style={{ top: BASELINE }}
+          className="absolute inset-x-0 h-px bg-muted-foreground/30"
+        />
+        <span
+          style={{ top: metrics.axisY }}
+          className="absolute inset-x-0 h-px bg-muted-foreground/30"
+        />
+        {ticks.map((left) => (
+          <span
+            key={`l${left}`}
+            style={{ left, top: metrics.axisY + TICK_LEN + 5 }}
+            className="absolute h-2 w-8 -translate-x-1/2 rounded-sm bg-muted"
+          />
+        ))}
+        {Array.from({ length: bars }, (_, i) => {
+          const height = Math.min(
+            BAR_MAX_PX,
+            SKELETON_HEIGHTS[i % SKELETON_HEIGHTS.length]!
+          );
+          return (
+            <span
+              key={i}
+              style={{
+                left: `calc(${((i + 0.5) / bars) * 100}% - ${BAR_PX / 2}px)`,
+                top: BASELINE - height,
+                width: BAR_PX,
+                height,
+              }}
+              className="absolute rounded-t-sm bg-muted"
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export interface RunTimelineViewProps {
   /** Every run to draw from, oldest first. */
   runs: readonly ApiDAGRunDetails[];
@@ -998,25 +1103,11 @@ export function RunTimelineView({
   let track;
   if (loading && runs.length === 0) {
     track = (
-      <div
-        data-testid="ww-run-timeline-loading"
-        aria-busy="true"
-        aria-label={ts('Loading runs...')}
-        role="status"
-        className="flex min-w-0 flex-1 items-end gap-[2px]"
-        style={{
-          height: metrics.height,
-          paddingBottom: metrics.height - BASELINE,
-        }}
-      >
-        {SKELETON_HEIGHTS.map((h, i) => (
-          <span
-            key={i}
-            style={{ height: Math.min(BAR_MAX_PX, h) }}
-            className="block min-w-[3px] flex-1 animate-pulse rounded-sm bg-muted"
-          />
-        ))}
-      </div>
+      <TimelineSkeleton
+        count={count}
+        metrics={metrics}
+        label={ts('Loading runs...')}
+      />
     );
   } else if (runs.length === 0) {
     track = (

@@ -58,6 +58,8 @@ describe('LogViewer', () => {
     vi.restoreAllMocks();
   });
 
+  // The DAG name of the run can differ from the name of its file, as for a
+  // run started with --name: the log page reads the run under the name given.
   it('opens a step log in a new tab on its file, stream, and node', () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
     renderViewer({ stream: Stream.stderr });
@@ -67,6 +69,7 @@ describe('LogViewer', () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       remoteNode: 'edge',
       dagRunId: 'run-1',
+      dagRunName: 'etl',
       step: 'build',
       stream: 'stderr',
     });

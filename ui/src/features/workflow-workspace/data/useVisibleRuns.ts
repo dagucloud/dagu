@@ -27,7 +27,8 @@ import {
 } from '../dock/runTimelineModel';
 import type { TriggerType } from '@/api/v1/schema';
 import { useClockNow } from '@/hooks/useClock';
-import type { ApiDAGRunDetails } from './types';
+import type { ApiDAGRunDetails, WorkspaceRunValue } from './types';
+import { useOlderRuns, type OlderRuns } from './useOlderRuns';
 import { useRunHistory } from './useRunHistory';
 import { useWorkspaceRun } from './useWorkspaceRun';
 
@@ -224,6 +225,41 @@ export interface VisibleRuns {
 
 const MINUTE_MS = 60_000;
 
+/** Whether the choices about test runs and trigger types let a run through. */
+function shownByView(
+  run: ApiDAGRunDetails,
+  { showTests, hiddenTypes }: Pick<RunViewSettings, 'showTests' | 'hiddenTypes'>
+): boolean {
+  return isTestRun(run) ? showTests : !hiddenTypes.includes(triggerOf(run));
+}
+
+/**
+ * The run ID that a view marks as selected. With 'latest' it is the run of
+ * ?run: a test run that is newer than the latest run reads as 'latest' too.
+ */
+function selectedRunId(
+  run: WorkspaceRunValue,
+  oldestFirst: readonly ApiDAGRunDetails[]
+): string | null {
+  const selection = run.selection;
+  if (selection !== 'latest') return selection.runId;
+  return (
+    run.ref?.runId ??
+    run.latestRef?.runId ??
+    [...oldestFirst].reverse().find((r) => !isTestRun(r))?.dagRunId ??
+    null
+  );
+}
+
+/** The time of the selected run, when its details are the ones loaded. */
+function selectedRunTime(
+  run: WorkspaceRunValue,
+  selectedId: string | null
+): number | null {
+  const details = run.details;
+  return details && details.dagRunId === selectedId ? runTimeMs(details) : null;
+}
+
 /** The time of the render, new each minute while `live`. */
 function useMinuteClock(live: boolean): number {
   return useClockNow(live ? MINUTE_MS : null);
@@ -284,7 +320,7 @@ export function useVisibleRuns({
         : bounds;
     const kept = history.runs.filter(
       (r) =>
-        (isTestRun(r) ? showTests : !hiddenTypes.includes(triggerOf(r))) &&
+        shownByView(r, { showTests, hiddenTypes }) &&
         (within === null || runInRange(r, rangeNow, within, showCached))
     );
     return timelineRuns(kept);
@@ -298,16 +334,7 @@ export function useVisibleRuns({
     showCached,
   ]);
 
-  const selection = run.selection;
-  // The shown run is the selected one. With 'latest' it is the run of ?run:
-  // a test run that is newer than the latest run reads as 'latest' too.
-  const selectedId =
-    selection === 'latest'
-      ? (run.ref?.runId ??
-        run.latestRef?.runId ??
-        [...pool].reverse().find((r) => !isTestRun(r))?.dagRunId ??
-        null)
-      : selection.runId;
+  const selectedId = selectedRunId(run, pool);
   const runs = useMemo(
     () => (mode === 'count' ? timelineWindow(pool, selectedId, count) : pool),
     [mode, pool, selectedId, count]
@@ -321,9 +348,7 @@ export function useVisibleRuns({
     oldestAt !== null &&
     bounds.from < oldestAt;
 
-  const details = run.details;
-  const selectedAt =
-    details && details.dagRunId === selectedId ? runTimeMs(details) : null;
+  const selectedAt = selectedRunTime(run, selectedId);
   return {
     runs,
     pool,
@@ -335,6 +360,55 @@ export function useVisibleRuns({
     hasCachedTime,
     truncated,
     isLoading: history.isLoading,
+    adjacentId: (direction) =>
+      adjacentVisibleRunId(runs, selectedId, direction, selectedAt),
+  };
+}
+
+/** The runs of the History tab, and the older runs that it can read. */
+export interface HistoryRuns {
+  /** The runs that the History tab shows, oldest first. */
+  runs: ApiDAGRunDetails[];
+  /** The run ID that is selected; null when none is. */
+  selectedId: string | null;
+  isLoading: boolean;
+  older: OlderRuns;
+  /** The run next to the selected one: 'older' is to the left. */
+  adjacentId(direction: 'older' | 'newer'): string | null;
+}
+
+/**
+ * The runs of the History tab: the latest page of the history and the older
+ * pages read since. The choices of the run timeline about test runs and
+ * trigger types apply; its count and its time range do not.
+ */
+export function useHistoryRuns(): HistoryRuns {
+  const run = useWorkspaceRun();
+  const history = useRunHistory({
+    enabled: true,
+    includeEphemeral: true,
+    pollTestRuns: true,
+  });
+  const older = useOlderRuns(history.runs, history.nextCursor);
+  const [{ showTests, hiddenTypes }] = useRunViewSettings();
+  const runs = useMemo(() => {
+    const seen = new Set<string>();
+    return [...history.runs, ...older.runs]
+      .filter((r) => {
+        if (seen.has(r.dagRunId)) return false;
+        seen.add(r.dagRunId);
+        return shownByView(r, { showTests, hiddenTypes });
+      })
+      .reverse();
+  }, [history.runs, older.runs, showTests, hiddenTypes]);
+
+  const selectedId = selectedRunId(run, runs);
+  const selectedAt = selectedRunTime(run, selectedId);
+  return {
+    runs,
+    selectedId,
+    isLoading: history.isLoading,
+    older,
     adjacentId: (direction) =>
       adjacentVisibleRunId(runs, selectedId, direction, selectedAt),
   };

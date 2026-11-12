@@ -680,6 +680,20 @@ steps:
 
 Each child invocation receives the current item as `ITEM`.
 
+A string item source is parsed as a JSON array when it is one, and otherwise split on a detected separator: line breaks when the string has several lines, else the most frequent of `,` `;` `|` and tab, else whitespace. Detection cannot tell one item containing `|` or `,` from several items on one line, so set `separator` (`newline`, `comma`, `semicolon`, `pipe`, `tab`, or `space`) when items may contain delimiter characters. An explicit separator splits on that separator alone and skips JSON detection; it requires a string `items` value.
+
+```yaml
+  - id: restore
+    action: dag.run
+    with:
+      dag: restore-pvc
+      params:
+        PVC_DETAILS: ${ITEM}
+    parallel:
+      items: ${get_pvcs.outputs.ALL_PVCS}
+      separator: newline
+```
+
 `max_concurrent` defaults to 10. Set `defaults.max_concurrent` in a DAG or base config to change it for every `parallel` and `foreach` step that omits `max_concurrent`:
 
 ```yaml
@@ -714,7 +728,7 @@ steps:
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `shell`, `shell_args`, `bastion`.
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
 
 ## http.request
 
@@ -1307,7 +1321,9 @@ does not carry tables, images, or charts.
 no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse
 direction is `xlsx.write` with `input`, whose csv also takes `encoding` and
-`delimiter`.
+`delimiter`; without `encoding` the input is detected as UTF-8 or else
+Shift_JIS, and a file that is neither, or not UTF-8 under `encoding: utf-8`,
+fails naming it.
 
 `xlsx.extract` reads fields out of a sheet laid out as a form rather than a
 table, such as a supplier's quote whose layout differs by sender. `path`,
@@ -1378,11 +1394,11 @@ steps:
 
 ## chat.completion
 
-Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`, `max_file_chars`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
 
-With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`.
+With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`. A request that carries tools, or forces a tool call, also sets OpenRouter's `provider.require_parameters`, so it reaches only endpoints that support them.
 
-`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, 1,000,000 characters of text and 50 images a step. Read a document into typed values with `output_schema`:
+`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, `max_file_chars` characters of text (1,000,000 by default; set it to what the model's context window holds) and 50 images a step. When the provider refuses the request for its length, the error ends with how many characters the files held, so the work can be split. Read a document into typed values with `output_schema`:
 
 ```yaml
 steps:
@@ -1550,6 +1566,7 @@ Browser behavior:
 - Model requests carry the instruction, the page's elements and visible text, and the extract schema; never variable values, typed field text, or screenshots. Declared secrets shown on the page are masked; plain variables are not.
 - "the model (...) answered that no element on the page matches the instruction" means the model chose no element. If the failure screenshot shows the element, the model answers that way for every request (for example `google/gemini-2.5-flash` via OpenRouter); switch models. Otherwise fix the instruction.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
+- An answer that breaks the `extract` schema gets one correction, then the next `with.model` entry is tried. When a page may have nothing to find, use a list the model can leave empty, or allow null with `type: [string, "null"]`; a required string has no way to say "nothing".
 - A field that should hold the address a link points to needs `format: uri`, as in `link: {type: string, format: uri}`, and a place in `required`. Without the format the model returns the link's element id, such as `0-11` or `[0-11]`, and the step still succeeds; without `required` some models leave the field out. `dagu validate` warns about a string field named like an address (`url`, `link`, `href`, `detail_url`, ...) that has no `format: uri`.
 - The `act` and `upload` operations of a step that succeeded are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay acts only on an element with the role and name it recorded, in the same row text when the page repeats it (such as a Delete button per row), and on a select offering the recorded option, or else asks the model again. A recording whose actions never use a variable the instruction names, as when the page already showed the value, replays only where that variable has the value it had then; another value asks the model, and fails under `never`. Unnamed elements are told apart by role only, so follow important acts with an `expect`: when a later operation fails on the page, the step's replays are dropped and the next run asks the model again.
 - `with.ai` chooses how much the model decides for `act` and for `upload` with `into`, and `ai` on an `act` or an `upload` replaces it for that operation. `on_miss` (default): replay the recording, and let the model act and repair it when a replay fails. `every_run`: the model acts every run; a successful one still records. `never`: replay only; with no recording on the host, or a replay that fails, the step fails and says why, and the recording is kept for a run under `on_miss` to repair. A step whose operations never call the model needs no `llm`. An `extract` and a statement `expect` or `when` need the model, so a step-level `never` refuses them; fixed checks and an `upload` without `into` are allowed. `cache: false` means `every_run`; set `ai` or `cache`, not both. To run a step with no model, record it under `on_miss` first (or export a browser session), then set `ai: never`.
@@ -1561,12 +1578,12 @@ Browser behavior:
 - Where the browser sandbox cannot start, the host setting `browser.sandbox: false` or `DAGU_BROWSER_SANDBOX=false` turns it off for every browser step; a compromised page then runs with the Dagu process's permissions, so prefer the seccomp profile. DAGs cannot change it. With the sandbox on, a browser step fails when `CI` is set or Dagu runs as root on Linux, because the browser would run without the sandbox there; set `DAGU_BROWSER_SANDBOX=false` to allow it.
 - The host setting `browser.max_open` (or `DAGU_BROWSER_MAX_OPEN`) bounds the browsers open at once on the host, across steps, DAG runs, and browser sessions; a browser past it waits for one to close within the step's timeout. Each browser holds a Chromium process, so set it where memory is tight; `0`, the default, sets no limit.
 - Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
-- A browser without a window (`headless: true`, the default) sends the user agent the same Chrome sends with one and reports a desktop-sized screen, so showing the window does not change how a site sees the step. A page the site refused, with a bot check such as Cloudflare's or a 403 or 429, is logged as `page refused` and named at the end of the error of a step that fails on it; a bot check that passes on its own is waited out for up to 10 seconds.
+- A browser without a window (`headless: true`, the default) sends the user agent the same Chrome sends with one and reports a desktop-sized screen, so showing the window does not change how a site sees the step. A page the site refused, with a bot check such as Cloudflare's or a 403 or 429, is logged as `page refused` and fails the `act`, `upload`, `expect`, or `extract` that would run on it, with the refusal as its error, unless a `when` on it holds (an `extract` never runs there); a `goto`, `wait`, `screenshot`, or `ask` runs, and a step that ends on a refused page fails. A step that fails there for another reason names the refusal at the end of its error; a bot check that passes on its own is waited out for up to 10 seconds.
 - After a site redesign, clear recorded acts with `dagu browser cache clear <dag> [--step <id>]` on that host instead of editing the instruction or setting `cache: false`.
 
 ## computer.extract / computer.run
 
-Automate desktop applications, such as an ERP client or a legacy Windows program, on the desktop of a macOS or Windows worker. The model looks at screenshots and clicks and types; it comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely. `anthropic`, `openai`, and `gemini` models use their native computer-use tools when they support them (Claude Opus 4.8 or Sonnet 5 and later, Gemini 3.5 and later); other providers, older models, or `mode: generic` use plain function tools with any tool-calling vision model.
+Automate desktop applications, such as an ERP client or a legacy Windows program, on the desktop of a macOS or Windows worker. The model looks at screenshots and clicks and types; it comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely. `anthropic`, `openai`, and `gemini` models use their native computer-use tools when they support them (Claude Opus 4.8 or Sonnet 5 and later, Gemini 3.5 and later); other providers, older models, or `mode: generic` use plain function tools with any tool-calling vision model. In generic mode a turn on a window whose elements are read in full goes with the element list alone, the model typing into fields and pressing controls by id, and the model asks for a screenshot when the list is not enough.
 
 The Dagu process that runs the step must run in a logged-in user session: on Windows not as a service, with the screen unlocked, and with a Remote Desktop or child session kept connected so its display draws; on macOS with Screen Recording and Accessibility granted to the app that starts Dagu. Run `dagu computer check` on the host to verify. Route computer DAGs to such workers with a DAG-level `worker_selector`, or route one run with `workerSelector` on the start and enqueue API requests (`--worker-label` on `dagu start` and `dagu enqueue`); other systems fail the step.
 
@@ -1867,7 +1884,9 @@ Flags:
 - `--no-reuse` — Recompute reusable build steps while preserving staged, atomic publication
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
+- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
+
+A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
 
 ### dagu enqueue
 
@@ -1888,7 +1907,7 @@ Flags:
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
 - `--no-reuse` — Recompute reusable build steps when the queued run starts
-- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
+- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 ### dagu exec
 
@@ -1920,6 +1939,8 @@ Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
 ### dagu restart
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
+
+A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead. With `unless-stopped`, the scheduler starts no run after a stop: start the DAG again with `dagu start`.
 
 ### dagu retry
 
@@ -2304,12 +2325,17 @@ Run and step metadata:
 | `${context.run.id}` | Current DAG run ID |
 | `${context.run.status}` | Current run status when status is available, such as lifecycle handler scopes |
 | `${context.run.scheduled_at}` | Scheduled time for a scheduled run |
+| `${context.run.interval_start}` | Previous fire time of the DAG's schedule before `scheduled_at` |
+| `${context.run.interval_end}` | Same instant as `scheduled_at`; the window is `[interval_start, interval_end)` |
+| `${context.run.next_scheduled_at}` | Next fire time of the DAG's schedule after `scheduled_at` |
+| `${context.run.timezone}` | Zone of the slot's schedule, such as `Asia/Tokyo` |
 | `${context.run.root_name}` | Root DAG name when this run is part of a nested run |
 | `${context.run.root_id}` | Root run ID when this run is part of a nested run |
 | `${context.attempt.id}` | Current attempt ID |
 | `${context.attempt.started_at}` | Current attempt start time |
 | `${context.step.id}` | Current step ID |
 | `${context.step.name}` | Current step name |
+| `${context.step.repeat_index}` | Zero-based execution index of a step with `repeat_policy`; also `DAG_RUN_STEP_REPEAT_INDEX` |
 | `${context.trigger.type}` | Run trigger type when trigger metadata is available |
 | `${context.trigger.actor}` | Trigger actor when trigger metadata includes one |
 
@@ -2559,7 +2585,7 @@ If the owning worker or OpenCode server disappears, the step remains waiting and
 
 OpenCode persists managed conversations in the Dagu service user's OpenCode data directory; run `opencode debug paths` as that user to locate it. Dagu stores the session reference and UI timeline with the DAG run. If OpenCode's session data is lost, Dagu remains running and marks the affected step unavailable. Use **Start clean session** to create a new conversation and submit the original prompt again.
 
-The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 is the currently tested release.
+The managed server is a shared service-identity boundary for trusted workflows. Use separate Dagu workers or containerized CLI execution when workflows require isolation from one another. Managed compatibility is capability-checked at startup; OpenCode v1.18.11 and v2.1.4 are tested releases. Install v2 with `npm install -g @opencode/cli@2.1.4`; the v1 package is `opencode-ai`. Dagu selects the managed HTTP protocol from the server version. V2 message history is paginated, and pending permissions and question forms are reconciled while a step runs. For v2, specify `model` when using the separate `variant` option, or use `model: provider/model#variant`. CLI-only options must match the installed OpenCode version; v2 no longer accepts the v1 `--variant` and `--command` flags. Use managed mode for Dagu’s `variant` and `command` options. A managed v2 command must submit a prompt to the current session, as configured template commands do; callbacks that only change settings or launch a separate subagent do not produce a harness result. The existing question interface handles OpenCode’s built-in question forms.
 
 ## How `with` Works
 

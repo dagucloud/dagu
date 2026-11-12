@@ -125,6 +125,30 @@ func TestPathFieldBackslashIsPathText(t *testing.T) {
 	dagu.ExpectFileContent(path("out", "order-1.txt"), "${NAME}")
 }
 
+// TestRedirectMissingParent proves the stdout and stderr path rows: missing
+// parents are created for a resolved path, and a path that still carries a
+// reference fails the step instead of creating a literally named directory.
+func TestRedirectMissingParent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolved path", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "redirect_missing_parent.yaml").ExpectExitCode(0)
+		dagu.ExpectFileContent("logs/deep/out.txt", "out")
+		dagu.ExpectFileContent("logs/other/err.txt", "err")
+	})
+
+	t.Run("unresolved reference", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "redirect_unresolved_parent.yaml").ExpectNonZeroExitCode()
+		dagu.ExpectNoFile("${REDIRECT_UNSET}")
+	})
+}
+
 // A retry rebuilds the DAG from its stored definition, and root env inserted
 // at the first load must stay literal on that path too.
 func TestRootEnvInsertionOnRetry(t *testing.T) {

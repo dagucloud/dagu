@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { DagEditOp, StepView, ValidationIssue } from '../contracts';
+import type {
+  DagEditOp,
+  ReferenceCandidate,
+  StepView,
+  ValidationIssue,
+} from '../contracts';
 
 /** Path of a value inside one step, as `setStepField` takes it. */
 export type FieldPath = (string | number)[];
@@ -30,4 +35,6 @@ export interface SectionProps {
   fieldIssues: Record<string, ValidationIssue[]>;
   /** The name that the server gives the step, for a step with no `name:`. */
   derivedName?: string;
+  /** The references that a field of the step can offer. */
+  candidates: ReferenceCandidate[];
 }

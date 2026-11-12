@@ -48,14 +48,10 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
     setLastCopy('link')
   );
 
-  // The workflow page has no address for a sub-run, so its link opens the root run.
+  // A sub-run opens on the sub-run stack of its root run.
   const isSubRun = dagRun.dagRunId !== dagRun.rootDAGRunId;
   const copyLinkLabel = ts(
-    linkCopied
-      ? 'Link copied'
-      : isSubRun
-        ? 'Copy link to the root run'
-        : 'Copy link to this run'
+    linkCopied ? 'Link copied' : 'Copy link to this run'
   );
   const copyRunLink = () => {
     const basePrefix = config.basePath === '/' ? '' : (config.basePath ?? '');
@@ -63,6 +59,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
       rootDAGRunName: dagRun.rootDAGRunName,
       rootDAGRunId: dagRun.rootDAGRunId,
       fileName: isSubRun ? undefined : dagRun.sourceFileName,
+      subDAGRunId: isSubRun ? dagRun.dagRunId : undefined,
       remoteNode,
       workspace,
     });
@@ -140,6 +137,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
           remoteNode,
           workspace,
           run: dagRun.dagRunId,
+          runName: dagRun.name,
         })
       : null;
 

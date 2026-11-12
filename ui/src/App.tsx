@@ -74,7 +74,7 @@ import {
 import { escFree } from '@/features/workflow-workspace/canvas/escFree';
 import { useOverlayExit } from '@/features/peek/useOverlayExit';
 import { cn } from '@/lib/utils';
-import { translateStatic } from '@/i18n/staticMessages';
+import { translateStatic } from '@/i18n/translateStatic';
 import { I18nText } from '@/i18n/I18nText';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
@@ -427,9 +427,29 @@ function LazyRoutes({
 }
 
 /**
- * The overlay from the click until the URL names the workflow. It asks for
- * the details and the spec of the workflow meanwhile, with the keys that
- * the workflow page reads, so that the page mounts on their answers.
+ * Asks for the details and the spec of the workflow of a row, with the keys
+ * that the workflow page reads, so that the page mounts on their answers.
+ */
+function usePrefetchWorkflow(target: PeekTarget | null): void {
+  const remoteNode = useRemoteNode();
+  const fileName = target?.dag ?? '';
+  const enabled = fileName !== '';
+  useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+}
+
+/**
+ * A row that a step of the overlay can show: its workflow is read ahead,
+ * so that the step shows it at once instead of the loading frame.
+ */
+function PrefetchWorkflow({ target }: { target: PeekTarget }): null {
+  usePrefetchWorkflow(target);
+  return null;
+}
+
+/**
+ * The overlay from the click until the URL names the workflow. It reads
+ * the workflow meanwhile.
  */
 function OverlayLoading({
   target,
@@ -438,9 +458,7 @@ function OverlayLoading({
 }): React.ReactElement {
   const remoteNode = useRemoteNode();
   const fileName = target?.dag ?? '';
-  const enabled = fileName !== '';
-  useDAGDetailsQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
-  useDAGSpecQuery(fileName, remoteNode, PREFETCH_OPTIONS, enabled);
+  usePrefetchWorkflow(target);
   // The frame of the page that the URL is about to name.
   return (
     <WorkspaceLoading
@@ -594,6 +612,13 @@ function WorkflowOverlayHost(): React.ReactElement | null {
             onClick={overlay.close}
           />
         </div>
+        {isOpen &&
+          overlay.neighbours.map((row) => (
+            <PrefetchWorkflow
+              key={`${row.dag}\u0000${row.run ?? ''}`}
+              target={row}
+            />
+          ))}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-b-xl">
           {/* The frame and the title of the page below stay as they are. */}
           <AppBarContext.Provider value={overlayAppBar}>

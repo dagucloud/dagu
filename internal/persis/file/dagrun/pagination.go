@@ -32,6 +32,9 @@ type dagRunListItem struct {
 	Status *ir.DAGRunStatus
 }
 
+// compareDagRunListKeys orders runs newest first. The timestamp of a run
+// directory has whole seconds: within one second, a larger run ID comes
+// first, as generated IDs grow with time.
 func compareDagRunListKeys(a, b dagRunListKey) int {
 	switch {
 	case a.Timestamp.After(b.Timestamp):
@@ -42,9 +45,9 @@ func compareDagRunListKeys(a, b dagRunListKey) int {
 		return -1
 	case a.Name > b.Name:
 		return 1
-	case a.DAGRunID < b.DAGRunID:
-		return -1
 	case a.DAGRunID > b.DAGRunID:
+		return -1
+	case a.DAGRunID < b.DAGRunID:
 		return 1
 	default:
 		return 0
@@ -161,8 +164,12 @@ func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunSt
 		roots = append(roots, store.dataRoot(opts.ExactName))
 	}
 
+	excluded := dagDirNames(opts.ExcludeDAGNames)
 	iterators := make([]*dagRunStatusIterator, 0, len(roots))
 	for _, root := range roots {
+		if _, skip := excluded[root.prefix]; skip {
+			continue
+		}
 		iterator, err := newDAGRunStatusIterator(store, root, opts, iterOpts)
 		if err != nil {
 			return nil, err
@@ -473,6 +480,12 @@ func (it *dagRunStatusIterator) allowsTimestamp(ts, before time.Time) bool {
 func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (dagRunListItem, bool) {
 	if it.opts.DAGRunID != "" && !strings.Contains(run.dagRunID, it.opts.DAGRunID) {
 		return dagRunListItem{}, false
+	}
+	if it.opts.FullStatus && run.summary != nil {
+		// A summary of the run index has no nodes: read the status itself.
+		whole := *run
+		whole.summary = nil
+		run = &whole
 	}
 	status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
 	if status == nil {

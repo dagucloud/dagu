@@ -11,6 +11,7 @@ import {
   loginViaAPI,
   loginViaUI,
   startDAG,
+  startRunNow,
   uniqueName,
   waitForDAGAvailable,
   waitForRunStatus,
@@ -257,7 +258,7 @@ steps:
       .click();
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Run ID (optional)').fill(runId);
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+    await startRunNow(dialog);
     // Start selects the new run in the one tab of the workflow.
     await expect
       .poll(() => {

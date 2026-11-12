@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { translateStatic } from '@/i18n/staticMessages';
-import { buildReferenceCandidates, REFERENCE_GROUP_LABELS } from './candidates';
+import { translateStatic } from '@/i18n/translateStatic';
+import { REFERENCE_GROUP_LABELS } from './candidates';
 import {
+  candidatesAt,
   editorLocale,
-  findOwningStep,
   isInRunField,
   type ReferenceEditorState,
 } from './editorState';
@@ -59,9 +59,9 @@ export function computeReferenceHover(
   if (token.kind !== 'canonical') {
     return null;
   }
-  const step = findOwningStep(text, offset, state);
-  const candidates = buildReferenceCandidates(state.scope, step?.name ?? null);
-  const candidate = candidates.find((c) => c.token === token.text);
+  const candidate = candidatesAt(text, offset, state).find(
+    (c) => c.token === token.text
+  );
   if (candidate) {
     const lines = [
       candidate.detail
@@ -80,13 +80,20 @@ export function computeReferenceHover(
   return null;
 }
 
-/** Register the reference hover provider for YAML models. Dispose the result to remove it. */
+/**
+ * Register the reference hover provider for the YAML model at `uri`, or for
+ * every YAML model without one. Dispose the result to remove it.
+ */
 export function registerReferenceHover(
   monaco: Monaco,
-  getState: () => ReferenceEditorState
+  getState: () => ReferenceEditorState,
+  uri?: string
 ): { dispose(): void } {
   const hover = monaco.languages.registerHoverProvider('yaml', {
     provideHover(model, position) {
+      if (uri !== undefined && model.uri.toString() !== uri) {
+        return null;
+      }
       const result = computeReferenceHover(
         model.getValue(),
         model.getOffsetAt(position),

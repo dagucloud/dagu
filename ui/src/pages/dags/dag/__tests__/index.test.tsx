@@ -11,10 +11,9 @@ import {
 import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NodeStatus, Status } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { LayoutChromeProvider } from '@/contexts/LayoutChromeContext';
-import { DAGRunDetailsContent } from '@/features/dag-runs/components/dag-run-details';
-import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { WorkflowWorkspace } from '@/features/workflow-workspace';
 import { LogPopoutPage } from '@/features/workflow-workspace/popout/LogPopoutPage';
 import { useQuery } from '@/hooks/api';
@@ -34,7 +33,10 @@ vi.mock('@/features/workflow-workspace', async () => {
     workspaceNav.to = useNavigate();
     return <div data-testid="workflow-workspace">{useRemoteNode()}</div>;
   }
-  return { WorkflowWorkspace: vi.fn(() => <Workspace />) };
+  const { standalonePageData } = await vi.importActual<
+    typeof import('@/features/workflow-workspace/data/standalonePageData')
+  >('@/features/workflow-workspace/data/standalonePageData');
+  return { WorkflowWorkspace: vi.fn(() => <Workspace />), standalonePageData };
 });
 
 vi.mock('@/features/workflow-workspace/popout/LogPopoutPage', async () => {
@@ -45,16 +47,8 @@ vi.mock('@/features/workflow-workspace/popout/LogPopoutPage', async () => {
   return { LogPopoutPage: vi.fn(() => <Popout />) };
 });
 
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsContent: vi.fn(() => <div data-testid="run-details" />),
-}));
-
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
-}));
-
-vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
-  useBoundedDAGRunDetails: vi.fn(),
 }));
 
 vi.mock('@/hooks/useDAGSSE', () => ({
@@ -82,9 +76,10 @@ const useQueryMock = useQuery as unknown as {
 const queryCalls = () =>
   (useQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
 
+const setTitle = vi.fn();
 const appBarValue = {
   selectedRemoteNode: 'local',
-  setTitle: vi.fn(),
+  setTitle,
   workspaceSelection: { kind: WorkspaceKind.all },
 } as never;
 
@@ -138,19 +133,9 @@ function renderPage(
 // parity:test-dag-page-index
 // parity:shell-route-dag-page
 describe('DAGDetails page', () => {
-  const liveRun = vi.mocked(useBoundedDAGRunDetails);
-  const refreshLive = vi.fn(() => Promise.resolve());
-
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    liveRun.mockImplementation(() => ({
-      data: null,
-      error: null,
-      isLoading: false,
-      isValidating: false,
-      refresh: refreshLive,
-    }));
     useQueryMock.mockImplementation((path) => {
       if (path === '/dags/{fileName}') {
         return {
@@ -439,20 +424,19 @@ describe('DAGDetails page', () => {
 
       renderPage('/dags/etl?run=r1');
 
-      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
-      const props = vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0];
-      expect(props).toMatchObject({
-        name: 'etl',
-        dagRun: fileLess,
-        dagRunId: 'r1',
-        fillHeight: true,
+      // The workspace shows the run from the definition that it stored.
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(lastWorkspaceProps()).toMatchObject({
+        fileName: 'etl',
+        standaloneRun: fileLess,
+        dagData: { dag: { name: 'etl' }, latestDAGRun: fileLess },
       });
-      props?.refreshFn();
-      expect(refreshLive).toHaveBeenCalled();
+      expect(claimFullBleed).toHaveBeenCalled();
       expect(
         screen.queryByRole('heading', { name: 'Workflow not found' })
       ).not.toBeInTheDocument();
-      expect(workspaceMock).not.toHaveBeenCalled();
     });
 
     // The old run page read the run alone; its links still reach the run.
@@ -472,7 +456,12 @@ describe('DAGDetails page', () => {
 
       renderPage('/dag-runs/etl/r1');
 
-      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(lastWorkspaceProps()?.standaloneRun).toMatchObject({
+        dagRunId: 'r1',
+      });
       expect(screen.getByTestId('location')).toHaveTextContent(
         '/dags/etl?remoteNode=local&run=r1'
       );
@@ -687,51 +676,10 @@ describe('DAGDetails page', () => {
       });
     });
 
-    // The page reads the run once; the run view follows it while it is
-    // active, with the run SSE and a poll as its fallback.
-    it('follows a run whose workflow file is gone', async () => {
-      const fileLess = { name: 'etl', dagRunId: 'r1', status: 1 };
-      const done = { ...fileLess, status: 4 };
-      liveRun.mockImplementation(() => ({
-        data: done as never,
-        error: null,
-        isLoading: false,
-        isValidating: false,
-        refresh: refreshLive,
-      }));
-      useQueryMock.mockImplementation((path) =>
-        path === '/dag-runs/{name}/{dagRunId}'
-          ? ({ data: { dagRunDetails: fileLess }, mutate: vi.fn() } as never)
-          : ({
-              data: undefined,
-              error: { code: 'not_found', message: 'DAG is not found' },
-              mutate: vi.fn(),
-            } as never)
-      );
-
-      renderPage('/dags/etl?run=r1');
-
-      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
-      expect(liveRun).toHaveBeenLastCalledWith({
-        target: { remoteNode: 'local', name: 'etl', dagRunId: 'r1' },
-        pollIntervalMs: 2000,
-      });
-      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
-        dagRun: done,
-      });
-    });
-
-    // A sub-run link keeps its sub-run when the file of the root is gone.
+    // A sub-run link keeps its sub-run, which the workspace opens, when the
+    // file of the root is gone.
     it('shows the sub-run of a run whose workflow file is gone', async () => {
       const root = { name: 'root', dagRunId: 'r1' };
-      const child = { name: 'child', dagRunId: 'c1', rootDAGRunId: 'r1' };
-      liveRun.mockImplementation(() => ({
-        data: child as never,
-        error: null,
-        isLoading: false,
-        isValidating: false,
-        refresh: refreshLive,
-      }));
       useQueryMock.mockImplementation((path) =>
         path === '/dag-runs/{name}/{dagRunId}'
           ? ({ data: { dagRunDetails: root }, mutate: vi.fn() } as never)
@@ -744,27 +692,15 @@ describe('DAGDetails page', () => {
 
       renderPage('/dags/root?run=r1&subRun=c1');
 
-      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
-      expect(liveRun).toHaveBeenLastCalledWith({
-        target: {
-          remoteNode: 'local',
-          name: 'root',
-          dagRunId: 'c1',
-          parentName: 'root',
-          parentDAGRunId: 'r1',
-          subDAGRunId: 'c1',
-        },
-        pollIntervalMs: 2000,
-      });
-      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
-        name: 'child',
-        dagRun: child,
-        dagRunId: 'c1',
-      });
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(lastWorkspaceProps()?.standaloneRun).toBe(root);
+      expect(screen.getByTestId('location')).toHaveTextContent('subRun=c1');
     });
 
     // The file now holds the DAG under another name: the workspace of the
-    // file cannot read the run of the old name, which shows on its own.
+    // file cannot read the run of the old name, which shows without it.
     it('shows a run of an older name of the DAG of the file on its own', async () => {
       const old = { name: 'etl', dagRunId: 'r1', sourceFileName: 'etl' };
       useQueryMock.mockImplementation(
@@ -782,11 +718,255 @@ describe('DAGDetails page', () => {
 
       renderPage('/dags/etl?run=r1');
 
-      expect(await screen.findByTestId('run-details')).toBeInTheDocument();
-      expect(vi.mocked(DAGRunDetailsContent).mock.lastCall?.[0]).toMatchObject({
-        dagRun: old,
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      // Never the workspace of the file, which holds another DAG.
+      expect(
+        workspaceMock.mock.calls.every(([props]) => props.standaloneRun === old)
+      ).toBe(true);
+      expect(lastWorkspaceProps()?.dagData.dag?.name).toBe('etl');
+    });
+
+    // `dagu start --name` stores the run under a name that no file has: the
+    // run link reaches the file of the run, whose workspace reads the runs of
+    // the DAG name of the file only, so the run shows on its own.
+    it('shows a run started under another name of its workflow on its own', async () => {
+      const named = {
+        name: 'nightly-eu',
+        dagRunId: 'r1',
+        sourceFileName: 'nightly',
+      };
+      useQueryMock.mockImplementation(((
+        path: string,
+        init: { params: { path: Record<string, string> } } | null
+      ) => {
+        const name = init?.params.path.fileName ?? init?.params.path.name;
+        if (path === '/dags/{fileName}') {
+          return name === 'nightly'
+            ? { data: { ...dagData, dag: { ...dagData.dag, name: 'nightly' } } }
+            : { error: { code: 'not_found', message: 'DAG is not found' } };
+        }
+        if (path === '/dag-runs/{name}/{dagRunId}' && name === 'nightly-eu') {
+          return { data: { dagRunDetails: named } };
+        }
+        return { data: undefined };
+      }) as never);
+
+      renderPage('/dags/nightly-eu?run=r1');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        /^\/dags\/nightly\?run=r1&dagRunName=nightly-eu$/
+      );
+      expect(lastWorkspaceProps()).toMatchObject({
+        standaloneRun: named,
+        dagData: { dag: { name: 'nightly-eu' } },
       });
-      expect(workspaceMock).not.toHaveBeenCalled();
+      expect(setTitle).toHaveBeenLastCalledWith('nightly-eu');
+      expect(
+        workspaceMock.mock.calls.every(
+          ([props]) => props.standaloneRun === named
+        )
+      ).toBe(true);
+    });
+
+    // An edited retry stores its own definition and names no file: ?dagRunName
+    // is all that tells its run from a run of the file.
+    it('shows a run without a file on its own when the link names it', async () => {
+      const edited = { name: 'nightly-eu', dagRunId: 'r2' };
+      useQueryMock.mockImplementation(((
+        path: string,
+        init: { params: { path: Record<string, string> } } | null
+      ) => {
+        const name = init?.params.path.fileName ?? init?.params.path.name;
+        if (path === '/dags/{fileName}') {
+          return name === 'nightly'
+            ? { data: { ...dagData, dag: { ...dagData.dag, name: 'nightly' } } }
+            : { error: { code: 'not_found', message: 'DAG is not found' } };
+        }
+        if (path === '/dag-runs/{name}/{dagRunId}' && name === 'nightly-eu') {
+          return { data: { dagRunDetails: edited } };
+        }
+        return { data: undefined };
+      }) as never);
+
+      renderPage('/dags/nightly?run=r2&dagRunName=nightly-eu');
+
+      await waitFor(() =>
+        expect(workspaceMock.mock.lastCall?.[0].standaloneRun).toBe(edited)
+      );
+    });
+
+    // A DAG name may end like a file name: the run link keeps it whole.
+    it('opens a run link of a DAG named with a YAML suffix on its file', async () => {
+      useQueryMock.mockImplementation(((
+        path: string,
+        init: { params: { path: Record<string, string> } } | null
+      ) => {
+        const name = init?.params.path.fileName ?? init?.params.path.name;
+        if (path === '/dags/{fileName}') {
+          return name === 'reports'
+            ? {
+                data: {
+                  ...dagData,
+                  dag: { ...dagData.dag, name: 'report.yaml' },
+                },
+              }
+            : { error: { code: 'not_found', message: 'DAG is not found' } };
+        }
+        if (path === '/dag-runs/{name}/{dagRunId}' && name === 'report.yaml') {
+          return {
+            data: {
+              dagRunDetails: {
+                name: 'report.yaml',
+                dagRunId: 'r1',
+                sourceFileName: 'reports',
+              },
+            },
+          };
+        }
+        return { data: undefined };
+      }) as never);
+
+      renderPage('/dags/report.yaml?run=r1');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        /^\/dags\/reports\?run=r1&dagRunName=report\.yaml$/
+      );
+    });
+
+    // The old run page read the run alone: a run link still reaches the run
+    // when its workflow fails to load for another reason than a missing file.
+    it('shows the run of a link whose workflow cannot be read', async () => {
+      const readable = { name: 'etl', dagRunId: 'r1', sourceFileName: 'etl' };
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({ data: { dagRunDetails: readable }, mutate: vi.fn() } as never)
+          : ({
+              data: undefined,
+              error: { code: 'internal_error', message: 'permission denied' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(lastWorkspaceProps()?.standaloneRun).toBe(readable);
+    });
+
+    // An old run page bookmark names its tab in ?tab, which the redirect
+    // turns into ?dock.
+    it('opens the tab of an old run page link on a run shown on its own', async () => {
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({
+              data: { dagRunDetails: { name: 'etl', dagRunId: 'r1' } },
+              mutate: vi.fn(),
+            } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dag-runs/etl/r1?tab=artifacts');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        'dock=artifacts'
+      );
+    });
+
+    // An Actions link with a step keeps both for the workspace, which opens
+    // the action that waits.
+    it('opens the action that waits for an Actions link with a step', async () => {
+      const gated = {
+        name: 'etl',
+        dagRunId: 'r1',
+        status: Status.Waiting,
+        nodes: [
+          {
+            step: { name: 'gate', approval: {} },
+            status: NodeStatus.Waiting,
+          },
+        ],
+      };
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({ data: { dagRunDetails: gated }, mutate: vi.fn() } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1&dock=actions&step=gate');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(lastWorkspaceProps()?.standaloneRun).toBe(gated);
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        'dock=actions&step=gate'
+      );
+    });
+
+    // The run of the link is read again with the workflow: a lookup that
+    // failed with it would otherwise never be tried again.
+    it('reads the run of a link again when the workflow is retried', async () => {
+      const mutateDag = vi.fn();
+      const mutateRun = vi.fn();
+      useQueryMock.mockImplementation(
+        (path) =>
+          ({
+            data: undefined,
+            error: { code: 'internal_error', message: 'disk is full' },
+            mutate:
+              path === '/dag-runs/{name}/{dagRunId}' ? mutateRun : mutateDag,
+          }) as never
+      );
+
+      renderPage('/dags/etl?run=r1');
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+      expect(mutateDag).toHaveBeenCalled();
+      expect(mutateRun).toHaveBeenCalled();
+    });
+
+    // A link can name a step of the run, as the log page does.
+    it('opens the step of the link on a run shown on its own', async () => {
+      useQueryMock.mockImplementation((path) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? ({
+              data: { dagRunDetails: { name: 'etl', dagRunId: 'r1' } },
+              mutate: vi.fn(),
+            } as never)
+          : ({
+              data: undefined,
+              error: { code: 'not_found', message: 'DAG is not found' },
+              mutate: vi.fn(),
+            } as never)
+      );
+
+      renderPage('/dags/etl?run=r1&step=load');
+
+      expect(
+        await screen.findByTestId('workflow-workspace')
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('location')).toHaveTextContent('step=load');
     });
 
     // A run that the workspace selects is a run of its workflow: the lookup

@@ -557,6 +557,15 @@ export async function getStepStdout(
   return ((await response.json()) as LogResponse).content;
 }
 
+/** Submits the Start dialog to start the run at once: Enqueue is its default. */
+export async function startRunNow(dialog: Locator): Promise<void> {
+  const enqueue = dialog.getByRole('checkbox', { name: 'Enqueue' });
+  if ((await enqueue.getAttribute('data-state')) === 'checked') {
+    await enqueue.click();
+  }
+  await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+}
+
 export async function enqueueRunFromUI(
   page: Page,
   fileName: string
@@ -763,6 +772,23 @@ function normalizeRunStatus(
     default:
       throw new Error(`unknown DAG run status code: ${statusCode}`);
   }
+}
+
+/**
+ * Shows a tab of the right column of the workflow page: the Workflow panel or
+ * the YAML of the file. The column is beside the graph on a window that is
+ * not a phone; it is open on a tab, or collapsed to a rail of its buttons.
+ */
+export async function openColumnTab(
+  page: Page,
+  name: 'Workflow' | 'YAML'
+): Promise<void> {
+  const column = page.getByTestId('ww-right-column');
+  await expect(column).toBeVisible({ timeout: 30_000 });
+  await column
+    .getByRole('tab', { name, exact: true })
+    .or(column.getByRole('button', { name, exact: true }))
+    .click();
 }
 
 /**

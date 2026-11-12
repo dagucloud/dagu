@@ -63,6 +63,10 @@ const (
 	// exit, so one that stops answering DevTools is ended by the runtime
 	// instead of holding up the close.
 	exitRequestTimeout = 2 * time.Second
+	// runtimeStartAttempts bounds the starts of a runtime whose socket to the
+	// browser does not open, and runtimeStartRetryWait spaces them.
+	runtimeStartAttempts  = 3
+	runtimeStartRetryWait = time.Second
 	// settleQuiet is how long a page goes without a request in flight or a
 	// change to its document before what an action started counts as done;
 	// settleTimeout bounds the wait, and settlePoll spaces its checks.
@@ -520,7 +524,7 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 	// call it waits on answers, so one left running would keep a kept
 	// browser's runtime busy after the engine is gone.
 	calls, endCalls := context.WithCancel(context.Background())
-	client, err := stagehand.Create(ctx, stagehand.CreateOptions{
+	client, err := createClient(ctx, stagehand.CreateOptions{
 		Browser:  browser,
 		Generate: stagehandGenerate(endingWith(calls, opts.Generate)),
 		Cache:    new(stagehand.CacheEnabled(false)),
@@ -576,6 +580,29 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 		}
 	}
 	return eng, nil
+}
+
+// runtimeSocketFailure is the runtime's message when its socket to the browser
+// does not open. Only the message identifies this failure: its RPC code and data
+// are those of any runtime error.
+const runtimeSocketFailure = "CDP websocket failed to open"
+
+// createClient starts the runtime. The runtime tries its socket to the browser
+// once, and a host can refuse that try, so the start is repeated. The SDK lets a
+// later Create use the same browser after an RPCError.
+func createClient(ctx context.Context, options stagehand.CreateOptions) (*stagehand.Stagehand, error) {
+	for attempt := 1; ; attempt++ {
+		client, err := stagehand.Create(ctx, options)
+		var refused *stagehand.RPCError
+		if err == nil || attempt == runtimeStartAttempts || !errors.As(err, &refused) || refused.Message != runtimeSocketFailure {
+			return client, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(runtimeStartRetryWait):
+		}
+	}
 }
 
 // stagehandEngine is an engine backed by one Stagehand client.

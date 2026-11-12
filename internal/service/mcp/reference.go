@@ -182,7 +182,7 @@ Targets:
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
 - workbook inspects an .xlsx file on the server: for each sheet its used range, detected data block, header row, headers, whether it is hidden, how many of its rows are hidden by a filter or by hand, column types, a profile of each column over up to 5000 rows (filled, blank, distinct, the values when a few repeat, min and max, and odd cells that do not read as the type, such as 未定 in a number column), row count, tables, and five typed sample rows; plus named ranges and the date system. The path is any file the server process can read and is recorded in the audit log. An optional password opens a protected workbook and is not recorded. Use the result to write xlsx.read with the right sheet, range, columns, and types.
 - runs lists DAG-runs.
-- run reads one DAG-run. With subRunId, it reads the child run under the identified root run.
+- run reads one DAG-run. With subRunId, it reads the child run under the identified root run. A finished run carries its step outputs under outputs (bounded; see outputsOmitted and outputsError), so read the run before digging through step logs for a result.
 - run_logs reads scheduler and step log metadata.
 - step_log reads stdout and stderr for one DAG-run step. With subRunId, it reads a child-run step. With item and bodyStepName, it reads one body step of a foreach item. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
 - foreach_items lists the items a foreach step expanded to, with total, counts per status, and one page of items sorted failed first. A run's step entry links here through foreachUri. Use status to keep one status, page and perPage to page, and parent to list the items of a nested foreach body step.
@@ -285,6 +285,7 @@ Fields:
 - queue: queue name for enqueue.
 - singleton: singleton run flag for start and enqueue.
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
+- profile: runtime profile name for start and enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. The profile must exist and be usable by the caller.
 - labels: labels for start and enqueue.
 - stepName: optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.
@@ -302,7 +303,7 @@ Action behavior:
 - retry retries an existing DAG-run and may target a step with stepName, optionally including downstream steps.
 - stop stops an existing DAG-run.
 - approve, reject, and push_back decide a step that dagu_read target=run reports as waiting with approval or humanTask. For an approval gate, approve lets the step continue with inputs, reject rejects it with reason, and push_back sends it back for re-execution with inputs as feedback. For a human task, approve completes it and push_back pushes it back; human tasks cannot be rejected.
-- Fields unsupported by an action are invalid. params, singleton, noReuse, and labels apply only to start and enqueue; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
+- Fields unsupported by an action are invalid. params, singleton, noReuse, profile, and labels apply only to start and enqueue; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
 - With wait=true, the call returns once the run reaches a terminal state, stops at a waiting checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports each waiting step under run.steps as humanTask or approval with its prompt; resolve them to resume the run. On timeout the run keeps executing and the output has completed=false.
 
 Output:
@@ -311,14 +312,14 @@ Output:
 - Structured output has action, targetType, dagName, dagRunId, and references.
 - When a run is identified, output includes runUri and logsUri. Without wait, it also includes subscribe guidance.
 - approve, reject, and push_back output also has stepName, subDAGRunId when given, and, without wait, the run status and statusLabel observed after the decision.
-- With wait=true, output has completed plus the last observed status and statusLabel, and a completed run includes the run detail summary under run with per-step statuses and errors.
+- With wait=true, output has completed plus the last observed status and statusLabel, and a completed run includes the run detail summary under run with per-step statuses, errors, and the run's outputs.
 
 Errors:
 
 - invalid_tool_input for missing fields, unknown action, unsupported targetType, or malformed input, when reject targets a human task, or when inputs do not fit the waiting step.
 - unauthorized when the caller cannot perform the requested execution operation.
 - resource_not_found when the named DAG, DAG-run, or step does not exist. A misspelled stored-DAG name carries close existing names under details.didYouMean.
-- conflict when a singleton run is already running or queued, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
+- conflict when a singleton run is already running or queued, when a DAG with a restart_policy has an active run, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
 - resource_unavailable or internal_error for runtime failures.`,
 		},
 		{

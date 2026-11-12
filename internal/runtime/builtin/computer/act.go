@@ -314,6 +314,9 @@ type actLoop struct {
 	// capped records that the model was told the task has no actions left
 	// and asked for its report.
 	capped bool
+	// overruns counts batches in a row that were larger than the actions
+	// left, so a model that never sends a smaller batch does not loop.
+	overruns int
 	// lastRound is the previous round of actions, for noticing a repeat.
 	lastRound string
 	// tried holds the actions the model took since the screen last changed,
@@ -383,6 +386,40 @@ func (l *actLoop) run(ctx context.Context) error {
 			return err
 		}
 		if over {
+			// A batch that is larger than the actions left leaves those
+			// actions for a smaller batch. Tell the model the batch did not
+			// run and how many it may still take.
+			if !l.exhausted() {
+				l.overruns++
+				if l.overruns >= 2 {
+					return fmt.Errorf("the model kept sending batches larger than the actions left (max_actions %d)", l.budget)
+				}
+				l.stalled = 0
+				capacity := l.budget - l.spent - l.outcome.actions
+				logAction(l.r.timeline, l.index, fmt.Sprintf("the model sent %d actions with %d left; asking for a smaller batch", len(turn.Actions), capacity))
+				// Check the person against the screen the model last saw
+				// before refreshing it: a window switch there would be lost
+				// once l.seen is replaced, and the next fitting batch could
+				// act on the person's window. Return to the work app first.
+				person, perr := l.personUsed(ctx)
+				if perr != nil {
+					return perr
+				}
+				if person {
+					l.returnAfterPerson(ctx)
+				}
+				shown, offered, err := l.lookAndOffer(ctx)
+				if err != nil {
+					return err
+				}
+				obs = computeruse.Observation{
+					Screen:   shown,
+					Results:  skippedResults(turn.Actions),
+					Note:     fmt.Sprintf("This batch of %d actions did not run: only %d %s left. Send %s, or report done.", len(turn.Actions), capacity, actionsWord(capacity), batchLimitNote(capacity)),
+					Elements: offered,
+				}
+				continue
+			}
 			// The task has no actions left. The model is told once, with the
 			// screen, and may still report the task done; one that acts
 			// again instead ends the act.
@@ -398,16 +435,21 @@ func (l *actLoop) run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			// Only a budget with nothing left takes the actions away; one
-			// that a batch overran may still fit a smaller one.
 			obs = computeruse.Observation{
 				Screen:     shown,
 				Results:    skippedResults(turn.Actions),
 				Note:       capNote,
-				ReportOnly: l.exhausted(),
+				ReportOnly: true,
 				Elements:   offered,
 			}
 			continue
+		}
+		// A nonempty batch fits, so a run of oversized batches is over. A
+		// text-only turn fits too but has no actions, so it does not clear the
+		// count: a model can otherwise alternate oversized batches with text
+		// answers and keep the act alive until timeout without running one.
+		if len(turn.Actions) > 0 {
+			l.overruns = 0
 		}
 		// Before running the turn's actions, make sure the world still matches
 		// the screen the model chose them on. A person who used the desktop,
@@ -894,11 +936,6 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	if err != nil {
 		return false, "", err
 	}
-	// The window a person left in front is theirs: the step never maximizes
-	// it, whether or not the turn's actions still run.
-	if front := l.r.driver.FocusedWindow(); person && front.Known() {
-		l.r.fitted[front.Handle] = true
-	}
 	same, err := l.unchanged(ctx, turn)
 	if err != nil {
 		return false, "", err
@@ -930,9 +967,10 @@ func (l *actLoop) returnAfterPerson(ctx context.Context) {
 }
 
 // personUsed waits until nobody has used the desktop for the idle period and
-// reports whether a person used it after the screenshot the model saw. With
-// idle off it neither waits nor reports a person, so the world check alone
-// guards the actions.
+// reports whether a person used it after the screenshot the model saw. The
+// window such a person left in front is theirs, so the step never maximizes
+// it. With idle off it neither waits nor reports a person, so the world check
+// alone guards the actions.
 func (l *actLoop) personUsed(ctx context.Context) (bool, error) {
 	if l.r.cfg.idle() <= 0 {
 		return false, nil
@@ -940,7 +978,13 @@ func (l *actLoop) personUsed(ctx context.Context) (bool, error) {
 	if err := l.r.awaitPerson(ctx); err != nil {
 		return false, err
 	}
-	return l.r.driver.PersonInputSince(l.seen.capturedAt), nil
+	if !l.r.driver.PersonInputSince(l.seen.capturedAt) {
+		return false, nil
+	}
+	if front := l.r.driver.FocusedWindow(); front.Known() {
+		l.r.fitted[front.Handle] = true
+	}
+	return true, nil
 }
 
 // unchanged reports whether the screen still looks like the one the model
@@ -1073,6 +1117,22 @@ func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 // exhausted reports whether the task has no action left.
 func (l *actLoop) exhausted() bool {
 	return l.spent+l.outcome.actions >= l.budget
+}
+
+// actionsWord and batchLimitNote keep the batch note grammatical for a
+// single action.
+func actionsWord(n int) string {
+	if n == 1 {
+		return "action is"
+	}
+	return "actions are"
+}
+
+func batchLimitNote(n int) string {
+	if n == 1 {
+		return "one action"
+	}
+	return fmt.Sprintf("a batch of at most %d actions", n)
 }
 
 // onlyScrolls reports a turn that does nothing but scroll.

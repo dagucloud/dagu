@@ -53,7 +53,9 @@ Tool input is a JSON object. Fields outside this table fail with
 | `queue` | string | Optional for `enqueue`. | Queue override. |
 | `singleton` | boolean | Optional for `start` and `enqueue`. | Reject duplicate running or queued DAG-runs. |
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
+| `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. |
 | `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
+| `scheduleTime` | string | Optional for `start` and `enqueue` with `targetType=dag`. | Schedule slot the run is for: `latest`, a date, a time without an offset in the schedule's zone, or an RFC 3339 time with an offset. A slot later than now fails. A time that is not a fire time adds a warning. |
 | `stepName` | string | Optional for `retry`; required for `approve`, `reject`, and `push_back`. | Step to retry, or the waiting step to decide. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
 | `subDAGRunId` | string | Optional for `approve`, `reject`, and `push_back`. | Sub-DAG run of `dagRunId` that owns the waiting step. |
@@ -72,8 +74,9 @@ Rules:
   whitespace; a string that is empty after trimming is treated as absent.
 - `targetType=run` is valid only for `retry`, `stop`, `approve`, `reject`, and
   `push_back`, and those actions require it.
-- `params`, `singleton`, `noReuse`, and `labels` are valid only for `start`
-  and `enqueue`; `queue` is valid only for `enqueue`; `includeDownstream` is
+- `params`, `singleton`, `noReuse`, `profile`, `labels`, and `scheduleTime` are
+  valid only for `start` and `enqueue`; `scheduleTime` is valid only with
+  `targetType=dag`; `queue` is valid only for `enqueue`; `includeDownstream` is
   valid only for `retry`; `stepName` is valid only for `retry`, `approve`,
   `reject`, and `push_back`; `subDAGRunId` and `attemptId` are valid only for
   `approve`, `reject`, and `push_back`; `inputs` is valid only for `approve`
@@ -174,6 +177,8 @@ Structured output rules:
 - When a run is identified, output has `runUri` and `logsUri` with canonical
   `dagu://runs/...` URIs.
 - Without `wait`, output for an identified run has `subscribe` guidance text.
+- `start` and `enqueue` output has `warnings`, an array of strings, when the
+  request drew any, such as a `scheduleTime` that is not a fire time.
 - Step decision output also has `stepName`, and `subDAGRunId` when given.
 - Without `wait`, step decision output has the `status` and `statusLabel` of
   the run that `name` and `dagRunId` identify, observed after the decision
@@ -181,7 +186,8 @@ Structured output rules:
 - With `wait`, output has `completed` boolean plus the last observed `status`
   and `statusLabel` when at least one poll succeeded.
 - With `wait`, a completed run's output has `run` holding the Spec 021 run
-  detail model, including per-step statuses and errors.
+  detail model, including per-step statuses and errors, and the run's outputs
+  under the same `outputs`, `outputsOmitted`, and `outputsError` rules.
 - With `wait`, a run stopped at a waiting checkpoint has `run` holding the same
   model, including each waiting step's human-task or approval prompt and, when
   the step declares one, its normalized form.
@@ -216,8 +222,8 @@ Common conditions map to codes as follows:
 | Authentication is required and the request is not authenticated. | `unauthenticated` |
 | The accepted credential is not authorized for the requested execution. | `unauthorized` |
 | Tool input is malformed, misses a required field, or uses unknown values. | `invalid_tool_input` |
-| The named DAG or DAG-run does not exist. | `resource_not_found` |
-| A singleton run is already running or queued, the step to decide is not waiting, `attemptId` names another attempt, or the action otherwise conflicts with current run state. | `conflict` |
+| The named DAG, DAG-run, or runtime profile does not exist. | `resource_not_found` |
+| A singleton run is already running or queued, a DAG with a `restart_policy` has an active run, the step to decide is not waiting, `attemptId` names another attempt, or the action otherwise conflicts with current run state. | `conflict` |
 | The action target exists but cannot currently be acted on. | `resource_unavailable` |
 | The server fails unexpectedly while handling the action. | `internal_error` |
 

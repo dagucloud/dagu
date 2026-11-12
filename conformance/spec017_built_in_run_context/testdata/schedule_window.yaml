@@ -1,0 +1,11 @@
+name: builtin_schedule_window
+working_dir: .
+schedule: "CRON_TZ=Asia/Tokyo */30 * * * *"
+steps:
+  - id: capture
+    run: |
+      printf 'scheduled=%s\n' '${context.run.scheduled_at}' > schedule-window.txt
+      printf 'start=%s\n' '${context.run.interval_start}' >> schedule-window.txt
+      printf 'end=%s\n' '${context.run.interval_end}' >> schedule-window.txt
+      printf 'next=%s\n' '${context.run.next_scheduled_at}' >> schedule-window.txt
+      printf 'timezone=%s\n' '${context.run.timezone}' >> schedule-window.txt

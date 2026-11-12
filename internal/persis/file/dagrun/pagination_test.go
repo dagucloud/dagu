@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -105,7 +106,8 @@ func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
 			query.ExactName != "" && run.name != query.ExactName,
 			!strings.Contains(run.id, query.DAGRunID),
 			!query.From.IsZero() && run.created.Before(query.From.Time),
-			!query.To.IsZero() && !run.created.Before(query.To.Time):
+			!query.To.IsZero() && !run.created.Before(query.To.Time),
+			slices.Contains(query.ExcludeDAGNames, run.name):
 			continue
 		}
 		matched = append(matched, run)
@@ -114,7 +116,7 @@ func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
 		return cmp.Or(
 			right.created.Compare(left.created),
 			cmp.Compare(left.name, right.name),
-			cmp.Compare(left.id, right.id),
+			cmp.Compare(right.id, left.id),
 		)
 	})
 	keys := make([]string, 0, len(matched))
@@ -215,13 +217,14 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 
 	filters := map[string]persis.DAGRunStatusQuery{
-		"None":      {},
-		"Statuses":  {Statuses: []ir.Status{ir.Failed, ir.Running}},
-		"Labels":    {Labels: []string{"team=a"}},
-		"Name":      {Name: "ALP"},
-		"ExactName": {ExactName: "beta"},
-		"DAGRunID":  {DAGRunID: "-1-"},
-		"Workspace": {WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}},
+		"None":        {},
+		"Statuses":    {Statuses: []ir.Status{ir.Failed, ir.Running}},
+		"Labels":      {Labels: []string{"team=a"}},
+		"Name":        {Name: "ALP"},
+		"ExactName":   {ExactName: "beta"},
+		"DAGRunID":    {DAGRunID: "-1-"},
+		"ExcludeDAGs": {ExcludeDAGNames: []string{"gamma"}},
+		"Workspace":   {WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}},
 		"Range": {
 			From: persis.NewUTC(base.Add(24*time.Hour + 30*time.Minute)),
 			To:   persis.NewUTC(base.Add(48*time.Hour + 2*time.Hour + time.Second)),
@@ -254,6 +257,54 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 	}
 }
 
+// A list that leaves DAGs out skips their directories, including one whose
+// name the directory spells differently, without reading anything there.
+func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
+	seed := &oracleSeed{th: setupTestRepository(t)}
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 2 {
+		for _, name := range []string{"my.svc", "plain"} {
+			seed.write(t, seededRun{
+				name:    name,
+				id:      fmt.Sprintf("%s-%d", name, i),
+				created: base.Add(time.Duration(i) * time.Minute),
+				status:  ir.Succeeded,
+			}, false)
+		}
+	}
+	// Listing this directory fails, so a list that reads it fails. Windows
+	// reads a file in place of the directory as missing, so there the list
+	// that reads it succeeds too.
+	broken := filepath.Join(seed.th.Backend.baseDir, dagDirName("broken"))
+	require.NoError(t, os.MkdirAll(broken, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(broken, "dag-runs"), nil, 0o600))
+
+	query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}}
+	require.Equal(t, seed.expected(query), listAll(t, seed.th.Backend, query))
+	if runtime.GOOS != "windows" {
+		_, err := seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{})
+		require.Error(t, err)
+	}
+
+	t.Run("CursorOutlivesNameChanges", func(t *testing.T) {
+		query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}, Limit: 1}
+		page, err := seed.th.Backend.QueryStatuses(t.Context(), query)
+		require.NoError(t, err)
+		require.NotEmpty(t, page.NextCursor)
+
+		query.Cursor = page.NextCursor
+		query.ExcludeDAGNames = []string{"my.svc", "broken", "other"}
+		next, err := seed.th.Backend.QueryStatuses(t.Context(), query)
+		require.NoError(t, err)
+		require.Len(t, next.Items, 1)
+		require.Equal(t, "plain-0", next.Items[0].DAGRunID)
+
+		// The cursor still names its filter: without exclusion it is refused.
+		_, err = seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{Limit: 1, Cursor: page.NextCursor})
+		require.Error(t, err)
+	})
+}
+
 // A lazy read lists finished runs from the day's index, so a page of them
 // reads no status from disk, including runs created in the same second.
 func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
@@ -284,7 +335,7 @@ func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
 	page, err := store.QueryStatuses(th.Context, persis.DAGRunStatusQuery{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 10)
-	require.Equal(t, "run-38", page.Items[0].DAGRunID)
+	require.Equal(t, "run-39", page.Items[0].DAGRunID)
 	require.Zero(t, cache.Size())
 }
 

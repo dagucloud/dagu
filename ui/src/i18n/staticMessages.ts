@@ -228,6 +228,7 @@ const baseEnglish = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     '). To deactivate, remove the environment variable and restart Dagu.',
   '←→ Select': '←→ Select',
+  '←→ Scroll': '←→ Scroll',
   '↑↓ Navigate': '↑↓ Navigate',
   '↻ until': '↻ until',
   '↻ while': '↻ while',
@@ -532,6 +533,15 @@ const baseEnglish = {
   'Secret refs': 'Secret refs',
   'DAG Tabs': 'DAG Tabs',
   'Run ID (optional)': 'Run ID (optional)',
+  'Scheduled at (optional)': 'Scheduled at (optional)',
+  'None (run now)': 'None (run now)',
+  'Other time': 'Other time',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    "The listed times follow the DAG's default profile. The run's window follows the selected profile.",
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'The run gets the schedule time and window of this slot.',
   'DAG:': 'DAG:',
   'Run error': 'Run error',
   'Run precondition not met': 'Run precondition not met',
@@ -718,6 +728,8 @@ const baseEnglish = {
   'Example Request': 'Example Request',
   'Example workflows': 'Example workflows',
   Examples: 'Examples',
+  'Execute permission is required to answer or restart this session.':
+    'Execute permission is required to answer or restart this session.',
   'Execute permission is required to complete this task.':
     'Execute permission is required to complete this task.',
   Execution: 'Execution',
@@ -1460,6 +1472,13 @@ const baseEnglish = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': 'Insert reference',
+  'Available references': 'Available references',
+  'Put the cursor in a field value': 'Put the cursor in a field value',
+  'Published when chosen': 'Published when chosen',
+  'Not safe in a shell': 'Not safe in a shell',
+  'Unsafe here: use env': 'Unsafe here: use env',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.',
   'Search references': 'Search references',
   References: 'References',
   'No references available': 'No references available',
@@ -1470,6 +1489,9 @@ const baseEnglish = {
   'Environment variables': 'Environment variables',
   Secrets: 'Secrets',
   'Run context': 'Run context',
+  'Build inputs': 'Build inputs',
+  'Build outputs': 'Build outputs',
+  'Step environment': 'Step environment',
   'Upstream data': 'Upstream data',
   'Select a step to see the data of its upstream steps':
     'Select a step to see the data of its upstream steps',
@@ -1746,6 +1768,7 @@ const baseEnglish = {
   'Scanning...': 'Scanning...',
   Schedule: 'Schedule',
   Scheduled: 'Scheduled',
+  'Window start': 'Window start',
   'Scheduled At': 'Scheduled At',
   'Scheduled:': 'Scheduled:',
   'Scheduler Service': 'Scheduler Service',
@@ -1936,6 +1959,7 @@ const baseEnglish = {
   'Items per page': 'Items per page',
   '{selected} of {loaded} selected': '{selected} of {loaded} selected',
   'Schedule for {name}': 'Schedule for {name}',
+  'Restarts for {name}': 'Restarts for {name}',
   'Target name': 'Target name',
   'Target:': 'Target:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -2181,6 +2205,10 @@ const baseEnglish = {
     "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.",
   'Are you sure you want to {action} the schedule for "{name}"?':
     'Are you sure you want to {action} the schedule for "{name}"?',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    'Suspend the restarts of "{name}"? A running run keeps running.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -2244,6 +2272,9 @@ const baseEnglish = {
   'Renaming...': 'Renaming...',
   Reschedule: 'Reschedule',
   'Run anyway': 'Run anyway',
+  'Save & Run': 'Save & Run',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.',
   'Run one of the example workflows from the {link} to see activity here.':
     'Run one of the example workflows from the {link} to see activity here.',
   'Send incidents': 'Send incidents',
@@ -2295,8 +2326,10 @@ const baseEnglish = {
   retry: 'retry',
   reschedule: 'reschedule',
   'Disable schedule': 'Disable schedule',
+  'Suspend restarts': 'Suspend restarts',
   'Disable Webhook': 'Disable Webhook',
   'Enable schedule': 'Enable schedule',
+  'Resume restarts': 'Resume restarts',
   'Enable Webhook': 'Enable Webhook',
   '+{count} more': '+{count} more',
   '+{count} more step': '+{count} more step',
@@ -2575,7 +2608,6 @@ const baseEnglish = {
   '{time} ago': '{time} ago',
   'Open run {dagRunId}': 'Open run {dagRunId}',
   'Copy link to this run': 'Copy link to this run',
-  'Copy link to the root run': 'Copy link to the root run',
   'Show in workflow': 'Show in workflow',
   'This workspace currently inherits Global rules.':
     'This workspace currently inherits Global rules.',
@@ -2814,8 +2846,8 @@ const baseEnglish = {
   'Connect and start trial': 'Connect and start trial',
   'Also try paid features free for 14 days':
     'Also try paid features free for 14 days',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console stops monitoring this server, and its free slot becomes available to another server.',
   'The Free plan supports up to 2 API keys.':
@@ -2938,6 +2970,7 @@ const baseEnglish = {
   Manual: 'Manual',
   'Sub-DAG': 'Sub-DAG',
   'Catch-up': 'Catch-up',
+  Restart: 'Restart',
   'Run log': 'Run log',
   Stream: 'Stream',
   'Lines shown': 'Lines shown',
@@ -2984,6 +3017,11 @@ const baseEnglish = {
   'Open Workflows': 'Open Workflows',
   'Scheduling guide': 'Scheduling guide',
   'Add a notification channel': 'Add a notification channel',
+  'Connect an AI app': 'Connect an AI app',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.',
+  'Use from Claude or ChatGPT': 'Use from Claude or ChatGPT',
+  'Set up a coding agent': 'Set up a coding agent',
   'Could not change remote access.': 'Could not change remote access.',
   'Remote access': 'Remote access',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -3010,9 +3048,37 @@ const baseEnglish = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'Copy MCP URL',
   'MCP URL copied': 'MCP URL copied',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.',
-  'Manage MCP clients': 'Manage MCP clients',
+  'Last call': 'Last call',
+  'No calls yet': 'No calls yet',
+  'Connect a client': 'Connect a client',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.',
+  'Copy command': 'Copy command',
+  'Command copied': 'Command copied',
+  'Then run /mcp in Claude Code to sign in.':
+    'Then run /mcp in Claude Code to sign in.',
+  'Other clients and connections in Dagu Cloud':
+    'Other clients and connections in Dagu Cloud',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'Included in your trial until {date}. Choose a plan to keep MCP clients working.',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Use this server from Claude, ChatGPT, and other MCP clients',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your trial. Turn on remote access, then add the MCP URL to your client.',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your plan. Turn on remote access, then add the MCP URL to your client.',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'Turn on remote access, then add the MCP URL to your client.',
+  'MCP calls need a paid plan or a trial':
+    'MCP calls need a paid plan or a trial',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.',
   'Choose remote access': 'Choose remote access',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
@@ -3043,77 +3109,91 @@ const baseEnglish = {
     'A new Dagu binary is installed. Run {command} to restart and use it.',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     'A new Dagu binary is installed. Restart Dagu to use it.',
-  "Upcoming runs": "Upcoming runs",
-  "last business day of the month": "last business day of the month",
-  "business day {n} from the month's end": "business day {n} from the month's end",
-  "business day {n} of the month": "business day {n} of the month",
-  "extra business day": "extra business day",
-  "skips {day}": "skips {day}",
-  "This DAG is suspended. None of these runs will start until it is resumed.": "This DAG is suspended. None of these runs will start until it is resumed.",
-  "A calendar named {name} already exists.": "A calendar named {name} already exists.",
-  "Back to calendars": "Back to calendars",
-  "Built in": "Built in",
-  "Business day {ordinal} of {total}": "Business day {ordinal} of {total}",
-  "Business days that start schedules fire on. A schedule names a calendar with {key}.": "Business days that start schedules fire on. A schedule names a calendar with {key}.",
-  "Calendar not found": "Calendar not found",
-  "Calendar saved": "Calendar saved",
-  "Calendar {name} deleted": "Calendar {name} deleted",
-  "Calendar:": "Calendar:",
-  "Calendars": "Calendars",
-  "Checking...": "Checking...",
+  'Upcoming runs': 'Upcoming runs',
+  'last business day of the month': 'last business day of the month',
+  "business day {n} from the month's end":
+    "business day {n} from the month's end",
+  'business day {n} of the month': 'business day {n} of the month',
+  'extra business day': 'extra business day',
+  'skips {day}': 'skips {day}',
+  'This DAG is suspended. None of these runs will start until it is resumed.':
+    'This DAG is suspended. None of these runs will start until it is resumed.',
+  'A calendar named {name} already exists.':
+    'A calendar named {name} already exists.',
+  'Back to calendars': 'Back to calendars',
+  'Built in': 'Built in',
+  'Business day {ordinal} of {total}': 'Business day {ordinal} of {total}',
+  'Business days that start schedules fire on. A schedule names a calendar with {key}.':
+    'Business days that start schedules fire on. A schedule names a calendar with {key}.',
+  'Calendar not found': 'Calendar not found',
+  'Calendar saved': 'Calendar saved',
+  'Calendar {name} deleted': 'Calendar {name} deleted',
+  'Calendar:': 'Calendar:',
+  Calendars: 'Calendars',
+  'Checking...': 'Checking...',
   "Couldn't load the calendar": "Couldn't load the calendar",
-  "Delete calendar": "Delete calendar",
-  "Delete this calendar": "Delete this calendar",
-  "Extra business day, {ordinal} of {total}": "Extra business day, {ordinal} of {total}",
-  "Failed to create the calendar.": "Failed to create the calendar.",
-  "Failed to delete the calendar.": "Failed to delete the calendar.",
-  "Failed to save the calendar.": "Failed to save the calendar.",
-  "Fix the problems in the file to see its business days.": "Fix the problems in the file to see its business days.",
-  "Hide dates": "Hide dates",
-  "Holiday": "Holiday",
-  "Holiday: {name}": "Holiday: {name}",
-  "Holidays run out": "Holidays run out",
-  "Holidays through": "Holidays through",
-  "Holidays through {date}": "Holidays through {date}",
-  "Included by": "Included by",
-  "Includes": "Includes",
-  "Invalid": "Invalid",
-  "Keep my edits": "Keep my edits",
-  "Load the server version": "Load the server version",
-  "Loading calendars...": "Loading calendars...",
-  "New calendar": "New calendar",
-  "Next year": "Next year",
-  "No DAG schedules use this calendar.": "No DAG schedules use this calendar.",
-  "No calendar files yet. Create one here, or add {file} to paths.calendars_dir.": "No calendar files yet. Create one here, or add {file} to paths.calendars_dir.",
-  "No calendar is named {name}. It may have been deleted.": "No calendar is named {name}. It may have been deleted.",
-  "Not a business day": "Not a business day",
-  "Previous year": "Previous year",
-  "Problems": "Problems",
-  "Remove the schedules and includes that use this calendar first": "Remove the schedules and includes that use this calendar first",
-  "Schedules name it with calendar. It starts as Monday to Friday with no holidays.": "Schedules name it with calendar. It starts as Monday to Friday with no holidays.",
-  "Select a date to see its business day.": "Select a date to see its business day.",
-  "Show dates": "Show dates",
-  "The calendar file changed on the server while you were editing.": "The calendar file changed on the server while you were editing.",
-  "The calendar was not saved": "The calendar was not saved",
-  "This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.": "This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.",
-  "Use letters, digits, - and _ only.": "Use letters, digits, - and _ only.",
-  "Used by": "Used by",
-  "after {through}, when the holidays end": "after {through}, when the holidays end",
-  "business day": "business day",
-  "holiday": "holiday",
-  "not a business day": "not a business day",
-  "unsaved change": "unsaved change",
-  "used by {count} DAG": "used by {count} DAG",
-  "used by {count} DAGs": "used by {count} DAGs",
-  "via {calendar}": "via {calendar}",
-  "weekdays {changes}": "weekdays {changes}",
-  "{count} date changes": "{count} date changes",
-  "{count} dates change": "{count} dates change",
-  "{count} problem": "{count} problem",
-  "{count} problems": "{count} problems",
-  "{name} is reserved.": "{name} is reserved.",
+  'Delete calendar': 'Delete calendar',
+  'Delete this calendar': 'Delete this calendar',
+  'Extra business day, {ordinal} of {total}':
+    'Extra business day, {ordinal} of {total}',
+  'Failed to create the calendar.': 'Failed to create the calendar.',
+  'Failed to delete the calendar.': 'Failed to delete the calendar.',
+  'Failed to save the calendar.': 'Failed to save the calendar.',
+  'Fix the problems in the file to see its business days.':
+    'Fix the problems in the file to see its business days.',
+  'Hide dates': 'Hide dates',
+  Holiday: 'Holiday',
+  'Holiday: {name}': 'Holiday: {name}',
+  'Holidays run out': 'Holidays run out',
+  'Holidays through': 'Holidays through',
+  'Holidays through {date}': 'Holidays through {date}',
+  'Included by': 'Included by',
+  Includes: 'Includes',
+  Invalid: 'Invalid',
+  'Keep my edits': 'Keep my edits',
+  'Load the server version': 'Load the server version',
+  'Loading calendars...': 'Loading calendars...',
+  'New calendar': 'New calendar',
+  'Next year': 'Next year',
+  'No DAG schedules use this calendar.': 'No DAG schedules use this calendar.',
+  'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.':
+    'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.',
+  'No calendar is named {name}. It may have been deleted.':
+    'No calendar is named {name}. It may have been deleted.',
+  'Not a business day': 'Not a business day',
+  'Previous year': 'Previous year',
+  Problems: 'Problems',
+  'Remove the schedules and includes that use this calendar first':
+    'Remove the schedules and includes that use this calendar first',
+  'Schedules name it with calendar. It starts as Monday to Friday with no holidays.':
+    'Schedules name it with calendar. It starts as Monday to Friday with no holidays.',
+  'Select a date to see its business day.':
+    'Select a date to see its business day.',
+  'Show dates': 'Show dates',
+  'The calendar file changed on the server while you were editing.':
+    'The calendar file changed on the server while you were editing.',
+  'The calendar was not saved': 'The calendar was not saved',
+  'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.':
+    'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.',
+  'Use letters, digits, - and _ only.': 'Use letters, digits, - and _ only.',
+  'Used by': 'Used by',
+  'after {through}, when the holidays end':
+    'after {through}, when the holidays end',
+  'business day': 'business day',
+  holiday: 'holiday',
+  'not a business day': 'not a business day',
+  'unsaved change': 'unsaved change',
+  'used by {count} DAG': 'used by {count} DAG',
+  'used by {count} DAGs': 'used by {count} DAGs',
+  'via {calendar}': 'via {calendar}',
+  'weekdays {changes}': 'weekdays {changes}',
+  '{count} date changes': '{count} date changes',
+  '{count} dates change': '{count} dates change',
+  '{count} problem': '{count} problem',
+  '{count} problems': '{count} problems',
+  '{name} is reserved.': '{name} is reserved.',
   "Couldn't preview the calendar.": "Couldn't preview the calendar.",
-  "Loading {year}...": "Loading {year}...",
+  'Loading {year}...': 'Loading {year}...',
   "Couldn't check": "Couldn't check",
 } as const;
 
@@ -3124,7 +3204,6 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = { ...workspaceMessages.en, ...baseEnglish } as const;
 
 export type StaticMessage = keyof typeof english;
-export type StaticTranslationValues = Record<string, string | number>;
 
 const baseChinese = {
   'Plan & features': '套餐与功能',
@@ -3344,6 +3423,7 @@ const baseChinese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ')。要停用，请删除环境变量并重启 Dagu。',
   '←→ Select': '←→ 选择',
+  '←→ Scroll': '←→ 滚动',
   '↑↓ Navigate': '↑↓ 导航',
   '↻ until': '↻ 直到...',
   '↻ while': '↻ 当...时',
@@ -3647,6 +3727,15 @@ const baseChinese = {
   'Secret refs': '密钥引用',
   'DAG Tabs': 'DAG 标签页',
   'Run ID (optional)': '运行 ID（可选）',
+  'Scheduled at (optional)': '计划时间（可选）',
+  'None (run now)': '无（立即运行）',
+  'Other time': '其他时间',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '列出的时间来自 DAG 的默认配置文件。本次运行的时间窗口按所选配置文件计算。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00 或 RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    '本次运行使用该时间槽的计划时间和时间窗口。',
   'DAG:': 'DAG：',
   'Run error': '运行错误',
   'Run precondition not met': '运行前置条件未满足',
@@ -3824,6 +3913,8 @@ const baseChinese = {
   'Example Request': '请求示例',
   'Example workflows': '工作流示例',
   Examples: '示例',
+  'Execute permission is required to answer or restart this session.':
+    '回答或重启此会话需要执行权限。',
   'Execute permission is required to complete this task.':
     '完成此任务需要执行权限。',
   Execution: '执行',
@@ -4548,6 +4639,13 @@ const baseChinese = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': '插入引用',
+  'Available references': '可用引用',
+  'Put the cursor in a field value': '请将光标放在字段值中',
+  'Published when chosen': '选择后发布',
+  'Not safe in a shell': '在 shell 中不安全',
+  'Unsafe here: use env': '此处不安全：请用 env',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    '此文本由模型生成，shell 可能会将其作为代码执行。请通过 env 传递，并从环境变量中读取。',
   'Search references': '搜索引用',
   References: '引用',
   'No references available': '没有可用的引用',
@@ -4558,6 +4656,9 @@ const baseChinese = {
   'Environment variables': '环境变量',
   Secrets: '密钥',
   'Run context': '运行上下文',
+  'Build inputs': '构建输入',
+  'Build outputs': '构建输出',
+  'Step environment': '步骤环境变量',
   'Upstream data': '上游数据',
   'Select a step to see the data of its upstream steps':
     '选择一个步骤以查看其上游步骤的数据',
@@ -4826,6 +4927,7 @@ const baseChinese = {
   'Scanning...': '扫描中...',
   Schedule: '调度',
   Scheduled: '已计划',
+  'Window start': '窗口开始',
   'Scheduled At': '计划时间',
   'Scheduled:': '计划:',
   'Scheduler Service': '调度服务',
@@ -5010,6 +5112,7 @@ const baseChinese = {
   'Items per page': '每页条数',
   '{selected} of {loaded} selected': '已选择 {loaded} 项中的 {selected} 项',
   'Schedule for {name}': '{name} 的调度',
+  'Restarts for {name}': '{name} 的重启',
   'Target name': '目标名称',
   'Target:': '目标:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -5246,6 +5349,10 @@ const baseChinese = {
     '允许调用方使用 {header} 选择已批准的配置。未提供该请求头时，将使用 DAG 的默认配置解析。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '确定要{action}“{name}”的计划吗？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -5306,6 +5413,9 @@ const baseChinese = {
     '从同步跟踪中移除 {count} 个缺失项？文件将保留在远程仓库中。',
   Reschedule: '重新调度',
   'Run anyway': '仍然运行',
+  'Save & Run': '保存并运行',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    '“保存并运行”会保存您的编辑并运行。“仍然运行”会运行最后保存的版本，不包含您的编辑。',
   'Run one of the example workflows from the {link} to see activity here.':
     '在{link}运行一个示例工作流，即可在此查看活动。',
   'Send incidents': '发送事件',
@@ -5357,8 +5467,10 @@ const baseChinese = {
   retry: '重试',
   reschedule: '重新调度',
   'Disable schedule': '禁用计划',
+  'Suspend restarts': '暂停重启',
   'Disable Webhook': '禁用 Webhook',
   'Enable schedule': '启用计划',
+  'Resume restarts': '恢复重启',
   'Enable Webhook': '启用 Webhook',
   '+{count} more': '另有 {count} 个',
   '+{count} more step': '另有 {count} 个步骤',
@@ -5630,7 +5742,6 @@ const baseChinese = {
   '{time} ago': '{time}前',
   'Open run {dagRunId}': '打开运行 {dagRunId}',
   'Copy link to this run': '复制此次运行的链接',
-  'Copy link to the root run': '复制根运行的链接',
   'Show in workflow': '在工作流中显示',
   'This workspace currently inherits Global rules.':
     '此工作区当前继承全局规则。',
@@ -5859,8 +5970,8 @@ const baseChinese = {
   'Connect for free': '免费连接',
   'Connect and start trial': '连接并开始试用',
   'Also try paid features free for 14 days': '同时免费试用付费功能 14 天',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    '审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    '通过 Claude 和 ChatGPT 进行 MCP 访问、审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console 将停止监控此服务器，其免费名额可供其他服务器使用。',
   'The Free plan supports up to 2 API keys.':
@@ -5981,6 +6092,7 @@ const baseChinese = {
   Manual: '手动',
   'Sub-DAG': '子工作流',
   'Catch-up': '补跑',
+  Restart: '重启',
   'Run log': '运行日志',
   Stream: '输出流',
   'Lines shown': '显示的行',
@@ -6024,6 +6136,11 @@ const baseChinese = {
   'Open Workflows': '打开工作流',
   'Scheduling guide': '计划指南',
   'Add a notification channel': '添加通知频道',
+  'Connect an AI app': '连接 AI 应用',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    '让 Claude、ChatGPT 或编码智能体通过 MCP 在此运行和编辑工作流。',
+  'Use from Claude or ChatGPT': '在 Claude 或 ChatGPT 中使用',
+  'Set up a coding agent': '设置编码智能体',
   'Could not change remote access.': '无法更改远程访问。',
   'Remote access': '远程访问',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -6049,9 +6166,36 @@ const baseChinese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': '复制 MCP URL',
   'MCP URL copied': '已复制 MCP URL',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    '将此 URL 作为远程 MCP 服务器添加到你的 MCP 客户端，然后登录 Dagu Cloud。工作区所有者决定每个客户端可以执行的操作。',
-  'Manage MCP clients': '管理 MCP 客户端',
+  'Last call': '最近调用',
+  'No calls yet': '尚无调用',
+  'Connect a client': '连接客户端',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    '在 Claude 中打开 Customize，然后选择 Connectors。选择 + Add，然后选择 Add custom connector。粘贴 URL，选择 Continue，然后登录。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    '在 Team 和 Enterprise 方案中，需由所有者先在 Organization settings 的 Connectors 中添加。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '选择 +，然后选择 Add custom MCP server。在 Server URL 中粘贴 URL，选择 OAuth 并确认，然后选择 Create as a plugin。安装插件，然后登录。',
+  'Copy command': '复制命令',
+  'Command copied': '命令已复制',
+  'Then run /mcp in Claude Code to sign in.':
+    '然后在 Claude Code 中运行 /mcp 登录。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud 中的其他客户端和连接',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    '试用期内包含此功能，截至 {date}。选择套餐以继续使用 MCP 客户端。',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    '在 Claude、ChatGPT 和其他 MCP 客户端中使用此服务器',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的试用中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的套餐中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '需要付费套餐或试用。14 天试用免费，无需银行卡。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    '开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'MCP calls need a paid plan or a trial': 'MCP 调用需要付费套餐或试用',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    '在此服务器的工作区拥有付费套餐或试用之前，Dagu Cloud 会拒绝对它的调用。14 天试用免费，无需银行卡。',
   'Choose remote access': '选择远程访问',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
@@ -6082,78 +6226,88 @@ const baseChinese = {
     '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
-  "Upcoming runs": "即将进行的运行",
-  "last business day of the month": "当月最后一个工作日",
-  "business day {n} from the month's end": "当月倒数第 {n} 个工作日",
-  "business day {n} of the month": "当月第 {n} 个工作日",
-  "extra business day": "额外工作日",
-  "skips {day}": "跳过 {day}",
-  "This DAG is suspended. None of these runs will start until it is resumed.": "此 DAG 已暂停。恢复之前，这些运行都不会开始。",
-  "A calendar named {name} already exists.": "已存在名为 {name} 的日历。",
-  "Back to calendars": "返回日历列表",
-  "Built in": "内置",
-  "Business day {ordinal} of {total}": "第 {ordinal} 个工作日，共 {total} 个",
-  "Business days that start schedules fire on. A schedule names a calendar with {key}.": "启动调度只在工作日触发。调度用 {key} 指定日历。",
-  "Calendar not found": "未找到日历",
-  "Calendar saved": "日历已保存",
-  "Calendar {name} deleted": "已删除日历 {name}",
-  "Calendar:": "日历：",
-  "Calendars": "业务日历",
-  "Checking...": "正在检查...",
-  "Couldn't load the calendar": "无法加载日历",
-  "Delete calendar": "删除日历",
-  "Delete this calendar": "删除此日历",
-  "Extra business day, {ordinal} of {total}": "额外工作日，第 {ordinal} 个，共 {total} 个",
-  "Failed to create the calendar.": "创建日历失败。",
-  "Failed to delete the calendar.": "删除日历失败。",
-  "Failed to save the calendar.": "保存日历失败。",
-  "Fix the problems in the file to see its business days.": "修复文件中的问题后即可查看其工作日。",
-  "Hide dates": "隐藏日期",
-  "Holiday": "假日",
-  "Holiday: {name}": "假日：{name}",
-  "Holidays run out": "假日需更新",
-  "Holidays through": "假日截至",
-  "Holidays through {date}": "假日截至 {date}",
-  "Included by": "包含它的日历",
-  "Includes": "包含的日历",
-  "Invalid": "无效",
-  "Keep my edits": "保留我的编辑",
-  "Load the server version": "加载服务器版本",
-  "Loading calendars...": "正在加载日历...",
-  "New calendar": "新建日历",
-  "Next year": "下一年",
-  "No DAG schedules use this calendar.": "没有 DAG 调度使用此日历。",
-  "No calendar files yet. Create one here, or add {file} to paths.calendars_dir.": "还没有日历文件。可在此创建，或将 {file} 添加到 paths.calendars_dir。",
-  "No calendar is named {name}. It may have been deleted.": "没有名为 {name} 的日历，可能已被删除。",
-  "Not a business day": "非工作日",
-  "Previous year": "上一年",
-  "Problems": "问题",
-  "Remove the schedules and includes that use this calendar first": "请先移除使用此日历的调度和日历包含关系",
-  "Schedules name it with calendar. It starts as Monday to Friday with no holidays.": "调度通过 calendar 指定它。初始为周一至周五，没有假日。",
-  "Select a date to see its business day.": "选择日期以查看其工作日信息。",
-  "Show dates": "显示日期",
-  "The calendar file changed on the server while you were editing.": "编辑期间服务器上的日历文件已更改。",
-  "The calendar was not saved": "日历未保存",
-  "This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.": "这是内置日历：周一至周五，没有假日，无法更改。要列出假日，请创建日历文件。",
-  "Use letters, digits, - and _ only.": "只能使用字母、数字、- 和 _。",
-  "Used by": "使用此日历的 DAG",
-  "after {through}, when the holidays end": "在假日截止日 {through} 之后",
-  "business day": "工作日",
-  "holiday": "假日",
-  "not a business day": "非工作日",
-  "unsaved change": "未保存的更改",
-  "used by {count} DAG": "{count} 个 DAG 使用",
-  "used by {count} DAGs": "{count} 个 DAG 使用",
-  "via {calendar}": "经由 {calendar}",
-  "weekdays {changes}": "星期 {changes}",
-  "{count} date changes": "{count} 个日期变更",
-  "{count} dates change": "{count} 个日期变更",
-  "{count} problem": "{count} 个问题",
-  "{count} problems": "{count} 个问题",
-  "{name} is reserved.": "{name} 是保留名称。",
-  "Couldn't preview the calendar.": "无法预览日历。",
-  "Loading {year}...": "正在加载 {year}...",
-  "Couldn't check": "无法检查",
+  'Upcoming runs': '即将进行的运行',
+  'last business day of the month': '当月最后一个工作日',
+  "business day {n} from the month's end": '当月倒数第 {n} 个工作日',
+  'business day {n} of the month': '当月第 {n} 个工作日',
+  'extra business day': '额外工作日',
+  'skips {day}': '跳过 {day}',
+  'This DAG is suspended. None of these runs will start until it is resumed.':
+    '此 DAG 已暂停。恢复之前，这些运行都不会开始。',
+  'A calendar named {name} already exists.': '已存在名为 {name} 的日历。',
+  'Back to calendars': '返回日历列表',
+  'Built in': '内置',
+  'Business day {ordinal} of {total}': '第 {ordinal} 个工作日，共 {total} 个',
+  'Business days that start schedules fire on. A schedule names a calendar with {key}.':
+    '启动调度只在工作日触发。调度用 {key} 指定日历。',
+  'Calendar not found': '未找到日历',
+  'Calendar saved': '日历已保存',
+  'Calendar {name} deleted': '已删除日历 {name}',
+  'Calendar:': '日历：',
+  Calendars: '业务日历',
+  'Checking...': '正在检查...',
+  "Couldn't load the calendar": '无法加载日历',
+  'Delete calendar': '删除日历',
+  'Delete this calendar': '删除此日历',
+  'Extra business day, {ordinal} of {total}':
+    '额外工作日，第 {ordinal} 个，共 {total} 个',
+  'Failed to create the calendar.': '创建日历失败。',
+  'Failed to delete the calendar.': '删除日历失败。',
+  'Failed to save the calendar.': '保存日历失败。',
+  'Fix the problems in the file to see its business days.':
+    '修复文件中的问题后即可查看其工作日。',
+  'Hide dates': '隐藏日期',
+  Holiday: '假日',
+  'Holiday: {name}': '假日：{name}',
+  'Holidays run out': '假日需更新',
+  'Holidays through': '假日截至',
+  'Holidays through {date}': '假日截至 {date}',
+  'Included by': '包含它的日历',
+  Includes: '包含的日历',
+  Invalid: '无效',
+  'Keep my edits': '保留我的编辑',
+  'Load the server version': '加载服务器版本',
+  'Loading calendars...': '正在加载日历...',
+  'New calendar': '新建日历',
+  'Next year': '下一年',
+  'No DAG schedules use this calendar.': '没有 DAG 调度使用此日历。',
+  'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.':
+    '还没有日历文件。可在此创建，或将 {file} 添加到 paths.calendars_dir。',
+  'No calendar is named {name}. It may have been deleted.':
+    '没有名为 {name} 的日历，可能已被删除。',
+  'Not a business day': '非工作日',
+  'Previous year': '上一年',
+  Problems: '问题',
+  'Remove the schedules and includes that use this calendar first':
+    '请先移除使用此日历的调度和日历包含关系',
+  'Schedules name it with calendar. It starts as Monday to Friday with no holidays.':
+    '调度通过 calendar 指定它。初始为周一至周五，没有假日。',
+  'Select a date to see its business day.': '选择日期以查看其工作日信息。',
+  'Show dates': '显示日期',
+  'The calendar file changed on the server while you were editing.':
+    '编辑期间服务器上的日历文件已更改。',
+  'The calendar was not saved': '日历未保存',
+  'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.':
+    '这是内置日历：周一至周五，没有假日，无法更改。要列出假日，请创建日历文件。',
+  'Use letters, digits, - and _ only.': '只能使用字母、数字、- 和 _。',
+  'Used by': '使用此日历的 DAG',
+  'after {through}, when the holidays end': '在假日截止日 {through} 之后',
+  'business day': '工作日',
+  holiday: '假日',
+  'not a business day': '非工作日',
+  'unsaved change': '未保存的更改',
+  'used by {count} DAG': '{count} 个 DAG 使用',
+  'used by {count} DAGs': '{count} 个 DAG 使用',
+  'via {calendar}': '经由 {calendar}',
+  'weekdays {changes}': '星期 {changes}',
+  '{count} date changes': '{count} 个日期变更',
+  '{count} dates change': '{count} 个日期变更',
+  '{count} problem': '{count} 个问题',
+  '{count} problems': '{count} 个问题',
+  '{name} is reserved.': '{name} 是保留名称。',
+  "Couldn't preview the calendar.": '无法预览日历。',
+  'Loading {year}...': '正在加载 {year}...',
+  "Couldn't check": '无法检查',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -6384,6 +6538,7 @@ const baseJapanese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ') で設定されています。無効にするには、環境変数を削除して Dagu を再起動してください。',
   '←→ Select': '←→ 選択',
+  '←→ Scroll': '←→ スクロール',
   '↑↓ Navigate': '↑↓ 移動',
   '↻ until': '↻ 条件が真になるまで',
   '↻ while': '↻ 条件が真の間',
@@ -6692,6 +6847,15 @@ const baseJapanese = {
   'Secret refs': 'シークレット参照',
   'DAG Tabs': 'DAG タブ',
   'Run ID (optional)': '実行 ID（任意）',
+  'Scheduled at (optional)': 'スケジュール時刻（任意）',
+  'None (run now)': 'なし（今すぐ実行）',
+  'Other time': 'その他の時刻',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '一覧の時刻は DAG のデフォルトプロファイルに基づきます。実行のウィンドウは選択したプロファイルに従います。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00、または RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'この実行はこのスロットのスケジュール時刻とウィンドウを使います。',
   'DAG:': 'DAG：',
   'Run error': '実行エラー',
   'Run precondition not met': '実行の前提条件が満たされていません',
@@ -6878,6 +7042,8 @@ const baseJapanese = {
   'Example Request': 'リクエストの例',
   'Example workflows': 'ワークフローの例',
   Examples: '例',
+  'Execute permission is required to answer or restart this session.':
+    'このセッションに回答したり再起動したりするには、実行権限が必要です。',
   'Execute permission is required to complete this task.':
     'このタスクを完了するには、実行権限が必要です。',
   Execution: '実行',
@@ -7631,6 +7797,13 @@ const baseJapanese = {
   //
   // visual-editor:P1-4 begin
   'Insert reference': '参照を挿入',
+  'Available references': '利用できる参照',
+  'Put the cursor in a field value': 'フィールドの値にカーソルを置いてください',
+  'Published when chosen': '選ぶと公開されます',
+  'Not safe in a shell': 'シェルでは安全ではありません',
+  'Unsafe here: use env': 'ここでは危険: env を使用',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    'このテキストはモデルが書いたもので、シェルがコードとして実行するおそれがあります。env で渡し、環境変数から読み取ってください。',
   'Search references': '参照を検索',
   References: '参照',
   'No references available': '利用可能な参照はありません',
@@ -7641,6 +7814,9 @@ const baseJapanese = {
   'Environment variables': '環境変数',
   Secrets: 'シークレット',
   'Run context': '実行コンテキスト',
+  'Build inputs': 'ビルド入力',
+  'Build outputs': 'ビルド出力',
+  'Step environment': 'ステップの環境変数',
   'Upstream data': '上流データ',
   'Select a step to see the data of its upstream steps':
     'ステップを選択すると、その上流ステップのデータを表示します',
@@ -7921,6 +8097,7 @@ const baseJapanese = {
   'Scanning...': 'スキャン中...',
   Schedule: 'スケジュール',
   Scheduled: 'スケジュール済み',
+  'Window start': 'ウィンドウ開始',
   'Scheduled At': 'スケジュール時刻',
   'Scheduled:': 'スケジュール:',
   'Scheduler Service': 'スケジューラーサービス',
@@ -8114,6 +8291,7 @@ const baseJapanese = {
   'Items per page': '1 ページの件数',
   '{selected} of {loaded} selected': '{loaded} 件中 {selected} 件を選択',
   'Schedule for {name}': '{name} のスケジュール',
+  'Restarts for {name}': '{name} の再起動',
   'Target name': 'ターゲット名',
   'Target:': 'ターゲット:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -8359,6 +8537,10 @@ const baseJapanese = {
     '呼び出し元は {header} を使って承認済みプロファイルを選択できます。このヘッダーがない場合は、DAG のデフォルトプロファイル解決が使用されます。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '「{name}」のスケジュールを{action}にしますか？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -8421,6 +8603,9 @@ const baseJapanese = {
     '同期管理から欠落アイテムを {count} 件削除しますか？ファイルはリモートリポジトリに残ります。',
   Reschedule: '再スケジュール',
   'Run anyway': 'そのまま実行',
+  'Save & Run': '保存して実行',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    '「保存して実行」は編集内容を保存して実行します。「そのまま実行」は編集内容を含めず、最後に保存したバージョンを実行します。',
   'Run one of the example workflows from the {link} to see activity here.':
     '{link}からサンプルワークフローを実行すると、ここにアクティビティが表示されます。',
   'Send incidents': 'インシデントを送信',
@@ -8473,8 +8658,10 @@ const baseJapanese = {
   retry: '再試行',
   reschedule: '再スケジュール',
   'Disable schedule': 'スケジュールを無効化',
+  'Suspend restarts': '再起動を一時停止',
   'Disable Webhook': 'Webhook を無効化',
   'Enable schedule': 'スケジュールを有効化',
+  'Resume restarts': '再起動を再開',
   'Enable Webhook': 'Webhook を有効化',
   '+{count} more': '他 {count} 件',
   '+{count} more step': '他 {count} ステップ',
@@ -8757,7 +8944,6 @@ const baseJapanese = {
   '{time} ago': '{time}前',
   'Open run {dagRunId}': '実行 {dagRunId} を開く',
   'Copy link to this run': 'この実行へのリンクをコピー',
-  'Copy link to the root run': 'ルート実行へのリンクをコピー',
   'Show in workflow': 'ワークフローで表示',
   'This workspace currently inherits Global rules.':
     'このワークスペースは現在グローバルルールを継承しています。',
@@ -8996,8 +9182,8 @@ const baseJapanese = {
   'Connect for free': '無料で接続',
   'Connect and start trial': '接続してトライアルを開始',
   'Also try paid features free for 14 days': '有料機能も 14 日間無料で試す',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    '監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'Claude や ChatGPT からの MCP アクセス、監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console はこのサーバーの監視を停止し、無料枠は他のサーバーで使えるようになります。',
   'The Free plan supports up to 2 API keys.':
@@ -9123,6 +9309,7 @@ const baseJapanese = {
   Manual: '手動',
   'Sub-DAG': 'サブワークフロー',
   'Catch-up': 'キャッチアップ',
+  Restart: '再起動',
   'Run log': '実行ログ',
   Stream: '出力ストリーム',
   'Lines shown': '表示する行',
@@ -9169,12 +9356,18 @@ const baseJapanese = {
   'Open Workflows': 'ワークフローを開く',
   'Scheduling guide': 'スケジュールのガイド',
   'Add a notification channel': '通知チャネルを追加',
+  'Connect an AI app': 'AI アプリを接続',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Claude、ChatGPT、コーディングエージェントが MCP 経由でここのワークフローを実行・編集できるようにします。',
+  'Use from Claude or ChatGPT': 'Claude や ChatGPT から使う',
+  'Set up a coding agent': 'コーディングエージェントを設定',
   'Could not change remote access.': 'リモートアクセスを変更できませんでした。',
   'Remote access': 'リモートアクセス',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
     'このサーバーの MCP ツールを Dagu Cloud の MCP エンドポイント経由で提供します。サーバーから Dagu Cloud へ接続するため、受信ポートは開きません。',
   'MCP calls are refused.': 'MCP 呼び出しは拒否されます。',
-  'MCP calls read DAGs, runs, and logs.': 'MCP 呼び出しは DAG、実行、ログを読み取れます。',
+  'MCP calls read DAGs, runs, and logs.':
+    'MCP 呼び出しは DAG、実行、ログを読み取れます。',
   'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
     'MCP 呼び出しは DAG、実行、ログを読み取り、実行の開始、再試行、停止ができます。',
   'MCP calls also change DAG definitions, so they can run any command on this machine.':
@@ -9195,9 +9388,37 @@ const baseJapanese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'MCP URL をコピー',
   'MCP URL copied': 'MCP URL をコピーしました',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    'この URL をリモート MCP サーバーとして MCP クライアントに追加し、Dagu Cloud にサインインしてください。各クライアントに許可する操作はワークスペースのオーナーが決めます。',
-  'Manage MCP clients': 'MCP クライアントを管理',
+  'Last call': '最後の呼び出し',
+  'No calls yet': 'まだ呼び出しはありません',
+  'Connect a client': 'クライアントを接続',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'Claude で Customize を開き、Connectors を選びます。+ Add を選び、Add custom connector を選びます。URL を貼り付けて Continue を選び、サインインします。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'Team と Enterprise では、先にオーナーが Organization settings の Connectors で追加します。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '+ を選び、Add custom MCP server を選びます。Server URL に URL を貼り付け、OAuth を選んで確認し、Create as a plugin を選びます。プラグインをインストールし、サインインします。',
+  'Copy command': 'コマンドをコピー',
+  'Command copied': 'コマンドをコピーしました',
+  'Then run /mcp in Claude Code to sign in.':
+    'その後、Claude Code で /mcp を実行してサインインします。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud のほかのクライアントと接続',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'トライアルに {date} まで含まれています。MCP クライアントを使い続けるにはプランを選んでください。',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Claude、ChatGPT などの MCP クライアントからこのサーバーを使う',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'トライアルに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'プランに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '有料プランまたはトライアルが必要です。14 日間のトライアルは無料で、カードは不要です。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'MCP calls need a paid plan or a trial':
+    'MCP の呼び出しには有料プランまたはトライアルが必要です',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'ワークスペースに有料プランかトライアルがあるまで、Dagu Cloud はこのサーバーへの呼び出しを拒否します。14 日間のトライアルは無料で、カードは不要です。',
   'Choose remote access': 'リモートアクセスを選択',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',
@@ -9228,78 +9449,91 @@ const baseJapanese = {
     '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
-  "Upcoming runs": "今後の実行",
-  "last business day of the month": "月末営業日",
-  "business day {n} from the month's end": "月末から {n} 番目の営業日",
-  "business day {n} of the month": "第 {n} 営業日",
-  "extra business day": "臨時営業日",
-  "skips {day}": "{day} はスキップ",
-  "This DAG is suspended. None of these runs will start until it is resumed.": "このDAGは停止中です。再開するまで、これらの実行は開始されません。",
-  "A calendar named {name} already exists.": "{name} という名前のカレンダーは既に存在します。",
-  "Back to calendars": "カレンダー一覧に戻る",
-  "Built in": "組み込み",
-  "Business day {ordinal} of {total}": "{total} 営業日中の第 {ordinal} 営業日",
-  "Business days that start schedules fire on. A schedule names a calendar with {key}.": "開始スケジュールが実行される営業日です。スケジュールは {key} でカレンダーを指定します。",
-  "Calendar not found": "カレンダーが見つかりません",
-  "Calendar saved": "カレンダーを保存しました",
-  "Calendar {name} deleted": "カレンダー {name} を削除しました",
-  "Calendar:": "カレンダー:",
-  "Calendars": "営業日カレンダー",
-  "Checking...": "確認中...",
-  "Couldn't load the calendar": "カレンダーを読み込めませんでした",
-  "Delete calendar": "カレンダーを削除",
-  "Delete this calendar": "このカレンダーを削除",
-  "Extra business day, {ordinal} of {total}": "臨時営業日、{total} 営業日中の第 {ordinal} 営業日",
-  "Failed to create the calendar.": "カレンダーを作成できませんでした。",
-  "Failed to delete the calendar.": "カレンダーを削除できませんでした。",
-  "Failed to save the calendar.": "カレンダーを保存できませんでした。",
-  "Fix the problems in the file to see its business days.": "ファイルの問題を修正すると営業日が表示されます。",
-  "Hide dates": "日付を隠す",
-  "Holiday": "休日",
-  "Holiday: {name}": "休日: {name}",
-  "Holidays run out": "休日の更新が必要",
-  "Holidays through": "休日の登録期限",
-  "Holidays through {date}": "休日は {date} まで登録済み",
-  "Included by": "取り込んでいるカレンダー",
-  "Includes": "取り込むカレンダー",
-  "Invalid": "無効",
-  "Keep my edits": "編集内容を保持",
-  "Load the server version": "サーバーの版を読み込む",
-  "Loading calendars...": "カレンダーを読み込み中...",
-  "New calendar": "新しいカレンダー",
-  "Next year": "翌年",
-  "No DAG schedules use this calendar.": "このカレンダーを使う DAG のスケジュールはありません。",
-  "No calendar files yet. Create one here, or add {file} to paths.calendars_dir.": "カレンダーファイルはまだありません。ここで作成するか、{file} を paths.calendars_dir に追加してください。",
-  "No calendar is named {name}. It may have been deleted.": "{name} という名前のカレンダーはありません。削除された可能性があります。",
-  "Not a business day": "営業日ではありません",
-  "Previous year": "前年",
-  "Problems": "問題",
-  "Remove the schedules and includes that use this calendar first": "先にこのカレンダーを使うスケジュールと取り込みを外してください",
-  "Schedules name it with calendar. It starts as Monday to Friday with no holidays.": "スケジュールは calendar で指定します。最初は月曜から金曜で、休日はありません。",
-  "Select a date to see its business day.": "日付を選ぶと営業日の情報が表示されます。",
-  "Show dates": "日付を表示",
-  "The calendar file changed on the server while you were editing.": "編集中にサーバー上のカレンダーファイルが変更されました。",
-  "The calendar was not saved": "カレンダーは保存されませんでした",
-  "This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.": "組み込みのカレンダーです。月曜から金曜で休日はなく、変更できません。休日を登録するにはカレンダーファイルを作成してください。",
-  "Use letters, digits, - and _ only.": "英字、数字、- と _ のみ使えます。",
-  "Used by": "使用している DAG",
-  "after {through}, when the holidays end": "休日の登録期限 {through} 以降",
-  "business day": "営業日",
-  "holiday": "休日",
-  "not a business day": "非営業日",
-  "unsaved change": "未保存の変更",
-  "used by {count} DAG": "{count} 件の DAG が使用",
-  "used by {count} DAGs": "{count} 件の DAG が使用",
-  "via {calendar}": "{calendar} 経由",
-  "weekdays {changes}": "曜日 {changes}",
-  "{count} date changes": "{count} 件の日付が変更",
-  "{count} dates change": "{count} 件の日付が変更",
-  "{count} problem": "{count} 件の問題",
-  "{count} problems": "{count} 件の問題",
-  "{name} is reserved.": "{name} は予約済みの名前です。",
-  "Couldn't preview the calendar.": "カレンダーをプレビューできませんでした。",
-  "Loading {year}...": "{year} 年を読み込み中...",
-  "Couldn't check": "確認できませんでした",
+  'Upcoming runs': '今後の実行',
+  'last business day of the month': '月末営業日',
+  "business day {n} from the month's end": '月末から {n} 番目の営業日',
+  'business day {n} of the month': '第 {n} 営業日',
+  'extra business day': '臨時営業日',
+  'skips {day}': '{day} はスキップ',
+  'This DAG is suspended. None of these runs will start until it is resumed.':
+    'このDAGは停止中です。再開するまで、これらの実行は開始されません。',
+  'A calendar named {name} already exists.':
+    '{name} という名前のカレンダーは既に存在します。',
+  'Back to calendars': 'カレンダー一覧に戻る',
+  'Built in': '組み込み',
+  'Business day {ordinal} of {total}': '{total} 営業日中の第 {ordinal} 営業日',
+  'Business days that start schedules fire on. A schedule names a calendar with {key}.':
+    '開始スケジュールが実行される営業日です。スケジュールは {key} でカレンダーを指定します。',
+  'Calendar not found': 'カレンダーが見つかりません',
+  'Calendar saved': 'カレンダーを保存しました',
+  'Calendar {name} deleted': 'カレンダー {name} を削除しました',
+  'Calendar:': 'カレンダー:',
+  Calendars: '営業日カレンダー',
+  'Checking...': '確認中...',
+  "Couldn't load the calendar": 'カレンダーを読み込めませんでした',
+  'Delete calendar': 'カレンダーを削除',
+  'Delete this calendar': 'このカレンダーを削除',
+  'Extra business day, {ordinal} of {total}':
+    '臨時営業日、{total} 営業日中の第 {ordinal} 営業日',
+  'Failed to create the calendar.': 'カレンダーを作成できませんでした。',
+  'Failed to delete the calendar.': 'カレンダーを削除できませんでした。',
+  'Failed to save the calendar.': 'カレンダーを保存できませんでした。',
+  'Fix the problems in the file to see its business days.':
+    'ファイルの問題を修正すると営業日が表示されます。',
+  'Hide dates': '日付を隠す',
+  Holiday: '休日',
+  'Holiday: {name}': '休日: {name}',
+  'Holidays run out': '休日の更新が必要',
+  'Holidays through': '休日の登録期限',
+  'Holidays through {date}': '休日は {date} まで登録済み',
+  'Included by': '取り込んでいるカレンダー',
+  Includes: '取り込むカレンダー',
+  Invalid: '無効',
+  'Keep my edits': '編集内容を保持',
+  'Load the server version': 'サーバーの版を読み込む',
+  'Loading calendars...': 'カレンダーを読み込み中...',
+  'New calendar': '新しいカレンダー',
+  'Next year': '翌年',
+  'No DAG schedules use this calendar.':
+    'このカレンダーを使う DAG のスケジュールはありません。',
+  'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.':
+    'カレンダーファイルはまだありません。ここで作成するか、{file} を paths.calendars_dir に追加してください。',
+  'No calendar is named {name}. It may have been deleted.':
+    '{name} という名前のカレンダーはありません。削除された可能性があります。',
+  'Not a business day': '営業日ではありません',
+  'Previous year': '前年',
+  Problems: '問題',
+  'Remove the schedules and includes that use this calendar first':
+    '先にこのカレンダーを使うスケジュールと取り込みを外してください',
+  'Schedules name it with calendar. It starts as Monday to Friday with no holidays.':
+    'スケジュールは calendar で指定します。最初は月曜から金曜で、休日はありません。',
+  'Select a date to see its business day.':
+    '日付を選ぶと営業日の情報が表示されます。',
+  'Show dates': '日付を表示',
+  'The calendar file changed on the server while you were editing.':
+    '編集中にサーバー上のカレンダーファイルが変更されました。',
+  'The calendar was not saved': 'カレンダーは保存されませんでした',
+  'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.':
+    '組み込みのカレンダーです。月曜から金曜で休日はなく、変更できません。休日を登録するにはカレンダーファイルを作成してください。',
+  'Use letters, digits, - and _ only.': '英字、数字、- と _ のみ使えます。',
+  'Used by': '使用している DAG',
+  'after {through}, when the holidays end': '休日の登録期限 {through} 以降',
+  'business day': '営業日',
+  holiday: '休日',
+  'not a business day': '非営業日',
+  'unsaved change': '未保存の変更',
+  'used by {count} DAG': '{count} 件の DAG が使用',
+  'used by {count} DAGs': '{count} 件の DAG が使用',
+  'via {calendar}': '{calendar} 経由',
+  'weekdays {changes}': '曜日 {changes}',
+  '{count} date changes': '{count} 件の日付が変更',
+  '{count} dates change': '{count} 件の日付が変更',
+  '{count} problem': '{count} 件の問題',
+  '{count} problems': '{count} 件の問題',
+  '{name} is reserved.': '{name} は予約済みの名前です。',
+  "Couldn't preview the calendar.": 'カレンダーをプレビューできませんでした。',
+  'Loading {year}...': '{year} 年を読み込み中...',
+  "Couldn't check": '確認できませんでした',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {
@@ -9323,23 +9557,3 @@ export const staticMessages = {
   'zh-CN': chinese,
   ja: japanese,
 } satisfies Record<Locale, Record<StaticMessage, string>>;
-
-export function translateStatic(
-  locale: Locale,
-  source: string,
-  values?: StaticTranslationValues
-): string {
-  const catalog = staticMessages[locale];
-  const message =
-    locale !== 'en' && Object.prototype.hasOwnProperty.call(catalog, source)
-      ? catalog[source as StaticMessage]
-      : source;
-  if (!values) {
-    return message;
-  }
-
-  return message.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
-    const value = values[name];
-    return value === undefined ? placeholder : String(value);
-  });
-}

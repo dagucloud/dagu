@@ -63,7 +63,6 @@ const SHARED_LEAVES = [
   'features/dags/components/agent/AgentTimeline.tsx',
   'features/dags/components/chat-history/StepMessagesTable.tsx',
   'features/dags/components/visualization/TimelineChart.tsx',
-  'features/dags/components/dag-execution/HistoryTable.tsx',
   'features/dag-runs/components/common/RunMetaLine.tsx',
   'features/dag-runs/components/common/AutoRetryBadge.tsx',
   'features/dags/components/dag-details/DAGStepTable.tsx',

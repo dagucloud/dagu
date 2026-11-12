@@ -49,6 +49,11 @@ type StepSideDrawerProps = {
    * the page, such as the button that opened it, but not in a text field.
    */
   closeOnPageEscape?: boolean;
+  /**
+   * The element of the host's right column that the drawer renders into, as
+   * the body of a tab: no shell, width or claim of a right-panel slot.
+   */
+  column?: HTMLElement | null;
   children: React.ReactNode;
 };
 
@@ -264,9 +269,10 @@ export function StepSideDrawer({
   panelId,
   onRestore,
   closeOnPageEscape = false,
+  column,
   children,
 }: StepSideDrawerProps) {
-  useRightPanelClaim(panelId, isOpen, onClose, onRestore);
+  useRightPanelClaim(column ? null : panelId, isOpen, onClose, onRestore);
   const placement = usePanelPlacement();
   const viewport = useViewportWidth();
   const drawerWidth = useDrawerWidth();
@@ -446,6 +452,25 @@ export function StepSideDrawer({
 
   if (!shouldRender) {
     return null;
+  }
+
+  if (column) {
+    return createPortal(
+      <div
+        ref={(element) => {
+          drawerRef.current = element;
+        }}
+        tabIndex={-1}
+        aria-label={labelledBy ? undefined : label}
+        data-testid="step-side-drawer"
+        data-side-drawer=""
+        className="flex min-h-0 flex-1 flex-col outline-none"
+      >
+        {header}
+        {children}
+      </div>,
+      column
+    );
   }
 
   const panel = (

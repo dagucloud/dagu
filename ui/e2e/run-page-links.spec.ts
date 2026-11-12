@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   loadStack,
@@ -84,4 +86,55 @@ steps:
     dock.getByRole('tab', { name: 'Timeline', exact: true })
   ).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
   expect(here().run).toBe(runId);
+});
+
+// A run whose workflow file is gone opens in the workspace, drawn from the
+// definition that it stored, with nothing that acts on the file.
+test('opens a run whose workflow file is gone in the workspace', async ({
+  page,
+  request,
+}) => {
+  const stack = await loadStack();
+  const token = await loginViaAPI(
+    request,
+    stack.auth.adminUsername,
+    stack.auth.adminPassword
+  );
+  const dagName = uniqueName('run-orphan');
+  const fileName = await writeLocalDAG(
+    dagName,
+    `
+name: ${dagName}
+steps:
+  - name: fetch
+    run: echo fetched
+  - name: report
+    run: echo reported
+    depends: fetch
+`
+  );
+  await waitForDAGAvailable(request, token, fileName);
+  const runId = await startDAG(request, token, fileName);
+  await waitForRunStatus(request, token, dagName, runId, ['succeeded']);
+  await fs.rm(path.join(stack.local.dagsDir, fileName));
+  await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+
+  await page.goto(`/dags/${dagName}?run=${runId}`);
+  const definition = page.getByTestId('ww-run-definition');
+  await expect(definition).toBeVisible({ timeout: 30_000 });
+  await expect(definition).toHaveAttribute('data-run-id', runId);
+  await expect(definition.getByTestId('ve-canvas-node-steps[1]')).toBeVisible({
+    timeout: 30_000,
+  });
+  // No current definition to go back to, and no file to start or delete.
+  await expect(page.getByTestId('ww-run-snapshot-back')).toHaveCount(0);
+  const bar = page.getByTestId('ww-bar');
+  await expect(bar).toContainText(dagName);
+  await expect(bar.getByTestId('ww-run-split')).toHaveCount(0);
+
+  // The Log of a step reads the run.
+  await page.goto(`/dags/${dagName}?run=${runId}&step=report&dock=log`);
+  await expect(
+    page.getByTestId('ww-dock').getByTestId('ww-step-log')
+  ).toContainText('reported', { timeout: 30_000 });
 });

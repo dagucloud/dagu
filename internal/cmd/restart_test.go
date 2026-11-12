@@ -5,6 +5,8 @@ package cmd_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -65,6 +67,128 @@ steps:
 	require.Len(t, recentHistory, 2)
 	require.Equal(t, recentHistory[0].Params, recentHistory[1].Params)
 	require.Equal(t, "2026-03-13T10:00:00Z", recentHistory[0].ScheduleTime)
+}
+
+// A slot named with --scheduled-at makes the restarted run manual, so the
+// scheduler reads it by when it ran, not as its own run of the slot.
+func TestRestartCommand_ScheduledAtRunIsManual(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	release := newHoldFile(t)
+	dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: hold
+    run: %q
+`, holdUntilFileExistsCommand(release)))
+
+	done1 := make(chan struct{})
+	go func() {
+		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+		close(done1)
+	}()
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	done2 := make(chan struct{})
+	go func() {
+		args := []string{"restart", "--scheduled-at=2026-03-13T10:00:00Z", dag.Location}
+		th.RunCommand(t, cmd.Restart(), test.CmdTest{Args: args})
+		close(done2)
+	}()
+	releaseDone := releaseHoldFileWhenRecentStatusCountAtLeast(t, th, dag.Name, 2, release)
+	require.NoError(t, <-releaseDone)
+	<-done1
+	<-done2
+
+	recentHistory, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 1)
+	require.NoError(t, err)
+	require.Len(t, recentHistory, 1)
+	require.Equal(t, ir.TriggerTypeManual, recentHistory[0].TriggerType)
+	scheduledAt, err := time.Parse(time.RFC3339, recentHistory[0].ScheduleTime)
+	require.NoError(t, err)
+	require.True(t, scheduledAt.Equal(time.Date(2026, 3, 13, 10, 0, 0, 0, time.UTC)))
+}
+
+// The scheduler starts the runs of a DAG with a restart_policy, so the restart
+// command, which starts a run of its own, is refused.
+func TestRestartCommand_RejectsServiceDAG(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+}
+
+// A DAG with a restart_policy that has no run yet is refused for its policy,
+// not for its missing history.
+func TestRestartCommand_RejectsServiceDAGWithoutRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: "1"
+    run: "echo ok"
+`)
+
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+}
+
+// The scheduler reads the current definition of a DAG, so a restart_policy
+// added while a run is alive already refuses the command, and that run is left
+// alone.
+func TestRestartCommand_RejectsPolicyAddedWhileRunning(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	release := newHoldFile(t)
+	steps := fmt.Sprintf("steps:\n  - name: \"1\"\n    run: %q\n", holdUntilFileExistsCommand(release))
+	dag := th.DAG(t, steps)
+
+	done := make(chan struct{})
+	go func() {
+		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+		close(done)
+	}()
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	require.NoError(t, os.WriteFile(dag.Location, []byte("restart_policy: always\nrestart_wait_sec: 1\n"+steps), 0o600))
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	releaseHoldFile(t, release)
+	<-done
+}
+
+// A run that is not running cannot be restarted, so the command says so even
+// when the DAG saved with the run cannot be read.
+func TestRestartCommand_NotRunningWithoutSnapshot(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+
+	snapshots, err := filepath.Glob(filepath.Join(th.Config.Paths.DAGRunsDir, "*", "dag-runs", "*", "*", "*", "*", "*", "dag.json"))
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	require.NoError(t, os.Remove(snapshots[0]))
+
+	err = th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, "is not running")
 }
 
 func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {

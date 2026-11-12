@@ -5,7 +5,7 @@ import { useI18n } from './I18nProvider';
 import {
   translateStatic,
   type StaticTranslationValues,
-} from './staticMessages';
+} from './translateStatic';
 
 export function I18nText({
   text,

@@ -37,6 +37,7 @@ const h = vi.hoisted(() => ({
 vi.mock('../../data', () => ({ useWorkspaceRun: () => h.state.run }));
 vi.mock('../../data/context', () => ({
   useWorkspaceData: () => ({ fileName: 'etl.yaml' }),
+  useStandaloneRun: () => null,
 }));
 vi.mock('../../dock/DockContext', () => ({
   useDock: () => ({ setTab: h.setTab }),

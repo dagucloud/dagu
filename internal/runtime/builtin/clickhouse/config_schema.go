@@ -13,7 +13,8 @@ import (
 // variable reference passes until it is resolved; ParseConfig checks the
 // resolved values.
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"url":      {Type: "string", Description: "ClickHouse HTTP endpoint (http:// or https://), without credentials"},
 		"user":     {Type: "string", Description: "ClickHouse user"},

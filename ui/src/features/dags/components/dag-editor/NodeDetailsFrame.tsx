@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { NodeStatus, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
@@ -31,6 +32,7 @@ import {
   PANEL_HEADER_CLASS,
   panelDockGeometry,
   panelMaxWidth,
+  usePanelColumn,
   usePanelPlacement,
   useViewportWidth,
 } from '@/features/dags/components/step-details/PanelShell';
@@ -117,6 +119,53 @@ function useElementWidth(
     return () => observer.disconnect();
   }, [ref, active]);
   return width;
+}
+
+interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** The box of an element in a container, kept current while both exist. */
+function useBoxIn(
+  element: HTMLElement | null,
+  container: HTMLElement | null
+): Box | null {
+  const [box, setBox] = React.useState<Box | null>(null);
+  React.useLayoutEffect(() => {
+    if (!element || !container) {
+      setBox(null);
+      return;
+    }
+    const read = () => {
+      const e = element.getBoundingClientRect();
+      const c = container.getBoundingClientRect();
+      const next = {
+        left: e.left - c.left,
+        top: e.top - c.top,
+        width: e.width,
+        height: e.height,
+      };
+      setBox((last) =>
+        last &&
+        last.left === next.left &&
+        last.top === next.top &&
+        last.width === next.width &&
+        last.height === next.height
+          ? last
+          : next
+      );
+    };
+    read();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(read);
+    observer.observe(element);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [element, container]);
+  return box;
 }
 
 /** The step of the DAG with this server name, or one of its handlers. */
@@ -281,7 +330,15 @@ export function NodeDetailsFrame({
   const state: NdvState = !open ? null : fileScope ? 'docked' : 'expanded';
   const stepName = fileScope ? null : stepNameProp;
   const inZone = usePanelPlacement() === 'zone';
-  useRightPanelClaim('ndv', open, onClose, onRestore);
+  // With a right column the frame stays in the host's layer: over the YAML
+  // tab for the file, over the zone and the column for a step. One container
+  // keeps its editor, with the undo history, when it changes place. Over the
+  // tab it claims no right-panel slot.
+  const column = usePanelColumn();
+  const layer = column?.layer ?? null;
+  const inColumn = !!layer && !!column?.yaml && state !== 'expanded';
+  const columnBox = useBoxIn(inColumn ? column.yaml : null, layer);
+  useRightPanelClaim('ndv', open && !inColumn, onClose, onRestore);
   const sectionRef = React.useRef<HTMLElement>(null);
   const width = useDrawerWidth();
 
@@ -327,7 +384,8 @@ export function NodeDetailsFrame({
   const hasStep = stepName !== null;
 
   const expanded = state === 'expanded' && layout !== 'sheet';
-  const docked = layout !== 'sheet' && !expanded;
+  // A frame in the column fills its tab: no edge, width or resize of a panel.
+  const docked = layout !== 'sheet' && !expanded && !inColumn;
   // A maximized panel takes the whole width of its zone until it is
   // restored; the stored width stays for the next restore.
   const [maximized, setMaximized] = React.useState(false);
@@ -495,10 +553,10 @@ export function NodeDetailsFrame({
     sheet: 'order-2 min-h-0 flex-1 overflow-y-auto',
   }[layout];
 
-  return (
+  const frame = (
     <>
       {/* In a zone the expanded frame fills it: no backdrop beyond it. */}
-      {!inZone && (
+      {!inZone && !inColumn && (
         <div
           hidden={!open || !expanded}
           aria-hidden="true"
@@ -518,24 +576,31 @@ export function NodeDetailsFrame({
         data-testid="ndv"
         data-state={state ?? 'closed'}
         data-layout={layout}
-        data-placement={inZone ? 'zone' : 'window'}
+        data-placement={
+          inColumn ? 'column' : inZone || layer ? 'zone' : 'window'
+        }
         data-panel-shell={docked ? 'right' : undefined}
         className={cn(
-          'z-[60] flex flex-col border-border bg-card shadow-lg shadow-foreground/10 outline-none',
-          inZone ? 'absolute' : 'fixed',
+          'flex flex-col border-border bg-card outline-none',
+          layer && 'pointer-events-auto',
+          !inColumn && 'z-[60] shadow-lg shadow-foreground/10',
+          inZone || layer ? 'absolute' : 'fixed',
           layout === 'sheet' && 'inset-0',
           // The whole zone when it is in one, over its row of toolbars too;
           // else the window with a small margin, over the sidebar and the bar.
-          expanded && (inZone ? 'inset-0' : 'inset-3 rounded-lg border'),
+          expanded &&
+            (inZone || layer ? 'inset-0' : 'inset-3 rounded-lg border'),
           // A host can start the docked frame below its own bar.
           docked && panelDockGeometry(inZone ? 'zone' : 'window')
         )}
         style={
-          fillsZone
-            ? { width: '100%' }
-            : docked
-              ? { width: `${width}px`, maxWidth: panelMaxWidth(viewport) }
-              : undefined
+          inColumn
+            ? (columnBox ?? { width: 0, height: 0 })
+            : fillsZone
+              ? { width: '100%' }
+              : docked
+                ? { width: `${width}px`, maxWidth: panelMaxWidth(viewport) }
+                : undefined
         }
       >
         {/* The docked frame takes a new width from its left edge. */}
@@ -548,12 +613,20 @@ export function NodeDetailsFrame({
             {/* The title side gives way first: the buttons, Close included,
                 keep their place at every width. */}
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-              <Icon
-                className="h-4 w-4 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-                data-testid="ndv-step-icon"
-              />
-              <h2 className="min-w-0 truncate text-base font-semibold">
+              {/* In the column the tab names the YAML. */}
+              {!inColumn && (
+                <Icon
+                  className="h-4 w-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                  data-testid="ndv-step-icon"
+                />
+              )}
+              <h2
+                className={cn(
+                  'min-w-0 truncate text-base font-semibold',
+                  inColumn && 'sr-only'
+                )}
+              >
                 {fileScope ? ts('YAML') : (title ?? stepName ?? ts('YAML'))}
               </h2>
               {repeat && !fileScope && (
@@ -626,7 +699,9 @@ export function NodeDetailsFrame({
                     {!compactHeader && ts('Run step')}
                   </Button>
                 )}
-              <IconButton label={ts('Close')} icon={X} onClick={onClose} />
+              {!inColumn && (
+                <IconButton label={ts('Close')} icon={X} onClick={onClose} />
+              )}
             </div>
           </div>
         </header>
@@ -744,6 +819,7 @@ export function NodeDetailsFrame({
       </section>
     </>
   );
+  return layer ? createPortal(frame, layer) : frame;
 }
 
 export default NodeDetailsFrame;

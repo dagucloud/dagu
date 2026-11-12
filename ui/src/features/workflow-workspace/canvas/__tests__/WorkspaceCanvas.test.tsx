@@ -37,6 +37,7 @@ import { useCanvasOverlayInset } from '@/features/visual-editor/canvas/overlayIn
 import { PANEL_WATCH_MS } from '../useRightPanelClearance';
 import type { StepRunActions } from '../../step/useStepRunActions';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
+import { RIGHT_COLUMN_KEY } from '../useRightColumn';
 import { YAML_PANEL_OPEN_KEY } from '../useYamlPanelMemory';
 import { WorkspaceCanvas } from '../WorkspaceCanvas';
 import {
@@ -45,6 +46,13 @@ import {
 } from '../WorkspaceEditorContext';
 
 type SpecProps = React.ComponentProps<typeof DAGSpec>;
+
+// The tests below run as on a phone, where the Workflow panel and the YAML
+// are panels over the zone; 'right column' sets a wide window.
+const media = vi.hoisted(() => ({ wide: false }));
+vi.mock('@/hooks/useMediaQuery', () => ({
+  useMediaQuery: () => media.wide,
+}));
 
 const host = vi.hoisted(() => ({
   /** Props of the last DAGSpec render. */
@@ -250,7 +258,10 @@ vi.mock('@/contexts/SchemaContext', () => ({
   useSchema: () => ({ schema: null }),
 }));
 vi.mock('@/contexts/UnsavedChangesContext', () => ({
-  useUnsavedChanges: () => ({ setHasUnsavedChanges: vi.fn() }),
+  useUnsavedChanges: () => ({
+    setHasUnsavedChanges: vi.fn(),
+    registerSave: () => () => {},
+  }),
 }));
 vi.mock('@/components/ui/error-modal', () => ({
   useErrorModal: () => ({ showError: vi.fn() }),
@@ -869,6 +880,87 @@ describe('WorkspaceCanvas', () => {
       act(() => props().ndv?.onStateChange(null));
       expect(location()).toHaveTextContent('/dags/example.yaml?step=extract');
       expect(props().ndv?.state).toBeNull();
+    });
+  });
+
+  // On a wide window the Workflow panel and the YAML of the file are the
+  // tabs of a right column: only the user opens, switches and collapses it.
+  describe('right column', () => {
+    const AT = { clientX: 700, clientY: 120 };
+    const column = () => screen.getByTestId('ww-right-column');
+    beforeEach(() => {
+      media.wide = true;
+    });
+    afterEach(() => {
+      media.wide = false;
+    });
+
+    it('shows the YAML tab as the docked YAML and keeps ?ndv for the view of a step', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'yaml');
+      renderCanvas();
+      expect(column()).toHaveAttribute('data-tab', 'yaml');
+      expect(props().ndv?.state).toBe('docked');
+
+      act(() => props().ndv?.onStateChange('expanded'));
+      expect(location()).toHaveTextContent('ndv=expanded');
+      expect(props().ndv?.state).toBe('expanded');
+
+      // The view of a step closes and leaves the YAML tab as it was.
+      act(() => props().ndv?.onStateChange(null));
+      expect(location()).not.toHaveTextContent('ndv=');
+      expect(props().ndv?.state).toBe('docked');
+      expect(column()).toHaveAttribute('data-tab', 'yaml');
+    });
+
+    it('opens a link to the YAML panel in the YAML tab', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'none');
+      renderCanvas('/dags/example.yaml?ndv=docked');
+      expect(column()).toHaveAttribute('data-tab', 'yaml');
+      expect(location()).not.toHaveTextContent('ndv=');
+      expect(localStorage.getItem(RIGHT_COLUMN_KEY)).toBe('yaml');
+    });
+
+    // On the run definition ?ndv=docked is the panel of the run's YAML.
+    it('keeps ?ndv=docked on the run definition', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'none');
+      renderCanvas('/dags/example.yaml?def=run&ndv=docked');
+      expect(location()).toHaveTextContent('ndv=docked');
+      expect(localStorage.getItem(RIGHT_COLUMN_KEY)).toBe('none');
+    });
+
+    // A click on a step leaves the canvas as it is: its details are a
+    // temporary tab, and the chosen tab comes back when it ends.
+    it('shows a clicked step in a temporary tab over the chosen one', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'yaml');
+      renderCanvas();
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', AT);
+      });
+      expect(column()).toHaveAttribute('data-tab', 'step');
+      expect(within(column()).getByTestId('step-panel')).toHaveAttribute(
+        'data-step',
+        'extract'
+      );
+
+      fireEvent.click(within(column()).getByRole('tab', { name: 'Workflow' }));
+      expect(column()).toHaveAttribute('data-tab', 'workflow');
+      expect(screen.queryByTestId('step-panel')).toBeNull();
+      expect(localStorage.getItem(RIGHT_COLUMN_KEY)).toBe('workflow');
+    });
+
+    it('collapses to a rail and opens a tab from it', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'yaml');
+      renderCanvas();
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Collapse' })
+      );
+      expect(column()).toHaveAttribute('data-tab', 'collapsed');
+      expect(props().ndv?.state).toBeNull();
+      expect(localStorage.getItem(RIGHT_COLUMN_KEY)).toBe('none');
+
+      fireEvent.click(within(column()).getByRole('button', { name: 'YAML' }));
+      expect(column()).toHaveAttribute('data-tab', 'yaml');
     });
   });
 

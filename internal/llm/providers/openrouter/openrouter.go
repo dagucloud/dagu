@@ -85,9 +85,13 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 
 	choice := resp.Choices[0]
 	result := &llm.ChatResponse{
-		Content:      choice.Message.Content,
-		FinishReason: choice.FinishReason,
-		Usage:        resp.Usage.LLM(),
+		Content:          choice.Message.Content,
+		ReasoningContent: choice.Message.Reasoning,
+		FinishReason:     choice.FinishReason,
+		Usage:            resp.Usage.LLM(),
+	}
+	if details := choice.Message.ReasoningDetails; len(details) > 0 && string(details) != "null" {
+		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderOpenRouter, Data: details}
 	}
 
 	// Extract tool calls if present
@@ -139,6 +143,11 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		if m.ToolCallID != "" {
 			messages[i].ToolCallID = m.ToolCallID
 		}
+		// The turn's reasoning goes back as received, which keeps the
+		// model's reasoning across the turns of a tool loop.
+		if state := m.ProviderState; state != nil && state.Provider == llm.ProviderOpenRouter {
+			messages[i].ReasoningDetails = state.Data
+		}
 		// Convert tool calls if present (for assistant messages with tool calls)
 		if len(m.ToolCalls) > 0 {
 			messages[i].ToolCalls = make([]toolCall, len(m.ToolCalls))
@@ -173,8 +182,17 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	// allow_fallbacks keeps OpenRouter's default. The account's data policy
 	// still filters every fallback endpoint, and refusing fallbacks would
 	// fail the request whenever the named endpoints are unavailable.
-	if len(p.config.ProviderOrder) > 0 {
-		chatReq.Provider = &providerPreferences{Order: p.config.ProviderOrder}
+	//
+	// require_parameters is set whenever the request needs tool support:
+	// OpenRouter otherwise only makes a best effort to pick an endpoint that
+	// supports tools and tool_choice, and an endpoint that lacks them drops
+	// the parameters, so a forced tool call comes back as plain text.
+	routing := providerPreferences{
+		Order:             p.config.ProviderOrder,
+		RequireParameters: len(req.Tools) > 0 || (req.ToolChoice != "" && req.ToolChoice != "auto"),
+	}
+	if len(routing.Order) > 0 || routing.RequireParameters {
+		chatReq.Provider = &routing
 	}
 
 	// Add reasoning configuration if enabled
@@ -368,6 +386,9 @@ type message struct {
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	// ReasoningDetails is the reasoning of an assistant turn, sent back
+	// exactly as the response carried it.
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type chatCompletionRequest struct {
@@ -390,7 +411,10 @@ type chatCompletionRequest struct {
 
 // providerPreferences is OpenRouter's provider routing object.
 type providerPreferences struct {
-	Order []string `json:"order"`
+	Order []string `json:"order,omitempty"`
+	// RequireParameters restricts routing to endpoints that support every
+	// parameter of the request.
+	RequireParameters bool `json:"require_parameters,omitempty"`
 }
 
 // plugin represents an OpenRouter plugin configuration.
@@ -437,6 +461,10 @@ type responseMessage struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content"`
 	ToolCalls []toolCall `json:"tool_calls,omitempty"`
+	// Reasoning is the turn's reasoning text; ReasoningDetails is the
+	// provider's record of it, kept unchanged to go back on the next turn.
+	Reasoning        string          `json:"reasoning,omitempty"`
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type chatCompletionResponse struct {

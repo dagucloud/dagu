@@ -4,6 +4,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useImperativeHandle,
   useMemo,
@@ -262,6 +263,7 @@ export function VisualCanvas(props: VisualCanvasProps): ReactElement {
 }
 
 function CanvasView({
+  documentKey,
   graph,
   direction,
   selected,
@@ -293,6 +295,24 @@ function CanvasView({
 }: VisualCanvasProps): ReactElement {
   const { ts } = useI18n();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // The ring marks a canvas that Tab reached. A key pressed after a click,
+  // such as Escape, or a focus that the page moves, shows none.
+  const [tabFocused, setTabFocused] = useState(false);
+  const tabbing = useRef(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') tabbing.current = true;
+    };
+    const onPointerDown = () => {
+      tabbing.current = false;
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, []);
   const hintId = useId();
   const editable = !frozen && !readOnly;
 
@@ -687,11 +707,13 @@ function CanvasView({
     }
   };
   // A change of the room of the canvas (a panel, Activity, the window) or of
-  // the graph glides the view to its new place, in one move.
-  const autoFit = useAutoFit(wrapperRef, () => {
-    fitView(fitOptions, GLIDE);
+  // the graph glides the view to its new place, in one move; while the
+  // canvas has just shown, it jumps there.
+  const autoFit = useAutoFit(wrapperRef, (glide) => {
+    const motion = glide ? GLIDE : undefined;
+    fitView(fitOptions, motion);
     // A resize that fits the graph again keeps the selected step in view.
-    keepSelectedInView(GLIDE);
+    keepSelectedInView(motion);
   });
   const {
     onUserMove: stopAutoFit,
@@ -699,6 +721,7 @@ function CanvasView({
     resume,
     refit,
     moved: userMoved,
+    settle,
   } = autoFit;
   // A reveal that waits for the size of the canvas or for a layout change.
   const pendingReveal = useRef<{
@@ -865,7 +888,8 @@ function CanvasView({
   const layoutViews = useRef<Partial<Record<'details' | 'compact', Viewport>>>(
     {}
   );
-  useEffect(() => {
+  // Before the paint: a graph that changed never shows at the old view.
+  useLayoutEffect(() => {
     const last = lastLayout.current;
     lastLayout.current = {
       nodeSet,
@@ -917,6 +941,37 @@ function CanvasView({
     userMoved,
     stopAutoFit,
     setViewport,
+    fitView,
+    fitOptions,
+  ]);
+  // Another document fits at once, before the paint of its graph: it does
+  // not glide from the view of the last one. Its graph can come a moment
+  // after its key, and that fit jumps too. The effect above then sees no
+  // change of the steps.
+  const lastDocument = useRef(documentKey);
+  useLayoutEffect(() => {
+    if (lastDocument.current === documentKey) return;
+    lastDocument.current = documentKey;
+    lastLayout.current = {
+      nodeSet,
+      direction,
+      overlayRight,
+      overlayTop,
+      compact,
+    };
+    layoutViews.current = {};
+    settle();
+    resume();
+    fitView(fitOptions);
+  }, [
+    documentKey,
+    nodeSet,
+    direction,
+    overlayRight,
+    overlayTop,
+    compact,
+    settle,
+    resume,
     fitView,
     fitOptions,
   ]);
@@ -1359,7 +1414,19 @@ function CanvasView({
         aria-describedby={hintId}
         tabIndex={0}
         data-testid="ve-canvas"
-        className="relative flex h-full min-h-0 w-full flex-col overflow-clip outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn(
+          'relative flex h-full min-h-0 w-full flex-col overflow-clip outline-none',
+          tabFocused && 'ring-2 ring-inset ring-ring'
+        )}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) {
+            setTabFocused(tabbing.current);
+            tabbing.current = false;
+          }
+        }}
+        onBlur={(event) => {
+          if (event.target === event.currentTarget) setTabFocused(false);
+        }}
         onContextMenu={(event) => {
           // The menu key also sends a contextmenu event to the focused canvas.
           if (event.target === event.currentTarget) {

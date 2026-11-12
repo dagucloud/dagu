@@ -21,10 +21,11 @@ func TestReportTaskLoadFailurePreservesProfileName(t *testing.T) {
 	status, err := worker.ReportTaskLoadFailureStatusForTest(
 		context.Background(),
 		&coordinatorv1.Task{
-			Target:    "child",
-			DagRunId:  "run-1",
-			AttemptId: "attempt-1",
-			Params:    "ENV=prod",
+			Target:      "child",
+			DagRunId:    "run-1",
+			AttemptId:   "attempt-1",
+			Params:      "ENV=prod",
+			TriggerType: "manual",
 		},
 		ir.NewDAGRunRef("root", "root-run"),
 		ir.NewDAGRunRef("parent", "parent-run"),
@@ -35,6 +36,7 @@ func TestReportTaskLoadFailurePreservesProfileName(t *testing.T) {
 
 	assert.Equal(t, ir.Failed, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
+	assert.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	assert.Equal(t, ir.NewDAGRunRef("root", "root-run"), status.Root)
 	assert.Equal(t, ir.NewDAGRunRef("parent", "parent-run"), status.Parent)
 }
@@ -45,10 +47,11 @@ func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
 	status, err := worker.ReportTaskInitFailureStatusForTest(
 		context.Background(),
 		&coordinatorv1.Task{
-			Target:    "child",
-			DagRunId:  "run-1",
-			AttemptId: "attempt-1",
-			Params:    "ENV=prod",
+			Target:      "child",
+			DagRunId:    "run-1",
+			AttemptId:   "attempt-1",
+			Params:      "ENV=prod",
+			TriggerType: "manual",
 		},
 		ir.NewDAGRunRef("root", "root-run"),
 		ir.NewDAGRunRef("parent", "parent-run"),
@@ -59,6 +62,7 @@ func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
 
 	assert.Equal(t, ir.Failed, status.Status)
 	assert.Equal(t, "prod", status.ProfileName)
+	assert.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	assert.Equal(t, ir.NewDAGRunRef("root", "root-run"), status.Root)
 	assert.Equal(t, ir.NewDAGRunRef("parent", "parent-run"), status.Parent)
 }

@@ -4,9 +4,12 @@
 import { isTextEntryTarget } from '@/features/visual-editor/canvas/useCanvasKeymap';
 import { ESC_OWNER_SELECTOR } from '@/features/workflow-workspace/canvas/escFree';
 
-/** Controls whose arrow keys move within them. */
+/**
+ * Controls whose Up and Down keys move within them. A row of tabs moves with
+ * Left and Right only.
+ */
 const OWN_ARROWS_SELECTOR = [
-  '[role="tablist"]',
+  '[role="tablist"][aria-orientation="vertical"]',
   '[role="listbox"]',
   '[role="grid"]',
   '[role="tree"]',
@@ -34,8 +37,8 @@ function inScrollingPane(element: Element): boolean {
 /**
  * The row that an Up or Down key of the overlay steps to: -1, 1, or null
  * when the key belongs to the page. The page keeps the arrows that it took,
- * those of a text field, a menu, a list, tabs and a pane that scrolls, and
- * all keys while a dialog or a menu is open.
+ * those of a text field, a menu, a list, vertical tabs and a pane that
+ * scrolls, and all keys while a dialog or a menu is open.
  */
 export function overlayStepOfKey(event: KeyboardEvent): -1 | 1 | null {
   if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return null;

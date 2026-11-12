@@ -80,6 +80,7 @@ export function LogPopoutPage({
               fileName,
               remoteNode,
               run: run.rootDAGRunId || run.dagRunId,
+              runName: run.rootDAGRunName || run.name,
             }),
             url.carry
           )}

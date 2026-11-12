@@ -155,6 +155,14 @@ func TestXlsxMultiRowHeaderAndTableDetection(t *testing.T) {
 	require.Equal(t, float64(100), multi.Rows[0]["Amount Net"])
 	require.Equal(t, float64(3), multi.Rows[0]["_row"])
 
+	merged := harness.NewRunner(t)
+	merged.Run("start", "multirow_header_merged.yaml").ExpectExitCode(0)
+	readJSON(t, merged, "out.json", &multi)
+	require.Equal(t, []string{"invoice", "net", "Note"}, multi.Headers, "a cell merged over both header rows is named once")
+	require.Len(t, multi.Rows, 1)
+	require.Equal(t, "INV-1", multi.Rows[0]["invoice"])
+	require.Equal(t, "x", multi.Rows[0]["Note"])
+
 	offset := harness.NewRunner(t)
 	offset.Run("start", "table_detection.yaml").ExpectExitCode(0)
 	var detected struct {

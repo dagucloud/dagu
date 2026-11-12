@@ -78,6 +78,21 @@ type LockOptions struct {
 	// OnWait is called once when Lock transitions into retry/wait mode after
 	// encountering a lock conflict.
 	OnWait func()
+
+	// OnRetryError, when set, keeps Lock waiting through errors that occur after
+	// its first attempt and receives each one. Without it, Lock returns them.
+	OnRetryError func(error)
+
+	// OnStaleTakeover, when set, is called each time the lock is acquired by
+	// replacing one that its holder left behind.
+	OnStaleTakeover func()
+
+	// ObserveHeartbeat makes a contender judge staleness by watching the holder
+	// renew the lock, timed on the contender's own clock. It removes the need
+	// for synchronized clocks and for fresh directory attributes on network
+	// filesystems. A contender always waits a full StaleThreshold, even for a
+	// lock left behind long ago.
+	ObserveHeartbeat bool
 }
 
 // LockInfo contains information about a lock
@@ -96,9 +111,18 @@ type dirLock struct {
 	ownerFile  string // name of the owner file holding fenceToken
 	mu         sync.Mutex
 
+	heartbeatFile string // name of the heartbeat file this holder renews
+	beats         uint64 // renewals written by this holder
+
+	observedBeat string    // last heartbeat value seen as a contender
+	observedAt   time.Time // when observedBeat was first seen
+
 	// beforeStaleClaim, when set by tests, runs after a stale lock has been
 	// observed and before it is claimed.
 	beforeStaleClaim func()
+	// beforeReleaseClaim, when set by tests, runs before a holder claims its own
+	// lock instance to release it.
+	beforeReleaseClaim func()
 	// afterClaim, when set by tests, runs after a lock instance has been
 	// claimed for removal and before it is removed.
 	afterClaim func()
@@ -125,6 +149,9 @@ const (
 	// claimedFilePrefix names the owner file after a releaser has claimed the
 	// lock instance for removal.
 	claimedFilePrefix = "claimed."
+	// heartbeatFilePrefix names the file a holder renews when contenders observe
+	// it. The suffix is unique per lock instance, like the owner file's.
+	heartbeatFilePrefix = "heartbeat."
 )
 
 // IsLockDirectoryName reports whether name is reserved for lock metadata.
@@ -167,6 +194,9 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	tokenPath := filepath.Join(l.lockPath, l.ownerFile)
 	data, err := fileutil.ReadFile(tokenPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read lock token: %w", err)
+		}
 		l.isHeld = false
 		return fmt.Errorf("%w: failed to read lock token: %v", ErrLockNotHeld, err)
 	}
@@ -178,10 +208,89 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	// Touch the lock directory to update its modification time
 	now := time.Now()
 	if err := os.Chtimes(l.lockPath, now, now); err != nil {
+		if os.IsNotExist(err) {
+			l.isHeld = false
+			return fmt.Errorf("%w: lock directory is gone: %v", ErrLockNotHeld, err)
+		}
 		return fmt.Errorf("failed to update lock timestamp: %w", err)
 	}
 
+	if l.heartbeatFile == "" {
+		return nil
+	}
+	if err := l.writeHeartbeat(); err != nil {
+		if os.IsNotExist(err) {
+			l.isHeld = false
+			return fmt.Errorf("%w: lock directory is gone: %v", ErrLockNotHeld, err)
+		}
+		return fmt.Errorf("failed to write lock heartbeat: %w", err)
+	}
 	return nil
+}
+
+// writeHeartbeat records a new renewal. It writes in place because a rename
+// creates a directory entry that NFS clients can miss for as long as their
+// directory cache lasts, while opening an existing file always revalidates it.
+// The value has a fixed width, so a reader of a partial write sees a changed
+// value, which only delays a takeover.
+func (l *dirLock) writeHeartbeat() error {
+	l.beats++
+	value := fmt.Sprintf("%s:%020d", l.fenceToken, l.beats)
+	path := filepath.Join(l.lockPath, l.heartbeatFile)
+	// #nosec G304 -- path is the lock directory plus a generated name.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteAt([]byte(value), 0)
+	return errors.Join(err, f.Close())
+}
+
+// holderIsStale reports whether the holder of the lock described by info has
+// stopped renewing it.
+func (l *dirLock) holderIsStale(info os.FileInfo) bool {
+	if !l.opts.ObserveHeartbeat {
+		return l.isStaleInfo(info)
+	}
+	beat, err := l.readHolderBeat(info)
+	now := time.Now()
+	if err != nil || beat != l.observedBeat || l.observedAt.IsZero() {
+		l.observedBeat = beat
+		l.observedAt = now
+		return false
+	}
+	return now.Sub(l.observedAt) > l.opts.StaleThreshold
+}
+
+// readHolderBeat returns the holder's latest renewal. A holder from a release
+// without heartbeat files renews only the directory timestamp, so that serves
+// as the value for it.
+func (l *dirLock) readHolderBeat(info os.FileInfo) (string, error) {
+	entries, err := os.ReadDir(l.lockPath)
+	if errors.Is(err, os.ErrPermission) {
+		l.restoreLockDirAccess()
+		entries, err = os.ReadDir(l.lockPath)
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ownerFilePrefix) {
+			continue
+		}
+		// A holder that lost the lock can still write its heartbeat here, so
+		// only the current owner's file counts.
+		name := heartbeatFilePrefix + strings.TrimPrefix(e.Name(), ownerFilePrefix)
+		data, err := fileutil.ReadFile(filepath.Join(l.lockPath, name))
+		if err == nil {
+			return string(data), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		break
+	}
+	return fmt.Sprintf("mtime:%d", info.ModTime().UnixNano()), nil
 }
 
 // TryLock attempts to acquire lock without blocking
@@ -196,7 +305,7 @@ func (l *dirLock) TryLock() error {
 	// Check if lock exists
 	info, err := os.Stat(l.lockPath)
 	if err == nil {
-		if !l.isStaleInfo(info) {
+		if !l.holderIsStale(info) {
 			return ErrLockConflict
 		}
 		if err := l.removeStaleLock(); err != nil {
@@ -206,7 +315,13 @@ func (l *dirLock) TryLock() error {
 		// also have left released lock directories behind. Sweep them before
 		// creating the new lock, so the sweep does not eat into its lease.
 		l.removeAbandonedTempDirs()
-		return l.createLock()
+		if err := l.createLock(); err != nil {
+			return err
+		}
+		if l.opts.OnStaleTakeover != nil {
+			l.opts.OnStaleTakeover()
+		}
+		return nil
 	} else if !os.IsNotExist(err) {
 		if isRetryableLockStateError(err) {
 			return ErrLockConflict
@@ -259,7 +374,7 @@ func (l *dirLock) removeStaleLock() error {
 	if err != nil {
 		return staleLockError(err)
 	}
-	if !l.isStaleInfo(info) {
+	if !l.holderIsStale(info) {
 		return ErrLockConflict
 	}
 	if l.beforeStaleClaim != nil {
@@ -498,6 +613,12 @@ func (l *dirLock) createLock() error {
 	l.fenceToken = token
 	l.ownerFile = ownerFile
 	l.isHeld = true
+	if l.opts.ObserveHeartbeat {
+		l.heartbeatFile = heartbeatFilePrefix + strings.TrimPrefix(ownerFile, ownerFilePrefix)
+		// A failure leaves contenders watching the directory timestamp until
+		// the next renewal creates the file.
+		_ = l.writeHeartbeat()
+	}
 	return nil
 }
 
@@ -543,12 +664,17 @@ func (l *dirLock) Lock(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := l.TryLock(); err == nil {
+			err := l.TryLock()
+			if err == nil {
 				return nil
-			} else if err != ErrLockConflict {
+			}
+			if err == ErrLockConflict {
+				continue
+			}
+			if l.opts.OnRetryError == nil {
 				return err
 			}
-			// Continue retrying on lock conflict
+			l.opts.OnRetryError(err)
 		}
 	}
 }
@@ -582,11 +708,17 @@ func (l *dirLock) Unlock() error {
 	// Claim our own instance so that only it can be removed, even if a stale
 	// takeover replaces it concurrently.
 	claimName := claimedFilePrefix + newUniqueID()
+	if l.beforeReleaseClaim != nil {
+		l.beforeReleaseClaim()
+	}
 	if err := fileutil.Rename(tokenPath, filepath.Join(l.lockPath, claimName)); err != nil {
 		if isLostClaimError(err) {
 			l.isHeld = false
 			return fmt.Errorf("%w: lock was taken over: %v", ErrLockNotHeld, err)
 		}
+		// Nothing renews the lock after a release attempt, so using it again
+		// needs a fresh acquisition.
+		l.isHeld = false
 		return fmt.Errorf("failed to remove lock directory: %w", err)
 	}
 	l.isHeld = false

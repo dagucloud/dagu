@@ -927,6 +927,40 @@ params:
 		require.Contains(t, dag.Params, "batch_size=7")
 	})
 
+	t.Run("FromAuthoredFile", func(t *testing.T) {
+		// A worker and an in-process child run a copy of the definition from a
+		// temporary file. A relative schema path still resolves next to the file
+		// the author wrote.
+		schemaContent := `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "batch_size": {"type": "integer", "default": 5}
+  }
+}`
+
+		authoredDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(authoredDir, "schemas"), 0o750))
+		require.NoError(t, os.MkdirAll(filepath.Join(authoredDir, "children"), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(authoredDir, "schemas", "run.json"), []byte(schemaContent), 0600))
+
+		dagYaml := []byte(`
+params:
+  schema: "../schemas/run.json"
+`)
+		authored := filepath.Join(authoredDir, "children", "unit-a.yaml")
+		require.NoError(t, os.WriteFile(authored, dagYaml, 0600))
+		copied := filepath.Join(t.TempDir(), "unit-a-1234.yaml")
+		require.NoError(t, os.WriteFile(copied, dagYaml, 0600))
+
+		_, err := Load(context.Background(), copied)
+		require.Error(t, err, "the copy's directory has no schema")
+
+		dag, err := Load(context.Background(), copied, WithSourceFile(authored))
+		require.NoError(t, err)
+		require.Contains(t, dag.Params, "batch_size=5")
+	})
+
 	t.Run("PrefersCWDOverWorkingDir", func(t *testing.T) {
 		cwdSchemaContent := `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1029,6 +1063,42 @@ params:
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "parameter validation failed")
 		require.Contains(t, err.Error(), "maximum: 100/1 is greater than 50")
+	})
+
+	t.Run("FailureReportedOnce", func(t *testing.T) {
+		t.Parallel()
+
+		// params, default_params, param_defs, param_schema and params_json share
+		// one parse, so a failure is listed once, under params.
+		schemaContent := `{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "MODE": {"type": "string", "enum": ["daily", "full"]}
+  }
+}`
+		schemaPath := filepath.Join(t.TempDir(), "run.json")
+		require.NoError(t, os.WriteFile(schemaPath, []byte(schemaContent), 0600))
+
+		data := fmt.Appendf(nil, `
+params:
+  schema: "%s"
+`, filepath.ToSlash(schemaPath))
+
+		_, err := LoadYAML(context.Background(), data, WithParams("MODE=weekly"))
+		require.Error(t, err)
+		assert.Equal(t, 1, strings.Count(err.Error(), "parameter validation failed"), err.Error())
+		assert.Contains(t, err.Error(), "field 'params':")
+		assert.NotContains(t, err.Error(), "field 'default_params'")
+
+		_, err = LoadYAML(context.Background(), []byte(`
+params:
+  schema: "missing-schema.json"
+  values:
+    foo: "bar"
+`))
+		require.Error(t, err)
+		assert.Equal(t, 1, strings.Count(err.Error(), "failed to get JSON schema"), err.Error())
 	})
 
 	t.Run("DefaultsApplied", func(t *testing.T) {

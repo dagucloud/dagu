@@ -117,3 +117,66 @@ steps:
     }
   });
 }
+
+// `dagu start --name` stores a run under a name that no file has, and only the
+// URL holds it. The page stays on that run through what it writes to the URL,
+// and does not fall back to another run of the file.
+test('keeps a run started under another name', async ({ page, request }) => {
+  const stack = await loadStack();
+  const token = await loginViaAPI(
+    request,
+    stack.auth.adminUsername,
+    stack.auth.adminPassword
+  );
+  const dagName = uniqueName('named-run');
+  const runName = `${dagName}-custom`;
+  const fileName = await writeLocalDAG(
+    dagName,
+    `
+name: ${dagName}
+steps:
+  - name: build
+    run: echo named-run-output
+`
+  );
+  await waitForDAGAvailable(request, token, fileName);
+  const plainRunId = await startDAG(request, token, fileName);
+  await waitForRunStatus(request, token, dagName, plainRunId, ['succeeded']);
+  const runId = await startDAG(request, token, fileName, { dagName: runName });
+  await waitForRunStatus(request, token, runName, runId, ['succeeded']);
+  await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+
+  const expectRunShown = async () => {
+    await expect(page.getByTestId('ww-identity').first()).toContainText(
+      runName
+    );
+    await expect(page.getByTestId('ww-run-chip').first()).toContainText(runId);
+  };
+
+  await page.goto(`/dags/${runName}?run=${runId}`);
+  await expectRunShown();
+
+  await page
+    .getByTestId('ww-run-steps-nav')
+    .getByText('build', { exact: true })
+    .click();
+  await expect(page).toHaveURL(/[?&]step=build/);
+  await expectRunShown();
+  await expect(
+    page.getByTestId('ww-dock').getByText('named-run-output').first()
+  ).toBeVisible();
+
+  await page.reload();
+  await expectRunShown();
+
+  const logHref = await page
+    .locator('a[target="_blank"][href*="/log?"]')
+    .first()
+    .getAttribute('href');
+  expect(logHref).toBeTruthy();
+  const logPage = await page.context().newPage();
+  await logPage.goto(logHref as string);
+  await expect(logPage.getByTestId('ww-popout-bar')).toContainText(runId);
+  await expect(logPage.getByText('named-run-output').first()).toBeVisible();
+  await logPage.close();
+});

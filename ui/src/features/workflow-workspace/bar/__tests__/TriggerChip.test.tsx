@@ -30,7 +30,7 @@ vi.mock('../../data', () => ({
   }),
 }));
 
-const WEBHOOK_PATH = '/dags/{fileName}/webhook';
+const WEBHOOK_PATH = '/webhooks';
 const NEXT_RUN = '2026-10-25T02:00:00Z';
 
 const scheduled = {
@@ -91,18 +91,23 @@ function answerWebhook(result: unknown) {
   );
 }
 
-const NOT_FOUND = { error: { code: 'not_found', message: 'not found' } };
+// The list of webhooks, with the webhook of each workflow.
+function webhooks(...items: { dagName: string; enabled: boolean }[]) {
+  return {
+    data: { webhooks: items.map((item, i) => ({ id: `w${i}`, ...item })) },
+  };
+}
 
 beforeEach(() => {
   mocks.GET.mockReset();
-  answerWebhook(NOT_FOUND);
+  answerWebhook(webhooks());
   mocks.canManageWebhooks = true;
 });
 
 // The schedule shows on the Cron launcher and in the Workflow panel only.
 describe('TriggerChip schedule', () => {
   it('does not show the schedule of the workflow', async () => {
-    answerWebhook({ data: { id: 'w1', enabled: true } });
+    answerWebhook(webhooks({ dagName: 'etl', enabled: true }));
     renderChip(scheduled);
     await screen.findByRole('button', { name: 'Webhook Enabled' });
     expect(screen.queryByText(/0 2 \* \* \*/)).toBeNull();
@@ -120,7 +125,7 @@ describe('TriggerChip schedule', () => {
 // parity:workflow-attributes
 describe('TriggerChip webhook', () => {
   it('shows the webhook state and opens the Webhook launcher panel', async () => {
-    answerWebhook({ data: { id: 'w1', enabled: true } });
+    answerWebhook(webhooks({ dagName: 'etl', enabled: true }));
     const user = userEvent.setup();
     renderChip(unscheduled);
 
@@ -128,19 +133,14 @@ describe('TriggerChip webhook', () => {
       name: 'Webhook Enabled',
     });
     expect(webhookCalls()).toEqual([
-      [
-        WEBHOOK_PATH,
-        {
-          params: { path: { fileName: 'etl' }, query: { remoteNode: 'local' } },
-        },
-      ],
+      [WEBHOOK_PATH, { params: { query: { remoteNode: 'local' } } }],
     ]);
     await user.click(button);
     expect(location()).toBe('/dags/etl?panel=webhook');
   });
 
   it('shows a disabled webhook', async () => {
-    answerWebhook({ data: { id: 'w1', enabled: false } });
+    answerWebhook(webhooks({ dagName: 'etl', enabled: false }));
     renderChip(unscheduled);
     expect(
       await screen.findByRole('button', { name: 'Webhook Disabled' })
@@ -149,12 +149,16 @@ describe('TriggerChip webhook', () => {
 });
 
 describe('TriggerChip without triggers', () => {
+  // A workflow without a webhook is answered by the list: no request for
+  // its webhook fails with a 404.
   it('renders nothing when there is no schedule and no webhook', async () => {
+    answerWebhook(webhooks({ dagName: 'other', enabled: true }));
     renderChip(unscheduled);
     await waitFor(() => expect(webhookCalls()).toHaveLength(1));
-    // Let the 404 reach the component.
+    // Let the list reach the component.
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     expect(screen.queryByTestId('ww-trigger-chip')).toBeNull();
+    expect(mocks.GET.mock.calls.map((call) => call[0])).toEqual([WEBHOOK_PATH]);
   });
 
   it('renders nothing and reads nothing without webhook permission', () => {

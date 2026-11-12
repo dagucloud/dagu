@@ -138,6 +138,19 @@ test.describe('workspace runtime profile', () => {
     await expect(notifications).toHaveAttribute('aria-selected', 'true');
     await expectAt(page, base, { remoteNode: 'local', wtab: 'notifications' });
 
+    // On a wide window the panel is a tab of the right column: another tab
+    // keeps it, and its draft, without a question.
+    const column = page.getByTestId('ww-right-column');
+    if (await column.isVisible()) {
+      await column.getByRole('tab', { name: 'YAML', exact: true }).click();
+      await expect(panel).toBeHidden();
+      await expect(confirm).toBeHidden();
+      await column.getByRole('tab', { name: 'Workflow', exact: true }).click();
+      await expect(panel).toBeVisible();
+      await expect(notifications).toHaveAttribute('aria-selected', 'true');
+      return;
+    }
+
     // The close of the panel.
     await panel.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(confirm).toBeVisible();

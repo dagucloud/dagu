@@ -93,8 +93,9 @@ output and manifest intact. Recovery refuses to overwrite a final output that
 matches neither the previous nor the proposed materialization.
 
 Standard-stream destinations, including artifact destinations, must not resolve
-to any declared build input or output. Static aliases are rejected during
-planning, and late-resolved aliases are rejected before opening the destination.
+to, or beneath, any declared build input or output. Static aliases are rejected
+during planning, and late-resolved aliases are rejected before opening the
+destination.
 
 `--no-reuse` on `start`, `dry`, or `enqueue` bypasses manifest hits without
 bypassing staging or commit safety. Dry-run only previews decisions: it creates

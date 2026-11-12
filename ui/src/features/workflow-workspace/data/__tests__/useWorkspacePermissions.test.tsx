@@ -105,6 +105,23 @@ describe('useWorkspacePermissions', () => {
     ).toBe(true);
   });
 
+  // A run whose workflow file is gone can be retried or stopped; nothing that
+  // writes the file or its settings applies to it.
+  it('grants nothing that writes the file for a run without its file', async () => {
+    for (const gate of GATES) h.gates[gate] = true;
+    const view = renderWorkspace(() => useWorkspacePermissions(), {
+      standaloneRun: run('run-9'),
+    });
+    await waitFor(() => expect(view.result.current?.value).toBeDefined());
+    expect(view.result.current.value).toEqual({
+      ...NONE,
+      canRunDags: true,
+      canExecute: true,
+      canExecuteForWorkspace: true,
+      isAdmin: true,
+    });
+  });
+
   // The webhook gate describes the local server. On a remote node the
   // webhook read can answer 401, and a 401 signs the user out.
   it('denies webhook management on a remote node', async () => {

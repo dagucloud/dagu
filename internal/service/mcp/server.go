@@ -610,31 +610,31 @@ func (svc *Service) deleteDAG(ctx context.Context, name string) error {
 	}
 }
 
-func (svc *Service) startDAG(ctx context.Context, targetType string, input executeInput) (string, error) {
+func (svc *Service) startDAG(ctx context.Context, targetType string, input executeInput) (string, []string, error) {
 	body := executeBody(input)
 	switch targetType {
 	case "dag":
 		if err := requireName(input.Name); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		resp, err := svc.api.ExecuteDAG(ctx, daguapi.ExecuteDAGRequestObject{
 			FileName: daguapi.DAGFileName(input.Name),
 			Body:     body,
 		})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.ExecuteDAG200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		case *daguapi.ExecuteDAG200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		default:
-			return "", fmt.Errorf("unexpected execute DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected execute DAG response %T", resp)
 		}
 	case "inline_spec":
 		if strings.TrimSpace(input.Spec) == "" {
-			return "", errors.New("spec is required for inline_spec target")
+			return "", nil, errors.New("spec is required for inline_spec target")
 		}
 		inlineBody := &daguapi.ExecuteDAGRunFromSpecJSONRequestBody{
 			DagRunId:  body.DagRunId,
@@ -642,51 +642,52 @@ func (svc *Service) startDAG(ctx context.Context, targetType string, input execu
 			Name:      stringPtr(input.Name),
 			NoReuse:   body.NoReuse,
 			Params:    body.Params,
+			Profile:   body.Profile,
 			Singleton: body.Singleton,
 			Spec:      input.Spec,
 		}
 		resp, err := svc.api.ExecuteDAGRunFromSpec(ctx, daguapi.ExecuteDAGRunFromSpecRequestObject{Body: inlineBody})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.ExecuteDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		case *daguapi.ExecuteDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		default:
-			return "", fmt.Errorf("unexpected execute inline DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected execute inline DAG response %T", resp)
 		}
 	default:
-		return "", fmt.Errorf("unsupported start targetType %q", targetType)
+		return "", nil, fmt.Errorf("unsupported start targetType %q", targetType)
 	}
 }
 
-func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input executeInput) (string, error) {
+func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input executeInput) (string, []string, error) {
 	body := enqueueBody(input)
 	switch targetType {
 	case "dag":
 		if err := requireName(input.Name); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		resp, err := svc.api.EnqueueDAGDAGRun(ctx, daguapi.EnqueueDAGDAGRunRequestObject{
 			FileName: daguapi.DAGFileName(input.Name),
 			Body:     body,
 		})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.EnqueueDAGDAGRun200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		case *daguapi.EnqueueDAGDAGRun200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), derefWarnings(r.Warnings), nil
 		default:
-			return "", fmt.Errorf("unexpected enqueue DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected enqueue DAG response %T", resp)
 		}
 	case "inline_spec":
 		if strings.TrimSpace(input.Spec) == "" {
-			return "", errors.New("spec is required for inline_spec target")
+			return "", nil, errors.New("spec is required for inline_spec target")
 		}
 		inlineBody := &daguapi.EnqueueDAGRunFromSpecJSONRequestBody{
 			DagRunId:  body.DagRunId,
@@ -694,25 +695,34 @@ func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input exe
 			Name:      stringPtr(input.Name),
 			NoReuse:   body.NoReuse,
 			Params:    body.Params,
+			Profile:   body.Profile,
 			Queue:     body.Queue,
 			Singleton: body.Singleton,
 			Spec:      input.Spec,
 		}
 		resp, err := svc.api.EnqueueDAGRunFromSpec(ctx, daguapi.EnqueueDAGRunFromSpecRequestObject{Body: inlineBody})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch r := resp.(type) {
 		case daguapi.EnqueueDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		case *daguapi.EnqueueDAGRunFromSpec200JSONResponse:
-			return string(r.DagRunId), nil
+			return string(r.DagRunId), nil, nil
 		default:
-			return "", fmt.Errorf("unexpected enqueue inline DAG response %T", resp)
+			return "", nil, fmt.Errorf("unexpected enqueue inline DAG response %T", resp)
 		}
 	default:
-		return "", fmt.Errorf("unsupported enqueue targetType %q", targetType)
+		return "", nil, fmt.Errorf("unsupported enqueue targetType %q", targetType)
 	}
+}
+
+// derefWarnings returns the warnings of a launch response.
+func derefWarnings(warnings *[]string) []string {
+	if warnings == nil {
+		return nil
+	}
+	return *warnings
 }
 
 func (svc *Service) retryDAGRun(ctx context.Context, input executeInput) error {
@@ -772,6 +782,10 @@ func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
 	if input.NoReuse {
 		body.NoReuse = &input.NoReuse
 	}
+	if input.ScheduleTime != "" {
+		body.ScheduleTime = &input.ScheduleTime
+	}
+	body.Profile = profileOverride(input)
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
@@ -796,11 +810,25 @@ func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
 	if input.NoReuse {
 		body.NoReuse = &input.NoReuse
 	}
+	if input.ScheduleTime != "" {
+		body.ScheduleTime = &input.ScheduleTime
+	}
+	body.Profile = profileOverride(input)
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
 	}
 	return body
+}
+
+// profileOverride returns the runtime profile selected for a launch, or nil to
+// keep the server's default profile resolution for the DAG.
+func profileOverride(input executeInput) *daguapi.RuntimeProfileOverride {
+	if input.Profile == "" {
+		return nil
+	}
+	profile := daguapi.RuntimeProfileOverride(input.Profile)
+	return &profile
 }
 
 func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string, string, error) {
@@ -956,14 +984,14 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 			if parsed.RawQuery != "" {
 				return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 			}
-			data, err = svc.api.GetSubDAGRunDetailsData(ctx, identifier+"/"+segments[3])
+			data, err = svc.runResourceData(ctx, segments[0], segments[1], segments[3])
 		case len(segments) == 3:
 			if parsed.RawQuery != "" {
 				identifier += "?" + parsed.RawQuery
 			}
 			data, err = svc.api.GetDAGRunLogsData(ctx, identifier)
 		default:
-			data, err = svc.api.GetDAGRunDetailsData(ctx, identifier)
+			data, err = svc.runResourceData(ctx, segments[0], segments[1], "")
 		}
 		if err != nil {
 			return "", "", err
@@ -979,6 +1007,16 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 }
 
 // readForeachResource serves the foreach item resources of a run.
+// runResourceData returns the run details for a run resource, with its
+// outputs added. subRunID is empty for a root run.
+func (svc *Service) runResourceData(ctx context.Context, name, dagRunID, subRunID string) (any, error) {
+	result, err := svc.api.GetDAGRunDetailsWithOutputsData(ctx, name, dagRunID, subRunID)
+	if err != nil {
+		return nil, err
+	}
+	return withRunOutputs(result), nil
+}
+
 func (svc *Service) readForeachResource(ctx context.Context, rawURI string, resource runResource, rawQuery string) (string, string, error) {
 	if resource.queryTarget() == "" && rawQuery != "" {
 		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
@@ -1189,14 +1227,7 @@ func isSubStepLogResourceSegments(segments []string) bool {
 // checkpoint is not final: the run resumes once an operator resolves its
 // waiting steps.
 func isTerminalStatus(status int) bool {
-	switch ir.Status(status) {
-	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
-		return true
-	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
-		return false
-	default:
-		return false
-	}
+	return ir.Status(status).IsTerminal()
 }
 
 func (svc *Service) requireAPI() error {

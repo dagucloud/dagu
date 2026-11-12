@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { components, NodeStatus, Status } from '@/api/v1/schema';
-import type { DAGPageData } from './data/types';
+import type { ApiDAGRunDetails, DAGPageData } from './data/types';
 
 export type { NodeStatus, Status };
 export type ApiDAGDetails = components['schemas']['DAGDetails'];
@@ -64,6 +64,12 @@ export interface WorkflowWorkspaceProps {
   workspaceName: string | null;
   /** Legacy /history?idx=n or /executions?idx=n link, resolved at the root of the workspace. */
   legacyHistoryIdx: number | null;
+  /**
+   * A run whose workflow file is gone, cannot be read or holds another DAG.
+   * The page shows it with the definition that it stored, and acts on no
+   * file.
+   */
+  standaloneRun?: ApiDAGRunDetails | null;
 }
 
 /** Props of every bar slot (identity, chips, run controls, menu). */

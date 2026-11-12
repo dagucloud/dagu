@@ -3,6 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useHref, useLocation, useParams } from 'react-router-dom';
+import { useLeaveGuardHost } from '@/contexts/LeaveGuardHostContext';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import { useSettingsLeaveGuard } from './useSettingsLeaveGuard';
 
@@ -15,11 +16,14 @@ function insideBase(pathname: string, base: string): boolean {
  * router has no blocker (the app uses BrowserRouter), so three exits are
  * covered by hand: unload (reload, close, external link), a click on a link
  * that leaves the workflow, and browser Back or Forward. The run page entry
- * calls guardLeave itself. Renders nothing.
+ * calls guardLeave itself, and a host such as the workflow overlay asks
+ * before it closes. Renders nothing.
  */
 export function EditorLeaveGuard() {
   const { state } = useWorkspaceEditor();
-  const { setEditorDirty, guardLeave, atRisk } = useSettingsLeaveGuard();
+  const { setEditorDirty, guardLeave, leaveAtRisk, atRisk } =
+    useSettingsLeaveGuard();
+  const register = useLeaveGuardHost()?.register;
   const { pathname, key } = useLocation();
   const { tab } = useParams<{ tab?: string }>();
   const trimmed = pathname.replace(/\/+$/, '');
@@ -33,6 +37,8 @@ export function EditorLeaveGuard() {
     setEditorDirty(dirty);
     return () => setEditorDirty(false);
   }, [dirty, setEditorDirty]);
+
+  useEffect(() => register?.(guardLeave), [register, guardLeave]);
 
   // The history index of the entry that the router shows. Navigation of the
   // router stores it in history.state.
@@ -82,6 +88,9 @@ export function EditorLeaveGuard() {
       if (insideBase(window.location.pathname.replace(/\/+$/, ''), baseHref)) {
         return;
       }
+      // A move that the user already accepted, such as the close of the
+      // overlay, has nothing left to ask about.
+      if (!leaveAtRisk()) return;
       // Keep the router on the workflow, then ask.
       event.stopImmediatePropagation();
       window.history.go(from - to);
@@ -97,7 +106,7 @@ export function EditorLeaveGuard() {
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('popstate', onPopState, true);
     };
-  }, [dirty, atRisk, baseHref, guardLeave]);
+  }, [dirty, atRisk, baseHref, guardLeave, leaveAtRisk]);
 
   return null;
 }

@@ -546,6 +546,8 @@ paths:
       operationId: "listAPIKeys"
       tags:
         - "api-keys"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "List of API keys"
@@ -789,7 +791,7 @@ paths:
   /dags:
     get:
       summary: "List all available DAGs"
-      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended)."
+      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or kept running by a restart policy of always or unless-stopped, and not suspended)."
       operationId: "listDAGs"
       tags:
         - "dags"
@@ -816,7 +818,7 @@ paths:
           schema:
             type: "boolean"
             default: false
-          description: "Filter to DAGs that have a schedule and are not suspended."
+          description: "Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped."
         - name: "tags"
           in: "query"
           required: false
@@ -1135,6 +1137,8 @@ paths:
                   type: boolean
                   description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
+                scheduleTime:
+                  $ref: "#/components/schemas/ScheduleSlotValue"
                 labels:
                   allOf:
                     - $ref: "#/components/schemas/Labels"
@@ -1216,6 +1220,15 @@ paths:
                 properties:
                   dagRunId:
                     $ref: "#/components/schemas/DAGRunId"
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the schedule slot the run was started for, when the request named one"
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                    description: "Warnings about the request, such as a scheduleTime that is not a fire time of the schedule"
                 required:
                   - dagRunId
         "400":
@@ -1385,6 +1398,8 @@ paths:
                   type: boolean
                   description: "If true, execute eligible build steps without reusing prior materializations"
                   default: false
+                scheduleTime:
+                  $ref: "#/components/schemas/ScheduleSlotValue"
                 labels:
                   allOf:
                     - $ref: "#/components/schemas/Labels"
@@ -1404,6 +1419,15 @@ paths:
                 properties:
                   dagRunId:
                     $ref: "#/components/schemas/DAGRunId"
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the schedule slot the run was started for, when the request named one"
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                    description: "Warnings about the request, such as a scheduleTime that is not a fire time of the schedule"
                 required:
                   - dagRunId
         "400":
@@ -1428,7 +1452,7 @@ paths:
   /dags/{fileName}/dag-runs:
     get:
       summary: "Retrieve execution history of a DAG"
-      description: "Fetches history of DAG-runs created from this DAG definition"
+      description: "Fetches history of DAG-runs created from this DAG definition, newest first, one page at a time"
       operationId: "getDAGDAGRunHistory"
       tags:
         - "dags"
@@ -1438,10 +1462,20 @@ paths:
         - name: includeEphemeral
           in: query
           required: false
-          description: "If true, the response also contains the ephemeral runs of this DAG, merged by start time with the other runs under the same limit. Each carries ephemeral true. No other list returns them."
+          description: "If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them."
           schema:
             type: boolean
             default: false
+        - name: limit
+          in: query
+          required: false
+          description: "Maximum number of DAG-runs per page, not counting ephemeral runs"
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 100
+        - $ref: "#/components/parameters/DAGRunListCursor"
       responses:
         "200":
           description: "A successful response"
@@ -1460,6 +1494,9 @@ paths:
                     description: "Grid data for visualization"
                     items:
                       $ref: "#/components/schemas/DAGGridItem"
+                  nextCursor:
+                    type: string
+                    description: "Opaque cursor for loading the next page of older DAG-runs"
                 required:
                   - dagRuns
                   - gridData
@@ -2115,6 +2152,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/ExcludeServiceDAGRuns"
         - $ref: "#/components/parameters/DateTimeFrom"
         - $ref: "#/components/parameters/DateTimeTo"
         - name: "hours"
@@ -2169,6 +2207,7 @@ paths:
         - $ref: "#/components/parameters/DAGRunListCursor"
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/ExcludeServiceDAGRuns"
         - name: "name"
           in: "query"
           required: false
@@ -2622,6 +2661,14 @@ paths:
                 useCurrentDagFile:
                   type: boolean
                   description: "When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot."
+                scheduleTime:
+                  allOf:
+                    - $ref: "#/components/schemas/ScheduleSlotValue"
+                  description: "Schedule slot for the new run. Omit to keep the slot of the historic run."
+                dryRun:
+                  type: boolean
+                  default: false
+                  description: "Check the request, including scheduleTime, and return the new run's ID and slot without creating the run."
       responses:
         "200":
           description: "Successfully scheduled a new DAG-run"
@@ -2635,6 +2682,10 @@ paths:
                   queued:
                     type: boolean
                     description: "Indicates whether the run was queued instead of starting immediately."
+                  scheduleTime:
+                    type: string
+                    format: date-time
+                    description: "RFC 3339 instant of the new run's schedule slot, when it has one"
                 required:
                   - dagRunId
                   - queued
@@ -5253,6 +5304,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service-dags:
+    get:
+      summary: "List the service DAGs"
+      description: "Returns the DAGs that set a restart policy, each with a compact state. A service DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds."
+      operationId: "listServiceDAGs"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceDAGsResponse"
         default:
           description: "Generic error response"
           content:
@@ -12131,6 +12206,15 @@ components:
         maxLength: 64
         pattern: "^[A-Za-z0-9_-]+$"
 
+    ExcludeServiceDAGRuns:
+      name: excludeServiceDAGRuns
+      in: query
+      description: "Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing."
+      required: false
+      schema:
+        type: boolean
+        default: false
+
     WikiPagePrefix:
       name: prefix
       in: query
@@ -15110,6 +15194,11 @@ components:
           description: "List of scheduling expressions defining when DAG-runs should be created from this DAG"
           items:
             $ref: "#/components/schemas/Schedule"
+        restartPolicy:
+          $ref: "#/components/schemas/RestartPolicy"
+        restartWaitSec:
+          type: integer
+          description: "Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy."
         description:
           type: string
           description: "Human-readable description of the DAG's purpose and behavior"
@@ -15490,6 +15579,21 @@ components:
         - "schedulerPaused"
         - "suspended"
 
+    RecentFire:
+      type: object
+      description: "A past time at which a start schedule fired"
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: "Fire time, with the offset of the zone the schedule is evaluated in"
+        timezone:
+          type: string
+          description: "Name of the zone the schedule is evaluated in"
+      required:
+        - time
+        - timezone
+
     UpcomingRun:
       type: object
       description: "A time at which a start schedule fires"
@@ -15571,6 +15675,12 @@ components:
         - "retry"
         - "catchup"
         - "file"
+        - "restart"
+
+    RestartPolicy:
+      type: string
+      description: "Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy."
+      enum: ["always", "unless-stopped"]
 
     NodeStatus:
       type: integer
@@ -15778,6 +15888,11 @@ components:
             $ref: "#/components/schemas/UpcomingRun"
         upcomingRunsHold:
           $ref: "#/components/schemas/UpcomingRunsHold"
+        recentFires:
+          type: array
+          description: "Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime."
+          items:
+            $ref: "#/components/schemas/RecentFire"
         group:
           type: string
           description: "Logical grouping of related DAGs for organizational purposes"
@@ -15812,6 +15927,11 @@ components:
         delay:
           type: integer
           description: "Time in seconds to wait before starting a DAG-run"
+        restartPolicy:
+          $ref: "#/components/schemas/RestartPolicy"
+        restartWaitSec:
+          type: integer
+          description: "Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy."
         histRetentionDays:
           type: integer
           description: "Number of days to retain historical logs"
@@ -15917,12 +16037,13 @@ components:
             - notice
         source:
           type: string
-          description: "Stage that produced the issue."
+          description: "Stage that produced the issue. A host issue depends on the server host, not only on the spec."
           enum:
             - load
             - build
             - warning
             - valueReference
+            - host
         message:
           type: string
           description: "Human-readable message. For errors, the same text as the matching errors entry."
@@ -16026,12 +16147,50 @@ components:
           enum:
             - static
             - runtime
+        env:
+          type: array
+          description: "Environment variable names that the step declares. Values are not included."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        inputs:
+          type: array
+          description: "Build input paths of the step, such as ${inputs.source}."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        pathOutputs:
+          type: array
+          description: "Build output paths of the step, such as ${outputs.artifact}."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        repeats:
+          type: boolean
+          description: "The step has a repeat policy, set on it or inherited from defaults."
+        foreach:
+          $ref: "#/components/schemas/ReferenceScopeForeach"
       required:
         - name
         - stepPath
         - upstream
         - outputs
         - outputsKnown
+
+    ReferenceScopeForeach:
+      type: object
+      description: "What the item body of a foreach step can reference."
+      properties:
+        item:
+          type: array
+          description: "The current item: its value, the fields that every static item has, its index and its key."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        steps:
+          type: array
+          description: "The body steps. A stepPath reads steps[2].foreach.steps[0], and upstream names body steps only."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeStep"
+      required:
+        - item
+        - steps
 
     ReferenceScopeOutput:
       type: object
@@ -16051,6 +16210,9 @@ components:
             - action
         type:
           type: string
+        modelOutput:
+          type: boolean
+          description: "A model wrote this value, and its schema does not limit it, so a shell can run it as code."
       required:
         - name
         - reference
@@ -16350,6 +16512,10 @@ components:
         - pid
         - startedAtMs
 
+    ScheduleSlotValue:
+      type: string
+      description: "Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning."
+      example: "2026-11-09"
     DAGRunSummary:
       type: object
       description: "Current status of a DAG-run"
@@ -16378,6 +16544,15 @@ components:
         scheduleTime:
           type: string
           description: "RFC 3339 timestamp of when the DAG-run was scheduled to run"
+        intervalStart:
+          type: string
+          description: "RFC 3339 instant of the previous fire of the DAG's schedule before scheduleTime; the run's window is [intervalStart, scheduleTime)"
+        nextScheduledAt:
+          type: string
+          description: "RFC 3339 instant of the next fire of the DAG's schedule after scheduleTime"
+        scheduleTimezone:
+          type: string
+          description: "Zone the run's schedule slot is evaluated in, such as Asia/Tokyo"
         startedAt:
           type: string
           description: "RFC 3339 timestamp with millisecond precision when the DAG-run started. A run that an older version stored has second precision."
@@ -18503,6 +18678,96 @@ components:
         - dagName
         - startedAt
 
+    ServiceDAGState:
+      type: string
+      description: |
+        What a service DAG does, as its latest run shows it:
+        - pending: no run is alive yet, or the latest run waits in the queue.
+        - running: a run is alive.
+        - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
+        - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
+        - suspended: the DAG gets no new run.
+        - stopped: an operator stopped the latest run of an unless-stopped DAG.
+      enum: ["pending", "running", "restarting", "failing", "suspended", "stopped"]
+
+    ServiceDAGRun:
+      type: object
+      description: "The latest run of a service DAG"
+      properties:
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        status:
+          $ref: "#/components/schemas/Status"
+        startedAt:
+          type: string
+          format: date-time
+          description: "When the run started. Omitted until it starts."
+        finishedAt:
+          type: string
+          format: date-time
+          description: "When the run ended. Omitted while it is alive."
+        error:
+          type: string
+          description: "Why the run did not succeed: the first failed step and its error, or the error of the run. Set only for a run that ended without success."
+      required:
+        - dagRunId
+        - status
+
+    ServiceDAG:
+      type: object
+      description: "A DAG that sets a restart policy, with its state"
+      properties:
+        fileName:
+          type: string
+          description: "File ID of the DAG file"
+        name:
+          $ref: "#/components/schemas/DAGName"
+        restartPolicy:
+          $ref: "#/components/schemas/RestartPolicy"
+        restartWaitSec:
+          type: integer
+          description: "Seconds the scheduler waits after a run ends before it starts the next one."
+        state:
+          $ref: "#/components/schemas/ServiceDAGState"
+        suspended:
+          type: boolean
+          description: "Whether the DAG is suspended"
+        latestRun:
+          $ref: "#/components/schemas/ServiceDAGRun"
+        readError:
+          type: string
+          description: "Why the state could not be read. Set only with the state failing."
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: "How many of the newest ended runs in a row did not succeed, up to 10. A run that an operator stopped ends the count. A count above zero while the DAG is running means that it keeps failing."
+      required:
+        - fileName
+        - name
+        - restartPolicy
+        - restartWaitSec
+        - state
+        - suspended
+        - consecutiveFailures
+
+    ServiceDAGsResponse:
+      type: object
+      description: "The service DAGs"
+      properties:
+        dags:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceDAG"
+        errors:
+          type: array
+          description: "Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError."
+          items:
+            type: string
+      required:
+        - dags
+        - errors
+
     QueuesResponse:
       type: object
       description: "Response containing all queues with their active DAG-runs"
@@ -18927,12 +19192,31 @@ components:
         error:
           type: string
           description: "Why the last connection failed or Dagu Cloud refused it, such as a workspace without a plan or a trial"
+        lastCall:
+          $ref: "#/components/schemas/LicenseRemoteAccessLastCall"
       required:
         - level
         - levelConfigured
         - approvals
         - approvalsConfigured
         - connected
+
+    LicenseRemoteAccessLastCall:
+      type: object
+      description: "The latest call from Dagu Cloud the server served, absent before the first"
+      properties:
+        at:
+          type: string
+          format: date-time
+          description: "When the call reached the server, to the minute"
+        client:
+          type: string
+          description: "The MCP client that made the call, such as Claude"
+        user:
+          type: string
+          description: "The Dagu Cloud user the call ran as"
+      required:
+        - at
 
     ChangePasswordRequest:
       type: object
@@ -20295,7 +20579,7 @@ components:
           $ref: "#/components/schemas/ViewSortOrder"
         activeOnly:
           type: boolean
-          description: "Whether the view only includes scheduled, unsuspended workflows."
+          description: "Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended."
         isDefault:
           type: boolean
           description: "Whether this is the default workflow view for its workspace scope."
@@ -20344,7 +20628,7 @@ components:
           $ref: "#/components/schemas/ViewSortOrder"
         activeOnly:
           type: boolean
-          description: "Whether the view only includes scheduled, unsuspended workflows."
+          description: "Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended."
         dagRunId:
           type: string
           description: "DAG run ID filter. Empty matches any."

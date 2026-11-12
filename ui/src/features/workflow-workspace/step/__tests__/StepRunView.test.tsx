@@ -617,11 +617,11 @@ describe('StepRunView facts', () => {
     const stderr = screen.getByRole('link', { name: 'View stderr' });
     expect(stdout).toHaveAttribute(
       'href',
-      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&step=build'
+      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&dagRunName=example&step=build'
     );
     expect(stderr).toHaveAttribute(
       'href',
-      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&step=build&stream=stderr'
+      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&dagRunName=example&step=build&stream=stderr'
     );
     // fireEvent returns false when the handler prevented the default.
     expect(fireEvent.click(stdout, { metaKey: true })).toBe(true);

@@ -46,8 +46,6 @@ import { useLiftNotifications } from './useLiftNotifications';
 
 const KEYBOARD_STEP_PX = 40;
 const STEPS_NAV_ID = 'ww-run-steps-nav';
-// The tabs that most runs do not need: they wait in the More menu.
-const RARE_TABS: readonly DockTab[] = ['definition', 'artifacts'];
 
 interface Drag {
   pointerId: number;
@@ -377,7 +375,6 @@ export function LogsDock({
                 active={shown}
                 badges={frame.badges}
                 labels={step === null ? undefined : STEP_TAB_LABELS}
-                overflow={RARE_TABS}
                 onSelect={selectTab}
               >
                 {mounted && Body && (

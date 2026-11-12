@@ -156,8 +156,10 @@ export function IssuesPopover({
     [valueReferences]
   );
   const count = rows.warnings.length + rows.errors.length + defects.length;
-  // Warnings alone show no button: the toolbar counts them on Save.
-  const shownCount = rows.errors.length > 0 ? count : 0;
+  const shownCount = count;
+  // Errors block the save and the button is red; warnings alone do not, and
+  // it has the colour of a warning.
+  const blocking = rows.errors.length > 0;
 
   // A count that falls to zero is announced too, once there were issues.
   const [hadIssues, setHadIssues] = React.useState(shownCount > 0);
@@ -277,16 +279,23 @@ export function IssuesPopover({
             aria-expanded={open}
             aria-controls={panelId}
             aria-label={ts('Issues ({count})', { count: shownCount })}
-            title={ts('Fix the issues before you save ({count})', {
-              count: shownCount,
-            })}
+            title={
+              blocking
+                ? ts('Fix the issues before you save ({count})', {
+                    count: shownCount,
+                  })
+                : ts('Issues ({count})', { count: shownCount })
+            }
             data-testid="issues-slot"
             // The height of the Save button, which this one replaces. The
             // toolbar gives both the same box, so that nothing moves. The red
             // is the one of the trash button: the destructive token. In the
             // tools sheet of a phone it says its name.
             className={cn(
-              'justify-start gap-1 border-destructive px-2 text-destructive hover:bg-destructive/10 hover:text-destructive',
+              'justify-start gap-1 px-2',
+              blocking
+                ? 'border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive'
+                : 'border-warning/40 text-warning hover:bg-warning/10 hover:text-warning',
               labeled ? 'h-9 w-full gap-2 px-2.5 text-sm' : 'h-7'
             )}
             onClick={() => setOpen((open) => !open)}

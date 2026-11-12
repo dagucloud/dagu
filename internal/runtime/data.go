@@ -604,17 +604,6 @@ func (d *Data) SetError(err error) {
 	d.inner.State.Error = err
 }
 
-func (d *Data) ClearVariable(key string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.inner.State.OutputVariables == nil {
-		return
-	}
-
-	d.inner.State.OutputVariables.Delete(key)
-}
-
 // MatchExitCode reports whether the last attempt exited with one of exitCodes.
 // An attempt that failed during setup has no exit code and never matches.
 func (d *Data) MatchExitCode(exitCodes []int) bool {
@@ -625,41 +614,6 @@ func (d *Data) MatchExitCode(exitCodes []int) bool {
 		return false
 	}
 	return slices.Contains(exitCodes, d.inner.State.ExitCode)
-}
-
-func (d *Data) getVariable(key string) (stringutil.KeyValue, bool) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.inner.State.OutputVariables == nil {
-		return "", false
-	}
-
-	v, ok := d.inner.State.OutputVariables.Load(key)
-	if !ok {
-		return "", false
-	}
-
-	return stringutil.KeyValue(v.(string)), true
-}
-
-func (d *Data) getBoolVariable(key string) (bool, bool) {
-	v, ok := d.getVariable(key)
-	if !ok {
-		return false, false
-	}
-
-	return v.Bool(), true
-}
-
-func (d *Data) setBoolVariable(key string, value bool) {
-
-	if d.inner.State.OutputVariables == nil {
-		d.mu.Lock()
-		d.inner.State.OutputVariables = &collections.SyncMap{}
-		d.mu.Unlock()
-	}
-	d.inner.State.OutputVariables.Store(key, stringutil.NewKeyValue(key, strconv.FormatBool(value)).String())
 }
 
 func (d *Data) setVariable(key, value string) {
@@ -792,6 +746,13 @@ func (d *Data) IncDoneCount() {
 	defer d.mu.Unlock()
 
 	d.inner.State.DoneCount++
+}
+
+func (d *Data) setDoneCount(count int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.DoneCount = count
 }
 
 func (d *Data) SetRepeated(repeated bool) {

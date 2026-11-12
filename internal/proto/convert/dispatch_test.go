@@ -5,8 +5,10 @@ package convert_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -40,6 +42,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 		ProfileName:         "prod",
 		DefinitionID:        "ops/daily",
 		TriggerActor:        "alice",
+		TriggerType:         ir.TriggerTypeManual,
 		ParallelItem:        "item-1",
 		IncludeDownstream:   true,
 	}
@@ -50,6 +53,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	assert.Equal(t, "prod", protoTask.ProfileName)
 	assert.Equal(t, "ops/daily", protoTask.DefinitionId)
 	assert.Equal(t, "alice", protoTask.TriggerActor)
+	assert.Equal(t, "manual", protoTask.TriggerType)
 	assert.Equal(t, "item-1", protoTask.ParallelItem)
 	assert.True(t, protoTask.IncludeDownstream)
 	assert.Equal(t, &baseWorkspace, protoTask.BaseConfigWorkspace)
@@ -60,6 +64,7 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	assert.Equal(t, "prod", got.ProfileName)
 	assert.Equal(t, "ops/daily", got.DefinitionID)
 	assert.Equal(t, "alice", got.TriggerActor)
+	assert.Equal(t, ir.TriggerTypeManual, got.TriggerType)
 	assert.Equal(t, "item-1", got.ParallelItem)
 	assert.True(t, got.IncludeDownstream)
 	assert.Equal(t, &baseWorkspace, got.BaseConfigWorkspace)
@@ -192,6 +197,29 @@ func TestDispatchTaskPassedEnvRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, got.PassedEnv)
+}
+
+func TestDispatchTaskScheduleWindowRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	task := &dispatch.DispatchTask{
+		ScheduleTime: "2026-03-13T12:00:00Z",
+		ScheduleWindow: ir.ScheduleWindow{
+			Start:    time.Date(2026, 3, 13, 11, 30, 0, 0, time.UTC),
+			Next:     time.Date(2026, 3, 13, 12, 30, 0, 0, time.UTC),
+			Timezone: "Asia/Tokyo",
+		},
+	}
+
+	protoTask, err := convert.DispatchTaskToProto(task)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-03-13T11:30:00Z", protoTask.IntervalStart)
+	assert.Equal(t, "2026-03-13T12:30:00Z", protoTask.NextScheduledAt)
+	assert.Equal(t, "Asia/Tokyo", protoTask.ScheduleTimezone)
+
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	assert.Equal(t, task.ScheduleWindow, got.ScheduleWindow)
 }
 
 func TestMachineSampleRoundTrips(t *testing.T) {

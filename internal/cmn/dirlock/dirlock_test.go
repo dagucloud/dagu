@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1284,4 +1285,283 @@ func TestUnlock_RestrictedLockDir(t *testing.T) {
 			require.NoError(t, next.Unlock())
 		})
 	}
+}
+
+// Storage that fails for a moment says nothing about who owns the lock.
+func TestHeartbeatReadError(t *testing.T) {
+	t.Parallel()
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+
+	ownerPath := filepath.Join(lock.lockPath, lock.ownerFile)
+	require.NoError(t, os.Remove(ownerPath))
+	require.NoError(t, os.Mkdir(ownerPath, 0700))
+
+	err := lock.Heartbeat(context.Background())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrLockNotHeld)
+	require.True(t, lock.isHeld, "a read error must not give up the lock")
+}
+
+func TestHeartbeatOwnerGone(t *testing.T) {
+	t.Parallel()
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+	require.NoError(t, os.Remove(filepath.Join(lock.lockPath, lock.ownerFile)))
+
+	require.ErrorIs(t, lock.Heartbeat(context.Background()), ErrLockNotHeld)
+	require.False(t, lock.isHeld)
+}
+
+// A standby must survive a storage error while it waits for the lock.
+func TestLockRetryError(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on ENOTDIR from a path through a regular file")
+	}
+
+	root := t.TempDir()
+	lockDir := filepath.Join(root, "locks")
+	aside := filepath.Join(root, "aside")
+
+	holder := New(lockDir, &LockOptions{})
+	require.NoError(t, holder.TryLock())
+
+	retried := make(chan error, 1)
+	var once sync.Once
+	waiter := New(lockDir, &LockOptions{
+		RetryInterval: 5 * time.Millisecond,
+		OnWait: func() {
+			// Replace the directory with a file so the next attempt fails with
+			// an error that is not a lock conflict.
+			assert.NoError(t, os.Rename(lockDir, aside))
+			assert.NoError(t, os.WriteFile(lockDir, nil, 0600))
+		},
+		OnRetryError: func(err error) {
+			once.Do(func() { retried <- err })
+		},
+	})
+
+	acquired := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		// lockDir is a file now, so this also proves waiting resumes once
+		// storage recovers.
+		acquired <- waiter.Lock(ctx)
+	}()
+
+	select {
+	case err := <-retried:
+		require.Error(t, err)
+	case err := <-acquired:
+		t.Fatalf("Lock returned instead of waiting: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no retry error was reported")
+	}
+
+	require.NoError(t, os.Remove(lockDir))
+	require.NoError(t, <-acquired)
+	require.True(t, waiter.IsHeldByMe())
+}
+
+// Nothing renews a lock after a release attempt, so a failed release must not
+// leave it reusable without a fresh acquisition.
+func TestFailedUnlockNotReused(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on ENOTDIR from a path through a regular file")
+	}
+
+	lock := New(t.TempDir(), &LockOptions{}).(*dirLock)
+	require.NoError(t, lock.TryLock())
+
+	aside := lock.lockPath + ".aside"
+	lock.beforeReleaseClaim = func() {
+		// Replace the directory with a file so that the claim fails.
+		require.NoError(t, os.Rename(lock.lockPath, aside))
+		require.NoError(t, os.WriteFile(lock.lockPath, nil, 0600))
+	}
+	require.Error(t, lock.Unlock())
+
+	require.NoError(t, os.Remove(lock.lockPath))
+	require.NoError(t, os.Rename(aside, lock.lockPath))
+	require.ErrorIs(t, lock.TryLock(), ErrLockConflict)
+}
+
+const observerStale = 200 * time.Millisecond
+
+func newObserverLock(dir string) *dirLock {
+	return New(dir, &LockOptions{
+		StaleThreshold:   observerStale,
+		RetryInterval:    10 * time.Millisecond,
+		ObserveHeartbeat: true,
+	}).(*dirLock)
+}
+
+// requireConflictFor proves a contender cannot take the lock for the whole period.
+func requireConflictFor(t *testing.T, contender *dirLock, period time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(period); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+// A standby whose clock runs ahead sees an old timestamp on a healthy lock. It
+// must not take the lock while the holder keeps renewing it.
+func TestObserverSkew(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	contender := newObserverLock(dir)
+
+	old := time.Now().Add(-time.Hour)
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.NoError(t, os.Chtimes(holder.lockPath, old, old))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+func TestObserverFrozen(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+
+	contender := newObserverLock(dir)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, contender.Lock(ctx))
+	require.GreaterOrEqual(t, time.Since(start), observerStale)
+	require.True(t, contender.IsHeldByMe())
+}
+
+// An old timestamp alone says nothing: a contender has to watch the holder
+// fail to renew for the whole threshold.
+func TestObserverColdStart(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(holder.lockPath, old, old))
+
+	contender := newObserverLock(dir)
+	requireConflictFor(t, contender, observerStale/2)
+
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// A heartbeat that cannot be read may be a storage fault, so it cannot count
+// as a holder that stopped.
+func TestObserverReadError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+
+	beatPath := filepath.Join(holder.lockPath, holder.heartbeatFile)
+	require.NoError(t, os.Remove(beatPath))
+	require.NoError(t, os.Mkdir(beatPath, 0700))
+
+	requireConflictFor(t, newObserverLock(dir), 3*observerStale)
+}
+
+// A holder that lost the lock can still write its heartbeat into the new lock
+// directory. Only the current owner's renewals count.
+func TestObserverFencedHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	// The empty suffix sorts this name before every real heartbeat file.
+	require.NoError(t, os.WriteFile(filepath.Join(holder.lockPath, heartbeatFilePrefix), []byte("former:1"), 0600))
+
+	contender := newObserverLock(dir)
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+}
+
+// A holder from a release without heartbeat files renews only the directory
+// timestamp, which a contender watches instead.
+func TestObserverLegacyHolder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	holder := New(dir, &LockOptions{StaleThreshold: observerStale}).(*dirLock)
+	require.NoError(t, holder.TryLock())
+
+	contender := newObserverLock(dir)
+	var lastRenewal time.Time
+	for deadline := time.Now().Add(3 * observerStale); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		lastRenewal = time.Now()
+		require.NoError(t, holder.Heartbeat(context.Background()))
+		require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+	}
+
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	require.GreaterOrEqual(t, time.Since(lastRenewal), observerStale)
+}
+
+// A dead holder's unreadable directory must not block a takeover forever.
+func TestObserverRestrictedDir(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("relies on directory permissions being enforced")
+	}
+
+	dir := t.TempDir()
+	holder := newObserverLock(dir)
+	require.NoError(t, holder.TryLock())
+	require.NoError(t, os.Chmod(holder.lockPath, 0))
+	restoreAccessOnCleanup(t, dir)
+
+	contender := newObserverLock(dir)
+	require.Eventually(t, func() bool {
+		return contender.TryLock() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// Only replacing a lock left by another holder counts as a takeover.
+func TestOnStaleTakeover(t *testing.T) {
+	t.Parallel()
+
+	var takeovers atomic.Int32
+	opts := &LockOptions{
+		StaleThreshold:  time.Second,
+		OnStaleTakeover: func() { takeovers.Add(1) },
+	}
+
+	dir := t.TempDir()
+	first := New(dir, opts)
+	require.NoError(t, first.TryLock())
+	require.Zero(t, takeovers.Load(), "a free lock is not a takeover")
+	require.NoError(t, first.Unlock())
+
+	second := New(dir, opts)
+	require.NoError(t, second.TryLock())
+	require.Zero(t, takeovers.Load(), "a released lock is not a takeover")
+
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, ".dagu_lock"), old, old))
+
+	third := New(dir, opts)
+	require.NoError(t, third.TryLock())
+	require.EqualValues(t, 1, takeovers.Load())
 }

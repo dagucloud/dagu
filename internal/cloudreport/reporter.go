@@ -700,6 +700,7 @@ func usageOf(u *resource.Usage) *usage {
 type service struct {
 	Name      string `json:"name"`
 	Instances int    `json:"instances"`
+	Standby   int    `json:"standby,omitempty"`
 }
 
 type response struct {
@@ -826,8 +827,8 @@ func (r *Reporter) readQueues(ctx context.Context, now time.Time) ([]queueHealth
 	return r.queueRead.queues, &total
 }
 
-// services counts the schedulers holding the scheduler lock and the
-// registered coordinators. It returns nil when the registry cannot be read.
+// services counts the schedulers holding the scheduler lock, those waiting for
+// it, and the registered coordinators. It returns nil when the registry cannot be read.
 func (r *Reporter) services(ctx context.Context) []service {
 	if r.registry == nil {
 		return nil
@@ -843,14 +844,18 @@ func (r *Reporter) services(ctx context.Context) []service {
 		return nil
 	}
 
-	activeSchedulers := 0
+	activeSchedulers, standbySchedulers := 0, 0
 	for _, member := range schedulers {
-		if member.Status == serviceregistry.ServiceStatusActive {
+		switch member.Status {
+		case serviceregistry.ServiceStatusActive:
 			activeSchedulers++
+		case serviceregistry.ServiceStatusInactive:
+			standbySchedulers++
+		case serviceregistry.ServiceStatusUnknown:
 		}
 	}
 	return []service{
-		{Name: string(serviceregistry.ServiceNameScheduler), Instances: activeSchedulers},
+		{Name: string(serviceregistry.ServiceNameScheduler), Instances: activeSchedulers, Standby: standbySchedulers},
 		{Name: string(serviceregistry.ServiceNameCoordinator), Instances: len(coordinators)},
 	}
 }

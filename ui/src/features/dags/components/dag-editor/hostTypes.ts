@@ -52,7 +52,7 @@ export interface WorkspaceEditorHandle extends VisualEditorHandle {
   save(): void;
   /** Same as the 'Revert to the last save' button, with no confirmation. */
   discard(): void;
-  /** 'Copy to editor': sets the text and marks it dirty. */
+  /** "Revert to this run's YAML": sets the text and marks it dirty. */
   replaceBuffer(text: string): void;
   isDirty(): boolean;
   getBuffer(): string;
@@ -115,6 +115,8 @@ export interface DAGSpecHostProps extends EditorHostProps {
   renderWorkflowPanel?(overview: ReactNode, dag: DAGDetails): ReactNode;
   /** The Workflow panel shows when the editor mounts. */
   initialWorkflowOpen?: boolean;
+  /** Called when the Workflow panel opens or closes. */
+  onWorkflowOpenChange?(open: boolean): void;
   /**
    * Opens the page of a workflow that a step calls, when it is no workflow
    * of this file. Without it, opening such a step opens its step view.

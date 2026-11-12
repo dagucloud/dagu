@@ -221,6 +221,20 @@ describe('dockTabBadges', () => {
     ).toEqual({ agent: 2, actions: 4 });
   });
 
+  // A failed resume waits for its retry in the Actions tab.
+  it('counts a failed resume as one action', () => {
+    expect(
+      dockTabBadges({
+        ...BASE,
+        hasHumanTaskWork: true,
+        humanTaskResumePending: true,
+      })
+    ).toEqual({ actions: 1 });
+    expect(dockTabBadges({ ...BASE, approvalResumePending: true })).toEqual({
+      actions: 1,
+    });
+  });
+
   it('leaves out zero counts and never-run workflows', () => {
     expect(dockTabBadges(BASE)).toEqual({});
     expect(dockTabBadges(null)).toEqual({});

@@ -12,8 +12,10 @@ import type {
 } from '@playwright/test';
 import {
   getStepStdout,
+  openColumnTab,
   showStepOutput,
   startDAG,
+  startRunNow,
   uniqueName,
   waitForDAGAvailable,
   waitForRunStatus,
@@ -374,8 +376,11 @@ test.describe('workspace node details view', () => {
     await expect(broken).toHaveCount(0);
     expect(query(page, 'step')).toBe('ok');
 
-    // Close and Esc close the panel and keep the step.
-    await ok.getByRole('button', { name: 'Close', exact: true }).click();
+    // Close (on a wide window, a tab of the right column) and Esc close the
+    // panel and keep the step.
+    const column = page.getByTestId('ww-right-column');
+    if (await column.isVisible()) await openColumnTab(page, 'YAML');
+    else await ok.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(ok).toHaveCount(0);
     expect(query(page, 'step')).toBe('ok');
     await canvasNode(page, 'steps[0]').click();
@@ -603,10 +608,16 @@ test.describe('workspace node details view', () => {
       };
     };
 
-    // The editor first: the reference of the geometry.
+    // The editor first: the reference of the geometry. On a wide window its
+    // YAML is the YAML tab of the right column, and the run definition takes
+    // the width of the column.
     await openWorkspace(page, gotoWorkspace, workflowPath(fileName, runId));
     const toolbar = page.getByTestId('ve-toolbar');
-    await toolbar.getByRole('button', { name: 'YAML', exact: true }).click();
+    const column = page.getByTestId('ww-right-column');
+    const inColumn = await column.isVisible();
+    if (inColumn) await openColumnTab(page, 'YAML');
+    else
+      await toolbar.getByRole('button', { name: 'YAML', exact: true }).click();
     const editorNdv = page.getByTestId('ww-pane').getByTestId('ndv');
     await expect(editorNdv).toHaveAttribute('data-state', 'docked', {
       timeout: 30_000,
@@ -614,14 +625,17 @@ test.describe('workspace node details view', () => {
     await expect(editorNdv.locator('.monaco-editor')).toBeVisible({
       timeout: 30_000,
     });
-    expect(query(page, 'ndv')).toBe('docked');
-    const editorBox = await measure(
-      page.getByTestId('ww-pane'),
-      page.getByTestId('ww-canvas')
-    );
-    const editorButton = await rect(
-      toolbar.getByRole('button', { name: 'YAML', exact: true })
-    );
+    if (!inColumn) expect(query(page, 'ndv')).toBe('docked');
+    const editorBox = inColumn
+      ? null
+      : await measure(
+          page.getByTestId('ww-pane'),
+          page.getByTestId('ww-canvas')
+        );
+    const editorButton = inColumn
+      ? null
+      : await rect(toolbar.getByRole('button', { name: 'YAML', exact: true }));
+    const editorWidth = editorBox?.panel.width ?? (await rect(column)).width;
 
     // The stale dot opens the definition of the run in place of the editor.
     await page.goto(workflowPath(fileName, runId));
@@ -644,10 +658,13 @@ test.describe('workspace node details view', () => {
       .getByTestId('ve-toolbar')
       .getByRole('button', { name: 'YAML', exact: true });
     // The page remembers the panel that the editor left open, so the run
-    // definition opens with it; the toolbar closes it and opens it again.
-    await expect(yamlButton).toHaveAttribute('aria-pressed', 'true');
-    await yamlButton.click();
-    await expect.poll(() => query(page, 'ndv')).toBeNull();
+    // definition opens with it; the toolbar closes it and opens it again. A
+    // tab of the right column is no panel that it follows.
+    if (!inColumn) {
+      await expect(yamlButton).toHaveAttribute('aria-pressed', 'true');
+      await yamlButton.click();
+      await expect.poll(() => query(page, 'ndv')).toBeNull();
+    }
     await expect(yamlButton).toHaveAttribute('aria-pressed', 'false');
     await yamlButton.focus();
     await yamlButton.click();
@@ -710,20 +727,22 @@ test.describe('workspace node details view', () => {
       fromRight: 0,
       fromTop: 0,
       fromBottom: 0,
-      width: editorBox.panel.width,
+      width: editorWidth,
     });
-    const top = (box: typeof runBox.header) => ({
-      fromRight: box.fromRight,
-      fromTop: box.fromTop,
-      width: box.width,
-      height: box.height,
-    });
-    expect(top(runBox.header)).toEqual(top(editorBox.header));
-    expect(top(runBox.close)).toEqual(top(editorBox.close));
-    // The YAML button sits at the same place of the toolbar, with its look.
-    const runButton = await rect(yamlButton);
-    expect(runButton.width).toBe(editorButton.width);
-    expect(runButton.height).toBe(editorButton.height);
+    if (editorBox && editorButton) {
+      const top = (box: typeof runBox.header) => ({
+        fromRight: box.fromRight,
+        fromTop: box.fromTop,
+        width: box.width,
+        height: box.height,
+      });
+      expect(top(runBox.header)).toEqual(top(editorBox.header));
+      expect(top(runBox.close)).toEqual(top(editorBox.close));
+      // The YAML button sits at the same place of the toolbar, with its look.
+      const runButton = await rect(yamlButton);
+      expect(runButton.width).toBe(editorButton.width);
+      expect(runButton.height).toBe(editorButton.height);
+    }
 
     // The Copy overlay copies the definition of the run.
     await page
@@ -1093,7 +1112,7 @@ test.describe('workspace node details view', () => {
     await page.locator('[data-ww-action="start"]').click();
     const dialog = page.getByRole('dialog', { name: 'Start workflow' });
     await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+    await startRunNow(dialog);
 
     await expect(dock).toHaveAttribute('data-state', 'open', {
       timeout: 60_000,
@@ -1308,9 +1327,14 @@ test.describe('workspace node details view', () => {
         page,
         `${workflowPath(fileName, runId)}${snapshot ? '&def=run' : ''}&step=second&ndv=expanded&dock=log`
       );
+      // Beside a phone layout (768px and up) the editor's view is in the
+      // layer over the zone and the right column.
+      const wide = (page.viewportSize()?.width ?? 0) >= 768;
       const scopeSelector = snapshot
         ? '[data-testid="ww-run-zone"] '
-        : '[data-testid="ww-canvas-graph"] ';
+        : wide
+          ? '[data-testid="ww-panel-layer"] '
+          : '[data-testid="ww-canvas-graph"] ';
       const ndv = page.locator(`${scopeSelector}[data-testid="ndv"]`);
       await expect(ndv).toBeVisible({ timeout: 30_000 });
       // The step opens on its YAML.

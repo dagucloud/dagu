@@ -225,7 +225,7 @@ function TaskRow({ task }: { task: RunningTask }) {
   const root = runningTaskRoot(task);
   return (
     <PeekLink
-      peek={{ dag: root.name, run: root.dagRunId }}
+      peek={{ dag: root.name, run: root.dagRunId, subRun: root.subDAGRunId }}
       remoteNode={remoteNode}
       className="flex items-center gap-3 p-1.5 rounded bg-background/50 cursor-pointer hover:bg-background/80 transition-colors"
     >

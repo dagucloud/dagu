@@ -16,6 +16,7 @@ import {
   loadStack,
   loginViaAPI,
   startDAG,
+  startRunNow,
   openStepForm,
   uniqueName,
   waitForDAGAvailable,
@@ -277,7 +278,7 @@ steps:
         .fill('from-run-dialog');
       await dialog.getByLabel('Run ID (optional)').fill(runId);
       const started = waitForPost(page, `${dagPath(fileName)}/start`);
-      await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+      await startRunNow(dialog);
       expect(await runIdOf(await started)).toBe(runId);
       await expect(dialog).toBeHidden();
 
@@ -454,7 +455,7 @@ steps:
     const dialog = page.getByRole('dialog', { name: 'Start workflow' });
     await expect(dialog).toBeVisible();
     const started = waitForPost(page, `${dagPath(fileName)}/start`);
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+    await startRunNow(dialog);
     const runId = await runIdOf(await started);
 
     await expectOnRun(page, fileName, runId);
@@ -505,9 +506,12 @@ steps:
       timeout: 30_000,
     });
 
-    // The menu holds the draft only: Start runs the saved file.
+    // The menu runs the draft without a save: Start runs the saved file.
     const menu = await openRunMenu(page);
-    await expect(menu.getByRole('menuitem')).toHaveCount(1);
+    await expect(menu.getByRole('menuitem')).toHaveText([
+      'Save & Run',
+      'Run unsaved draft',
+    ]);
     const started = waitForPost(page, '/api/v1/dag-runs');
     await menu.getByRole('menuitem', { name: 'Run unsaved draft' }).click();
     const runId = await runIdOf(await started);
@@ -516,6 +520,63 @@ steps:
     await waitForRunStatus(request, token, dagName, runId, ['succeeded']);
     await expect(chipRun(page, runId)).toBeAttached({ timeout: 30_000 });
     await expect(specDiffersDot(page)).toBeVisible({ timeout: 30_000 });
+  });
+
+  test('Save & Run saves the edit and starts the saved definition', async ({
+    page,
+    request,
+    inlineDAG,
+    gotoWorkspace,
+  }) => {
+    test.setTimeout(150_000);
+    const { dagName, fileName, token } = await inlineDAG(
+      'e2e-ws-save-run',
+      (name) => `
+name: ${name}
+steps:
+  - name: say
+    run: echo "saved definition"
+`
+    );
+
+    await openWorkspace(page, gotoWorkspace, dagPath(fileName));
+    await canvasNode(page, 'steps[0]').dblclick();
+    await openStepForm(page);
+    const inspector = page.getByTestId('ve-inspector');
+    await expect(inspector).toBeVisible({ timeout: 30_000 });
+    const description = inspector.getByLabel('Description', { exact: true });
+    await description.fill('Saved by Save & Run');
+    // The field sends its draft on blur.
+    await description.blur();
+    await expect(page.locator('#save-config')).toBeEnabled({
+      timeout: 30_000,
+    });
+
+    // Start asks first: the saved file does not have the edit.
+    await runButton(page).click();
+    const guard = page.getByRole('dialog', { name: 'Unsaved Changes' });
+    await expect(guard).toBeVisible();
+    await guard.getByRole('button', { name: 'Save & Run' }).click();
+
+    // The save has no diff review, and the Start dialog follows it.
+    const dialog = page.getByRole('dialog', { name: 'Start workflow' });
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#save-config')).toBeDisabled();
+    const started = waitForPost(page, `${dagPath(fileName)}/start`);
+    await startRunNow(dialog);
+    const runId = await runIdOf(await started);
+
+    await expectOnRun(page, fileName, runId);
+    await waitForRunStatus(request, token, dagName, runId, ['succeeded']);
+    // The run used the file with the edit: no spec-differs dot.
+    await expect(chipRun(page, runId)).toBeAttached({ timeout: 30_000 });
+    await expect(specDiffersDot(page)).toHaveCount(0);
+    const spec = await request.get(
+      `/api/v1/dag-runs/${encodeURIComponent(dagName)}/${runId}/spec`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const body = (await spec.json()) as { spec: string };
+    expect(body.spec).toContain('Saved by Save & Run');
   });
 
   // parity:actions-stop

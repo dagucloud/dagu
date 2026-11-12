@@ -102,10 +102,20 @@ function renderCanvas(overrides: Partial<VisualCanvasProps> = {}) {
 
 describe('VisualCanvas keyboard access', () => {
   // The canvas is a tab stop: it shows a focus ring and says how it works.
-  it('shows a focus ring and describes its keys', () => {
+  // The ring marks a canvas that Tab reached; a click, and a key pressed
+  // after it, show none.
+  it('shows a focus ring when Tab reaches it, and describes its keys', () => {
     renderCanvas();
     const region = screen.getByRole('region', { name: 'Workflow canvas' });
-    expect(region.className).toContain('focus-visible:ring-2');
+    fireEvent.pointerDown(region);
+    act(() => region.focus());
+    fireEvent.keyDown(region, { key: 'Escape' });
+    expect(region).not.toHaveClass('ring-2');
+    act(() => region.blur());
+
+    fireEvent.keyDown(document, { key: 'Tab' });
+    act(() => region.focus());
+    expect(region).toHaveClass('ring-2');
     const hint = document.getElementById(
       region.getAttribute('aria-describedby') ?? ''
     );
