@@ -1740,3 +1740,48 @@ func TestProfileWithoutWaiting(t *testing.T) {
 	require.NoError(t, err)
 	session.release()
 }
+
+// A page that cannot be read keeps the refusal seen on it, since the read
+// says nothing about the page: an extract still fails there, and so does
+// the step at its end.
+func TestRefusedPageKeptWhenUnreadable(t *testing.T) {
+	t.Parallel()
+
+	unreadable := errors.New("read the page: context closed")
+	for name, steps := range map[string]string{
+		"extract": `{"url": "https://shop.example.com/orders", "do": [
+			{"act": "Click the verify box", "when": "The page asks to verify"},
+			{"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}
+		]}`,
+		"end": `{"url": "https://shop.example.com/orders", "do": [{"act": "Click the verify box", "when": "The page asks to verify"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}, "The page asks to verify"))
+			run.engine.outcome = cloudflareCheck
+			run.engine.onAct = func() { run.engine.setOutcomeErr(unreadable) }
+			execution := run.execute(steps, nil)
+
+			require.ErrorContains(t, execution.err, cloudflareRefusal)
+			assert.Empty(t, execution.exec.GetOutputs())
+			assert.Equal(t, []string{"goto:completed", "page:refused", "act:completed"}, eventNames(execution.exec.GetAgentSession()))
+		})
+	}
+}
+
+// A page that cannot be read shows no refusal that was not seen: the step
+// goes on as on a page that shows none.
+func TestUnreadablePageInventsNoRefusal(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}))
+	run.engine.outcomeErr = errors.New("read the page: context closed")
+	execution := run.execute(`{"url": "https://shop.example.com/orders", "do": [
+		{"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}
+	]}`, nil)
+
+	require.NoError(t, execution.err)
+	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs())
+	assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
+}

@@ -409,7 +409,9 @@ with no operation that fails there, fails at its end with the sentence. A
 step that fails for another reason while the browser shows a refused page
 ends its error with the same sentence, since the refusal usually explains
 the failure. A step that fails on a refused page keeps the recordings it
-replayed, since the refusal says nothing about them.
+replayed, since the refusal says nothing about them. A page that cannot be
+read keeps the refusal seen on it, since the read says nothing about the
+page, and shows none that was not seen.
 
 An action that leaves the browser on a bot check, such as `goto` or an `act`
 that loads a page, waits up to 10 seconds for the check to pass, as a check
