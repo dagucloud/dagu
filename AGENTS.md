@@ -132,6 +132,10 @@ Review generated diffs with the source change that caused them.
   pull request that changes the installer.
 - Draft pull requests run no checks. Marking one ready for review runs them,
   and turning one back into a draft cancels the run in progress.
-- Add `full-ci` once review is done, then merge only after every check,
-  heavy ones included, passes. A label added earlier runs the heavy checks on
-  every later push.
+- Add `full-ci` to a pull request that changes what the heavy checks test:
+  workflow semantics or CLI behavior, Windows behavior, or a user flow with
+  browser coverage. Merge it only after every check, heavy ones included,
+  passes. Another pull request can merge once the light checks pass, since
+  `main` runs every check after the merge.
+- Add the label once review is done: a label added earlier runs the heavy
+  checks on every later push.
