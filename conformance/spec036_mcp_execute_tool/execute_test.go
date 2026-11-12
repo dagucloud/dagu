@@ -593,9 +593,25 @@ steps:
 		"revision": revision,
 	})
 	require.False(t, submitted.IsError)
-	backfillID, ok := mcptest.StructuredMap(t, submitted)["backfillId"].(string)
+	output := mcptest.StructuredMap(t, submitted)
+	backfillID, ok := output["backfillId"].(string)
 	require.True(t, ok)
 	require.Len(t, backfillID, 8)
+	assert.Equal(t, "dag", output["targetType"])
+	assert.Equal(t, "", output["dagRunId"])
+	assert.NotEmpty(t, output["references"])
+
+	// A backfill is changed only through the DAG it belongs to.
+	server.CreateDAG(t, "mcp_other", `schedule: "0 2 * * *"
+steps:
+  - name: main
+    run: "echo done"
+`)
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action":     "backfill_cancel",
+		"name":       "mcp_other",
+		"backfillId": backfillID,
+	}), "invalid_tool_input", "backfillId")
 
 	stale := callExecute(t, session, map[string]any{
 		"action":   "backfill",

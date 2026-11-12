@@ -106,7 +106,7 @@ Rules:
 | `reject` | Rejects a waiting approval gate. |
 | `push_back` | Pushes a waiting approval gate or human task back for re-execution. |
 | `backfill` | Plans a backfill of the DAG named by `name` and, unless `dryRun`, submits it. |
-| `backfill_resume` | Runs again the slots of a backfill that have not succeeded. |
+| `backfill_resume` | Runs again the slots of a backfill that have neither succeeded nor been skipped. |
 | `backfill_cancel` | Cancels an open backfill. |
 
 ### Backfill actions
@@ -118,6 +118,10 @@ Rules:
 - A `revision` the plan no longer has fails with `conflict`, starts nothing,
   and returns the new plan as `details.plan`.
 - Cancelling an ended backfill fails with `conflict`.
+- `backfill_resume` and `backfill_cancel` fail with `invalid_tool_input` on
+  `backfillId` when the backfill belongs to another DAG than `name`. Their
+  `dagName` is the backfill's DAG.
+- A backfill action's `targetType` is `dag` and its `dagRunId` is empty.
 
 ### Step decisions
 

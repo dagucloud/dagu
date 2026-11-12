@@ -126,7 +126,20 @@ func validateBackfillInput(input *executeInput, provided map[string]bool) *execu
 // executeBackfill runs a backfill action through the API.
 func (svc *Service) executeBackfill(ctx context.Context, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
 	in := input.Backfill
-	output := map[string]any{"action": input.Action, "dagName": input.Name}
+	output := map[string]any{
+		"action":     input.Action,
+		"targetType": executeTargetTypeDAG,
+		"dagName":    input.Name,
+		"dagRunId":   "",
+		"references": defaultReferenceURIs(),
+	}
+	if input.Action != executeActionBackfill {
+		dagName, err := svc.backfillDAGName(ctx, input)
+		if err != nil {
+			return nil, nil, err
+		}
+		output["dagName"] = dagName
+	}
 	switch input.Action {
 	case executeActionBackfill:
 		body := &daguapi.BackfillRequest{
@@ -199,6 +212,30 @@ func (svc *Service) executeBackfill(ctx context.Context, input executeInput) (*m
 		}
 	}
 	return resultWithLinks(backfillMessage(input, output)), output, nil
+}
+
+// backfillDAGName returns the DAG of the backfill that input names. It fails
+// when that is not the DAG named by input.Name, its name or its file name, so
+// a backfill of one DAG is never changed through another.
+func (svc *Service) backfillDAGName(ctx context.Context, input executeInput) (string, error) {
+	resp, err := svc.api.GetBackfill(ctx, daguapi.GetBackfillRequestObject{BackfillId: input.Backfill.ID})
+	if err != nil {
+		return "", err
+	}
+	found, ok := resp.(daguapi.GetBackfill200JSONResponse)
+	if !ok {
+		return "", fmt.Errorf("unexpected backfill response %T", resp)
+	}
+	if found.Dag == input.Name {
+		return found.Dag, nil
+	}
+	details, err := svc.api.GetDAGDetails(ctx, daguapi.GetDAGDetailsRequestObject{FileName: daguapi.DAGFileName(input.Name)})
+	if err == nil {
+		if named, ok := details.(daguapi.GetDAGDetails200JSONResponse); ok && named.Dag != nil && named.Dag.Name == found.Dag {
+			return found.Dag, nil
+		}
+	}
+	return "", executeInputError(fmt.Sprintf("Backfill %s belongs to DAG %s, not %s.", input.Backfill.ID, found.Dag, input.Name), executeFieldBackfillID)
 }
 
 func addBackfillResponse(output map[string]any, resp daguapi.BackfillSubmitResponse) {
