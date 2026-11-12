@@ -335,8 +335,12 @@ func (st *DAGRunStatus) ScheduleWindow() ScheduleWindow {
 }
 
 // NeverStarted reports whether the run ended or stopped before it started,
-// as one cancelled while queued.
+// as one cancelled while queued. A retry follows an attempt that ran, so a
+// run whose retry was cancelled before it started did start.
 func (st *DAGRunStatus) NeverStarted() bool {
+	if st.TriggerType == TriggerTypeRetry {
+		return false
+	}
 	return st.Status == NotStarted || (st.Status == Aborted && st.StartedAt == "")
 }
 

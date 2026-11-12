@@ -198,6 +198,29 @@ func TestSlotIndexDropsNeverStartedRunOnRetention(t *testing.T) {
 	assert.Equal(t, persis.SlotEventDropped, events[1].Kind)
 }
 
+// A run that ran and failed keeps its status through retention when a retry
+// of it was cancelled before it started.
+func TestSlotIndexKeepsRunWhoseRetryNeverStarted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newSlotFixture(t)
+	ran := scheduledStatus(ir.Failed, slotOct1, ir.TriggerTypeScheduler)
+	ran.StartedAt = "2026-10-01T02:00:00Z"
+	f.writeRun(t, "run-1", persis.DAGRunCreateAttemptOptions{},
+		ran,
+		scheduledStatus(ir.Queued, slotOct1, ir.TriggerTypeRetry),
+		scheduledStatus(ir.Aborted, slotOct1, ir.TriggerTypeRetry))
+
+	cutoff := time.Now().Add(time.Hour)
+	_, err := f.repository.RemoveOldDAGRuns(ctx, f.dag.Name, 0, persis.DAGRunRetentionOptions{OlderThan: &cutoff})
+	require.NoError(t, err)
+
+	events := f.events(t)
+	require.Len(t, events, 2)
+	assert.Equal(t, persis.SlotEventFinal, events[1].Kind)
+	assert.Equal(t, ir.Aborted, events[1].Status)
+}
+
 func TestSlotIndexDropsRunsAnOperatorDeletes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
