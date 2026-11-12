@@ -130,7 +130,7 @@ func (r *DAGRunRepository) LatestAttempt(
 		return nil, err
 	}
 	if status, err := attempt.ReadStatus(ctx); err == nil && status.BackfillID != "" {
-		if live, err := r.latestLiveStatus(ctx, name, query.NotBefore); err != nil {
+		if live, err := r.latestLiveStatus(ctx, DAGRunListOptions{ExactName: name, From: query.NotBefore}); err != nil {
 			return nil, err
 		} else if live != nil {
 			if attempt, err = r.store.FindAttempt(ctx, live.DAGRun()); err != nil {
@@ -154,7 +154,12 @@ func (r *DAGRunRepository) LatestStatuses(ctx context.Context, query DAGRunLates
 		if status.BackfillID == "" {
 			continue
 		}
-		live, err := r.latestLiveStatus(ctx, status.Name, query.NotBefore)
+		live, err := r.latestLiveStatus(ctx, DAGRunListOptions{
+			ExactName:       status.Name,
+			From:            query.NotBefore,
+			Labels:          query.Labels,
+			WorkspaceFilter: query.WorkspaceFilter,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -169,11 +174,12 @@ func (r *DAGRunRepository) LatestStatuses(ctx context.Context, query DAGRunLates
 // is not a backfill run reads at a time.
 const latestLivePageSize = 200
 
-// latestLiveStatus returns the newest top-level run of a DAG created at or
-// after notBefore that is not a backfill run, or nil when there is none. A
-// backfill of old slots must not decide how a DAG's live state reads.
-func (r *DAGRunRepository) latestLiveStatus(ctx context.Context, name string, notBefore TimeInUTC) (*ir.DAGRunStatus, error) {
-	options := DAGRunListOptions{ExactName: name, From: notBefore, AllHistory: notBefore.IsZero(), Limit: latestLivePageSize}
+// latestLiveStatus returns the newest top-level run matching options that is
+// not a backfill run, or nil when there is none. A backfill of old slots must
+// not decide how a DAG's live state reads.
+func (r *DAGRunRepository) latestLiveStatus(ctx context.Context, options DAGRunListOptions) (*ir.DAGRunStatus, error) {
+	options.AllHistory = options.From.IsZero()
+	options.Limit = latestLivePageSize
 	for {
 		page, err := r.ListStatusesPage(ctx, options)
 		if err != nil {

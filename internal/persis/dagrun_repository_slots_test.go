@@ -496,6 +496,7 @@ func TestLatestRunSkipsBackfillRuns(t *testing.T) {
 		t.Helper()
 		status := scheduledStatus(ir.Failed, slot, ir.TriggerTypeBackfill)
 		status.BackfillID = "bf123456"
+		status.Labels = []string{"team=data"}
 		f.writeRun(t, runID, persis.DAGRunCreateAttemptOptions{}, status)
 	}
 	latestID := func() string {
@@ -523,4 +524,11 @@ func TestLatestRunSkipsBackfillRuns(t *testing.T) {
 
 	assert.Equal(t, "live", latestID())
 	assert.Equal(t, "live", listedID())
+
+	// The live run lacks the label asked for, so the DAG keeps the backfill
+	// run that has it.
+	statuses, err := f.repository.LatestStatuses(ctx, persis.DAGRunLatestStatusesQuery{Labels: []string{"team=data"}})
+	require.NoError(t, err)
+	require.Len(t, statuses, 1)
+	assert.Equal(t, "backfill-2", statuses[0].DAGRunID)
 }
