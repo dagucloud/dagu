@@ -280,6 +280,11 @@ func validateConfig(operation string, cfg *config) error {
 // validateCSVConfig parses the encoding and delimiter of a CSV file: the
 // input of write and append, or the output of convert.
 func validateCSVConfig(operation string, cfg *config) error {
+	// YAML parses an unquoted null as nil, so a present but empty encoding
+	// is the same as none.
+	if cfg.provided("encoding") && strings.TrimSpace(cfg.Encoding) == "" {
+		delete(cfg.present, "encoding")
+	}
 	if cfg.provided("encoding") {
 		enc, err := workbook.ParseEncoding(cfg.Encoding)
 		if err != nil {
