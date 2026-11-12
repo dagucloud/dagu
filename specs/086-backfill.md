@@ -158,6 +158,19 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   policy.
 - A backfill whose DAG is renamed or deleted ends `cancelled`, with the slots
   it had not queued cancelled.
+
+### Live runs come first
+
+- A backfill run is queued behind every other run of its queue. Other runs
+  keep their order among themselves. An executing backfill run is not
+  stopped for a live run, and the queue's limit still holds.
+- A queued or running backfill run does not make the scheduler skip a live
+  slot because the DAG is queued or running, and does not count for
+  `skip_if_successful`. The live slot's run is queued instead.
+- A DAG's latest run is its newest run that is not a backfill run, wherever
+  the latest run is shown or checked: the DAG list, the DAG's details,
+  `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
+  shows the newest of them.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's params and
   profile, and has its slot's scheduled time and window. Its

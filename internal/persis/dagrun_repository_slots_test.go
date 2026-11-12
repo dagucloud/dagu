@@ -31,6 +31,9 @@ type slotFixture struct {
 	repository *persis.DAGRunRepository
 	index      *slotindex.Store
 	dag        *ir.DAG
+	// created is when the next run is created; each run is created a
+	// second after the one before, so their order is fixed.
+	created *time.Time
 }
 
 func newSlotFixture(t *testing.T) slotFixture {
@@ -43,14 +46,19 @@ func newSlotFixture(t *testing.T) slotFixture {
 	})
 	dag, err := spec.LoadYAML(context.Background(), []byte(slotDAGYAML))
 	require.NoError(t, err)
-	return slotFixture{repository: repository, index: index, dag: dag}
+	return slotFixture{repository: repository, index: index, dag: dag, created: new(time.Now())}
 }
 
 // writeRun creates a run and writes each status to it in turn.
 func (f slotFixture) writeRun(t *testing.T, runID string, options persis.DAGRunCreateAttemptOptions, statuses ...ir.DAGRunStatus) {
 	t.Helper()
 	ctx := context.Background()
-	attempt, err := f.repository.CreateAttempt(ctx, f.dag, time.Now(), runID, options)
+	created := time.Now()
+	if f.created != nil {
+		created = *f.created
+		*f.created = created.Add(time.Second)
+	}
+	attempt, err := f.repository.CreateAttempt(ctx, f.dag, created, runID, options)
 	require.NoError(t, err)
 	require.NoError(t, attempt.Open(ctx))
 	for _, status := range statuses {
@@ -452,4 +460,44 @@ func TestSlotEventsAppliesCalendarsToImportedRuns(t *testing.T) {
 		schedules[event.RunID] = event.Schedule
 	}
 	assert.Equal(t, map[string]string{"saturday": "", "monday": "0 2 * * *"}, schedules)
+}
+
+// A backfill of old slots does not decide how a DAG's live state reads: its
+// newest run is its newest run that is not a backfill run, unless it has
+// only backfill runs.
+func TestLatestRunSkipsBackfillRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newSlotFixture(t)
+	backfillRun := func(runID string, slot time.Time) {
+		t.Helper()
+		status := scheduledStatus(ir.Failed, slot, ir.TriggerTypeBackfill)
+		status.BackfillID = "bf123456"
+		f.writeRun(t, runID, persis.DAGRunCreateAttemptOptions{}, status)
+	}
+	latestID := func() string {
+		t.Helper()
+		attempt, err := f.repository.LatestAttempt(ctx, f.dag.Name, persis.DAGRunLatestAttemptOptions{AllHistory: true})
+		require.NoError(t, err)
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		return status.DAGRunID
+	}
+	listedID := func() string {
+		t.Helper()
+		statuses, err := f.repository.LatestStatuses(ctx, persis.DAGRunLatestStatusesQuery{})
+		require.NoError(t, err)
+		require.Len(t, statuses, 1)
+		return statuses[0].DAGRunID
+	}
+
+	backfillRun("backfill-1", slotOct1)
+	assert.Equal(t, "backfill-1", latestID(), "a DAG with only backfill runs shows the latest")
+	assert.Equal(t, "backfill-1", listedID())
+
+	f.writeRun(t, "live", persis.DAGRunCreateAttemptOptions{}, scheduledStatus(ir.Succeeded, slotOct2, ir.TriggerTypeScheduler))
+	backfillRun("backfill-2", slotOct1)
+
+	assert.Equal(t, "live", latestID())
+	assert.Equal(t, "live", listedID())
 }

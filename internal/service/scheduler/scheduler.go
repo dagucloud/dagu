@@ -298,14 +298,9 @@ func newScheduler(
 	queuesEnabled := cfg.Queues.Enabled
 	var isQueued IsQueuedFunc
 	var enqueueFunc EnqueueFunc
+	liveRun := liveRunChecker(dagRunRepository)
 	if queuesEnabled {
-		isQueued = func(ctx context.Context, dag *ir.DAG) (bool, error) {
-			items, err := queueStore.ListByDAGName(ctx, dag.ProcGroup(), dag.Name)
-			if err != nil {
-				return false, err
-			}
-			return len(items) > 0, nil
-		}
+		isQueued = liveQueuedChecker(queueStore, liveRun)
 		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			dag := entry.DAG
 			profileName, err := dagExecutor.defaultProfileName(ctx, entry.DefinitionID, dag)
@@ -331,13 +326,7 @@ func newScheduler(
 		}
 	}
 
-	isRunning := func(ctx context.Context, dag *ir.DAG) (bool, error) {
-		count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
-		if err != nil {
-			return false, err
-		}
-		return count > 0, nil
-	}
+	isRunning := liveRunningChecker(procRepository, liveRun)
 	runExists := func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
 		_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
 		switch {

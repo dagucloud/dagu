@@ -15,11 +15,79 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
+
+// liveRunChecker reports whether a run counts for a DAG's live schedule. A
+// backfill run does not: a live slot is queued ahead of it instead of
+// skipped. A run whose status cannot be found yet counts.
+func liveRunChecker(repository *persis.DAGRunRepository) func(context.Context, ir.DAGRunRef) (bool, error) {
+	return func(ctx context.Context, ref ir.DAGRunRef) (bool, error) {
+		attempt, err := repository.FindAttempt(ctx, ref)
+		if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		status, err := attempt.ReadStatus(ctx)
+		if err != nil {
+			return false, err
+		}
+		return status.BackfillID == "", nil
+	}
+}
+
+// liveQueuedChecker reports whether a DAG has a queued run that counts for
+// its live schedule.
+func liveQueuedChecker(queueStore queuedomain.QueueStore, live func(context.Context, ir.DAGRunRef) (bool, error)) IsQueuedFunc {
+	return func(ctx context.Context, dag *ir.DAG) (bool, error) {
+		items, err := queueStore.ListByDAGName(ctx, dag.ProcGroup(), dag.Name)
+		if err != nil {
+			return false, err
+		}
+		for _, item := range items {
+			ref, err := item.Data()
+			if err != nil {
+				return true, nil
+			}
+			if counts, err := live(ctx, *ref); err != nil || counts {
+				return true, err
+			}
+		}
+		return false, nil
+	}
+}
+
+// liveRunningChecker reports whether a DAG has a running run that counts
+// for its live schedule.
+func liveRunningChecker(procRepository processRepository, live func(context.Context, ir.DAGRunRef) (bool, error)) IsRunningFunc {
+	return func(ctx context.Context, dag *ir.DAG) (bool, error) {
+		count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
+		if err != nil || count == 0 {
+			return false, err
+		}
+		entries, err := procRepository.ListAllEntries(ctx)
+		if err != nil {
+			return false, err
+		}
+		for _, entry := range entries {
+			if !entry.Fresh || entry.Meta.Name != dag.Name {
+				continue
+			}
+			if counts, err := live(ctx, entry.Meta.DAGRun()); err != nil || counts {
+				return true, err
+			}
+		}
+		return false, nil
+	}
+}
 
 // backfillDispatchInterval is how often the active scheduler advances open
 // backfills, so the next slot starts soon after the one before it ends.
