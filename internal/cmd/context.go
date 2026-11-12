@@ -414,7 +414,17 @@ func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
 	}
-	return cmd.Name()
+	// A subcommand is named by its path below the root, so one named like a
+	// top-level command, as "backfill start", does not take on its config or
+	// its context scope.
+	var path []string
+	for current := cmd; current.HasParent(); current = current.Parent() {
+		path = append([]string{current.Name()}, path...)
+	}
+	if len(path) == 0 {
+		return cmd.Name()
+	}
+	return strings.Join(path, " ")
 }
 
 func isContextCommand(cmd *cobra.Command) bool {

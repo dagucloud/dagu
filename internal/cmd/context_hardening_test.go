@@ -167,3 +167,22 @@ func writeTestConfig(t *testing.T, home, contextsDir string) string {
 	require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
 	return configPath
 }
+
+// A subcommand named like a top-level command keeps the config and context
+// scope of its own family.
+func TestCommandFamilyNameUsesPathBelowRoot(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "dagu"}
+	start := &cobra.Command{Use: "start"}
+	group := &cobra.Command{Use: "backfill"}
+	nested := &cobra.Command{Use: "start"}
+	group.AddCommand(nested)
+	root.AddCommand(start, group)
+
+	assert.Equal(t, "start", commandFamilyName(start))
+	assert.Equal(t, "backfill start", commandFamilyName(nested))
+	assert.Equal(t, commandScopeContextAware, scopeForCommand(commandFamilyName(start)))
+	assert.Equal(t, commandScopeLocalOnly, scopeForCommand(commandFamilyName(nested)))
+	assert.NotEqual(t, serviceForCommand(commandFamilyName(start)), serviceForCommand(commandFamilyName(nested)))
+}
