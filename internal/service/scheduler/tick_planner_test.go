@@ -3125,7 +3125,7 @@ func TestTickPlanner_CatchupSkipsSlotABackfillHolds(t *testing.T) {
 		enqueued++
 		return nil
 	}
-	tp.cfg.BackfillHolds = func(context.Context, *ir.DAG, time.Time) (bool, error) { return true, nil }
+	tp.cfg.BackfillGuard = func(context.Context, DAGEntry, time.Time, func() error) (bool, error) { return true, nil }
 	dag := newHourlyCatchupDAG(t, "catchup")
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 

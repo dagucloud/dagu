@@ -196,6 +196,9 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.eventCollector = deps.EventCollector
 	scheduler.restartScanner.cfg.BackoffStore = deps.RestartBackoffStore
 	scheduler.backfills = scheduler.newBackfillDispatcher(deps.BackfillStore)
+	if scheduler.backfills != nil {
+		scheduler.planner.cfg.BackfillGuard = scheduler.guardCatchupSlot
+	}
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
@@ -372,14 +375,6 @@ func newScheduler(
 		IsQueued:          isQueued,
 		RunExists:         runExists,
 		RecordSkippedSlot: dagRunRepository.RecordSkippedSlot,
-		BackfillHolds: func(ctx context.Context, dag *ir.DAG, slot time.Time) (bool, error) {
-			sched := backfill.SlotSchedule{Schedules: dag.Schedule, Location: timeLoc}
-			history, err := backfill.LoadHistory(ctx, dagRunRepository, dag, sched, slot, slot)
-			if err != nil {
-				return false, err
-			}
-			return backfill.HeldByBackfill(slot, sched, history), nil
-		},
 		RecoveryWindow: func() time.Duration {
 			if tookOverStaleLock.Load() {
 				return cfg.Scheduler.FailoverRecoveryWindow

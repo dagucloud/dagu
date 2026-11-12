@@ -78,7 +78,7 @@ func liveRunningChecker(procRepository processRepository, live func(context.Cont
 			return false, err
 		}
 		for _, entry := range entries {
-			if !entry.Fresh || entry.Meta.Name != dag.Name {
+			if !entry.Fresh || entry.GroupName != dag.ProcGroup() || entry.Meta.Name != dag.Name {
 				continue
 			}
 			if counts, err := live(ctx, entry.Meta.DAGRun()); err != nil || counts {
@@ -117,8 +117,9 @@ func (s *Scheduler) newBackfillDispatcher(store backfill.Store) *backfill.Dispat
 }
 
 // backfillDAGExists reports whether the file a backfill's DAG was submitted
-// from is still there; a rename or a delete removes it.
-func (s *Scheduler) backfillDAGExists(_ context.Context, record *backfill.Record) (bool, error) {
+// from still defines that DAG. A delete, a rename of the file, or a rename
+// of the DAG inside it ends that.
+func (s *Scheduler) backfillDAGExists(ctx context.Context, record *backfill.Record) (bool, error) {
 	path := record.DAGFile
 	if path == "" {
 		return true, nil
@@ -126,11 +127,44 @@ func (s *Scheduler) backfillDAGExists(_ context.Context, record *backfill.Record
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(s.config.Paths.DAGsDir, path)
 	}
-	_, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
-	return err == nil, err
+	dag, err := spec.Load(ctx, path, spec.OnlyMetadata(), spec.WithoutEval())
+	if err != nil {
+		// A file that does not load may be mid-edit, which says nothing
+		// about the DAG it defines.
+		return true, nil
+	}
+	return dag.Name == record.DAGName, nil
+}
+
+// guardCatchupSlot runs the enqueue of a catchup slot unless a backfill
+// holds the slot. It holds the lock under which the dispatcher queues the
+// DAG's backfill runs, so catchup and a backfill never both run a slot.
+func (s *Scheduler) guardCatchupSlot(ctx context.Context, entry DAGEntry, slot time.Time, enqueue func() error) (bool, error) {
+	dag := entry.DAG
+	profile, err := s.dagExecutor.defaultProfileName(ctx, entry.DefinitionID, dag)
+	if err != nil {
+		return false, fmt.Errorf("resolve the DAG's profile: %w", err)
+	}
+	unlock, err := s.backfills.Store.LockDAG(ctx, dag.Name)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	sched := backfill.SlotSchedule{Schedules: dag.Schedule, Profile: profile, Location: s.config.Core.Location}
+	history, err := backfill.LoadHistory(ctx, s.dagRunRepository, dag, sched, slot, slot)
+	if err != nil {
+		return false, err
+	}
+	if backfill.HeldByBackfill(slot, sched, history) {
+		return true, nil
+	}
+	return false, enqueue()
 }
 
 // backfillTarget loads a backfill's DAG from the definition pinned at submit.
