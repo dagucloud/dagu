@@ -155,6 +155,12 @@ type DAGRunRepositoryOptions struct {
 	// EphemeralStore holds ephemeral runs apart from the history. Without it
 	// the repository cannot create an ephemeral run.
 	EphemeralStore DAGRunStore
+	// SlotIndex records the runs of each schedule slot. Without it no slot
+	// is recorded.
+	SlotIndex SlotIndex
+	// CalendarsDir holds the business calendars the schedules of a run's
+	// slot may name.
+	CalendarsDir string
 }
 
 // DAGRunRemovalEnqueuer durably records resources before their DAG-run history is removed.
@@ -219,6 +225,10 @@ type DAGRunRetentionOptions struct {
 	RetentionRuns *int
 	// OlderThan takes precedence over retention days when RetentionRuns is unset.
 	OlderThan *time.Time
+	// DropSlots makes the removed runs stop counting for their schedule
+	// slots, as for an operator's delete. Otherwise each slot keeps the
+	// final status of its removed run.
+	DropSlots bool
 }
 
 // DAGRunRemoveOptions configures DAG-run removal.

@@ -206,6 +206,9 @@ type DAG struct {
 	HistRetentionDays int `json:"histRetentionDays,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to keep in history.
 	HistRetentionRuns int `json:"histRetentionRuns,omitempty"`
+	// SlotRetentionDays is the number of days to keep the record of each
+	// schedule slot. It outlasts the run history it records.
+	SlotRetentionDays int `json:"slotRetentionDays,omitempty"`
 	// Queue is the name of the queue to assign this DAG to.
 	Queue string `json:"queue,omitempty"`
 	// RetryPolicy controls automatic DAG-level retry behavior for failed runs.
@@ -680,6 +683,7 @@ func appendHolidays(dst, holidays []Holiday) []Holiday {
 func (d *DAG) initializeDefaults() {
 	const (
 		defaultHistRetentionDays = 30
+		defaultSlotRetentionDays = 730
 		// A service DAG adds a run at each restart, so it keeps a number of
 		// runs rather than days of them.
 		defaultServiceDAGHistRetentionRuns = 100
@@ -699,6 +703,9 @@ func (d *DAG) initializeDefaults() {
 		} else {
 			d.HistRetentionDays = defaultHistRetentionDays
 		}
+	}
+	if d.SlotRetentionDays == 0 {
+		d.SlotRetentionDays = defaultSlotRetentionDays
 	}
 	if d.MaxCleanUpTime == 0 {
 		d.MaxCleanUpTime = defaultMaxCleanUpTime

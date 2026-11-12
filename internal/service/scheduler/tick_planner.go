@@ -79,6 +79,9 @@ type HasGlobalQueueFunc func(dag *ir.DAG) bool
 // RunExistsFunc checks whether a durable dag-run record already exists.
 type RunExistsFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
 
+// RecordSkippedSlotFunc records that a schedule slot was not run, and why.
+type RecordSkippedSlotFunc func(ctx context.Context, dagName string, slot time.Time, schedule, reason string) error
+
 // TickPlannerConfig holds the dependencies for creating a TickPlanner.
 type TickPlannerConfig struct {
 	StateStore      schedulerstate.Store
@@ -106,6 +109,9 @@ type TickPlannerConfig struct {
 	HasGlobalQueue HasGlobalQueueFunc
 	// RunExists checks whether a durable dag-run record already exists.
 	RunExists RunExistsFunc
+	// RecordSkippedSlot records a slot the planner declined to run. Nil
+	// records nothing.
+	RecordSkippedSlot RecordSkippedSlotFunc
 	// RecoveryWindow returns how far back startup replays slots missed while
 	// the lock passed from a failed scheduler, or 0 after a normal start.
 	RecoveryWindow func() time.Duration
@@ -468,6 +474,35 @@ func latestCronSlot(schedules []ir.Schedule, from, to time.Time) (time.Time, boo
 // recordSlot keeps what came of a start slot as the DAG's latest, unless a
 // later slot is kept, the same slot was dispatched, or it is only planned
 // again. It reports whether the state changed.
+// declinedSlot is a due cron slot a guard held back.
+type declinedSlot struct {
+	at       time.Time
+	schedule ir.Schedule
+	outcome  schedulerstate.SlotOutcome
+}
+
+// recordSkippedSlot adds a slot the planner declined to run to the slot
+// index. A failed check is not a decision, and a slot that already has a run
+// is recorded by that run.
+func (tp *TickPlanner) recordSkippedSlot(ctx context.Context, dagName string, slot time.Time, schedule ir.Schedule, outcome schedulerstate.SlotOutcome) {
+	if tp.cfg.RecordSkippedSlot == nil {
+		return
+	}
+	switch outcome {
+	case schedulerstate.SlotSucceeded, schedulerstate.SlotRunning, schedulerstate.SlotQueued, schedulerstate.SlotOverlap:
+	case schedulerstate.SlotFailed, schedulerstate.SlotDone, schedulerstate.SlotDispatched,
+		schedulerstate.SlotPlanned, schedulerstate.SlotMissed:
+		return
+	}
+	if err := tp.cfg.RecordSkippedSlot(ctx, dagName, slot, schedule.Expression, string(outcome)); err != nil {
+		logger.Warn(ctx, "Failed to record a skipped schedule slot",
+			tag.DAG(dagName),
+			tag.ScheduledTime(slot),
+			tag.Error(err),
+		)
+	}
+}
+
 func (tp *TickPlanner) recordSlot(dagName string, at time.Time, outcome schedulerstate.SlotOutcome) bool {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -704,6 +739,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 							)
 							tp.advanceDAGWatermark(dagName, popped.ScheduledTime)
 							tp.recordSlot(dagName, popped.ScheduledTime, schedulerstate.SlotOverlap)
+							tp.recordSkippedSlot(ctx, dagName, popped.ScheduledTime, popped.Schedule, schedulerstate.SlotOverlap)
 						case ir.OverlapPolicyAll:
 							// leave in buffer, retry next tick
 						case ir.OverlapPolicyLatest:
@@ -772,7 +808,10 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 		}
 
-		// Evaluate cron schedules for live start runs.
+		// Evaluate cron schedules for live start runs. A declined slot is
+		// recorded as skipped once the candidate is chosen, since another
+		// schedule firing at the same time may still run it.
+		var declined []declinedSlot
 		for _, schedule := range active.start {
 			if !schedule.IsCron() {
 				continue
@@ -783,6 +822,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 			if ok, skipped := tp.shouldRun(ctx, entry.DAG, next, schedule); !ok {
 				tp.recordSlot(dagName, next, skipped)
+				declined = append(declined, declinedSlot{at: next, schedule: schedule, outcome: skipped})
 				continue
 			}
 			run := tp.createPlannedRun(entry.DAGEntry, schedule, next, ir.TriggerTypeScheduler)
@@ -799,6 +839,12 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 				tp.recordSlot(dagName, startCandidate.ScheduledTime, schedulerstate.SlotPlanned)
 			}
 			candidates = append(candidates, startCandidate)
+		}
+		for _, slot := range declined {
+			if hasStartCandidate && slot.at.Equal(startCandidate.ScheduledTime) {
+				continue
+			}
+			tp.recordSkippedSlot(ctx, dagName, slot.at, slot.schedule, slot.outcome)
 		}
 
 		// Evaluate stop schedules.

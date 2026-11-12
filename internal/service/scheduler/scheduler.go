@@ -374,8 +374,9 @@ func newScheduler(
 		HasGlobalQueue: func(dag *ir.DAG) bool {
 			return cfg.FindQueueConfig(dag.ProcGroup()) != nil
 		},
-		IsQueued:  isQueued,
-		RunExists: runExists,
+		IsQueued:          isQueued,
+		RunExists:         runExists,
+		RecordSkippedSlot: dagRunRepository.RecordSkippedSlot,
 		RecoveryWindow: func() time.Duration {
 			if tookOverStaleLock.Load() {
 				return cfg.Scheduler.FailoverRecoveryWindow
