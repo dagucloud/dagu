@@ -194,10 +194,13 @@ are dropped.
 
 Every browser step also publishes `downloads`: a JSON array of the absolute
 paths of the files it saved ([Downloads](#downloads)), in the order they
-finished, and empty when it saved none. The name is reserved: an `extract`
-schema that lists a `downloads` property fails validation. A later step can
-pass `${steps.<id>.outputs.downloads}` to a command, to an `upload`
-operation's `files`, or to `chat.completion` `files`.
+finished, and empty when it saved none. A step in a `foreach` body publishes
+only the files its own item saved, and the files saved before an `ask`
+pauses the step are published when the resumed step ends. The name is
+reserved: an `extract` schema that lists a `downloads` property fails
+validation. A later step can pass `${steps.<id>.outputs.downloads}` to a
+command, to an `upload` operation's `files`, or to `chat.completion`
+`files`.
 
 When the step succeeds, stdout is one JSON object of its outputs. Operation
 progress is written to stderr.
@@ -411,19 +414,22 @@ document and of the documents of the frames it shows from its own origin,
 nested as deep as they stay on it; a frame from another origin is looked at
 by its address alone, so a challenge nested inside one is not seen. A frame
 that is not rendered or is hidden, or whose address says `size=invisible`,
-as an invisible reCAPTCHA's badge does, shows no check. A page a client
-certificate kept from opening is not counted; Client certificates explains
-it.
+as an invisible reCAPTCHA's badge does, shows no check.
+
+A page a client certificate kept from opening is not counted; Client
+certificates explains it. A page that cannot be read keeps the refusal seen
+on it, since the read says nothing about the page, and shows none that was
+not seen.
 
 After the start URL and after every operation, a refused page adds a line to
 the timeline and the step log that names the check or the refusal, such as
-`page refused shop.example.com answered with a Cloudflare bot check (HTTP
-403) in place of the page`, `page refused shop.example.com answered with an
-AWS WAF CAPTCHA (HTTP 405) in place of the page`, `page refused
-portal.example.com shows a reCAPTCHA challenge (HTTP 200)`, or `page refused
-portal.example.com refused the page (HTTP 403 Forbidden)`, once while the
-browser keeps showing it. The sentence names an AWS WAF challenge, an
-hCaptcha challenge, and a Cloudflare Turnstile challenge the same way.
+`page refused: shop.example.com answered with a Cloudflare bot check (HTTP
+403) in place of the page`, `page refused: shop.example.com answered with an
+AWS WAF CAPTCHA (HTTP 405) in place of the page`, `page refused:
+portal.example.com shows a reCAPTCHA challenge (HTTP 200)`, or `page
+refused: portal.example.com refused the page (HTTP 403 Forbidden)`, once
+while the browser keeps showing it. The sentence names an AWS WAF challenge,
+an hCaptcha challenge, and a Cloudflare Turnstile challenge the same way.
 
 A refused page is not one to work on. An `act`, an `upload`, an `expect`, or
 an `extract` that would run on it fails before it runs, with the same
@@ -435,15 +441,14 @@ skipped, and one whose `when` holds runs, since the step chose to go on
 there, except an `extract`, which never runs on a refused page. A `goto`, a
 `wait`, a `screenshot`, and an `ask` run, since they do not work on the
 page: a goto leaves it, a wait can outlast a rate limit, a screenshot keeps
-what the page shows, and an ask lets a person pass the check. A step whose
-last operation leaves the browser on a refused page, or whose `url` opens one
-with no operation that fails there, fails at its end with the sentence. A
-step that fails for another reason while the browser shows a refused page
-ends its error with the same sentence, since the refusal usually explains
-the failure. A step that fails on a refused page keeps the recordings it
-replayed, since the refusal says nothing about them. A page that cannot be
-read keeps the refusal seen on it, since the read says nothing about the
-page, and shows none that was not seen.
+what the page shows, and an ask lets a person pass the check.
+
+A step whose last operation leaves the browser on a refused page, or whose
+`url` opens one with no operation that fails there, fails at its end with
+the sentence. A step that fails for another reason while the browser shows
+a refused page ends its error with the same sentence, since the refusal
+usually explains the failure. A step that fails on a refused page keeps the
+recordings it replayed, since the refusal says nothing about them.
 
 An action that leaves the browser on a bot check of any of these kinds, such
 as `goto` or an `act` that loads a page, waits up to 10 seconds for the
@@ -481,10 +486,7 @@ longest timeout of the acts and gotos run so far. A canceled download, or one
 still running at that timeout, fails the step.
 
 The step publishes the absolute path of every file it saved in its
-`downloads` output ([Outputs](#outputs)), so a later step need not rebuild
-the path from the step id and the name the site chose. A step in a `foreach`
-body publishes only the files its own item saved. The files saved before an
-`ask` pauses the step are published when the resumed step ends.
+`downloads` output ([Outputs](#outputs)).
 
 ### Dialogs
 
@@ -501,7 +503,8 @@ answered with its default text, and a `confirm` is answered as
   of being agreed to.
 
 Each answered dialog appears in the timeline and the step log after the
-operation that opened it, as `accepted confirm` or `dismissed confirm`.
+operation that opened it, as `accepted confirm` or `dismissed confirm`, and
+under `fail` the entry is `failed`.
 
 ### How much AI decides
 
@@ -620,8 +623,8 @@ alternative: signing the profile in once in a headed browser session (Spec
 
 A missing `with.do`, `with.url` for `browser.extract`, `with.instruction`, or
 `with.schema` fails validation with a diagnostic naming the field. An operation
-or condition that sets zero or several keys fails validation. An `extract`
-schema that lists a `downloads` property fails validation:
+or condition that sets zero or several keys fails validation. A reserved
+`downloads` output ([Outputs](#outputs)) fails validation with
 `output "downloads" is reserved for the files the step downloads`. A step fails when
 an `act` does not complete, an `expect` does not hold, a selector does not
 appear before the timeout, a download does not finish, the page leaves the

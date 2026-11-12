@@ -528,7 +528,7 @@ func TestRefusedPageIsReported(t *testing.T) {
 
 	require.EqualError(t, execution.err, `browser: do[2] expect failed: expectation not met: the page text does not contain "Order placed"; `+cloudflareRefusal)
 	assert.Equal(t, []string{"goto:completed", "page:refused", "act:completed", "wait:completed"}, eventNames(execution.exec.GetAgentSession()))
-	assert.Contains(t, execution.stderr.String(), "page refused "+cloudflareRefusal+"\n")
+	assert.Contains(t, execution.stderr.String(), "page refused: "+cloudflareRefusal+"\n")
 }
 
 // A step that fails on a page the site refused keeps the recordings it
@@ -590,6 +590,24 @@ func TestRefusedPageGuardedOperations(t *testing.T) {
 	require.EqualError(t, execution.err, "browser: do[2] extract failed: "+cloudflareRefusal)
 	assert.Equal(t, []string{"goto:completed", "page:refused", "act:skipped", "act:completed"}, eventNames(execution.exec.GetAgentSession()))
 	assert.Empty(t, execution.exec.GetOutputs())
+}
+
+// A when can wait while a check passes, so an operation it skips leaves
+// the page read again: the refusal seen before the wait does not fail the
+// operations that follow.
+func TestRefusedPageClearedDuringSkippedWhen(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}))
+	run.engine.outcome, run.engine.outcomeClearsAfterTextReads = cloudflareCheck, 1
+	execution := run.execute(`{"url": "https://shop.example.com/orders", "do": [
+		{"act": "Click the verify box", "when": {"text": "Verify you are human", "within": "1ms"}},
+		{"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}
+	]}`, nil)
+
+	require.NoError(t, execution.err)
+	assert.Equal(t, map[string]any{"order": "A-100", "downloads": []string{}}, execution.exec.GetOutputs())
+	assert.Equal(t, []string{"goto:completed", "page:refused", "act:skipped", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
 }
 
 // A goto does not work on the page, so it runs on a refused one and the
@@ -2014,7 +2032,7 @@ func TestRefusedPageKeptWhenUnreadable(t *testing.T) {
 
 			run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}, "The page asks to verify"))
 			run.engine.outcome = cloudflareCheck
-			run.engine.onAct = func() { run.engine.setOutcomeErr(unreadable) }
+			run.engine.outcomeErr, run.engine.outcomeErrAfterActs = unreadable, 1
 			execution := run.execute(steps, nil)
 
 			require.ErrorContains(t, execution.err, cloudflareRefusal)
