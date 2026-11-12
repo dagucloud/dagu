@@ -68,8 +68,9 @@ Dagu has no such list:
 ## Non-goals
 
 - Running anything on a node. [RFC 013](013-node-targeting.md) does that.
-- WinRM, AWS SSM, or other transports. The model leaves room for them. See
-  [Resolved questions](#resolved-questions).
+- WinRM, AWS SSM, or other transports. A custom attribute is a scalar, so a
+  later transport can add its own map beside `ssh` without colliding with
+  one.
 - Built-in cloud sources such as EC2 or Kubernetes. A `command` source that
   calls the vendor CLI covers them.
 - Configuration management, package state, or facts gathering.
@@ -123,10 +124,6 @@ Workspaces do not divide the single inventory that exists before RFC 003:
 | Secret refs in the inventory | Resolve in the global scope only, whatever the workspace of the DAG that uses the node |
 | Roles on the inventory | The caller's server-wide role. A user scoped to workspaces is a server-wide `viewer` |
 | `project` in the API, `--project` in the CLI | Not accepted. Once RFC 003 ships, `default` names this inventory |
-
-Before RFC 003, a DAG in any workspace therefore reaches every node with the
-global credentials. An install that divides access by workspace should not
-add a `nodes.yaml` until its projects exist. See [Security](#security).
 
 RFC 003's migration moves each DAG labelled `workspace=X` into project X,
 which has no `nodes.yaml`. A moved DAG that sets `nodes` or `node: required`
@@ -255,9 +252,9 @@ Rules:
 
 `{ secret: <ref> }` names a Dagu-managed entry in the project's secret
 registry, the only kind of entry a registry ref resolves to. A key kept in
-Vault or another provider is copied into the registry. See
-[Resolved questions](#resolved-questions). Literal passwords and literal
-credential headers are rejected, so `nodes.yaml` is safe to commit.
+Vault or another provider is copied into the registry. Literal passwords
+and literal credential headers are rejected, so `nodes.yaml` is safe to
+commit.
 
 A `file` key, or a path string, names a file on the host that opens the
 connection: the server for a local run or a test from the server, the worker
@@ -352,7 +349,8 @@ Output from a `command` or `url` is limited to 10 MiB.
 
 `ansible-inventory` resolves group variables, host ranges, and inventory
 plugins exactly as Ansible does, so Dagu reads its output instead of parsing
-inventory files itself.
+inventory files itself. A server without Ansible reads a saved copy of that
+output as a `file` source.
 
 #### Rundeck mapping
 
@@ -740,8 +738,8 @@ like every other entry.
   or headers.
 - Before RFC 003, the inventory and its credentials are global. Any user who
   can write or run a DAG that targets nodes, in any workspace, reaches every
-  node with those credentials. Workspaces do not limit this. Projects do,
-  once RFC 003 ships.
+  node with those credentials. An install that divides access by workspace
+  should not add a `nodes.yaml` until its projects exist.
 - Attribute values from scripts, URLs, and Ansible are untrusted text. RFC 013
   inserts them into commands only where the author writes `${node.*}`, and
   its Security section covers quoting.
@@ -770,8 +768,7 @@ part of the fleet.
 ## Compatibility and rollout
 
 - Additive. An install without `nodes.yaml` behaves as before.
-- `nodes.yaml` is not read from a DAG directory, so no DAG file name is
-  reserved. `paths.inventory_dir` is a new setting.
+- `paths.inventory_dir` is a new setting.
 - RFC 003's migration must handle workspace DAGs that target nodes, as
   [Where the inventory lives](#where-the-inventory-lives) says. That work,
   with acceptance item 24, is part of RFC 003 and blocks v3.0.
@@ -913,8 +910,8 @@ with RFC 013's first rollout phase. Item 23 needs its worker nodes.
 - **Parse Ansible inventory files directly.** Partial fidelity for group
   variables, ranges, and plugins. `ansible-inventory` is exact.
 - **A server-wide inventory.** Simpler for one team, but RFC 003 makes the
-  project the unit of access, and hosts are part of what a team owns. See
-  [Resolved questions](#resolved-questions).
+  project the unit of access, and hosts are part of what a team owns.
+  Projects that share hosts name the same source.
 
 ## Consequences
 
@@ -926,34 +923,3 @@ with RFC 013's first rollout phase. Item 23 needs its worker nodes.
   background work. It is bounded by `refresh`, `timeout`, and the output
   limit.
 - "Node" now means an inventory entry in the UI and docs.
-
-## Resolved questions
-
-1. **No server-wide inventory.** Each project has its own. Projects that
-   share hosts name the same `file`, `command`, or `url` source, and keep
-   their own secrets and trusted host keys.
-2. **`workers` stays `false` by default.** Turning it on changes what `.*`
-   and other broad filters match, and a worker leaves the list when it
-   disconnects.
-3. **Dagu does not parse Ansible inventory files.** A host without Ansible
-   uses the saved output of `ansible-inventory --list` as a `file` source
-   with `format: ansible`.
-4. **No built-in cloud sources.** A `command` source that calls the vendor
-   CLI covers them, and Dagu holds no cloud credentials.
-5. **A node can be disabled.** `disabled: true` keeps runs off it. The node
-   is still matched and is recorded as `disabled`, so a run shows which
-   hosts it did not reach.
-6. **Tags merge as a union.** A tag-only entry in the `nodes` block then adds
-   to a discovered node without repeating its tags. Rundeck's resource
-   sources merge tags the same way.
-7. **The node drawer does not show recent runs.** That needs an index of
-   runs by node, which belongs with RFC 013's per-node records.
-8. **No fields are reserved for other transports.** A custom attribute is a
-   scalar, so a later transport can add its own map beside `ssh`, and a new
-   `transport` value, without colliding with one.
-9. **Credentials take registry refs only.** One kind of ref keeps one way to
-   resolve it and one record of what an attempt may read. A provider form
-   would first be a change to Spec 069 and
-   [#3769](https://github.com/dagucloud/dagu/issues/3769).
-10. **The inventory stays out of DAG directories**, as
-    [Where the inventory lives](#where-the-inventory-lives) explains.
