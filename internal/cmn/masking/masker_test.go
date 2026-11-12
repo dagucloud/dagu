@@ -120,6 +120,14 @@ func TestMasker_MaskString(t *testing.T) {
 			input:    `{"literal":"a<b&c>","go":"a\u003cb\u0026c\u003e"}`,
 			expected: `{"literal":"*******","go":"*******"}`,
 		},
+		{
+			name: "non-ASCII and HTML characters as unicode escapes",
+			sources: SourcedEnvVars{
+				Secrets: []string{"TOKEN=héllo<🔑>"},
+			},
+			input:    `{"ascii_html":"h\u00e9llo\u003c\ud83d\udd11\u003e","html":"héllo\u003c🔑\u003e","ascii":"h\u00e9llo<\ud83d\udd11>"}`,
+			expected: `{"ascii_html":"*******","html":"*******","ascii":"*******"}`,
+		},
 	}
 
 	for _, tt := range tests {

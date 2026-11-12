@@ -41,8 +41,7 @@ func NewMasker(sources SourcedEnvVars) *Masker {
 		if val == "" {
 			continue
 		}
-		sensitiveVals[val] = true
-		for _, form := range jsonEscapedForms(val) {
+		for _, form := range jsonForms(val) {
 			sensitiveVals[form] = true
 		}
 	}
@@ -52,20 +51,19 @@ func NewMasker(sources SourcedEnvVars) *Masker {
 	}
 }
 
-// jsonEscapedForms returns the spellings of val inside a JSON string that
-// differ from val: the common escaped form, the form with HTML characters
-// escaped as Go's encoder writes them, and the ASCII-only form.
-func jsonEscapedForms(val string) []string {
-	var forms []string
-	add := func(form string) {
-		if form != val && !slices.Contains(forms, form) {
-			forms = append(forms, form)
+// jsonForms returns val and its distinct spellings inside a JSON string:
+// escaped with and without HTML characters as \u escapes, each as written
+// and as ASCII only.
+func jsonForms(val string) []string {
+	forms := []string{val}
+	for _, escapeHTML := range []bool{false, true} {
+		body := jsonStringBody(val, escapeHTML)
+		for _, form := range []string{body, asciiOnly(body)} {
+			if !slices.Contains(forms, form) {
+				forms = append(forms, form)
+			}
 		}
 	}
-	plain := jsonStringBody(val, false)
-	add(plain)
-	add(jsonStringBody(val, true))
-	add(asciiOnly(plain))
 	return forms
 }
 
