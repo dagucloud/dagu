@@ -1,0 +1,6 @@
+steps:
+  - id: verify
+    untrusted: true
+    container:
+      image: alpine:3
+    run: ./scripts/test.sh

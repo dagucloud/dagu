@@ -1,0 +1,10 @@
+# An agent worker always runs one run, so the file cannot set
+# worker.max_active_runs.
+peer:
+  insecure: false
+  cert_file: tls/agent-claude.crt
+  key_file: tls/agent-claude.key
+  client_ca_file: tls/dagu-ca.crt
+worker:
+  coordinators: [127.0.0.1:1]
+  max_active_runs: 4

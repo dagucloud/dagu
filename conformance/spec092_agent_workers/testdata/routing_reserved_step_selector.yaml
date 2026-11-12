@@ -1,0 +1,8 @@
+description: A step selector cannot use a label that starts with agent.
+steps:
+  - id: child
+    action: dag.run
+    worker_selector:
+      agent.provider.claude: "true"
+    with:
+      dag: routing_child

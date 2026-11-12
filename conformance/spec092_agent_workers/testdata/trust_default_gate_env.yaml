@@ -1,0 +1,21 @@
+# The same DAG as trust_default_gate_reference.yaml, with the value in env: valid.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the failing test.
+  - id: verify
+    depends: [code]
+    run: echo "verdict=ok" > "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: verdict
+  - id: gate
+    depends: [verify]
+    untrusted: false
+    env:
+      - VERDICT: ${steps.verify.outputs.verdict}
+    run: printf '%s\n' "$VERDICT"
