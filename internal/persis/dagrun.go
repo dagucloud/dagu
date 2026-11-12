@@ -57,6 +57,8 @@ type DAGRunStatusQuery struct {
 	// ExcludeDAGNames drops the runs of these DAGs. A cursor records only
 	// whether it is set, so a page stays valid when the names change.
 	ExcludeDAGNames []string
+	// ExcludeBackfill drops backfill runs.
+	ExcludeBackfill bool
 }
 
 // DAGRunStatusPage is one forward-only page of DAG-run statuses.
@@ -208,6 +210,8 @@ type DAGRunListOptions struct {
 	Unbounded bool
 	// FullStatus returns each status whole, with its nodes.
 	FullStatus bool
+	// ExcludeBackfill drops backfill runs.
+	ExcludeBackfill bool
 }
 
 // DAGRunCompareAndSwapOptions configures an atomic latest-attempt status update.

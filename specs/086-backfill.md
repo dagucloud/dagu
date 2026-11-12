@@ -173,6 +173,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A queued or running backfill run does not make the scheduler skip a live
   slot because the DAG is queued or running, and does not count for
   `skip_if_successful`. The live slot's run is queued instead.
+- A DAG's run history, in the API and its live feed, leaves out backfill
+  runs unless asked for them with `includeBackfill`, so a long backfill does
+  not push the live runs out of a page. A DAG whose only runs are backfill
+  runs lists them.
 - `mail_on` and notification routes do not fire for a backfill run, except
   for a run waiting for a person. A backfill run neither opens nor resolves
   an incident. `handler_on` steps still run.

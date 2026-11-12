@@ -560,6 +560,7 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		Limit:            limit,
 		Cursor:           valueOf(request.Params.Cursor),
 		IncludeEphemeral: valueOf(request.Params.IncludeEphemeral),
+		ExcludeBackfill:  !valueOf(request.Params.IncludeBackfill),
 	})
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
@@ -2328,7 +2329,12 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{Limit: defaultHistoryLimit})
+		// The live feed mirrors the default page, which leaves out backfill
+		// runs.
+		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{
+			Limit:           defaultHistoryLimit,
+			ExcludeBackfill: true,
+		})
 	})
 }
 

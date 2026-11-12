@@ -11079,6 +11079,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them. */
                 includeEphemeral?: boolean;
+                /** @description If true, include backfill runs. By default they are left out, so a long backfill does not push the live runs out of the page, unless the DAG has no other runs. */
+                includeBackfill?: boolean;
                 /** @description Maximum number of DAG-runs per page, not counting ephemeral runs */
                 limit?: number;
                 /** @description Opaque cursor for loading the next page of older DAG-runs */

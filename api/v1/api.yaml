@@ -1801,6 +1801,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: includeBackfill
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: "If true, include backfill runs. By default they are left out, so a long backfill does not push the live runs out of the page, unless the DAG has no other runs."
         - name: limit
           in: query
           required: false
