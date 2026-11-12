@@ -592,6 +592,19 @@ Rules:
 
 - Body step output references never cross item bodies.
 
+- A body step reads the `foreach` step's own `env` entries and the output
+  variables visible to the `foreach` step, as a step in the same DAG would. A
+  body step's own `env` wins over them.
+
+- Values Dagu sets for each step, such as the working directory, the step
+  name, and the trace context (Spec 017), are those of the body step, not the
+  `foreach` step. `TRACEPARENT` and `TRACESTATE` set in the `foreach` step's
+  `env` do not reach body steps.
+
+- The values a body step reads from the `foreach` step are not part of what a
+  child run started by the body step inherits. Passing one to a child run
+  requires `pass_env` (Spec 006, "Sub-DAG Passed Environment").
+
 - Top-level steps after the `foreach` step cannot reference body step outputs
   directly. They must consume the `foreach` aggregate output.
 
