@@ -115,30 +115,29 @@ func TestStoreImport(t *testing.T) {
 	store := slotindex.New(t.TempDir())
 	require.NoError(t, store.Record(ctx, persis.SlotEvent{Kind: persis.SlotEventDropped, DAGName: "etl", Slot: slotAt(1, 2), RunID: "deleted"}))
 
-	imported, err := store.Imported(ctx, "etl")
+	through, err := store.ImportedThrough(ctx, "etl")
 	require.NoError(t, err)
-	assert.False(t, imported)
+	assert.True(t, through.IsZero())
 
 	history := []persis.SlotEvent{
 		{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(1, 2), RunID: "deleted"},
 		{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(2, 2), RunID: "kept"},
 	}
-	for range 2 {
-		require.NoError(t, store.Import(ctx, "etl", history))
-	}
+	require.NoError(t, store.Import(ctx, "etl", history, slotAt(20, 0)))
+	require.NoError(t, store.Import(ctx, "etl", history, slotAt(19, 0)))
 
-	imported, err = store.Imported(ctx, "etl")
+	through, err = store.ImportedThrough(ctx, "etl")
 	require.NoError(t, err)
-	assert.True(t, imported)
+	assert.Equal(t, slotAt(20, 0), through, "the marker only moves forward")
 	events, err := store.Events(ctx, "etl", slotAt(1, 0), slotAt(2, 23))
 	require.NoError(t, err)
 	require.Len(t, events, 2)
 	assert.Equal(t, persis.SlotEventDropped, events[0].Kind)
 	assert.Equal(t, "kept", events[1].RunID)
 
-	imported, err = store.Imported(ctx, "other")
+	through, err = store.ImportedThrough(ctx, "other")
 	require.NoError(t, err)
-	assert.False(t, imported)
+	assert.True(t, through.IsZero())
 }
 
 // Writers in different processes each open their own store; none of their

@@ -80,6 +80,7 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 		RemovalEnqueuer:   options.RemovalEnqueuer,
 		EphemeralStore:    ephemeralStore,
 		SlotIndex:         slots,
+		CalendarsDir:      cfg.Paths.CalendarsDir,
 	})
 }
 

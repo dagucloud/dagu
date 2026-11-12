@@ -23,13 +23,14 @@ type SlotIndex interface {
 	Events(ctx context.Context, dagName string, from, to time.Time) ([]SlotEvent, error)
 	// Prune removes the events of a DAG whose slots fall before cutoff.
 	Prune(ctx context.Context, dagName string, cutoff time.Time) error
-	// Imported reports whether a DAG's run history has been added to the
-	// index.
-	Imported(ctx context.Context, dagName string) (bool, error)
-	// Import appends the events whose runs have no event yet and marks the
-	// DAG's history added, atomically with respect to Record. A run removed
-	// while its history was being read keeps its removal.
-	Import(ctx context.Context, dagName string, events []SlotEvent) error
+	// ImportedThrough returns the time through which a DAG's run history
+	// has been added to the index, or zero when it never was.
+	ImportedThrough(ctx context.Context, dagName string) (time.Time, error)
+	// Import appends the events whose runs have no event yet and records
+	// that the DAG's history has been added through the given time,
+	// atomically with respect to Record. A run removed while its history was
+	// being read keeps its removal.
+	Import(ctx context.Context, dagName string, events []SlotEvent, through time.Time) error
 }
 
 // SlotEventKind is what happened to a slot.

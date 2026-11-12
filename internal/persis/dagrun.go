@@ -158,6 +158,9 @@ type DAGRunRepositoryOptions struct {
 	// SlotIndex records the runs of each schedule slot. Without it no slot
 	// is recorded.
 	SlotIndex SlotIndex
+	// CalendarsDir holds the business calendars the schedules of a run's
+	// slot may name.
+	CalendarsDir string
 }
 
 // DAGRunRemovalEnqueuer durably records resources before their DAG-run history is removed.

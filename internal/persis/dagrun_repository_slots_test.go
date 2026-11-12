@@ -6,6 +6,7 @@ package persis_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -368,4 +369,68 @@ func TestSlotIndexPrunesByRetentionDays(t *testing.T) {
 	assert.Equal(t, slotOct2, events[0].Slot)
 	assert.Equal(t, persis.SlotEventSkipped, events[0].Kind)
 	assert.Equal(t, "succeeded", events[0].SkipReason)
+}
+
+// A run whose every recording failed is added on the next read of its DAG's
+// slots, after the history was imported.
+func TestSlotEventsRecoversAFailedRecording(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := slotindex.New(filepath.Join(dir, "slot-index"))
+	index := &flakySlotIndex{SlotIndex: store}
+	f := newSlotFixture(t)
+	f.index = store
+	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
+		SlotIndex: index,
+		Location:  time.UTC,
+	})
+	_, err := f.repository.SlotEvents(ctx, f.dag, slotOct1, slotOct2)
+	require.NoError(t, err)
+
+	index.failures = 3
+	f.writeRun(t, "lost", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Queued, slotOct1, ir.TriggerTypeScheduler),
+		scheduledStatus(ir.Running, slotOct1, ir.TriggerTypeScheduler),
+		scheduledStatus(ir.Succeeded, slotOct1, ir.TriggerTypeScheduler),
+	)
+	require.Empty(t, f.events(t), "every recording failed")
+
+	events, err := f.repository.SlotEvents(ctx, f.dag, slotOct1, slotOct2)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "lost", events[0].RunID)
+}
+
+// A schedule's business calendar is applied to an imported run, whose
+// snapshot does not carry the calendar: a manual run on a day the calendar
+// excludes names no schedule.
+func TestSlotEventsAppliesCalendarsToImportedRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	calendars := filepath.Join(dir, "calendars")
+	require.NoError(t, os.MkdirAll(calendars, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(calendars, "workdays.yaml"), []byte("weekdays: [MON, TUE, WED, THU, FRI]\n"), 0o600))
+	dag, err := spec.LoadYAML(ctx, []byte("name: daily\nschedule:\n  - expression: \"0 2 * * *\"\n    calendar: workdays\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	old := slotFixture{repository: testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{}), dag: dag}
+	// 2026-10-03 is a Saturday and 2026-10-05 a Monday.
+	saturday := time.Date(2026, 10, 3, 2, 0, 0, 0, time.UTC)
+	monday := time.Date(2026, 10, 5, 2, 0, 0, 0, time.UTC)
+	old.writeRun(t, "saturday", persis.DAGRunCreateAttemptOptions{}, scheduledStatus(ir.Succeeded, saturday, ir.TriggerTypeManual))
+	old.writeRun(t, "monday", persis.DAGRunCreateAttemptOptions{}, scheduledStatus(ir.Succeeded, monday, ir.TriggerTypeManual))
+
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
+		SlotIndex:    slotindex.New(filepath.Join(dir, "slot-index")),
+		Location:     time.UTC,
+		CalendarsDir: calendars,
+	})
+	events, err := repository.SlotEvents(ctx, dag, saturday, monday)
+	require.NoError(t, err)
+	schedules := map[string]string{}
+	for _, event := range events {
+		schedules[event.RunID] = event.Schedule
+	}
+	assert.Equal(t, map[string]string{"saturday": "", "monday": "0 2 * * *"}, schedules)
 }

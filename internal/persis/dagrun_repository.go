@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // DAGRunRepository provides application-level access to persisted DAG runs.
@@ -27,6 +28,7 @@ type DAGRunRepository struct {
 	removalEnqueuer   DAGRunRemovalEnqueuer
 	ephemeral         DAGRunStore
 	slotIndex         SlotIndex
+	calendars         *spec.CalendarSource
 }
 
 // NewDAGRunRepository creates a repository backed by store.
@@ -51,7 +53,15 @@ func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, option
 		removalEnqueuer:   options.RemovalEnqueuer,
 		ephemeral:         options.EphemeralStore,
 		slotIndex:         options.SlotIndex,
+		calendars:         calendarSource(options.CalendarsDir),
 	}
+}
+
+func calendarSource(dir string) *spec.CalendarSource {
+	if dir == "" {
+		return nil
+	}
+	return spec.NewCalendarSource(dir)
 }
 
 // CreateAttempt creates an attempt within a DAG run.
@@ -86,7 +96,7 @@ func (r *DAGRunRepository) CreateAttempt(
 	wrapped := newEventingAttempt(attempt, dag, ephemeral)
 	// Only a new top-level run is a run of its slot; a retry is the same run.
 	if r.slotIndex != nil && !ephemeral && !options.Retry && options.RootDAGRun.Zero() {
-		wrapped.(*eventingAttempt).slots = &slotRecorder{index: r.slotIndex, location: r.location}
+		wrapped.(*eventingAttempt).slots = &slotRecorder{index: r.slotIndex, location: r.location, calendars: r.calendars}
 	}
 	return wrapped, nil
 }

@@ -58,10 +58,12 @@ a slot is done.
 
   A slot whose checks failed is not recorded as skipped. A slot that already
   has a run is recorded through that run.
-- Runs that were in history before slot history existed are added to it the
-  first time the DAG's slot history is read, except runs whose slots are
-  older than `slot_retention_days`. A run removed while its history is being
-  added stays removed.
+- Each read of a DAG's slot history first adds the runs in its run history
+  that it lacks, except runs whose slots are older than `slot_retention_days`:
+  the whole history on the first read, and later the runs created since the
+  previous read. A run that could not be recorded when it was created is
+  added this way. A run removed while its history is being added stays
+  removed.
 - A slot stays in the history for at least `slot_retention_days` days after
   its scheduled time, whatever `hist_retention_days` or `hist_retention_runs`
   remove.

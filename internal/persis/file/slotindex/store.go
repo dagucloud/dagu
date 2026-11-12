@@ -7,7 +7,8 @@
 //	<dir>/<hex DAG name>/
 //	├── 2026-10-02.jsonl   events of slots on that day, in recorded order
 //	├── 2026-10-03.jsonl
-//	└── .imported          the DAG's run history has been added
+//	└── .imported          the time through which the DAG's run history
+//	                       has been added
 package slotindex
 
 import (
@@ -161,22 +162,31 @@ func (s *Store) Prune(ctx context.Context, dagName string, cutoff time.Time) err
 	})
 }
 
-// Imported reports whether the import marker of a DAG exists.
-func (s *Store) Imported(_ context.Context, dagName string) (bool, error) {
-	_, err := os.Stat(filepath.Join(s.dagDir(dagName), importedMarker))
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, os.ErrNotExist):
-		return false, nil
-	default:
-		return false, fmt.Errorf("slot index: stat import marker: %w", err)
+// ImportedThrough reads the time of a DAG's import marker.
+func (s *Store) ImportedThrough(_ context.Context, dagName string) (time.Time, error) {
+	return s.readMarker(dagName)
+}
+
+func (s *Store) readMarker(dagName string) (time.Time, error) {
+	data, err := os.ReadFile(filepath.Join(s.dagDir(dagName), importedMarker)) //nolint:gosec // path is built from the store's own layout
+	if errors.Is(err, os.ErrNotExist) {
+		return time.Time{}, nil
 	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("slot index: read import marker: %w", err)
+	}
+	through, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(data)))
+	if err != nil {
+		// A marker that cannot be read makes the next read add the whole
+		// history again, which Import does without duplicates.
+		return time.Time{}, nil
+	}
+	return through, nil
 }
 
 // Import appends, under the DAG's lock, the events whose runs have no event
-// in their day yet, then writes the import marker.
-func (s *Store) Import(ctx context.Context, dagName string, events []persis.SlotEvent) error {
+// in their day yet, then moves the import marker forward to through.
+func (s *Store) Import(ctx context.Context, dagName string, events []persis.SlotEvent, through time.Time) error {
 	byDay := make(map[string][]persis.SlotEvent)
 	for _, event := range events {
 		if event.DAGName != dagName || event.Slot.IsZero() {
@@ -191,7 +201,14 @@ func (s *Store) Import(ctx context.Context, dagName string, events []persis.Slot
 				return err
 			}
 		}
-		return fileutil.WriteFileAtomic(filepath.Join(s.dagDir(dagName), importedMarker), nil, filePerms)
+		current, err := s.readMarker(dagName)
+		if err != nil {
+			return err
+		}
+		if !through.After(current) {
+			return nil
+		}
+		return fileutil.WriteFileAtomic(filepath.Join(s.dagDir(dagName), importedMarker), []byte(through.UTC().Format(time.RFC3339Nano)), filePerms)
 	})
 }
 
