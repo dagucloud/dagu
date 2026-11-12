@@ -212,6 +212,9 @@ func load() error {
 		}
 		purego.RegisterLibFunc(&ioPMAssertionCreateWithName, iokit, "IOPMAssertionCreateWithName")
 		purego.RegisterLibFunc(&ioPMAssertionRelease, iokit, "IOPMAssertionRelease")
+		if errLoad = loadInputSourceFuncs(); errLoad != nil {
+			return
+		}
 	})
 	return errLoad
 }
