@@ -271,7 +271,8 @@ func TestAIKeyDocsMatchTheSpec(t *testing.T) {
 	rangePattern := regexp.MustCompile(`^(\d+) to (\d+)`)
 
 	var specKeys []string
-	for line := range strings.SplitSeq(string(data), "\n") {
+	// A Windows checkout of the spec has CRLF line ends: the row pattern ends with the end of a line.
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		m := row.FindStringSubmatch(line)
 		if m == nil {
 			continue
