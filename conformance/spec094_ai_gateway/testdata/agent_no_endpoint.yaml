@@ -1,0 +1,10 @@
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+steps:
+  - id: code
+    action: agent.run
+    stdout: code.out
+    with:
+      provider: claude
+      prompt: "Fix the failing test."

@@ -1,0 +1,9 @@
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      thinking: { enabled: true }
+      prompt: Say hello.
