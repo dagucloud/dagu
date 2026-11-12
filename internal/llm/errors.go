@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -62,6 +63,97 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// maxReasonRunes bounds the provider reason a step error carries.
+const maxReasonRunes = 200
+
+// Reason returns the provider's explanation of the failure as a single
+// bounded line: the first non-blank message of a JSON error body
+// (`error.message`, a string `error`, or a top-level `message`), else the
+// body itself. Whitespace is collapsed and text beyond maxReasonRunes is
+// replaced by an ellipsis. An empty body yields "".
+//
+// mask, when non-nil, rewrites the selected text before it is collapsed or
+// cut, so a secret containing whitespace or crossing the length bound is
+// still matched whole. The body is parsed before any masking, since a
+// secret matching a bare token would otherwise break the JSON and hide the
+// rest; the mask then runs on the decoded message, or on every string and
+// the re-encoding of a JSON body that carries no message, so JSON escaping
+// cannot hide a secret either.
+func (e *APIError) Reason(mask func(string) string) string {
+	if mask == nil {
+		mask = func(s string) string { return s }
+	}
+	reason := ""
+	_, messages := apiErrorDetails(e.Message)
+	for _, message := range messages {
+		if strings.TrimSpace(message) == "" {
+			continue
+		}
+		if message == e.Message {
+			// The whole body stood in for a message: it is not one JSON value,
+			// but may start with one that hides a secret behind JSON escapes.
+			reason = maskJSONStrings(message, mask)
+		} else {
+			reason = mask(message)
+		}
+		break
+	}
+	if reason == "" {
+		reason = maskJSONStrings(e.Message, mask)
+	}
+	reason = strings.Join(strings.Fields(reason), " ")
+	if runes := []rune(reason); len(runes) > maxReasonRunes {
+		reason = string(runes[:maxReasonRunes]) + "..."
+	}
+	return reason
+}
+
+// maskJSONStrings applies mask to every string in a JSON document, keys
+// included, and then to its compact re-encoding, which also covers a secret
+// that matches a bare token. Text after the document is masked as text, and
+// text that is not JSON is masked as a whole.
+func maskJSONStrings(body string, mask func(string) string) string {
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return mask(body)
+	}
+	var maskValue func(v any) any
+	maskValue = func(v any) any {
+		switch v := v.(type) {
+		case string:
+			return mask(v)
+		case map[string]any:
+			masked := make(map[string]any, len(v))
+			for key, val := range v {
+				masked[mask(key)] = maskValue(val)
+			}
+			return masked
+		case []any:
+			for i, val := range v {
+				v[i] = maskValue(val)
+			}
+			return v
+		default:
+			return v
+		}
+	}
+	var buf strings.Builder
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(maskValue(decoded)); err != nil {
+		return mask(body)
+	}
+	masked := strings.TrimSuffix(buf.String(), "\n")
+	if rest := body[decoder.InputOffset():]; strings.TrimSpace(rest) != "" {
+		masked += rest
+	}
+	// One pass over the whole text also catches a secret that spans the
+	// document and the text after it.
+	return mask(masked)
+}
+
 // NewAPIError creates a new APIError with the given parameters.
 func NewAPIError(provider string, statusCode int, message string) *APIError {
 	return &APIError{
@@ -102,8 +194,15 @@ func classifyAPIError(statusCode int, body string) error {
 }
 
 func apiErrorDetails(body string) (codes []string, messages []string) {
+	// Numbers stay as written so a value Go cannot hold, such as 1e400,
+	// does not turn a JSON body into plain text.
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
 	var decoded any
-	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, []string{body}
+	}
+	if _, err := decoder.Token(); err != io.EOF {
 		return nil, []string{body}
 	}
 	value, ok := decoded.(map[string]any)

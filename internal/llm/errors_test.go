@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,57 @@ func TestAPIError(t *testing.T) {
 		err := &APIError{Err: inner}
 		assert.Equal(t, inner, err.Unwrap())
 	})
+}
+
+func TestAPIError_Reason(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, message, want string }{
+		{"empty", "", ""},
+		{"blank", " \n\t ", ""},
+		{"openai", `{"error":{"message":"Insufficient credits","code":402}}`, "Insufficient credits"},
+		{"trailing_text", `{"message":"bad request"} maximum context length`, `{"message":"bad request"} maximum context length`},
+		{"anthropic", `{"type":"error","error":{"type":"not_found_error","message":"model: no-such-model"}}`, "model: no-such-model"},
+		{"error_string", `{"error":"busy"}`, "busy"},
+		{"top_level_message", `{"message":"quota exceeded"}`, "quota exceeded"},
+		{"blank_then_nested", `{"message":"","error":{"message":"Insufficient credits"}}`, "Insufficient credits"},
+		{"message_whitespace", `{"error":{"message":"  line one\n\n  line two  "}}`, "line one line two"},
+		{"message_empty", `{"error":{"message":""}}`, `{"error":{"message":""}}`},
+		{"json_array", `["unexpected"]`, `["unexpected"]`},
+		{"text", "  <html>\n  Bad Gateway\t</html>  ", "<html> Bad Gateway </html>"},
+		{"long", strings.Repeat("é", 300), strings.Repeat("é", 200) + "..."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
+			assert.Equal(t, tc.want, err.Reason(nil))
+		})
+	}
+}
+
+// The mask sees the text before whitespace is collapsed or the length bound
+// is applied, and sees the decoded message where JSON escaping hid the secret.
+func TestAPIError_ReasonMasked(t *testing.T) {
+	t.Parallel()
+	mask := strings.NewReplacer("multi word\nsecret", "*******", `quoted-"secret"`, "*******", "4021", "*******", "1234\nprivate-token", "*******").Replace
+	for _, tc := range []struct{ name, message, want string }{
+		{"whitespace", "denied for multi word\nsecret here", "denied for ******* here"},
+		{"boundary", strings.Repeat("a", 195) + "multi word\nsecret", strings.Repeat("a", 195) + "*****..."},
+		{"escaped", `{"error":{"message":"bad key quoted-\"secret\""}}`, "bad key *******"},
+		{"escaped_trailing", `{"state":"quoted-\"secret\""} extra`, `{"state":"*******"} extra`},
+		{"spanning", "1234\nprivate-token", "*******"},
+		{"escaped_no_message", `{"state":"quoted-\"secret\"","detail":["quoted-\"secret\""],"code":402}`, `{"code":402,"detail":["*******"],"state":"*******"}`},
+		// A secret matching a bare token must not break the parse that finds
+		// the escaped one.
+		{"token_and_escaped", `{"code":4021,"state":"quoted-\"secret\""}`, `{"code":*******,"state":"*******"}`},
+		{"token_in_message", `{"code":4021,"error":{"message":"account 4021 is suspended"}}`, "account ******* is suspended"},
+		{"overflow_and_escaped", `{"code":1e400,"state":"quoted-\"secret\""}`, `{"code":1e400,"state":"*******"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
+			assert.Equal(t, tc.want, err.Reason(mask))
+		})
+	}
 }
 
 func TestNewAPIError(t *testing.T) {
