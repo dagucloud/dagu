@@ -69,6 +69,11 @@ func (r *reporter) reportStep(
 	if r.errorMail == nil {
 		return nil
 	}
+	// A backfill run mails nothing per step either, so a backfill does not
+	// mail once per failed slot.
+	if dagStatus.BackfillID != "" {
+		return nil
+	}
 	if node.State().Status == ir.NodeFailed && node.NodeData().Step.MailOnError {
 		return r.sendConfiguredMail(ctx, r.errorMail, dag.Name, dagStatus)
 	}

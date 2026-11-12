@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
 
@@ -215,6 +216,12 @@ func testNoBackfillRunMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir
 
 	require.NoError(t, rp.send(context.Background(), dag, ir.DAGRunStatus{Status: ir.Waiting, BackfillID: "bf123456", Nodes: nodes}, nil))
 	require.Equal(t, 1, mock.count)
+
+	failedStep := runtime.NewNode(ir.Step{Name: "load", MailOnError: true}, runtime.NodeState{Status: ir.NodeFailed})
+	require.NoError(t, rp.reportStep(context.Background(), dag, ir.DAGRunStatus{Status: ir.Running, BackfillID: "bf123456"}, failedStep))
+	require.Equal(t, 1, mock.count, "a failed step of a backfill run mails nothing")
+	require.NoError(t, rp.reportStep(context.Background(), dag, ir.DAGRunStatus{Status: ir.Running}, failedStep))
+	require.Equal(t, 2, mock.count, "a failed step of a live run still mails")
 }
 
 func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
