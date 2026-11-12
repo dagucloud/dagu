@@ -211,8 +211,11 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 }
 
 func (r *run) execute(ctx context.Context) error {
-	if r.cfg.hasAsk() && !r.exec.askSupported {
-		return errors.New("browser: ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	// An ask without a when certainly runs, so the step fails before starting
+	// a browser; a when-guarded ask fails at its operation if it runs.
+	if r.cfg.hasUnguardedAsk() && !r.exec.askSupported {
+		// The URL the error names may hold a secret.
+		return errors.New("browser: " + r.masker.MaskString(r.cfg.askUnsupportedError().Error()))
 	}
 	if mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate); err == nil && mode == writegate.ModeAsk && !r.exec.askSupported {
 		return errors.New("browser: write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
@@ -252,6 +255,9 @@ func (r *run) execute(ctx context.Context) error {
 				})
 				continue
 			}
+		}
+		if op.Ask != nil && !r.exec.askSupported {
+			return r.fail(ctx, i, opAsk, r.cfg.askUnsupportedError())
 		}
 		key, page := r.locate(ctx, i, op)
 		decision, decided := r.commitDecisions[i]

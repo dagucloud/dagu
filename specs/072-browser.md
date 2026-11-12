@@ -542,8 +542,13 @@ step. The pending question carries that deadline as `expiresAt`.
 
 Answers are stored in the run's history like other human input.
 
-On Windows, a step with an `ask` operation fails before starting a browser,
-because the browser cannot outlive the step process there.
+On Windows, where the browser cannot outlive the step process, an `ask`
+cannot run. A step with an `ask` that has no `when` fails before starting a
+browser. An `ask` guarded by `when` fails at that operation when its `when`
+holds, and is skipped as on other hosts when it does not, so a step whose
+profile is already signed in runs on every host. Both errors name the
+alternative: signing the profile in once in a headed browser session (Spec
+079), `dagu browser session open <url> --headed --profile <name>`.
 
 ## Errors
 

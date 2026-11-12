@@ -59,6 +59,9 @@ type testRun struct {
 	base context.Context
 	// noModel runs the step without an llm block.
 	noModel bool
+	// noAsk runs the step where a browser left open for an ask cannot
+	// outlive the step process, as on Windows.
+	noAsk bool
 	// foreachItem is the foreach item whose body runs the step, if any.
 	foreachItem string
 }
@@ -101,7 +104,7 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	require.NoError(r.t, err)
 	execution := &stepExecution{exec: created.(*browserExecutor)}
 	execution.exec.launcher = r.launcher
-	execution.exec.askSupported = true
+	execution.exec.askSupported = !r.noAsk
 	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
 		return r.provider, nil
 	}
@@ -1101,6 +1104,85 @@ func TestAskUnsupportedOnWindows(t *testing.T) {
 
 	require.ErrorContains(t, exec.Run(run.context()), "ask operations are not supported on Windows")
 	assert.Empty(t, run.launcher.launches)
+}
+
+// An ask with no when always runs, so where the browser cannot outlive the
+// step process the step fails before starting a browser, and the error names
+// the alternative: signing the profile in once in a headed browser session.
+func TestUnguardedAskFailsBeforeLaunchWithoutAskSupport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.noAsk = true
+	execution := run.execute(`{"url": "https://shop.example.com/account", "browser": {"profile": "shop"}, "do": [
+		{"ask": {"prompt": "Enter the code sent to your phone", "as": "otp"}},
+		{"act": "Type %otp% and submit"}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open https://shop.example.com/account --headed --profile shop`)
+	assert.Empty(t, run.launcher.launches)
+}
+
+// The error names the step's URL, which is masked like other output when
+// it holds a secret.
+func TestUnguardedAskErrorMasksSecretInURL(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.noAsk = true
+	run.secrets = map[string]string{"TOKEN": "s3cr3t-token"}
+	execution := run.execute(`{"browser": {"profile": "shop"}, "do": [
+		{"goto": "https://shop.example.com/login?token=s3cr3t-token"},
+		{"ask": {"prompt": "Enter the code sent to your phone", "as": "otp"}}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "dagu browser session open https://shop.example.com/login?token=******* --headed --profile shop")
+	assert.NotContains(t, execution.err.Error(), "s3cr3t-token")
+	assert.Empty(t, run.launcher.launches)
+}
+
+// A when-guarded ask that does not run does not fail the step where asks
+// are unsupported, so a DAG whose profile is already signed in runs on every
+// host.
+func TestGuardedAskSkippedWithoutAskSupport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The account name": `{"account":"acme"}`}))
+	run.noAsk = true
+	run.engine.pageText = "Account: acme"
+	execution := run.execute(`{"url": "https://shop.example.com/account", "browser": {"profile": "shop"}, "do": [
+		{"ask": {"prompt": "Enter the code sent to your phone", "as": "otp"}, "when": {"text": "Verification code"}},
+		{"act": "Type %otp% and submit", "when": {"text": "Verification code"}},
+		{"extract": {"instruction": "The account name", "schema": {"type": "object", "properties": {"account": {"type": "string"}}}}}
+	]}`, nil)
+
+	require.NoError(t, execution.err)
+	assert.Len(t, run.launcher.launches, 1)
+	assert.Empty(t, run.engine.actInstructions())
+	assert.Equal(t, map[string]any{"account": "acme"}, execution.exec.GetOutputs())
+	assert.Contains(t, execution.stderr.String(), "skipped")
+}
+
+// A when-guarded ask whose condition holds fails at that operation where
+// asks are unsupported, and the error names the alternative.
+func TestGuardedAskFailsAtOperationWithoutAskSupport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.noAsk = true
+	run.engine.pageText = "Verification code: enter the code sent to your phone"
+	execution := run.execute(`{"url": "https://shop.example.com/account", "browser": {"profile": "shop"}, "do": [
+		{"act": "Open the account page"},
+		{"ask": {"prompt": "Enter the code sent to your phone", "as": "otp"}, "when": {"text": "Verification code"}},
+		{"act": "Type %otp% and submit"}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[1] ask failed: ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	require.ErrorContains(t, execution.err, `dagu browser session open https://shop.example.com/account --headed --profile shop`)
+	assert.Len(t, run.launcher.launches, 1)
+	assert.Equal(t, []string{"Open the account page"}, run.engine.actInstructions())
+	assert.False(t, run.engine.detached)
 }
 
 func TestAskRejectionFailsStep(t *testing.T) {
