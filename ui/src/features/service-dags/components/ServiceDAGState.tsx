@@ -70,6 +70,11 @@ export function describeServiceDAG(
       const nextRestart = dag.nextRestartAt
         ? Date.parse(dag.nextRestartAt)
         : NaN;
+      // A DAG whose state cannot be read, or one from an older server, has no
+      // restart time, so nothing says that a restart is under way.
+      if (Number.isNaN(nextRestart)) {
+        return { text: 'Next restart unknown' };
+      }
       const remaining = Math.ceil((nextRestart - now) / 1000);
       return remaining > 0
         ? {

@@ -120,6 +120,23 @@ describe('describeServiceDAG', () => {
     ).toBe('Restart on hold: no scheduler is running');
   });
 
+  // A list that cannot read the state of a DAG, or an older server, gives no
+  // restart time, so the card cannot say that a restart is under way.
+  it('says that the next restart is unknown without a restart time', () => {
+    expect(
+      describeServiceDAG(
+        dag({
+          state: ServiceDAGState.failing,
+          readError: 'status file is corrupt',
+        }),
+        NOW
+      ).text
+    ).toBe('Next restart unknown');
+    expect(
+      describeServiceDAG(dag({ state: ServiceDAGState.restarting }), NOW).text
+    ).toBe('Next restart unknown');
+  });
+
   it('says why no run follows', () => {
     expect(
       describeServiceDAG(dag({ state: ServiceDAGState.stopped }), NOW).text

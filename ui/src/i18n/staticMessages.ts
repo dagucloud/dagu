@@ -3205,6 +3205,7 @@ const baseEnglish = {
   'Up for {duration}': 'Up for {duration}',
   'Restarting…': 'Restarting…',
   'Restart in {duration}': 'Restart in {duration}',
+  'Next restart unknown': 'Next restart unknown',
   'Restart on hold: the scheduler is paused':
     'Restart on hold: the scheduler is paused',
   'Restart on hold: no scheduler is running':
@@ -6343,6 +6344,7 @@ const baseChinese = {
   'Up for {duration}': '已运行 {duration}',
   'Restarting…': '正在重启…',
   'Restart in {duration}': '{duration}后重启',
+  'Next restart unknown': '下次重启时间未知',
   'Restart on hold: the scheduler is paused': '重启已暂停：调度器已暂停',
   'Restart on hold: no scheduler is running': '重启已暂停：没有正在运行的调度器',
   'Stopped by an operator': '已被操作员停止',
@@ -9592,6 +9594,7 @@ const baseJapanese = {
   'Up for {duration}': '{duration} 稼働中',
   'Restarting…': '再起動しています…',
   'Restart in {duration}': '{duration}後に再起動',
+  'Next restart unknown': '次の再起動の時刻は不明',
   'Restart on hold: the scheduler is paused':
     '再起動は保留中: スケジューラーが一時停止しています',
   'Restart on hold: no scheduler is running':
