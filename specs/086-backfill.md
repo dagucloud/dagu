@@ -235,6 +235,26 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
   run prints the plan the resume then runs. The backfill keeps its ID.
 
+### API
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/dags/{fileName}/backfills` | Plan and submit, with the options of `dagu backfill start`. `dryRun` returns the plan only. |
+| `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`. |
+| `GET /api/v1/backfills` | Backfills, oldest first, of every DAG or of `dag`. |
+| `GET /api/v1/backfills/{id}` | A backfill's status and the number of slots in each state. |
+| `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |
+| `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
+| `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
+
+- A plan carries the number of slots each `rerun` value would run and a
+  `revision`. A submit or resume that sends a `revision` the plan no longer
+  has starts nothing and answers 409 with the new plan.
+- Submitting, cancelling, and resuming need permission to run DAGs and are
+  recorded in the audit log.
+- A request with invalid times or options answers 400, an unknown DAG or
+  backfill 404, and cancelling an ended backfill 409.
+
 ## Configuration
 
 | Key | Default | Meaning |

@@ -27,6 +27,8 @@ tags:
     description: "Operations for managing and creating DAG definitions"
   - name: "dag-runs"
     description: "Operations for retrieving historical data and logs of DAG-run executions"
+  - name: "backfills"
+    description: "Operations for running a scheduled DAG over past schedule slots"
   - name: "system"
     description: "System operations for monitoring and managing the Dagu server"
   - name: "monitoring"
@@ -1442,6 +1444,339 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/backfills:
+    post:
+      summary: "Plan and submit a backfill"
+      description: "Plans a backfill over a range of past slots, or named slots, and records it unless dryRun is set. The scheduler then queues one run per slot that needs one, oldest first. Submitting the same backfill while it is open returns it."
+      operationId: "submitBackfill"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackfillRequest"
+      responses:
+        "200":
+          description: "The plan, and the backfill when one was recorded or was already open"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillSubmitResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The plan changed since the revision the request sent; nothing was submitted and the new plan is returned"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillSubmitResponse"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/slots:
+    get:
+      summary: "List a DAG's schedule slots and their state"
+      description: "Lists the fire times of the DAG's schedules in a range, each with the state its history gives it."
+      operationId: "listDAGSlots"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "First slot, inclusive: a date, a time without an offset, or an RFC 3339 time"
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Last slot, inclusive. Defaults to now."
+      responses:
+        "200":
+          description: "The slots of the range"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DAGSlot"
+                required:
+                  - slots
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /backfills:
+    get:
+      summary: "List backfills"
+      description: "Lists backfills, oldest first, of every DAG or of one."
+      operationId: "listBackfills"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: dag
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Name of the DAG whose backfills to list"
+      responses:
+        "200":
+          description: "The backfills"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backfills:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Backfill"
+                required:
+                  - backfills
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /backfills/{backfillId}:
+    get:
+      summary: "Get a backfill"
+      operationId: "getBackfill"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/BackfillId"
+      responses:
+        "200":
+          description: "The backfill"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Backfill"
+        "404":
+          description: "Backfill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /backfills/{backfillId}/slots:
+    get:
+      summary: "List the slots of a backfill"
+      description: "Lists a backfill's slots, oldest first, with their state and run, a page at a time."
+      operationId: "listBackfillSlots"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/BackfillId"
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/BackfillSlotState"
+          description: "List only slots in this state"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: "A page of the backfill's slots"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BackfillSlot"
+                  total:
+                    type: integer
+                    description: "Number of slots that match, over every page"
+                required:
+                  - slots
+                  - total
+        "404":
+          description: "Backfill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /backfills/{backfillId}/cancel:
+    post:
+      summary: "Cancel a backfill"
+      description: "Ends an open backfill. Its queued runs are withdrawn and the slots it has not reached are cancelled. Running runs finish unless stopRunning is set."
+      operationId: "cancelBackfill"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/BackfillId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stopRunning:
+                  type: boolean
+                  default: false
+                  description: "Also stop the backfill's running and waiting runs"
+      responses:
+        "200":
+          description: "The cancelled backfill"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Backfill"
+        "404":
+          description: "Backfill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The backfill has already ended"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /backfills/{backfillId}/resume:
+    post:
+      summary: "Resume a backfill"
+      description: "Plans again the slots of a backfill that have not succeeded, with the DAG's current definition, and runs them with new runs. On an open backfill the queued runs are withdrawn first."
+      operationId: "resumeBackfill"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/BackfillId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maxConcurrency:
+                  type: integer
+                  minimum: 1
+                  description: "Replaces the backfill's concurrency"
+                onFailure:
+                  $ref: "#/components/schemas/BackfillOnFailure"
+                dryRun:
+                  type: boolean
+                  default: false
+                  description: "Return the plan without resuming"
+                revision:
+                  type: string
+                  description: "Revision of the plan the caller saw; a changed plan resumes nothing"
+      responses:
+        "200":
+          description: "The plan, and the backfill when it was resumed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillSubmitResponse"
+        "404":
+          description: "Backfill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The plan changed since the revision the request sent; the new plan is returned"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillSubmitResponse"
         default:
           description: "Generic error response"
           content:
@@ -12300,6 +12635,14 @@ components:
       schema:
         $ref: "#/components/schemas/DAGFileName"
 
+    BackfillId:
+      name: backfillId
+      in: path
+      description: the ID of the backfill
+      required: true
+      schema:
+        type: string
+
     CalendarName:
       name: name
       in: path
@@ -13361,6 +13704,260 @@ components:
         - dagName
         - dagRunId
         - queued
+
+    BackfillRerun:
+      type: string
+      description: "Which slots that already have a run a backfill runs again"
+      enum:
+        - "none"
+        - "failed"
+        - "all"
+
+    BackfillOnFailure:
+      type: string
+      description: "What a backfill does after a slot fails"
+      enum:
+        - "stop"
+        - "continue"
+
+    BackfillRequest:
+      type: object
+      description: "A backfill over a range of slots, or over named slots"
+      properties:
+        from:
+          type: string
+          description: "First slot, inclusive: a date, a time without an offset, or an RFC 3339 time. Required without slots."
+        to:
+          type: string
+          description: "Last slot, inclusive. Defaults to now."
+        slots:
+          type: array
+          items:
+            type: string
+          description: "Slots to run instead of a range. Excludes from, to, and rerun."
+        rerun:
+          $ref: "#/components/schemas/BackfillRerun"
+        maxConcurrency:
+          type: integer
+          minimum: 1
+          description: "Runs of the backfill allowed at once. Defaults to 1."
+        onFailure:
+          $ref: "#/components/schemas/BackfillOnFailure"
+        params:
+          type: string
+          description: "Params for every run"
+        profile:
+          type: string
+          description: "Runtime profile for every run"
+        dryRun:
+          type: boolean
+          default: false
+          description: "Return the plan without submitting"
+        revision:
+          type: string
+          description: "Revision of the plan the caller saw; a changed plan submits nothing"
+
+    BackfillPlanSlot:
+      type: object
+      properties:
+        slot:
+          type: string
+          format: date-time
+        windowStart:
+          type: string
+          format: date-time
+          description: "Start of the window the slot owns"
+        windowEnd:
+          type: string
+          format: date-time
+          description: "End of the window the slot owns, its scheduled time"
+        action:
+          type: string
+          enum:
+            - "run"
+            - "skip: succeeded"
+            - "skip: failed"
+            - "skip: active"
+        runId:
+          type: string
+          description: "Run a skip relies on"
+        coveredBy:
+          type: string
+          format: date-time
+          description: "Scheduled time of the run under an earlier schedule that a skip relies on"
+      required:
+        - slot
+        - windowEnd
+        - action
+
+    BackfillPlan:
+      type: object
+      properties:
+        dag:
+          type: string
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+          description: "End of the range after clamping to now"
+        clamped:
+          type: boolean
+          description: "The range ended later than now"
+        rerun:
+          $ref: "#/components/schemas/BackfillRerun"
+        runCounts:
+          type: object
+          description: "Slots each rerun value would run"
+          properties:
+            none:
+              type: integer
+            failed:
+              type: integer
+            all:
+              type: integer
+          required:
+            - none
+            - failed
+            - all
+        otherCadence:
+          type: integer
+          description: "Slots that run because their nearest run fired under a schedule of another cadence"
+        revision:
+          type: string
+        slots:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackfillPlanSlot"
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+        - dag
+        - rerun
+        - runCounts
+        - revision
+        - slots
+
+    BackfillStatus:
+      type: string
+      enum:
+        - "running"
+        - "waiting for scheduler"
+        - "succeeded"
+        - "failed"
+        - "cancelled"
+
+    BackfillSlotState:
+      type: string
+      enum:
+        - "pending"
+        - "queued"
+        - "running"
+        - "waiting"
+        - "succeeded"
+        - "failed"
+        - "skipped"
+        - "not run"
+        - "cancelled"
+
+    BackfillSlot:
+      type: object
+      properties:
+        slot:
+          type: string
+          format: date-time
+        state:
+          $ref: "#/components/schemas/BackfillSlotState"
+        runId:
+          type: string
+      required:
+        - slot
+        - state
+
+    Backfill:
+      type: object
+      properties:
+        id:
+          type: string
+        dag:
+          type: string
+        status:
+          $ref: "#/components/schemas/BackfillStatus"
+        submittedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        generation:
+          type: integer
+          description: "Number of resumes"
+        rerun:
+          $ref: "#/components/schemas/BackfillRerun"
+        maxConcurrency:
+          type: integer
+        onFailure:
+          $ref: "#/components/schemas/BackfillOnFailure"
+        slotCount:
+          type: integer
+        counts:
+          type: object
+          description: "Slots in each state"
+          additionalProperties:
+            type: integer
+      required:
+        - id
+        - dag
+        - status
+        - submittedAt
+        - rerun
+        - maxConcurrency
+        - onFailure
+        - slotCount
+        - counts
+
+    BackfillSubmitResponse:
+      type: object
+      properties:
+        plan:
+          $ref: "#/components/schemas/BackfillPlan"
+        backfill:
+          $ref: "#/components/schemas/Backfill"
+        existing:
+          type: boolean
+          description: "The backfill was already open with the same options"
+      required:
+        - plan
+
+    DAGSlot:
+      type: object
+      properties:
+        slot:
+          type: string
+          format: date-time
+        windowStart:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+            - "missing"
+            - "succeeded"
+            - "failed"
+            - "active"
+        runId:
+          type: string
+        coveredBy:
+          type: string
+          format: date-time
+      required:
+        - slot
+        - status
 
     Error:
       type: object
