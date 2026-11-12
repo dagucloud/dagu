@@ -173,8 +173,17 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	// allow_fallbacks keeps OpenRouter's default. The account's data policy
 	// still filters every fallback endpoint, and refusing fallbacks would
 	// fail the request whenever the named endpoints are unavailable.
-	if len(p.config.ProviderOrder) > 0 {
-		chatReq.Provider = &providerPreferences{Order: p.config.ProviderOrder}
+	//
+	// require_parameters is set whenever the request needs tool support:
+	// OpenRouter otherwise only makes a best effort to pick an endpoint that
+	// supports tools and tool_choice, and an endpoint that lacks them drops
+	// the parameters, so a forced tool call comes back as plain text.
+	routing := providerPreferences{
+		Order:             p.config.ProviderOrder,
+		RequireParameters: len(req.Tools) > 0 || (req.ToolChoice != "" && req.ToolChoice != "auto"),
+	}
+	if len(routing.Order) > 0 || routing.RequireParameters {
+		chatReq.Provider = &routing
 	}
 
 	// Add reasoning configuration if enabled
@@ -390,7 +399,10 @@ type chatCompletionRequest struct {
 
 // providerPreferences is OpenRouter's provider routing object.
 type providerPreferences struct {
-	Order []string `json:"order"`
+	Order []string `json:"order,omitempty"`
+	// RequireParameters restricts routing to endpoints that support every
+	// parameter of the request.
+	RequireParameters bool `json:"require_parameters,omitempty"`
 }
 
 // plugin represents an OpenRouter plugin configuration.

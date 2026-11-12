@@ -413,6 +413,55 @@ func TestChatProviderOrder(t *testing.T) {
 	}
 }
 
+// A request that carries tools, or forces a tool call, asks OpenRouter to
+// route only to endpoints that support every parameter; a plain request, or
+// tool_choice auto, leaves routing to OpenRouter.
+func TestChatRequireParameters(t *testing.T) {
+	t.Parallel()
+
+	tools := []llm.Tool{{Type: "function", Function: llm.ToolFunction{Name: "respond", Parameters: map[string]any{"type": "object"}}}}
+	for _, tc := range []struct {
+		name       string
+		order      []string
+		tools      []llm.Tool
+		toolChoice string
+		want       any
+	}{
+		{name: "tools", tools: tools, want: map[string]any{"require_parameters": true}},
+		{name: "tools with order", tools: tools, order: []string{"azure/eu"}, want: map[string]any{"order": []any{"azure/eu"}, "require_parameters": true}},
+		{name: "tool_choice required", toolChoice: "required", want: map[string]any{"require_parameters": true}},
+		{name: "tool_choice auto", toolChoice: "auto"},
+		{name: "no tools"},
+		{name: "no tools with order", order: []string{"azure/eu"}, want: map[string]any{"order": []any{"azure/eu"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bodies := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				bodies <- body
+				_, _ = io.WriteString(w, okAnswer)
+			}))
+			defer server.Close()
+
+			provider, err := New(llm.Config{APIKey: "test-key", BaseURL: server.URL, ProviderOrder: tc.order})
+			require.NoError(t, err)
+			_, err = provider.Chat(context.Background(), &llm.ChatRequest{
+				Model:      "openai/gpt-6.1-terra",
+				Messages:   []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Tools:      tc.tools,
+				ToolChoice: tc.toolChoice,
+			})
+			require.NoError(t, err)
+
+			routing, ok := (<-bodies)["provider"]
+			assert.Equal(t, tc.want != nil, ok)
+			assert.Equal(t, tc.want, routing)
+		})
+	}
+}
+
 const okAnswer = `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`
 
 // fastRetry retries a logical request once without the default backoff.
