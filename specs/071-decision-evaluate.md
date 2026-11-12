@@ -96,6 +96,12 @@ are rejected. Invalid JSON responses, missing answers, mismatched answer types,
 invalid answer fields, exhausted HTTP retries, cancellation, and timeout fail
 the step. Response validation errors must not include the response content.
 
+An HTTP error response fails the step with the status and the provider's
+reason: the message of a JSON error body (`error.message`, a string `error`,
+or a top-level `message`), otherwise the body itself, collapsed to one line
+and bounded to 200 characters. The reason is masked like output before it is
+reported.
+
 ## Example
 
 ```yaml

@@ -85,13 +85,16 @@ func TestFailures(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name, fixture, body, wantErr string
+		status                       int
 		calls                        int32
 	}{
-		{"malformed", "automatic.yaml", `not json`, "decision response must be a JSON object", 1},
-		{"mismatched", "automatic.yaml", strings.Replace(response, `"type":"noul"`, `"type":"score"`, 1), "missing or mismatched answer", 1},
-		{"output_limit", "limited.yaml", response, "maximum size limit", 1},
-		{"missing_key", "missing_key.yaml", response, "MISSING_DECISION_KEY", 0},
-		{"timeout", "timeout.yaml", "", "timed out", 1},
+		{"malformed", "automatic.yaml", `not json`, "decision response must be a JSON object", http.StatusOK, 1},
+		{"mismatched", "automatic.yaml", strings.Replace(response, `"type":"noul"`, `"type":"score"`, 1), "missing or mismatched answer", http.StatusOK, 1},
+		{"output_limit", "limited.yaml", response, "maximum size limit", http.StatusOK, 1},
+		{"missing_key", "missing_key.yaml", response, "MISSING_DECISION_KEY", http.StatusOK, 0},
+		{"timeout", "timeout.yaml", "", "timed out", http.StatusOK, 1},
+		{"rejected", "automatic.yaml", `{"error":{"message":"Insufficient credits","code":402}}`, "decision request failed (HTTP 402): Insufficient credits", http.StatusPaymentRequired, 1},
+		{"rejected_text", "automatic.yaml", "no such\n  route", "decision request failed (HTTP 404): no such route", http.StatusNotFound, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -103,6 +106,7 @@ func TestFailures(t *testing.T) {
 					<-r.Context().Done()
 					return
 				}
+				w.WriteHeader(tc.status)
 				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer srv.Close()

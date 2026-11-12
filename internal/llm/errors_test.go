@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,29 @@ func TestAPIError(t *testing.T) {
 		err := &APIError{Err: inner}
 		assert.Equal(t, inner, err.Unwrap())
 	})
+}
+
+func TestAPIError_Reason(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, message, want string }{
+		{"empty", "", ""},
+		{"blank", " \n\t ", ""},
+		{"openai", `{"error":{"message":"Insufficient credits","code":402}}`, "Insufficient credits"},
+		{"anthropic", `{"type":"error","error":{"type":"not_found_error","message":"model: no-such-model"}}`, "model: no-such-model"},
+		{"error_string", `{"error":"busy"}`, "busy"},
+		{"top_level_message", `{"message":"quota exceeded"}`, "quota exceeded"},
+		{"message_whitespace", `{"error":{"message":"  line one\n\n  line two  "}}`, "line one line two"},
+		{"message_empty", `{"error":{"message":""}}`, `{"error":{"message":""}}`},
+		{"json_array", `["unexpected"]`, `["unexpected"]`},
+		{"text", "  <html>\n  Bad Gateway\t</html>  ", "<html> Bad Gateway </html>"},
+		{"long", strings.Repeat("é", 300), strings.Repeat("é", 200) + "..."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
+			assert.Equal(t, tc.want, err.Reason())
+		})
+	}
 }
 
 func TestNewAPIError(t *testing.T) {

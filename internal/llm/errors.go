@@ -62,6 +62,26 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// maxReasonRunes bounds the provider reason a step error carries.
+const maxReasonRunes = 200
+
+// Reason returns the provider's explanation of the failure as a single
+// bounded line: the message of a JSON error body (`error.message`, a string
+// `error`, or a top-level `message`), else the body itself. Whitespace is
+// collapsed and text beyond maxReasonRunes is replaced by an ellipsis. An
+// empty body yields "".
+func (e *APIError) Reason() string {
+	reason := e.Message
+	if _, messages := apiErrorDetails(e.Message); len(messages) > 0 && strings.TrimSpace(messages[0]) != "" {
+		reason = messages[0]
+	}
+	reason = strings.Join(strings.Fields(reason), " ")
+	if runes := []rune(reason); len(runes) > maxReasonRunes {
+		reason = string(runes[:maxReasonRunes]) + "..."
+	}
+	return reason
+}
+
 // NewAPIError creates a new APIError with the given parameters.
 func NewAPIError(provider string, statusCode int, message string) *APIError {
 	return &APIError{

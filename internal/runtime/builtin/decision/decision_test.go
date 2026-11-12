@@ -244,16 +244,21 @@ func TestBaseURL(t *testing.T) {
 func TestHTTPFailures(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name   string
-		status int
-		body   string
-		calls  int32
+		name    string
+		status  int
+		body    string
+		wantErr string
+		calls   int32
 	}{
-		{"unauthorized", http.StatusUnauthorized, `{"error":"secret-\"quoted\"-value"}`, 1},
-		{"limited", http.StatusTooManyRequests, `{"error":"busy"}`, 2},
-		{"overloaded", 529, `{"error":"busy"}`, 2},
-		{"malformed", http.StatusOK, `not json`, 1},
-		{"trailing", http.StatusOK, responseJSON + `{}`, 1},
+		{"unauthorized", http.StatusUnauthorized, `{"error":"secret-\"quoted\"-value"}`, `(HTTP 401): secret-"quoted"-value`, 1},
+		{"limited", http.StatusTooManyRequests, `{"error":"busy"}`, "(HTTP 429): busy", 2},
+		{"overloaded", 529, `{"error":"busy"}`, "(HTTP 529): busy", 2},
+		{"message", http.StatusPaymentRequired, `{"error":{"message":"Insufficient credits","code":402}}`, "(HTTP 402): Insufficient credits", 1},
+		{"text", http.StatusBadGateway, "  Bad\n\tGateway  ", "(HTTP 502): Bad Gateway", 2},
+		{"empty", http.StatusForbidden, "", "(HTTP 403)", 1},
+		{"long", http.StatusBadRequest, strings.Repeat("x", 300), "(HTTP 400): " + strings.Repeat("x", 200) + "...", 1},
+		{"malformed", http.StatusOK, `not json`, "must be a JSON object", 1},
+		{"trailing", http.StatusOK, responseJSON + `{}`, "one JSON object", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -269,13 +274,36 @@ func TestHTTPFailures(t *testing.T) {
 			cfg.InitialInterval = time.Millisecond
 			c := client{http: llm.NewHTTPClient(cfg), endpoint: server.URL, apiKey: "key", maxResponseBytes: ir.DefaultMaxOutputSize}
 			_, err := c.evaluate(t.Context(), request{})
-			require.Error(t, err)
+			require.ErrorContains(t, err, tc.wantErr)
 			if tc.status != http.StatusOK {
-				assert.NotContains(t, err.Error(), tc.body)
+				assert.True(t, strings.HasSuffix(err.Error(), tc.wantErr), err.Error())
 			}
 			assert.Equal(t, tc.calls, calls.Load())
 		})
 	}
+}
+
+// The provider's reason reaches the step error through the same masker as the
+// response, so a secret echoed back in the error body stays hidden.
+func TestHTTPFailureMasked(t *testing.T) {
+	t.Parallel()
+	const secret = "secret-\"quoted\"-value"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":{"message":"invalid key secret-\"quoted\"-value"}}`)
+	}))
+	defer server.Close()
+	raw := testConfig(t)
+	raw["base_url"] = server.URL
+	scope := value.NewEnvScope(nil, false).WithEntry("OPENROUTER_API_KEY", secret, value.EnvSourceSecret)
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
+	exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
+	require.NoError(t, err)
+	defer exec.(*decisionExecutor).Close()
+	exec.SetStdout(io.Discard)
+	err = exec.Run(ctx)
+	require.ErrorContains(t, err, "(HTTP 401): invalid key *******")
+	assert.NotContains(t, err.Error(), secret)
 }
 
 func TestCancellation(t *testing.T) {
