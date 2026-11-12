@@ -5,8 +5,8 @@
 Partially implemented. Slot history, `slot_retention_days`, planning,
 submitting with `dagu backfill start`, the scheduler running a backfill, and
 `dagu backfill ls`, `status`, `cancel`, and `resume` are implemented, and
-conformance covers them. Further sections are added as the behavior they
-describe lands.
+conformance covers them. The summary a backfill sends when it ends is not
+implemented. Further sections are added as the behavior they describe lands.
 
 ## Scope
 
@@ -167,6 +167,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A queued or running backfill run does not make the scheduler skip a live
   slot because the DAG is queued or running, and does not count for
   `skip_if_successful`. The live slot's run is queued instead.
+- `mail_on` and notification routes do not fire for a backfill run, except
+  for a run waiting for a person. `handler_on` steps still run.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
 - A DAG's latest run is its newest run that is not a backfill run, wherever

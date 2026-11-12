@@ -92,6 +92,11 @@ func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err 
 	if dag.MailOn == nil {
 		return nil
 	}
+	// A backfill run sends no mail, so a backfill does not mail once per
+	// slot; a run waiting for a person still mails.
+	if dagStatus.BackfillID != "" && dagStatus.Status != ir.Waiting {
+		return nil
+	}
 
 	switch {
 	case (err != nil || dagStatus.Status == ir.Failed) && dag.MailOn.Failure:
