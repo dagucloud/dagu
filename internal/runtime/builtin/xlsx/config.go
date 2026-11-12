@@ -286,6 +286,10 @@ func validateCSVConfig(operation string, cfg *config) error {
 			return fmt.Errorf("%w: encoding must be utf-8, utf-8-bom, or shift_jis", errConfig)
 		}
 		cfg.encoding = enc
+	} else if operation == opConvert {
+		// Excel opens a CSV without a byte order mark in the system code page,
+		// so the file written carries one unless utf-8 is named.
+		cfg.encoding = workbook.EncodingUTF8BOM
 	}
 	if cfg.provided("delimiter") {
 		runes := []rune(cfg.Delimiter)
@@ -827,7 +831,7 @@ var configSchema = &jsonschema.Schema{
 			Description: "What xlsx.sheet does when the sheet to create already exists: fail (default), skip with a warning, or replace its contents."},
 		"position": {Description: "xlsx.sheet: 1-based position of the sheet add or copy creates; by default an added sheet goes last and a copy right after its source."},
 		"encoding": {Type: "string", Enum: []any{"utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932"},
-			Description: "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS."},
+			Description: "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS; convert writes utf-8-bom unless set."},
 		"delimiter": {Type: "string", Description: "Field separator of a csv file, one character; a comma by default."},
 		"instruction": {Type: "string", Description: "xlsx.extract: what to find on the sheet, such as 'A supplier quote; find the quote number, delivery date, and total'. " +
 			"Sent to the model with the sheet's cells; must not contain a secret."},

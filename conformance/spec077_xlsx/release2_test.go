@@ -196,7 +196,8 @@ func TestXlsxConvert(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
 	dagu.Run("start", "convert_files.yaml").ExpectExitCode(0)
-	require.Equal(t, "Item,Qty,Done,When\n\"pear, \"\"ripe\"\"\",3,true,2026-10-01\nfig,,false,\n", readFile(t, dagu, "out.csv"))
+	require.Equal(t, "\xEF\xBB\xBFItem,Qty,Done,When\n\"pear, \"\"ripe\"\"\",3,true,2026-10-01\nfig,,false,\n", readFile(t, dagu, "out.csv"),
+		"csv is UTF-8 with a byte order mark unless encoding says otherwise")
 	require.Equal(t, "[\n{\"Qty\":3,\"name\":\"pear, \\\"ripe\\\"\"},\n{\"Qty\":null,\"name\":\"fig\"}\n]\n", readFile(t, dagu, "out.json"),
 		"keys follow the column order and _row is not written")
 	lines := strings.Split(strings.TrimRight(readFile(t, dagu, "out.ndjson"), "\n"), "\n")
