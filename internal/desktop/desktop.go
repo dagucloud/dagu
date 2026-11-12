@@ -52,8 +52,9 @@ func ParseButton(name string) (Button, error) {
 type ASCIITyper interface {
 	// ASCIITyping puts the keyboard on an input source typed text goes
 	// through as it is, when it is not on one, and returns what puts the
-	// previous input source back, called once the typing ends.
-	ASCIITyping() (restore func() error, err error)
+	// previous input source back, called once the typing ends. A context
+	// done while the switch settles puts the previous input source back.
+	ASCIITyping(ctx context.Context) (restore func() error, err error)
 }
 
 // Backend is the operating system's side of a Driver.
@@ -588,7 +589,7 @@ func (d *Driver) HoldKeys(ctx context.Context, keys []Key, duration time.Duratio
 func (d *Driver) Type(ctx context.Context, text string) (err error) {
 	d.markKeys("type", !strings.ContainsAny(text, "\r\n"))
 	if d.typer != nil {
-		restore, switchErr := d.typer.ASCIITyping()
+		restore, switchErr := d.typer.ASCIITyping(ctx)
 		if switchErr != nil {
 			return switchErr
 		}

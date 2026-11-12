@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"io"
@@ -429,7 +430,7 @@ func TestASCIITyping(t *testing.T) {
 	}
 	t.Cleanup(func() { cfRelease(before) })
 
-	restore, err := (&darwinBackend{}).ASCIITyping()
+	restore, err := (&darwinBackend{}).ASCIITyping(context.Background())
 	require.NoError(t, err)
 	during := tisCopyCurrentKeyboardInputSource()
 	require.NotZero(t, during)
