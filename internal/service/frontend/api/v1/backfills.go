@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -62,7 +64,7 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 	result, err := a.backfillService(store).Submit(ctx, backfill.SubmitRequest{
 		Plan:     planReq,
 		Options:  options,
-		DAGFile:  request.FileName,
+		DAGFile:  dag.Location,
 		Actor:    triggerActorFromContext(ctx),
 		DryRun:   dryRun,
 		Revision: valueOf(body.Revision),
@@ -242,7 +244,7 @@ func (a *API) ResumeBackfill(ctx context.Context, request api.ResumeBackfillRequ
 	if err != nil {
 		return nil, err
 	}
-	dag, sched, err := a.backfillDAG(ctx, record.DAGFile, record.Options.Profile)
+	dag, sched, err := a.backfillDAG(ctx, backfillFileName(record), record.Options.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +314,7 @@ func (a *API) requireBackfillWorkspace(ctx context.Context, store backfill.Store
 	if err != nil {
 		return err
 	}
-	_, _, err = a.backfillDAG(ctx, record.DAGFile, record.Options.Profile)
+	_, _, err = a.backfillDAG(ctx, backfillFileName(record), record.Options.Profile)
 	var apiErr *Error
 	if errors.As(err, &apiErr) && apiErr.HTTPStatus == http.StatusNotFound {
 		// A backfill of a deleted DAG can still be cancelled.
@@ -383,6 +385,12 @@ func (a *API) latestBackfill(ctx context.Context, fileName string) (*api.LatestB
 	}
 	item := toAPIBackfill(*report, a.schedulerActive(ctx))
 	return &item, nil
+}
+
+// backfillFileName returns the API name of the DAG file a backfill records
+// by its path.
+func backfillFileName(record *backfill.Record) string {
+	return fileutil.TrimYAMLFileExtension(filepath.Base(record.DAGFile))
 }
 
 func (a *API) requireBackfillStore() (backfill.Store, error) {

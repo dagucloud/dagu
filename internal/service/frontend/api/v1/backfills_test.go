@@ -4,12 +4,14 @@
 package api_test
 
 import (
+	"context"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,6 +47,11 @@ steps:
 	submitted := submit(api.BackfillRequest{From: &from, To: &to, Revision: &dry.Plan.Revision}, http.StatusOK)
 	require.NotNil(t, submitted.Backfill)
 	id := submitted.Backfill.Id
+	// The scheduler finds the DAG's file from the record, so the record
+	// names the file, not the name in the URL.
+	record, err := filebackfill.New(filebackfill.Dir(server.Config.Paths.DataDir)).Get(context.Background(), id)
+	require.NoError(t, err)
+	assert.FileExists(t, record.DAGFile)
 	assert.Equal(t, api.BackfillStatusWaitingForScheduler, submitted.Backfill.Status)
 	assert.Equal(t, 3, submitted.Backfill.SlotCount)
 
