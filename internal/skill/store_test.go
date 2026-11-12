@@ -427,10 +427,17 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 			hash = next.Hash
 		}
 	})
+	changing := 0
 	for range 200 {
 		sk, err := s.Read("demo")
 		require.NoError(t, err)
 		if !sk.Valid() {
+			// A read that meets a write in all its attempts says so and asks for a new try.
+			// Any other issue shows a half-written file.
+			if len(sk.Issues) == 1 && sk.Issues[0].Rule == skill.RuleChanging {
+				changing++
+				continue
+			}
 			t.Fatalf("a reader saw an invalid skill: %v", sk.Issues)
 		}
 		data, ok := sk.Text("references/big.md")
@@ -441,6 +448,7 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+	require.Less(t, changing, 200, "no read got one version of the skill")
 }
 
 // A partial folder (a new file but no SKILL.md yet) is refused, not used.

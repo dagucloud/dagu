@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -18,6 +19,9 @@ import (
 // binary that PATH finds (Spec 092, "Start").
 func TestInvocationCommandUsesTheAgentBinary(t *testing.T) {
 	t.Parallel()
+	if goruntime.GOOS == "windows" {
+		t.Skip("the test binary is a shell script")
+	}
 
 	binary := filepath.Join(t.TempDir(), "claude-cli")
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o600))
