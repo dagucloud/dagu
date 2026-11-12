@@ -1,5 +1,28 @@
 # External Harnesses
 
+**Contents**
+
+- [Supported Providers](#supported-providers)
+- [Feature Reference](#feature-reference)
+  - [Managed OpenCode Sessions](#managed-opencode-sessions)
+- [How `with` Works](#how-with-works)
+- [Custom Harness Registry](#custom-harness-registry)
+- [ACP Agents](#acp-agents)
+- [DAG-Level Defaults and Fallback](#dag-level-defaults-and-fallback)
+- [Containerized Harness Steps](#containerized-harness-steps)
+- [Pattern 1: Checkout a Repository and Run a Harness](#pattern-1-checkout-a-repository-and-run-a-harness)
+- [Pattern 2: Multiple Harness Steps](#pattern-2-multiple-harness-steps)
+- [Pattern 3: Parameterized](#pattern-3-parameterized)
+- [Provider Examples](#provider-examples)
+  - [Claude Code](#claude-code)
+  - [Codex](#codex)
+  - [Copilot](#copilot)
+  - [OpenCode](#opencode)
+  - [Pi](#pi)
+  - [DeepSeek Harness](#deepseek-harness)
+  - [Kilo Code](#kilo-code)
+- [Notes](#notes)
+
 Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu selects the configured provider; its executable must be installed on the host or available in the selected container.
 
 ## Supported Providers

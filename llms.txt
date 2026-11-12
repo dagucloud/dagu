@@ -8,7 +8,19 @@ Use this compact reference with an AI agent when authoring, validating, or troub
 
 # DAG Authoring
 
-Load only the reference file that matches the task.
+**Contents**
+
+- [Default Approach](#default-approach)
+- [High-Signal Rules](#high-signal-rules)
+- [Example of Params, template step, and artifacts](#example-of-params-template-step-and-artifacts)
+- [Example of Large Command Output as Artifact](#example-of-large-command-output-as-artifact)
+- [Example of Reproducible External CLI](#example-of-reproducible-external-cli)
+- [Example of Object-Form Output](#example-of-object-form-output)
+- [Example of Action Outputs](#example-of-action-outputs)
+- [Example of Human Input](#example-of-human-input)
+- [Example of a Service DAG and its Run History](#example-of-a-service-dag-and-its-run-history)
+
+Rules and patterns for writing Dagu DAG YAML. Load this file before you write or review a DAG.
 
 ## Default Approach
 
@@ -209,21 +221,73 @@ steps:
 
 Complete the task from a local CLI context with `dagu human-task complete --run-id=<run-id> --step=review --input environment=production <dag-name>`. A form is optional for acknowledgement-only tasks. Human tasks cannot be used in sub-DAGs; a distributed root run is re-queued through the scheduler after completion.
 
-## Reference Guide
+## Example of a Service DAG and its Run History
 
-Load only the file you need:
+```yaml
+restart_policy: always
+restart_wait_sec: 5
+hist_retention_runs: 100
+steps:
+  - id: check
+    run: ./check.sh
+```
 
-- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `js.run`, `file.*`, `xlsx.*`, `state.*`, `template.render`, `chat.completion`, `browser.*`, or `computer.*`
-- `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
-- `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations, and browser sessions for building a browser step on a site you have not seen
-- `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
-- `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
-- `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory
-- `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`
+A DAG with `restart_policy: always` or `unless-stopped` is a service DAG. The scheduler starts a new run `restart_wait_sec` seconds after the previous run ends. Set `restart_wait_sec` to 1 or more. Do not set `schedule` or `retry_policy` on a service DAG. A service DAG keeps its latest 100 runs unless `hist_retention_runs` or `hist_retention_days` says more or less.
+
+The scheduler also records one sample for each run that ends. A sample holds the start time, the duration and the result of the run. A run fails only when its status is `failed`. A sample stays after the retention removes the run record. Thus the history covers hours, days and years at a small cost on disk.
+
+The history has three events:
+
+- `failed`: a run fails while no outage is open. It holds the ID of the run.
+- `recovered`: a run does not fail while an outage is open. It holds the ID of the run, the count of failed runs and the length of the outage.
+- `gap`: a run starts more than `restart_wait_sec` plus 60 seconds after the previous run ended. It holds the length of the gap in seconds and the ID of the run that ended the gap.
+
+Read the history with three routes. Each route answers `404` for a DAG that is not a service DAG and has no history.
+
+- `GET /api/v1/dags/{fileName}/run-history/samples?from=&to=&points=`: buckets of runs with the count, the failures and the durations. The response has at most `points` buckets (10 to 2000).
+- `GET /api/v1/dags/{fileName}/run-history/events?from=&to=&limit=&before=`: the events, newest first, in pages. Use `nextCursor` as `before` to read the next page.
+- `GET /api/v1/dags/{fileName}/run-history/availability`: the share of runs that did not fail in the last 24 hours, 7 days, 30 days and 365 days. It also gives the current streak, the last failure and the total count of runs.
+
+In the response of `GET /api/v1/dags?activityWindow=<seconds>`, the `activity` of a service DAG has `buckets` and `resolutionSeconds` instead of `runs`.
 
 ---
 
 # Actions
+
+**Contents**
+
+- [run: Shell Commands And Scripts](#run-shell-commands-and-scripts)
+- [docker.run / container.run](#dockerrun--containerrun)
+- [git.worktree.add / git.worktree.remove](#gitworktreeadd--gitworktreeremove)
+- [dag.run](#dagrun)
+- [Approval Gates](#approval-gates)
+- [human.task](#humantask)
+- [Declared Value Outputs](#declared-value-outputs)
+- [outputs.write](#outputswrite)
+- [state.get / state.set / state.delete / state.list / state.diff](#stateget--stateset--statedelete--statelist--statediff)
+- [parallel](#parallel)
+- [ssh.run / sftp.upload / sftp.download](#sshrun--sftpupload--sftpdownload)
+- [http.request](#httprequest)
+- [jq.filter](#jqfilter)
+- [js.run](#jsrun)
+- [template.render](#templaterender)
+- [file.stat / file.read / file.write / file.copy / file.move / file.delete / file.mkdir / file.list](#filestat--fileread--filewrite--filecopy--filemove--filedelete--filemkdir--filelist)
+- [postgres.query / sqlite.query / postgres.import / sqlite.import](#postgresquery--sqlitequery--postgresimport--sqliteimport)
+- [clickhouse.query](#clickhousequery)
+- [redis.<operation>](#redisoperation)
+- [s3.upload / s3.download / s3.list / s3.delete](#s3upload--s3download--s3list--s3delete)
+- [mail.send](#mailsend)
+- [mail.search / mail.organize](#mailsearch--mailorganize)
+- [xlsx.read / xlsx.info / xlsx.list_sheets / xlsx.write / xlsx.append / xlsx.update_rows / xlsx.validate / xlsx.write_cells / xlsx.sheet / xlsx.convert / xlsx.extract](#xlsxread--xlsxinfo--xlsxlist_sheets--xlsxwrite--xlsxappend--xlsxupdate_rows--xlsxvalidate--xlsxwrite_cells--xlsxsheet--xlsxconvert--xlsxextract)
+- [archive.create / archive.extract / archive.list](#archivecreate--archiveextract--archivelist)
+- [chat.completion](#chatcompletion)
+  - [Tools for a chat step](#tools-for-a-chat-step)
+  - [Skills](#skills)
+- [agent.run](#agentrun)
+- [harness.run](#harnessrun)
+- [browser.extract / browser.run](#browserextract--browserrun)
+- [computer.extract / computer.run](#computerextract--computerrun)
+- [router.route](#routerroute)
 
 ## run: Shell Commands And Scripts
 
@@ -533,7 +597,7 @@ dagu human-task push-back --run-id=<run-id> --step=review --input feedback="Add 
 
 ## Declared Value Outputs
 
-Declare value-form `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`. Build file outputs use `path` instead; see `references/build.md`.
+Declare value-form `outputs:` when a step should publish named values for later steps as `${steps.<step_id>.outputs.<name>}`. Build file outputs use `path` instead. The build reference in `INDEX.md` describes them.
 
 ```yaml
 steps:
@@ -1394,7 +1458,21 @@ steps:
 
 ## chat.completion
 
-Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`, `max_file_chars`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`endpoint`, `provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`, `max_file_chars`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` or `{endpoint, name}` entries tried in order.
+
+The new method to name a model API is the block `with.endpoint`, with the keys `name`, `model` and `effort`. `name` is the name of an endpoint of the AI page, and `model` is a model name. Both are required. `effort` is optional: it is `low`, `medium`, `high`, `xhigh` or `max`, and it has the same effect as `thinking: { enabled: true, effort: ... }`. An administrator adds the key one time on the AI page. The key stays in the coordinator, and the step never reads it. The provider type comes from the endpoint, so `provider` is not needed. The block is closed. A value that is not a block is a validation error (`endpoint must be a block with name and model`). The keys `model`, `thinking`, `provider`, `base_url` and `api_key_name` contradict the block: each one in the same `with` is a validation error. A step that needs a fallback keeps the list form of `with.model`, and each entry names its own `endpoint` (or uses `provider`). There is no default endpoint for the entries, and an entry with neither is a validation error. The old method with `provider`, `model`, `base_url`, `api_key_name` and `thinking` is deprecated. It stays valid and does not change, and `dagu validate` prints a warning for a step that uses `provider`, `base_url` or `api_key_name` (`Deprecated DAG syntax: <path>: use with.endpoint, an endpoint of the AI page`). Use the block `endpoint` in a new step. `dagu validate` cannot check that the endpoint exists. The step checks it when it starts, and it fails with a reason such as `endpoint_unknown`.
+
+```yaml
+steps:
+  - id: classify
+    action: chat.completion
+    with:
+      endpoint:
+        name: cle1
+        model: claude-haiku-4-5
+        effort: high
+      prompt: "Classify this note."
+```
 
 With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`. A request that carries tools, or forces a tool call, also sets OpenRouter's `provider.require_parameters`, so it reaches only endpoints that support them.
 
@@ -1434,8 +1512,9 @@ steps:
   - id: classify
     action: chat.completion
     with:
-      provider: openai
-      model: gpt-5
+      endpoint:
+        name: cle1
+        model: gpt-5
       prompt: "Classify this note and extract the amount: ${foreach.item.note}"
     output_schema:
       type: object
@@ -1456,7 +1535,190 @@ Structured output behavior:
 - The schema needs `type: object`, at least one property, and every `required` name listed under `properties`. It cannot be combined with `web_search` or a tool named `respond`.
 - An invalid answer gets one correction, then the next `with.model` entry is tried. When none answers, the step fails; the error omits the answer and the step's stderr shows each rejected answer and why.
 - Validation checks shape, not truth. For extraction, leave a field out of `required` when the text may not contain it; a required field makes the model invent a value.
-- With `tools`, the tool DAGs are offered next to `respond`. Reaching `max_tool_iterations` without an answer fails that model like an unusable answer, so the next `with.model` entry starts over, running the tools again. The answer is never streamed.
+- With `dags`, the tool DAGs are offered next to `respond`. Reaching `max_tool_iterations` without an answer fails that model like an unusable answer, so the next `with.model` entry starts over, running the tools again. The answer is never streamed.
+
+### Tools for a chat step
+
+`with.dags` is a list of DAG tools. `with.tools` is a map with the category `mcp`. An unknown category, an unknown key, a duplicate key, or a string in place of the map is a validation error. The error gives the path of the key. The list form of `tools` (a list of DAG names) is deprecated. Use the key `dags`. A name in the list is an entry of `dags` with no `params`. The list form and the key `dags` in one step are a validation error. `dagu validate` accepts the list form with exit code 0 and prints a warning.
+
+- `dags`: each entry has `name` (a DAG of the DAGs directory or of the same file) and `params`. The tool description is the description of the DAG. A DAG with no description gets `Run the DAG <name>.`
+- To offer a custom action to the model, wrap the action in a DAG with one step, and list the DAG in `dags`.
+- `mcp`: each entry has `name`, `url`, `headers` and `allow`. `name` is the label of the server and matches `^[a-z][a-z0-9-]*$`. `allow` is required: it lists the server tools to offer. The tool names are `<name>_<tool>`. The name `dagu` is not valid. `url` and the header values can reference upstream values. Dagu limits the connection, the listing and each call to 30 seconds. This limit is fixed. An entry with `url` is inline: a header value is visible to the agent, so do not put a credential in it. An entry with no `url` and no `headers` is named. Its `name` names a MCP server entry of the MCP tab of the AI page. The URL and the credentials stay in the coordinator, and the step never sees them. The coordinator refuses a `tools/call` for a tool outside `allow`. A named entry is valid on `chat.completion` and `agent.run`, and not in the `llm` block of a DAG. `dagu validate` cannot check that the server entry exists. The step checks it when it starts, and it fails with `mcp_server_unknown` or `mcp_server_forbidden`.
+- The tool name of a `dags` entry is its `name`. Dagu replaces each character outside `[A-Za-z0-9_-]` with `_`. The DAG `ops.notify` gives the tool `ops_notify`. A tool name cannot be longer than 64 characters. Two entries with the same tool name are a validation error. The error names both paths.
+- `params` (on `dags`) fixes an input. The model does not see it, and it can reference upstream values such as `${CUSTOMER}`. `{from_ai: true}` or `{from_ai: {description: ...}}` leaves the input to the model.
+- `max_tools` (default 64) and `tool_result_max_bytes` (default 524288, 0 = no limit) bound the catalog and each tool result. The defaults are the keys `agent_tools.max_tools` and `agent_tools.tool_result_max_bytes` of the Dagu configuration, and a value on the step wins.
+- The run record keeps each offered tool with its source (`dag:<name>`, `mcp:<name>`, `skills`).
+
+```yaml
+steps:
+  - id: triage
+    action: chat.completion
+    with:
+      endpoint:
+        name: cle1
+        model: claude-sonnet-5-5
+      prompt: Handle ticket ${TICKET}.
+      dags:
+        - name: refund
+          params:
+            CUSTOMER_ID: ${CUSTOMER}
+            AMOUNT: {from_ai: {description: Amount in euros}}
+        - name: ops_notify
+      tools:
+        mcp:
+          - name: docs
+            url: ${MCP_URL}
+            allow: [search]
+          - name: wiki
+            allow: [read_page]
+```
+
+The model sees the tools `refund`, `ops_notify`, `docs_search` and `wiki_read_page`. The server `wiki` has no `url`: it is a server entry of the AI page.
+
+### Skills
+
+A skill is a folder of the Agent Skills open standard (agentskills.io). A step offers skills to the model, and the model loads a skill only when it needs it. Dagu refuses a folder that does not follow the standard.
+
+Folder layout, in the directory `skills/<name>/` next to the DAG files:
+
+```text
+skills/refund-policy/
+  SKILL.md          required: front matter and instructions
+  references/       optional: text files that the model reads on demand
+  assets/           optional: files of any type (templates, data)
+  scripts/          optional: text files (code that the skill describes)
+```
+
+Dagu looks for the `skills` directory in the directory of the DAG file, then in each parent directory. These rules apply to a folder:
+
+- The root of the folder holds `SKILL.md` and the three directories. Any other file or directory at the root is an error.
+- Files in `references/`, `assets/` and `scripts/` can be at any depth. Keep `references/` files one level deep.
+- A symlink is an error. A hidden file is an error, except `.gitkeep`.
+- A file in `references/` or `scripts/` MUST be valid UTF-8 text. A file in `assets/` can be binary.
+- `scripts/` files are stored and mounted. Dagu never runs them, and they grant no permission.
+
+`SKILL.md` starts with a front matter block (`---` lines), then the Markdown body:
+
+- `name` (required): the same as the folder name. It has 1 to 64 characters: lower case letters, digits and hyphens. It does not start or end with a hyphen and has no double hyphen.
+- `description` (required): 1 to 1024 characters, with no XML tags. Say what the skill does and when to use it. The model reads only the description to choose a skill. Dagu warns when it has fewer than 20 characters.
+- `license`, `compatibility` (at most 500 characters), `metadata` (a map of strings to strings), `allowed-tools` (one string, tool names with spaces between them): optional. `allowed-tools` is information only. It never widens the keys `dags` and `tools` of the step.
+- Every other key is an error. This includes the Claude Code keys such as `argument-hint`, `when_to_use` and `model`. Put custom data in `metadata`.
+- The body is at most 64 KiB. Dagu warns when it has more than 500 lines or about 5,000 tokens (bytes divided by 3.7). Move detail into `references/` files and name each file in the body.
+
+How a step uses skills:
+
+- Use: `with.skills: [refund-policy]`. The key is a list of skill names. An object item is a validation error. It is valid on `chat.completion` and on `agent.run` with the provider `claude`.
+- Limits for one step: 20 skills, and a catalog of at most 2,000 estimated tokens. A step over a limit fails validation.
+- `chat.completion`: Dagu adds a final `Skills` section to the system message. It lists `- <name>: <description>` for each skill.
+- The model calls the tool `load_skill` with a name. The result is the body inside `<skill_content name="...">`, and a list of the files of `references/` and `scripts/` inside `<skill_resources>`. A repeated call returns a note that the skill is loaded.
+- The model calls the tool `read_skill_file` with a name and a path to read one text file of `references/` or `scripts/`. The file is at most 256 KiB. The model cannot read `assets/`.
+- The two tools count against `max_tools`. A tool of the map named `load_skill` or `read_skill_file` is a validation error.
+- `agent.run`: Dagu mounts the skill folder as it is, as `.claude/skills/<name>/` in a directory of the attempt. The mount has all the files, the original bytes of `SKILL.md`, and the mode `0400` on each file. It passes the directory with `--add-dir` and adds the tool `Skill`. The CLI can read the folder and cannot write it. Dagu deletes the directory at the end of the attempt.
+- On an agent worker, the skills reach the worker in the workspace bundle of the run.
+- `dagu validate` rejects a missing skill and each rule above. The error names the skill, the file, the rule and the folders searched.
+
+```text
+skills/refund-policy/
+  SKILL.md
+  references/limits.md
+```
+
+```yaml
+# skills/refund-policy/SKILL.md
+---
+name: refund-policy
+description: Applies the refund rules of the shop. Use when a customer asks for a refund or a credit.
+---
+Refund an order in 30 days. Ask a manager for a larger amount.
+Read references/limits.md for the amount limits of each region.
+```
+
+```yaml
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: cle1
+        model: claude-sonnet-5-5
+      prompt: Refund 12 euros for c-42
+      skills:
+        - refund-policy
+        - tone-of-voice
+```
+
+#### Skills API
+
+The skill routes of the REST API manage the folders. A skill has a hash. The hash covers all files of the folder, so a change to any file changes it.
+
+- `GET /api/v1/skills` lists the skills. A skill that breaks the standard is listed with its errors.
+- `GET /api/v1/skills/{name}` returns the raw `SKILL.md`, the hash, the files, and the errors and warnings.
+- `PUT /api/v1/skills/{name}` writes `SKILL.md`. `DELETE /api/v1/skills/{name}` deletes the whole folder.
+- `GET`, `PUT` and `DELETE /api/v1/skills/{name}/files?path=` read, write and delete one file under `references/`, `assets/` or `scripts/`.
+- Each write needs the header `If-Match: <hash>`, where the hash is the value that the client read. To create a skill, send `If-None-Match: *`. A request with neither header gets 428.
+- When the skill changed after the client read it, the answer is 409 with the code `conflict` and the current hash. Read the skill again, merge the change and retry.
+- `GET /api/v1/skills/{name}/download` returns one skill as a ZIP file. `POST /api/v1/skills/download` with `{"names": [...]}` returns several skills in one ZIP, each as a top-level folder. The files are exactly as stored, and an invalid skill can be downloaded. One download has at most 100 skills.
+- A write needs the role developer or above.
+
+## agent.run
+
+One agent node. It runs a CLI provider (such as `claude`) and compiles to `harness.run` when Dagu loads the DAG. The saved DAG holds the `agent.run` step and the compiled configuration. This version runs the provider `claude` with the flags of Spec 091. A CLI provider other than `claude` supports only `model`, `prompt` and `timeout_sec`. A step that calls a model API uses `chat.completion`.
+
+```yaml
+steps:
+  - id: review
+    action: agent.run
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [accept, reject] }
+      required: [verdict]
+    with:
+      provider: claude
+      endpoint:
+        name: cle1
+        model: sonnet
+      prompt: "Review the patch ${PATCH_ID}."
+      system: Report only real defects.
+      max_tool_iterations: 20
+      max_tool_calls: 20
+      dags:
+        - name: lookup-ticket
+          params:
+            CUSTOMER_ID: ${CUSTOMER_ID}
+            QUESTION: { from_ai: { description: The question of the customer } }
+        - name: ops_notify
+      tools:
+        mcp:
+          - name: docs
+            url: ${MCP_URL}
+            allow: [search]
+        builtin: { read: true, search: true }
+  - id: gate
+    depends: review
+    run: echo '${steps.review.outputs.tool_calls}' | jq -e 'index("search") != null'
+    preconditions:
+      - condition: ${steps.review.outputs.verdict}
+        expected: accept
+```
+
+- Keys of `with` (a closed set): `prompt`, `system`, `provider`, `endpoint`, `dags`, `tools`, `skills`, `max_tool_iterations` and `max_tool_calls`. A CLI provider other than `claude` also takes `model`. `prompt` and `provider` are required, and `endpoint` is required with the provider `claude`. The step keys `output_schema` and `timeout_sec` apply too. An unknown key is a validation error: `unknown key "<key>" in agent.run; valid keys are ...`. With the provider `claude`, `model` and `effort` are unknown keys of `with`: they go in the block `endpoint`.
+- Provider: it MUST be a CLI provider, as a literal name (a reference such as `${NAME}` is a validation error). A built-in CLI provider that is not a chat provider, or a `harnesses` entry that is not ACP, is valid. A chat provider (`anthropic`, `openai`, `local`, and also `gemini` and `opencode`) is a validation error on `with.provider` that tells you to use `chat.completion`. An ACP provider, an unknown provider and no provider are validation errors.
+- Model: `with.endpoint.model` is a model name. A step with the provider `claude` MUST name a model that the endpoint lists. With no model, or an empty or non-string model, the DAG does not load (`field 'with.endpoint.model': agent.run needs a model; choose one that the endpoint lists`). A reference such as `${MODEL}` is valid. At its start, the step fails with the reason `model_unknown` when the endpoint lists the models and lacks the name. The aliases of the CLI, such as `sonnet` and `opus`, pass this check. The key `effort` stays optional. A CLI provider other than `claude` takes `with.model` as an option.
+- Model names do not translate between providers.
+- Effort: `with.endpoint.effort` is `low`, `medium`, `high`, `xhigh` or `max`. Dagu passes it as `--effort` right after `--model`. It is valid with the provider `claude` only. `with` has no key `effort`. A value reference such as `${EFFORT}` is valid, and a resolved value outside the five levels fails the attempt before the CLI starts. Dagu does not check that the model supports the level: the CLI reports it.
+- Endpoint: `with.endpoint` is a closed block with the keys `name`, `model` and `effort`. `name` is the literal name of an AI endpoint of the AI page. A step with the provider `claude` MUST give the block: with no `endpoint`, the DAG does not load (`field 'with.endpoint': agent.run needs an endpoint; add one on the AI page and name it here`). A value that is not a block (`endpoint must be a block with name and model`) and a block with no `name` (`agent.run needs the name of an endpoint`) are errors too. The endpoint MUST have the protocol `anthropic`, and no other provider takes an endpoint. The key of the endpoint stays in the coordinator. The CLI gets the address of a relay in the worker and a secret of the relay, and never the key. The step needs no `ANTHROPIC_API_KEY`. `dagu validate` checks that the name is present and its form. When the step starts, it checks that the endpoint exists and that the DAG may use it. Otherwise it fails with a reason such as `endpoint_forbidden`. A worker that cannot run the relay does not take the run.
+- Limits: `max_tool_iterations` (at least 1) is the value of `--max-turns` of the CLI. It has the name that `chat.completion` has. For `agent.run`, an attempt that reaches it before an answer fails with the reason `max_tool_iterations`. For `chat.completion`, the limit does not fail the step. `max_tool_calls` (at least 1, default 100) limits the calls of the tool bridge in one attempt. A call over the limit gets an error result, and the attempt continues. The built-in tools and the tools of an `mcp` entry do not count. The bridge has a catalog limit (default 64) and a result limit (default 524288). The keys `agent_tools.max_tools` and `agent_tools.tool_result_max_bytes` of the Dagu configuration set them. An `agent.run` step has no key for them.
+- `prompt` is a template. Dagu resolves value references (`${PARAM}`, `${steps.<id>.outputs.<name>}`) and runs no command substitution. A DAG secret in `prompt` or `system` fails validation. A reference to the output of another step orders the steps.
+- Tools: `dags` lists the DAG tools, with `params` fixed or `from_ai`. `tools` is a map with the categories `mcp` and `builtin`. Only the map form of `tools` is valid: the list form of `tools` fails validation on `agent.run`. An `mcp` entry cannot use the name `dagu`: it is the name of the tool bridge. `builtin` has the keys `read`, `write`, `edit`, `search` (value `true`) and `shell` (`allow` and `deny`, lists of command prefixes; a final ` *` means any arguments). The CLI runs the built-in tools. Each `mcp` entry is an MCP server of the config of the CLI, and its tools are allowed as `mcp__<name>__<tool>`. A named `mcp` entry (no `url`) is the relay of the attempt in that config. Its URL is `http://127.0.0.1:<port>/mcp/<name>`, with the secret of the relay. The coordinator calls the server with the credentials of the entry. The step needs a worker that can run the relay, and Dagu adds `127.0.0.1` and `localhost` to `NO_PROXY`.
+- Skills: Dagu mounts each skill folder as it is under `.claude/skills/<name>/` in a directory of the attempt, with files of mode `0400`. It passes the directory with `--add-dir`, adds the tool `Skill`, and deletes the directory at the end of the attempt. The CLI can read the folder and cannot write it. The format, the limits and the API are in the section `Skills` of `chat.completion`. The step records the skills as `skillDefinitions`.
+- Tool bridge: the entries of `dags` run through the tool bridge. The bridge is an MCP server of Dagu on `127.0.0.1` and a random port. It exists for one attempt. Dagu writes its URL and a secret of 32 random bytes to the MCP config of the attempt. The file has the mode `0400`, and Dagu deletes it at the end of the attempt. The CLI gets each tool as `mcp__dagu__<name>`. The bridge refuses a request without the secret (status 401), and it runs one call at a time. A call runs a child run, as a `chat.completion` tool call does. A fixed `params` input is hidden from the model, and Dagu applies it. A child run gets the inputs as one JSON object. A failed child run, an unknown tool, an argument that the tool does not show (such as a fixed input) and a call over `max_tool_calls` give an error result. A tool DAG whose command text uses `${params.NAME}` or `${env.NAME}` for an input of the model is refused: write `"$NAME"`, which the shell reads as data. The step does not fail. When the CLI does not report the server `dagu` as `connected`, the attempt fails with the kind `error` and the reason `bridge_unavailable`. Put `127.0.0.1` and `localhost` in `NO_PROXY` of an agent worker, or the proxy gets the requests to the bridge. The step records the catalog as `toolDefinitions`.
+- Permission mode: Dagu always passes `--permission-mode dontAsk` to `claude`. The CLI refuses a tool that no allow rule names. A key of `with` never becomes a free CLI flag. Dagu never passes `--bare`.
+- Result: `output_schema` must have `type: object`, `additionalProperties: false` in each object schema, each `required` name in `properties`, and no property `tool_calls`. The schema is at most 100000 bytes. Dagu takes `structured_output` of the last result message and never reads JSON from the text. An unknown field or a duplicate field fails the attempt (kind `error`; reason `no_result`, `invalid_json` or `schema_mismatch`). The step writes the result as one line of JSON and publishes each property. Without `output_schema`, the result is text.
+- `${steps.<id>.outputs.tool_calls}` is a JSON array with the name of each tool call: `mcp__dagu__<name>` gives `<name>`, `mcp__<server>__<tool>` gives `<server>_<tool>`, `Read`, `Write`, `Edit` give `read`, `write`, `edit`, `Grep` and `Glob` give `search`, `Bash` gives `shell`. A call that the CLI denied is in the list. The raw stream of the CLI goes to `<stdout log>.stream.jsonl`.
+- Failure kinds: `ok`, `auth_required` (exit code 77), `rate_limited` (75) and `error` (the exit code of the process, or 1). Dagu writes `agent: attempt ended <kind>` to stderr. `continue_on` and `retry_policy.exit_code` can select the codes. `retry_policy` never retries `auth_required`.
+- Rate limit: a `rate_limited` attempt fails the step at once with 75. The step has no wait of its own. To wait for a limit, set `retry_policy` with `exit_code: [75]` and `interval_sec` (for example `limit: 12`, `interval_sec: 300`).
 
 ## harness.run
 
@@ -1557,7 +1819,7 @@ steps:
 
 Browser behavior:
 
-- Before writing a browser step for a page you have not seen, work the page in a browser session (`dagu browser session`, see `references/cli.md`) with the same operations, looking at its outline after each, instead of guessing at its fields, buttons, or addresses. Export what worked: the step comes out with its acts recorded, so its first run replays them. With `browser.profile`, sign-in operations run only while the site asks for them, so guard them with `when: {selector: ...}` on the sign-in form.
+- Before writing a browser step for a page you have not seen, work the page in a browser session (`dagu browser session`; the CLI reference in `INDEX.md` describes it) with the same operations, looking at its outline after each, instead of guessing at its fields, buttons, or addresses. Export what worked: the step comes out with its acts recorded, so its first run replays them. With `browser.profile`, sign-in operations run only while the site asks for them, so guard them with `when: {selector: ...}` on the sign-in form.
 - Each `do` item sets exactly one of `goto`, `act`, `upload`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless it holds) and `timeout`.
 - An `act` performs one action: "Sign in with %user% and %password%" types into one field and stops. Write one act per field and one for the button. A dropdown that is not a native `<select>` takes two acts: one opens it, the next picks the option.
 - `upload: {files, into}` gives local files to a file input; an `act` cannot. `files` is a path or glob pattern relative to the step's working directory, a list of them, or an earlier step's output holding a JSON list of paths, of objects with a `path`, or of `mail.search` emails, whose attachments saved with `save_attachments: true` are uploaded. Each file is at most 50 MB. `into` names the file input, or the button or drop area that opens the file picker, in plain words; the model finds it once and later runs replay it like an act. Leave `into` out when the page has one file input; no model is asked then. The element gets the files directly when it is or holds one file input; otherwise Dagu clicks it and hands the files to the file picker it opens, which never shows; when none opens, the file input nearest it gets them. A file input that takes one file fails when given several. The model never sees the files. Follow an upload with an `expect` for what the site shows once it has the files, such as `{text: "Uploaded", within: 1m}`.
@@ -1689,6 +1951,16 @@ A step listed under several routes runs once when any of their patterns matches.
 ---
 
 # Remote Action Packages
+
+**Contents**
+
+- [Package Layout](#package-layout)
+- [Manifest Example](#manifest-example)
+- [Action DAG](#action-dag)
+- [Tools](#tools)
+- [Returning Outputs](#returning-outputs)
+- [Caller Example](#caller-example)
+- [References And Workers](#references-and-workers)
 
 Use this reference when creating a reusable package-style action with `dagu-action.yaml`.
 
@@ -1853,6 +2125,47 @@ Use immutable tags or commit SHAs for production. Local `source:` paths are usef
 ---
 
 # Dagu CLI Reference
+
+**Contents**
+
+- [Core Commands](#core-commands)
+  - [dagu start](#dagu-start)
+  - [dagu enqueue](#dagu-enqueue)
+  - [dagu exec](#dagu-exec)
+  - [dagu dequeue](#dagu-dequeue)
+  - [dagu stop](#dagu-stop)
+  - [dagu restart](#dagu-restart)
+  - [dagu retry](#dagu-retry)
+  - [dagu human-task complete](#dagu-human-task-complete)
+  - [dagu human-task push-back](#dagu-human-task-push-back)
+  - [dagu dry](#dagu-dry)
+  - [dagu validate](#dagu-validate)
+  - [dagu status](#dagu-status)
+  - [dagu history](#dagu-history)
+  - [dagu ls](#dagu-ls)
+  - [dagu rm](#dagu-rm)
+  - [dagu browser cache clear](#dagu-browser-cache-clear)
+  - [dagu browser session](#dagu-browser-session)
+  - [dagu computer check](#dagu-computer-check)
+  - [dagu computer elements](#dagu-computer-elements)
+  - [dagu computer cache clear](#dagu-computer-cache-clear)
+  - [dagu computer cache show](#dagu-computer-cache-show)
+  - [dagu xlsx inspect](#dagu-xlsx-inspect)
+  - [dagu xlsx read](#dagu-xlsx-read)
+  - [dagu ps](#dagu-ps)
+  - [dagu cleanup](#dagu-cleanup)
+  - [dagu prune-artifacts](#dagu-prune-artifacts)
+  - [dagu schema](#dagu-schema)
+  - [dagu config](#dagu-config)
+- [Server & Scheduling](#server--scheduling)
+  - [dagu start-all](#dagu-start-all)
+  - [dagu server](#dagu-server)
+  - [dagu scheduler](#dagu-scheduler)
+- [Distributed Execution](#distributed-execution)
+  - [dagu coordinator](#dagu-coordinator)
+  - [dagu worker](#dagu-worker)
+- [Git Sync](#git-sync)
+- [Other Commands](#other-commands)
 
 Global flags on all commands: `--config/-c`, `--dagu-home`, `--quiet/-q`, `--cpu-profile`
 
@@ -2269,6 +2582,13 @@ Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--
 
 # Context References, Scoped Values, And Step Outputs
 
+**Contents**
+
+- [Scoped Value References](#scoped-value-references)
+- [Top-Level `consts:`](#top-level-consts)
+- [Supported Context References](#supported-context-references)
+- [Declared Value Outputs](#declared-value-outputs)
+
 Use `${context.*}` when DAG YAML needs metadata about the current DAG run. These values are resolved by Dagu before the step executor runs.
 
 If a supported context value is not available in the current scope, Dagu keeps the original reference text. It does not replace the reference with an empty string.
@@ -2415,7 +2735,7 @@ Rules:
 
 Declared step outputs are different from DAG or remote action outputs. To publish caller-visible DAG/action outputs, use `stdout.outputs` or `action: outputs.write`.
 
-In a `type: build` workflow, an `outputs:` entry may declare `path` instead of a value `type`. The owning step writes to `${outputs.<name>}`, and `${steps.<step_id>.outputs.<name>}` publishes the final path only after commit or reuse. See `references/build.md`.
+In a `type: build` workflow, an `outputs:` entry may declare `path` instead of a value `type`. The owning step writes to `${outputs.<name>}`, and `${steps.<step_id>.outputs.<name>}` publishes the final path only after commit or reuse. The build reference in `INDEX.md` describes it.
 
 ---
 
@@ -2515,6 +2835,29 @@ In the Web UI, enable **Disable reuse for this run** in the Start or Enqueue dia
 ---
 
 # External Harnesses
+
+**Contents**
+
+- [Supported Providers](#supported-providers)
+- [Feature Reference](#feature-reference)
+  - [Managed OpenCode Sessions](#managed-opencode-sessions)
+- [How `with` Works](#how-with-works)
+- [Custom Harness Registry](#custom-harness-registry)
+- [ACP Agents](#acp-agents)
+- [DAG-Level Defaults and Fallback](#dag-level-defaults-and-fallback)
+- [Containerized Harness Steps](#containerized-harness-steps)
+- [Pattern 1: Checkout a Repository and Run a Harness](#pattern-1-checkout-a-repository-and-run-a-harness)
+- [Pattern 2: Multiple Harness Steps](#pattern-2-multiple-harness-steps)
+- [Pattern 3: Parameterized](#pattern-3-parameterized)
+- [Provider Examples](#provider-examples)
+  - [Claude Code](#claude-code)
+  - [Codex](#codex)
+  - [Copilot](#copilot)
+  - [OpenCode](#opencode)
+  - [Pi](#pi)
+  - [DeepSeek Harness](#deepseek-harness)
+  - [Kilo Code](#kilo-code)
+- [Notes](#notes)
 
 Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu selects the configured provider; its executable must be installed on the host or available in the selected container.
 

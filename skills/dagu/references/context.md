@@ -1,5 +1,12 @@
 # Context References, Scoped Values, And Step Outputs
 
+**Contents**
+
+- [Scoped Value References](#scoped-value-references)
+- [Top-Level `consts:`](#top-level-consts)
+- [Supported Context References](#supported-context-references)
+- [Declared Value Outputs](#declared-value-outputs)
+
 Use `${context.*}` when DAG YAML needs metadata about the current DAG run. These values are resolved by Dagu before the step executor runs.
 
 If a supported context value is not available in the current scope, Dagu keeps the original reference text. It does not replace the reference with an empty string.
@@ -146,4 +153,4 @@ Rules:
 
 Declared step outputs are different from DAG or remote action outputs. To publish caller-visible DAG/action outputs, use `stdout.outputs` or `action: outputs.write`.
 
-In a `type: build` workflow, an `outputs:` entry may declare `path` instead of a value `type`. The owning step writes to `${outputs.<name>}`, and `${steps.<step_id>.outputs.<name>}` publishes the final path only after commit or reuse. See `references/build.md`.
+In a `type: build` workflow, an `outputs:` entry may declare `path` instead of a value `type`. The owning step writes to `${outputs.<name>}`, and `${steps.<step_id>.outputs.<name>}` publishes the final path only after commit or reuse. The build reference in `INDEX.md` describes it.

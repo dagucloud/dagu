@@ -13,8 +13,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
+// sourceFiles lists the reference files that make up llms.txt, in order.
+// SKILL.md and references/INDEX.md only route to these files, so they stay out.
 var sourceFiles = []string{
-	"SKILL.md",
+	filepath.Join("references", "authoring.md"),
 	filepath.Join("references", "steptypes.md"),
 	filepath.Join("references", "dagu-action.md"),
 	filepath.Join("references", "cli.md"),
