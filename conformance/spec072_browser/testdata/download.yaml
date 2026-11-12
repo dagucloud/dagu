@@ -18,4 +18,6 @@ steps:
     run: cat "$DAG_RUN_ARTIFACTS_DIR/browser/fetch/downloads/report.csv" > report.out
   - id: published
     depends: fetch
-    run: printf '%s' '${steps.fetch.outputs.downloads}' > downloads.out
+    env:
+      DOWNLOADS: ${steps.fetch.outputs.downloads}
+    run: printf '%s' "$DOWNLOADS" > downloads.out
