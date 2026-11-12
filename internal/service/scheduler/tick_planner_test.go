@@ -3115,6 +3115,28 @@ func TestTickPlanner_CatchupSlots(t *testing.T) {
 	assert.Equal(t, []string{"overlap"}, skipped)
 }
 
+// Catchup leaves a slot a backfill holds and records it done.
+func TestTickPlanner_CatchupSkipsSlotABackfillHolds(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(time.Date(2026, 2, 7, 10, 0, 0, 0, time.UTC))})
+	var enqueued int
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		enqueued++
+		return nil
+	}
+	tp.cfg.BackfillGuard = func(context.Context, DAGEntry, time.Time, func() error) (bool, error) { return true, nil }
+	dag := newHourlyCatchupDAG(t, "catchup")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	runs := tp.Plan(t.Context(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
+	require.Len(t, runs, 1)
+	tp.DispatchRun(t.Context(), runs[0])
+
+	assert.Zero(t, enqueued)
+	assert.Equal(t, &schedulerstate.ScheduleSlot{At: runs[0].ScheduledTime, Outcome: schedulerstate.SlotDone}, lastSlot(tp, "catchup"))
+}
+
 // A scheduler that starts after its last tick records, for each DAG it does
 // not catch up, the latest slot that came due meanwhile as missed; the
 // current minute's slot is left to the first tick. A DAG caught up or

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -95,6 +96,8 @@ type Scheduler struct {
 	retryScanner        *RetryScanner // DAG-level retry scanner
 	planner             *TickPlanner  // Unified scheduling decision module
 	restartScanner      *RestartScanner
+	pauseStore          schedulerstate.PauseStore
+	backfills           *backfill.Dispatcher
 	stopOnce            sync.Once
 	lock                sync.Mutex
 	lifecycleMu         sync.Mutex
@@ -115,17 +118,19 @@ type schedulerHooks struct {
 
 // Dependencies contains the stores and services used by Scheduler.
 type Dependencies struct {
-	EntryReader          EntryReader
-	DAGRunManager        runtime.Manager
-	DAGRepository        *persis.DAGRepository
-	DAGRunRepository     *persis.DAGRunRepository
-	QueueStore           queuedomain.QueueStore
-	ProcRepository       *persis.ProcRepository
-	ServiceRegistry      serviceregistry.ServiceRegistry
-	CoordinatorClient    dispatch.Dispatcher
-	SchedulerStateStore  schedulerstate.Store
-	SchedulerPauseStore  schedulerstate.PauseStore
-	RestartBackoffStore  schedulerstate.RestartBackoffStore
+	EntryReader         EntryReader
+	DAGRunManager       runtime.Manager
+	DAGRepository       *persis.DAGRepository
+	DAGRunRepository    *persis.DAGRunRepository
+	QueueStore          queuedomain.QueueStore
+	ProcRepository      *persis.ProcRepository
+	ServiceRegistry     serviceregistry.ServiceRegistry
+	CoordinatorClient   dispatch.Dispatcher
+	SchedulerStateStore schedulerstate.Store
+	SchedulerPauseStore schedulerstate.PauseStore
+	RestartBackoffStore schedulerstate.RestartBackoffStore
+	// BackfillStore holds the backfills the scheduler runs. Nil runs none.
+	BackfillStore        backfill.Store
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
 	DispatchTaskStore    dispatch.DispatchTaskStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
@@ -190,6 +195,10 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	}
 	scheduler.eventCollector = deps.EventCollector
 	scheduler.restartScanner.cfg.BackoffStore = deps.RestartBackoffStore
+	scheduler.backfills = scheduler.newBackfillDispatcher(deps.BackfillStore)
+	if scheduler.backfills != nil {
+		scheduler.planner.cfg.BackfillGuard = scheduler.guardCatchupSlot
+	}
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
 		scheduler.incidentMonitor = newIncidentMonitor(cfg, deps)
@@ -292,14 +301,9 @@ func newScheduler(
 	queuesEnabled := cfg.Queues.Enabled
 	var isQueued IsQueuedFunc
 	var enqueueFunc EnqueueFunc
+	liveRun := liveRunChecker(dagRunRepository)
 	if queuesEnabled {
-		isQueued = func(ctx context.Context, dag *ir.DAG) (bool, error) {
-			items, err := queueStore.ListByDAGName(ctx, dag.ProcGroup(), dag.Name)
-			if err != nil {
-				return false, err
-			}
-			return len(items) > 0, nil
-		}
+		isQueued = liveQueuedChecker(queueStore, liveRun)
 		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
 			dag := entry.DAG
 			profileName, err := dagExecutor.defaultProfileName(ctx, entry.DefinitionID, dag)
@@ -325,13 +329,7 @@ func newScheduler(
 		}
 	}
 
-	isRunning := func(ctx context.Context, dag *ir.DAG) (bool, error) {
-		count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
-		if err != nil {
-			return false, err
-		}
-		return count > 0, nil
-	}
+	isRunning := liveRunningChecker(procRepository, liveRun)
 	runExists := func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
 		_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
 		switch {
@@ -455,6 +453,7 @@ func newScheduler(
 		planner:          planner,
 		clock:            defaultClock,
 		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
+		pauseStore:       pauseStore,
 	}
 	s.folderWatcher = newFolderWatcher(folderWatcherConfig{
 		Entries:     er.Entries,
@@ -806,6 +805,10 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 
 	wg.Go(func() {
 		s.startRestartScanner(ctx)
+	})
+
+	wg.Go(func() {
+		s.startBackfillDispatcher(ctx)
 	})
 
 	wg.Go(func() {

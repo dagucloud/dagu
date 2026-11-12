@@ -153,6 +153,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"scheduler.heartbeatinterval":       "scheduler.heartbeat_interval",
 	"scheduler.stalethreshold":          "scheduler.stale_threshold",
 	"scheduler.failurethreshold":        "scheduler.failure_threshold",
+	"scheduler.backfillmaxslots":        "scheduler.backfill_max_slots",
 
 	// Proc
 	"proc.heartbeatinterval": "proc.heartbeat_interval",

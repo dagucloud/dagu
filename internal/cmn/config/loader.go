@@ -1727,6 +1727,7 @@ func (l *ConfigLoader) loadSchedulerConfig(cfg *Config, def Definition) {
 		cfg.Scheduler.FailoverRecoveryWindow = l.parseDuration("scheduler.failover_recovery_window", def.Scheduler.FailoverRecoveryWindow)
 		cfg.Scheduler.FailureThreshold = def.Scheduler.FailureThreshold
 		cfg.Scheduler.WakeHold = l.parseDuration("scheduler.wake_hold", def.Scheduler.WakeHold)
+		cfg.Scheduler.BackfillMaxSlots = def.Scheduler.BackfillMaxSlots
 	}
 
 	l.setSchedulerDefaults(cfg)
@@ -1758,7 +1759,13 @@ func (l *ConfigLoader) setSchedulerDefaults(cfg *Config) {
 	if cfg.Scheduler.FailureThreshold <= 0 {
 		cfg.Scheduler.FailureThreshold = 3
 	}
+	if cfg.Scheduler.BackfillMaxSlots <= 0 {
+		cfg.Scheduler.BackfillMaxSlots = defaultBackfillMaxSlots
+	}
 }
+
+// defaultBackfillMaxSlots admits an hourly DAG over a year.
+const defaultBackfillMaxSlots = 10000
 
 func (l *ConfigLoader) loadProcConfig(cfg *Config, def Definition) {
 	if l.v.IsSet("proc.heartbeat_interval") {
@@ -2474,6 +2481,7 @@ var envBindings = []envBinding{
 	{key: "scheduler.failover_recovery_window", env: "SCHEDULER_FAILOVER_RECOVERY_WINDOW"},
 	{key: "scheduler.failure_threshold", env: "SCHEDULER_FAILURE_THRESHOLD"},
 	{key: "scheduler.wake_hold", env: "SCHEDULER_WAKE_HOLD"},
+	{key: "scheduler.backfill_max_slots", env: "SCHEDULER_BACKFILL_MAX_SLOTS"},
 
 	// Proc
 	{key: "proc.heartbeat_interval", env: "PROC_HEARTBEAT_INTERVAL"},

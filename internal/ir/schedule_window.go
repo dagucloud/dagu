@@ -73,6 +73,12 @@ func windowOf(active []Schedule, loc *time.Location, slot time.Time) ScheduleWin
 	return window
 }
 
+// HasRecurringSchedule reports whether a recurring start schedule is active
+// for the profile: one with no profile or with the profile.
+func HasRecurringSchedule(schedules []Schedule, profile string) bool {
+	return len(activeWindowSchedules(schedules, profile)) > 0
+}
+
 // activeWindowSchedules returns the recurring start schedules that are active
 // for the profile: those with no profile or with the profile.
 func activeWindowSchedules(schedules []Schedule, profile string) []Schedule {

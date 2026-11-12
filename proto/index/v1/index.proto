@@ -73,4 +73,5 @@ message DAGRunIndexEntry {
   string archive_dir = 28;
   string trigger_actor = 29;
   string definition_id = 30;
+  string backfill_id = 31;
 }

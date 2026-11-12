@@ -221,3 +221,62 @@ func TestRecentScheduleFires(t *testing.T) {
 	}, fires)
 	assert.Equal(t, "Asia/Tokyo", fires[0].Location().String())
 }
+
+func TestScheduleFiresBetween(t *testing.T) {
+	t.Parallel()
+
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+	daily, err := ir.NewCronSchedule("CRON_TZ=Asia/Tokyo 0 2 * * *")
+	require.NoError(t, err)
+	sameTime, err := ir.NewCronSchedule("CRON_TZ=Asia/Tokyo 0 2 * * *")
+	require.NoError(t, err)
+	oneOff, err := ir.NewOneOffSchedule("2026-10-02T01:00:00Z")
+	require.NoError(t, err)
+	schedules := []ir.Schedule{daily, sameTime, oneOff}
+	from := time.Date(2026, 10, 2, 2, 0, 0, 0, tokyo)
+	to := time.Date(2026, 10, 4, 2, 0, 0, 0, tokyo)
+
+	// Both bounds are inclusive, schedules firing together yield one slot,
+	// and a one-off fire is no slot.
+	fires, more := ir.ScheduleFiresBetween(schedules, "", time.UTC, from, to, 10)
+	assert.False(t, more)
+	assert.Equal(t, []time.Time{from, from.AddDate(0, 0, 1), to}, fires)
+	assert.Equal(t, "Asia/Tokyo", fires[0].Location().String())
+
+	fires, more = ir.ScheduleFiresBetween(schedules, "", time.UTC, from, to, 2)
+	assert.True(t, more)
+	assert.Len(t, fires, 2)
+
+	fires, more = ir.ScheduleFiresBetween(schedules, "", time.UTC, from.Add(time.Minute), to.Add(-time.Minute), 10)
+	assert.False(t, more)
+	assert.Equal(t, []time.Time{from.AddDate(0, 0, 1)}, fires)
+}
+
+func TestResolveRangeBound(t *testing.T) {
+	t.Parallel()
+
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+	daily, err := ir.NewCronSchedule("CRON_TZ=Asia/Tokyo 0 2 * * *")
+	require.NoError(t, err)
+	schedules := []ir.Schedule{daily}
+
+	for _, tc := range []struct {
+		value string
+		bound ir.RangeBound
+		want  time.Time
+	}{
+		{"2026-10-02", ir.RangeStart, time.Date(2026, 10, 2, 0, 0, 0, 0, tokyo)},
+		{"2026-10-02", ir.RangeEnd, time.Date(2026, 10, 3, 0, 0, 0, 0, tokyo).Add(-time.Nanosecond)},
+		{"2026-10-02T02:00", ir.RangeEnd, time.Date(2026, 10, 2, 2, 0, 0, 0, tokyo)},
+		{"2026-10-02T02:00:00Z", ir.RangeStart, time.Date(2026, 10, 2, 2, 0, 0, 0, time.UTC)},
+	} {
+		got, err := ir.ResolveRangeBound(tc.value, schedules, "", time.UTC, tc.bound)
+		require.NoError(t, err, tc.value)
+		assert.True(t, tc.want.Equal(got), "%s: want %s, got %s", tc.value, tc.want, got)
+	}
+
+	_, err = ir.ResolveRangeBound("October", schedules, "", time.UTC, ir.RangeStart)
+	require.ErrorContains(t, err, "invalid time")
+}

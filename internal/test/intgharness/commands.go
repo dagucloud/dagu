@@ -5,6 +5,7 @@ package intgharness
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -95,15 +96,18 @@ func (c Commands) EnvOutputWithSeparator(separator string, names ...string) stri
 	return fmt.Sprintf("printf '%s' %s", strings.Join(placeholders, separator), strings.Join(values, " "))
 }
 
-// WaitForFile returns a shell snippet that blocks until path exists. It fails
-// once the directory holding path is gone, so a step that outlives its test
+// WaitForFile returns a shell snippet that blocks until file exists. It fails
+// once the directory holding file is gone, so a step that outlives its test
 // does not wait forever.
-func (c Commands) WaitForFile(path string) string {
+func (c Commands) WaitForFile(file string) string {
 	if c.shell == powerShell {
-		quoted := testutil.PowerShellQuote(path)
+		quoted := testutil.PowerShellQuote(file)
 		return fmt.Sprintf("while (-not (Test-Path %s)) {\n  if (-not (Test-Path (Split-Path -Parent %s))) { exit 1 }\n  Start-Sleep -Milliseconds 50\n}", quoted, quoted)
 	}
-	return fmt.Sprintf("while [ ! -f %s ]; do\n  [ -d %s ] || exit 1\n  sleep 0.05\ndone", testutil.PosixQuote(path), testutil.PosixQuote(filepath.Dir(path)))
+	// A POSIX shell reads slashes on every host, so the directory is taken
+	// as one would, not with the host's separator.
+	dir := path.Dir(filepath.ToSlash(file))
+	return fmt.Sprintf("while [ ! -f %s ]; do\n  [ -d %s ] || exit 1\n  sleep 0.05\ndone", testutil.PosixQuote(file), testutil.PosixQuote(dir))
 }
 
 // BlockUntil is an alias for WaitForFile in long-running integration steps.

@@ -129,13 +129,72 @@ func (r *DAGRunRepository) LatestAttempt(
 	if err != nil {
 		return nil, err
 	}
+	if status, err := attempt.ReadStatus(ctx); err == nil && status.BackfillID != "" {
+		if live, err := r.latestLiveStatus(ctx, DAGRunListOptions{ExactName: name, From: query.NotBefore}); err != nil {
+			return nil, err
+		} else if live != nil {
+			if attempt, err = r.store.FindAttempt(ctx, live.DAGRun()); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return newEventingAttempt(attempt, nil, false), nil
 }
 
 // LatestStatuses returns the status of each DAG's newest run when that run
 // was created at or after query.NotBefore and matches the query's filters.
+// As for LatestAttempt, a DAG's newest run is its newest run that is not a
+// backfill run, unless it has none.
 func (r *DAGRunRepository) LatestStatuses(ctx context.Context, query DAGRunLatestStatusesQuery) ([]*ir.DAGRunStatus, error) {
-	return r.store.LatestStatuses(ctx, query)
+	statuses, err := r.store.LatestStatuses(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	for i, status := range statuses {
+		if status.BackfillID == "" {
+			continue
+		}
+		live, err := r.latestLiveStatus(ctx, DAGRunListOptions{
+			ExactName:       status.Name,
+			From:            query.NotBefore,
+			Labels:          query.Labels,
+			WorkspaceFilter: query.WorkspaceFilter,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if live != nil {
+			statuses[i] = live
+		}
+	}
+	return statuses, nil
+}
+
+// latestLivePageSize is how many runs a search for a DAG's newest run that
+// is not a backfill run reads at a time.
+const latestLivePageSize = 200
+
+// latestLiveStatus returns the newest top-level run matching options that is
+// not a backfill run, or nil when there is none. A backfill of old slots must
+// not decide how a DAG's live state reads.
+func (r *DAGRunRepository) latestLiveStatus(ctx context.Context, options DAGRunListOptions) (*ir.DAGRunStatus, error) {
+	options.AllHistory = options.From.IsZero()
+	options.Limit = latestLivePageSize
+	for {
+		page, err := r.ListStatusesPage(ctx, options)
+		if err != nil {
+			return nil, err
+		}
+		for _, status := range page.Items {
+			if status.BackfillID == "" {
+				return status, nil
+			}
+		}
+		if page.NextCursor == "" {
+			return nil, nil
+		}
+		options.Cursor = page.NextCursor
+	}
 }
 
 // ListStatuses returns statuses in canonical list order.

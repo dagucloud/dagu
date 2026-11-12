@@ -325,7 +325,6 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 	status.Conditions = nil
 }
 
-// DAGRun returns a reference to the dag-run associated with this status
 // ScheduleWindow returns the window the run's schedule slot owns.
 func (st *DAGRunStatus) ScheduleWindow() ScheduleWindow {
 	return ScheduleWindow{
@@ -335,6 +334,17 @@ func (st *DAGRunStatus) ScheduleWindow() ScheduleWindow {
 	}
 }
 
+// NeverStarted reports whether the run ended or stopped before it started,
+// as one cancelled while queued. A retry follows an attempt that ran, so a
+// run whose retry was cancelled before it started did start.
+func (st *DAGRunStatus) NeverStarted() bool {
+	if st.TriggerType == TriggerTypeRetry {
+		return false
+	}
+	return st.Status == NotStarted || (st.Status == Aborted && st.StartedAt == "")
+}
+
+// DAGRun returns a reference to the dag-run associated with this status
 func (st *DAGRunStatus) DAGRun() DAGRunRef {
 	return NewDAGRunRef(st.Name, st.DAGRunID)
 }

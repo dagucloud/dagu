@@ -784,6 +784,8 @@ type Scheduler struct {
 	// the API, so definitions can be refreshed before the first tick. 0 (the
 	// default) never holds.
 	WakeHold time.Duration
+	// BackfillMaxSlots bounds the slots of one backfill.
+	BackfillMaxSlots int // Default: 10000
 }
 
 // PostgresPoolConfig holds PostgreSQL connection pool settings for workers.

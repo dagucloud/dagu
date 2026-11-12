@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -41,6 +43,7 @@ type Persistence struct {
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 	AgentSessionCleanupQueue  *agentsession.CleanupQueue
+	BackfillStore             backfill.Store
 }
 
 type filePersistenceOptions struct {
@@ -129,5 +132,6 @@ func newFilePersistence(
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
 		AgentSessionCleanupQueue:  cleanupQueue,
+		BackfillStore:             filebackfill.New(filebackfill.Dir(cfg.Paths.DataDir)),
 	}, nil
 }
