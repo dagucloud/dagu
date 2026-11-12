@@ -1799,21 +1799,22 @@ describe('LicensePage', () => {
     // MCP clients stop working when the trial ends, so the date shows with
     // a way to keep them.
     it('says until when the trial includes remote access', async () => {
+      const expiry = '2099-11-25T12:00:00Z';
       serveRemoteAccess(
         { ...remoteOff, level: LicenseRemoteAccessLevel.developer },
         {
           license: {
             ...online,
             plan: 'trial',
-            // Midday, so the date is the same in every timezone.
-            expiry: '2099-11-25T12:00:00Z',
+            expiry,
           },
         }
       );
       const card = await findRemoteAccessCard();
       expect(
         await within(card).findByText(
-          'Included in your trial until 2099-11-25. Choose a plan to keep MCP clients working.',
+          // The date shows in the viewer's timezone.
+          `Included in your trial until ${dayjs(expiry).format('YYYY-MM-DD')}. Choose a plan to keep MCP clients working.`,
           { exact: false }
         )
       ).toBeVisible();
