@@ -180,6 +180,7 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_SCHEDULER_PORT":                      "9999",
 		"DAGU_SCHEDULER_ZOMBIE_DETECTION_INTERVAL": "90s",
 		"DAGU_SCHEDULER_WAKE_HOLD":                 "4m",
+		"DAGU_SCHEDULER_BACKFILL_MAX_SLOTS":        "500",
 
 		"DAGU_AUTH_OIDC_CLIENT_ID":     "test-client-id",
 		"DAGU_AUTH_OIDC_CLIENT_SECRET": "test-secret",
@@ -379,6 +380,7 @@ func TestLoad_Env(t *testing.T) {
 			FailoverRecoveryWindow:  2 * time.Minute,
 			FailureThreshold:        3,
 			WakeHold:                4 * time.Minute,
+			BackfillMaxSlots:        500,
 		},
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
@@ -1195,6 +1197,7 @@ scheduler:
 			RetryFailureWindow:      24 * time.Hour,
 			FailureThreshold:        3,
 			WakeHold:                3 * time.Minute,
+			BackfillMaxSlots:        10000,
 		},
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
