@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/imagefit"
-	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
+	"github.com/dagucloud/dagu/v2/internal/cmn/textenc"
 	"github.com/xuri/excelize/v2"
 	_ "golang.org/x/image/webp" // decoded by image.Decode
 )
@@ -307,7 +307,7 @@ func workbookText(data []byte) (string, error) {
 // Windows writes them; one in neither encoding fails rather than being
 // given to the model as replacement characters.
 func plainText(data []byte) (string, error) {
-	decoded, _, err := workbook.DetectText(data)
+	decoded, err := textenc.Detect(data)
 	if err != nil {
 		return "", fmt.Errorf("the text file could not be read: %w", err)
 	}

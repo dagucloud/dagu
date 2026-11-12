@@ -203,8 +203,8 @@ type LoadOptions struct {
 	// Columns selects and orders the fields, as for DecodeRows.
 	Columns any
 	// Encoding is the CSV file's encoding; empty detects it, UTF-8 or else
-	// Shift_JIS, as DetectText does, and a byte order mark is dropped either
-	// way. Other formats are UTF-8.
+	// Shift_JIS, as textenc.Detect does, and a byte order mark is dropped
+	// either way. Other formats are UTF-8.
 	Encoding Encoding
 	// Delimiter is the CSV field separator; zero means a comma.
 	Delimiter rune
