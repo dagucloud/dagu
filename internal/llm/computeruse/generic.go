@@ -119,10 +119,14 @@ func (s *genericSession) Next(ctx context.Context, obs Observation) (*Turn, erro
 	if err != nil {
 		return nil, err
 	}
+	// The turn is recorded with the provider's own state and reasoning,
+	// which the provider sends back to keep them across turns.
 	s.messages = append(s.messages, llm.Message{
-		Role:      llm.RoleAssistant,
-		Content:   resp.Content,
-		ToolCalls: resp.ToolCalls,
+		Role:             llm.RoleAssistant,
+		Content:          resp.Content,
+		ReasoningContent: resp.ReasoningContent,
+		ToolCalls:        resp.ToolCalls,
+		ProviderState:    resp.ProviderState,
 	})
 
 	turn := &Turn{Text: resp.Content, Usage: resp.Usage}

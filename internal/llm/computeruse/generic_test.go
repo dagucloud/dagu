@@ -424,3 +424,38 @@ func TestPixelsToNotches(t *testing.T) {
 		assert.Equal(t, want, computeruse.PixelsToNotches(pixels), pixels)
 	}
 }
+
+// The provider's record of a turn, and its reasoning, stay on the assistant
+// message the next request carries, so a model keeps its reasoning across
+// the turns of the loop.
+func TestGenericSessionKeepsProviderState(t *testing.T) {
+	t.Parallel()
+
+	state := &llm.ProviderState{Provider: llm.ProviderOpenRouter, Data: []byte(`[{"type":"reasoning.text","text":"click"}]`)}
+	provider := &scriptedProvider{responses: []*llm.ChatResponse{
+		{
+			Content:          "Clicking.",
+			ReasoningContent: "click",
+			ToolCalls:        []llm.ToolCall{toolCall("c1", "click", `{"x":1,"y":2}`)},
+			ProviderState:    state,
+		},
+		{ToolCalls: []llm.ToolCall{toolCall("c2", "done", `{"success":true,"summary":"ok"}`)}},
+	}}
+	session := newGeneric(t, provider)
+
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("a")})
+	require.NoError(t, err)
+	_, err = session.Next(context.Background(), computeruse.Observation{Screen: screen("b"), Results: []computeruse.Result{{CallID: "c1"}}})
+	require.NoError(t, err)
+
+	messages := provider.requests[1].Messages
+	assistant := messages[2]
+	assert.Equal(t, llm.RoleAssistant, assistant.Role)
+	assert.Same(t, state, assistant.ProviderState)
+	assert.Equal(t, "click", assistant.ReasoningContent)
+	for i, message := range messages {
+		if i != 2 {
+			assert.Nil(t, message.ProviderState, "message %d", i)
+		}
+	}
+}
