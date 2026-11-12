@@ -558,3 +558,82 @@ func TestExecuteDecisionErrors(t *testing.T) {
 	})
 	requireExecuteError(t, result, "resource_not_found", "")
 }
+
+// The backfill actions plan, submit, and cancel a backfill of past slots.
+func TestExecuteBackfill(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateDAG(t, "mcp_backfill", `schedule: "0 2 * * *"
+steps:
+  - name: main
+    run: "echo done"
+`)
+	session := server.Connect(t, "")
+
+	dry := callExecute(t, session, map[string]any{
+		"action": "backfill",
+		"name":   "mcp_backfill",
+		"from":   "2025-10-01T00:00:00Z",
+		"to":     "2025-10-03T23:00:00Z",
+		"dryRun": true,
+	})
+	require.False(t, dry.IsError)
+	plan, ok := mcptest.StructuredMap(t, dry)["plan"].(map[string]any)
+	require.True(t, ok)
+	slots, ok := plan["slots"].([]any)
+	require.True(t, ok)
+	require.Len(t, slots, 3)
+	revision, ok := plan["revision"].(string)
+	require.True(t, ok)
+
+	submitted := callExecute(t, session, map[string]any{
+		"action":   "backfill",
+		"name":     "mcp_backfill",
+		"from":     "2025-10-01T00:00:00Z",
+		"to":       "2025-10-03T23:00:00Z",
+		"revision": revision,
+	})
+	require.False(t, submitted.IsError)
+	backfillID, ok := mcptest.StructuredMap(t, submitted)["backfillId"].(string)
+	require.True(t, ok)
+	require.Len(t, backfillID, 8)
+
+	stale := callExecute(t, session, map[string]any{
+		"action":   "backfill",
+		"name":     "mcp_backfill",
+		"from":     "2025-10-01T00:00:00Z",
+		"rerun":    "all",
+		"revision": "stale",
+	})
+	requireExecuteError(t, stale, "conflict", "")
+
+	cancelled := callExecute(t, session, map[string]any{
+		"action":     "backfill_cancel",
+		"name":       "mcp_backfill",
+		"backfillId": backfillID,
+	})
+	require.False(t, cancelled.IsError)
+	backfill, ok := mcptest.StructuredMap(t, cancelled)["backfill"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "cancelled", backfill["status"])
+}
+
+func TestExecuteBackfillInputErrors(t *testing.T) {
+	server := mcptest.NewServer(t)
+	session := server.Connect(t, "")
+
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action": "backfill_cancel",
+		"name":   "mcp_backfill",
+	}), "invalid_tool_input", "backfillId")
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action": "start",
+		"name":   "mcp_backfill",
+		"from":   "2025-10-01",
+	}), "invalid_tool_input", "from")
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action":   "backfill",
+		"name":     "mcp_backfill",
+		"from":     "2025-10-01",
+		"dagRunId": "run-1",
+	}), "invalid_tool_input", "dagRunId")
+}

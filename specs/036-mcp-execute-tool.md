@@ -44,7 +44,7 @@ Tool input is a JSON object. Fields outside this table fail with
 
 | Field | Type | Required rule | Meaning |
 | --- | --- | --- | --- |
-| `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`, `approve`, `reject`, `push_back`. | Execution action. |
+| `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`, `approve`, `reject`, `push_back`, `backfill`, `backfill_resume`, `backfill_cancel`. | Execution action. |
 | `targetType` | string | Optional. One of `dag`, `inline_spec`, `run`. | Target type. Defaults to `run` for `retry`, `stop`, `approve`, `reject`, and `push_back`, `inline_spec` when `spec` is present, otherwise `dag`. |
 | `name` | string | Required. | DAG name, including the identity used for inline runs. |
 | `spec` | string | Required for `targetType=inline_spec`; otherwise forbidden. | Inline DAG YAML document for `start` and `enqueue`. |
@@ -62,6 +62,11 @@ Tool input is a JSON object. Fields outside this table fail with
 | `inputs` | object | Optional for `approve` and `push_back`. | Values for the waiting step. |
 | `reason` | string | Optional for `reject`. | Reason recorded with the rejection. |
 | `attemptId` | string | Optional for `approve`, `reject`, and `push_back`. | Attempt the decision is based on. |
+| `backfillId` | string | Required for `backfill_resume` and `backfill_cancel`. | Backfill identifier. |
+| `from`, `to`, `slots`, `rerun` | string, string, array of strings, string | Optional for `backfill`. | The slots to backfill, as for `dagu backfill start` ([Spec 086](086-backfill.md)). |
+| `maxConcurrency`, `onFailure` | integer, string | Optional for `backfill` and `backfill_resume`. | Runs of the backfill at once, and `stop` or `continue` after a slot fails. |
+| `dryRun`, `revision` | boolean, string | Optional for `backfill` and `backfill_resume`. | Return the plan only; refuse a plan that changed since `revision`. |
+| `stopRunning` | boolean | Optional for `backfill_cancel`. | Also stop the backfill's running and waiting runs. |
 | `wait` | boolean | Optional. | Wait for the identified run to reach a terminal state. |
 | `waitTimeoutSeconds` | integer | Optional. Requires `wait`. From `1` through `300`; defaults to `60`. | Maximum wait duration. |
 
@@ -81,6 +86,10 @@ Rules:
   `reject`, and `push_back`; `subDAGRunId` and `attemptId` are valid only for
   `approve`, `reject`, and `push_back`; `inputs` is valid only for `approve`
   and `push_back`; and `reason` is valid only for `reject`.
+- The backfill actions take only `action`, `name`, and their own fields above;
+  `backfill` also takes `params` and `profile`. Any other field fails with
+  `invalid_tool_input`, and a backfill field fails with `invalid_tool_input`
+  for any other action.
 - `inputs` that is not a JSON object fails with `invalid_tool_input`.
 - Supplying a field for an action that does not support it fails with
   `invalid_tool_input`, even when a boolean is `false` or an array is empty.
@@ -96,6 +105,19 @@ Rules:
 | `approve` | Approves a waiting approval gate, or completes a waiting human task. |
 | `reject` | Rejects a waiting approval gate. |
 | `push_back` | Pushes a waiting approval gate or human task back for re-execution. |
+| `backfill` | Plans a backfill of the DAG named by `name` and, unless `dryRun`, submits it. |
+| `backfill_resume` | Runs again the slots of a backfill that have not succeeded. |
+| `backfill_cancel` | Cancels an open backfill. |
+
+### Backfill actions
+
+- The output of `backfill` and `backfill_resume` holds the `plan`, and, when a
+  backfill was submitted or was already open with the same options,
+  `backfill` and `backfillId`; `existing` is `true` for one already open.
+  The output of `backfill_cancel` holds the cancelled `backfill`.
+- A `revision` the plan no longer has fails with `conflict`, starts nothing,
+  and returns the new plan as `details.plan`.
+- Cancelling an ended backfill fails with `conflict`.
 
 ### Step decisions
 
