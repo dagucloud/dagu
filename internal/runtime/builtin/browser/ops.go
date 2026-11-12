@@ -259,6 +259,9 @@ func (r *run) execute(ctx context.Context) error {
 					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: op.When.via(), Detail: reason,
 					Tokens: r.bridge.totals().sub(before).total(), Duration: time.Since(began),
 				})
+				// The when may have waited while a check passed, so the
+				// operations that follow get the page as it is now.
+				r.reportRefusal(ctx, i)
 				continue
 			}
 		}

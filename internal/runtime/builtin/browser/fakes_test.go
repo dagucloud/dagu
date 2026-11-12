@@ -127,6 +127,10 @@ type fakeEngine struct {
 	// pageText and visible describe the page that fixed checks read.
 	pageText string
 	visible  []string
+	// outcomeClearsAfterTextReads is how many page text reads, as a fixed
+	// check makes while it waits, run before the page stops showing
+	// outcome, as a bot check that passes does; zero keeps it.
+	outcomeClearsAfterTextReads int
 	// textReadsLoseContext is how many of the next page text reads lose
 	// their script context to a new document.
 	textReadsLoseContext int
@@ -477,6 +481,11 @@ func (e *fakeEngine) PageText(context.Context) (string, error) {
 	if e.textReadsLoseContext > 0 {
 		e.textReadsLoseContext--
 		return "", errFakeContextLost
+	}
+	if e.outcomeClearsAfterTextReads > 0 {
+		if e.outcomeClearsAfterTextReads--; e.outcomeClearsAfterTextReads == 0 {
+			e.outcome = pageOutcome{}
+		}
 	}
 	return e.pageText, nil
 }
