@@ -123,9 +123,13 @@ Review generated diffs with the source change that caused them.
 - Every push to a pull request runs the light checks: Go lint, Linux unit
   and integration tests, the frontend build, and the chart and image scans.
 - The heavy checks run only on a pull request with the `full-ci` label:
-  Windows tests, the conformance suite, browser and desktop E2E, the dev
-  image browser test, and the Windows installer test. Pushes to `main` run
-  every check.
+  Windows tests, the conformance suite, browser and desktop E2E, and the dev
+  image browser test. Pushes to `main` run every check.
+- The Windows tests also run on a pull request that changes Go code built
+  only for Windows, a `*_windows.go` file or one whose build constraint names
+  windows, and on one with the `windows-ci` label, which runs them without
+  the conformance and E2E checks. The Windows installer test runs on every
+  pull request that changes the installer.
 - Draft pull requests run no checks. Marking one ready for review runs them,
   and turning one back into a draft cancels the run in progress.
 - Add `full-ci` once review is done, then merge only after every check,
