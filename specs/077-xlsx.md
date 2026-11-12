@@ -843,12 +843,14 @@ form and booleans as `true` and `false`; JSON keeps the typed values. The
 file is written through a temporary file in its directory and renamed into
 place unless `atomic: false`.
 
-CSV takes `encoding`: `utf-8` (default, no byte order mark), `utf-8-bom`
-for Excel to open the file as UTF-8 by double click, or `shift_jis` as
-Windows uses it (code page 932, Windows-31J; `cp932`, `windows-31j`,
-`sjis`, and `ms932` are accepted spellings), and `delimiter`, one
-character, a comma by default. The outputs are `path`, `format`, `count`,
-`sheet`, `range`, `warnings`, and with `artifact: true` the file's copy.
+CSV takes `encoding`: `utf-8-bom` (the default: the byte order mark lets
+Excel open the file as UTF-8 by double click, where a file without one
+opens in the system code page), `utf-8` for no byte order mark, or
+`shift_jis` as Windows uses it (code page 932, Windows-31J; `cp932`,
+`windows-31j`, `sjis`, and `ms932` are accepted spellings), and
+`delimiter`, one character, a comma by default. The outputs are `path`,
+`format`, `count`, `sheet`, `range`, `warnings`, and with `artifact: true`
+the file's copy.
 The other direction, a csv, json, or jsonl file into a workbook, is
 `xlsx.write` with `input`.
 

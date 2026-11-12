@@ -1316,7 +1316,7 @@ does not carry tables, images, or charts.
 
 `xlsx.convert` exports a sheet: `path`, `output` (the file; `.csv`, `.json`,
 `.jsonl`, or `format`), the read options `sheet`, `range`, `header`,
-`columns`, `types`, `trim`, `skip_hidden`, and for csv `encoding` (`utf-8`, `utf-8-bom`,
+`columns`, `types`, `trim`, `skip_hidden`, and for csv `encoding` (`utf-8-bom` by default so Excel opens it as UTF-8, `utf-8`,
 `shift_jis`; `cp932` is accepted) and `delimiter`. Every row is written, with
 no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse

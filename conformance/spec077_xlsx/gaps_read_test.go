@@ -241,7 +241,7 @@ func TestXlsxHiddenSheetsAndRows(t *testing.T) {
 	require.Equal(t, 3, out.Checked)
 	require.True(t, out.OK, "validate checks only the rows shown")
 	require.Equal(t, 3, out.Converted)
-	require.Equal(t, "ID,状態\nA-1,済\nA-3,済\nA-6,済\n", strings.ReplaceAll(readFile(t, dagu, "visible.csv"), "\r\n", "\n"))
+	require.Equal(t, "\xEF\xBB\xBFID,状態\nA-1,済\nA-3,済\nA-6,済\n", strings.ReplaceAll(readFile(t, dagu, "visible.csv"), "\r\n", "\n"))
 
 	text := dagu.Run("xlsx", "inspect", "hidden.xlsx", "--rows", "0")
 	text.ExpectExitCode(0)
