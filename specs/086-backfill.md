@@ -168,7 +168,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   slot because the DAG is queued or running, and does not count for
   `skip_if_successful`. The live slot's run is queued instead.
 - `mail_on` and notification routes do not fire for a backfill run, except
-  for a run waiting for a person. `handler_on` steps still run.
+  for a run waiting for a person. A backfill run neither opens nor resolves
+  an incident. `handler_on` steps still run.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
