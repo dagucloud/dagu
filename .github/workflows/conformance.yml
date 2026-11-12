@@ -21,6 +21,8 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
+      - labeled # the full-ci label runs the Windows, Conformance, and E2E jobs
     paths:
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/conformance.yml"
@@ -41,7 +43,9 @@ concurrency:
   # replaces. Runs for a branch share one group and always finish: one runs
   # at a time, and a newer commit replaces the run still waiting, so a burst
   # of merges to main tests only the latest commit.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A run started by any label but full-ci skips every job, and its own
+  # group keeps it from cancelling the run in progress.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -54,6 +58,12 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    # A pull request runs these jobs only with the full-ci label.
+    if: >-
+      github.event_name != 'pull_request' || (
+      !github.event.pull_request.draft &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     outputs:
       os: ${{ steps.filter.outputs.os }}
     steps:

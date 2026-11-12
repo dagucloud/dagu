@@ -85,9 +85,13 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 
 	choice := resp.Choices[0]
 	result := &llm.ChatResponse{
-		Content:      choice.Message.Content,
-		FinishReason: choice.FinishReason,
-		Usage:        resp.Usage.LLM(),
+		Content:          choice.Message.Content,
+		ReasoningContent: choice.Message.Reasoning,
+		FinishReason:     choice.FinishReason,
+		Usage:            resp.Usage.LLM(),
+	}
+	if details := choice.Message.ReasoningDetails; len(details) > 0 && string(details) != "null" {
+		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderOpenRouter, Data: details}
 	}
 
 	// Extract tool calls if present
@@ -138,6 +142,11 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		}
 		if m.ToolCallID != "" {
 			messages[i].ToolCallID = m.ToolCallID
+		}
+		// The turn's reasoning goes back as received, which keeps the
+		// model's reasoning across the turns of a tool loop.
+		if state := m.ProviderState; state != nil && state.Provider == llm.ProviderOpenRouter {
+			messages[i].ReasoningDetails = state.Data
 		}
 		// Convert tool calls if present (for assistant messages with tool calls)
 		if len(m.ToolCalls) > 0 {
@@ -377,6 +386,9 @@ type message struct {
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	// ReasoningDetails is the reasoning of an assistant turn, sent back
+	// exactly as the response carried it.
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type chatCompletionRequest struct {
@@ -449,6 +461,10 @@ type responseMessage struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content"`
 	ToolCalls []toolCall `json:"tool_calls,omitempty"`
+	// Reasoning is the turn's reasoning text; ReasoningDetails is the
+	// provider's record of it, kept unchanged to go back on the next turn.
+	Reasoning        string          `json:"reasoning,omitempty"`
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type chatCompletionResponse struct {

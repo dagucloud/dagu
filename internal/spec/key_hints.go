@@ -77,6 +77,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"maxContextTokens":      "max_context_tokens",
 	"observationMaxBytes":   "observation_max_bytes",
 	"observationKeepRecent": "observation_keep_recent",
+	"maxFileChars":          "max_file_chars",
 }
 
 // removedKeyHint maps keys that were renamed or removed (not just re-cased) to

@@ -29,6 +29,8 @@ on:
       - reopened # new commits are pushed to the branch that the PR is based on
       - synchronize # new commits are pushed to the branch that the PR is based on
       - ready_for_review # PR is ready for review
+      - converted_to_draft # cancels the run in progress
+      - labeled # the full-ci label runs the Windows, Conformance, and E2E jobs
     paths:
       - "api/**"
       - "*.go"
@@ -57,7 +59,9 @@ concurrency:
   # replaces. Runs for a branch share one group and always finish: one runs
   # at a time, and a newer commit replaces the run still waiting, so a burst
   # of merges to main tests only the latest commit.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A run started by any label but full-ci skips every job, and its own
+  # group keeps it from cancelling the run in progress.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -68,6 +72,9 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.draft != true &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     outputs:
       go: ${{ steps.filter.outputs.go }}
       windows: ${{ steps.filter.outputs.windows }}
@@ -381,7 +388,8 @@ jobs:
   e2e:
     name: E2E (${{ matrix.shard }}/${{ matrix.shard_total }})
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    # A pull request runs this job only with the full-ci label.
+    if: needs.changes.outputs.e2e == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # Playwright does not support Chromium on the ubuntu-26.04 image yet.
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -442,7 +450,8 @@ jobs:
   test-windows:
     name: Test on windows-latest (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: changes
-    if: needs.changes.outputs.windows == 'true'
+    # A pull request runs this job only with the full-ci label.
+    if: needs.changes.outputs.windows == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     timeout-minutes: 30
     strategy:

@@ -1208,3 +1208,35 @@ func TestMaskSecretsForProvider(t *testing.T) {
 		})
 	}
 }
+
+// A provider's context-length refusal names how much text the files held,
+// so the work can be split.
+func TestContextTooLongNamesFilesText(t *testing.T) {
+	t.Parallel()
+
+	stream := false
+	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
+	provider := &mockProvider{
+		chatFunc: func(context.Context, *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+			return nil, llmpkg.NewAPIError("openai", 400, `{"error":{"code":"context_length_exceeded","message":"This model's maximum context length is 128000 tokens."}}`)
+		},
+	}
+	executor := &Executor{
+		stdout:     io.Discard,
+		step:       ir.Step{LLM: cfg},
+		filesChars: 600000,
+		newProvider: func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
+			return provider, nil
+		},
+	}
+
+	err := executor.runWithModel(context.Background(), ir.ModelEntry{Provider: "openai", Name: "gpt-4o"}, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
+	require.ErrorIs(t, err, llmpkg.ErrContextTooLong)
+	assert.Contains(t, err.Error(), "maximum context length is 128000 tokens")
+	assert.True(t, strings.HasSuffix(err.Error(), "; the files held 600000 characters of text"), err.Error())
+
+	executor.filesChars = 0
+	err = executor.runWithModel(context.Background(), ir.ModelEntry{Provider: "openai", Name: "gpt-4o"}, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
+	require.ErrorIs(t, err, llmpkg.ErrContextTooLong)
+	assert.NotContains(t, err.Error(), "the files held", "no files, nothing to split")
+}
