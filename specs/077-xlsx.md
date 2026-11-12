@@ -129,7 +129,9 @@ and standard encryption can be opened; any other mechanism fails with
 - `header` is `true` (default: the first row of the range names the
   columns), `false` (columns are named `A`, `B`, `C`), a row number, or a
   list of row numbers whose cells are joined with a space, so `Amount` merged
-  over `Net` and `Tax` yields `Amount Net` and `Amount Tax`. Header text is
+  over `Net` and `Tax` yields `Amount Net` and `Amount Tax`, and a cell
+  merged down over several header rows contributes its text once, so
+  `Invoice No` merged over both rows yields `Invoice No`. Header text is
   trimmed, line breaks become spaces, an empty header becomes the column
   letter with the warning `Sheet!C1: header is empty; column named C`, and
   a duplicate gets a `_2` suffix with the warning `Sheet: duplicate header
