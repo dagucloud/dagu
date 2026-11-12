@@ -276,6 +276,11 @@ func (r *run) execute(ctx context.Context) error {
 		if err := r.endWrites(ctx); err != nil {
 			return r.fail(ctx, i, kindWriteGate, err)
 		}
+		// A write the gate kept back decides the step before the page it
+		// left does.
+		if err := r.checkRefusal(ctx, i, op); err != nil {
+			return r.fail(ctx, i, op.kind(), err)
+		}
 		if op.Ask != nil {
 			return r.waitForInput(ctx, i, *op.Ask)
 		}
@@ -325,7 +330,35 @@ func (r *run) execute(ctx context.Context) error {
 	if err := r.settleDownloads(ctx, last, true); err != nil {
 		return r.fail(ctx, last, kindDownload, err)
 	}
+	// The allowance left ends as the browser closes with its gate, and a
+	// write the gate kept back decides the step before the page does.
+	if stopped, err := r.finishWrites(ctx, last); stopped {
+		return err
+	}
+	// A refusal no operation answered for is the step's to report.
+	if refused := r.reportRefusal(ctx, last); refused != nil {
+		return r.fail(ctx, -1, "", errors.New(refused.String()))
+	}
 	return r.succeed(ctx)
+}
+
+// checkRefusal fails the operation at index, before it runs, when the page
+// it would work on is one the site refused: an act, an upload, an expect,
+// or an extract has nothing to do there. One guarded by a when that held
+// runs, since the step chose to go on there, except an extract, which
+// never reads a refused page. A goto leaves the page, a wait can outlast a
+// rate limit, a screenshot keeps what the page shows, and an ask lets a
+// person pass the check, so they run. The page is read again, since a
+// when can wait while the check passes; one that cannot be read keeps the
+// refusal seen on it.
+func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
+	if op.Goto != "" || op.Wait != nil || op.Screenshot != "" || op.Ask != nil || op.When != nil && op.Extract == nil {
+		return nil
+	}
+	if refused := r.reportRefusal(ctx, index-1); refused != nil {
+		return errors.New(refused.String())
+	}
+	return nil
 }
 
 // reportDialogs records the dialogs the browser accepted while the operation
@@ -652,12 +685,17 @@ func (r *run) keepWriteGateReport(stoppedAt *int, write *writegate.Event) {
 }
 
 // reportRefusal records the refusal the page shows after the operation at
-// index, once while the page keeps showing it, and returns it.
+// index, once while the page keeps showing it, and returns it. A page that
+// cannot be read keeps the refusal seen on it: the read says nothing about
+// the page.
 func (r *run) reportRefusal(ctx context.Context, index int) *refusal {
 	if r.eng == nil {
 		return nil
 	}
-	refused, ok := r.pageRefusal(ctx)
+	refused, ok, err := r.pageRefusal(ctx)
+	if err != nil {
+		return r.refused
+	}
 	if !ok {
 		r.refused = nil
 		return nil
@@ -910,10 +948,6 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 }
 
 func (r *run) succeed(ctx context.Context) error {
-	// The allowance left ends as the browser closes with its gate.
-	if stopped, err := r.finishWrites(ctx, len(r.cfg.Do)-1); stopped {
-		return err
-	}
 	var files []string
 	if r.cfg.capturesFinalScreenshot() && r.artifacts.Enabled() {
 		if rel, err := r.capture(ctx, finalShotLabel); err == nil {
