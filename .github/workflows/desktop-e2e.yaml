@@ -12,6 +12,7 @@ on:
       - synchronize
       - ready_for_review
       - converted_to_draft # cancels the run in progress
+      - labeled # the full-ci label runs these jobs
     paths:
       - internal/desktop/**
       - internal/llm/computeruse/**
@@ -35,7 +36,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-e2e-${{ github.event.pull_request.number || github.ref }}
+  # A run started by any label but full-ci skips every job, and its own
+  # group keeps it from cancelling the run in progress.
+  group: desktop-e2e-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -45,7 +48,12 @@ jobs:
   windows-desktop:
     name: Desktop on windows-latest
     runs-on: windows-latest
-    if: github.event.pull_request.draft != true
+    # A pull request runs these jobs only with the full-ci label.
+    if: >-
+      github.event_name != 'pull_request' || (
+      !github.event.pull_request.draft &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     timeout-minutes: 20
     env:
       DAGU_DESKTOP_E2E: "1"
