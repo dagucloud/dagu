@@ -467,10 +467,20 @@ still running at that timeout, fails the step.
 
 ### Dialogs
 
-The step accepts every JavaScript dialog a page opens, so a dialog never
-blocks the page: `alert`, `confirm`, and `beforeunload` are accepted, and a
-`prompt` is answered with its default text. Each accepted dialog appears in
-the timeline and the step log after the operation that opened it.
+The step answers every JavaScript dialog a page opens, so a dialog never
+blocks the page: `alert` and `beforeunload` are accepted, a `prompt` is
+answered with its default text, and a `confirm` is answered as
+`browser.on_confirm` says:
+
+- `accept` (the default) accepts it.
+- `dismiss` cancels it, and the step goes on.
+- `fail` cancels it and fails the operation that opened it with the dialog's
+  message, as `confirm dialog "Delete this record permanently?" was not
+  expected`, so a confirm the workflow did not expect stops the step instead
+  of being agreed to.
+
+Each answered dialog appears in the timeline and the step log after the
+operation that opened it, as `accepted confirm` or `dismissed confirm`.
 
 ### How much AI decides
 

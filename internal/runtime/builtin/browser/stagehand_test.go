@@ -1816,6 +1816,24 @@ func TestStagehandAcceptsDialogs(t *testing.T) {
 	}, eng.TakeDialogs())
 }
 
+// A browser launched dismissing confirms answers a confirm with cancel and
+// still accepts the alert and the prompt.
+func TestStagehandDismissesConfirm(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate, DismissConfirm: true})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(dialogPage), 30*time.Second))
+
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "cancelled/guest")
+	assert.Equal(t, []dialog{
+		{Type: "alert", Message: "Welcome"},
+		{Type: "confirm", Message: "Continue?", Dismissed: true},
+		{Type: "prompt", Message: "Name?"},
+	}, eng.TakeDialogs())
+}
+
 // blockedPage loads images and a script from hosts outside the allowed
 // domains. As a data: page it has no host of its own to block.
 const blockedPage = `<img src="http://cdn.blocked.test/logo.png">

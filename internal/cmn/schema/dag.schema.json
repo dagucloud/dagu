@@ -8058,6 +8058,12 @@
           "default": "on_failure",
           "description": "Automatic screenshots stored as run artifacts, unmasked: on_failure only when the step fails, final also at the end of a successful step, each also after every operation, never none."
         },
+        "on_confirm": {
+          "type": "string",
+          "enum": ["accept", "dismiss", "fail"],
+          "default": "accept",
+          "description": "What a confirm dialog gets: accept agrees to it, dismiss cancels it, fail cancels it and fails the operation that opened it with the dialog's message. Alerts, prompts, and beforeunload dialogs are always accepted."
+        },
         "profile": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
