@@ -194,6 +194,36 @@ func TestReadMultiRowAndMergedHeaders(t *testing.T) {
 	assert.Equal(t, []string{"Invoice No", "Amount Net", "Tax", "Note Line"}, first.Headers)
 }
 
+// A header merged down over both header rows is named once, while one
+// merged across columns still names every column under it.
+func TestReadHeaderMergedOverBothRowsNamedOnce(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	const s = "受注明細"
+	require.NoError(t, f.SetSheetName("Sheet1", s))
+	setRow(t, f, s, "A1", "品番", "品名", "数量", nil, "単価")
+	setRow(t, f, s, "A2", nil, nil, "受注", "出荷", nil)
+	for _, rng := range [][2]string{{"A1", "A2"}, {"B1", "B2"}, {"C1", "D1"}, {"E1", "E2"}} {
+		require.NoError(t, f.MergeCell(s, rng[0], rng[1]))
+	}
+	setRow(t, f, s, "A3", "P-1", "Widget", 10, 8, 100)
+	path := saveBook(t, f, "merged_headers.xlsx")
+
+	spec, err := ParseHeader([]any{float64(1), float64(2)})
+	require.NoError(t, err)
+	result, err := Read(context.Background(), path, ReadOptions{Header: spec})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"品番", "品名", "数量 受注", "数量 出荷", "単価"}, result.Headers)
+	assert.Empty(t, result.Warnings)
+	require.Equal(t, 1, result.Count)
+	assert.Equal(t, int64(100), result.Rows[0]["単価"])
+
+	named, err := Read(context.Background(), path, ReadOptions{Header: spec, Columns: []ColumnSelect{{Source: "品番", As: "code"}, {Source: "数量 受注", As: "ordered"}, {Source: "単価", As: "price"}}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"code", "ordered", "price"}, named.Headers)
+	assert.Equal(t, int64(10), named.Rows[0]["ordered"])
+}
+
 func TestReadMergedBodyFill(t *testing.T) {
 	t.Parallel()
 	f := excelize.NewFile()

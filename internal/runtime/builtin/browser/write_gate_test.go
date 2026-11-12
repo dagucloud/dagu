@@ -626,3 +626,31 @@ func TestAskSettlesDownloadsBeforeItWaits(t *testing.T) {
 
 	assert.Equal(t, []string{"goto:completed", "act:completed", "download:completed", "write_gate:waiting"}, eventNames(waiting.exec.GetAgentSession()))
 }
+
+// A write the gate kept back decides the step before the page it left does:
+// a rehearsal that stops at a write sent on a refused page partially
+// succeeds and keeps its commit point, whether an operation follows or not.
+func TestRehearsalStopsAtAWriteOnARefusedPage(t *testing.T) {
+	t.Parallel()
+
+	for name, steps := range map[string]string{
+		"last":     `{"browser": {"write_gate": "rehearse"}, "url": "https://shop.example.com/cart", "do": [{"act": "Click the Save button", "when": "The page asks to verify"}]}`,
+		"followed": `{"browser": {"write_gate": "rehearse"}, "url": "https://shop.example.com/cart", "do": [{"act": "Click the Save button", "when": "The page asks to verify"}, {"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t, pageModel(nil, "The page asks to verify"))
+			run.engine.handle.WriteGate = runningGate()
+			run.engine.outcome = cloudflareCheck
+			run.engine.downloadWrites = []writegate.Event{blockedSave}
+			execution := run.execute(steps, nil)
+			require.NoError(t, execution.err)
+
+			status, _ := execution.exec.DetermineNodeStatus()
+			assert.Equal(t, ir.NodePartiallySucceeded, status)
+			require.NotNil(t, run.readReport().WouldSend)
+			require.Len(t, run.commitPoints(), 1)
+		})
+	}
+}

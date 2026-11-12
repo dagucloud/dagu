@@ -39,7 +39,8 @@ func TestAttachFilesPutsTextBeforeThePromptAndImagesWithIt(t *testing.T) {
 		{Role: ir.LLMRoleUser, Content: "What is due?"},
 	}
 
-	require.NoError(t, attachFiles(chatRuntimeContext(t, nil), []string{note + "\n" + receipt}, messages))
+	_, err := attachFiles(chatRuntimeContext(t, nil), []string{note + "\n" + receipt}, ir.DefaultMaxFileChars, messages)
+	require.NoError(t, err)
 
 	assert.Equal(t, "Be brief.", messages[0].Content)
 	assert.Equal(t, "<file name=\"note.txt\">\nPay 9,800 yen by Friday.\n</file>\n\n[Image 1 is receipt.png.]\n\nWhat is due?", messages[1].Content)
@@ -54,7 +55,8 @@ func TestAttachFilesResolvesReferences(t *testing.T) {
 	_, note, _ := writeTestFiles(t)
 	messages := []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "Read it."}}
 
-	require.NoError(t, attachFiles(chatRuntimeContext(t, []string{"NOTE=" + note}), []string{"${params.NOTE}"}, messages))
+	_, err := attachFiles(chatRuntimeContext(t, []string{"NOTE=" + note}), []string{"${params.NOTE}"}, ir.DefaultMaxFileChars, messages)
+	require.NoError(t, err)
 
 	assert.Contains(t, messages[0].Content, "Pay 9,800 yen by Friday.")
 }
@@ -65,13 +67,14 @@ func TestAttachFilesRefuses(t *testing.T) {
 	dir, note, _ := writeTestFiles(t)
 	ctx := chatRuntimeContext(t, nil)
 
-	err := attachFiles(ctx, []string{note}, []ir.LLMMessage{{Role: ir.LLMRoleSystem, Content: "only system"}})
+	_, err := attachFiles(ctx, []string{note}, ir.DefaultMaxFileChars, []ir.LLMMessage{{Role: ir.LLMRoleSystem, Content: "only system"}})
 	require.ErrorContains(t, err, "files needs a user prompt")
 
-	err = attachFiles(ctx, []string{filepath.Join(dir, "missing.pdf")}, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "?"}})
+	_, err = attachFiles(ctx, []string{filepath.Join(dir, "missing.pdf")}, ir.DefaultMaxFileChars, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "?"}})
 	require.ErrorContains(t, err, "does not exist")
 
-	require.NoError(t, attachFiles(ctx, nil, []ir.LLMMessage{{Role: ir.LLMRoleSystem, Content: "no files, no prompt needed"}}))
+	_, err = attachFiles(ctx, nil, ir.DefaultMaxFileChars, []ir.LLMMessage{{Role: ir.LLMRoleSystem, Content: "no files, no prompt needed"}})
+	require.NoError(t, err)
 }
 
 func TestExecutionMessagesAttachFilesOnceNotOnPushBack(t *testing.T) {
@@ -130,4 +133,24 @@ func TestImagesGoWithTheRequestAndNotWithTheRun(t *testing.T) {
 	require.Len(t, saved, 2)
 	assert.Empty(t, saved[0].Images, "the run keeps the text, not the image")
 	assert.Contains(t, saved[0].Content, "[Image 1 is receipt.png.]")
+}
+
+// The step's max_file_chars bounds the files' text, and the count comes
+// back so a provider's refusal can name it.
+func TestAttachFilesLimit(t *testing.T) {
+	t.Parallel()
+
+	_, note, _ := writeTestFiles(t)
+	ctx := chatRuntimeContext(t, nil)
+
+	n, err := attachFiles(ctx, []string{note}, ir.DefaultMaxFileChars, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "?"}})
+	require.NoError(t, err)
+	assert.Equal(t, 57, n, "the <file> block around the note's text")
+
+	_, err = attachFiles(ctx, []string{note}, 10, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "?"}})
+	require.EqualError(t, err, "the files hold 57 characters of text; the step takes up to 10, so raise max_file_chars or give it fewer or smaller files")
+
+	n, err = attachFiles(ctx, nil, 10, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "no files"}})
+	require.NoError(t, err)
+	assert.Zero(t, n)
 }
