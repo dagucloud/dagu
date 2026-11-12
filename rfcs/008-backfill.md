@@ -157,7 +157,8 @@ run on a chosen or default slot (RFC 007), or a backfill.
   - The old and new entries fire equally often and differ only in time of day.
   - The run's fire time is nearer to that slot than to any other. Ties go to
     the later slot.
-  - When the DAG has `dates`, the run's recorded first date equals the slot's.
+  - When the DAG has `dates`, the run's recorded value of the first entry
+    equals the slot's.
 
   After a move from 02:00 to 01:00, the 02:00 run on October 5 covers the 01:00
   slot on October 5, which loads the same day. Runs of a different cadence
@@ -199,7 +200,12 @@ dagu backfill cancel <backfill id> [--stop-running]
   `--scheduled-at` (RFC 007).
 - With `--by`, `--from` and `--to` are dates. A slot is selected when the
   calendar date of the entry's instant, in the entry's zone, falls between
-  them, whatever the entry's format. A DAG without that entry is rejected.
+  them, whatever the entry's format. On a list entry (`each`), a slot is
+  selected when any of its values falls between them. A DAG without that entry
+  is rejected.
+- `--params` gives every run the same value. A param whose `eval` reads
+  `${dates.*}` follows each slot unless `--params` names it. The plan warns
+  when it does, because every slot would then load the same date.
 - A `--to` in the future, including today's date, is clamped to now, and the
   plan prints the clamped end. Fires in the current minute or later are left to
   the live schedule. A `--from` in the future is rejected.
@@ -257,6 +263,7 @@ Start 28 runs? [y/N]
     cadence, how many live slots `overlap_policy: skip` drops.
   - The DAG is suspended, and its backfill runs will still run.
   - The `handler_on` steps that will run once per slot, by name.
+  - A `--params` value for a param that would otherwise follow the slot.
   - Slots with no record, and slots that run because the cadence changed.
 
 ### API and MCP
@@ -378,8 +385,9 @@ rather than by run.
 - **Layout follows the cadence.** Daily or slower slots form a calendar. Hourly
   slots form one row per day, and finer cadences one row per hour.
 - **Labels.** When the DAG has `dates`, a cell is labeled with its first entry,
-  so choosing October means choosing the cells labeled October. Hover shows the
-  fire time, window, every date, the trigger, and a link to the run.
+  so choosing October means choosing the cells labeled October. A list entry
+  shows its first and last value. Hover shows the fire time, window, every
+  date, the trigger, and a link to the run.
 - **Selection.** Drag for a range, or click cells one at a time. On a phone,
   tap the first and the last. **Backfill** appears with the selection.
 
@@ -398,7 +406,8 @@ missed-slots notice open one panel:
 3. **Options,** collapsed: concurrency with the queue's limit beside it, params
    through the DAG's param form, profile, and failure behavior in plain words:
    stop for loads that build on the previous slot, continue for independent
-   slots.
+   slots. Unlike the run dialog, the form does not prefill params whose `eval`
+   reads `${dates.*}`, so each run evaluates its own slot.
 4. **Plan.** `Loads 2026-10-01 to 2026-10-31`, the totals, the estimate, and
    the warnings.
 5. **A button that names the effect:** `Start 28 runs`.
@@ -558,6 +567,10 @@ and queue pages filter by `backfill`.
 42. `--by` on an entry formatted as `unix` selects the same slots as on a
     `date` entry with the same shift.
 43. A DAG whose only runs are backfill runs shows them in its run timeline.
+44. On a weekday DAG, `--by window_days` with `{ each: 1d }` and a range of
+    one Saturday selects the following Monday's slot.
+45. A param with `eval: ${dates.target_day}` resolves to each slot's own date
+    in a backfill. Naming it in `--params` warns in the plan.
 
 ## Alternatives considered
 
