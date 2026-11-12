@@ -30,6 +30,8 @@ message DAGIndexEntry {
   string load_path = 11;
   string restart_policy = 12;
   int64 restart_wait_sec = 13;
+  // Queue that the runs of a service DAG enter, as the DAG sets it.
+  string queue = 14;
 }
 
 // DAGRunIndex stores cached summaries for a single day's DAG runs.

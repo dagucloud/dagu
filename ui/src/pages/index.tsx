@@ -24,6 +24,8 @@ import {
   useDAGRunActivity,
 } from '../features/activity/hooks/useDAGRunActivity';
 import { useGettingStarted } from '../features/activity/hooks/useGettingStarted';
+import { ServiceDAGStrip } from '../features/service-dags/components/ServiceDAGStrip';
+import { useServiceDAGs } from '../features/service-dags/hooks/useServiceDAGs';
 import {
   attentionItems,
   fitRange,
@@ -214,6 +216,9 @@ function Dashboard(): React.ReactElement {
     paused,
     resume,
   } = useDAGRunActivity(activityWindow, workspaceQuery, remoteNode);
+  // A service DAG restarts all the time, so the lists leave its runs out
+  // and a strip of cards shows it instead.
+  const { serviceDAGs, error: serviceDAGsError } = useServiceDAGs();
   // Shares the pause banner's request, so it costs nothing extra.
   const { schedulerRunning } = useSchedulerPause();
   const gettingStarted = useGettingStarted();
@@ -243,6 +248,10 @@ function Dashboard(): React.ReactElement {
       filteredRuns: runs.filter((run) => matches(run.name)),
     };
   }, [activity, runs, filter]);
+  const filteredServiceDAGs = React.useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    return serviceDAGs.filter((dag) => dag.name.toLowerCase().includes(query));
+  }, [serviceDAGs, filter]);
 
   // The lanes also draw runs still going from before the window, which the
   // window's run list leaves out, so the empty states count them too.
@@ -273,6 +282,8 @@ function Dashboard(): React.ReactElement {
   const isEmpty =
     !!activity &&
     laneRuns.length === 0 &&
+    serviceDAGs.length === 0 &&
+    !serviceDAGsError &&
     (!live ||
       (activity.active.length === 0 &&
         activity.attention.length === 0 &&
@@ -379,12 +390,14 @@ function Dashboard(): React.ReactElement {
                 items={attentionItems(
                   filteredActivity,
                   filteredRuns,
-                  nowSeconds
+                  nowSeconds,
+                  filteredServiceDAGs
                 )}
                 remoteNode={remoteNode}
                 onChanged={() => void refresh()}
               />
             )}
+            <ServiceDAGStrip nameFilter={filter} className="px-0" />
             <section className="flex min-w-0 flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-medium text-foreground">

@@ -338,6 +338,7 @@ type ServerConfig struct {
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	SchedulerStateStore  schedulerstate.Store
 	SchedulerPauseStore  schedulerstate.PauseStore
+	RestartBackoffStore  schedulerstate.RestartBackoffStore
 	Caches               []fileutil.CacheMetrics
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
@@ -382,6 +383,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 	opts = append(opts, WithAPIOption(apiv1.WithSchedulerStateStore(setup.SchedulerStateStore)))
 	opts = append(opts, WithAPIOption(apiv1.WithSchedulerPauseStore(setup.SchedulerPauseStore)))
+	opts = append(opts, WithAPIOption(apiv1.WithRestartBackoffStore(setup.RestartBackoffStore)))
 
 	remoteNodes := make([]string, 0, len(cfg.Server.RemoteNodes))
 	for _, n := range cfg.Server.RemoteNodes {
