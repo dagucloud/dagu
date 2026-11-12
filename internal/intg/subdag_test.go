@@ -6,7 +6,6 @@ package intg_test
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1152,11 +1151,24 @@ steps:
 	})
 }
 
+// startSummary runs `dagu start` with the given arguments and returns the
+// summary it printed to stdout, along with the command error.
+func startSummary(t *testing.T, th test.Command, args ...string) (string, error) {
+	t.Helper()
+	var err error
+	stdout, _ := captureOutput(t, func() {
+		err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+			Args: append([]string{"start"}, args...),
+		})
+	})
+	return stdout, err
+}
+
 // TestSubDAG_RecursiveOutput covers issue #2831: `dagu start --recursive-output`
 // expands each sub-run's step tree in the final summary instead of leaving a
 // bare "subdag:" reference.
 func TestSubDAG_RecursiveOutput(t *testing.T) {
-	// Not parallel: manipulates os.Stdout.
+	// Not parallel: captures os.Stdout.
 	th := test.SetupCommand(t)
 
 	th.CreateDAGFile(t, "parent_recursive_out.yaml", `
@@ -1170,43 +1182,53 @@ steps:
 	th.CreateDAGFile(t, "sub_recursive_out.yaml", `
 steps:
   - name: child_step
-    run: echo "marker_from_child_output"
-    output: RESULT
+    run: echo "hello"
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
+	summary, err := startSummary(t, th, "--run-id", dagRunID, "--recursive-output", "parent_recursive_out")
 	require.NoError(t, err)
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = oldStdout; _ = w.Close() })
-	summaryCh := make(chan []byte, 1)
-	go func() {
-		data, _ := io.ReadAll(r)
-		summaryCh <- data
-	}()
 
-	th.RunCommand(t, cmd.Start(), test.CmdTest{
-		Args:        []string{"start", "--run-id", dagRunID, "--recursive-output", "parent_recursive_out"},
-		ExpectedOut: []string{"DAG run finished"},
-	})
+	require.Contains(t, summary, "(sub_recursive_out: succeeded)")
+	require.Contains(t, summary, "child_step")
+	require.NotContains(t, summary, "Sub-runs not expanded")
+}
 
-	require.NoError(t, w.Close())
-	os.Stdout = oldStdout
-	summary := <-summaryCh
+// A failed sub-run shows its failed step and that step's stderr, which the
+// parent's own output does not carry.
+func TestSubDAG_RecursiveOutputFailedChild(t *testing.T) {
+	// Not parallel: captures os.Stdout.
+	th := test.SetupCommand(t)
 
-	// The child's step and its captured stdout render inline under the
-	// subdag reference.
-	require.Contains(t, string(summary), "subdag:")
-	require.Contains(t, string(summary), "child_step")
-	require.Contains(t, string(summary), "marker_from_child_output")
+	th.CreateDAGFile(t, "parent_recursive_fail.yaml", `
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_recursive_fail
+`)
+
+	th.CreateDAGFile(t, "sub_recursive_fail.yaml", `
+steps:
+  - name: child_failing_step
+    run: |
+      echo child_stderr_marker 1>&2
+      exit 1
+`)
+
+	dagRunID := uuid.Must(uuid.NewV7()).String()
+	summary, err := startSummary(t, th, "--run-id", dagRunID, "--recursive-output", "parent_recursive_fail")
+	require.Error(t, err)
+
+	require.Contains(t, summary, "(sub_recursive_fail: failed)")
+	require.Contains(t, summary, "child_failing_step")
+	require.Contains(t, summary, "child_stderr_marker")
 }
 
 // TestSubDAG_DefaultSummaryOmitsChildTree guards the default: without
 // --recursive-output the summary keeps the bare sub-run reference.
 func TestSubDAG_DefaultSummaryOmitsChildTree(t *testing.T) {
-	// Not parallel: manipulates os.Stdout.
+	// Not parallel: captures os.Stdout.
 	th := test.SetupCommand(t)
 
 	th.CreateDAGFile(t, "parent_default_out.yaml", `
@@ -1220,36 +1242,16 @@ steps:
 	th.CreateDAGFile(t, "sub_default_out.yaml", `
 steps:
   - name: child_step_default
-    run: echo "marker_hidden"
-    output: RESULT
+    run: echo "hello"
 `)
 
 	dagRunID := uuid.Must(uuid.NewV7()).String()
-
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
+	summary, err := startSummary(t, th, "--run-id", dagRunID, "parent_default_out")
 	require.NoError(t, err)
-	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = oldStdout; _ = w.Close() })
-	summaryCh := make(chan []byte, 1)
-	go func() {
-		data, _ := io.ReadAll(r)
-		summaryCh <- data
-	}()
 
-	th.RunCommand(t, cmd.Start(), test.CmdTest{
-		Args:        []string{"start", "--run-id", dagRunID, "parent_default_out"},
-		ExpectedOut: []string{"DAG run finished"},
-	})
-
-	require.NoError(t, w.Close())
-	os.Stdout = oldStdout
-	summary := <-summaryCh
-
-	require.Contains(t, string(summary), "subdag:")
-	// The child's step tree stays hidden without --recursive-output. (The
-	// dag.run step's own stdout still echoes the child run's result JSON.)
-	require.NotContains(t, string(summary), "child_step_default")
+	require.Contains(t, summary, "subdag:")
+	require.NotContains(t, summary, "child_step_default")
+	require.NotContains(t, summary, "sub_default_out: succeeded")
 }
 
 // TestSubDAG_ChildParamsOverrideInheritedEnv covers a local child run that
