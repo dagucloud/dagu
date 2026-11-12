@@ -124,8 +124,16 @@ the pinned definition, and one entry per slot.
   `backfill-{backfill id}-{generation}-{timestamp}`. The generation counts
   resumes, so a resumed slot gets a new run. After a crash, the scheduler finds
   the runs it already created.
-- **Trigger type.** The run's `context.trigger.type` is `backfill`, a new
-  value. The actor is the user who submitted the backfill.
+- **Identity.** Each run records its backfill ID, and its
+  `context.trigger.type` is `backfill`, a new value. The actor is the user who
+  submitted the backfill.
+- **Retries keep the identity.** A retry, by hand or by the DAG's retry policy,
+  keeps the backfill ID and the trigger type `backfill`, where other retries
+  become `retry`. Every rule in this RFC that treats backfill runs apart keys
+  on the backfill ID. A retried backfill run therefore keeps its low priority,
+  its exemption from the live checks, its place out of latest status and
+  history, its quiet notifications, and its hold during a pause. It is never
+  treated as a scheduler retry, which a pause or a suspension aborts.
 
 ### Slot index
 
@@ -189,8 +197,9 @@ dagu backfill cancel <backfill id> [--stop-running]
 - A date without a time means the start of that day for `--from` and the end
   of that day for `--to`. Forms without an offset follow the zone rules of
   `--scheduled-at` (RFC 007).
-- With `--by`, `--from` and `--to` are dates of that entry, compared as dates.
-  A DAG without that entry is rejected.
+- With `--by`, `--from` and `--to` are dates. A slot is selected when the
+  calendar date of the entry's instant, in the entry's zone, falls between
+  them, whatever the entry's format. A DAG without that entry is rejected.
 - A `--to` in the future, including today's date, is clamped to now, and the
   plan prints the clamped end. Fires in the current minute or later are left to
   the live schedule. A `--from` in the future is rejected.
@@ -336,7 +345,8 @@ submit ─▶ plan ─▶ backfill record ─▶ scheduler ─▶ enqueue slot r
   in the queue, and start when the scheduler resumes. Nothing is discarded.
 - **A suspended DAG** can be backfilled. Suspension stops its schedule, not an
   operator's request. The dispatcher must tell a pause from a suspension, which
-  the existing check reports alike.
+  the existing check reports alike. Retries of backfill runs follow the same
+  rules.
 - **A DAG renamed or deleted** during a backfill ends the backfill with the
   remaining slots marked `cancelled`.
 - **Notifications.** `mail_on` and notification routes do not fire per backfill
@@ -433,7 +443,8 @@ and queue pages filter by `backfill`.
   dismisses it.
 - **Run timeline and DAG history** hide backfill runs by default, on the
   server, with a toggle to show them. The timeline holds 30 runs at most, so a
-  long backfill would otherwise push out every live run.
+  long backfill would otherwise push out every live run. A DAG whose only runs
+  are backfill runs shows them, as the latest-run rule does.
 - **Run lists and the queue page** show a `backfill` badge and a filter.
 - **Run details** show `Slot Oct 2 02:00, loads Oct 1`, a link to the backfill,
   and `slot 1 of 28`.
@@ -457,7 +468,8 @@ and queue pages filter by `backfill`.
 | First | CLI, API, backfill record, slot index, scheduler dispatch, and the plan. Requires the first release of RFC 007. |
 | Second | The UI and the MCP actions. |
 
-- `backfill` is a new value of `context.trigger.type` in spec 017.
+- `backfill` is a new value of `context.trigger.type` in spec 017. Unlike
+  other trigger types, it survives a retry.
 - `--by` and the plan's dates need `dates`, from the second release of RFC 007.
   Until then the plan shows windows.
 - Catchup changes in one way: it skips a slot whose latest backfill run is
@@ -538,6 +550,14 @@ and queue pages filter by `backfill`.
     failed slots succeed, and `dagu status` returns it as `latestBackfill`.
 38. The plan names the `handler_on` steps that will run once per slot.
 39. A backfill run waiting in a full queue shows the reason in `status`.
+40. A backfill run retried by the DAG's retry policy keeps its backfill ID and
+    trigger type, stays behind live runs in the queue, and sends no per-run
+    mail.
+41. A retry of a backfill run queued during a scheduler pause is held, not
+    aborted, and on a suspended DAG it runs.
+42. `--by` on an entry formatted as `unix` selects the same slots as on a
+    `date` entry with the same shift.
+43. A DAG whose only runs are backfill runs shows them in its run timeline.
 
 ## Alternatives considered
 
