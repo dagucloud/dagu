@@ -155,6 +155,9 @@ const (
 	// TriggerTypeFile is a run started by a file arriving in a watched folder.
 	TriggerTypeFile
 	TriggerTypeRestart
+	// TriggerTypeBackfill is a run a backfill started for a past slot. Its
+	// retries keep this type.
+	TriggerTypeBackfill
 )
 
 // String returns the canonical lowercase token for the trigger type.
@@ -178,6 +181,8 @@ func (t TriggerType) String() string {
 		return "file"
 	case TriggerTypeRestart:
 		return "restart"
+	case TriggerTypeBackfill:
+		return "backfill"
 	default:
 		return "unknown"
 	}
@@ -202,6 +207,8 @@ func ParseTriggerType(s string) TriggerType {
 		return TriggerTypeFile
 	case "restart":
 		return TriggerTypeRestart
+	case "backfill":
+		return TriggerTypeBackfill
 	default:
 		return TriggerTypeUnknown
 	}

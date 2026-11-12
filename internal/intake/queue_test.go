@@ -42,7 +42,7 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, queued)
 	assert.True(t, f.queueStore.enqueued)
-	assert.Equal(t, queue.QueuePriorityLow, f.queueStore.priority)
+	assert.Equal(t, queue.QueuePriorityHigh, f.queueStore.priority)
 	require.NotNil(t, f.attempt.status)
 	assert.Equal(t, ir.Queued, f.attempt.status.Status)
 	assert.Equal(t, "attempt-1", f.attempt.status.AttemptID)
@@ -53,6 +53,32 @@ func TestEnqueueRunWritesQueuedStatusBeforeQueuePublish(t *testing.T) {
 	assert.Equal(t, "ops/daily", f.attempt.status.DefinitionID)
 	assert.Equal(t, f.attempt.status.Log, queued.LogFile)
 	assert.Equal(t, f.attempt.status.ArchiveDir, queued.ArtifactDir)
+}
+
+// A backfill run records its backfill and waits behind every other run of
+// its queue.
+func TestEnqueueRunQueuesBackfillRunLow(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+
+	_, err := EnqueueRun(f.ctx, QueueRequest{
+		DAGRunRepository: f.dagRunRepository,
+		QueueStore:       f.queueStore,
+		DAG:              f.dag,
+		DAGRunID:         "run-1",
+		LogBaseDir:       f.logDir,
+		ArtifactBaseDir:  f.artifactDir,
+		TriggerType:      ir.TriggerTypeBackfill,
+		BackfillID:       "bf123456",
+		Now:              fixedQueueNow,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, queue.QueuePriorityLow, f.queueStore.priority)
+	require.NotNil(t, f.attempt.status)
+	assert.Equal(t, ir.TriggerTypeBackfill, f.attempt.status.TriggerType)
+	assert.Equal(t, "bf123456", f.attempt.status.BackfillID)
 }
 
 func TestEnqueueRunRollsBackCreatedAttemptWhenQueuePublishFails(t *testing.T) {

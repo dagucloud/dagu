@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -580,6 +581,47 @@ steps:
 		require.Equal(t, ir.Succeeded, latestStatus.Status)
 		require.Equal(t, ir.TriggerTypeCatchUp, latestStatus.TriggerType)
 		require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, latestStatus, "RESULT"))
+	})
+
+	// A backfill run keeps its backfill and its trigger type when the queue
+	// dispatches it and again when it is retried, so the rules that set
+	// backfill runs apart keep applying to it.
+	t.Run("BackfillRunKeepsIdentityThroughRetries", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.SetupCommand(t)
+		dagFile := th.DAG(t, `name: backfill-retry-dag
+steps:
+  - name: "1"
+    run: echo backfill
+`)
+		runID := "backfill-bf123456-0-20261001T020000Z"
+		_, err := intake.EnqueueRun(th.Context, intake.QueueRequest{
+			DAGRunRepository: th.DAGRunRepository,
+			QueueStore:       th.QueueStore,
+			DAG:              dagFile.DAG,
+			DAGRunID:         runID,
+			LogBaseDir:       th.Config.Paths.LogDir,
+			ArtifactBaseDir:  th.Config.Paths.ArtifactDir,
+			TriggerType:      ir.TriggerTypeBackfill,
+			ScheduleTime:     "2026-10-01T02:00:00Z",
+			BackfillID:       "bf123456",
+		})
+		require.NoError(t, err)
+
+		ref := ir.NewDAGRunRef(dagFile.Name, runID)
+		for range 2 {
+			th.RunCommand(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=" + runID, dagFile.Location}})
+
+			attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ref)
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, ir.Succeeded, status.Status)
+			require.Equal(t, ir.TriggerTypeBackfill, status.TriggerType)
+			require.Equal(t, "bf123456", status.BackfillID)
+			require.Equal(t, "2026-10-01T02:00:00Z", status.ScheduleTime)
+		}
 	})
 
 	t.Run("TrueRetryKeepsRetryTriggerType", func(t *testing.T) {

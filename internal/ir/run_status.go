@@ -228,10 +228,12 @@ type DAGRunStatus struct {
 	IntervalStart    string `json:"intervalStart,omitempty"`
 	NextScheduledAt  string `json:"nextScheduledAt,omitempty"`
 	ScheduleTimezone string `json:"scheduleTimezone,omitempty"`
-	StartedAt        string `json:"startedAt,omitempty"`
-	FinishedAt       string `json:"finishedAt,omitempty"`
-	AutoRetryCount   int    `json:"autoRetryCount,omitempty"`
-	AutoRetryLimit   int    `json:"autoRetryLimit,omitempty"`
+	// BackfillID names the backfill that started the run. Retries keep it.
+	BackfillID     string `json:"backfillId,omitempty"`
+	StartedAt      string `json:"startedAt,omitempty"`
+	FinishedAt     string `json:"finishedAt,omitempty"`
+	AutoRetryCount int    `json:"autoRetryCount,omitempty"`
+	AutoRetryLimit int    `json:"autoRetryLimit,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
