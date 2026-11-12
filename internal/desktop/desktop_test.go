@@ -155,6 +155,53 @@ func TestDriverTypeSendsLineBreaksAsEnter(t *testing.T) {
 	assert.Equal(t, []string{"type a", "key enter down", "key enter up", "key enter down", "key enter up", "type b"}, backend.events)
 }
 
+// asciiBackend switches the keyboard to an ASCII-capable input source for
+// typing, as the macOS backend does while an input method is active.
+type asciiBackend struct {
+	recordingBackend
+	failRestore bool
+}
+
+func (b *asciiBackend) ASCIITyping() (func() error, error) {
+	b.events = append(b.events, "ascii input source")
+	return func() error {
+		b.events = append(b.events, "previous input source")
+		if b.failRestore {
+			return errors.New("restore failed")
+		}
+		return nil
+	}, nil
+}
+
+// Typed text goes through the ASCII-capable input source, line breaks
+// included, and the previous input source comes back after it, also when
+// a key fails.
+func TestDriverTypeOnASCIIInputSource(t *testing.T) {
+	t.Parallel()
+
+	backend := &asciiBackend{}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.Type(context.Background(), "a\nb"))
+	assert.Equal(t, []string{"ascii input source", "type a", "key enter down", "key enter up", "type b", "previous input source"}, backend.events)
+
+	backend = &asciiBackend{recordingBackend: recordingBackend{failKey: desktop.KeyEnter}}
+	driver = desktop.New(backend)
+	require.Error(t, driver.Type(context.Background(), "a\nb"))
+	assert.Equal(t, []string{"ascii input source", "type a", "previous input source"}, backend.events)
+
+	backend = &asciiBackend{failRestore: true}
+	driver = desktop.New(backend)
+	assert.ErrorContains(t, driver.Type(context.Background(), "a"), "restore failed")
+	assert.Equal(t, []string{"ascii input source", "type a", "previous input source"}, backend.events)
+
+	backend = &asciiBackend{recordingBackend: recordingBackend{failKey: desktop.KeyEnter}, failRestore: true}
+	driver = desktop.New(backend)
+	err := driver.Type(context.Background(), "a\nb")
+	assert.ErrorContains(t, err, "key failed")
+	assert.ErrorContains(t, err, "restore failed")
+	assert.Equal(t, []string{"ascii input source", "type a", "previous input source"}, backend.events)
+}
+
 func TestDriverScrollAtPoint(t *testing.T) {
 	t.Parallel()
 
