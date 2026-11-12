@@ -361,22 +361,28 @@ func TestFailureNamesBlockedHosts(t *testing.T) {
 		"browser.allowed_domains blocked 1 request: sso.example.net (1)")
 }
 
+// cloudflareCheck is what the browser shows when shop.example.com answers
+// with a Cloudflare bot check.
+var cloudflareCheck = pageOutcome{Host: "shop.example.com", Status: 403, BotCheck: browserhost.BotCheckCloudflare}
+
+const cloudflareRefusal = "shop.example.com answered with a Cloudflare bot check (HTTP 403) in place of the page"
+
 // A page the site refused is reported once while the browser shows it, and
 // named in the failure it explains, however long after it the step fails.
 func TestRefusedPageIsReported(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t, pageModel(nil))
-	run.engine.outcome = pageOutcome{Host: "shop.example.com", Status: 403, BotCheck: browserhost.BotCheckCloudflare}
+	run := newTestRun(t, pageModel(nil, "The page asks to verify"))
+	run.engine.outcome = cloudflareCheck
 	execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
-		{"act": "Click the checkout button"},
-		{"expect": {"text": "Order placed", "within": "1ms"}}
+		{"act": "Click the verify box", "when": "The page asks to verify"},
+		{"wait": {"duration": "1ms"}},
+		{"expect": {"text": "Order placed", "within": "1ms"}, "when": "The page asks to verify"}
 	]}`, nil)
 
-	require.EqualError(t, execution.err, `browser: do[1] expect failed: expectation not met: the page text does not contain "Order placed"; `+
-		"shop.example.com answered with a Cloudflare bot check (HTTP 403) in place of the page")
-	assert.Equal(t, []string{"goto:completed", "page:refused", "act:completed"}, eventNames(execution.exec.GetAgentSession()))
-	assert.Contains(t, execution.stderr.String(), "page refused shop.example.com answered with a Cloudflare bot check (HTTP 403) in place of the page\n")
+	require.EqualError(t, execution.err, `browser: do[2] expect failed: expectation not met: the page text does not contain "Order placed"; `+cloudflareRefusal)
+	assert.Equal(t, []string{"goto:completed", "page:refused", "act:completed", "wait:completed"}, eventNames(execution.exec.GetAgentSession()))
+	assert.Contains(t, execution.stderr.String(), "page refused "+cloudflareRefusal+"\n")
 }
 
 // A step that fails on a page the site refused keeps the recordings it
@@ -385,15 +391,15 @@ func TestRefusedPageKeepsReplays(t *testing.T) {
 	t.Parallel()
 
 	const steps = `{"url": "https://shop.example.com/cart", "do": [
-		{"act": "Click the checkout button"},
+		{"act": "Click the checkout button", "when": "The cart is shown"},
 		{"expect": {"text": "Order placed", "within": "1ms"}}
 	]}`
-	run := newTestRun(t, pageModel(nil))
+	run := newTestRun(t, pageModel(nil, "The cart is shown"))
 	run.engine.setPageText("Order placed")
 	require.NoError(t, run.execute(steps, nil).err)
 
 	run.engine.setPageText("Just a moment...")
-	run.engine.outcome = pageOutcome{Host: "shop.example.com", Status: 403, BotCheck: browserhost.BotCheckCloudflare}
+	run.engine.outcome = cloudflareCheck
 	refused := run.execute(steps, nil)
 	require.ErrorContains(t, refused.err, "bot check")
 	assert.Contains(t, eventNames(refused.exec.GetAgentSession()), "act:cache-hit")
@@ -401,6 +407,75 @@ func TestRefusedPageKeepsReplays(t *testing.T) {
 	run.engine.setPageText("Order placed")
 	run.engine.outcome = pageOutcome{}
 	assert.Contains(t, eventNames(run.execute(steps, nil).exec.GetAgentSession()), "act:cache-hit")
+}
+
+// A page the site refused fails the operation that would work on it before
+// it runs, so an extract never reads a refusal page as an empty one.
+func TestRefusedPageFailsNextOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"Every order": `{"orders":[]}`}))
+	run.engine.outcome = cloudflareCheck
+	execution := run.execute(`{"url": "https://shop.example.com/orders", "do": [
+		{"extract": {"instruction": "Every order the table lists", "schema": {"type": "object", "properties": {"orders": {"type": "array"}}}}}
+	]}`, nil)
+
+	require.EqualError(t, execution.err, "browser: do[0] extract failed: "+cloudflareRefusal)
+	assert.Equal(t, []string{"goto:completed", "page:refused"}, eventNames(execution.exec.GetAgentSession()))
+	assert.Empty(t, execution.stdout.String())
+	assert.Empty(t, execution.exec.GetOutputs())
+	assert.Empty(t, run.provider.calls, "nothing is read from a refused page")
+}
+
+// A guarded operation decides on a refused page as on any other: one whose
+// when does not hold is skipped, and one whose when holds runs, since the
+// step chose to go on there. An extract never runs there, guarded or not.
+func TestRefusedPageGuardedOperations(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}, "The page asks to verify"))
+	run.engine.outcome = cloudflareCheck
+	execution := run.execute(`{"url": "https://shop.example.com/orders", "do": [
+		{"act": "Close the cookie banner", "when": "A cookie banner is visible"},
+		{"act": "Click the verify box", "when": "The page asks to verify"},
+		{"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}, "when": "The page asks to verify"}
+	]}`, nil)
+
+	require.EqualError(t, execution.err, "browser: do[2] extract failed: "+cloudflareRefusal)
+	assert.Equal(t, []string{"goto:completed", "page:refused", "act:skipped", "act:completed"}, eventNames(execution.exec.GetAgentSession()))
+	assert.Empty(t, execution.exec.GetOutputs())
+}
+
+// A goto does not work on the page, so it runs on a refused one and the
+// step goes on where it leaves the refusal behind.
+func TestRefusedPageLeftByGoto(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":"A-100"}`}))
+	run.engine.outcome, run.engine.outcomeAt = cloudflareCheck, "https://shop.example.com/orders"
+	execution := run.execute(`{"url": "https://shop.example.com/orders", "do": [
+		{"wait": {"duration": "1ms"}},
+		{"goto": "https://shop.example.com/orders?page=2"},
+		{"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}
+	]}`, nil)
+
+	require.NoError(t, execution.err)
+	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs())
+	assert.Equal(t, []string{"goto:completed", "page:refused", "wait:completed", "goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
+}
+
+// A step whose last operation leaves the browser on a refused page fails
+// at its end, so the refusal never passes as success.
+func TestRefusedPageFailsStepEnd(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.outcome = cloudflareCheck
+	execution := run.execute(`{"url": "https://shop.example.com/orders", "do": [{"wait": {"duration": "1ms"}}]}`, nil)
+
+	require.EqualError(t, execution.err, "browser: "+cloudflareRefusal)
+	assert.Equal(t, []string{"goto:completed", "page:refused", "wait:completed"}, eventNames(execution.exec.GetAgentSession()))
+	assert.Equal(t, ir.AgentSessionFailed, execution.exec.GetAgentSession().State)
 }
 
 // The browser sandbox stays on unless the host configuration turns it off.

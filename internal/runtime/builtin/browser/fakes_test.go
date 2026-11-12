@@ -110,8 +110,10 @@ type fakeEngine struct {
 	allowed  [][]string
 	allowing bool
 	endErr   error
-	// outcome is what the browser shows after a page opened.
-	outcome pageOutcome
+	// outcome is what the browser shows after a page opened, at outcomeAt
+	// when set, else at every address.
+	outcome   pageOutcome
+	outcomeAt string
 	// pending are the connections the certificate proxy waits on.
 	pending []certproxy.Pending
 	// verifiedHosts are the hosts the certificate proxy vouches for.
@@ -250,6 +252,9 @@ func (e *fakeEngine) EndWrites(context.Context) error {
 func (e *fakeEngine) PageOutcome(context.Context) (pageOutcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.outcomeAt != "" && e.url != e.outcomeAt {
+		return pageOutcome{}, nil
+	}
 	return e.outcome, nil
 }
 

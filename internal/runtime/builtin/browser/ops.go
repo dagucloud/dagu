@@ -253,6 +253,9 @@ func (r *run) execute(ctx context.Context) error {
 				continue
 			}
 		}
+		if err := r.checkRefusal(ctx, i, op); err != nil {
+			return r.fail(ctx, i, op.kind(), err)
+		}
 		key, page := r.locate(ctx, i, op)
 		decision, decided := r.commitDecisions[i]
 		commit := r.asksBefore(key)
@@ -319,7 +322,29 @@ func (r *run) execute(ctx context.Context) error {
 	if err := r.settleDownloads(ctx, last, true); err != nil {
 		return r.fail(ctx, last, kindDownload, err)
 	}
+	// A refusal no operation answered for is the step's to report.
+	if refused := r.reportRefusal(ctx, last); refused != nil {
+		return r.fail(ctx, -1, "", errors.New(refused.String()))
+	}
 	return r.succeed(ctx)
+}
+
+// checkRefusal fails the operation at index, before it runs, when the page
+// it would work on is one the site refused: an act, an upload, an expect,
+// or an extract has nothing to do there. One guarded by a when that held
+// runs, since the step chose to go on there, except an extract, which
+// never reads a refused page. A goto leaves the page, a wait can outlast a
+// rate limit, a screenshot keeps what the page shows, and an ask lets a
+// person pass the check, so they run. The page is read again, since a
+// when can wait while the check passes.
+func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
+	if op.Goto != "" || op.Wait != nil || op.Screenshot != "" || op.Ask != nil || op.When != nil && op.Extract == nil {
+		return nil
+	}
+	if refused := r.reportRefusal(ctx, index-1); refused != nil {
+		return errors.New(refused.String())
+	}
+	return nil
 }
 
 // reportDialogs records the dialogs the browser accepted while the operation

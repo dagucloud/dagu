@@ -391,16 +391,31 @@ After the start URL and after every operation, a refused page adds a line to
 the timeline and the step log, such as `page refused shop.example.com
 answered with a Cloudflare bot check (HTTP 403) in place of the page` or
 `page refused portal.example.com refused the page (HTTP 403 Forbidden)`, once
-while the browser keeps showing it. A step that fails while the browser
-shows a refused page ends its error with the same sentence, since a refusal
-usually fails a later operation, and keeps the recordings it replayed, since
-the refusal says nothing about them.
+while the browser keeps showing it.
+
+A refused page is not one to work on. An `act`, an `upload`, an `expect`, or
+an `extract` that would run on it fails before it runs, with the same
+sentence as its error, such as `do[1] extract failed: shop.example.com
+answered with a Cloudflare bot check (HTTP 403) in place of the page`, so an
+extract never reads a refused page as one without data. A guarded operation
+decides on a refused page as on any other: one whose `when` does not hold is
+skipped, and one whose `when` holds runs, since the step chose to go on
+there, except an `extract`, which never runs on a refused page. A `goto`, a
+`wait`, a `screenshot`, and an `ask` run, since they do not work on the
+page: a goto leaves it, a wait can outlast a rate limit, a screenshot keeps
+what the page shows, and an ask lets a person pass the check. A step whose
+last operation leaves the browser on a refused page, or whose `url` opens one
+with no operation that fails there, fails at its end with the sentence. A
+step that fails for another reason while the browser shows a refused page
+ends its error with the same sentence, since the refusal usually explains
+the failure. A step that fails on a refused page keeps the recordings it
+replayed, since the refusal says nothing about them.
 
 An action that leaves the browser on a bot check, such as `goto` or an `act`
 that loads a page, waits up to 10 seconds for the check to pass, as a check
 that needs no person does by loading the page it stood in for, and then
 lets the page settle as any new page does. A check still shown after the
-wait is left to the operations that follow and reported as above.
+wait is reported as above and fails the operations that follow as above.
 
 ### Artifacts
 
@@ -565,9 +580,10 @@ length, is named without its value.
 An `upload` fails when a file cannot be uploaded, the model finds no
 element for `into`, or the element leads to no single file input, as
 described under Uploads. A page that does not load because of a client certificate fails the
-operation that opened it, as described under Client certificates. A failure
-on a page the site refused names the refusal, as described under Refused
-pages.
+operation that opened it, as described under Client certificates. A page
+the site refused fails the operation that would work on it, or the step at
+its end, and a failure for another reason there names the refusal, as
+described under Refused pages.
 
 Loading a DAG warns, without failing, about each `extract` string field whose
 name ends in `url`, `uri`, `link`, or `href`, singular or plural, and that has

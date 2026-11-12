@@ -588,6 +588,19 @@ func TestBrowserNamesBotCheck(t *testing.T) {
 	result.ExpectStderrContains("answered with a Cloudflare bot check (HTTP 403) in place of the page")
 }
 
+// A page the site answered with a bot check fails the extract that follows
+// before it runs, instead of reading the check as a page without data.
+func TestBrowserBotCheckFailsExtract(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	result := b.dagu.RunWithEnv(b.env, "start", "bot_check_extract.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("do[0] extract failed: 127.0.0.1 answered with a Cloudflare bot check (HTTP 403) in place of the page")
+	b.dagu.ExpectNoFile("orders.out")
+	require.Zero(t, b.model.count(kindExtract))
+}
+
 // A bot check that passes on its own is waited out, so the step reads the
 // page it stood in for.
 func TestBrowserWaitsForBotCheckToPass(t *testing.T) {
