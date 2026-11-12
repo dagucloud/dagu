@@ -117,4 +117,18 @@ describe('Queues', () => {
     expect(screen.getByRole('link', { name: /batch/ })).toBeVisible();
     expect(screen.queryByRole('link', { name: /worker/ })).toBeNull();
   });
+
+  // The page draws the queue of a service DAG between two runs, which the
+  // server does not list, so the count includes it.
+  it('counts the queues of service DAGs that it draws', () => {
+    serviceDAGs.current = [worker];
+
+    renderPage();
+    expect(screen.getByText('2 queues')).toBeVisible();
+
+    fireEvent.change(screen.getByPlaceholderText('Search queues...'), {
+      target: { value: 'batch' },
+    });
+    expect(screen.getByText('1 of 2 queues')).toBeVisible();
+  });
 });

@@ -9,6 +9,7 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import QueueList from '../../features/queues/components/QueueList';
+import { countIdleServiceDAGQueues } from '../../features/queues/lib/serviceDAGQueue';
 import { useServiceDAGs } from '../../features/service-dags/hooks/useServiceDAGs';
 import { useQuery } from '../../hooks/api';
 import { useQueuesListSSE } from '../../hooks/useQueuesListSSE';
@@ -135,6 +136,13 @@ function Queues() {
       dag.name.toLowerCase().includes(search)
     );
   }, [serviceDAGs, searchText]);
+  // The count includes the queues of service DAGs that the page draws as idle.
+  const totalQueues =
+    (data?.queues.length ?? 0) +
+    countIdleServiceDAGQueues(data?.queues ?? [], serviceDAGs);
+  const shownQueues =
+    filteredQueues.length +
+    countIdleServiceDAGQueues(filteredQueues, filteredServiceDAGs);
 
   if (error) {
     const errorData = error as components['schemas']['Error'];
@@ -173,15 +181,14 @@ function Queues() {
         <div className="flex items-center gap-2">
           {data?.queues && (
             <span className="text-xs text-muted-foreground">
-              {filteredQueues.length !== data.queues.length
+              {shownQueues !== totalQueues
                 ? ts('{shown} of {total} queues', {
-                    shown: filteredQueues.length,
-                    total: data.queues.length,
+                    shown: shownQueues,
+                    total: totalQueues,
                   })
-                : ts(
-                    data.queues.length === 1 ? '{count} queue' : '{count} queues',
-                    { count: data.queues.length }
-                  )}
+                : ts(totalQueues === 1 ? '{count} queue' : '{count} queues', {
+                    count: totalQueues,
+                  })}
             </span>
           )}
           <RefreshButton onRefresh={handleRefresh} />
