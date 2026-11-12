@@ -8935,7 +8935,7 @@
             { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 1 },
             { "type": "string" }
           ],
-          "description": "true (default) takes the first row of the range as column names, false names columns A, B, C, a row number takes that sheet row, and a list such as [3, 4] joins two header rows with a space."
+          "description": "true (default) takes the first row of the range as column names, false names columns A, B, C, a row number takes that sheet row, and a list such as [3, 4] joins two header rows with a space. For append and write with mode: append, true matches each field to the header row by name and false appends rows by position with no header row."
         },
         "columns": {
           "oneOf": [
@@ -9073,7 +9073,7 @@
         },
         "required": {
           "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } , "minItems": 1 }, { "type": "string" }],
-          "description": "xlsx.validate: columns the header row must have."
+          "description": "xlsx.validate: columns the header row must have, such as [Invoice No, Amount]."
         },
         "not_blank": {
           "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } , "minItems": 1 }, { "type": "string" }],
@@ -9133,7 +9133,7 @@
         "output": {
           "type": "string",
           "minLength": 1,
-          "description": "xlsx.write_cells, xlsx.update_rows, and xlsx.append: workbook to write the result to, leaving path as it was. xlsx.convert: the csv, json, or jsonl file to write."
+          "description": "xlsx.write_cells, xlsx.update_rows, and xlsx.append: a different workbook to write the result to, leaving path as it was, so a template can be filled many times. xlsx.convert: the csv, json, or jsonl file to write."
         },
         "operation": {
           "type": "string",
@@ -9157,7 +9157,7 @@
         "encoding": {
           "type": "string",
           "enum": ["utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932"],
-          "description": "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932). An input without encoding is detected: UTF-8, or else Shift_JIS; convert writes utf-8-bom unless set."
+          "description": "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS; convert writes utf-8-bom by default so Excel opens it as UTF-8."
         },
         "delimiter": {
           "type": "string",
@@ -9168,7 +9168,7 @@
         "instruction": {
           "type": "string",
           "minLength": 1,
-          "description": "xlsx.extract: what to find on the sheet, in plain words. A model answers with the cell that holds each schema property; the step reads the values from those cells. Required."
+          "description": "xlsx.extract: what to find on the sheet, such as 'A supplier quote; find the quote number, delivery date, and total'. Sent to the model with the sheet's cells; must not contain a secret. Required."
         },
         "schema": {
           "oneOf": [
@@ -9182,21 +9182,21 @@
             },
             { "type": "string" }
           ],
-          "description": "xlsx.extract: a JSON Schema with type: object whose top-level properties name the fields to find; each becomes a step output holding the typed value of the cell the model named. A property type of number, integer, boolean, or string (with format date or date-time) pins how its cell is read. A string is a value reference resolved to the schema at run time. Required."
+          "description": "xlsx.extract: a JSON Schema with type: object whose properties name the fields to find. Each property becomes an output holding the typed value of the cell the model names; a property's type (string, number, integer, boolean; string with format date or date-time) pins how the cell is read. A string is a value reference resolved at run time. Required."
         },
         "send_values": {
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],
           "default": true,
-          "description": "xlsx.extract: send the text of every listed cell to the model (default). false lists non-text cells by their kind only, so amounts and dates stay on the host."
+          "description": "xlsx.extract: list every cell's text for the model (default). false lists non-text cells by kind only, so amounts and dates stay on the host."
         },
         "cache": {
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],
           "default": true,
-          "description": "xlsx.extract: keep the cells the model named, by sheet layout, so a later run of the same layout reads them without a model call."
+          "description": "xlsx.extract: keep the cells the model named by sheet layout, so a repeated layout needs no model call (default true)."
         },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
-          "description": "xlsx.extract: model for this step. Replaces the DAG-level llm block entirely."
+          "description": "xlsx.extract: the model to ask, replacing the DAG-level llm block; the same fields as that block."
         }
       },
       "required": ["path"],
