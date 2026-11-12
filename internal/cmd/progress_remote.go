@@ -149,6 +149,8 @@ func (p *RemoteProgressDisplay) Stop() {
 // SetSubRunResolver enables inline expansion of sub-run step trees in the
 // final summary.
 func (p *RemoteProgressDisplay) SetSubRunResolver(resolver output.SubRunResolver) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.subRunResolver = resolver
 }
 
@@ -173,6 +175,7 @@ func (p *RemoteProgressDisplay) PrintSummary() {
 	p.mu.Lock()
 	status := p.lastStatus
 	dag := p.dag
+	subRuns := p.subRunResolver
 	p.mu.Unlock()
 
 	if status == nil || dag == nil {
@@ -183,7 +186,7 @@ func (p *RemoteProgressDisplay) PrintSummary() {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
 	config.MaxOutputLines = 10
-	config.SubRunResolver = p.subRunResolver
+	config.SubRunResolver = subRuns
 
 	renderer := output.NewRenderer(config)
 	summary := renderer.RenderDAGStatus(dag, status)

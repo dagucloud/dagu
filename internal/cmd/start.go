@@ -752,11 +752,35 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 // unreachable coordinator cannot stall the deferred summary render.
 const subRunStatusLookupTimeout = 5 * time.Second
 
+// subRunStatusLookupBudget bounds the time one summary spends on sub-run
+// status lookups that go over the network.
+const subRunStatusLookupBudget = 30 * time.Second
+
+var errSubRunLookupBudgetSpent = errors.New("sub-run status lookup budget spent")
+
+// withSubRunLookupBudget returns a resolver that stops calling resolve once
+// budget has passed since its first lookup, so a slow or unreachable server
+// delays a summary by a bounded time however many sub-runs it has. The
+// returned resolver is not safe for concurrent use.
+func withSubRunLookupBudget(budget time.Duration, resolve output.SubRunResolver) output.SubRunResolver {
+	var deadline time.Time
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		now := time.Now()
+		if deadline.IsZero() {
+			deadline = now.Add(budget)
+		}
+		if now.After(deadline) {
+			return nil, errSubRunLookupBudgetSpent
+		}
+		return resolve(sub)
+	}
+}
+
 // remoteSubRunResolver resolves sub-run status through the coordinator so the
 // final summary can render child step trees inline.
 func remoteSubRunResolver(ctx *Context, cli coordinator.Client, dagName, dagRunID string) output.SubRunResolver {
 	root := ir.NewDAGRunRef(dagName, dagRunID)
-	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+	return withSubRunLookupBudget(subRunStatusLookupBudget, func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
 		if sub.DAGName == "" {
 			return nil, nil
 		}
@@ -770,7 +794,7 @@ func remoteSubRunResolver(ctx *Context, cli coordinator.Client, dagName, dagRunI
 			return nil, nil
 		}
 		return res.Status, nil
-	}
+	})
 }
 
 // dispatchToCoordinatorAndWait dispatches a DAG to coordinator and waits for completion.

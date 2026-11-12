@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -50,8 +51,12 @@ var statusFlags = []commandLineFlag{
 }
 
 func runStatus(ctx *Context, args []string) error {
+	recursive, err := ctx.Command.Flags().GetBool(recursiveOutputFlag.name)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", recursiveOutputFlag.name, err)
+	}
 	if ctx.IsRemote() {
-		return remoteRunStatus(ctx, args)
+		return remoteRunStatus(ctx, args, recursive)
 	}
 	dagRunID, err := ctx.StringParam("run-id")
 	if err != nil {
@@ -104,18 +109,21 @@ func runStatus(ctx *Context, args []string) error {
 		}
 	}
 
-	displayTreeStatus(ctx, dag, dagStatus, name, dagRunID)
+	var subRuns output.SubRunResolver
+	if recursive {
+		subRuns = subRunStatusResolver(ctx, dagStatus, name, dagRunID)
+	}
+	displayTreeStatus(dag, dagStatus, subRuns)
 
 	return nil
 }
 
-func displayTreeStatus(ctx *Context, dag *ir.DAG, dagStatus *ir.DAGRunStatus, dagName, dagRunID string) {
+// displayTreeStatus prints the status tree of a run. A non-nil subRuns
+// resolver expands the run's sub-runs inline.
+func displayTreeStatus(dag *ir.DAG, dagStatus *ir.DAGRunStatus, subRuns output.SubRunResolver) {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
-
-	if recursive, _ := ctx.Command.Flags().GetBool("recursive-output"); recursive {
-		config.SubRunResolver = subRunStatusResolver(ctx, dagStatus, dagName, dagRunID)
-	}
+	config.SubRunResolver = subRuns
 
 	renderer := output.NewRenderer(config)
 	fmt.Print(renderer.RenderDAGStatus(dag, dagStatus))
@@ -131,13 +139,15 @@ func subRunStatusResolver(ctx *Context, dagStatus *ir.DAGRunStatus, dagName, dag
 		if rootID == "" || rootID == "latest" {
 			rootName, rootID = dagStatus.Name, dagStatus.DAGRunID
 		}
-		return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
-			detail, err := ctx.Remote.getSubDAGRunDetails(ctx, rootName, rootID, sub.DAGRunID)
+		return withSubRunLookupBudget(subRunStatusLookupBudget, func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			lookupCtx, cancel := context.WithTimeout(ctx, subRunStatusLookupTimeout)
+			defer cancel()
+			detail, err := ctx.Remote.getSubDAGRunDetails(lookupCtx, rootName, rootID, sub.DAGRunID)
 			if err != nil {
 				return nil, err
 			}
 			return toExecStatus(detail)
-		}
+		})
 	}
 	// The displayed run may be the latest; its recorded ID is the root under
 	// which all descendants are stored.
