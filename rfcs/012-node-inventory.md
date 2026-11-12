@@ -96,17 +96,23 @@ The inventory belongs to a project, as defined in
 [RFC 003](003-remove-workspaces.md). Until RFC 003 ships, the installation has
 one inventory, at the default project's location.
 
-| Project | Inventory file | Snapshots and trusted host keys |
-| --- | --- | --- |
-| Default project | `nodes.yaml` beside the global `base.yaml` | `<data dir>/nodes/` |
-| Project, `paths.projects_dags_dir` unset | `projects/<name>/nodes.yaml` | `projects/<name>/data/nodes/` |
-| Project, `paths.projects_dags_dir` set | `<projects_dags_dir>/<name>/nodes.yaml` | `projects/<name>/data/nodes/` |
+| Project | Inventory file | With `paths.inventory_dir` set | Snapshots and trusted host keys |
+| --- | --- | --- | --- |
+| Default project | `nodes.yaml` beside the global `base.yaml` | `<inventory_dir>/nodes.yaml` | `<data dir>/nodes/` |
+| Project | `projects/<name>/nodes.yaml` | `<inventory_dir>/<name>/nodes.yaml` | `projects/<name>/data/nodes/` |
 
-With `paths.projects_dags_dir` set, `nodes.yaml` sits beside the project's
-`base.yaml`, so a git checkout holds the inventory with the DAGs. Like
-`base.yaml`, `nodes.yaml` at the root of a project's DAG directory is not a
-DAG. Git sync covers the DAG directory only, so it does not sync the default
-project's `nodes.yaml`.
+The inventory belongs to the server, not to the DAG files. A DAG is the same
+in every environment and names a role, such as `tags: web`. Which hosts have
+that role differs between staging and production. So `nodes.yaml` never
+lives in a DAG directory, with or without `paths.projects_dags_dir`, and git
+sync never reads or writes it. Two servers that sync the same DAG repository
+each keep their own inventory.
+
+`paths.inventory_dir` lets a team keep inventories in git and still give
+each environment its own. A repository holds one directory per environment,
+such as `inventories/prod/` and `inventories/staging/`, and each server's
+`config.yaml` names the one it reads. DAGs move between environments
+unchanged as long as the inventories use the same tags and attribute names.
 
 A project without `nodes.yaml` has no nodes.
 
@@ -759,11 +765,11 @@ part of the fleet.
 ## Compatibility and rollout
 
 - Additive. An install without `nodes.yaml` behaves as before.
-- `nodes.yaml` at the root of a project DAG directory is reserved, as
-  `base.yaml` is. RFC 003 needs the same reservation, and its migration must
-  report any DAG file with that name and handle workspace DAGs that target
-  nodes, as [Where the inventory lives](#where-the-inventory-lives) says.
-  That work, with acceptance item 24, is part of RFC 003 and blocks v3.0.
+- `nodes.yaml` is not read from a DAG directory, so no DAG file name is
+  reserved. `paths.inventory_dir` is a new setting.
+- RFC 003's migration must handle workspace DAGs that target nodes, as
+  [Where the inventory lives](#where-the-inventory-lives) says. That work,
+  with acceptance item 24, is part of RFC 003 and blocks v3.0.
   [#3777](https://github.com/dagucloud/dagu/issues/3777) tracks it.
 - Node name `local` is reserved for RFC 013.
 - The UI and docs say "remote servers" for remote nodes. Nothing in
@@ -773,7 +779,8 @@ Rollout:
 
 1. **Credentials from secrets** for `ssh.run`, `sftp.*`, and DAG-level `ssh`,
    with Spec 042 updated.
-2. **Inventory core**: `nodes.yaml` with `defaults` and `nodes`, the filter
+2. **Inventory core**: `nodes.yaml` with `defaults` and `nodes`,
+   `paths.inventory_dir`, the filter
    language, `GET /nodes`, `GET /node-attributes`,
    `dagu nodes list|show|validate`, with `--output json` and `list
    --inventory`, the reserved system DAG names, and a read-only Nodes page.
@@ -873,6 +880,10 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
     nodes refuses until the project has an inventory. After
     `--copy-inventory`, the DAG reaches the same nodes with the same keys and
     host keys.
+25. Two servers sync the same DAG repository and set different
+    `paths.inventory_dir`. The same DAG runs on each server's own nodes. A
+    `nodes.yaml` in a DAG directory is not read as an inventory, and git
+    sync never writes one.
 
 ## Alternatives considered
 
@@ -883,6 +894,9 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
 - **Declare nodes in `base.yaml` or in DAG files.** Puts fleet data into the
   DAG schema, makes `command` sources run while DAGs load, and gives two DAGs
   different views of one fleet.
+- **`nodes.yaml` in the DAG directory, synced with the DAGs.** One review
+  path for DAGs and hosts, but every server that syncs the repository would
+  get the same hosts, and a staging server would hold production's.
 - **A store managed through the UI**, like remote nodes. Not reviewable in git,
   and imports would land in a database-like file nobody edits by hand.
 - **A new selector syntax**, such as Kubernetes label selectors or CEL. Cleaner,
@@ -907,8 +921,8 @@ RFC 013's first rollout phase. Item 23 needs its worker nodes.
 
 ## Open questions
 
-Questions 6, 8, 9, and 10 change the file format or its location. They are
-settled before the spec of rollout phase 2 is written.
+Questions 6, 8, and 9 change the file format. They are settled before the
+spec of rollout phase 2 is written.
 
 1. Should a server-wide inventory exist, shared by projects that opt in?
 2. Should `workers: true` be the default once targeting ships?
@@ -925,5 +939,3 @@ settled before the spec of rollout phase 2 is written.
 8. Should the model reserve fields now for WinRM and other transports?
 9. Should `key`, `password`, and `passphrase` also accept Spec 069's direct
    `provider` and `key` form, so keys can stay in Vault or AWS?
-10. Should the default project's `nodes.yaml` live under the DAG directory, so
-    git sync covers it?
