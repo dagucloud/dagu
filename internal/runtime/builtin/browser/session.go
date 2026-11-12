@@ -390,6 +390,9 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	}
 	downloadsDir := filepath.Join(workDir, "downloads")
 	if err := os.MkdirAll(downloadsDir, sessionDirMode); err != nil {
+		if lease == nil {
+			_ = os.RemoveAll(userDataDir)
+		}
 		_ = store.Purge(id)
 		return OpenResult{}, err
 	}

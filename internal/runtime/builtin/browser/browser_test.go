@@ -70,7 +70,7 @@ type testRun struct {
 func newTestRun(t *testing.T, answer func(*llmpkg.ChatRequest) (string, error)) *testRun {
 	t.Helper()
 	engine := newFakeEngine()
-	return &testRun{
+	run := &testRun{
 		t:         t,
 		dataDir:   t.TempDir(),
 		artifacts: t.TempDir(),
@@ -78,6 +78,18 @@ func newTestRun(t *testing.T, answer func(*llmpkg.ChatRequest) (string, error)) 
 		launcher:  &fakeLauncher{engine: engine},
 		provider:  &scriptedProvider{answer: answer},
 	}
+	// A browser a step keeps while it waits for a person is closed by the
+	// reaper, which tests do not run, so the profile directory it owns,
+	// outside the test's temporary directories, is removed here.
+	t.Cleanup(func() {
+		records, _ := browserhost.NewStore(filepath.Join(run.dataDir, browserhost.DataDirName)).List()
+		for _, record := range records {
+			if record.OwnsUserDataDir {
+				_ = os.RemoveAll(record.UserDataDir)
+			}
+		}
+	})
+	return run
 }
 
 // stepExecution is one execution of the browser step.
@@ -1451,7 +1463,9 @@ func TestAskAnswerAfterBrowserExpired(t *testing.T) {
 	run := newTestRun(t, pageModel(nil))
 	waiting := run.execute(loginSteps, nil)
 	require.NoError(t, waiting.err)
+	// The reaper closes an expired browser, removing its profile and record.
 	for _, record := range run.records() {
+		require.NoError(t, os.RemoveAll(record.UserDataDir))
 		require.NoError(t, os.Remove(filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", record.ID+".json")))
 	}
 
