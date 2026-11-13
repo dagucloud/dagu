@@ -108,15 +108,30 @@ steps:
 	assert.Equal(t, 2, resumed.Backfill.MaxConcurrency)
 }
 
-// The runs of a backfill are listed by its ID, and each run names it.
+// The runs of a backfill are listed by its ID, also those created before
+// today, and each run names it.
 func TestListDAGRunsOfABackfill(t *testing.T) {
 	t.Parallel()
 
 	server := test.SetupServer(t)
 	dag := server.DAG(t, "steps:\n  - run: \"true\"\n")
 	ctx := context.Background()
-	for runID, backfillID := range map[string]string{"bf-run": "bf123456", "other-bf-run": "bf654321", "live-run": ""} {
-		attempt, err := server.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	now := time.Now()
+	store := filebackfill.New(filebackfill.Dir(server.Config.Paths.DataDir))
+	require.NoError(t, store.Create(ctx, &backfill.Record{
+		ID: "bf123456", DAGName: dag.Name, DAGFile: dag.Location, CreatedAt: now.Add(-48 * time.Hour),
+		Options: backfill.Options{Rerun: backfill.RerunNone, MaxConcurrency: 1, OnFailure: backfill.OnFailureStop},
+	}))
+	for runID, run := range map[string]struct {
+		backfillID string
+		created    time.Time
+	}{
+		"bf-run":       {"bf123456", now.Add(-24 * time.Hour)},
+		"other-bf-run": {"bf654321", now},
+		"live-run":     {"", now},
+	} {
+		backfillID := run.backfillID
+		attempt, err := server.DAGRunRepository.CreateAttempt(ctx, dag.DAG, run.created, runID, persis.DAGRunCreateAttemptOptions{})
 		require.NoError(t, err)
 		require.NoError(t, attempt.Open(ctx))
 		require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
@@ -131,7 +146,7 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 	assert.Equal(t, "bf-run", page.DagRuns[0].DagRunId)
 	assert.Equal(t, new("bf123456"), page.DagRuns[0].BackfillId)
 
-	live, err := newDAGPinAPIWithStore(server.Helper, nil).GetDAGRunsListData(ctx, "backfillId=bf123456")
+	live, err := newDAGPinAPIWithStore(server.Helper, nil, localapi.WithBackfillStore(store)).GetDAGRunsListData(ctx, "backfillId=bf123456")
 	require.NoError(t, err)
 	liveRuns := live.(api.DAGRunsPageResponse).DagRuns
 	require.Len(t, liveRuns, 1, "the live run list filters alike")

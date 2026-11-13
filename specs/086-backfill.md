@@ -272,7 +272,7 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 | `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |
 | `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
 | `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
-| `GET /api/v1/dag-runs?backfillId={id}` | The runs of a backfill. Every run carries `backfillId`, which a retry keeps. |
+| `GET /api/v1/dag-runs?backfillId={id}` | The runs of a backfill, from its submission on unless `fromDate` or `toDate` is set. Every run carries `backfillId`, which a retry keeps. |
 
 - A plan carries the number of slots each `rerun` value would run and a
   `revision`. A submit or resume that sends a `revision` the plan no longer

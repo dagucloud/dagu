@@ -412,6 +412,31 @@ func (a *API) latestBackfill(ctx context.Context, fileName string) (*api.LatestB
 	return &item, nil
 }
 
+// scopeToBackfill narrows a list of a backfill's runs to its DAG and, unless
+// the list names a range, to the runs created since the backfill was
+// submitted. The list then reaches runs from before today without scanning
+// the history of every DAG. A backfill without a record keeps the list as
+// it is.
+func (a *API) scopeToBackfill(ctx context.Context, query *persis.DAGRunListOptions) error {
+	if query.BackfillID == "" || a.backfillStore == nil {
+		return nil
+	}
+	record, err := a.backfillStore.Get(ctx, query.BackfillID)
+	if errors.Is(err, backfill.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if query.Name == "" && query.ExactName == "" {
+		query.ExactName = record.DAGName
+	}
+	if query.From.IsZero() && query.To.IsZero() {
+		query.From = persis.NewUTC(record.CreatedAt)
+	}
+	return nil
+}
+
 // backfillFileName returns the API name of the DAG file a backfill records
 // by its path.
 func backfillFileName(record *backfill.Record) string {

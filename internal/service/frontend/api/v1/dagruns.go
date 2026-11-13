@@ -715,6 +715,9 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		return nil, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
+	if err := a.scopeToBackfill(ctx, &opts.query); err != nil {
+		return nil, err
+	}
 	var dagName, dagRunID string
 	if request.Params.Name != nil {
 		dagName = *request.Params.Name
@@ -5522,6 +5525,9 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		return dagRunListOptions{}, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
+	if err := a.scopeToBackfill(ctx, &opts.query); err != nil {
+		return dagRunListOptions{}, err
+	}
 
 	return opts, nil
 }
