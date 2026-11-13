@@ -4,12 +4,18 @@
 package file
 
 import (
+	"context"
 	"path/filepath"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 )
@@ -70,9 +76,13 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	// listing, retention pass or index of the history reaches them.
 	ephemeralStore := filedagrun.NewStore(EphemeralDAGRunsDir(cfg.Paths.DAGRunsDir), storeOpts...)
 	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
-	var slots persis.SlotIndex
+	var (
+		slots   persis.SlotIndex
+		onRetry func(context.Context, *ir.DAGRunStatus)
+	)
 	if cfg.Paths.DataDir != "" {
 		slots = slotindex.New(filepath.Join(cfg.Paths.DataDir, slotIndexDirName))
+		onRetry = followBackfillRetry(filebackfill.New(filebackfill.Dir(cfg.Paths.DataDir)))
 	}
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
@@ -81,7 +91,18 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 		EphemeralStore:    ephemeralStore,
 		SlotIndex:         slots,
 		CalendarsDir:      cfg.Paths.CalendarsDir,
+		OnRetry:           onRetry,
 	})
+}
+
+// followBackfillRetry has the backfill of a retried run follow the retry.
+func followBackfillRetry(store backfill.Store) func(context.Context, *ir.DAGRunStatus) {
+	return func(ctx context.Context, status *ir.DAGRunStatus) {
+		if err := backfill.FollowRetry(ctx, store, status, time.Now()); err != nil {
+			logger.Warn(ctx, "Failed to follow the retry of a backfill run",
+				tag.RunID(status.DAGRunID), tag.Error(err))
+		}
+	}
 }
 
 // EphemeralDAGRunsDir returns the directory that holds ephemeral runs. It is

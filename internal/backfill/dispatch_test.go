@@ -41,16 +41,19 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 	ctx := context.Background()
 	dir := t.TempDir()
 	f := &dispatchFixture{t: t, ctx: ctx}
+	f.store = filebackfill.New(filepath.Join(dir, "backfills"))
+	now := func() time.Time { return at(20, 0) }
 	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
 		SlotIndex: slotindex.New(filepath.Join(dir, "slot-index")),
 		Location:  time.UTC,
+		OnRetry: func(ctx context.Context, status *ir.DAGRunStatus) {
+			require.NoError(t, backfill.FollowRetry(ctx, f.store, status, now()))
+		},
 	})
 	dag, err := spec.LoadYAML(ctx, []byte("name: etl\nschedule: \"0 2 * * *\"\nsteps:\n  - run: echo hi\n"))
 	require.NoError(t, err)
 	f.dag = dag
 	f.sched = backfill.SlotSchedule{Schedules: dag.Schedule, Location: time.UTC}
-	f.store = filebackfill.New(filepath.Join(dir, "backfills"))
-	now := func() time.Time { return at(20, 0) }
 	f.service = &backfill.Service{Store: f.store, History: f.repository, Now: now}
 	f.dispatcher = &backfill.Dispatcher{
 		Store:   f.store,
@@ -106,6 +109,38 @@ func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	current.Status = status
 	require.NoError(f.t, attempt.Write(f.ctx, *current))
 	require.NoError(f.t, attempt.Close(f.ctx))
+}
+
+// retry queues an ended run again, as a queued retry does.
+func (f *dispatchFixture) retry(runID string) {
+	f.t.Helper()
+	ref := ir.NewDAGRunRef(f.dag.Name, runID)
+	attempt, err := f.repository.FindAttempt(f.ctx, ref)
+	require.NoError(f.t, err)
+	current, err := attempt.ReadStatusUncached(f.ctx)
+	require.NoError(f.t, err)
+	_, swapped, err := f.repository.CompareAndSwapLatestAttemptStatus(f.ctx, ref, current.AttemptID, current.Status,
+		func(latest *ir.DAGRunStatus) error {
+			latest.Status = ir.Queued
+			return nil
+		}, persis.DAGRunCompareAndSwapOptions{})
+	require.NoError(f.t, err)
+	require.True(f.t, swapped)
+}
+
+// retryAttempt starts a new attempt of an ended run, as a direct retry does.
+func (f *dispatchFixture) retryAttempt(runID string) {
+	f.t.Helper()
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	require.NoError(f.t, err)
+	current, err := attempt.ReadStatusUncached(f.ctx)
+	require.NoError(f.t, err)
+	retry, err := f.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{Retry: true})
+	require.NoError(f.t, err)
+	require.NoError(f.t, retry.Open(f.ctx))
+	current.AttemptID, current.Status = retry.ID(), ir.Running
+	require.NoError(f.t, retry.Write(f.ctx, *current))
+	require.NoError(f.t, retry.Close(f.ctx))
 }
 
 func (f *dispatchFixture) submit(options backfill.Options) *backfill.Record {
@@ -278,4 +313,86 @@ func TestDispatchReadsRetainedStatusOfARemovedRun(t *testing.T) {
 	f.tick()
 	assert.True(t, f.record(record.ID).Open(), "the backfill goes on")
 	assert.Len(t, f.queued, 2, "the next slot is queued")
+}
+
+// Once the dispatcher has seen a run end, neither it nor a report reads the
+// run again, so each read of a long backfill costs a lookup per run in
+// progress only.
+func TestDispatchReadsOnlyRunsInProgress(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	reads := map[string]int{}
+	read := f.dispatcher.ReadRun
+	f.dispatcher.ReadRun = func(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+		reads[ref.ID]++
+		return read(ctx, ref)
+	}
+	record := f.submit(backfill.Options{MaxConcurrency: 2, OnFailure: backfill.OnFailureContinue})
+	f.tick()
+	f.finish(f.queued[0], ir.Succeeded)
+	f.finish(f.queued[1], ir.Failed)
+	f.tick()
+	require.Len(t, f.queued, 3)
+
+	clear(reads)
+	f.tick()
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{f.queued[2]: 2}, reads, "only the queued run is read")
+	assert.Equal(t, map[backfill.SlotState]int{
+		backfill.SlotStateSucceeded: 1,
+		backfill.SlotStateFailed:    1,
+		backfill.SlotStateQueued:    1,
+	}, report.Counts)
+}
+
+// A retry of a backfill run that ended makes its slot active again: the
+// backfill waits for the retry and counts how it ends.
+func TestDispatchFollowsARetry(t *testing.T) {
+	t.Parallel()
+	for name, retry := range map[string]func(*dispatchFixture, string){
+		"queued":      (*dispatchFixture).retry,
+		"new attempt": (*dispatchFixture).retryAttempt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newDispatchFixture(t)
+			record := f.submit(backfill.Options{OnFailure: backfill.OnFailureContinue})
+			f.tick()
+			f.finish(f.queued[0], ir.Failed)
+			f.tick()
+			require.Len(t, f.queued, 2)
+
+			retry(f, f.queued[0])
+			f.finish(f.queued[1], ir.Succeeded)
+			f.tick()
+			assert.Len(t, f.queued, 2, "the retry holds the backfill's one place")
+
+			f.finish(f.queued[0], ir.Succeeded)
+			f.tick()
+			require.Len(t, f.queued, 3)
+			f.finish(f.queued[2], ir.Succeeded)
+			f.tick()
+			assert.Equal(t, backfill.StatusSucceeded, f.record(record.ID).Status, "the retry succeeded")
+		})
+	}
+}
+
+// An outcome read before a retry queued the run again, but recorded after,
+// does not end the slot the retry reopened.
+func TestDescribeKeepsARetryOverAnOlderOutcome(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	runID := f.queued[0]
+	f.finish(runID, ir.Failed)
+	f.retry(runID)
+	require.NoError(t, f.store.Append(f.ctx, record.ID, backfill.Progress{
+		Slot: at(1, 2), Kind: backfill.ProgressFailed, RunID: runID, At: at(19, 0),
+	}))
+
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State)
 }

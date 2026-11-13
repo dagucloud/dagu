@@ -70,6 +70,10 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 			item.State = SlotStateNotRun
 		case ProgressCancelled:
 			item.State = SlotStateCancelled
+		case ProgressSucceeded:
+			item.State = SlotStateSucceeded
+		case ProgressFailed:
+			item.State = SlotStateFailed
 		case ProgressEnqueued:
 			var queue string
 			if item.State, queue, err = runState(ctx, readRun, record.DAGName, event.RunID); err != nil {

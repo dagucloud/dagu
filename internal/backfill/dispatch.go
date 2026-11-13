@@ -112,11 +112,17 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		return err
 	}
 	byslot := currentProgress(record, progress)
+	// Every run status read below is at least as recent as observed.
+	observed := d.now()
 
-	var pending []RecordSlot
+	var (
+		pending []RecordSlot
+		ended   []Progress
+	)
 	active, failed := 0, false
 	for _, slot := range record.Slots {
-		outcome, err := d.outcome(ctx, record, byslot[slot.At.UTC()])
+		event := byslot[slot.At.UTC()]
+		outcome, err := d.outcome(ctx, record, event)
 		if err != nil {
 			return err
 		}
@@ -128,6 +134,19 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		case slotFailed:
 			failed = true
 		case slotSucceeded, slotSettled:
+		}
+		if event.Kind == ProgressEnqueued && (outcome == slotSucceeded || outcome == slotFailed) {
+			kind := ProgressSucceeded
+			if outcome == slotFailed {
+				kind = ProgressFailed
+			}
+			ended = append(ended, Progress{Slot: slot.At, Kind: kind, RunID: event.RunID, Generation: record.Generation, At: observed})
+		}
+	}
+	// Recording how runs ended spares later reads from looking them up.
+	if len(ended) > 0 {
+		if err := d.Store.Append(ctx, record.ID, ended...); err != nil {
+			return err
 		}
 	}
 
@@ -173,12 +192,16 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	return nil
 }
 
-// outcome reads where a slot stands from its last progress event and, once
-// queued, from its run.
+// outcome reads where a slot stands from its last progress event and, while
+// its run has not been seen to end, from its run.
 func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress) (slotOutcome, error) {
 	switch event.Kind {
 	case ProgressSkipped, ProgressNotRun, ProgressCancelled:
 		return slotSettled, nil
+	case ProgressSucceeded:
+		return slotSucceeded, nil
+	case ProgressFailed:
+		return slotFailed, nil
 	case ProgressEnqueued:
 	default:
 		return slotPending, nil

@@ -115,6 +115,10 @@ const (
 	// ProgressCancelled records that the backfill was cancelled before the
 	// slot's run started.
 	ProgressCancelled ProgressKind = "cancelled"
+	// ProgressSucceeded records that the slot's run ended successfully.
+	ProgressSucceeded ProgressKind = "succeeded"
+	// ProgressFailed records that the slot's run ended without success.
+	ProgressFailed ProgressKind = "failed"
 )
 
 // Progress is one event of a backfill's slots.
@@ -123,8 +127,15 @@ type Progress struct {
 	Kind  ProgressKind `json:"kind"`
 	RunID string       `json:"runId,omitempty"`
 	// Generation is the resume the event belongs to.
-	Generation int       `json:"generation,omitempty"`
-	At         time.Time `json:"at"`
+	Generation int `json:"generation,omitempty"`
+	// At is when the event happened. For an outcome, it is when the run's
+	// status was read.
+	At time.Time `json:"at"`
+}
+
+// ended reports whether the event records how the slot's run ended.
+func (p Progress) ended() bool {
+	return p.Kind == ProgressSucceeded || p.Kind == ProgressFailed
 }
 
 // currentProgress returns the last event of each slot in the record's
@@ -137,9 +148,16 @@ func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
 		}
 	}
 	for _, event := range events {
-		if event.Generation == record.Generation {
-			byslot[event.Slot.UTC()] = event
+		if event.Generation != record.Generation {
+			continue
 		}
+		slot := event.Slot.UTC()
+		// An outcome read before a retry queued the run again is stale.
+		if last := byslot[slot]; event.ended() && last.Kind == ProgressEnqueued &&
+			last.RunID == event.RunID && last.At.After(event.At) {
+			continue
+		}
+		byslot[slot] = event
 	}
 	return byslot
 }

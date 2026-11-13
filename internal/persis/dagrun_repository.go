@@ -29,6 +29,7 @@ type DAGRunRepository struct {
 	ephemeral         DAGRunStore
 	slotIndex         SlotIndex
 	calendars         *spec.CalendarSource
+	onRetry           func(context.Context, *ir.DAGRunStatus)
 }
 
 // NewDAGRunRepository creates a repository backed by store.
@@ -54,6 +55,7 @@ func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, option
 		ephemeral:         options.EphemeralStore,
 		slotIndex:         options.SlotIndex,
 		calendars:         calendarSource(options.CalendarsDir),
+		onRetry:           options.OnRetry,
 	}
 }
 
@@ -97,6 +99,9 @@ func (r *DAGRunRepository) CreateAttempt(
 	// Only a new top-level run is a run of its slot; a retry is the same run.
 	if r.slotIndex != nil && !ephemeral && !options.Retry && options.RootDAGRun.Zero() {
 		wrapped.(*eventingAttempt).slots = &slotRecorder{index: r.slotIndex, location: r.location, calendars: r.calendars}
+	}
+	if r.onRetry != nil && !ephemeral && options.Retry && options.RootDAGRun.Zero() {
+		wrapped.(*eventingAttempt).onRetry = r.onRetry
 	}
 	return wrapped, nil
 }
@@ -277,6 +282,9 @@ func (r *DAGRunRepository) CompareAndSwapLatestAttemptStatus(
 	}
 	if !ephemeral && !status.Ephemeral {
 		r.emitStatusEventAfterSwap(ctx, root, dagRun, expectedStatus, status)
+		if r.onRetry != nil && !isSubDAG && expectedStatus.IsTerminal() && status.Status.IsActive() {
+			r.onRetry(ctx, status)
+		}
 	}
 	return status, true, nil
 }

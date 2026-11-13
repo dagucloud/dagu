@@ -29,6 +29,9 @@ type eventingAttempt struct {
 	// slots records the run in its schedule slot on the first status write
 	// that carries a scheduled time. It is set only for a new top-level run.
 	slots *slotRecorder
+	// onRetry learns of the first status write of a retry attempt of a
+	// top-level run.
+	onRetry func(context.Context, *ir.DAGRunStatus)
 }
 
 func newEventingAttempt(attempt dagrun.Attempt, dag *ir.DAG, ephemeral bool) dagrun.Attempt {
@@ -72,6 +75,10 @@ func (a *eventingAttempt) Write(ctx context.Context, status ir.DAGRunStatus) err
 		return err
 	}
 	a.recordSlotRun(ctx, &status)
+	if onRetry := a.onRetry; onRetry != nil {
+		a.onRetry = nil
+		onRetry(ctx, &status)
+	}
 	if a.ephemeral || status.Ephemeral {
 		return nil
 	}
