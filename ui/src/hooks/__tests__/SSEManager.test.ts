@@ -93,6 +93,7 @@ describe('endpointToTopic', () => {
         '/events/dag-runs/mydag/run-1/logs/steps/build',
         'steplog:mydag/run-1/build',
       ],
+      ['/events/service-dags?workspace=ops', 'servicedags:workspace=ops'],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
       ['/events/service-dags?workspace=ops', 'servicedags:workspace=ops'],

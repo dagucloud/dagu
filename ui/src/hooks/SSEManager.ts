@@ -164,6 +164,9 @@ export function endpointToTopic(endpoint: string): string {
       `${segments[2]}/${segments[3]}/${segments[6]}`
     );
   }
+  if (segments.length === 2 && segments[1] === 'service-dags') {
+    return buildTopic('servicedags', query);
+  }
   if (segments.length === 2 && segments[1] === 'queues') {
     return buildTopic('queues', query);
   }

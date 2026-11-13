@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         const err = new Error(data.message || 'Setup failed');
-        (err as any).status = response.status;
+        Object.assign(err, { status: response.status });
         throw err;
       }
 
@@ -226,6 +226,19 @@ export function useIsAdmin(): boolean {
   const config = useConfig();
   if (config.authMode !== 'builtin') return true;
   return user?.role === UserRole.admin;
+}
+
+/**
+ * Like useIsAdmin, but false outside an AuthProvider instead of an error. A
+ * hint that only an administrator can act on uses it, so that a form that a
+ * host renders with no sign-in still works.
+ */
+export function useIsAdminIfSignedIn(): boolean {
+  const context = useContext(AuthContext);
+  const config = useConfig();
+  if (!context) return false;
+  if (config.authMode !== 'builtin') return true;
+  return context.user?.role === UserRole.admin;
 }
 
 export function useCanWrite(): boolean {
@@ -361,16 +374,29 @@ export function useCanManageCommandChannels(): boolean {
   return isAdmin && enabled;
 }
 
+// A server-wide developer role, whatever the workspace grants.
+function useIsServerDeveloper(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return config.permissions.writeDags;
+  return roleAtLeast(user?.role ?? null, UserRole.developer);
+}
+
 /**
  * Reports whether the current user may manage notification channels and
  * rules, which takes a server-wide developer role whatever the workspace
  * grants.
  */
 export function useCanManageNotifications(): boolean {
-  const { user } = useAuth();
-  const config = useConfig();
-  if (config.authMode !== 'builtin') return config.permissions.writeDags;
-  return roleAtLeast(user?.role ?? null, UserRole.developer);
+  return useIsServerDeveloper();
+}
+
+/**
+ * Reports whether the current user may create, change and delete skills.
+ * They are files of the server, so the role is server-wide too.
+ */
+export function useCanManageSkills(): boolean {
+  return useIsServerDeveloper();
 }
 
 export function useCanViewAuditLogs(): boolean {

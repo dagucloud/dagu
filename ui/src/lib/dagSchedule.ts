@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { components, RestartPolicy } from '../api/v1/schema';
+import {
+  components,
+  RestartPolicy,
+  ServiceDAGState,
+  Status,
+} from '../api/v1/schema';
 import dayjs from './dayjs';
 
 type Schedule = components['schemas']['Schedule'];
@@ -72,6 +77,59 @@ export function isServiceDAG(dag: RestartPolicyFields): boolean {
     dag.restartPolicy === RestartPolicy.always ||
     dag.restartPolicy === RestartPolicy.unless_stopped
   );
+}
+
+/**
+ * True when the scheduler starts the next run of a service DAG by itself: it
+ * waits to restart or it fails and restarts. A manual start or retry adds
+ * nothing.
+ */
+export function restartsByItself(state: ServiceDAGState | undefined): boolean {
+  return (
+    state === ServiceDAGState.restarting || state === ServiceDAGState.failing
+  );
+}
+
+// A run that has not started counts as active for this long, as on the server.
+const NOT_STARTED_ACTIVE_MS = 5 * 60 * 1000;
+
+/**
+ * True when the server refuses a start, an enqueue or a retry of the DAG: it
+ * is a service DAG and its latest run is running, queued or waiting, or has
+ * not started for less than 5 minutes (spec 080).
+ */
+export function hasActiveServiceRun(
+  dag: RestartPolicyFields | undefined,
+  run: { status?: Status; queuedAt?: string; startedAt?: string } | undefined,
+  now: number = Date.now()
+): boolean {
+  if (!dag || !run || !isServiceDAG(dag)) {
+    return false;
+  }
+  if (
+    run.status === Status.Running ||
+    run.status === Status.Queued ||
+    run.status === Status.Waiting
+  ) {
+    return true;
+  }
+  if (run.status !== Status.NotStarted) {
+    return false;
+  }
+  const since = Date.parse(run.queuedAt || run.startedAt || '');
+  return !Number.isNaN(since) && now - since < NOT_STARTED_ACTIVE_MS;
+}
+
+/**
+ * The seconds after which a stopped run restarts, or null when a stop is
+ * final: `always` starts the next run after the wait, `unless-stopped` does not.
+ */
+export function getRestartAfterStopSec(
+  dag: RestartPolicyFields | undefined
+): number | null {
+  return dag?.restartPolicy === RestartPolicy.always && dag.restartWaitSec
+    ? dag.restartWaitSec
+    : null;
 }
 
 /** The policy and the wait between two runs, such as "always · 5s". */

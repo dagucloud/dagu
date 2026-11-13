@@ -64,7 +64,8 @@ vi.mock('../../data', () => ({ useWorkspaceRun: () => h.workspaceRun() }));
 vi.mock('../../data/useWorkspaceRun', () => ({
   useWorkspaceRun: () => h.workspaceRun(),
 }));
-vi.mock('../../data/context', () => ({
+vi.mock('../../data/context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../data/context')>()),
   useWorkspaceData: () => ({
     fileName: 'demo.yaml',
     dagData: { dag: { name: 'demo' } },
@@ -175,6 +176,8 @@ function fakeWidth(width: number) {
     unobserve() {}
   }
   vi.stubGlobal('ResizeObserver', FakeObserver);
+  // The first measure reads the content width: clientWidth less the padding.
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width,
     height: 90,
@@ -1284,6 +1287,10 @@ describe('RunTimelineView width', () => {
   let callbacks: Callback[] = [];
 
   function measure(width: number) {
+    // The first measure reads the content width: clientWidth less the padding.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(
+      width
+    );
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width,
       height: 90,
