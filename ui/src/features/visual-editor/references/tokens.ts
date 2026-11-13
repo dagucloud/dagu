@@ -9,6 +9,7 @@ export type ReferenceTokenKind =
 export type ReferenceNamespace =
   | 'params'
   | 'consts'
+  | 'dates'
   | 'env'
   | 'steps'
   | 'context'
@@ -34,6 +35,7 @@ const ITEM_FIELD = /^[\p{L}_][\p{L}\p{M}\p{Nd}_]*$/u;
 const RESERVED = new Set<string>([
   'params',
   'consts',
+  'dates',
   'env',
   'steps',
   'context',
@@ -69,6 +71,7 @@ function isCanonicalPath(
   switch (namespace) {
     case 'params':
     case 'consts':
+    case 'dates':
     case 'inputs':
     case 'outputs':
       return rest.length === 1 && NAME.test(a);

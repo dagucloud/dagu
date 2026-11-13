@@ -19,6 +19,10 @@ type BackfillPlan = components['schemas']['BackfillPlan'];
 
 const post = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/api', () => ({ useClient: () => ({ POST: post }) }));
+vi.mock('@/contexts/AuthContext', () => ({ useCanManageProfiles: () => true }));
+vi.mock('@/features/dags/hooks/useProfiles', () => ({
+  useProfiles: () => ({ activeProfiles: [{ name: 'night' }] }),
+}));
 
 function plan(revision: string, runs: number): BackfillPlan {
   return {
@@ -95,6 +99,23 @@ describe('StartBackfillDialog', () => {
       )
     );
     expect(lastBody()).toMatchObject({ revision: 'r1', dryRun: false });
+  });
+
+  // The options rest folded under a summary until the user opens them.
+  it('plans with the profile chosen under the options', async () => {
+    post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+
+    const options = await screen.findByRole('button', { name: /^Options/ });
+    expect(options).toHaveTextContent('1 at a time, stop after a failed slot');
+    expect(screen.queryByLabelText('Profile')).toBeNull();
+    fireEvent.click(options);
+    fireEvent.change(screen.getByLabelText('Profile'), {
+      target: { value: 'night' },
+    });
+    await waitFor(() =>
+      expect(lastBody()).toMatchObject({ profile: 'night', dryRun: true })
+    );
   });
 
   it('asks before running slots that succeeded again', async () => {

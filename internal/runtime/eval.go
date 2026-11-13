@@ -63,32 +63,20 @@ func resolverWithoutNotices(env Env) cmnvalue.Resolver {
 
 // newResolver builds a resolver over the scopes reachable from env.
 func newResolver(env Env, opts ...cmnvalue.ResolverOption) cmnvalue.Resolver {
-	var consts cmnvalue.Values
-	var params cmnvalue.Values
-	var paramsJSON string
-	var paramDeclarations cmnvalue.Values
-	if env.DAG != nil {
-		consts = cmnvalue.Values(env.DAG.Consts)
-		params = env.DAG.ParamValues()
-		paramsJSON = env.DAG.ParamsJSON
-		paramDeclarations = env.DAG.ParamDeclarations()
-	}
+	dagScope := newDAGValueResolutionScope(env.DAG)
 	scope := cmnvalue.RuntimeScope{
-		Consts:         consts,
-		Params:         params,
-		ParamsJSON:     paramsJSON,
+		Consts:         dagScope.consts,
+		Params:         dagScope.params,
+		ParamsJSON:     dagScope.paramsJSON,
 		Env:            env.Scope,
 		Steps:          env.StepMap,
 		Foreach:        env.Foreach,
 		Inputs:         env.Inputs,
 		Outputs:        env.Outputs,
 		BuiltinContext: builtinContextFromEnv(env),
+		Dates:          env.Dates,
 	}
-	return cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
-		scope,
-		opts...,
-	)
+	return cmnvalue.NewResolver(dagScope.staticScope(), scope, opts...)
 }
 
 // stepOutputNoticeLogger warns when a strict step-output reference survives value

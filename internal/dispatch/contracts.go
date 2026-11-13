@@ -69,8 +69,11 @@ type DispatchTask struct {
 	ScheduleTime        string
 	// ScheduleWindow is the window the slot at ScheduleTime owns.
 	ScheduleWindow ir.ScheduleWindow
-	SourceFile     string
-	SourceWorkDir  string
+	// Dates are the run's dates, or nil when the run resolves them as it
+	// starts.
+	Dates         []ir.DateValue
+	SourceFile    string
+	SourceWorkDir string
 
 	WorkerSelector map[string]string
 

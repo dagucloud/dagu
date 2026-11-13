@@ -214,6 +214,7 @@ export type ReferenceGroup =
   | 'outputs'
   | 'params'
   | 'consts'
+  | 'dates'
   | 'stepEnv'
   | 'env'
   | 'secrets'

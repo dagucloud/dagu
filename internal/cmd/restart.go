@@ -112,10 +112,20 @@ func runRestart(ctx *Context, args []string) error {
 	if slot.scheduleTime == "" {
 		slot = runSlot{scheduleTime: dagStatus.ScheduleTime, window: dagStatus.ScheduleWindow()}
 	}
+	dates, err := slotDates(ctx, dag, dagStatus.ProfileName, slot)
+	if err != nil {
+		return err
+	}
+	// Without a slot, dates follow the clock, so the restarted run resolves
+	// them when it starts, after the restart wait.
+	if slot.scheduleTime == "" {
+		dates = nil
+	}
 	opts := runOptions{
 		triggerType:    ir.TriggerTypeUnknown,
 		scheduleTime:   slot.scheduleTime,
 		scheduleWindow: slot.window,
+		dates:          dates,
 		profileName:    dagStatus.ProfileName,
 		definitionID:   dagStatus.DAGDefinitionID(),
 		noReuse:        dagStatus.NoReuse,
@@ -247,6 +257,7 @@ func executeDAGWithRunID(
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             opts.scheduleTime,
 			ScheduleWindow:           opts.scheduleWindow,
+			Dates:                    opts.dates,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,

@@ -6574,6 +6574,8 @@ export interface components {
             env: components["schemas"]["ReferenceScopeVariable"][];
             /** @description Secret names. Values are not included. */
             secrets: components["schemas"]["ReferenceScopeVariable"][];
+            /** @description Names of the dates block in declaration order. A run resolves their values when it is created. */
+            dates?: components["schemas"]["ReferenceScopeVariable"][];
             steps: components["schemas"]["ReferenceScopeStep"][];
         };
         /** @description A named value that a step can reference. */
@@ -24771,7 +24773,8 @@ export enum ValueReferenceNoticeReason {
     namespace_unavailable = "namespace_unavailable",
     unknown_context_field = "unknown_context_field",
     unknown_env_binding = "unknown_env_binding",
-    unknown_const_name = "unknown_const_name"
+    unknown_const_name = "unknown_const_name",
+    unknown_date_name = "unknown_date_name"
 }
 export enum ValueReferenceNoticeClass {
     defect = "defect",

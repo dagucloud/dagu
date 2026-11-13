@@ -28,8 +28,18 @@ func buildReferenceScope(dag *ir.DAG) *api.ReferenceScope {
 		Consts:  scopeConsts(dag),
 		Env:     scopeEnv(dag),
 		Secrets: scopeSecrets(dag),
+		Dates:   scopeDates(dag),
 		Steps:   scopeSteps(dag),
 	}
+}
+
+// scopeDates lists the names of dag's dates block in declaration order.
+func scopeDates(dag *ir.DAG) *[]api.ReferenceScopeVariable {
+	dates := make([]api.ReferenceScopeVariable, 0, len(dag.Dates))
+	for _, spec := range dag.Dates {
+		dates = append(dates, api.ReferenceScopeVariable{Name: spec.Name, Reference: "${dates." + spec.Name + "}"})
+	}
+	return &dates
 }
 
 // scopeParams lists the named params of dag in definition order.

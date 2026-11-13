@@ -29,6 +29,7 @@ const (
 	ValueReferenceReasonUnknownContextField  ValueReferenceNoticeReason = "unknown_context_field"
 	ValueReferenceReasonUnknownEnvBinding    ValueReferenceNoticeReason = "unknown_env_binding"
 	ValueReferenceReasonUnknownConstName     ValueReferenceNoticeReason = "unknown_const_name"
+	ValueReferenceReasonUnknownDateName      ValueReferenceNoticeReason = "unknown_date_name"
 )
 
 // ValueReferenceNoticeClass separates references that no run can resolve from
@@ -55,7 +56,8 @@ func (r ValueReferenceNoticeReason) Class() ValueReferenceNoticeClass {
 		ValueReferenceReasonUnknownOutputName,
 		ValueReferenceReasonSelfReference,
 		ValueReferenceReasonUnknownContextField,
-		ValueReferenceReasonUnknownConstName:
+		ValueReferenceReasonUnknownConstName,
+		ValueReferenceReasonUnknownDateName:
 		return NoticeClassDefect
 	case ValueReferenceReasonNamespaceUnavailable,
 		ValueReferenceReasonUnknownEnvBinding:
@@ -186,7 +188,7 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, evaluatedField)
 	case ValueReferenceReasonUnknownContextField:
 		message = fmt.Sprintf("%s was left unchanged because the context field is not defined when %s was evaluated.", token, evaluatedField)
-	case ValueReferenceReasonUnknownEnvBinding, ValueReferenceReasonUnknownConstName:
+	case ValueReferenceReasonUnknownEnvBinding, ValueReferenceReasonUnknownConstName, ValueReferenceReasonUnknownDateName:
 		// Not reachable from a step-output reference; keep the generic message.
 	}
 	class := reason.Class()
