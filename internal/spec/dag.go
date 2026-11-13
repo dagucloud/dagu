@@ -74,6 +74,9 @@ type dag struct {
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
 	// Calendar is the calendar of start schedules that name none.
 	Calendar string `yaml:"calendar,omitempty"`
+	// Dates derives dates from the run's schedule slot. The loader passes
+	// the mapping as single-entry mappings in document order.
+	Dates any `yaml:"dates,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
 	SkipIfSuccessful *bool `yaml:"skip_if_successful,omitempty"`
@@ -574,6 +577,7 @@ var metadataParamsEnvStage = transformStage{
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
 	dagField("calendar", buildCalendar, func(out *ir.DAG, v string) { out.Calendar = v }),
+	dagField("dates", buildDates, func(out *ir.DAG, v []ir.DateSpec) { out.Dates = v }),
 	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
@@ -709,6 +713,9 @@ type dagBuildState struct {
 	ownEnv int
 	// calendarWarnings reports calendars whose holidays run out soon.
 	calendarWarnings []string
+	// datesWarnings reports dates that no run of the DAG on its own can
+	// resolve.
+	datesWarnings []string
 }
 
 func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
@@ -966,6 +973,7 @@ func (s *dagBuildState) collectWarnings() {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
 	s.result.BuildWarnings = append(s.result.BuildWarnings, s.calendarWarnings...)
+	s.result.BuildWarnings = append(s.result.BuildWarnings, s.datesWarnings...)
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
@@ -1258,6 +1266,7 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.runFieldStages()
 	state.composeInheritedContext()
 	state.bindScheduleCalendars()
+	state.validateDates()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()

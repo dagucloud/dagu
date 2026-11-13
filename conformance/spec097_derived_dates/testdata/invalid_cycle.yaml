@@ -1,0 +1,6 @@
+schedule: "0 2 * * *"
+dates:
+  a: { from: b }
+  b: { from: a }
+steps:
+  - run: echo load
