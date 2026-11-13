@@ -15,9 +15,13 @@ import { BackfillProgress } from './BackfillProgress';
 import { BackfillStatusChip } from './BackfillStatusChip';
 import { DAGSlotsView } from './DAGSlotsView';
 
-const READ_ONCE = {
+// Read again each time the tab opens, however soon after the last read: a
+// backfill started from it opens its own page, and the list on return must
+// have it.
+const READ_ON_OPEN = {
   revalidateOnFocus: false,
-  revalidateIfStale: false,
+  revalidateIfStale: true,
+  dedupingInterval: 0,
   refreshInterval: 0,
 } as const;
 
@@ -41,7 +45,7 @@ export function DAGBackfillsTab({
   const { data, error, mutate } = useQuery(
     '/backfills',
     { params: { query: { remoteNode, dag: dagName } } },
-    READ_ONCE
+    READ_ON_OPEN
   );
 
   const backfills = data ? [...data.backfills].reverse() : [];
@@ -75,9 +79,11 @@ export function DAGBackfillsTab({
               {ts('No backfills yet.')}
             </p>
             <p>
-              {ts(
-                'A backfill runs the past slots of this schedule. Start one with dagu backfill start.'
-              )}
+              {canExecute
+                ? ts(
+                    'A backfill runs the past slots of this schedule. Start one from the slots above.'
+                  )
+                : ts('A backfill runs the past slots of this schedule.')}
             </p>
           </div>
         ) : (

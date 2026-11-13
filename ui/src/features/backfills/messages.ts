@@ -80,8 +80,10 @@ export const backfillMessages = defineMessages({
     'Backfill failed: {failed} slots did not succeed':
       'Backfill failed: {failed} slots did not succeed',
     'No backfills yet.': 'No backfills yet.',
-    'A backfill runs the past slots of this schedule. Start one with dagu backfill start.':
-      'A backfill runs the past slots of this schedule. Start one with dagu backfill start.',
+    'A backfill runs the past slots of this schedule.':
+      'A backfill runs the past slots of this schedule.',
+    'A backfill runs the past slots of this schedule. Start one from the slots above.':
+      'A backfill runs the past slots of this schedule. Start one from the slots above.',
     'Backfill not found': 'Backfill not found',
     'Failed to load the backfill': 'Failed to load the backfill',
     'Failed to load the backfills': 'Failed to load the backfills',
@@ -199,8 +201,10 @@ export const backfillMessages = defineMessages({
     'Backfill failed: {failed} slots did not succeed':
       '回填失败：{failed} 个时段未成功',
     'No backfills yet.': '还没有回填。',
-    'A backfill runs the past slots of this schedule. Start one with dagu backfill start.':
-      '回填会运行此计划过去的时段。使用 dagu backfill start 开始回填。',
+    'A backfill runs the past slots of this schedule.':
+      '回填会运行此计划过去的时段。',
+    'A backfill runs the past slots of this schedule. Start one from the slots above.':
+      '回填会运行此计划过去的时段。可从上方的时段开始回填。',
     'Backfill not found': '未找到回填',
     'Failed to load the backfill': '加载回填失败',
     'Failed to load the backfills': '加载回填列表失败',
@@ -316,8 +320,10 @@ export const backfillMessages = defineMessages({
     'Backfill failed: {failed} slots did not succeed':
       'バックフィル失敗: {failed} 件のスロットが成功しませんでした',
     'No backfills yet.': 'バックフィルはまだありません。',
-    'A backfill runs the past slots of this schedule. Start one with dagu backfill start.':
-      'バックフィルは、このスケジュールの過去のスロットを実行します。dagu backfill start で開始できます。',
+    'A backfill runs the past slots of this schedule.':
+      'バックフィルは、このスケジュールの過去のスロットを実行します。',
+    'A backfill runs the past slots of this schedule. Start one from the slots above.':
+      'バックフィルは、このスケジュールの過去のスロットを実行します。上のスロットから開始できます。',
     'Backfill not found': 'バックフィルが見つかりません',
     'Failed to load the backfill': 'バックフィルを読み込めませんでした',
     'Failed to load the backfills': 'バックフィルの一覧を読み込めませんでした',
