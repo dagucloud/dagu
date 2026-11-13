@@ -5,7 +5,7 @@
 Partially implemented.
 
 Conformance covers one request/response exchange, silent JSON output, failed
-response file handling, TLS verification, and required fields. Multipart encoding, output variants, and
+response file handling, TLS verification, status exit codes, and required fields. Multipart encoding, output variants, and
 transport internals belong in executor unit and integration tests.
 
 ## Scope
@@ -31,9 +31,11 @@ Workflow authors can make an HTTP request and consume its result.
   (`"5xx"`) to the step exit code (0–255). An exact code wins over a class. The
   status of a 2xx response is unaffected. For a non-2xx response covered by the
   map, the step exits with the mapped code instead of the default `1`; a mapped
-  value of `0` makes the step succeed. A status not present in the map keeps
-  today's behaviour. Validation rejects keys outside `100`–`599` or `1xx`–`5xx`
-  and values outside `0`–`255`.
+  value of `0` makes the step succeed. `retry_policy.exit_code` and
+  `continue_on.exit_code` match the mapped code. A mapped status writes the
+  response like any other non-2xx response. A status not present in the map
+  exits `1`. Validation rejects keys outside `100`–`599` or `1xx`–`5xx` and
+  values outside `0`–`255`.
 
 ## Errors
 

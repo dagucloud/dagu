@@ -1,0 +1,38 @@
+working_dir: .
+env:
+  - HTTP_URL: ${HTTP_URL}
+steps:
+  - id: tolerated
+    action: http.request
+    with:
+      method: GET
+      url: $HTTP_URL/missing
+      status_exit_codes:
+        "404": 0
+    stdout: tolerated.out
+  - id: flaky
+    depends: tolerated
+    action: http.request
+    with:
+      method: GET
+      url: $HTTP_URL/flaky
+      status_exit_codes:
+        "5xx": 75
+    retry_policy:
+      limit: 1
+      interval_sec: 0
+      exit_code: [75]
+  - id: gone
+    depends: flaky
+    action: http.request
+    with:
+      method: GET
+      url: $HTTP_URL/gone
+      status_exit_codes:
+        "410": 23
+    continue_on:
+      exit_code: [23]
+  - id: after
+    depends: gone
+    command: echo done
+    stdout: after.out
