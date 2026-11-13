@@ -1,0 +1,6 @@
+schedule: "0 2 * * *"
+dates:
+  days: { each: 1d }
+  first_day: { from: days }
+steps:
+  - run: echo load
