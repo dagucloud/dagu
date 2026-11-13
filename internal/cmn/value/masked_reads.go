@@ -298,12 +298,9 @@ func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 			nested(n.Stmts, scopeContained)
 			return false
 		case *syntax.IfClause:
-			for _, stmt := range n.Cond {
-				s.walk(stmt, scope, call)
-			}
-			nested(n.Then, scopeContained)
-			if n.Else != nil {
-				s.walk(n.Else, s.newScope(scope, scopeContained), call)
+			// A variable every branch sets holds after the clause.
+			for name := range s.walkIf(n, scope, call) {
+				set(name, n.End(), s.globalScope(scope))
 			}
 			return false
 		case *syntax.WhileClause:
@@ -384,6 +381,49 @@ func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 		}
 		return true
 	})
+}
+
+// walkIf scans an if clause that runs in scope and returns the variables
+// that every one of its branches sets.
+func (s *shellScan) walkIf(n *syntax.IfClause, scope int, call *uint) map[string]bool {
+	for _, stmt := range n.Cond {
+		s.walk(stmt, scope, call)
+	}
+	branch := s.newScope(scope, scopeContained)
+	for _, stmt := range n.Then {
+		s.walk(stmt, branch, call)
+	}
+	if n.Else == nil {
+		return nil
+	}
+	rest := s.newScope(scope, scopeContained)
+	var others map[string]bool
+	if len(n.Else.Cond) == 0 {
+		for _, stmt := range n.Else.Then {
+			s.walk(stmt, rest, call)
+		}
+		others = s.setIn(rest)
+	} else {
+		others = s.walkIf(n.Else, rest, call)
+	}
+	all := make(map[string]bool)
+	for name := range s.setIn(branch) {
+		if others[name] {
+			all[name] = true
+		}
+	}
+	return all
+}
+
+// setIn returns the variables set directly in scope.
+func (s *shellScan) setIn(scope int) map[string]bool {
+	names := make(map[string]bool)
+	for _, set := range s.sets {
+		if set.scope == scope {
+			names[set.name] = true
+		}
+	}
+	return names
 }
 
 // assignedNames returns the variables a builtin call sets or unsets: read,

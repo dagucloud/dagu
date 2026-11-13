@@ -101,6 +101,8 @@ func TestMaskedRead(t *testing.T) {
 		{name: "after a command substitution sets it", raw: `x=$(TOKEN=x; echo); deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "after a branch sets it", raw: `if false; then TOKEN=x; fi; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "inside the branch that sets it", raw: `if true; then TOKEN=x; deploy "$TOKEN"; fi`, field: shell},
+		{name: "after every branch sets it", raw: `if c; then TOKEN=a; elif d; then TOKEN=b; else TOKEN=c; fi; deploy "$TOKEN"`, field: shell},
+		{name: "after an elif without else sets it", raw: `if c; then TOKEN=a; elif d; then TOKEN=b; fi; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "after an && sets it", raw: `false && TOKEN=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "after a pipeline reads it", raw: `echo x | read TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "after mapfile sets it", raw: `mapfile -t TOKEN < file; deploy "${TOKEN[0]}"`, field: shell},
