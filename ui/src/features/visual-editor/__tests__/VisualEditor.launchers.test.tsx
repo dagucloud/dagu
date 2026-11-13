@@ -255,6 +255,16 @@ describe('VisualEditor launchers', () => {
     const alive = () =>
       screen.getByTestId('ve-launcher-always').getAttribute('data-alive');
 
+    it('turns while the latest run of the host runs', () => {
+      renderEditor(file, {
+        launcherHost: {
+          ...host,
+          latestRun: { status: Status.Running, finishedAt: '-' },
+        },
+      });
+      expect(alive()).toBe('true');
+    });
+
     it('is still when the latest run ended long ago, or the workflow is suspended', () => {
       renderEditor(file, {
         launcherHost: {

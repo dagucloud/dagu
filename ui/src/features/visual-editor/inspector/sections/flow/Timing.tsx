@@ -25,13 +25,17 @@ function shown(value: unknown): string {
     : '';
 }
 
-/** Timeout and retry policy of a step: one `setStepField` per changed key. */
+/**
+ * Timeout and retry policy of a step: one `setStepField` per changed key.
+ * `timeout` false leaves the timeout out, for a step whose own section has it.
+ */
 export function Timing({
   step,
   readOnly,
   onEdit,
   fieldIssues,
-}: SectionProps): ReactElement {
+  timeout = true,
+}: SectionProps & { timeout?: boolean }): ReactElement {
   const retry =
     typeof step.value.retry_policy === 'object' &&
     step.value.retry_policy !== null
@@ -62,12 +66,13 @@ export function Timing({
   );
   return (
     <div className="space-y-1">
-      {field(
-        ['timeout_sec'],
-        'Timeout (seconds)',
-        step.value.timeout_sec,
-        'timeout_sec'
-      )}
+      {timeout &&
+        field(
+          ['timeout_sec'],
+          'Timeout (seconds)',
+          step.value.timeout_sec,
+          'timeout_sec'
+        )}
       <div className="grid grid-cols-2 gap-2" data-field-path="retry_policy">
         {field(
           ['retry_policy', 'limit'],

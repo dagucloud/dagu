@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Rect } from '../engine/geometry';
-import { REVEAL_ZONE, revealDelta } from '../revealDelta';
+import { keepInViewDelta, REVEAL_ZONE, revealDelta } from '../revealDelta';
 
 const view: Rect = { x: 0, y: 0, width: 1000, height: 600 };
 const none = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -116,5 +116,63 @@ describe('revealDelta', () => {
     const delta = revealDelta(edge, view, none);
     expect(delta.dx).toBeLessThan(0);
     expect(moved(edge, delta).x + 100 * zoom).toBeLessThanOrEqual(800 + 1e-6);
+  });
+});
+
+describe('keepInViewDelta', () => {
+  const area = { top: 48, right: 24, bottom: 48, left: 24 };
+  const graph = (x: number, y: number, width = 400, height = 300): Rect => ({
+    x,
+    y,
+    width,
+    height,
+  });
+
+  it('does not pan a graph that is in the free area', () => {
+    expect(keepInViewDelta(graph(24, 48), view, area)).toEqual({
+      dx: 0,
+      dy: 0,
+    });
+    expect(keepInViewDelta(graph(500, 200), view, area)).toEqual({
+      dx: 0,
+      dy: 0,
+    });
+  });
+
+  it('pans the least distance for a graph that the right edge cuts', () => {
+    // The free area ends at 976: the graph ends at 1100.
+    expect(keepInViewDelta(graph(700, 200), view, area)).toEqual({
+      dx: -124,
+      dy: 0,
+    });
+  });
+
+  it('pans the least distance for a graph above or at the left of the area', () => {
+    expect(keepInViewDelta(graph(-40, 10), view, area)).toEqual({
+      dx: 64,
+      dy: 38,
+    });
+  });
+
+  // The graph is longer than the area: its start side stays, and no part of
+  // the area stays empty at the other side.
+  it('keeps the start of a graph that is longer than the area', () => {
+    const long = graph(24, 48, 1200, 900);
+    expect(keepInViewDelta(long, view, area)).toEqual({ dx: 0, dy: 0 });
+    // A gap at the start of more than 24 px closes.
+    expect(keepInViewDelta(graph(300, 48, 1200, 300), view, area)).toEqual({
+      dx: -252,
+      dy: 0,
+    });
+    // A graph that has moved up stays while it covers the area.
+    expect(keepInViewDelta(graph(24, -200, 400, 900), view, area)).toEqual({
+      dx: 0,
+      dy: 0,
+    });
+    // It does not leave an empty strip at its end.
+    expect(keepInViewDelta(graph(24, -500, 400, 900), view, area)).toEqual({
+      dx: 0,
+      dy: 152,
+    });
   });
 });

@@ -14,6 +14,7 @@ import type {
   ValidationIssue,
 } from '../contracts';
 import { FieldIssues } from './FieldIssues';
+import { focusBox } from './focusField';
 import {
   useInspectorView,
   useStepMemory,
@@ -23,10 +24,40 @@ import { NoticeLine } from '@/features/dags/components/dag-editor/NoticeLine';
 import { issuesUnder, stepIssues } from './issues';
 import { Section } from './Section';
 import { ActionSection, isRunStep } from './sections/Action';
+import { AgentRunSections } from './sections/agentRun/AgentRunSections';
+import {
+  AGENT_LIMIT_KEYS,
+  AGENT_MODEL_KEYS,
+  AGENT_PROMPT_KEYS,
+  AGENT_SKILL_KEYS,
+  AGENT_SYSTEM_KEYS,
+  AGENT_TOOL_KEYS,
+  agentRunIssueCounts,
+} from './sections/agentRun/model';
 import { FlowSection } from './sections/Flow';
 import { GeneralSection } from './sections/General';
-import { ParametersSection } from './sections/Parameters';
+import { ModelSection } from './sections/chat/ModelSection';
+import {
+  chatIssueCounts,
+  MODEL_KEYS,
+  OPTION_KEYS,
+  otherChatKeys,
+  PROMPT_KEYS,
+  SYSTEM_KEYS,
+} from './sections/chat/model';
+import { OptionsSection } from './sections/chat/OptionsSection';
+import { OutputSection } from './sections/chat/OutputSection';
+import { PromptSection, SystemSection } from './sections/chat/PromptSections';
+import { OtherKeys, ParametersSection } from './sections/Parameters';
+import { SECURITY_FIELDS, SecuritySection } from './sections/Security';
 import { StepYamlSection } from './sections/StepYaml';
+import { SkillsSection } from './sections/skills/SkillsSection';
+import { ToolsSection } from './sections/tools/ToolsSection';
+import { AGENT_RUN_ACTION, dagHasAgentRun } from '../agentRun/agentRun';
+import { CHAT_ACTION, TOOL_WITH_KEYS } from '../tools/model';
+import { SKILL_WITH_KEYS } from '../tools/skills';
+import { readAgentRunInfo, readChatInfo } from '../canvas/chatModel';
+import { hasEffort } from '../canvas/modelEdits';
 
 const GENERAL_FIELDS = ['name', 'id', 'description'];
 const ACTION_FIELDS = ['action', 'run', 'shell'];
@@ -39,14 +70,108 @@ const FLOW_FIELDS = [
   'env',
   'outputs',
 ];
+/** The Limits section of an agent step edits the timeout: the Flow section does not. */
+const AGENT_FLOW_FIELDS = FLOW_FIELDS.filter(
+  (field) => field !== 'timeout_sec'
+);
 
-type SectionId = 'general' | 'action' | 'parameters' | 'flow';
+type SectionId =
+  | 'general'
+  | 'action'
+  | 'parameters'
+  | 'model'
+  | 'system'
+  | 'prompt'
+  | 'tools'
+  | 'skills'
+  | 'output'
+  | 'options'
+  | 'limits'
+  | 'security'
+  | 'flow';
 
-/** The section that shows a field path relative to the step, or null. */
-export function sectionOfPath(path: string): SectionId | null {
+/** The form of a step that has one section for each part: a chat step or an agent step. */
+export type StepForm = 'chat' | 'agentRun';
+
+/** The section of each key of `with`, from the key lists of the sections of a form. */
+function sectionOfKey(
+  sections: [SectionId, readonly string[]][]
+): ReadonlyMap<string, SectionId> {
+  return new Map(
+    sections.flatMap(([section, keys]) =>
+      keys.map((key) => [key, section] as const)
+    )
+  );
+}
+
+/** The section of the chat form that shows each key of `with`, by key. */
+const CHAT_SECTION_OF_KEY = sectionOfKey([
+  ['model', MODEL_KEYS],
+  ['system', SYSTEM_KEYS],
+  ['prompt', PROMPT_KEYS],
+  ['options', OPTION_KEYS],
+  ['skills', SKILL_WITH_KEYS],
+]);
+
+/** The section of the agent form that shows each key of `with`, by key (Spec 091). */
+const AGENT_SECTION_OF_KEY = sectionOfKey([
+  ['model', AGENT_MODEL_KEYS],
+  ['system', AGENT_SYSTEM_KEYS],
+  ['prompt', AGENT_PROMPT_KEYS],
+  ['tools', AGENT_TOOL_KEYS],
+  ['skills', AGENT_SKILL_KEYS],
+  ['limits', AGENT_LIMIT_KEYS],
+]);
+
+/** True for a step that the chat form edits. */
+function isChatStep(step: StepView): boolean {
+  return !isRunStep(step) && (step.value.action ?? step.action) === CHAT_ACTION;
+}
+
+/** True for a step that the agent form edits. */
+function isAgentRunStep(step: StepView): boolean {
+  return (
+    !isRunStep(step) && (step.value.action ?? step.action) === AGENT_RUN_ACTION
+  );
+}
+
+const TOOL_FIELDS = TOOL_WITH_KEYS.map((key) => `with.${key}`);
+
+/**
+ * The section that shows a field path relative to the step, or null. A chat
+ * step and an agent step (`form`) have one section for each part of their
+ * form. An agent step shows its timeout in Limits.
+ */
+export function sectionOfPath(path: string, form?: StepForm): SectionId | null {
   const head = path.split(/[.[]/)[0] ?? '';
   if (GENERAL_FIELDS.includes(head)) return 'general';
   if (ACTION_FIELDS.includes(head)) return 'action';
+  if (form === 'agentRun') {
+    if (head === 'output_schema') return 'output';
+    if (head === 'timeout_sec') return 'limits';
+    if (head === 'with') {
+      const key = path.slice('with.'.length).split(/[.[]/)[0] ?? '';
+      return (
+        AGENT_SECTION_OF_KEY.get(key) ?? (path === 'with' ? 'prompt' : null)
+      );
+    }
+  }
+  if (
+    TOOL_FIELDS.some(
+      (field) =>
+        path === field ||
+        path.startsWith(`${field}[`) ||
+        path.startsWith(`${field}.`)
+    )
+  ) {
+    return 'tools';
+  }
+  if ((SECURITY_FIELDS as readonly string[]).includes(head)) return 'security';
+  if (form === 'chat' && head === 'output_schema') return 'output';
+  if (form === 'chat' && head === 'with') {
+    const key = path.slice('with.'.length).split(/[.[]/)[0] ?? '';
+    return CHAT_SECTION_OF_KEY.get(key) ?? (path === 'with' ? 'prompt' : null);
+  }
   if (head === 'with') return 'parameters';
   if (FLOW_FIELDS.includes(head)) return 'flow';
   return null;
@@ -54,7 +179,9 @@ export function sectionOfPath(path: string): SectionId | null {
 
 /** The segment of the split form that holds a section. */
 export function segmentOfSection(section: SectionId): InspectorSegment {
-  return section === 'flow' ? 'settings' : 'parameters';
+  return section === 'flow' || section === 'security'
+    ? 'settings'
+    : 'parameters';
 }
 
 /** A field path and its ancestors, nearest first: `with.a[0]`, `with.a`, `with`. */
@@ -68,16 +195,6 @@ export function fieldPathAncestors(path: string): string[] {
     paths.push(rest);
   }
 }
-
-const FOCUSABLE = [
-  'input:not([disabled]):not([type="hidden"])',
-  'textarea:not([disabled])',
-  'select:not([disabled])',
-  'button:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-  // The frame of a code field that waits for Monaco: it hands the focus on.
-  '[data-monaco-pending]',
-].join(',');
 
 /** The box of a field path, else of its nearest ancestor that has one. */
 function fieldBox(root: HTMLElement, path: string): HTMLElement | null {
@@ -117,17 +234,6 @@ function newStepBox(
     empty.find(requiredToTop) ??
     root.querySelector<HTMLElement>(`[data-field-path="${naming}"]`)
   );
-}
-
-/** Focuses the first control in the box, or the box itself when it has none. */
-function focusBox(box: HTMLElement): void {
-  for (let parent = box.parentElement; parent; parent = parent.parentElement) {
-    if (parent instanceof HTMLDetailsElement) parent.open = true;
-  }
-  const target = box.querySelector<HTMLElement>(FOCUSABLE) ?? box;
-  if (target === box && !box.hasAttribute('tabindex')) box.tabIndex = -1;
-  target.focus();
-  target.scrollIntoView?.({ block: 'nearest' });
 }
 
 /** What identifies a step across edits that move its key. */
@@ -192,12 +298,19 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const shownKey = useRef<string | null>(null);
+  const chat = step !== undefined && isChatStep(step);
+  const agentRun = step !== undefined && isAgentRunStep(step);
+  const form: StepForm | undefined = chat
+    ? 'chat'
+    : agentRun
+      ? 'agentRun'
+      : undefined;
 
   // A field to show, from the host.
   useEffect(() => {
     if (!split || stepKey === null || view.focusPath === null) return;
     const path = view.focusPath;
-    const section = sectionOfPath(path);
+    const section = sectionOfPath(path, form);
     view.clearFocus();
     if (section) view.setSegment(segmentOfSection(section));
     setReveal((last) => ({
@@ -205,7 +318,7 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
       path,
       seq: (last?.seq ?? 0) + 1,
     }));
-  }, [split, stepKey, view]);
+  }, [split, stepKey, view, form]);
 
   // A step that the last model did not have was just inserted. A plain
   // selection of an existing step leaves the focus alone.
@@ -228,6 +341,35 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
           : 'name',
     }));
   }, [memory, props.model, step, split, view]);
+
+  // A request from the canvas: the section that a double click on the Model
+  // node names opens, and its field takes the focus.
+  const { onRevealed } = props;
+  const requestedSection = props.reveal?.section;
+  const requestSeq = props.reveal?.seq;
+  const setSegment = view.setSegment;
+  // The field that writes the model: the one of the block, or `with.model`
+  // for a chat step of the old method and for a list.
+  const modelEdit = !step
+    ? undefined
+    : agentRun
+      ? readAgentRunInfo(step.value).edit
+      : chat
+        ? readChatInfo(step.value).edit
+        : undefined;
+  const modelPath = useRef('');
+  modelPath.current =
+    modelEdit && hasEffort(modelEdit) ? 'with.endpoint.model' : 'with.model';
+  useEffect(() => {
+    if (requestedSection === undefined || stepKey === null) return;
+    setSegment(segmentOfSection(requestedSection));
+    setReveal((last) => ({
+      sections: [requestedSection],
+      path: modelPath.current,
+      seq: (last?.seq ?? 0) + 1,
+    }));
+    onRevealed?.();
+  }, [requestedSection, requestSeq, stepKey, setSegment, onRevealed]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -279,6 +421,31 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
   const hasAction =
     !isRunStep(step) &&
     (typeof step.value.action === 'string' || Boolean(step.action));
+  const isChat = chat;
+  const isAgentRun = agentRun;
+  const toolIssues = countUnder(fieldIssues, TOOL_FIELDS);
+  const chatCounts = chatIssueCounts(fieldIssues);
+  const chatTotal = isChat
+    ? chatCounts.model +
+      chatCounts.system +
+      chatCounts.prompt +
+      chatCounts.skills +
+      chatCounts.output +
+      chatCounts.options +
+      chatCounts.other
+    : 0;
+  const otherKeys = isChat ? otherChatKeys(step.value) : [];
+  const agentCounts = isAgentRun ? agentRunIssueCounts(fieldIssues) : null;
+  const agentTotal = agentCounts
+    ? agentCounts.model +
+      agentCounts.system +
+      agentCounts.prompt +
+      agentCounts.tools +
+      agentCounts.skills +
+      agentCounts.limits +
+      agentCounts.output +
+      agentCounts.other
+    : 0;
   const common = {
     step,
     readOnly: locked,
@@ -290,8 +457,13 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
   const counts = {
     general: countUnder(fieldIssues, GENERAL_FIELDS),
     action: countUnder(fieldIssues, ACTION_FIELDS),
-    parameters: hasAction ? countUnder(fieldIssues, ['with']) : 0,
-    flow: countUnder(fieldIssues, FLOW_FIELDS),
+    parameters:
+      hasAction && !isChat && !isAgentRun
+        ? countUnder(fieldIssues, ['with'])
+        : 0,
+    tools: isChat ? toolIssues : 0,
+    flow: countUnder(fieldIssues, isAgentRun ? AGENT_FLOW_FIELDS : FLOW_FIELDS),
+    security: countUnder(fieldIssues, [...SECURITY_FIELDS]),
   };
 
   const generalSection = (
@@ -312,7 +484,7 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
       <ActionSection {...common} catalog={props.catalog} />
     </Section>
   );
-  const parametersSection = hasAction && (
+  const parametersSection = hasAction && !isChat && !isAgentRun && (
     <Section
       title={<I18nText text="Parameters" />}
       count={counts.parameters}
@@ -325,22 +497,127 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
       />
     </Section>
   );
+  // An agent step has the sections of a chat step where the keys are the same.
+  const agentRunSections = isAgentRun && (
+    <AgentRunSections
+      {...common}
+      candidates={props.candidates}
+      dag={props.dag}
+      revealKey={revealKey}
+      {...(props.onOpenTool ? { onOpenTool: props.onOpenTool } : {})}
+      {...(props.onAddTool ? { onAddTool: props.onAddTool } : {})}
+    />
+  );
+  // A chat step has one section for each part of its form, in this order.
+  const chatSections = isChat && (
+    <>
+      <Section
+        title={<I18nText text="Model" />}
+        count={chatCounts.model}
+        revealKey={revealKey('model')}
+      >
+        <ModelSection
+          {...common}
+          candidates={props.candidates}
+          dag={props.dag}
+        />
+      </Section>
+      <Section
+        title={<I18nText text="System message" />}
+        count={chatCounts.system}
+        revealKey={revealKey('system')}
+      >
+        <SystemSection {...common} candidates={props.candidates} />
+      </Section>
+      <Section
+        title={<I18nText text="Prompt" />}
+        count={chatCounts.prompt}
+        revealKey={revealKey('prompt')}
+      >
+        <PromptSection {...common} candidates={props.candidates} />
+      </Section>
+      <Section
+        title={<I18nText text="Tools" />}
+        count={counts.tools}
+        revealKey={revealKey('tools')}
+      >
+        <ToolsSection
+          {...common}
+          onOpenTool={props.onOpenTool}
+          onAddTool={props.onAddTool}
+        />
+      </Section>
+      <Section
+        title={<I18nText text="Skills" />}
+        count={chatCounts.skills}
+        revealKey={revealKey('skills')}
+      >
+        <SkillsSection {...common} />
+      </Section>
+      <Section
+        title={<I18nText text="Output" />}
+        count={chatCounts.output}
+        revealKey={revealKey('output')}
+      >
+        <OutputSection {...common} />
+      </Section>
+      <Section
+        title={<I18nText text="Options" />}
+        count={chatCounts.options}
+        defaultOpen={false}
+        revealKey={revealKey('options')}
+      >
+        <OptionsSection {...common} />
+      </Section>
+      {otherKeys.length > 0 && (
+        <div className="space-y-1 border-b border-border px-3 py-2">
+          <OtherKeys entries={otherKeys} />
+          {otherKeys.map(([key]) => (
+            <FieldIssues
+              key={key}
+              issues={issuesUnder(fieldIssues, `with.${key}`)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
   const flowSection = (
     <Section
       title={<I18nText text="Flow" />}
       count={counts.flow}
       revealKey={revealKey('flow')}
     >
-      <FlowSection {...common} />
+      <FlowSection {...common} timeout={!isAgentRun} />
     </Section>
+  );
+  // The section draws nothing for a step that has no key of it to edit.
+  const securitySection = (
+    <SecuritySection
+      {...common}
+      candidates={props.candidates}
+      count={counts.security}
+      revealKey={revealKey('security')}
+      agentDag={dagHasAgentRun(props.model)}
+    />
   );
   const segments: { id: InspectorSegment; label: string; count: number }[] = [
     {
       id: 'parameters',
       label: ts('Parameters'),
-      count: counts.general + counts.action + counts.parameters,
+      count:
+        counts.general +
+        counts.action +
+        counts.parameters +
+        counts.tools +
+        chatTotal +
+        agentTotal,
     },
-    { id: 'settings', label: ts('Settings'), count: counts.flow },
+    {
+      id: 'settings',
+      label: ts('Settings'),
+      count: counts.flow + counts.security,
+    },
   ];
 
   return (
@@ -451,9 +728,12 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
               {generalSection}
               {actionSection}
               {parametersSection}
+              {chatSections}
+              {agentRunSections}
             </div>
             <div data-segment="settings" hidden={view.segment !== 'settings'}>
               {flowSection}
+              {securitySection}
             </div>
           </>
         ) : (
@@ -461,7 +741,10 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
             {generalSection}
             {actionSection}
             {parametersSection}
+            {chatSections}
+            {agentRunSections}
             {flowSection}
+            {securitySection}
             <Section title={<I18nText text="YAML" />} defaultOpen={false}>
               <StepYamlSection
                 model={props.model}

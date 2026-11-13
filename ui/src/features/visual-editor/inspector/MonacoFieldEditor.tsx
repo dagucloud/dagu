@@ -4,6 +4,11 @@
 import MonacoEditor from '@monaco-editor/react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
+  EDITOR_FONT_FAMILY,
+  EDITOR_UNICODE_HIGHLIGHT,
+  EDITOR_WRAP,
+} from '@/lib/monaco-look';
+import {
   registerFieldReferenceCompletion,
   registerStepYamlCompletion,
 } from '../references/monacoCompletion';
@@ -103,7 +108,9 @@ export function MonacoFieldEditor({
           lineNumbers: 'off',
           folding: false,
           scrollBeyondLastLine: false,
-          wordWrap: 'on',
+          ...EDITOR_WRAP,
+          fontFamily: EDITOR_FONT_FAMILY,
+          unicodeHighlight: EDITOR_UNICODE_HIGHLIGHT,
           fontSize: 12,
           automaticLayout: true,
           ariaLabel,

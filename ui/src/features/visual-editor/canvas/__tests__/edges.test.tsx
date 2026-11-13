@@ -25,6 +25,7 @@ import {
 import { DependencyEdge } from '../edges/DependencyEdge';
 import { edgeTypes } from '../edges';
 import { LockedEdge } from '../edges/LockedEdge';
+import { linkDoublesBack, linkPath } from '../edges/ToolSatelliteEdge';
 import type { CanvasEdgeData, CanvasFlowEdge } from '../types';
 
 function makeActions(over: Partial<CanvasActions> = {}): CanvasActions {
@@ -289,6 +290,59 @@ describe('DependencyEdge', () => {
     expect(place(180)).toMatch(/^translate\(0(px)?, -50%\)/);
   });
 
+  it('draws a conditional link dashed, with the label of its condition', () => {
+    const { getByTestId, container } = renderEdge(
+      <DependencyEdge
+        {...edgeProps({
+          condition: {
+            when: 'failed',
+            step: 'verify_1',
+            negate: true,
+            text: '${verify_1.exit_code} != 0',
+          },
+        })}
+      />
+    );
+    const label = getByTestId('ve-canvas-edge-label');
+    expect(label).toHaveTextContent('if verify_1 failed');
+    expect(label).toHaveAttribute('data-conditional');
+    expect(label.getAttribute('title')).toContain('${verify_1.exit_code} != 0');
+    expect(edgePath(container).style.strokeDasharray).not.toBe('');
+  });
+
+  it('centres the label of a condition on its edge top to bottom, clear of the columns beside the step', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          {
+            condition: { when: 'failed', step: 'verify_1', text: 'x' },
+          },
+          {},
+          {
+            sourceX: 100,
+            sourceY: 0,
+            targetX: 20,
+            targetY: 96,
+            sourcePosition: Position.Bottom,
+            targetPosition: Position.Top,
+          }
+        )}
+      />,
+      makeActions({ direction: 'TB' })
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.transform).toMatch(
+      /^translate\(-50%, -100%\)/
+    );
+  });
+
+  it('draws a plain link solid and without a label', () => {
+    const { queryByTestId, container } = renderEdge(
+      <DependencyEdge {...edgeProps({})} />
+    );
+    expect(queryByTestId('ve-canvas-edge-label')).toBeNull();
+    expect(edgePath(container).style.strokeDasharray).toBe('');
+  });
+
   it('shows the pattern of a route edge', () => {
     const { getByTestId } = renderEdge(
       <DependencyEdge {...edgeProps({ kind: 'route', label: 'fail*' })} />
@@ -321,6 +375,60 @@ describe('DependencyEdge', () => {
     expect(place(260) - half).toBeGreaterThanOrEqual(100);
     // And ends to the left of the target.
     expect(place(260) + half).toBeLessThanOrEqual(260);
+  });
+
+  // In a left-to-right layout the gap between two cards is short: the label of
+  // a condition wraps at the width of the link, and covers neither card.
+  it('keeps the label of a condition inside a short link in LR', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          {
+            condition: {
+              when: 'match',
+              step: 'code',
+              value: 'outputs.verdict = done',
+              text: '${code.outputs.verdict} = done',
+            },
+          },
+          {},
+          { sourceX: 100, targetX: 196 }
+        )}
+      />
+    );
+    const label = getByTestId('ve-canvas-edge-label');
+    const width = Number.parseFloat(label.style.maxWidth);
+    expect(width).toBeLessThanOrEqual(96 - 12);
+    const match = /translate\((-?[\d.]+)px/.exec(
+      label.style.transform.replace('translate(-50%, -100%) ', '')
+    );
+    const centre = Number(match?.[1]);
+    expect(centre - width / 2).toBeGreaterThanOrEqual(100);
+    expect(centre + width / 2).toBeLessThanOrEqual(196);
+    // The text stays whole, for the reader and for the tooltip.
+    expect(label).toHaveTextContent('if code: outputs.verdict = done');
+    expect(label.getAttribute('title')).toContain('if code: outputs.verdict');
+  });
+
+  it('does not limit the width of a label top to bottom', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          { condition: { when: 'failed', step: 'verify_1', text: 'x' } },
+          {},
+          {
+            sourceX: 100,
+            sourceY: 0,
+            targetX: 100,
+            targetY: 96,
+            sourcePosition: Position.Bottom,
+            targetPosition: Position.Top,
+          }
+        )}
+      />,
+      makeActions({ direction: 'TB' })
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.maxWidth).toBe('');
   });
 
   it('shows no label on a depends edge', () => {
@@ -841,6 +949,7 @@ describe('edgeTypes', () => {
       'inferred',
       'order',
       'route',
+      'toolsat',
     ]);
   });
 });
@@ -959,6 +1068,48 @@ describe('overlapping edges', () => {
     expect(seen).toHaveLength(0);
   });
 
+  // An edge that leaves while it is hovered gets no `mouseleave`: the flow
+  // drops the hover with it, so that the edge shows no buttons when it comes
+  // back under a pointer that is elsewhere.
+  it('forgets the hover of an edge that leaves the flow', () => {
+    const insertable = (id: string, target: string): CanvasFlowEdge => {
+      const edge = dep(id, target);
+      return { ...edge, data: { ...edge.data!, insertable: true } };
+    };
+    const props = (edges: CanvasFlowEdge[]) => (
+      <FlowProvider>
+        <CanvasActionsContext.Provider value={makeActions()}>
+          <CanvasAffordancesContext.Provider value={null}>
+            <Flow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={{ box: () => <div /> }}
+              edgeTypes={edgeTypes}
+            />
+          </CanvasAffordancesContext.Provider>
+        </CanvasActionsContext.Provider>
+      </FlowProvider>
+    );
+    const first = insertable('e1', 'b');
+    const second = insertable('e2', 'c');
+    const both = [first, second];
+    const view = render(props(both));
+    const line = view.container.querySelector(
+      '[data-flow-edge="e1"] path[data-flow-edge-interaction]'
+    )!;
+    fireEvent.mouseEnter(line);
+    act(() => vi.advanceTimersByTime(EDGE_HOVER_SETTLE_MS));
+    expect(view.queryAllByTestId('ve-canvas-edge-buttons')).toHaveLength(1);
+    view.rerender(props([second]));
+    act(() => vi.advanceTimersByTime(EDGE_HOVER_RELEASE_MS));
+    view.rerender(props(both));
+    act(() => vi.advanceTimersByTime(EDGE_HOVER_SETTLE_MS * 3));
+    expect(view.queryAllByTestId('ve-canvas-edge-buttons')).toHaveLength(0);
+    expect(
+      view.container.querySelector('[data-flow-edge][data-hovered]')
+    ).toBeNull();
+  });
+
   it('a selected edge keeps the top over the other edge, which stays plain', () => {
     const { container } = renderFlow([dep('e1', 'b'), dep('e2', 'c', true)]);
     expect(strokeOf(container, 'e2')).toBe('var(--primary)');
@@ -1023,5 +1174,57 @@ describe('EdgeButtons orientation', () => {
     );
     hoverEdge(view);
     expect(view.getByTestId('ve-canvas-edge-buttons')).toHaveClass('flex-row');
+  });
+});
+
+describe('ToolSatelliteEdge', () => {
+  const pathOf = (over: Partial<EdgeProps<CanvasFlowEdge>>) => {
+    const Edge = edgeTypes.toolsat;
+    const { container } = renderEdge(
+      <Edge {...edgeProps({ kind: 'order' }, {}, over)} />
+    );
+    return edgePath(container).getAttribute('d');
+  };
+
+  it('leaves and enters sideways beside the step', () => {
+    expect(pathOf({})).toBe('M 0,0 C 100,0 100,100 200,100');
+  });
+
+  // A sub-node that the user moved under its step faces the step with its
+  // top: the line comes down into it.
+  // The connector of the step does not move with the sub-node: a sub-node on the
+  // other side of the step gets a link that leaves by the connector and goes round.
+  it('goes round the step for a sub-node behind its connector', () => {
+    expect(
+      linkDoublesBack({ x: 0, y: 0 }, { x: 200, y: 100 }, Position.Right)
+    ).toBe(false);
+    expect(
+      linkDoublesBack({ x: 0, y: 0 }, { x: -200, y: 100 }, Position.Right)
+    ).toBe(true);
+    // A sub-node under its step, with the connector on the lower edge, is in front.
+    expect(
+      linkDoublesBack({ x: 0, y: 0 }, { x: 50, y: 80 }, Position.Bottom)
+    ).toBe(false);
+    const d = linkPath(0, 0, -300, -40, Position.Right, Position.Right, {
+      x: -300,
+      y: -60,
+      width: 700,
+      height: 200,
+    });
+    // It starts to the right, the way of the connector, and passes over the box.
+    const numbers = d.match(/-?\d+(\.\d+)?/g)!.map(Number);
+    expect(d.startsWith('M 0,0 C 40,0')).toBe(true);
+    const ys = numbers.filter((_, i) => i % 2 === 1);
+    expect(Math.min(...ys)).toBe(-80);
+    // Without the box it keeps clear of the connector.
+    expect(linkPath(0, 0, -300, 40, Position.Right, Position.Right)).toContain(
+      ',96 '
+    );
+  });
+
+  it('enters a moved sub-node in the sense of its own connector', () => {
+    expect(pathOf({ targetPosition: Position.Top })).toBe(
+      'M 0,0 C 100,0 200,50 200,100'
+    );
   });
 });

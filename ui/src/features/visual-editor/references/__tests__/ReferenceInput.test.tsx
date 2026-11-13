@@ -7,6 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReferenceCandidate, ReferenceInputProps } from '../../contracts';
 import { ReferenceInput } from '../ReferenceInput';
 
+// The layer of a highlighted field ends with a zero-width space, so that a
+// last line break takes a line.
+const END = String.fromCharCode(0x200b);
+
 const candidates: ReferenceCandidate[] = [
   {
     token: '${params.API_URL}',
@@ -155,6 +159,38 @@ describe('ReferenceInput', () => {
     expect(onBlur).toHaveBeenCalled();
   });
 
+  it('shows the given number of lines and lets the user drag it taller', () => {
+    render(
+      <ReferenceInput
+        value=""
+        onChange={vi.fn()}
+        candidates={[]}
+        multiline
+        rows={10}
+        resizable
+        aria-label="field"
+      />
+    );
+    const el = screen.getByLabelText('field');
+    expect(el).toHaveAttribute('rows', '10');
+    expect(el.className).toContain('resize-y');
+  });
+
+  it('keeps a multi-line field fixed by default', () => {
+    render(
+      <ReferenceInput
+        value=""
+        onChange={vi.fn()}
+        candidates={[]}
+        multiline
+        aria-label="field"
+      />
+    );
+    const el = screen.getByLabelText('field');
+    expect(el).toHaveAttribute('rows', '3');
+    expect(el.className).toContain('resize-none');
+  });
+
   describe('insert button', () => {
     it('inserts the picked token at the caret and moves the caret after it', () => {
       const onValue = vi.fn();
@@ -278,6 +314,18 @@ describe('ReferenceInput', () => {
       expect(onValue).toHaveBeenLastCalledWith('x ${params.API_URL} tail');
       expect(screen.queryByRole('listbox')).toBeNull();
       expect(el.selectionStart).toBe('x ${params.API_URL}'.length);
+    });
+
+    it('replaces a closed reference through its "}" when the caret is inside it', () => {
+      const onValue = vi.fn();
+      const initial = 'curl ${params.API_URL}/x';
+      render(<Controlled initial={initial} onValue={onValue} />);
+      const el = field();
+      focusAt(el, 'curl ${params.API'.length);
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      fireEvent.keyDown(el, { key: 'Enter' });
+      expect(onValue).toHaveBeenLastCalledWith('curl ${params.API_URL}/x');
+      expect(el.selectionStart).toBe('curl ${params.API_URL}'.length);
     });
 
     it('replaces a closed reference through its closing brace', () => {
@@ -415,6 +463,45 @@ describe('ReferenceInput', () => {
       expect(field()).toHaveValue(text);
       fireEvent.blur(field());
       expect(chips()).toHaveLength(3);
+    });
+
+    // A prompt field shows its references and Markdown marks in colour while
+    // it is edited: the field draws no text itself, the layer does.
+    it('draws a highlighted prompt through a layer, also when focused', () => {
+      const text = '# Title\n- item ${params.PAGE}\nplain';
+      const { container } = render(
+        <Controlled initial={text} multiline highlight />
+      );
+      const layer = () =>
+        container.querySelector('[aria-hidden="true"]:not(svg)');
+      expect(layer()?.textContent).toBe(`${text}${END}`);
+      expect(field().className).toContain('text-transparent');
+      expect(field()).toHaveValue(text);
+      expect(container.querySelectorAll('[data-reference-chip]')).toHaveLength(
+        1
+      );
+
+      act(() => field().focus());
+      expect(layer()?.textContent).toBe(`${text}${END}`);
+      expect(container.querySelectorAll('[data-reference-chip]')).toHaveLength(
+        0
+      );
+      expect(container.querySelectorAll('[data-reference-token]')).toHaveLength(
+        1
+      );
+      expect(layer()?.querySelectorAll('.text-muted-foreground')).toHaveLength(
+        2
+      );
+    });
+
+    it('keeps the field itself for a text without the highlight', () => {
+      const { container } = render(
+        <Controlled initial={'# Title\nplain'} multiline />
+      );
+      expect(field().className).not.toContain('text-transparent');
+      expect(
+        container.querySelector('[aria-hidden="true"]:not(svg)')
+      ).toBeNull();
     });
 
     // The text of a long textarea scrolls: the chips scroll with it.

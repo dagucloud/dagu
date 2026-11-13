@@ -8,8 +8,14 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel } from '@/api/v1/schema';
+import {
+  RestartPolicy,
+  ServiceDAGState,
+  Status,
+  StatusLabel,
+} from '@/api/v1/schema';
 import DAGRunActions from '../DAGRunActions';
 import {
   getDAGRunTerminateAction,
@@ -658,5 +664,124 @@ describe('DAGRunActions', () => {
       }
     );
     expect(h.showToast).toHaveBeenCalledWith('DAG run dequeued');
+  });
+});
+
+// A service workflow has one run at a time: a past run cannot be retried
+// while the latest run is active, and the Stop of a restarting run says so.
+describe('DAGRunActions of a service workflow', () => {
+  const dag = {
+    name: 'etl',
+    restartPolicy: RestartPolicy.always,
+    restartWaitSec: 5,
+  };
+  const failedRun = {
+    ...runningRun,
+    dagRunId: 'run-6',
+    status: Status.Failed,
+    statusLabel: StatusLabel.failed,
+  };
+
+  it('hides Retry of a past run while the latest run is active', () => {
+    render(
+      <DAGRunActions
+        dagRun={failedRun}
+        name="etl"
+        displayMode="full"
+        service={{ dag, latestRun: runningRun }}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('keeps Retry when no run is active', () => {
+    render(
+      <DAGRunActions
+        dagRun={failedRun}
+        name="etl"
+        displayMode="full"
+        service={{ dag, latestRun: failedRun }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+  });
+
+  // The scheduler starts the next run of a DAG that restarts or fails.
+  it.each([ServiceDAGState.restarting, ServiceDAGState.failing])(
+    'hides Retry with no run alive in the state %s',
+    (state) => {
+      render(
+        <DAGRunActions
+          dagRun={failedRun}
+          name="etl"
+          displayMode="full"
+          service={{ dag, latestRun: failedRun, state }}
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    }
+  );
+
+  it.each([
+    ServiceDAGState.pending,
+    ServiceDAGState.suspended,
+    ServiceDAGState.stopped,
+    undefined,
+  ])('keeps Retry with no run alive in the state %s', (state) => {
+    render(
+      <DAGRunActions
+        dagRun={failedRun}
+        name="etl"
+        displayMode="full"
+        service={{ dag, latestRun: failedRun, state }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+  });
+
+  it('keeps Retry of a plain workflow whatever the state', () => {
+    render(
+      <DAGRunActions
+        dagRun={failedRun}
+        name="etl"
+        displayMode="full"
+        service={{
+          dag: { name: 'etl' },
+          latestRun: failedRun,
+          state: ServiceDAGState.failing,
+        }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+  });
+
+  it('keeps Retry for a plain workflow with an active latest run', () => {
+    render(
+      <DAGRunActions
+        dagRun={failedRun}
+        name="etl"
+        displayMode="full"
+        service={{ dag: { name: 'etl' }, latestRun: runningRun }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+  });
+
+  it('tells in the Stop tooltip that the policy always restarts the run', async () => {
+    render(
+      <DAGRunActions
+        dagRun={runningRun}
+        name="etl"
+        displayMode="full"
+        hideUnavailable
+        service={{ dag, latestRun: runningRun }}
+      />
+    );
+    await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
+    expect(
+      (await screen.findAllByText(/It restarts after 5 s/))[0]
+    ).toHaveTextContent(
+      'Stop this run. It restarts after 5 s. Suspend the restarts to stop it for good.'
+    );
   });
 });

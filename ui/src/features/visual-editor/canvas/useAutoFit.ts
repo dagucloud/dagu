@@ -35,6 +35,8 @@ export interface AutoFit {
    * its place as a new page would: the fits jump until they end.
    */
   settle(): void;
+  /** True once the first moments of the element are over: the zoom is kept. */
+  settled(): boolean;
 }
 
 /** The size of a laid out element, rounded; null before it has a layout. */
@@ -47,27 +49,43 @@ function measure(
 }
 
 /**
- * Fits the view again when the element of `ref` changes size: an inspector
- * that opens beside the canvas, a dock that opens under it, a window that
- * resizes. It stops after the user pans or zooms, so that it never moves a
- * view that the user chose. `fit` learns whether the move may glide: not
- * while the element has just shown.
+ * Fits the view again when the element of `ref` changes width, for example
+ * when the inspector opens beside the canvas. A change of height alone does
+ * not fit again: `onHeightChange` runs instead, so that the host can keep one
+ * step in view without a new fit. A window with a width change in which the
+ * element also got smaller (a panel opens) runs `onShrink` instead of the
+ * fit, when the host gives it: the view then moves only as far as the graph
+ * needs. After the first moments of the element, a width change in which it
+ * grew runs `onGrow` in the same way, so that the zoom never changes. It
+ * stops after the user pans or zooms, so that it never moves a view that the
+ * user chose. `fit` learns whether the move may glide: not while the element
+ * has just shown.
  */
 export function useAutoFit(
   ref: RefObject<HTMLElement | null>,
   fit: (glide: boolean) => void,
-  delayMs: number = AUTO_FIT_DELAY_MS
+  delayMs: number = AUTO_FIT_DELAY_MS,
+  onHeightChange?: () => void,
+  onShrink?: () => void,
+  onGrow?: () => void
 ): AutoFit {
   const userMoved = useRef(false);
   const hostMoved = useRef(false);
   const fitRef = useRef(fit);
   fitRef.current = fit;
+  const heightRef = useRef(onHeightChange);
+  heightRef.current = onHeightChange;
+  const shrinkRef = useRef(onShrink);
+  shrinkRef.current = onShrink;
+  const growRef = useRef(onGrow);
+  growRef.current = onGrow;
   // When the element first had a size.
   const shownAt = useRef<number | null>(null);
-  const runFit = useCallback(() => {
+  const settled = useCallback(() => {
     const since = shownAt.current;
-    fitRef.current(since !== null && Date.now() - since >= AUTO_FIT_SETTLE_MS);
+    return since !== null && Date.now() - since >= AUTO_FIT_SETTLE_MS;
   }, []);
+  const runFit = useCallback(() => fitRef.current(settled()), [settled]);
 
   useEffect(() => {
     const element = ref.current;
@@ -80,6 +98,8 @@ export function useAutoFit(
     // again too.
     let size = measure(element);
     if (size) shownAt.current ??= Date.now();
+    let pendingFit = false;
+    let pendingShrink = false;
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) {
         return;
@@ -87,16 +107,37 @@ export function useAutoFit(
       const width = Math.round(entry.contentRect.width);
       const height = Math.round(entry.contentRect.height);
       if (width > 0 && height > 0) shownAt.current ??= Date.now();
-      const changed =
-        size !== null && (size.width !== width || size.height !== height);
+      // The first report is the initial size, which the flow already fits.
+      // A change of height alone does not fit again: a dock that opens or
+      // closes must not move the graph.
+      const widthChanged = size !== null && size.width !== width;
+      const heightChanged = size !== null && size.height !== height;
+      const shrunk =
+        size !== null && (width < size.width || height < size.height);
       size = { width, height };
-      if (!changed) {
+      if (!widthChanged && !heightChanged) {
         return;
       }
+      // A width change in the pending window makes the whole change a fit.
+      pendingFit = pendingFit || widthChanged;
+      pendingShrink = pendingShrink || shrunk;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!userMoved.current && !hostMoved.current) {
+        const refit = pendingFit;
+        const shrink = pendingShrink;
+        pendingFit = false;
+        pendingShrink = false;
+        if (userMoved.current || hostMoved.current) {
+          return;
+        }
+        if (refit && shrink && shrinkRef.current) {
+          shrinkRef.current();
+        } else if (refit && growRef.current && settled()) {
+          growRef.current();
+        } else if (refit) {
           runFit();
+        } else {
+          heightRef.current?.();
         }
       }, delayMs);
     });
@@ -105,7 +146,7 @@ export function useAutoFit(
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [ref, delayMs, runFit]);
+  }, [ref, delayMs, runFit, settled]);
 
   const onUserMove = useCallback(() => {
     userMoved.current = true;
@@ -129,5 +170,5 @@ export function useAutoFit(
     shownAt.current = Date.now();
   }, []);
 
-  return { onUserMove, onHostMove, resume, refit, moved, settle };
+  return { onUserMove, onHostMove, resume, refit, moved, settle, settled };
 }

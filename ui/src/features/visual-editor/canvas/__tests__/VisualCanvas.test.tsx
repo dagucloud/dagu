@@ -211,6 +211,22 @@ describe('VisualCanvas', () => {
     });
   });
 
+  // The ring of the selected step shows the focus: no second ring around
+  // the whole canvas, even after Tab.
+  it('draws the focus ring of the canvas only without a selected step', () => {
+    const focusWithTab = () => {
+      const region = screen.getByTestId('ve-canvas');
+      fireEvent.keyDown(document, { key: 'Tab' });
+      act(() => region.focus());
+      return region;
+    };
+    const none = renderCanvas();
+    expect(focusWithTab()).toHaveClass('ring-2');
+    none.unmount();
+    renderCanvas({ selected: 'steps[1]' });
+    expect(focusWithTab()).not.toHaveClass('ring-2');
+  });
+
   it('never emits an edit on its own', () => {
     const { props } = renderCanvas({ selected: 'steps[1]' });
     expect(props.onEdit).not.toHaveBeenCalled();
@@ -1211,6 +1227,14 @@ describe('VisualCanvas', () => {
             </CanvasOverlayInsetContext.Provider>
           </UserPreferencesProvider>
         );
+        // The zoom that a fit gives with this panel from the start.
+        function fittedZoom(right: number) {
+          const first = render(withPanel(right));
+          const { zoom } = viewport();
+          first.unmount();
+          return zoom;
+        }
+
         beforeEach(() => {
           vi.useFakeTimers();
           // The fit is 125 % with no panel, 100 % beside 500 px of panel and
@@ -1219,6 +1243,38 @@ describe('VisualCanvas', () => {
           sizes.height = 900;
         });
         afterEach(() => vi.useRealTimers());
+
+        it('keeps the zoom when a panel opens and closes', () => {
+          const { rerender } = render(withPanel(0));
+          const { zoom } = viewport();
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(700));
+          expect(viewport().zoom).toBe(zoom);
+          rerender(withPanel(0));
+          expect(viewport().zoom).toBe(zoom);
+        });
+
+        it('keeps the zoom when a panel gives its place to a wider one', () => {
+          const { rerender } = render(withPanel(0));
+          const { zoom } = viewport();
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(700));
+          rerender(withPanel(500));
+          expect(viewport().zoom).toBe(zoom);
+          rerender(withPanel(700));
+          rerender(withPanel(300));
+          expect(viewport().zoom).toBe(zoom);
+        });
+
+        // The first fit, with the panel open, is the zoom of the page.
+        it('keeps the zoom of the first fit when the panel closes', () => {
+          const first = fittedZoom(700);
+          expect(first).toBeLessThan(fittedZoom(0));
+          const { rerender } = render(withPanel(700));
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(0));
+          expect(viewport().zoom).toBe(first);
+        });
 
         it('gives the graph its place back when the zoom holds', () => {
           const { rerender } = render(withPanel(0));
@@ -1517,6 +1573,78 @@ describe('VisualCanvas', () => {
         inFreeArea('steps[8]');
       });
 
+      // A panel that shrinks the canvas moves the graph only if it must: a
+      // graph that stays in the free area keeps its place and its zoom.
+      it('keeps the graph in place when a panel leaves it in view', () => {
+        vi.useFakeTimers();
+        sizes.width = 1000;
+        sizes.height = 600;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 600);
+        const before = viewport();
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        const right = Math.max(...rects.map((r) => r.right));
+        // The panel leaves the whole graph in view.
+        resize(Math.ceil(right) + 24, 600);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(viewport()).toEqual(before);
+      });
+
+      it('pans the graph, and keeps its zoom, when a panel would cover it', () => {
+        vi.useFakeTimers();
+        sizes.width = 1000;
+        sizes.height = 600;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 600);
+        const before = viewport();
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        const width =
+          Math.max(...rects.map((r) => r.right)) -
+          Math.min(...rects.map((r) => r.left));
+        // The canvas keeps room for the graph, but not at its place.
+        const shrunk = Math.round(width + 60);
+        resize(shrunk, 600);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        const after = viewport();
+        expect(after.zoom).toBe(before.zoom);
+        expect(after.y).toBe(before.y);
+        const moved = graph.nodes.map((n) => nodeScreenRect(n.key));
+        expect(Math.max(...moved.map((r) => r.right))).toBeLessThanOrEqual(
+          shrunk - 24
+        );
+        expect(Math.min(...moved.map((r) => r.left))).toBeGreaterThanOrEqual(
+          24
+        );
+      });
+
+      // A graph that no longer fits in width keeps its zoom: only the pan
+      // moves it, and its start side stays in view.
+      it('keeps the zoom, and the start side, when a panel leaves too little width', () => {
+        vi.useFakeTimers();
+        sizes.width = 1000;
+        sizes.height = 600;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 600);
+        const before = viewport();
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        const width =
+          Math.max(...rects.map((r) => r.right)) -
+          Math.min(...rects.map((r) => r.left));
+        resize(Math.round(width * 0.7 + 48), 600);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(viewport().zoom).toBe(before.zoom);
+        const moved = graph.nodes.map((n) => nodeScreenRect(n.key));
+        expect(Math.min(...moved.map((r) => r.left))).toBeGreaterThanOrEqual(
+          24 - 0.5
+        );
+      });
+
       // A reveal asked while the canvas is hidden waits for the size.
       it('applies a reveal that came before the canvas had a size', () => {
         sizes.width = 0;
@@ -1812,6 +1940,19 @@ describe('VisualCanvas launchers', () => {
         .getByRole('button')
         .querySelector('svg:not([data-testid])')!;
 
+    it('turns slowly, and stops with reduced motion, while alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: true });
+      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+        'data-alive',
+        'true'
+      );
+      expect(icon('always')).toHaveClass(
+        'animate-[spin_3s_linear_infinite]',
+        'motion-reduce:animate-none',
+        'motion-reduce:text-primary'
+      );
+    });
+
     it('is still when the workflow is not alive', () => {
       renderCanvas({ launchers: states('always'), launcherAlive: false });
       expect(screen.getByTestId('ve-launcher-always')).not.toHaveAttribute(
@@ -1827,6 +1968,16 @@ describe('VisualCanvas launchers', () => {
           'data-alive'
         );
         expect(icon(id).getAttribute('class')).not.toContain('animate-');
+      }
+    });
+
+    it('turns the tile icon in the simplified view', () => {
+      window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
+      try {
+        renderCanvas({ launchers: states('always'), launcherAlive: true });
+        expect(icon('always')).toHaveClass('animate-[spin_3s_linear_infinite]');
+      } finally {
+        window.localStorage.removeItem(CANVAS_DETAILS_KEY);
       }
     });
   });
@@ -2133,5 +2284,253 @@ describe('VisualCanvas ghost step', () => {
       ghost: { target: { mode: 'after' }, look },
     });
     expect(screen.queryByTestId('ve-canvas-ghost')).toBeNull();
+  });
+});
+
+describe('VisualCanvas chat step sub-nodes', () => {
+  const chatGraph = () => {
+    const model = makeModel([
+      makeStep({
+        key: 'steps[0]',
+        explicitName: 'triage',
+        kind: 'action',
+        action: 'chat.completion',
+        value: {
+          action: 'chat.completion',
+          with: {
+            provider: 'openai',
+            model: 'gpt-4o',
+            dags: [{ name: 'lookup' }],
+          },
+        },
+      }),
+    ]);
+    return buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: { byStep: {}, dag: [] },
+    });
+  };
+
+  const bareChatGraph = () => {
+    const model = makeModel([
+      makeStep({
+        key: 'steps[0]',
+        explicitName: 'triage',
+        kind: 'action',
+        action: 'chat.completion',
+        value: {
+          action: 'chat.completion',
+          with: { provider: 'openai', model: 'gpt-4o' },
+        },
+      }),
+    ]);
+    return buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: { byStep: {}, dag: [] },
+    });
+  };
+
+  it('always shows the four slots, the model, the DAGs card and the "+" of the Skills and Tools slots, with no toggle', () => {
+    renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    expect(screen.getByTestId('ve-canvas-slot-model')).toHaveTextContent(
+      'Model'
+    );
+    expect(screen.getByTestId('ve-canvas-slot-tools')).toHaveTextContent(
+      'Tools'
+    );
+    expect(screen.getByTestId('ve-canvas-slot-dags')).toHaveTextContent('DAGs');
+    expect(screen.getByTestId('ve-canvas-slot-skills')).toHaveTextContent(
+      'Skills'
+    );
+    // The Model node of an edit view is a card: its Model field holds the name.
+    expect(
+      within(nodeCard('toolsat:steps[0]:model')).getByRole('textbox', {
+        name: 'Model',
+      })
+    ).toHaveValue('gpt-4o');
+    // The DAG tool is on the DAGs card; the Tools slot has no MCP server or built-in tool.
+    expect(nodeCard('toolsat:steps[0]:dags')).toHaveTextContent('lookup');
+    expect(nodeCard('toolsat:steps[0]:add-tools')).toHaveAttribute(
+      'data-shape',
+      'add'
+    );
+    // No skill: the slot is a small round "+", not a card.
+    const skills = nodeCard('toolsat:steps[0]:add-skills');
+    expect(skills).toHaveAttribute('data-shape', 'add');
+    expect(skills).toHaveAttribute('data-slot', 'skills');
+    expect(skills).not.toHaveTextContent('No skills');
+    expect(screen.queryByTestId('ve-canvas-tools-badge')).toBeNull();
+  });
+
+  it('shows a small round "+" for the Tools, the Skills and the DAGs of a step with none, and opens their docks', () => {
+    const { props } = renderCanvas({ graph: bareChatGraph(), direction: 'TB' });
+    for (const slot of ['tools', 'skills', 'dags']) {
+      const node = nodeCard(`toolsat:steps[0]:add-${slot}`);
+      expect(node).toHaveAttribute('data-shape', 'add');
+      expect(node).toHaveAttribute('data-slot', slot);
+    }
+    expect(screen.queryByText('No tools')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a tool' }));
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'tools',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a skill' }));
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'skills',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a DAG' }));
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+  });
+
+  it('labels the slots on the sides of the step top to bottom, and above and under it left to right', () => {
+    const tb = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    expect(screen.getByTestId('ve-canvas-slot-model')).toHaveAttribute(
+      'data-side',
+      'left'
+    );
+    for (const slot of ['skills', 'tools', 'dags']) {
+      expect(screen.getByTestId(`ve-canvas-slot-${slot}`)).toHaveAttribute(
+        'data-side',
+        'right'
+      );
+    }
+    tb.unmount();
+    renderCanvas({ graph: chatGraph(), direction: 'LR' });
+    // Left to right, the Model is above the step, and the Skills and the Tools under it.
+    expect(screen.getByTestId('ve-canvas-slot-model')).toHaveAttribute(
+      'data-side',
+      'top'
+    );
+    for (const slot of ['skills', 'tools', 'dags']) {
+      expect(screen.getByTestId(`ve-canvas-slot-${slot}`)).toHaveAttribute(
+        'data-side',
+        'bottom'
+      );
+    }
+  });
+
+  it('selects the tool of a row, and opens the docks from the add rows', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    fireEvent.click(screen.getByRole('button', { name: 'lookup' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openTool',
+      tool: { step: 'steps[0]', category: 'dags', index: 0 },
+    });
+    // The tool is the selection: the click does not select the step again.
+    expect(props.onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a tool' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'tools',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a skill' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'skills',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a DAG' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+  });
+
+  it('selects the step from a card, and marks the card as selected while its step is', () => {
+    const { props } = renderCanvas({
+      graph: chatGraph(),
+      direction: 'TB',
+      selected: 'steps[0]',
+    });
+    const card = () => screen.getByRole('group', { name: 'DAGs' });
+    expect(card()).not.toHaveAttribute('data-selected');
+    fireEvent.click(nodeCard('toolsat:steps[0]:dags'));
+    expect(props.onSelect).toHaveBeenCalledWith('steps[0]');
+    expect(card()).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByRole('group', { name: 'Model' })).not.toHaveAttribute(
+      'data-selected'
+    );
+  });
+
+  it('lights the row of the selected tool', () => {
+    renderCanvas({
+      graph: chatGraph(),
+      direction: 'TB',
+      selected: 'steps[0]',
+      selectedTool: { step: 'steps[0]', category: 'dags', index: 0 },
+    });
+    expect(screen.getByRole('button', { name: 'lookup' })).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+  });
+
+  // The pickers of the Model card edit the model: a double click opens nothing.
+  it('opens no form from a double click on the Model card', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    fireEvent.doubleClick(nodeCard('toolsat:steps[0]:model'));
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  // The header of the card and its body outside a row open the dock of the
+  // whole list. A row keeps its own panel, and the add row stays an add row.
+  it('opens the dock of the Tools list from a double click on the DAGs card', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    const card = nodeCard('toolsat:steps[0]:dags');
+    fireEvent.doubleClick(within(card).getByText('DAGs'));
+    expect(props.onCommand).toHaveBeenCalledTimes(1);
+    // The DAG tools are in the list of the Tools: the card asks for its slot.
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotPanel',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+    fireEvent.doubleClick(card);
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotPanel',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+    // Enter on the focused card opens it too.
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(props.onCommand).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the panel of a tool on a double click on its row, and opens no form', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    const row = screen.getByRole('button', { name: 'lookup' });
+    fireEvent.click(row);
+    fireEvent.doubleClick(row);
+    expect(props.onCommand).toHaveBeenCalledTimes(1);
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openTool',
+      tool: { step: 'steps[0]', category: 'dags', index: 0 },
+    });
+  });
+
+  it('opens no form from a double click on the add row', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'Add a tool' }));
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'Add a DAG' }));
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  it('has no "+" for a tool on a read-only canvas', () => {
+    renderCanvas({ graph: chatGraph(), direction: 'TB', readOnly: true });
+    expect(screen.queryByRole('button', { name: 'Add a tool' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a DAG' })).toBeNull();
+    expect(nodeCard('toolsat:steps[0]:model')).toBeInTheDocument();
   });
 });

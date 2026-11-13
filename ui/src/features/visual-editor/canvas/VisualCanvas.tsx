@@ -41,7 +41,7 @@ import {
   useCanvasToolbarHost,
   useToolbarHostWidth,
 } from './toolbarHost';
-import { revealDelta } from './revealDelta';
+import { keepInViewDelta, revealDelta } from './revealDelta';
 import { SimplifiedToggle } from './SimplifiedToggle';
 import { ContextMenu, type MenuChoice } from './ContextMenu';
 import {
@@ -64,14 +64,24 @@ import {
   useFlow,
   type Connection,
   type ConnectionEndState,
+  type FlowNode,
 } from './engine';
 import type { MenuPoint } from './engine/Flow';
-import { boundsOf, clamp, snapZoom, zoomAt } from './engine/geometry';
+import {
+  boundsOf,
+  clamp,
+  fitAtZoom,
+  snapZoom,
+  zoomAt,
+  type FitOptions,
+  type Rect,
+} from './engine/geometry';
 import { MINIMAP_RESERVE } from './engine/overlays';
 import type { Viewport } from './engine/types';
 import { useFlowStore, type ViewMotion } from './engine/store';
 
 import { buildExportSvg, downloadPng, downloadSvg } from './exportCanvas';
+import { minimapKindOf, minimapRectOf } from './minimapKind';
 import {
   ghostFlowEdges,
   launcherFlowEdges,
@@ -80,6 +90,7 @@ import {
   withWaypoints,
   toFlowNodes,
   toolMatches,
+  toolSatelliteFlowEdges,
   withGhostLook,
   withLauncherStates,
 } from './flow';
@@ -96,10 +107,17 @@ import {
   stepDeleteOp,
 } from './gestures';
 import { KeyHelpDialog } from './KeyHelpDialog';
-import { agentColumns, isAgentGraph } from './layout';
+import { agentColumns, cardPositions, isAgentGraph } from './layout';
+import { SubLinksContext, movedSubLinks } from './subLinks';
 import { agentNeighbour, neighbourStep, type NavDirection } from './neighbours';
 import { RenameStepPopover } from './RenameStepPopover';
 import { ToolFilter } from './ToolFilter';
+import {
+  isToolSatelliteKey,
+  satelliteOwner,
+  withFollowers,
+  withToolSatellites,
+} from './toolSatellites';
 import { AGENT_NODE_KEY, type CanvasNodeWithRoutes } from './types';
 import { nodeTypes as stepNodeTypes } from './nodes';
 import { GhostNode } from './nodes/GhostNode';
@@ -267,6 +285,7 @@ function CanvasView({
   graph,
   direction,
   selected,
+  selectedTool = null,
   frozen,
   unparsedLine,
   readOnly,
@@ -287,8 +306,10 @@ function CanvasView({
   canPaste = false,
   escapeToHost = false,
   onRefused,
+  dag: dagProp,
   launchers = NO_LAUNCHERS,
   activeLauncher = null,
+  launcherAlive = false,
   onLauncher,
   onStepClick,
   fitPadding = FIT_PADDING,
@@ -315,6 +336,17 @@ function CanvasView({
   }, []);
   const hintId = useId();
   const editable = !frozen && !readOnly;
+  // The nodes read the DAG through the context: a new object for each render
+  // of the host would draw them all again.
+  const dagName = dagProp?.name;
+  const dagWorkspace = dagProp?.workspace;
+  const dag = useMemo(
+    () =>
+      dagName === undefined
+        ? undefined
+        : { name: dagName, workspace: dagWorkspace },
+    [dagName, dagWorkspace]
+  );
 
   const agent = isAgentGraph(graph);
   // The columns of the tool grid follow the width of the canvas.
@@ -328,6 +360,10 @@ function CanvasView({
   // Cards without text: only their icon, so that a graph is denser.
   const [showDetails, setShowDetails] = useCanvasDetails();
   const compact = !showDetails;
+  const minimapNodeRect = useCallback(
+    (node: FlowNode, box: Rect) => minimapRectOf(node, box, compact, direction),
+    [compact, direction]
+  );
   // The toolbars sit in the row of the zone when the host gives one. The row
   // has the width of the zone, so no panel changes their form.
   const toolbarHost = useCanvasToolbarHost();
@@ -402,31 +438,52 @@ function CanvasView({
     () => withLaunchers(ghostPlan?.graph ?? graph, launchers),
     [graph, ghostPlan, launchers]
   );
+  // The sub-nodes of the chat steps (the model and the tools) join the layout
+  // as satellites, like the launchers, and never the edits.
+  const drawn = useMemo(
+    () => withToolSatellites(launched.graph, editable, !readOnly && !compact),
+    [launched, editable, readOnly, compact]
+  );
   const { positions, waypoints, bundles, moveNodes, realign } = useCanvasLayout(
-    launched.graph,
+    drawn,
     direction,
     columns,
     compact
   );
 
+  // A sub-node that the user moved links to the side of its step that faces it.
+  const subLinks = useMemo(
+    () => movedSubLinks(drawn, positions, compact, direction),
+    [drawn, positions, compact, direction]
+  );
+
   const [toolFilter, setToolFilter] = useState('');
+  // The sub-node that the last click chose. It shows as selected while its
+  // step stays the selection.
+  const [pickedSub, setPickedSub] = useState<string | null>(null);
+  const activeSub =
+    pickedSub !== null && satelliteOwner(pickedSub) === selected
+      ? pickedSub
+      : null;
   const baseNodes = useMemo(
     () =>
       withLauncherStates(
         toFlowNodes(
-          launched.graph,
+          drawn,
           positions,
           selected,
           highlighted,
           toolFilter,
           compact,
           direction
+        ).map((node) =>
+          node.id === activeSub ? { ...node, selected: true } : node
         ),
         launchers,
         activeLauncher ? launcherKey(activeLauncher) : null
       ),
     [
-      launched,
+      drawn,
       positions,
       selected,
       highlighted,
@@ -435,6 +492,7 @@ function CanvasView({
       direction,
       launchers,
       activeLauncher,
+      activeSub,
     ]
   );
   // A hover in the list changes the look of the ghost only, not the layout.
@@ -446,8 +504,9 @@ function CanvasView({
     () => ({
       open: (id) => onLauncher?.(id),
       active: activeLauncher,
+      alive: launcherAlive,
     }),
-    [onLauncher, activeLauncher]
+    [onLauncher, activeLauncher, launcherAlive]
   );
   const toolCount = useMemo(() => {
     const needle = toolFilter.trim().toLowerCase();
@@ -479,16 +538,27 @@ function CanvasView({
             (edge) => !hidden.has(edge.id)
           ),
           ...launcherFlowEdges(launched, launchers),
+          ...toolSatelliteFlowEdges(drawn),
           ...ghostFlowEdges(ghostPlan),
         ],
         waypoints
       ),
       bundles
     );
-  }, [graph, editable, launched, launchers, ghostPlan, waypoints, bundles]);
+  }, [
+    graph,
+    editable,
+    launched,
+    drawn,
+    launchers,
+    ghostPlan,
+    waypoints,
+    bundles,
+  ]);
 
   const selectStep = useCallback(
     (step: StepKey | null) => {
+      setPickedSub(null);
       onSelect(step);
     },
     [onSelect]
@@ -699,22 +769,112 @@ function CanvasView({
       : { zoom: view.zoom, x: view.x + dx, y: view.y + dy };
   }, []);
   // Moves the view only as far as needed to show the selected step.
-  const keepSelectedInView = (motion?: ViewMotion) => {
-    const key = selectedRef.current;
-    const view = key ? viewForNode(key, 0, true) : null;
-    if (view) {
-      setViewport(view, motion);
-    }
-  };
+  const keepSelectedInView = useCallback(
+    (motion?: ViewMotion) => {
+      const key = selectedRef.current;
+      const view = key ? viewForNode(key, 0, true) : null;
+      if (view) {
+        setViewport(view, motion);
+      }
+    },
+    [viewForNode, setViewport]
+  );
+  // Moves the view only as far as needed to keep the graph in the free area
+  // of the canvas. A graph that is there does not move. The zoom never changes:
+  // a graph that is too wide for the area keeps its start side in view.
+  const keepInView = useCallback(
+    (motion?: ViewMotion) => {
+      const { nodes, size, getViewport } = storeRef.current;
+      const bounds = boundsOf(
+        nodes().map((node) => ({
+          x: node.position.x,
+          y: node.position.y,
+          width: node.width,
+          height: node.height,
+        }))
+      );
+      if (!bounds || size.width === 0 || size.height === 0) {
+        return;
+      }
+      const view = getViewport();
+      const { dx, dy } = keepInViewDelta(
+        {
+          x: bounds.x * view.zoom + view.x,
+          y: bounds.y * view.zoom + view.y,
+          width: bounds.width * view.zoom,
+          height: bounds.height * view.zoom,
+        },
+        { x: 0, y: 0, width: size.width, height: size.height },
+        insetRef.current
+      );
+      setViewport({ ...view, x: view.x + dx, y: view.y + dy }, motion);
+    },
+    [setViewport]
+  );
+  const keepGraphInView = useCallback(
+    (motion?: ViewMotion) => {
+      keepInView(motion);
+      keepSelectedInView(motion);
+    },
+    [keepInView, keepSelectedInView]
+  );
+  // A room that grows (a panel leaves or changes) gives the graph its place
+  // back when the fit of the new room has the zoom of the view; else the view
+  // pans only as far as needed. The zoom never changes.
+  const fitOptionsRef = useRef<FitOptions | null>(null);
+  const growView = useCallback(
+    (motion?: ViewMotion) => {
+      const { nodes, size, zoomLimits, getViewport } = storeRef.current;
+      const bounds = boundsOf(
+        nodes().map((node) => ({
+          x: node.position.x,
+          y: node.position.y,
+          width: node.width,
+          height: node.height,
+        }))
+      );
+      const fitted =
+        bounds && fitOptionsRef.current && size.width > 0 && size.height > 0
+          ? fitAtZoom(
+              bounds,
+              size,
+              {
+                minZoom: zoomLimits.min,
+                maxZoom: zoomLimits.max,
+                ...fitOptionsRef.current,
+              },
+              getViewport()
+            )
+          : null;
+      if (fitted) {
+        setViewport(fitted, motion);
+        keepSelectedInView(motion);
+      } else {
+        keepGraphInView(motion);
+      }
+    },
+    [setViewport, keepSelectedInView, keepGraphInView]
+  );
   // A change of the room of the canvas (a panel, Activity, the window) or of
   // the graph glides the view to its new place, in one move; while the
   // canvas has just shown, it jumps there.
-  const autoFit = useAutoFit(wrapperRef, (glide) => {
-    const motion = glide ? GLIDE : undefined;
-    fitView(fitOptions, motion);
-    // A resize that fits the graph again keeps the selected step in view.
-    keepSelectedInView(motion);
-  });
+  const autoFit = useAutoFit(
+    wrapperRef,
+    (glide) => {
+      const motion = glide ? GLIDE : undefined;
+      fitView(fitOptions, motion);
+      // A resize that fits the graph again keeps the selected step in view.
+      keepSelectedInView(motion);
+    },
+    undefined,
+    // A dock that opens changes the height only: the graph stays in place and
+    // moves only when it would hide the selected step.
+    () => keepSelectedInView(),
+    // A panel that shrinks the canvas moves the graph only if it must.
+    () => keepGraphInView(),
+    // A canvas that grows keeps the zoom too.
+    () => growView(GLIDE)
+  );
   const {
     onUserMove: stopAutoFit,
     onHostMove,
@@ -722,7 +882,9 @@ function CanvasView({
     refit,
     moved: userMoved,
     settle,
+    settled,
   } = autoFit;
+  fitOptionsRef.current = fitOptions;
   // A reveal that waits for the size of the canvas or for a layout change.
   const pendingReveal = useRef<{
     key: StepKey;
@@ -923,11 +1085,20 @@ function CanvasView({
       last.overlayRight !== overlayRight ||
       last.overlayTop !== overlayTop
     ) {
-      // A view that the user moved stays, but not over the selected step.
       if (userMoved()) {
+        // A view that the user moved stays, but not over the selected step.
         keepSelectedInView(GLIDE);
-      } else {
+      } else if (overlayRight > last.overlayRight) {
+        // A panel that covers more of the canvas moves the graph only if it
+        // must. The zoom stays.
+        keepGraphInView(GLIDE);
+      } else if (!settled()) {
+        // The page is still opening: its parts fit the graph again.
         refit();
+      } else {
+        // A panel that leaves or changes keeps the zoom.
+        resume();
+        growView(GLIDE);
       }
     }
   }, [
@@ -939,6 +1110,10 @@ function CanvasView({
     resume,
     refit,
     userMoved,
+    keepGraphInView,
+    keepSelectedInView,
+    growView,
+    settled,
     stopAutoFit,
     setViewport,
     fitView,
@@ -1163,19 +1338,24 @@ function CanvasView({
       readOnly,
       compact,
       onCommand,
+      onEdit: emit,
+      dag,
       onDeleteStep: (step) => emit(stepDeleteOp(step)),
       onInsertOnEdge: (edgeId) => openPalette({ mode: 'insert', edgeId }),
       stepCommandGates,
       clipboard: { canPaste: editable && canPaste },
       onRename: editable ? startRename : undefined,
+      selectedTool,
     }),
     [
       direction,
       editable,
       readOnly,
       compact,
+      selectedTool,
       onCommand,
       emit,
+      dag,
       openPalette,
       stepCommandGates,
       canPaste,
@@ -1244,12 +1424,20 @@ function CanvasView({
     []
   );
 
+  // The export draws the steps without their sub-nodes: it needs the place of
+  // each card, not of its taller box.
+  const exportPositions = useMemo(
+    () => cardPositions(drawn, positions, compact, direction),
+    [drawn, positions, compact, direction]
+  );
+
   const exportAs = (format: 'svg' | 'png') => {
-    const { svg, width, height } = buildExportSvg(graph, positions, direction, {
-      dark,
-      compact,
-      waypoints,
-    });
+    const { svg, width, height } = buildExportSvg(
+      graph,
+      exportPositions,
+      direction,
+      { dark, compact, waypoints }
+    );
     if (format === 'svg') {
       downloadSvg(svg, exportName);
     } else {
@@ -1355,7 +1543,7 @@ function CanvasView({
           <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
           <ExportMenu
             graph={graph}
-            positions={positions}
+            positions={exportPositions}
             direction={direction}
             name={exportName}
             compact={compact}
@@ -1414,9 +1602,11 @@ function CanvasView({
         aria-describedby={hintId}
         tabIndex={0}
         data-testid="ve-canvas"
+        // The ring marks a canvas that Tab reached. A selected step wears its
+        // own ring: the canvas has none then.
         className={cn(
           'relative flex h-full min-h-0 w-full flex-col overflow-clip outline-none',
-          tabFocused && 'ring-2 ring-inset ring-ring'
+          !selected && tabFocused && 'ring-2 ring-inset ring-ring'
         )}
         onFocus={(event) => {
           if (event.target === event.currentTarget) {
@@ -1458,113 +1648,133 @@ function CanvasView({
           data-frozen={frozen || undefined}
         >
           <LauncherActionsContext.Provider value={launcherActions}>
-            <Flow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              onNodesMove={moveNodes}
-              onNodeClick={(key, event) => {
-                const launcher = launcherIdOf(key);
-                if (launcher) onLauncher?.(launcher);
-                else if (!isGhostKey(key)) {
-                  selectStep(key);
-                  if (isCardClick(event)) {
-                    const { clientX, clientY } = event;
-                    onStepClick?.(key, { clientX, clientY });
+            <SubLinksContext.Provider value={subLinks}>
+              <Flow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                onNodesMove={(moved) =>
+                  moveNodes(withFollowers(drawn, positions, moved))
+                }
+                onNodeClick={(key, event) => {
+                  const launcher = launcherIdOf(key);
+                  const owner = satelliteOwner(key);
+                  if (launcher) onLauncher?.(launcher);
+                  // A sub-node belongs to its chat step: it selects it, and
+                  // wears the selection itself.
+                  else if (owner !== null) {
+                    selectStep(owner);
+                    setPickedSub(key);
+                  } else if (!isGhostKey(key)) {
+                    selectStep(key);
+                    if (isCardClick(event)) {
+                      const { clientX, clientY } = event;
+                      onStepClick?.(key, { clientX, clientY });
+                    }
                   }
+                }}
+                onNodeDoubleClick={(id) => {
+                  if (
+                    !isLauncherKey(id) &&
+                    !isGhostKey(id) &&
+                    !isToolSatelliteKey(id)
+                  ) {
+                    onCommand({ kind: 'openInspector', step: id });
+                  }
+                }}
+                onPaneClick={() => selectStep(null)}
+                onNodeContextMenu={(key, point) => {
+                  if (
+                    !isLauncherKey(key) &&
+                    !isGhostKey(key) &&
+                    !isToolSatelliteKey(key)
+                  ) {
+                    setMenu({ kind: 'node', key, point });
+                  }
+                }}
+                // A canvas that cannot edit has no edge row: keep the browser menu.
+                onEdgeContextMenu={
+                  editable
+                    ? (id, point) => setMenu({ kind: 'edge', id, point })
+                    : undefined
                 }
-              }}
-              onNodeDoubleClick={(id) => {
-                if (!isLauncherKey(id) && !isGhostKey(id)) {
-                  onCommand({ kind: 'openInspector', step: id });
-                }
-              }}
-              onPaneClick={() => selectStep(null)}
-              onNodeContextMenu={(key, point) => {
-                if (!isLauncherKey(key) && !isGhostKey(key)) {
-                  setMenu({ kind: 'node', key, point });
-                }
-              }}
-              // A canvas that cannot edit has no edge row: keep the browser menu.
-              onEdgeContextMenu={
-                editable
-                  ? (id, point) => setMenu({ kind: 'edge', id, point })
-                  : undefined
-              }
-              onPaneContextMenu={(point) => setMenu({ kind: 'pane', point })}
-              onUserMove={onUserMove}
-              nodesDraggable={!frozen}
-              nodesConnectable={editable && graph.editableEdges}
-              onConnect={onConnect}
-              onConnectEnd={onConnectEnd}
-              isValidConnection={checkConnection}
-              fitOptions={fitOptions}
-              wheel="pan"
-            >
-              <Background gap={16} size={1} />
-              {hosted ? (
-                toolbarHost &&
-                createPortal(
-                  <>
-                    {/* The marker keeps the canvas from taking a click on a
+                onPaneContextMenu={(point) => setMenu({ kind: 'pane', point })}
+                onUserMove={onUserMove}
+                nodesDraggable={!frozen}
+                nodesConnectable={editable && graph.editableEdges}
+                onConnect={onConnect}
+                onConnectEnd={onConnectEnd}
+                isValidConnection={checkConnection}
+                fitOptions={fitOptions}
+                wheel="pan"
+              >
+                <Background gap={16} size={1} />
+                {hosted ? (
+                  toolbarHost &&
+                  createPortal(
+                    <>
+                      {/* The marker keeps the canvas from taking a click on a
                         toolbar for a click on the pane. */}
-                    <div
-                      data-flow-overlay=""
-                      className="flex min-w-0 shrink-0 items-center gap-2"
+                      <div
+                        data-flow-overlay=""
+                        className="flex min-w-0 shrink-0 items-center gap-2"
+                      >
+                        {toolbarStart}
+                        <div
+                          hidden={canvasCovered}
+                          className={cn('shrink-0', TOOLBAR_GROUP_CLASS)}
+                        >
+                          {leftToolbar}
+                        </div>
+                      </div>
+                      <div
+                        data-flow-overlay=""
+                        className={cn(
+                          'flex min-w-0 justify-end',
+                          TOOLBAR_GROUP_CLASS
+                        )}
+                      >
+                        {rightToolbar}
+                      </div>
+                    </>,
+                    toolbarHost
+                  )
+                ) : (
+                  <>
+                    <Panel
+                      position="top-left"
+                      className="flex items-center gap-2"
                     >
                       {toolbarStart}
-                      <div
-                        hidden={canvasCovered}
-                        className={cn('shrink-0', TOOLBAR_GROUP_CLASS)}
-                      >
-                        {leftToolbar}
-                      </div>
-                    </div>
-                    <div
-                      data-flow-overlay=""
-                      className={cn(
-                        'flex min-w-0 justify-end',
-                        TOOLBAR_GROUP_CLASS
-                      )}
+                      {leftToolbar}
+                    </Panel>
+                    <Panel
+                      position="top-right"
+                      className={cn(stackedBar && 'top-[3.25rem]')}
+                      style={{
+                        // Clear of a panel over the canvas; the left toolbar keeps
+                        // its room unless the bar is stacked.
+                        right: overlayRight + 8,
+                        maxWidth: stackedBar
+                          ? `calc(100% - ${overlayRight + 16}px)`
+                          : `calc(100% - ${overlayRight}px - 20rem)`,
+                      }}
                     >
                       {rightToolbar}
-                    </div>
-                  </>,
-                  toolbarHost
-                )
-              ) : (
-                <>
-                  <Panel
-                    position="top-left"
-                    className="flex items-center gap-2"
-                  >
-                    {toolbarStart}
-                    {leftToolbar}
-                  </Panel>
-                  <Panel
-                    position="top-right"
-                    className={cn(stackedBar && 'top-[3.25rem]')}
-                    style={{
-                      // Clear of a panel over the canvas; the left toolbar keeps
-                      // its room unless the bar is stacked.
-                      right: overlayRight + 8,
-                      maxWidth: stackedBar
-                        ? `calc(100% - ${overlayRight + 16}px)`
-                        : `calc(100% - ${overlayRight}px - 20rem)`,
-                    }}
-                  >
-                    {rightToolbar}
-                  </Panel>
-                </>
-              )}
-              <MiniMap
-                onUserMove={onUserMove}
-                hidden={freeWidth < MINIMAP_MIN_WIDTH}
-                hideWhenFitted={readOnly}
-                persistent={large}
-              />
-            </Flow>
+                    </Panel>
+                  </>
+                )}
+                <MiniMap
+                  onUserMove={onUserMove}
+                  hidden={freeWidth < MINIMAP_MIN_WIDTH}
+                  hideWhenFitted={readOnly}
+                  persistent={large}
+                  nodeKind={minimapKindOf}
+                  nodeRect={minimapNodeRect}
+                />
+              </Flow>
+            </SubLinksContext.Provider>
           </LauncherActionsContext.Provider>
           {graph.nodes.length === 0 && !ghostPlan ? <EmptyCanvasTile /> : null}
         </div>

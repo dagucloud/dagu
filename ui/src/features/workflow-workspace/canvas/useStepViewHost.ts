@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, type RefObject } from 'react';
-import { openStepInLastMode } from '@/features/dags/components/dag-editor/stepViewMode';
 import type { VisualEditorHandle } from '@/features/visual-editor/contracts';
 import { escFree } from './escFree';
 import { useEscClearsStep } from './useEscClearsStep';
@@ -74,12 +73,11 @@ export function useDeepLinkReveal(
     const target = pending.current;
     if (!handle || !target) return;
     pending.current = null;
-    // The step view opens in the mode that the user used last, the YAML
-    // at first.
+    // The step view opens on the YAML of the step.
     if (
       target.ndv &&
       (target.ndv === 'expanded'
-        ? openStepInLastMode(handle, target.step)
+        ? handle.openYaml(target.step)
         : handle.openForm(target.step))
     ) {
       return;

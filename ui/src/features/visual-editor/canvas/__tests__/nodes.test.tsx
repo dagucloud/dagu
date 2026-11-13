@@ -23,6 +23,7 @@ import { AgentRunContext } from '../agentRunContext';
 import { CanvasActionsContext, type CanvasActions } from '../context';
 import { FlowProvider, useFlow, type NodeProps } from '../engine';
 import { HandlerNode } from '../nodes/HandlerNode';
+import { nodeTypes } from '../nodes';
 import {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -1525,6 +1526,18 @@ describe('StepNode toolbar', () => {
   });
 });
 
+describe('HandlerNode border', () => {
+  // The dashed border was close to the colour of the canvas in the light theme.
+  it('has a visible border in the light theme', () => {
+    const { getByTestId } = renderIn(
+      <HandlerNode {...nodeProps(makeNode({ kind: 'run' }))} />
+    );
+    expect(getByTestId('ve-canvas-node-steps[0]').className).toContain(
+      'border-node-line'
+    );
+  });
+});
+
 describe('RouterNode', () => {
   const router = (routes: string[]) =>
     makeNode({
@@ -1871,6 +1884,27 @@ describe('HandlerNode', () => {
       step: 'handler_on.failure',
     });
     expect(onDeleteStep).toHaveBeenCalledWith('handler_on.failure');
+  });
+});
+
+describe('nodeTypes', () => {
+  it('registers one component for each node type', () => {
+    expect(nodeTypes.step).toBe(StepNode);
+    expect(nodeTypes.router).toBe(RouterNode);
+    expect(nodeTypes.handler).toBe(HandlerNode);
+    expect(nodeTypes.agent).toBe(AgentNode);
+    expect(Object.keys(nodeTypes).sort()).toEqual([
+      'addsat',
+      'agent',
+      'dagcard',
+      'handler',
+      'modelsat',
+      'promptsat',
+      'router',
+      'slotcard',
+      'step',
+      'tool',
+    ]);
   });
 });
 

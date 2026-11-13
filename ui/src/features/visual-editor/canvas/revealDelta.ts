@@ -65,3 +65,56 @@ export function revealDelta(
     dy: axisDelta(nodeRect.y, nodeRect.height, top, bottom),
   };
 }
+
+/** Gap in px that a graph wider than the area may keep at its start edge. */
+const START_GAP = 24;
+
+/**
+ * Pan on one axis, in px, that keeps content of `length` px at `start` in the
+ * span `[from, to]`: none when it is there, else the least pan.
+ * Content longer than the span keeps its start side: it moves only to cover
+ * the span, or to close a gap at its start of more than `START_GAP`.
+ */
+function keepAxisDelta(
+  start: number,
+  length: number,
+  from: number,
+  to: number
+): number {
+  // Content that fits may start from the span start to the last place where
+  // it still ends in the span. Longer content may start from the place where
+  // it ends at the span end to the span start plus the gap.
+  const fits = length <= to - from;
+  const first = fits ? from : to - length;
+  const last = fits ? to - length : from + START_GAP;
+  const target = Math.min(Math.max(start, first), last);
+  return target - start;
+}
+
+/**
+ * The pan that keeps a graph in view after the canvas shrank or a panel
+ * covered a part of it, as the px to add to the view translation. `bounds`
+ * and `viewRect` are in the same screen space; `obstructions` are the px that
+ * a toolbar or a panel covers at each side of `viewRect`. The zoom never
+ * changes. A graph that is already in the free area gives `{ dx: 0, dy: 0 }`.
+ */
+export function keepInViewDelta(
+  bounds: Rect,
+  viewRect: Rect,
+  obstructions: Insets
+): { dx: number; dy: number } {
+  const left = viewRect.x + obstructions.left;
+  const top = viewRect.y + obstructions.top;
+  const right = Math.max(
+    viewRect.x + viewRect.width - obstructions.right,
+    left + 1
+  );
+  const bottom = Math.max(
+    viewRect.y + viewRect.height - obstructions.bottom,
+    top + 1
+  );
+  return {
+    dx: keepAxisDelta(bounds.x, bounds.width, left, right),
+    dy: keepAxisDelta(bounds.y, bounds.height, top, bottom),
+  };
+}

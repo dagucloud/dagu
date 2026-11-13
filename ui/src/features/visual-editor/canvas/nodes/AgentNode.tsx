@@ -15,6 +15,7 @@ import {
   type StepFlowNode,
 } from '../types';
 import {
+  CARD_OUTLINE,
   HANDLE_CLASS,
   RunStatus,
   cardStateClass,
@@ -51,7 +52,7 @@ function TaskIcon({ state }: { state?: AgentTaskState }) {
     default:
       return (
         <CircleDashed
-          className={cn(TASK_ICON_CLASS, 'text-muted-foreground/60')}
+          className={cn(TASK_ICON_CLASS, 'text-muted-foreground')}
           aria-label={state === 'open' ? ts('Task pending') : undefined}
           aria-hidden={state === undefined ? true : undefined}
         />
@@ -117,12 +118,13 @@ function AgentNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
       data-testid={`ve-canvas-node-${node.key}`}
       data-shape="agent"
       className={cn(
-        'group relative flex h-full w-full flex-col gap-1 rounded-xl border-2 border-primary/40 bg-primary/5 px-3 py-2 text-card-foreground',
+        'group relative flex h-full w-full flex-col gap-1 rounded-xl bg-card px-3 py-2 text-card-foreground',
+        CARD_OUTLINE,
         cardStateClass(node, selected, data.highlighted)
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           <Bot className="h-4 w-4" aria-hidden="true" />
         </span>
         <span className="text-sm font-semibold">{ts('Agent')}</span>
@@ -147,7 +149,7 @@ function AgentNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
         {agentRun && (
           <span
             data-testid="ve-canvas-hub-iterations"
-            className="shrink-0 rounded bg-primary/15 px-1.5 text-xs font-medium leading-5 text-primary"
+            className="shrink-0 rounded bg-muted px-1.5 text-xs font-medium leading-5 text-muted-foreground"
           >
             {ts('Iterations: {count}', { count: agentRun.iterations })}
           </span>
