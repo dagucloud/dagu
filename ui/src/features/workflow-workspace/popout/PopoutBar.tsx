@@ -24,6 +24,8 @@ export interface PopoutBarProps {
   /** Workflow name, shown while no run is known. */
   dagName: string;
   run: ApiDAGRunDetails | undefined;
+  /** True when the workflow is a service DAG: only then a run reads Healthy. */
+  service: boolean;
   kind: 'step' | 'run';
   step: string | null;
   carry: WorkspaceUrlState['carry'];
@@ -61,6 +63,7 @@ export function PopoutBar({
   fileName,
   dagName,
   run,
+  service,
   kind,
   step,
   carry,
@@ -173,7 +176,7 @@ export function PopoutBar({
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <StatusIcon
               status={run.status}
-              healthy={runDisplayStatus(run).healthy}
+              healthy={runDisplayStatus(run, { service }).healthy}
             />
             <RunMetaLine dagRun={run} compact runHref={runHref} />
             {!sub && (

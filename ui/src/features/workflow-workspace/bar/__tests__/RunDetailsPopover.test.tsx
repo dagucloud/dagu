@@ -32,12 +32,16 @@ const h = vi.hoisted(() => ({
   linkSelect: vi.fn(),
   outputs: {} as Record<string, { data?: StepOutputs }>,
   copyText: vi.fn(),
+  service: false,
 }));
 
 vi.mock('../../data', () => ({ useWorkspaceRun: () => h.state.run }));
 vi.mock('../../data/context', () => ({
   useWorkspaceData: () => ({ fileName: 'etl.yaml' }),
   useStandaloneRun: () => null,
+}));
+vi.mock('../../data/useServiceDag', () => ({
+  useIsServiceDag: () => h.service,
 }));
 vi.mock('../../dock/DockContext', () => ({
   useDock: () => ({ setTab: h.setTab }),
@@ -126,6 +130,7 @@ beforeEach(() => {
   h.select.mockClear();
   h.linkSelect.mockClear();
   h.outputs = {};
+  h.service = false;
   resetRunAvailability();
   outputCache.clear();
 });
@@ -422,6 +427,31 @@ describe('RunDetailsPopover', () => {
     expect(within(status).getByText('Aborted')).toHaveClass(
       'text-[var(--status-aborted)]'
     );
+  });
+
+  // Only a service DAG reads Healthy; any other workflow keeps Running.
+  it.each([
+    [true, 'Healthy'],
+    [false, 'Running'],
+  ])('with a continuous step, service %s reads %s', async (service, text) => {
+    h.service = service;
+    renderButton(
+      details({
+        status: Status.Running,
+        nodes: [
+          node('beat', NodeStatus.Running, {
+            step: { repeatPolicy: { repeat: 'while', interval: 10 } },
+          }),
+        ],
+      }),
+      { isActive: true }
+    );
+    const dialog = await open();
+    expect(
+      within(within(dialog).getByTestId('ww-run-details-status')).getByText(
+        text
+      )
+    ).toBeVisible();
   });
 
   describe('keyboard and pointer', () => {

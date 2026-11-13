@@ -11,7 +11,12 @@ import {
   useNavigationType,
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status, TriggerType } from '@/api/v1/schema';
+import {
+  NodeStatus,
+  RestartPolicy,
+  Status,
+  TriggerType,
+} from '@/api/v1/schema';
 import type { ApiDAGDetails } from '../../contracts';
 import { node, run as runDetails } from '../../data/__tests__/fixtures';
 import { nodesByStep, NO_WAITING } from '../../data/runFacts';
@@ -99,11 +104,21 @@ function Probe() {
 }
 
 const dag = { name: 'demo' } as ApiDAGDetails;
+const serviceDag = {
+  name: 'demo',
+  restartPolicy: RestartPolicy.always,
+} as ApiDAGDetails;
+// Only a service DAG can read Healthy.
+const definition = { service: false };
 
 function chip() {
   return (
     <div data-testid="ww-bar">
-      <RunChip fileName="demo" dag={dag} workspaceName={null} />
+      <RunChip
+        fileName="demo"
+        dag={definition.service ? serviceDag : dag}
+        workspaceName={null}
+      />
     </div>
   );
 }
@@ -129,6 +144,7 @@ function renderChip(url = '/dags/demo') {
 }
 
 beforeEach(() => {
+  definition.service = false;
   window.localStorage.clear();
   bar.width = 1920;
   HTMLElement.prototype.getBoundingClientRect = function () {
@@ -577,7 +593,8 @@ describe('RunChip healthy', () => {
       step: { repeatPolicy: { repeat: 'while', interval: 10 } },
     });
 
-  it('reads Healthy for a run that never ends, with the repeat count and no 0/1', () => {
+  it('reads Healthy for a run of a service DAG that never ends, with the repeat count and no 0/1', () => {
+    definition.service = true;
     state.run = makeRun(
       runDetails('r3', [repeating(NodeStatus.Running)], Status.Running),
       { isActive: true }
@@ -595,6 +612,7 @@ describe('RunChip healthy', () => {
   });
 
   it('shows no count before the continuous step has run', () => {
+    definition.service = true;
     state.run = makeRun(
       runDetails('r3', [repeating(NodeStatus.Running, 0)], Status.Running),
       { isActive: true }
@@ -603,6 +621,30 @@ describe('RunChip healthy', () => {
     expect(screen.getByRole('img', { name: 'Healthy' })).toBeInTheDocument();
     expect(screen.queryByTestId('repeat-badge')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Run progress' })).toBeNull();
+  });
+
+  // The empty slot would leave a gap between the heart and the next fact.
+  it('leaves no slot for the count of a healthy run that has no repeat count', () => {
+    definition.service = true;
+    state.run = makeRun(
+      runDetails('r3', [node('work', NodeStatus.Running)], Status.Running),
+      { isActive: true }
+    );
+    renderChip();
+    expect(screen.getByRole('img', { name: 'Healthy' })).toBeInTheDocument();
+    expect(screen.getByTestId('ww-run-count-slot')).toHaveClass('hidden');
+  });
+
+  it('keeps Running and the progress for a continuous step of a workflow that is not a service DAG', () => {
+    state.run = makeRun(
+      runDetails('r3', [repeating(NodeStatus.Running)], Status.Running),
+      { isActive: true }
+    );
+    renderChip();
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
+    expect(screen.queryByText('Healthy')).toBeNull();
+    expect(screen.queryByTestId('repeat-badge')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Run progress' })).toBeVisible();
   });
 
   it('keeps Running and the progress for an ordinary run', () => {
@@ -618,6 +660,7 @@ describe('RunChip healthy', () => {
   });
 
   it('keeps the failure visible when a node of the run failed', () => {
+    definition.service = true;
     state.run = makeRun(
       runDetails(
         'r3',
@@ -688,9 +731,10 @@ describe('RunChip navigation', () => {
   it('disables Newer run on the latest run and Older run on the first', async () => {
     history.runs = [runDetails('r3')];
     renderChip();
-    // Both wait for the history: a newer test run can exist.
+    // Older waits for the history. Newer is disabled at once, as Latest run
+    // is: the latest run has no newer run until the history shows a test run.
     const newer = screen.getByRole('button', { name: 'Newer run' });
-    expect(newer).toBeEnabled();
+    expect(newer).toBeDisabled();
     const older = screen.getByRole('button', { name: 'Older run' });
     expect(older).toBeEnabled();
     await userEvent.click(older);
@@ -864,76 +908,34 @@ describe('RunChip spec-differs dot', () => {
   });
 });
 
+// The chip has no "A newer run is active" button: a newer active run shows
+// only in the history, as the Newer run arrow and the Latest run button.
 describe('RunChip newer run', () => {
   const text = 'A newer run is active';
 
-  it('shows when a pinned run is not the active latest run', async () => {
+  it.each([
+    ['running', Status.Running],
+    ['queued', Status.Queued],
+    ['waiting', Status.Waiting],
+  ])('has no notice while a pinned run has a %s latest run', (_l, status) => {
     state.run = makeRun(runDetails('r2'), {
       selection: { runId: 'r2' },
       isLatest: false,
-      latestRef: { runId: 'r3', status: Status.Running },
-    });
-    renderChip();
-    await userEvent.click(screen.getByRole('button', { name: text }));
-    expect(state.run.select).toHaveBeenCalledWith('latest');
-  });
-
-  // The API names an older run that is still active as the latest one.
-  it('hides when the active latest run is older than the selected run', () => {
-    state.run = makeRun(
-      runDetails('r2', [node('a')], Status.Success, {
-        startedAt: '2026-01-01T10:00:05Z',
-      }),
-      {
-        selection: { runId: 'r2' },
-        isLatest: true,
-        latestRef: {
-          runId: 'r1',
-          status: Status.Running,
-          at: Date.parse('2026-01-01T10:00:00Z'),
-        },
-      }
-    );
-    renderChip();
-    expect(screen.queryByText(text)).toBeNull();
-    expect(screen.queryByText('Back to latest')).toBeNull();
-  });
-
-  it('shows when the active latest run is newer than the selected run', () => {
-    state.run = makeRun(
-      runDetails('r1', [node('a')], Status.Success, {
-        startedAt: '2026-01-01T10:00:00Z',
-      }),
-      {
-        selection: { runId: 'r1' },
-        isLatest: false,
-        latestRef: {
-          runId: 'r2',
-          status: Status.Queued,
-          at: Date.parse('2026-01-01T10:00:05Z'),
-        },
-      }
-    );
-    renderChip();
-    expect(screen.getByRole('button', { name: text })).toBeInTheDocument();
-  });
-
-  it('hides when the latest run is done', () => {
-    state.run = makeRun(runDetails('r2'), {
-      selection: { runId: 'r2' },
-      isLatest: false,
-      latestRef: { runId: 'r3', status: Status.Success },
+      latestRef: { runId: 'r3', status },
     });
     renderChip();
     expect(screen.queryByText(text)).toBeNull();
+    expect(screen.queryByRole('button', { name: text })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Latest run' })).toBeEnabled();
   });
 
-  it('hides while the chip follows the latest run', () => {
+  it('has no notice while the chip follows an active latest run', () => {
     state.run = makeRun(runDetails('r3', [node('a')], Status.Running), {
       latestRef: { runId: 'r3', status: Status.Running },
     });
     renderChip();
     expect(screen.queryByText(text)).toBeNull();
+    expect(screen.queryByRole('button', { name: text })).toBeNull();
   });
 });
 

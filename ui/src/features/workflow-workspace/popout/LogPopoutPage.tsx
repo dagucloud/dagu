@@ -11,6 +11,7 @@ import ExecutionLog from '@/features/dags/components/dag-execution/ExecutionLog'
 import StepLog from '@/features/dags/components/dag-execution/StepLog';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
 import { useI18n } from '@/i18n/I18nProvider';
+import { isServiceDAG } from '@/lib/dagSchedule';
 import type { ApiDAGRunDetails, DAGPageData } from '../contracts';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { PopoutBar, withCarry } from './PopoutBar';
@@ -113,6 +114,7 @@ export function LogPopoutPage({
         fileName={fileName}
         dagName={dagName}
         run={run}
+        service={!!dagData.dag && isServiceDAG(dagData.dag)}
         kind={kind}
         step={step}
         carry={url.carry}

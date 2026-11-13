@@ -24,6 +24,7 @@ import { cn, FOCUS_RING } from '@/lib/utils';
 import type { ApiDAGRunDetails } from '../contracts';
 import { useWorkspaceRun } from '../data';
 import { useWorkspaceData } from '../data/context';
+import { useIsServiceDag } from '../data/useServiceDag';
 import { useDockCommands } from '../dock/DockContext';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { Z } from '../zLayers';
@@ -61,7 +62,8 @@ export function RunDetailsContent({
   const { getRunLink } = useWorkflowShare(fileName);
   const [url, setUrl] = useWorkspaceUrl();
   const showingRunDef = url.def === 'run';
-  const display = runDisplayStatus(details);
+  const service = useIsServiceDag();
+  const display = runDisplayStatus(details, { service });
   // A run that never ends has no progress to show: its steps never all end.
   const showProgress = run.isActive && !display.healthy;
   return (

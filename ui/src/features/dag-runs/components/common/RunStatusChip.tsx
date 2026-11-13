@@ -17,9 +17,9 @@ interface RunStatusChipProps {
 }
 
 /**
- * The status chip of a run in a list. A running run that never ends and has
- * no failed step reads "Healthy" (see runDisplayStatus); every other run
- * reads as its API status says.
+ * The status chip of a run in a list. A running run of a service DAG that
+ * never ends and has no failed step reads "Healthy" (see runDisplayStatus);
+ * every other run reads as its API status says.
  */
 export function RunStatusChip({
   name,
