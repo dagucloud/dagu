@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -495,6 +501,147 @@ describe('HumanTasksTab', () => {
     expect(
       screen.getByText('Execute permission is required to complete this task.')
     ).toBeVisible();
+  });
+});
+
+describe('HumanTasksTab prompt', () => {
+  it('renders the prompt as Markdown', () => {
+    const dagRun = humanTaskRun();
+    const task = dagRun.nodes[0]?.step.humanTask;
+    if (!task) throw new Error('expected a human task fixture');
+    task.prompt = 'Ship **v2** after:\n\n- the migration\n- the backfill';
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(screen.getByText('v2').tagName).toBe('STRONG');
+    expect(
+      screen.getAllByRole('listitem').map((item) => item.textContent)
+    ).toEqual(['the migration', 'the backfill']);
+  });
+});
+
+describe('HumanTasksTab choice form', () => {
+  const decisionForm = {
+    type: 'object',
+    properties: {
+      decision: {
+        type: 'string',
+        title: 'Merge it?',
+        enum: ['Merge', 'Skip'],
+      },
+    },
+    required: ['decision'],
+  };
+
+  it('completes the task with the choice that was clicked', async () => {
+    const onChanged = vi.fn();
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun(decisionForm)}
+        onChanged={onChanged}
+      />
+    );
+
+    const choices = screen.getByRole('group', { name: 'Merge it?' });
+    expect(
+      within(choices)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Merge', 'Skip']);
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { decision: 'Skip' } })
+      )
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels oneOf choices with their titles and submits their values', async () => {
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun({
+          type: 'object',
+          properties: {
+            replicas: {
+              type: 'integer',
+              oneOf: [
+                { const: 1, title: 'One replica' },
+                { const: 3, title: 'Three replicas' },
+              ],
+            },
+          },
+          required: ['replicas'],
+        })}
+        onChanged={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Three replicas' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { replicas: 3 } })
+      )
+    );
+  });
+
+  it('offers push-back beside the choices', () => {
+    const dagRun = pushBackRun();
+    const task = dagRun.nodes[0]?.step.humanTask;
+    if (!task) throw new Error('expected a human task fixture');
+    task.form = decisionForm;
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(
+      screen.getByRole('button', { name: 'Request changes' })
+    ).toBeVisible();
+    const choices = screen.getByRole('group', { name: 'Merge it?' });
+    expect(
+      within(choices)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Merge', 'Skip']);
+  });
+
+  it('disables the choices without workspace execute permission', () => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
+    render(
+      <HumanTasksTab dagRun={humanTaskRun(decisionForm)} onChanged={vi.fn()} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled();
+  });
+
+  // An optional choice can be left empty, and a second field needs the form,
+  // so neither completes on a single click.
+  it.each([
+    {
+      name: 'an optional choice',
+      form: { ...decisionForm, required: [] },
+    },
+    {
+      name: 'a choice beside another field',
+      form: {
+        ...decisionForm,
+        properties: {
+          ...decisionForm.properties,
+          note: { type: 'string', title: 'Note' },
+        },
+      },
+    },
+  ])('keeps the form for $name', ({ form }) => {
+    render(<HumanTasksTab dagRun={humanTaskRun(form)} onChanged={vi.fn()} />);
+
+    expect(screen.getByRole('radio', { name: 'Merge' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeVisible();
   });
 });
 

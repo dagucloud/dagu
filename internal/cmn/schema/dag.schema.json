@@ -7413,7 +7413,7 @@
           "type": "string",
           "minLength": 1,
           "pattern": "\\S",
-          "description": "Instructions shown to the operator completing the task."
+          "description": "Instructions shown to the operator completing the task. The web UI renders them as Markdown."
         },
         "form": {
           "$ref": "#/definitions/humanTaskFormSchema",

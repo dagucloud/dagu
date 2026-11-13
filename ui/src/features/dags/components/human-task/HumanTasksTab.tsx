@@ -3,6 +3,7 @@
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Markdown } from '@/components/ui/markdown';
 import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
@@ -69,8 +70,60 @@ function hasUnsafeInteger(value: unknown): boolean {
 
 type CardMode = 'complete' | 'push-back';
 
+type ChoiceValue = string | number | boolean;
+
+interface ChoiceField {
+  name: string;
+  title?: string;
+  description?: string;
+  choices: { label: string; value: ChoiceValue }[];
+}
+
 const unsafeIntegerMessage =
   'This form cannot submit integers outside the safe integer range. Use the CLI or a raw API request for larger integers.';
+
+// The radio limit of the schema form, so a form that would show radios shows
+// buttons instead.
+const choiceButtonLimit = 4;
+
+function isChoiceValue(value: unknown): value is ChoiceValue {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+/**
+ * Returns the field of a form that asks for one required fixed choice, so each
+ * choice can complete the task in one click. Returns null for any other form.
+ */
+function singleChoiceField(schema?: JSONSchema): ChoiceField | null {
+  const entries = Object.entries(schema?.properties ?? {});
+  if (entries.length !== 1) return null;
+  const [name, field] = entries[0]!;
+  if (!schema?.required?.includes(name)) return null;
+
+  let choices: ChoiceField['choices'] = [];
+  if (Array.isArray(field.enum)) {
+    if (!field.enum.every(isChoiceValue)) return null;
+    choices = field.enum.map((value) => ({ label: String(value), value }));
+  } else if (Array.isArray(field.oneOf)) {
+    const options = field.oneOf;
+    if (!options.every((option) => isChoiceValue(option.const))) return null;
+    choices = options.map((option) => ({
+      label: option.title ?? String(option.const),
+      value: option.const as ChoiceValue,
+    }));
+  }
+  if (choices.length === 0 || choices.length > choiceButtonLimit) return null;
+  return {
+    name,
+    title: field.title,
+    description: field.description,
+    choices,
+  };
+}
 
 function useTaskFormUiSchema(schema?: JSONSchema): UiSchema<FormData> {
   return React.useMemo<UiSchema<FormData>>(
@@ -125,6 +178,7 @@ function HumanTaskCard({
       : (artifacts[0] ?? null);
   const schema = (task.form ?? undefined) as JSONSchema | undefined;
   const hasForm = !!schema && Object.keys(schema).length > 0;
+  const choiceField = singleChoiceField(schema);
   const feedbackSchema = (pushBack?.form ?? undefined) as
     | JSONSchema
     | undefined;
@@ -234,7 +288,10 @@ function HumanTaskCard({
             </span>
           )}
         </div>
-        <div className="whitespace-pre-wrap text-base">{task.prompt}</div>
+        {/* A long prompt scrolls so the actions below it stay in view. */}
+        <div className="max-h-96 overflow-y-auto">
+          <Markdown content={task.prompt} className="text-sm" />
+        </div>
       </div>
 
       {artifacts.length > 0 && (
@@ -373,6 +430,50 @@ function HumanTaskCard({
               </Button>
             </div>
           )}
+        </div>
+      ) : choiceField ? (
+        <div className="space-y-2">
+          {(choiceField.title || choiceField.description) && (
+            <div className="space-y-0.5">
+              {choiceField.title && (
+                <div
+                  id={`human-task-${stepKey}-choice`}
+                  className="text-sm font-medium"
+                >
+                  {choiceField.title}
+                </div>
+              )}
+              {choiceField.description && (
+                <p className="text-xs text-muted-foreground">
+                  {choiceField.description}
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            {requestChangesButton}
+            <div
+              role="group"
+              aria-labelledby={
+                choiceField.title ? `human-task-${stepKey}-choice` : undefined
+              }
+              className="flex flex-wrap gap-2"
+            >
+              {choiceField.choices.map((choice, index) => (
+                <Button
+                  key={`${index}-${String(choice.value)}`}
+                  type="button"
+                  variant={index === 0 ? 'primary' : 'outline'}
+                  disabled={actionsDisabled}
+                  onClick={() =>
+                    void complete({ [choiceField.name]: choice.value })
+                  }
+                >
+                  {choice.label}
+                </Button>
+              ))}
+            </div>
+          </div>
         </div>
       ) : hasForm ? (
         <Form
