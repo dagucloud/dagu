@@ -149,6 +149,15 @@ func TestValidateStep(t *testing.T) {
 			want: "invalid browser config",
 		},
 		{
+			name: "screenshot name in any script",
+			with: `{"do":[{"screenshot":"請求書画面"}]}`,
+		},
+		{
+			name: "screenshot name with a path",
+			with: `{"do":[{"screenshot":"../x"}]}`,
+			want: "screenshot name",
+		},
+		{
 			name: "upload",
 			with: `{"do":[{"upload":{"files":"invoice.pdf"}},{"upload":{"files":["a.pdf","${FILES}"],"into":"Receipt","cache":false}}]}`,
 		},
