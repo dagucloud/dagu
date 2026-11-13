@@ -27,7 +27,6 @@ export const backfillMessages = defineMessages({
       'Stopped: {failed} failed, {notRun} not run',
     'Cancelled: {cancelled} slots were not run':
       'Cancelled: {cancelled} slots were not run',
-    Pending: 'Pending',
     'Not run': 'Not run',
     Cancelled: 'Cancelled',
     Slots: 'Slots',
@@ -117,7 +116,6 @@ export const backfillMessages = defineMessages({
       '已停止：{failed} 个失败，{notRun} 个未运行',
     'Cancelled: {cancelled} slots were not run':
       '已取消：{cancelled} 个时段未运行',
-    Pending: '待处理',
     'Not run': '未运行',
     Cancelled: '已取消',
     Slots: '时段',
@@ -207,7 +205,6 @@ export const backfillMessages = defineMessages({
       '停止: {failed} 件が失敗、{notRun} 件が未実行',
     'Cancelled: {cancelled} slots were not run':
       'キャンセル: {cancelled} 件のスロットは実行されませんでした',
-    Pending: '保留中',
     'Not run': '未実行',
     Cancelled: 'キャンセル済み',
     Slots: 'スロット',
