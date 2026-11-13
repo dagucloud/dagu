@@ -1049,11 +1049,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		var bastionCfg *ssh.BastionConfig
 		if a.dag.SSH.Bastion != nil {
 			bastionCfg = &ssh.BastionConfig{
-				Host:     a.dag.SSH.Bastion.Host,
-				Port:     a.dag.SSH.Bastion.Port,
-				User:     a.dag.SSH.Bastion.User,
-				Key:      a.dag.SSH.Bastion.Key,
-				Password: a.dag.SSH.Bastion.Password,
+				Host:    a.dag.SSH.Bastion.Host,
+				Port:    a.dag.SSH.Bastion.Port,
+				User:    a.dag.SSH.Bastion.User,
+				SSHAuth: a.dag.SSH.Bastion.SSHAuth,
 			}
 		}
 
@@ -1061,8 +1060,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
-			Key:           a.dag.SSH.Key,
-			Password:      a.dag.SSH.Password,
+			SSHAuth:       a.dag.SSH.SSHAuth,
 			StrictHostKey: a.dag.SSH.StrictHostKey,
 			KnownHostFile: a.dag.SSH.KnownHostFile,
 			Shell:         a.dag.SSH.Shell,
@@ -1074,7 +1072,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
 		}
-		cli, err := ssh.NewClient(&sshConfig)
+		cli, err := ssh.NewClient(ctx, &sshConfig)
 		if err != nil {
 			initErr = fmt.Errorf("failed to create ssh client: %w", err)
 			return initErr

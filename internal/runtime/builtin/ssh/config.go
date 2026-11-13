@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -21,11 +22,12 @@ const defaultSSHTimeout = 30 * time.Second
 
 // Config represents SSH connection info
 type Config struct {
-	User          string
-	Host          string
-	Port          string
-	Key           string
-	Password      string
+	User string
+	Host string
+	Port string
+	// SSHAuth holds the key, password, and passphrase, each a literal or a
+	// secret ref resolved at run start.
+	ir.SSHAuth
 	StrictHostKey bool           // Enable strict host key checking (defaults to true)
 	KnownHostFile string         // Path to known_hosts file (defaults to ~/.ssh/known_hosts)
 	Shell         string         // Shell for remote command execution (e.g., "/bin/bash")
@@ -36,11 +38,10 @@ type Config struct {
 
 // BastionConfig represents bastion/jump host connection info
 type BastionConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Key      string
-	Password string
+	Host string
+	Port string
+	User string
+	ir.SSHAuth
 }
 
 // sshMapConfig is the structure for decoding SSH config from a map.
@@ -49,23 +50,30 @@ type sshMapConfig struct {
 	IP            string
 	Host          string
 	Port          string
-	Key           string
-	Password      string
+	Key           any
+	Password      any
+	Passphrase    any
 	StrictHostKey bool   `mapstructure:"strict_host_key"`
 	KnownHostFile string `mapstructure:"known_host_file"`
 	Shell         string
 	ShellArgs     []string `mapstructure:"shell_args"`
 	Timeout       string
-	Bastion       *struct {
-		Host     string
-		Port     string
-		User     string
-		Key      string
-		Password string
-	}
+	Bastion       *sshMapBastion
 }
 
-func FromMapConfig(_ context.Context, mapCfg map[string]any) (*Client, error) {
+// sshMapBastion is the structure for decoding a bastion config from a map.
+type sshMapBastion struct {
+	Host       string
+	Port       string
+	User       string
+	Key        any
+	Password   any
+	Passphrase any
+}
+
+// FromMapConfig creates a client from a step's with block. Credentials given
+// as secret refs are read from the values resolved at run start.
+func FromMapConfig(ctx context.Context, mapCfg map[string]any) (*Client, error) {
 	def := sshMapConfig{StrictHostKey: true}
 	md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result:           &def,
@@ -88,21 +96,29 @@ func FromMapConfig(_ context.Context, mapCfg map[string]any) (*Client, error) {
 		return nil, err
 	}
 
+	auth, err := ir.ParseSSHAuth("with", def.Key, def.Password, def.Passphrase)
+	if err != nil {
+		return nil, err
+	}
+	bastion, err := buildBastionFromMap(def.Bastion)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		User:          def.User,
 		Host:          coalesce(def.Host, def.IP),
 		Port:          def.Port,
-		Key:           def.Key,
-		Password:      def.Password,
+		SSHAuth:       auth,
 		StrictHostKey: def.StrictHostKey,
 		KnownHostFile: def.KnownHostFile,
 		Shell:         shell,
 		ShellArgs:     shellArgs,
 		Timeout:       timeout,
-		Bastion:       buildBastionFromMap(def.Bastion),
+		Bastion:       bastion,
 	}
 
-	return NewClient(cfg)
+	return NewClient(ctx, cfg)
 }
 
 // parseTimeout parses a timeout string or returns the default.
@@ -118,27 +134,24 @@ func parseTimeout(s string) (time.Duration, error) {
 }
 
 // buildBastionFromMap converts a bastion map config to BastionConfig.
-func buildBastionFromMap(b *struct {
-	Host     string
-	Port     string
-	User     string
-	Key      string
-	Password string
-}) *BastionConfig {
+func buildBastionFromMap(b *sshMapBastion) (*BastionConfig, error) {
 	if b == nil {
-		return nil
+		return nil, nil
+	}
+	auth, err := ir.ParseSSHAuth("with.bastion", b.Key, b.Password, b.Passphrase)
+	if err != nil {
+		return nil, err
 	}
 	port := b.Port
 	if port == "" {
 		port = "22"
 	}
 	return &BastionConfig{
-		Host:     b.Host,
-		Port:     port,
-		User:     b.User,
-		Key:      b.Key,
-		Password: b.Password,
-	}
+		Host:    b.Host,
+		Port:    port,
+		User:    b.User,
+		SSHAuth: auth,
+	}, nil
 }
 
 // coalesce returns the first non-empty string.
