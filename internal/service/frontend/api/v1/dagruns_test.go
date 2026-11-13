@@ -102,16 +102,37 @@ func waitForDAGRunStatus(
 
 	dag := &ir.DAG{Name: dagName}
 	var status *ir.DAGRunStatus
-	require.Eventually(t, func() bool {
+	var readErr error
+	if !assert.Eventually(t, func() bool {
 		current, err := server.DAGRunMgr.GetCurrentStatus(server.Context, dag, dagRunID)
 		if err != nil || current == nil {
+			readErr = err
 			return false
 		}
 		status = current
 		return predicate(current)
-	}, dagRunEventuallyTimeout(timeout), 200*time.Millisecond)
+	}, dagRunEventuallyTimeout(timeout), 200*time.Millisecond) {
+		t.Fatalf("run %s of %s did not reach the expected status: %s", dagRunID, dagName, describeRun(status, readErr))
+	}
 
 	return status
+}
+
+// describeRun tells where a run stopped, for a failed wait: its status, its
+// error, and the end of its log, or why no status could be read.
+func describeRun(status *ir.DAGRunStatus, readErr error) string {
+	if status == nil {
+		return fmt.Sprintf("no status (%v)", readErr)
+	}
+	text := fmt.Sprintf("status %s, error %q", status.Status, status.Error)
+	if data, err := os.ReadFile(status.Log); err == nil {
+		const tail = 4096
+		if len(data) > tail {
+			data = data[len(data)-tail:]
+		}
+		text += "\nlog:\n" + string(data)
+	}
+	return text
 }
 
 func waitForStoredDAGRunStatus(
