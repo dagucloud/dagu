@@ -5376,6 +5376,14 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// A precondition decides on what it reads, so the step fails
+		// whatever it decides.
+		{
+			name:     "PreconditionReadNotMet",
+			use:      []stepOption{withCommand("true"), withPrecondition(&ir.Condition{Condition: "${TOKEN}", Expected: "real"})},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		{
 			name:     "PreconditionRead",
 			use:      []stepOption{withCommand("true"), withPrecondition(&ir.Condition{Condition: "${TOKEN}", Expected: "*******"})},

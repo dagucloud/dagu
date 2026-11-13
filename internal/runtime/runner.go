@@ -1671,7 +1671,12 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 	defer func() { _ = node.Teardown() }()
 
-	if err := node.evalPreconditions(ctx); err != nil {
+	err, readErr := evalPreconditions(ctx, node)
+	if readErr != nil {
+		node.SetStatus(ir.NodeFailed)
+		return readErr
+	}
+	if err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
 			return nil
@@ -2017,6 +2022,15 @@ func (r *Runner) handlePreconditionError(plan *Plan, err error) {
 	}
 }
 
+// evalPreconditions evaluates the node's preconditions. A precondition
+// decides on what it reads, so a masked read fails the step whatever the
+// precondition decides; readErr reports it.
+func evalPreconditions(ctx context.Context, node *Node) (err, readErr error) {
+	ctx = cmnvalue.TrackMaskedReads(ctx)
+	err = node.evalPreconditions(ctx)
+	return err, maskedReadError(ctx, node)
+}
+
 // maskedReadError returns the error for an output restored masked that the
 // node read through ctx, or nil. The original value is gone, so the step
 // would run on starred text.
@@ -2034,7 +2048,14 @@ func isMaskedRead(err error) bool {
 
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
-	err := node.evalPreconditions(ctx)
+	err, readErr := evalPreconditions(ctx, node)
+	if readErr != nil {
+		node.SetStatus(ir.NodeFailed)
+		node.MarkError(readErr)
+		r.setLastError(readErr)
+		r.report(ctx, progressCh, node)
+		return false, nil
+	}
 	if err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
