@@ -81,11 +81,12 @@ export function UpcomingRuns({
                 {!!schedule?.paramOverrideCount && (
                   <span>
                     {' · '}
-                    {schedule.paramOverrideCount === 1
-                      ? ts('1 parameter override')
-                      : ts('{count} parameter overrides', {
-                          count: schedule.paramOverrideCount,
-                        })}
+                    {ts(
+                      schedule.paramOverrideCount === 1
+                        ? '{count} parameter override'
+                        : '{count} parameter overrides',
+                      { count: schedule.paramOverrideCount }
+                    )}
                   </span>
                 )}
                 {notes.length > 0 && (

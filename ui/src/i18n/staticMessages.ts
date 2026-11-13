@@ -3113,6 +3113,8 @@ const baseEnglish = {
   'A new Dagu binary is installed. Restart Dagu to use it.':
     'A new Dagu binary is installed. Restart Dagu to use it.',
   'Upcoming runs': 'Upcoming runs',
+  '{count} parameter override': '{count} parameter override',
+  '{count} parameter overrides': '{count} parameter overrides',
   'last business day of the month': 'last business day of the month',
   "business day {n} from the month's end":
     "business day {n} from the month's end",
@@ -6266,6 +6268,8 @@ const baseChinese = {
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
   'Upcoming runs': '即将进行的运行',
+  '{count} parameter override': '{count} 个参数覆盖',
+  '{count} parameter overrides': '{count} 个参数覆盖',
   'last business day of the month': '当月最后一个工作日',
   "business day {n} from the month's end": '当月倒数第 {n} 个工作日',
   'business day {n} of the month': '当月第 {n} 个工作日',
@@ -9519,6 +9523,8 @@ const baseJapanese = {
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
   'Upcoming runs': '今後の実行',
+  '{count} parameter override': '{count} 件のパラメータ上書き',
+  '{count} parameter overrides': '{count} 件のパラメータ上書き',
   'last business day of the month': '月末営業日',
   "business day {n} from the month's end": '月末から {n} 番目の営業日',
   'business day {n} of the month': '第 {n} 営業日',
