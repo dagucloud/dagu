@@ -1396,6 +1396,9 @@ func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
 				runs = append(runs, run.Time.Format(time.RFC3339))
 			}
 			out["upcomingRuns"] = runs
+			if dated := upcomingRunDates(*dag.UpcomingRuns); len(dated) > 0 {
+				out["upcomingRunDates"] = dated
+			}
 		}
 		if dag.Steps != nil && len(*dag.Steps) > 0 {
 			steps := make([]map[string]any, 0, len(*dag.Steps))
@@ -1571,6 +1574,44 @@ func (a runAddress) subRunAddress(subRunID string) runAddress {
 	return runAddress{name: a.name, dagRunID: a.dagRunID, subRunID: subRunID}
 }
 
+// runDatesMap maps a run's dates to their values: a date, or a list of
+// dates for an entry that steps through the window.
+func runDatesMap(dates []daguapi.RunDateValue) map[string]any {
+	out := make(map[string]any, len(dates))
+	for _, date := range dates {
+		if date.List != nil && *date.List {
+			values := []string{}
+			if date.Values != nil {
+				values = *date.Values
+			}
+			out[date.Name] = values
+			continue
+		}
+		value := ""
+		if date.Value != nil {
+			value = *date.Value
+		}
+		out[date.Name] = value
+	}
+	return out
+}
+
+// upcomingRunDates lists the dates each upcoming run gets, for a DAG with
+// dates.
+func upcomingRunDates(runs []daguapi.UpcomingRun) []map[string]any {
+	var out []map[string]any
+	for _, run := range runs {
+		if run.Dates == nil || len(*run.Dates) == 0 {
+			continue
+		}
+		out = append(out, map[string]any{
+			"time":  run.Time.Format(time.RFC3339),
+			"dates": runDatesMap(*run.Dates),
+		})
+	}
+	return out
+}
+
 func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	run, err := dagRunDetailsFromResponse(raw)
 	if err != nil {
@@ -1618,6 +1659,12 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	}
 	if run.Params != nil && *run.Params != "" {
 		out["params"] = *run.Params
+	}
+	if run.Dates != nil && len(*run.Dates) > 0 {
+		out["dates"] = runDatesMap(*run.Dates)
+	}
+	if run.DefaultSlot != nil && *run.DefaultSlot {
+		out["defaultSlot"] = true
 	}
 	if run.Labels != nil && len(*run.Labels) > 0 {
 		out["labels"] = *run.Labels

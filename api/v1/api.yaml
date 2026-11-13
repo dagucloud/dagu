@@ -1556,6 +1556,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dags/{fileName}/slot-preview:
+    get:
+      summary: "Preview a schedule slot"
+      description: "Resolves the slot a run would be started for, with its window and the dates its run would get, without starting a run. With no scheduledAt, it previews the default slot a DAG with dates gives a run that names none."
+      operationId: "previewDAGSlot"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+        - name: scheduledAt
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "The slot as the start API takes it: latest, a date, a time without an offset, or an RFC 3339 time"
+        - name: profile
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Runtime profile whose schedules own the slot"
+      responses:
+        "200":
+          description: "The slot and its dates"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlotPreview"
+        "400":
+          description: "The slot or its dates cannot be resolved; the message says why"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /backfills:
     get:
       summary: "List backfills"
@@ -13813,6 +13861,40 @@ components:
         - windowEnd
         - action
 
+    SlotPreview:
+      type: object
+      description: "A schedule slot a run would be started for, and what it would get"
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+          description: "The slot; absent when the run would have none"
+        windowStart:
+          type: string
+          format: date-time
+          description: "Start of the window the slot owns"
+        nextScheduledAt:
+          type: string
+          format: date-time
+          description: "The next fire after the slot"
+        timezone:
+          type: string
+          description: "Zone of the slot's schedule"
+        defaultSlot:
+          type: boolean
+          description: "No slot was named, and the run would take the default slot"
+        warning:
+          type: string
+          description: "Set when the slot is not a fire time of the schedule"
+        dates:
+          type: array
+          description: "Dates the run would get, in declaration order"
+          items:
+            $ref: "#/components/schemas/RunDateValue"
+      required:
+        - defaultSlot
+        - dates
+
     RunDateValue:
       type: object
       description: "A resolved entry of a DAG's dates block"
@@ -16293,6 +16375,11 @@ components:
         extraBusinessDay:
           type: boolean
           description: "Whether the fire falls on a business day only because the calendar lists it"
+        dates:
+          type: array
+          description: "Dates the run of this fire gets from the DAG's dates block, in declaration order. Absent when the DAG has none."
+          items:
+            $ref: "#/components/schemas/RunDateValue"
       required:
         - time
         - scheduleIndex
@@ -17361,6 +17448,14 @@ components:
             log:
               type: string
               description: "Path to the log file"
+            dates:
+              type: array
+              description: "Dates the run resolved from its DAG's dates block when it was created, in declaration order"
+              items:
+                $ref: "#/components/schemas/RunDateValue"
+            defaultSlot:
+              type: boolean
+              description: "The run named no slot and took the default slot, the latest fire at or before its creation"
             nodes:
               type: array
               description: "Status of individual steps within the DAG-run"

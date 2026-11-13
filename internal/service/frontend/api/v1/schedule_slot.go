@@ -172,3 +172,47 @@ func (s *requestedSlot) windowOrZero() ir.ScheduleWindow {
 	}
 	return s.window
 }
+
+// PreviewDAGSlot resolves the slot a run would be started for, its window,
+// and the dates its run would get, without starting a run.
+func (a *API) PreviewDAGSlot(ctx context.Context, request api.PreviewDAGSlotRequestObject) (api.PreviewDAGSlotResponseObject, error) {
+	dag, _, err := a.backfillDAG(ctx, request.FileName, valueOf(request.Params.Profile))
+	if err != nil {
+		return nil, err
+	}
+	// The profile a start would use: the one named, else the DAG's default.
+	profile, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Params.Profile)
+	if err != nil {
+		return nil, err
+	}
+	slot, err := a.resolveRequestedSlot(dag, profile, request.Params.ScheduledAt)
+	if err != nil {
+		return nil, err
+	}
+	preview := api.SlotPreview{Dates: []api.RunDateValue{}}
+	scheduleTime, window := slot.scheduleTimeOrEmpty(), slot.windowOrZero()
+	if slot != nil {
+		preview.Warning = stringOrNil(slot.warning)
+	} else if def, ok := rundates.DefaultSlot(dag, profile, a.serverLocation(), a.calendarSource(), time.Now()); ok {
+		scheduleTime, window = def.ScheduleTime, def.Window
+		preview.DefaultSlot = true
+	}
+	if scheduleTime != "" {
+		at, err := stringutil.ParseTime(scheduleTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse slot %q: %w", scheduleTime, err)
+		}
+		preview.ScheduledAt = &at
+		preview.WindowStart = timeOrNil(window.Start)
+		preview.NextScheduledAt = timeOrNil(window.Next)
+		preview.Timezone = stringOrNil(window.Timezone)
+	}
+	dates, err := a.runDates(dag, profile, scheduleTime, window)
+	if err != nil {
+		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: err.Error()}
+	}
+	if converted := toAPIRunDates(dates); converted != nil {
+		preview.Dates = *converted
+	}
+	return api.PreviewDAGSlot200JSONResponse(preview), nil
+}
