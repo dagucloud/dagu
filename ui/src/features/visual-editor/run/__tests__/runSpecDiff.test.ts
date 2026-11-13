@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import { stepNeeds, staleUpstream } from '../reuseSource';
 import { yamlUnindentedQuote } from '../../testing/fixtures';
 import { diffRunSpec, normalizeSpec, specTextDiffers } from '../runSpecDiff';
 
@@ -120,6 +121,64 @@ steps:
   it('gives headChanged for a text that cannot be read', () => {
     expect(diffRunSpec(BASE, 'name: [\n').headChanged).toBe(true);
     expect(diffRunSpec('name: [\n', BASE).headChanged).toBe(true);
+  });
+
+  describe('with a sub-DAG after ---', () => {
+    const multi = (command: string) => `steps:
+  - name: child
+    call: transform
+  - name: use
+    depends: [child]
+    run: echo "\${steps.child.outputs.x}"
+  - name: other
+    run: echo free
+---
+name: transform
+steps:
+  - name: t
+    run: ${command}
+`;
+
+    it('marks the head and the steps downstream when a sub-DAG changes', () => {
+      const diff = diffRunSpec(multi('echo a'), multi('echo b'));
+      expect(diff.headChanged).toBe(true);
+      const stale = staleUpstream({
+        diff,
+        previous: ['child', 'use', 'other'],
+        deps: stepNeeds([
+          { name: 'child' },
+          { name: 'use', depends: ['child'] },
+          { name: 'other' },
+        ]),
+      });
+      expect(stale).toEqual(expect.arrayContaining(['child', 'use']));
+    });
+
+    it('finds no difference in an unchanged text', () => {
+      const diff = diffRunSpec(multi('echo a'), multi('echo a'));
+      expect(diff.headChanged).toBe(false);
+      expect([...diff.changed]).toEqual([]);
+    });
+
+    it('ignores comments and key order in the sub-DAG', () => {
+      const live = multi('echo a').replace(
+        'name: transform\nsteps:\n  - name: t\n    run: echo a\n',
+        '# note\nsteps:\n  - run: echo a\n    name: t\nname: transform\n'
+      );
+      expect(live).not.toBe(multi('echo a'));
+      expect(diffRunSpec(multi('echo a'), live).headChanged).toBe(false);
+    });
+
+    it('marks the head when a sub-DAG is added or removed', () => {
+      const single = multi('echo a').split('---')[0] ?? '';
+      expect(diffRunSpec(multi('echo a'), single).headChanged).toBe(true);
+      expect(diffRunSpec(single, multi('echo a')).headChanged).toBe(true);
+    });
+
+    it('marks the head when a later document cannot be read', () => {
+      const broken = `${multi('echo a').split('---')[0]}---\nsteps: [`;
+      expect(diffRunSpec(multi('echo a'), broken).headChanged).toBe(true);
+    });
   });
 
   // A chain step depends on the steps of the position before it.

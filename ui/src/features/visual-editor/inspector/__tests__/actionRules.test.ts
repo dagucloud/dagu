@@ -114,6 +114,7 @@ describe('builtinActionNames', () => {
   it.skipIf(!realSchema)('reads the builtin names of the DAG schema', () => {
     const names = builtinActionNames(realSchema!);
     expect(names.length).toBeGreaterThanOrEqual(77);
+    expect(names).toContain('agent.run');
     expect(names).toContain('http.request');
     expect(names).toContain('git.worktree.add');
   });
