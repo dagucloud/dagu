@@ -75,9 +75,11 @@ export function DAGBackfillsTab({
               {ts('No backfills yet.')}
             </p>
             <p>
-              {ts(
-                'A backfill runs the past slots of this schedule. Start one with dagu backfill start.'
-              )}
+              {canExecute
+                ? ts(
+                    'A backfill runs the past slots of this schedule. Start one from the slots above.'
+                  )
+                : ts('A backfill runs the past slots of this schedule.')}
             </p>
           </div>
         ) : (
