@@ -617,6 +617,16 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// Initialize propagators for W3C trace context before anything else
 	telemetry.InitializePropagators()
 
+	if err := a.resolveDates(ctx); err != nil {
+		return err
+	}
+	// The env resolved at startup may read the params that wait for the dates.
+	// A failed eval fails the run once its attempt is open.
+	paramsErr := a.evaluateDeferredParams(logger.WithValues(startupCtx, centralLogFields...))
+	if paramsErr != nil && startupCtx.Err() != nil {
+		return a.abortStartup(ctx, nil)
+	}
+
 	startup, err := a.resolveStartup(logger.WithValues(startupCtx, centralLogFields...))
 	if err != nil {
 		return a.abortStartup(ctx, nil)
@@ -709,10 +719,6 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	initializationCtx, finishInitialization := bindStartupContext(ctx, startupCtx)
 	defer finishInitialization()
-
-	if err := a.resolveDates(ctx); err != nil {
-		return err
-	}
 
 	// Check if the DAG is already running.
 	if err := a.checkIsAlreadyRunning(initializationCtx); err != nil {
@@ -890,6 +896,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	// Handle dry execution.
 	if a.dry {
+		a.noteDryRunStartup(ctx, "params", paramsErr)
 		if dotenvErr != nil {
 			a.noteDryRunStartup(ctx, "dotenv", fmt.Errorf("failed to load dotenv: %w", dotenvErr))
 		}
@@ -942,6 +949,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
+	if paramsErr != nil {
+		initErr = paramsErr
+		return initErr
+	}
 	if dotenvErr != nil {
 		initErr = fmt.Errorf("failed to load dotenv: %w", dotenvErr)
 		return initErr
@@ -1836,6 +1847,30 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 		return err
 	}
 	a.setDates(dates)
+	return nil
+}
+
+// evaluateDeferredParams gives the params whose eval waits for the run their
+// values, from the run's dates and the context it has at creation. The eval
+// runs without the agent's lock, so a stop request can cancel ctx.
+func (a *Agent) evaluateDeferredParams(ctx context.Context) error {
+	a.lock.RLock()
+	dag, dates := a.dag, a.dates
+	a.lock.RUnlock()
+	if len(dag.DeferredParams) == 0 {
+		return nil
+	}
+	runContext := runctx.CreationContext(dag.Name, a.dagRunID, a.contextScheduleTime(), a.contextScheduleWindow())
+	evaluated, err := spec.EvaluateDeferredParams(ctx, dag.Clone(), dates, runContext)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate params: %w", err)
+	}
+	a.lock.Lock()
+	a.dag = evaluated
+	a.lock.Unlock()
+	if a.progressDisplay != nil {
+		a.progressDisplay.SetDAGRunInfo(a.dagRunID, strings.Join(evaluated.Params, " "))
+	}
 	return nil
 }
 

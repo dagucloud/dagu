@@ -39,6 +39,8 @@ type dagParamEntry struct {
 	Value    string
 	HasValue bool
 	Eval     string
+	// Deferred marks an eval that waits for the run's values.
+	Deferred bool
 }
 
 func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
@@ -55,6 +57,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	defaultEntries := cloneParamEntries(plan.entries)
 	defaultPairs := runtimePairsFromEntries(defaultEntries)
 	finalPairs := defaultPairs
+	var deferred []string
 
 	switch plan.kind {
 	case dagParamKindLegacy:
@@ -75,6 +78,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 				return nil, err
 			}
 			finalPairs = runtimePairsFromEntries(finalEntries)
+			deferred = deferredParamNames(finalEntries)
 
 			// Eval-backed inline params may depend on mutable state or perform command
 			// execution, so reuse the execution-time resolution instead of running
@@ -92,6 +96,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 		defaultPairs = runtimePairsFromEntries(defaultEntries)
 		if !resolveRuntimeParams {
 			finalPairs = defaultPairs
+			deferred = deferredParamNames(defaultEntries)
 		}
 
 	case dagParamKindExternalSchema:
@@ -139,12 +144,23 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	}
 
 	return &paramsResult{
-		Params:        params,
-		DefaultParams: defaultParams,
-		ParamDefs:     cloneParamDefs(plan.paramDefs),
-		ParamSchema:   paramSchema,
-		ParamsJSON:    paramsJSON,
+		Params:         params,
+		DefaultParams:  defaultParams,
+		ParamDefs:      cloneParamDefs(plan.paramDefs),
+		ParamSchema:    paramSchema,
+		ParamsJSON:     paramsJSON,
+		DeferredParams: deferred,
 	}, nil
+}
+
+func deferredParamNames(entries []dagParamEntry) []string {
+	var names []string
+	for i, entry := range entries {
+		if entry.Deferred {
+			names = append(names, paramScopeName(entry, i))
+		}
+	}
+	return names
 }
 
 func shouldResolveRuntimeParams(ctx buildContext) bool {

@@ -486,6 +486,8 @@ Rules:
 Availability rules:
 
 - DAG and run identity are available after the DAG run is created.
+- `params[].eval` reads the DAG name, the run ID, `context.run.scheduled_at`,
+  the window fields, and `context.run.timezone`, as Spec 003 defines.
 - Attempt identity is available only in scopes that know the current DAG-run
   attempt.
 - Step context is available only while evaluating or executing the current step

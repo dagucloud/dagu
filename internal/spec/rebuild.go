@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -26,6 +28,27 @@ import (
 // resolve differently or fail to resolve at all. Keys the YAML does not declare
 // are appended from the captured environment instead of being dropped.
 func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]string) (*ir.DAG, error) {
+	params := dag.Params
+	if len(paramsOverride) > 0 {
+		params = paramsOverride[0]
+	}
+	return reloadFromYAML(ctx, dag, params, nil)
+}
+
+// EvaluateDeferredParams rebuilds dag with the run's dates and context, so
+// the params that dag.DeferredParams names get their values, and returns
+// dag. The env entries the DAG declares are resolved again, since they may
+// read those params. A DAG without deferred params is returned unchanged.
+func EvaluateDeferredParams(ctx context.Context, dag *ir.DAG, dates []ir.DateValue, runContext cmnvalue.BuiltinContext) (*ir.DAG, error) {
+	if len(dag.DeferredParams) == 0 {
+		return dag, nil
+	}
+	return reloadFromYAML(ctx, dag, dag.Params, declaredEnvKeys(dag), WithRunValues(dates, runContext))
+}
+
+// reloadFromYAML reloads dag from its YamlData with params, reusing the
+// captured env except the keys in resolveAgain.
+func reloadFromYAML(ctx context.Context, dag *ir.DAG, params []string, resolveAgain map[string]struct{}, extra ...LoadOption) (*ir.DAG, error) {
 	if len(dag.YamlData) == 0 {
 		return dag, nil
 	}
@@ -43,11 +66,10 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 	}
 	transportEnv := buildenv.FromMap(presolvedBuildEnv.Env)
 	maps.Copy(buildEnvMap, presolvedBuildEnv.Env)
-
-	params := dag.Params
-	if len(paramsOverride) > 0 {
-		params = paramsOverride[0]
+	for key := range resolveAgain {
+		delete(buildEnvMap, key)
 	}
+
 	loadOpts := []LoadOption{
 		WithParams(params),
 		SkipSchemaValidation(),
@@ -65,6 +87,7 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 	if dag.Name != "" {
 		loadOpts = append(loadOpts, WithName(dag.Name))
 	}
+	loadOpts = append(loadOpts, extra...)
 
 	fresh, err := LoadYAML(ctx, dag.YamlData, loadOpts...)
 	if err != nil {
@@ -79,4 +102,20 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 	ir.InitializeDefaults(dag)
 
 	return dag, nil
+}
+
+// declaredEnvKeys returns the keys of the env entries the DAG declares
+// itself, as opposed to those of its base config.
+func declaredEnvKeys(dag *ir.DAG) map[string]struct{} {
+	span := dag.RootEnvSpan
+	if span.Start < 0 || span.End > len(dag.Env) || span.Start >= span.End {
+		return nil
+	}
+	keys := make(map[string]struct{}, span.End-span.Start)
+	for _, entry := range dag.Env[span.Start:span.End] {
+		if key, _, ok := strings.Cut(entry, "="); ok {
+			keys[key] = struct{}{}
+		}
+	}
+	return keys
 }

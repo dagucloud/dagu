@@ -195,6 +195,38 @@ func TestResolveDatesAtStart(t *testing.T) {
 	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}, a.dates)
 }
 
+// A param whose eval reads the run's dates or context gets its value once
+// the dates resolve, and so does the env that reads it.
+func TestEvaluateDeferredParams(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+dates:
+  target_day: -1d
+params:
+  - name: day
+    eval: "${dates.target_day}"
+  - name: run
+    eval: "${context.run.id}"
+env:
+  - DAY: ${params.day}
+steps:
+  - run: echo ${params.day}
+`))
+	require.NoError(t, err)
+	a := &Agent{
+		dag:            dag,
+		dagRunID:       "run-1",
+		scheduleTime:   "2026-11-10T02:00:00Z",
+		scheduleWindow: ir.ScheduleWindow{Timezone: "UTC"},
+	}
+
+	require.NoError(t, a.resolveDates(context.Background()))
+	require.NoError(t, a.evaluateDeferredParams(context.Background()))
+	assert.Equal(t, []string{"day=2026-11-09", "run=run-1"}, a.dag.Params)
+	assert.Contains(t, a.dag.Env, "DAY=2026-11-09")
+}
+
 // A queued run of a DAG with dates that names no slot, such as a webhook
 // run, takes the default slot of its creation, not of its start.
 func TestResolveDatesTakesDefaultSlot(t *testing.T) {

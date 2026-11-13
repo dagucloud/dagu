@@ -107,6 +107,17 @@ func WithoutEval() LoadOption {
 	}
 }
 
+// WithRunValues gives a param's eval the run's dates and context. Without
+// it, an eval that reads them waits for the run, and so does every eval
+// after it: see ir.DAG.DeferredParams.
+func WithRunValues(dates []ir.DateValue, runContext cmnvalue.BuiltinContext) LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagRunValues
+		o.RunDates = ir.DateTexts(dates)
+		o.RunContext = runContext
+	}
+}
+
 // OnlyMetadata sets the flag to load only metadata.
 func OnlyMetadata() LoadOption {
 	return func(o *buildOpts) {
@@ -886,10 +897,14 @@ func buildDocumentContext(ctx buildContext, index int) buildContext {
 		return ctx
 	}
 
+	// The caller's params and the run's values belong to the first document,
+	// the DAG the run starts.
 	opts := ctx.opts
 	opts.Parameters = ""
 	opts.ParametersList = nil
-	opts.Flags &^= buildFlagValidateRuntimeParams
+	opts.Flags &^= buildFlagValidateRuntimeParams | buildFlagRunValues
+	opts.RunDates = nil
+	opts.RunContext = cmnvalue.BuiltinContext{}
 	return ctx.WithOpts(opts)
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -597,4 +598,123 @@ func TestExternalSchemaParamDefs_MetadataAndExecution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"count=4", "region=us-east-1"}, dag.Params)
 	assert.JSONEq(t, `{"region":"us-east-1","count":"4"}`, dag.ParamsJSON)
+}
+
+// An eval that reads the run's dates or context waits for the run: a load
+// without run values leaves it, and every eval after it, unset. An eval
+// before it, and a param the caller gives, keep their values.
+func TestInlineParamDefs_EvalReadingRunValuesWaitsForTheRun(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: eval-run-values
+dates:
+  target_day: -1d
+params:
+  - name: region
+    eval: "us-east-1"
+  - name: day
+    eval: "${dates.target_day}"
+  - name: run
+    eval: "${context.run.id}"
+  - name: path
+    eval: "/data/$region"
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=us-east-1"}, dag.Params)
+	assert.Equal(t, []string{"day", "run", "path"}, dag.DeferredParams)
+
+	dag, err = LoadYAML(context.Background(), yaml, WithParams(`day=2026-11-01`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=us-east-1", "day=2026-11-01"}, dag.Params)
+	assert.Equal(t, []string{"run", "path"}, dag.DeferredParams)
+
+	dates := []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}
+	runContext := cmnvalue.NewBuiltinContext(map[string]string{"context.run.id": "run-1"})
+	dag, err = LoadYAML(context.Background(), yaml, WithRunValues(dates, runContext))
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"region=us-east-1",
+		"day=2026-11-09",
+		"run=run-1",
+		"path=/data/us-east-1",
+	}, dag.Params)
+	assert.Empty(t, dag.DeferredParams)
+}
+
+// A param that waits for the run is neither required nor defaulted while
+// the DAG loads without the run's values: its eval decides it at the start.
+func TestInlineParamDefs_WaitingEvalSkipsRequiredAndDefault(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: eval-run-values-required
+dates:
+  target_day: -1d
+params:
+  - name: region
+    type: string
+  - name: day
+    type: string
+    required: true
+    default: "1970-01-01"
+    eval: "${dates.target_day}"
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithParams(`region=eu`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=eu"}, dag.Params)
+	assert.Equal(t, []string{"day"}, dag.DeferredParams)
+
+	dag, err = LoadYAML(context.Background(), yaml)
+	require.NoError(t, err)
+	assert.Empty(t, dag.Params)
+	assert.Equal(t, []string{"day"}, dag.DeferredParams)
+
+	dates := []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}
+	dag, err = LoadYAML(context.Background(), yaml, WithParams(`region=eu`), WithRunValues(dates, cmnvalue.BuiltinContext{}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=eu", "day=2026-11-09"}, dag.Params)
+}
+
+// The run's values belong to the DAG the run starts: a local DAG in the
+// same file keeps its own waiting params for when it starts.
+func TestInlineParamDefs_RunValuesStayWithTheFirstDocument(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: parent
+dates:
+  target_day: -1d
+params:
+  - name: day
+    eval: "${dates.target_day}"
+steps:
+  - action: dag.run
+    with:
+      dag: child
+
+---
+
+name: child
+dates:
+  child_day: -2d
+params:
+  - name: day
+    eval: "${dates.child_day}"
+steps:
+  - run: echo ${params.day}
+`)
+
+	dates := []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}
+	dag, err := LoadYAML(context.Background(), yaml, WithRunValues(dates, cmnvalue.BuiltinContext{}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"day=2026-11-09"}, dag.Params)
+
+	child, ok := dag.LocalDAGs["child"]
+	require.True(t, ok)
+	assert.Empty(t, child.Params)
+	assert.Equal(t, []string{"day"}, child.DeferredParams)
 }

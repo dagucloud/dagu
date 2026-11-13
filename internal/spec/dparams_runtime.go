@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const maxInt64AsUint = ^uint64(0) >> 1
@@ -218,8 +220,14 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 	scope := buildParamEvalScope(ctx)
 	params := make(cmnvalue.Values)
 	paramDeclarations := paramDeclarationsForPlan(plan)
+	waiting := false
 	for i := range entries {
 		if i < len(plan.entries) {
+			if !overridden[i] && waitsForRun(ctx, plan.entries[i].Eval, waiting) {
+				waiting = true
+				entries[i].Value, entries[i].HasValue, entries[i].Deferred = "", false, true
+				continue
+			}
 			if err := resolveLegacyEntry(ctx, &entries[i], plan.entries[i], overridden[i], &scope, params, paramDeclarations, i); err != nil {
 				return nil, err
 			}
@@ -233,12 +241,44 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 		return appendPassThroughEntries(entries, passThroughPairs), nil
 	}
 
-	entries, err = validateSchemaBackedEntries(entries, plan.schema, plan.schemaProperties, plan.schemaOrder, metadataMode, false)
+	// A param that waits for the run is neither required nor defaulted now:
+	// its eval decides its value when the run starts.
+	schema := plan.schema
+	if waiting {
+		schema, err = withoutRequired(plan.schema, deferredParamNames(entries))
+		if err != nil {
+			return nil, err
+		}
+	}
+	entries, err = validateSchemaBackedEntries(entries, schema, plan.schemaProperties, plan.schemaOrder, metadataMode, false)
 	if err != nil {
 		return nil, err
 	}
+	for i := range entries {
+		if entries[i].Deferred {
+			entries[i].Value, entries[i].HasValue = "", false
+		}
+	}
 
 	return appendPassThroughEntries(entries, passThroughPairs), nil
+}
+
+// withoutRequired returns schema with names left out of its required list.
+func withoutRequired(schema *jsonschema.Resolved, names []string) (*jsonschema.Resolved, error) {
+	required := schema.Schema().Required
+	kept := slices.DeleteFunc(slices.Clone(required), func(name string) bool {
+		return slices.Contains(names, name)
+	})
+	if len(kept) == len(required) {
+		return schema, nil
+	}
+	clone := schema.Schema().CloneSchemas()
+	clone.Required = kept
+	resolved, err := clone.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare parameter schema: %w", err)
+	}
+	return resolved, nil
 }
 
 func parseOverridePairs(rawParams string, paramsList []string) ([]paramPair, error) {
@@ -489,6 +529,16 @@ func buildParamEvalScope(ctx buildContext) *cmnvalue.EnvScope {
 	return scope
 }
 
+// waitsForRun reports whether a param's eval waits for the run's values: it
+// reads the run's dates or context, or follows an eval that waits. It waits
+// only in a load that evaluates without them.
+func waitsForRun(ctx buildContext, eval string, afterWaiting bool) bool {
+	if strings.TrimSpace(eval) == "" || ctx.opts.Has(buildFlagNoEval) || ctx.opts.Has(buildFlagRunValues) {
+		return false
+	}
+	return afterWaiting || cmnvalue.HasReferenceToNamespace(eval, "dates", "context")
+}
+
 func resolveLegacyEntry(
 	ctx buildContext,
 	entry *dagParamEntry,
@@ -516,10 +566,16 @@ func resolveLegacyEntry(
 	}
 	runtimeScope.Consts = consts
 	runtimeScope.Params = params
+	staticScope := cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations}
+	if ctx.opts.Has(buildFlagRunValues) {
+		runtimeScope.Dates = ctx.opts.RunDates
+		runtimeScope.BuiltinContext = ctx.opts.RunContext
+		staticScope.Dates = ctx.opts.RunDates
+	}
 	fieldPath := fmt.Sprintf("params[%d].eval", index)
 	reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, fieldPath, base.Eval)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
+		staticScope,
 		runtimeScope,
 		cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 	)
