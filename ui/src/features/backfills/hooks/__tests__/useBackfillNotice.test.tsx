@@ -169,4 +169,22 @@ describe('useBackfillNotice', () => {
     );
     open.mockRestore();
   });
+
+  // The workflow's details read can bring newer counts than the feed gave;
+  // the feed's older snapshot must not come back over them.
+  it('keeps a newer read over an older snapshot of the feed', () => {
+    sse.data = backfill({ counts: { succeeded: 14, pending: 14 } });
+    const { result, rerender } = renderHook(
+      ({ latest }) => useBackfillNotice(latest, 'local'),
+      { wrapper, initialProps: { latest: backfill() } }
+    );
+    expect(result.current?.message).toBe(
+      'Backfill running: 14 of 28 slots done'
+    );
+
+    rerender({ latest: backfill({ counts: { succeeded: 20, pending: 8 } }) });
+    expect(result.current?.message).toBe(
+      'Backfill running: 20 of 28 slots done'
+    );
+  });
 });

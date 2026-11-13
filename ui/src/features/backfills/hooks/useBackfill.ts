@@ -136,13 +136,19 @@ export function useLiveBackfill(
     }
   );
   const streamed = sse.isConnected ? sse.data : undefined;
+  // A snapshot of the feed or of a read applies once, when it comes: a newer
+  // read by the caller must not bring an older snapshot back.
+  const appliedStream = useRef<Backfill | undefined>(undefined);
+  const appliedRead = useRef<Backfill | undefined>(undefined);
   useEffect(() => {
-    if (streamed && streamed.id === knownId) {
-      setSeen({ key: knownKey, value: streamed });
-    }
+    if (!streamed || streamed === appliedStream.current) return;
+    appliedStream.current = streamed;
+    if (streamed.id === knownId) setSeen({ key: knownKey, value: streamed });
   }, [knownId, knownKey, streamed]);
   useEffect(() => {
-    if (data && data.id === knownId) setSeen({ key: knownKey, value: data });
+    if (!data || data === appliedRead.current) return;
+    appliedRead.current = data;
+    if (data.id === knownId) setSeen({ key: knownKey, value: data });
   }, [knownId, knownKey, data]);
   return current;
 }
