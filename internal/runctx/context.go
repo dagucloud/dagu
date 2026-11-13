@@ -43,7 +43,9 @@ type Context struct {
 	NextScheduledAt  string
 	ScheduleTimezone string
 	// ScheduleWindow is the same window, as child runs inherit it.
-	ScheduleWindow       ir.ScheduleWindow
+	ScheduleWindow ir.ScheduleWindow
+	// Dates are the run's dates, as ${dates.NAME} inserts them.
+	Dates                cmnvalue.Values
 	DAG                  *ir.DAG
 	DAGLoader            DAGLoader
 	BaseEnv              *config.BaseEnv
@@ -254,6 +256,13 @@ func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
 		o.NextScheduledAt = contextInstant(window.Next)
 		o.ScheduleTimezone = window.Timezone
 		o.ScheduleWindow = window
+	}
+}
+
+// WithDates sets the run's dates for value resolution.
+func WithDates(dates []ir.DateValue) ContextOption {
+	return func(o *contextOptions) {
+		o.Dates = ir.DateTexts(dates)
 	}
 }
 
@@ -470,7 +479,7 @@ func NewContext(
 	maps.Copy(baseForDAGEnv, managedEnvs)
 
 	runBuiltinContext := buildDAGRunBuiltinContext(dag, dagRunID, managedEnvs, options)
-	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext)
+	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext, options.Dates)
 
 	secretEnvs := stringutil.KeyValuesToMap(options.secretEnvs)
 
@@ -528,6 +537,7 @@ func evaluateDAGEnvRuntime(
 	runScoped map[string]string,
 	protected map[string]string,
 	runBuiltinContext cmnvalue.BuiltinContext,
+	dates cmnvalue.Values,
 ) map[string]string {
 	var envList []string
 	var params cmnvalue.Values
@@ -578,14 +588,14 @@ func evaluateDAGEnvRuntime(
 		var field cmnvalue.Field
 		if i >= span.Start && i < span.End {
 			resolver = cmnvalue.NewResolver(
-				cmnvalue.StaticScope{},
-				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext},
+				cmnvalue.StaticScope{Dates: dag.DateNames()},
+				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext, Dates: dates},
 			)
 			field = cmnvalue.DAGEnvCompletionField("env." + key)
 		} else {
 			resolver = cmnvalue.NewResolver(
-				cmnvalue.StaticScope{Params: paramDeclarations},
-				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext},
+				cmnvalue.StaticScope{Params: paramDeclarations, Dates: dag.DateNames()},
+				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext, Dates: dates},
 			)
 			field = cmnvalue.RuntimeDAGEnvField("env." + key)
 		}

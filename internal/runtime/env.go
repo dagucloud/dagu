@@ -204,6 +204,7 @@ type dagValueResolutionScope struct {
 	params            cmnvalue.Values
 	paramsJSON        string
 	paramDeclarations cmnvalue.Values
+	dateNames         cmnvalue.Values
 }
 
 func newDAGValueResolutionScope(dag *ir.DAG) dagValueResolutionScope {
@@ -213,9 +214,16 @@ func newDAGValueResolutionScope(dag *ir.DAG) dagValueResolutionScope {
 			params:            dag.ParamValues(),
 			paramsJSON:        dag.ParamsJSON,
 			paramDeclarations: dag.ParamDeclarations(),
+			dateNames:         dag.DateNames(),
 		}
 	}
 	return dagValueResolutionScope{}
+}
+
+// staticScope returns the declarations the DAG's references are checked
+// against.
+func (s dagValueResolutionScope) staticScope() cmnvalue.StaticScope {
+	return cmnvalue.StaticScope{Consts: s.consts, Params: s.paramDeclarations, Dates: s.dateNames}
 }
 
 func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.DAG, scope *cmnvalue.EnvScope, step ir.Step, field cmnvalue.Field, steps map[string]cmnvalue.StepInfo) (string, error) {
@@ -228,7 +236,7 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.D
 		foreach = inherited.Foreach
 	}
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: dagScope.consts, Params: dagScope.paramDeclarations},
+		dagScope.staticScope(),
 		cmnvalue.RuntimeScope{
 			Consts:         dagScope.consts,
 			Params:         dagScope.params,
@@ -237,6 +245,7 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.D
 			Steps:          steps,
 			Foreach:        foreach,
 			BuiltinContext: builtinContextFromDAGContext(rCtx, scope, step),
+			Dates:          rCtx.Dates,
 		},
 	)
 	return resolver.String(ctx, raw, field)
@@ -515,8 +524,8 @@ func evalShellWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvSco
 func evalShellInvocationWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope, shell string, shellArgs []string, shellFieldForPath func(string) cmnvalue.Field, argFieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	dagScope := newDAGValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: dagScope.consts, Params: dagScope.paramDeclarations},
-		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope},
+		dagScope.staticScope(),
+		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope, Dates: GetDAGContext(ctx).Dates},
 	)
 	shellCmd, err := resolver.String(ctx, shell, shellFieldForPath("shell"))
 	if err != nil {
@@ -529,8 +538,8 @@ func evalShellInvocationWithScope(ctx context.Context, dag *ir.DAG, scope *cmnva
 func evalShellArgsWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.EnvScope, shell []string, shellArgs []string, fieldForPath func(string) cmnvalue.Field) ([]string, error) {
 	dagScope := newDAGValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: dagScope.consts, Params: dagScope.paramDeclarations},
-		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope},
+		dagScope.staticScope(),
+		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope, Dates: GetDAGContext(ctx).Dates},
 	)
 	return evalShellArgsWithResolver(ctx, shell, shellArgs, fieldForPath, resolver)
 }

@@ -425,3 +425,16 @@ func zoneFromLabel(label string) (*time.Location, error) {
 	}
 	return time.LoadLocation(label)
 }
+
+// DateTexts maps resolved dates to their names, as ${dates.NAME} inserts
+// them. Nil values give a nil map.
+func DateTexts(values []DateValue) map[string]any {
+	if values == nil {
+		return nil
+	}
+	texts := make(map[string]any, len(values))
+	for _, value := range values {
+		texts[value.Name] = value.Text()
+	}
+	return texts
+}

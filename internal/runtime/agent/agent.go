@@ -46,6 +46,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
@@ -58,6 +59,7 @@ import (
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
@@ -240,6 +242,9 @@ type Agent struct {
 	// scheduleWindow is the window the run's schedule slot owns.
 	scheduleWindow ir.ScheduleWindow
 
+	// dates are the run's dates. See resolveDates.
+	dates []ir.DateValue
+
 	// queuedRun indicates this execution is from a queued item.
 	// The dag-run was already created by the enqueue command.
 	queuedRun bool
@@ -420,6 +425,10 @@ type Options struct {
 	// ScheduleWindow is the window the slot at ScheduleTime owns. A retried
 	// run keeps the window recorded on its status instead.
 	ScheduleWindow ir.ScheduleWindow
+	// Dates are the run's dates, resolved when it was created. When nil, a
+	// run of a DAG with dates resolves them as it starts. A retried run keeps
+	// the dates recorded on its status instead.
+	Dates []ir.DateValue
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
 	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
@@ -499,6 +508,7 @@ func New(
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
 		scheduleWindow:           opts.ScheduleWindow,
+		dates:                    opts.Dates,
 		dagRunLogDir:             opts.DAGRunLogDir,
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
@@ -692,6 +702,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	initializationCtx, finishInitialization := bindStartupContext(ctx, startupCtx)
 	defer finishInitialization()
 
+	if err := a.resolveDates(ctx); err != nil {
+		return err
+	}
+
 	// Check if the DAG is already running.
 	if err := a.checkIsAlreadyRunning(initializationCtx); err != nil {
 		return err
@@ -794,6 +808,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			runtime.WithScheduleWindow(a.contextScheduleWindow()),
 		)
 	}
+	contextOpts = append(contextOpts, runtime.WithDates(a.dates))
 	if len(a.extraEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
 	}
@@ -1665,6 +1680,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithScheduleWindow(a.scheduleWindow),
 			)
 		}
+		statusOpts = append(statusOpts, ir.WithDates(a.recordedDates(source)))
 		runStatus := ir.Failed
 		if !a.startupFinishedAt.IsZero() {
 			runStatus = ir.Aborted
@@ -1738,6 +1754,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithScheduleWindow(a.scheduleWindow),
 		)
 	}
+	opts = append(opts, ir.WithDates(a.recordedDates(source)))
 
 	// Create the status object to record the current status.
 	status := ir.NewStatusBuilder(a.dag).
@@ -1791,6 +1808,55 @@ func (a *Agent) contextScheduleWindow() ir.ScheduleWindow {
 		return source.ScheduleWindow()
 	}
 	return a.scheduleWindow
+}
+
+// resolveDates sets the run's dates: those recorded on the run it
+// continues, else those it was started with, else resolved now from its
+// slot, once, so that every attempt reads the same values.
+func (a *Agent) resolveDates(ctx context.Context) error {
+	source := a.statusSourceTarget()
+	if source != nil && source.Dates != nil {
+		a.setDates(source.Dates)
+		return nil
+	}
+	if a.dates != nil || len(a.dag.Dates) == 0 {
+		return nil
+	}
+	createdAt := time.Now()
+	if source != nil && source.CreatedAt > 0 {
+		createdAt = time.UnixMilli(source.CreatedAt)
+	}
+	cfg := config.GetConfig(ctx)
+	dates, err := rundates.Resolve(rundates.Request{
+		DAG:          a.dag,
+		Profile:      a.profileName,
+		ScheduleTime: a.contextScheduleTime(),
+		Window:       a.contextScheduleWindow(),
+		Inherited:    !a.parentDAGRun.Zero(),
+		CreatedAt:    createdAt,
+		Location:     cfg.Core.Location,
+		Calendars:    spec.NewCalendarSource(cfg.Paths.CalendarsDir),
+	})
+	if err != nil {
+		return err
+	}
+	a.setDates(dates)
+	return nil
+}
+
+func (a *Agent) setDates(dates []ir.DateValue) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	a.dates = dates
+}
+
+// recordedDates returns the dates to record on the run's status. The
+// caller holds the lock.
+func (a *Agent) recordedDates(source *ir.DAGRunStatus) []ir.DateValue {
+	if a.dates == nil && source != nil {
+		return source.Dates
+	}
+	return a.dates
 }
 
 func contextTimeValue(raw string) string {
@@ -2500,6 +2566,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 			runtime.WithScheduleWindow(a.contextScheduleWindow()),
 		)
 	}
+	contextOpts = append(contextOpts, runtime.WithDates(a.dates))
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
 	}

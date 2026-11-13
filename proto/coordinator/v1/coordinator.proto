@@ -179,6 +179,9 @@ message Task {
   string interval_start = 43;
   string next_scheduled_at = 44;
   string schedule_timezone = 45;
+  // The run's dates as JSON, resolved when the run was created. Empty when
+  // the run resolves them as it starts.
+  string dates_json = 46;
 }
 
 enum Operation {

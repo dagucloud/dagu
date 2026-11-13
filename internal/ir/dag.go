@@ -750,6 +750,19 @@ func (d *DAG) ParamsMap() map[string]string {
 	return params
 }
 
+// DateNames returns the names the DAG's dates block declares, as a non-nil
+// map, so that a reference to any other name is known to be undeclared.
+func (d *DAG) DateNames() map[string]any {
+	names := make(map[string]any)
+	if d == nil {
+		return names
+	}
+	for _, spec := range d.Dates {
+		names[spec.Name] = ""
+	}
+	return names
+}
+
 // ParamDeclarations returns named parameters that can be referenced through ${params.name}.
 func (d *DAG) ParamDeclarations() map[string]any {
 	if d == nil || len(d.ParamDefs) == 0 {

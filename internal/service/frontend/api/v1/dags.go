@@ -1239,6 +1239,9 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	if err := a.checkDates(dag, profileName, slot); err != nil {
+		return nil, err
+	}
 
 	if len(selection.steps) > 0 {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
@@ -1781,6 +1784,13 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 			executor.WithScheduleWindow(opts.scheduleWindow),
 		)
 	}
+	dates, err := a.runDates(dag, opts.profileName, opts.scheduleTime, opts.scheduleWindow)
+	if err != nil {
+		return err
+	}
+	if dates != nil {
+		taskOpts = append(taskOpts, executor.WithDates(dates))
+	}
 	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 	taskOpts = append(taskOpts, executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace))
 	if dag.SourceFile != "" {
@@ -2044,6 +2054,9 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	}
 	slot, err := a.resolveRequestedSlot(dag, profileName, request.Body.ScheduleTime)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.checkDates(dag, profileName, slot); err != nil {
 		return nil, err
 	}
 

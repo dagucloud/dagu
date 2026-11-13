@@ -71,6 +71,13 @@ func WithScheduleWindow(window ScheduleWindow) StatusOption {
 	}
 }
 
+// WithDates sets the run's dates.
+func WithDates(dates []DateValue) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.Dates = dates
+	}
+}
+
 // WithFinishedAt sets the completion time.
 func WithFinishedAt(finishedAt time.Time) StatusOption {
 	return func(status *DAGRunStatus) {

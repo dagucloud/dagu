@@ -58,6 +58,8 @@ var (
 	WithScheduleTime = runctx.WithScheduleTime
 	// WithScheduleWindow sets the window the schedule slot owns.
 	WithScheduleWindow = runctx.WithScheduleWindow
+	// WithDates sets the run's dates.
+	WithDates = runctx.WithDates
 	// WithParams sets runtime parameters.
 	WithParams = runctx.WithParams
 	// WithParamsJSON replaces the DAG's params JSON in the environment steps
