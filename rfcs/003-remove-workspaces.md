@@ -180,10 +180,10 @@ request, scheduler unit, or task ──▶ project ID ──▶ that project's s
   A project never creates its own key, so migrated secrets decrypt
   unchanged. A project directory copied to another server decrypts there
   only with the same key.
-- **Reads across projects.** Most pages show one project. Search, and any
-  page that spans projects, reads the stores of each project the user can
-  see, a few at a time, and merges the results. Its cost grows with the
-  number of projects.
+- **Reads across projects.** Most pages show one project. Search and the
+  All projects view read the stores of each project the user can see, a few
+  at a time, and merge the results. Their cost grows with the number of
+  projects.
 
 ### Base config
 
@@ -354,6 +354,9 @@ a DAG and kept its history; a move between projects keeps it too.
 - The workspace selector becomes a project selector. It lists the projects
   the user can see by display name, and appears only when the user can see
   more than one. A single-project install looks as it does today.
+- The selector also offers All projects for the run list, failures, and the
+  dashboard, so a person on call for several projects finds every failure
+  in one place. It shows only the projects the user can see.
 - Project IDs never appear in the UI. The name appears only where people
   type it: CLI hints, `project_mappings`, and links.
 - Creating a project asks for a display name and suggests a name from it,
@@ -618,6 +621,8 @@ v2 gets no new workspace features.
 26. Moving a DAG to another project keeps its runs, logs, state, and webhook
     URLs. It lists what the target project lacks before it moves, and is
     refused while a `dag.run` caller remains in the source project.
+27. All projects shows the runs and failures of every project the user can
+    see, and of no other.
 
 ## Alternatives considered
 
@@ -698,6 +703,6 @@ v2 gets no new workspace features.
    git sync also supports one repository per project.
 2. **A server-wide cap on concurrent runs** across projects, beyond queues
    defined in `config.yaml`.
-3. **An index for reads across projects.** Search reads every visible
-   project's stores. Open: whether servers with many projects need a
-   server-wide index.
+3. **An index for reads across projects.** Search and the All projects view
+   read every visible project's stores. Open: whether servers with many
+   projects need a server-wide index.
