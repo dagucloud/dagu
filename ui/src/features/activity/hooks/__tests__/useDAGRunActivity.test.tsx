@@ -139,6 +139,22 @@ describe('useDAGRunActivity', () => {
     expect(lastSSEEnabled()).toBe(true);
   });
 
+  // A service DAG restarts without end; the summary reads it from the service DAG list.
+  it('leaves the runs of service DAGs out of the live window', () => {
+    renderHook(() => useDAGRunActivity({ kind: 'live' }, {}, 'local'));
+
+    expect(
+      useSSEMock.mock.calls[useSSEMock.mock.calls.length - 1]?.[0]
+    ).toMatchObject({
+      excludeServiceDAGRuns: true,
+    });
+    expect(
+      useQueryMock.mock.calls[useQueryMock.mock.calls.length - 1]?.[1]
+    ).toMatchObject({
+      params: { query: { excludeServiceDAGRuns: true } },
+    });
+  });
+
   it('loads older runs with the first page’s window and cursor', async () => {
     queryResult = { data: page([run('new')], 'cursor-1') };
     getMock.mockResolvedValue({ data: page([run('old')], 'cursor-2') });
@@ -154,6 +170,7 @@ describe('useDAGRunActivity', () => {
           fromDate: 100,
           toDate: 200,
           cursor: 'cursor-1',
+          excludeServiceDAGRuns: true,
           remoteNode: 'local',
         },
       },

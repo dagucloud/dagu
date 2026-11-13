@@ -5,6 +5,7 @@ package value_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -324,4 +325,27 @@ func TestExpandStringResolvesUnderscoreForeachField(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, `[{"_row": 2, "name": "A"}]`, got)
+}
+
+func TestFormatScalarNumbers(t *testing.T) {
+	t.Parallel()
+	// Numbers render as base-10 decimal text with no exponent, whatever Go
+	// type carries them; integer literals keep every digit.
+	for _, tt := range []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{"Float", 0.00001, "0.00001"},
+		{"LargeFloat", 1e21, "1000000000000000000000"},
+		{"Int", 42, "42"},
+		{"NumberInteger", json.Number("9007199254740993"), "9007199254740993"},
+		{"NumberExponent", json.Number("1e-5"), "0.00001"},
+		{"NumberFraction", json.Number("1.50"), "1.5"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, value.FormatScalar(tt.value))
+		})
+	}
 }

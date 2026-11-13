@@ -70,6 +70,7 @@ Later value resolution can use them without runtime side effects.
 ### References
 
 - `${consts.name}` reads `name` from resolved root `consts`.
+- `params[].eval` resolves `${consts.name}` before dynamic evaluation runs, as Spec 003 requires of Dagu-owned references in that field.
 
 - `$consts.name` is not Dagu-owned `consts` reference syntax.
 - Dagu preserves `$consts.name` as ordinary string content according to Spec 003.

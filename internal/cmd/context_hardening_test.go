@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,4 +167,26 @@ func writeTestConfig(t *testing.T, home, contextsDir string) string {
 	content := "paths:\n  contexts_dir: " + contextsDir + "\n"
 	require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
 	return configPath
+}
+
+// A subcommand named like a top-level command keeps the config and context
+// scope of its own family.
+func TestCommandFamilyNameUsesPathBelowRoot(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "dagu"}
+	start := &cobra.Command{Use: "start"}
+	group := &cobra.Command{Use: "backfill"}
+	nested := &cobra.Command{Use: "start"}
+	group.AddCommand(nested)
+	root.AddCommand(start, group)
+
+	assert.Equal(t, "start", commandFamilyName(start))
+	assert.Equal(t, "backfill start", commandFamilyName(nested))
+	assert.Equal(t, commandScopeContextAware, scopeForCommand(commandFamilyName(start)))
+	assert.Equal(t, commandScopeLocalOnly, scopeForCommand(commandFamilyName(nested)))
+	assert.Equal(t, config.ServiceAgent, serviceForCommand(commandFamilyName(start)))
+	// backfill start reads the scheduler's backfill_max_slots, which only
+	// the full config loads.
+	assert.Equal(t, config.ServiceNone, serviceForCommand(commandFamilyName(nested)))
 }

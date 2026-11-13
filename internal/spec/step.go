@@ -367,6 +367,9 @@ type llmConfig struct {
 	// Files names the files the model reads with the prompt: paths, glob
 	// patterns, or a list an earlier step published.
 	Files types.StringOrArray `yaml:"files,omitempty"`
+	// MaxFileChars bounds the text of all the Files together, in characters
+	// (default: 1,000,000).
+	MaxFileChars *int `yaml:"max_file_chars,omitempty"`
 }
 
 // llmMessage defines a message in the LLM session.
@@ -2806,6 +2809,10 @@ func llmConfigOf(ctx buildContext, cfg *llmConfig) (*ir.LLMConfig, error) {
 		return nil, ir.NewValidationError("llm.max_tool_iterations", *cfg.MaxToolIterations,
 			fmt.Errorf("max_tool_iterations must be at least 1"))
 	}
+	if cfg.MaxFileChars != nil && *cfg.MaxFileChars < 1 {
+		return nil, ir.NewValidationError("llm.max_file_chars", *cfg.MaxFileChars,
+			fmt.Errorf("max_file_chars must be at least 1"))
+	}
 	if err := validateAgentLLMLimits(cfg, false); err != nil {
 		return nil, err
 	}
@@ -2863,6 +2870,7 @@ func llmConfigOf(ctx buildContext, cfg *llmConfig) (*ir.LLMConfig, error) {
 		MaxToolIterations:  cfg.MaxToolIterations,
 		WebSearch:          buildWebSearchConfig(cfg.WebSearch),
 		Files:              cfg.Files.Values(),
+		MaxFileChars:       cfg.MaxFileChars,
 	}, nil
 }
 

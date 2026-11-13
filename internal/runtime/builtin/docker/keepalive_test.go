@@ -138,6 +138,9 @@ func TestGetKeepaliveFile(t *testing.T) {
 			}
 
 			path, err := GetKeepaliveFile(tt.platform)
+			if path != "" {
+				t.Cleanup(func() { _ = os.Remove(path) })
+			}
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -168,9 +171,6 @@ func TestGetKeepaliveFile(t *testing.T) {
 			if tt.fileCheck != nil {
 				tt.fileCheck(t, path)
 			}
-
-			// Clean up
-			_ = os.Remove(path)
 		})
 	}
 }
@@ -197,6 +197,7 @@ func TestGetKeepaliveFile_Concurrent(t *testing.T) {
 			// Verify file exists
 			_, err = os.Stat(path)
 			assert.NoError(t, err)
+			_ = os.Remove(path)
 
 			done <- true
 		}()

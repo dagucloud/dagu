@@ -312,6 +312,31 @@ func TestRoundTrip(t *testing.T) {
 	assert.Equal(t, "2026-03-29T02:10:00+01:00", oneOffTime.Format(time.RFC3339))
 }
 
+// The index keeps the queue of every DAG, so a DAG read from it has the same
+// ProcGroup whether or not it sets a restart policy.
+func TestBuild_KeepsTheQueueOfEveryDAG(t *testing.T) {
+	dir := t.TempDir()
+	files := []YAMLFileMeta{}
+	for name, content := range map[string]string{
+		"batch.yaml":   "queue: shared\nsteps:\n  - name: step1\n    command: echo hi\n",
+		"service.yaml": "queue: shared\nrestart_policy: always\nsteps:\n  - name: step1\n    command: echo hi\n",
+	} {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		files = append(files, YAMLFileMeta{Name: name, Size: info.Size(), ModTime: info.ModTime().UnixNano()})
+	}
+
+	idx := Build(context.Background(), dir, files, nil)
+	require.Len(t, idx.Entries, 2)
+	for _, entry := range idx.Entries {
+		dag := DAGFromEntry(entry, dir)
+		assert.Equal(t, "shared", dag.Queue, entry.Name)
+		assert.Equal(t, "shared", dag.ProcGroup(), entry.Name)
+	}
+}
+
 func TestDAGFromEntry(t *testing.T) {
 	baseDir := filepath.FromSlash("/dags")
 	entry := &indexv1.DAGIndexEntry{

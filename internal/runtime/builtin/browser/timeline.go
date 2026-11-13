@@ -36,6 +36,6 @@ func logBlocked(t *agentstep.Timeline, index int, summary string) {
 // index.
 func logRefusal(t *agentstep.Timeline, index int, refused refusal) {
 	content := t.Masker.MaskString(refused.String())
-	_, _ = fmt.Fprintf(t.Log, "%s %s %s %s\n", t.Position(index), kindPage, statusRefused, content)
+	_, _ = fmt.Fprintf(t.Log, "%s %s %s: %s\n", t.Position(index), kindPage, statusRefused, content)
 	t.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventOperation, Name: kindPage, Status: statusRefused, Content: content})
 }
