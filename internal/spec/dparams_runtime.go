@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const maxInt64AsUint = ^uint64(0) >> 1
@@ -239,12 +241,44 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 		return appendPassThroughEntries(entries, passThroughPairs), nil
 	}
 
-	entries, err = validateSchemaBackedEntries(entries, plan.schema, plan.schemaProperties, plan.schemaOrder, metadataMode, false)
+	// A param that waits for the run is neither required nor defaulted now:
+	// its eval decides its value when the run starts.
+	schema := plan.schema
+	if waiting {
+		schema, err = withoutRequired(plan.schema, deferredParamNames(entries))
+		if err != nil {
+			return nil, err
+		}
+	}
+	entries, err = validateSchemaBackedEntries(entries, schema, plan.schemaProperties, plan.schemaOrder, metadataMode, false)
 	if err != nil {
 		return nil, err
 	}
+	for i := range entries {
+		if entries[i].Deferred {
+			entries[i].Value, entries[i].HasValue = "", false
+		}
+	}
 
 	return appendPassThroughEntries(entries, passThroughPairs), nil
+}
+
+// withoutRequired returns schema with names left out of its required list.
+func withoutRequired(schema *jsonschema.Resolved, names []string) (*jsonschema.Resolved, error) {
+	required := schema.Schema().Required
+	kept := slices.DeleteFunc(slices.Clone(required), func(name string) bool {
+		return slices.Contains(names, name)
+	})
+	if len(kept) == len(required) {
+		return schema, nil
+	}
+	clone := schema.Schema().CloneSchemas()
+	clone.Required = kept
+	resolved, err := clone.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare parameter schema: %w", err)
+	}
+	return resolved, nil
 }
 
 func parseOverridePairs(rawParams string, paramsList []string) ([]paramPair, error) {

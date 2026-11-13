@@ -621,7 +621,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	// The env resolved at startup may read the params that wait for the dates.
-	if err := a.evaluateDeferredParams(ctx); err != nil {
+	if err := a.evaluateDeferredParams(logger.WithValues(startupCtx, centralLogFields...)); err != nil {
+		if startupCtx.Err() != nil {
+			return a.abortStartup(ctx, nil)
+		}
 		return err
 	}
 
@@ -1844,16 +1847,25 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 }
 
 // evaluateDeferredParams gives the params whose eval waits for the run their
-// values, from the run's dates and the context it has at creation.
+// values, from the run's dates and the context it has at creation. The eval
+// runs without the agent's lock, so a stop request can cancel ctx.
 func (a *Agent) evaluateDeferredParams(ctx context.Context) error {
-	if len(a.dag.DeferredParams) == 0 {
+	a.lock.RLock()
+	dag, dates := a.dag, a.dates
+	a.lock.RUnlock()
+	if len(dag.DeferredParams) == 0 {
 		return nil
 	}
-	runContext := runctx.CreationContext(a.dag.Name, a.dagRunID, a.contextScheduleTime(), a.contextScheduleWindow())
-	a.lock.Lock()
-	defer a.lock.Unlock()
-	if _, err := spec.EvaluateDeferredParams(ctx, a.dag, a.dates, runContext); err != nil {
+	runContext := runctx.CreationContext(dag.Name, a.dagRunID, a.contextScheduleTime(), a.contextScheduleWindow())
+	evaluated, err := spec.EvaluateDeferredParams(ctx, dag.Clone(), dates, runContext)
+	if err != nil {
 		return fmt.Errorf("failed to evaluate params: %w", err)
+	}
+	a.lock.Lock()
+	a.dag = evaluated
+	a.lock.Unlock()
+	if a.progressDisplay != nil {
+		a.progressDisplay.SetDAGRunInfo(a.dagRunID, strings.Join(evaluated.Params, " "))
 	}
 	return nil
 }

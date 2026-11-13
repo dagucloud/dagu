@@ -897,10 +897,14 @@ func buildDocumentContext(ctx buildContext, index int) buildContext {
 		return ctx
 	}
 
+	// The caller's params and the run's values belong to the first document,
+	// the DAG the run starts.
 	opts := ctx.opts
 	opts.Parameters = ""
 	opts.ParametersList = nil
-	opts.Flags &^= buildFlagValidateRuntimeParams
+	opts.Flags &^= buildFlagValidateRuntimeParams | buildFlagRunValues
+	opts.RunDates = nil
+	opts.RunContext = cmnvalue.BuiltinContext{}
 	return ctx.WithOpts(opts)
 }
 
