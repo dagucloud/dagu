@@ -429,7 +429,7 @@ func (e *Executor) Run(ctx context.Context) error {
 
 	// If only one model, use simple path (no fallback)
 	if len(models) == 1 {
-		return e.runWithModel(ctx, models[0], allMessages)
+		return e.nameFilesText(e.runWithModel(ctx, models[0], allMessages))
 	}
 
 	// Multiple models: implement fallback
@@ -462,21 +462,20 @@ func (e *Executor) Run(ctx context.Context) error {
 		}
 	}
 
-	return fmt.Errorf("all %d models exhausted: %w", len(models), lastErr)
+	return e.nameFilesText(fmt.Errorf("all %d models exhausted: %w", len(models), lastErr))
 }
 
-// runWithModel executes a chat request with a specific model. A refusal of
-// the request's length names how much text the files held, so the work
-// can be split.
-func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMessages []ir.LLMMessage) error {
-	err := e.runModel(ctx, model, allMessages)
+// nameFilesText adds to a refusal of the request's length how much text
+// the files held, so the work can be split.
+func (e *Executor) nameFilesText(err error) error {
 	if err != nil && e.filesChars > 0 && errors.Is(err, llmpkg.ErrContextTooLong) {
 		return fmt.Errorf("%w; the files held %d characters of text", err, e.filesChars)
 	}
 	return err
 }
 
-func (e *Executor) runModel(ctx context.Context, model ir.ModelEntry, allMessages []ir.LLMMessage) error {
+// runWithModel executes a chat request with a specific model.
+func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMessages []ir.LLMMessage) error {
 	// Build effective config for this model
 	effectiveCfg := e.buildEffectiveConfig(model)
 

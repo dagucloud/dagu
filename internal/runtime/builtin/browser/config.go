@@ -4,7 +4,6 @@
 package browser
 
 import (
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +52,13 @@ const (
 	aiNever    = "never"
 )
 
+// What a confirm dialog gets: OK, cancel, or cancel and a failed operation.
+const (
+	onConfirmAccept  = "accept"
+	onConfirmDismiss = "dismiss"
+	onConfirmFail    = "fail"
+)
+
 const (
 	defaultOperationTimeout = 2 * time.Minute
 	defaultAskTimeout       = time.Hour
@@ -81,7 +87,10 @@ type browserOptions struct {
 	Proxy          string    `json:"proxy,omitempty"`
 	AllowedDomains []string  `json:"allowed_domains,omitempty"`
 	Screenshots    string    `json:"screenshots,omitempty"`
-	Profile        string    `json:"profile,omitempty"`
+	// OnConfirm is what a confirm dialog gets: accept (the default),
+	// dismiss, or fail, which dismisses it and fails the operation.
+	OnConfirm string `json:"on_confirm,omitempty"`
+	Profile   string `json:"profile,omitempty"`
 	// ClientCertificates are presented to the hosts they name, before
 	// those configured for the host.
 	ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates,omitempty"`
@@ -315,37 +324,25 @@ func (c config) screenshotPolicy() string {
 	return c.Browser.Screenshots
 }
 
+// onConfirm returns what the step gives a confirm dialog.
+func (c config) onConfirm() string {
+	if c.Browser.OnConfirm == "" {
+		return onConfirmAccept
+	}
+	return c.Browser.OnConfirm
+}
+
+// dismissesConfirm reports whether the browser answers a confirm with
+// cancel, which both dismiss and fail do.
+func (c config) dismissesConfirm() bool {
+	return c.onConfirm() != onConfirmAccept
+}
+
 // capturesFinalScreenshot reports whether a successful step saves a
 // screenshot of the page it ends on.
 func (c config) capturesFinalScreenshot() bool {
 	policy := c.screenshotPolicy()
 	return policy == screenshotsFinal || policy == screenshotsEach
-}
-
-// hasUnguardedAsk reports whether an ask operation certainly runs: one
-// without a when. A when-guarded ask may be skipped.
-func (c config) hasUnguardedAsk() bool {
-	for _, op := range c.Do {
-		if op.Ask != nil && op.When == nil {
-			return true
-		}
-	}
-	return false
-}
-
-// askUnsupportedError explains that an ask cannot run where the browser
-// cannot outlive the step process, as on Windows, and names the
-// alternative: signing the profile in once in a headed browser session.
-func (c config) askUnsupportedError() error {
-	url := c.URL
-	for _, op := range c.Do {
-		if url != "" {
-			break
-		}
-		url = op.Goto
-	}
-	return fmt.Errorf("ask operations are not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open %s --headed --profile %s",
-		cmp.Or(url, "<url>"), cmp.Or(c.Browser.Profile, "<name>"))
 }
 
 func parseConfig(raw map[string]any) (config, error) {
@@ -439,6 +436,9 @@ func (c config) validate() error {
 		if op.Extract != nil {
 			properties, _ := op.Extract.Schema["properties"].(map[string]any)
 			for name := range properties {
+				if name == ir.BrowserOutputDownloads {
+					return fmt.Errorf("browser: do[%d]: output %q is reserved for the files the step downloads", i, name)
+				}
 				if first, exists := outputs[name]; exists {
 					return fmt.Errorf("browser: do[%d]: output %q is already extracted by do[%d]", i, name, first)
 				}
@@ -673,6 +673,7 @@ var configSchema = &jsonschema.Schema{
 				"proxy":           agentstep.NonEmptyString(),
 				"allowed_domains": {Type: "array", Items: agentstep.NonEmptyString()},
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
+				"on_confirm":      {Type: "string", Enum: []any{onConfirmAccept, onConfirmDismiss, onConfirmFail}},
 				"profile":         agentstep.NonEmptyString(),
 				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeAsk, writegate.ModeRehearse}},
 				"client_certificates": {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1214,29 +1215,32 @@ func TestMaskSecretsForProvider(t *testing.T) {
 func TestContextTooLongNamesFilesText(t *testing.T) {
 	t.Parallel()
 
+	file := filepath.Join(t.TempDir(), "notes.txt")
+	require.NoError(t, os.WriteFile(file, []byte("some notes"), 0o600))
 	stream := false
-	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream}
+	cfg := &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Stream: &stream, Files: []string{file}}
 	provider := &mockProvider{
 		chatFunc: func(context.Context, *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
 			return nil, llmpkg.NewAPIError("openai", 400, `{"error":{"code":"context_length_exceeded","message":"This model's maximum context length is 128000 tokens."}}`)
 		},
 	}
 	executor := &Executor{
-		stdout:     io.Discard,
-		step:       ir.Step{LLM: cfg},
-		filesChars: 600000,
+		stdout:   io.Discard,
+		step:     ir.Step{LLM: cfg},
+		messages: []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}},
 		newProvider: func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
 			return provider, nil
 		},
 	}
+	ctx := chatRuntimeContext(t, nil)
 
-	err := executor.runWithModel(context.Background(), ir.ModelEntry{Provider: "openai", Name: "gpt-4o"}, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
+	err := executor.Run(ctx)
 	require.ErrorIs(t, err, llmpkg.ErrContextTooLong)
 	assert.Contains(t, err.Error(), "maximum context length is 128000 tokens")
-	assert.True(t, strings.HasSuffix(err.Error(), "; the files held 600000 characters of text"), err.Error())
+	assert.Regexp(t, `; the files held [1-9]\d* characters of text$`, err.Error())
 
-	executor.filesChars = 0
-	err = executor.runWithModel(context.Background(), ir.ModelEntry{Provider: "openai", Name: "gpt-4o"}, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
+	cfg.Files = nil
+	err = executor.Run(ctx)
 	require.ErrorIs(t, err, llmpkg.ErrContextTooLong)
 	assert.NotContains(t, err.Error(), "the files held", "no files, nothing to split")
 }

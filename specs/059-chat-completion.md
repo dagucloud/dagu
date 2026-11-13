@@ -105,13 +105,14 @@ once, in the order named, before any request.
 A text file (`.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.jsonl`, `.yaml`,
 `.yml`, `.xml`, `.html`, `.htm`, `.log`), a Word document (`.docx`) and an
 Excel workbook (`.xlsx`, `.xlsm`) are given as text, a paragraph or row a
-line; a text file in Shift_JIS is decoded, and one that is neither UTF-8
-nor Shift_JIS fails as `the text file could not be read`. A PDF is given page by page,
-and a page without text of its own, such as a scan, is rendered to an
-image. An image file (PNG, JPEG, GIF, WebP) is given as an image, scaled
-down to a long edge of 1568 pixels when larger. Files of other kinds, a
-file over 50 MB, a missing file, and a pattern matching nothing fail the
-step before any request.
+line; a text file in Shift_JIS is decoded, a UTF-8 byte order mark is
+dropped, and one that is neither UTF-8 nor Shift_JIS fails as `the text
+file could not be read`. A PDF is given page by page, and a page without
+text of its own, such as a scan, is rendered to an image. An image file
+(PNG, JPEG, GIF, WebP) is given as an image, scaled down to a long edge of
+1568 pixels when larger. Files of other kinds, a file over 50 MB, a
+missing file, and a pattern matching nothing fail the step before any
+request.
 
 The text goes ahead of the step's last user message, each file in a
 `<file name="…">` block, a PDF's pages set apart by `--- page N ---`

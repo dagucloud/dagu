@@ -84,9 +84,12 @@ type fakeEngine struct {
 	pageLoss error
 	// onAct runs while an act asks the model, for what happens meanwhile.
 	onAct func()
-	// actDialogs are the dialogs the next act opens and the browser accepts.
+	// actDialogs are the dialogs the next act opens and the browser answers.
 	actDialogs []dialog
-	dialogs    []dialog
+	// lateDialogs are the dialogs the page opens, and the browser answers,
+	// during the next wait that allows downloads to begin.
+	lateDialogs []dialog
+	dialogs     []dialog
 	// actBlocked counts the requests per host allowed_domains blocks while
 	// the next act runs.
 	actBlocked map[string]int
@@ -102,8 +105,10 @@ type fakeEngine struct {
 	// writesErr is the error every read of the write gate reports.
 	writesErr error
 	// downloadWrites are the writes the gate decides while the next
-	// download wait runs.
-	downloadWrites []writegate.Event
+	// download wait runs, and lateDownloadWrites those it decides only
+	// during a wait that allows downloads to begin.
+	downloadWrites     []writegate.Event
+	lateDownloadWrites []writegate.Event
 	// allowed are the signatures the write gate was told the operation
 	// running may send, one entry per operation, and allowing whether it
 	// still runs; endErr is the error telling the gate it ended reports.
@@ -112,10 +117,11 @@ type fakeEngine struct {
 	endErr   error
 	// outcome is what the browser shows after a page opened, at outcomeAt
 	// when set, else at every address; outcomeErr, if set, is what reading
-	// it reports instead.
-	outcome    pageOutcome
-	outcomeAt  string
-	outcomeErr error
+	// it reports instead, once outcomeErrAfterActs more acts have run.
+	outcome             pageOutcome
+	outcomeAt           string
+	outcomeErr          error
+	outcomeErrAfterActs int
 	// pending are the connections the certificate proxy waits on.
 	pending []certproxy.Pending
 	// verifiedHosts are the hosts the certificate proxy vouches for.
@@ -123,6 +129,10 @@ type fakeEngine struct {
 	// pageText and visible describe the page that fixed checks read.
 	pageText string
 	visible  []string
+	// outcomeClearsAfterTextReads is how many page text reads, as a fixed
+	// check makes while it waits, run before the page stops showing
+	// outcome, as a bot check that passes does; zero keeps it.
+	outcomeClearsAfterTextReads int
 	// textReadsLoseContext is how many of the next page text reads lose
 	// their script context to a new document.
 	textReadsLoseContext int
@@ -132,10 +142,12 @@ type fakeEngine struct {
 	// work on; empty when no open page opened it.
 	opener string
 	// downloads and downloadErr script what the next download wait reports,
-	// and lateDownloads what only a wait that allows them to begin does.
-	downloads     []string
-	downloadErr   error
-	lateDownloads []string
+	// and lateDownloads and lateDownloadErr what only a wait that allows
+	// them to begin does.
+	downloads       []string
+	downloadErr     error
+	lateDownloads   []string
+	lateDownloadErr error
 	// downloadWaits records the timeout of each download wait.
 	downloadWaits []time.Duration
 	// uploadHow is how uploads report the files reached the page;
@@ -254,20 +266,13 @@ func (e *fakeEngine) EndWrites(context.Context) error {
 func (e *fakeEngine) PageOutcome(context.Context) (pageOutcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.outcomeErr != nil {
+	if e.outcomeErr != nil && e.outcomeErrAfterActs == 0 {
 		return pageOutcome{}, e.outcomeErr
 	}
 	if e.outcomeAt != "" && e.url != e.outcomeAt {
 		return pageOutcome{}, nil
 	}
 	return e.outcome, nil
-}
-
-// setOutcomeErr makes every read of the page fail while a step runs.
-func (e *fakeEngine) setOutcomeErr(err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.outcomeErr = err
 }
 
 func (e *fakeEngine) PendingConnections(context.Context) ([]certproxy.Pending, error) {
@@ -324,6 +329,9 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	losesPage, pageLoss := e.actLosesPage > 0, cmp.Or(e.pageLoss, errFakeSessionLost)
 	if losesPage {
 		e.actLosesPage--
+	}
+	if e.outcomeErrAfterActs > 0 {
+		e.outcomeErrAfterActs--
 	}
 	e.mu.Unlock()
 	if onAct != nil {
@@ -478,6 +486,11 @@ func (e *fakeEngine) PageText(context.Context) (string, error) {
 		e.textReadsLoseContext--
 		return "", errFakeContextLost
 	}
+	if e.outcomeClearsAfterTextReads > 0 {
+		if e.outcomeClearsAfterTextReads--; e.outcomeClearsAfterTextReads == 0 {
+			e.outcome = pageOutcome{}
+		}
+	}
 	return e.pageText, nil
 }
 
@@ -504,13 +517,18 @@ func (e *fakeEngine) WaitForDownloads(_ context.Context, grace time.Duration, ti
 	e.downloadWaits = append(e.downloadWaits, timeout)
 	e.keepWrites(e.downloadWrites)
 	e.downloadWrites = nil
-	downloads := e.downloads
+	downloads, err := e.downloads, e.downloadErr
 	e.downloads = nil
 	if grace > 0 {
 		downloads = append(downloads, e.lateDownloads...)
 		e.lateDownloads = nil
+		e.dialogs = append(e.dialogs, e.lateDialogs...)
+		e.lateDialogs = nil
+		e.keepWrites(e.lateDownloadWrites)
+		e.lateDownloadWrites = nil
+		err = cmp.Or(err, e.lateDownloadErr)
 	}
-	return downloads, e.downloadErr
+	return downloads, err
 }
 
 func (e *fakeEngine) Handle() browserHandle {

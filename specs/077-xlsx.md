@@ -153,9 +153,26 @@ and standard encryption can be opened; any other mechanism fails with
 | Text, including text-formatted numbers | String, so leading zeros survive. `trim: true` removes surrounding white space, including the full-width space U+3000. |
 | Text under a pinned `number`, `integer`, `date`, `datetime`, or `boolean` | Japanese forms are read as the section below describes: full-width text, yen amounts, kanji numerals, kanji and era dates, times of day, and yes/no marks. The failure message quotes the text as the cell holds it. |
 | Boolean | `true` or `false`. |
-| Formula | Its cached value. `formulas: text` yields `=` and the formula; `formulas: calculate` evaluates it. A formula without a cached value is evaluated with the warning `Sheet!B2: formula had no cached value; evaluated`; one that cannot be evaluated is null with `Sheet!B3: formula NA() could not be evaluated: #N/A`. |
+| Formula | Its cached value. `formulas: text` yields `=` and the formula; `formulas: calculate` evaluates it. A missing or stale cached value is handled as the paragraph below the table says. |
 | Error such as `#N/A` | Null, with the warning `Sheet!B3: error cell #N/A`. |
 | Empty | Null. Trailing rows whose cells are all null are dropped unless `keep_empty_rows: true`. |
+
+A formula without a cached value is evaluated with the warning
+`Sheet!B2: formula had no cached value; evaluated`; one that cannot be
+evaluated is null with `Sheet!B3: formula NA() could not be evaluated:
+#N/A`. A cached read also evaluates the formulas of the cells it returns,
+the read columns of the rows read, and when a value disagrees with its
+cache the cached value is still read, with one warning naming the first
+five such cells, `Sheet!D2, Sheet!D3, Sheet!D4: cached formula value is
+stale; set formulas: calculate to read current values`, or `Sheet!D2,
+Sheet!D3, Sheet!D4, Sheet!D5, Sheet!D6 and 7 more cells: ...` past five.
+The comparison follows the cell's type: text exactly, leading zeros
+included, a boolean as its stored 1 or 0, and a number as a number, so a
+writer's digits do not matter. A merged region is checked at its origin,
+once. A formula that cannot be evaluated, or evaluates to an error, says
+nothing about its cache, and neither does a number cell whose evaluation
+is empty, as a reference to a blank cell is; a text cell whose formula
+yields text spelled like an error, `="#N/A"`, has a value and is compared.
 
 Each row carries `_row`, its 1-based sheet row number. `types` pins columns
 to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`; a cell
@@ -695,13 +712,15 @@ addresses, is unusable, as is a corrected reply that is still unusable: the
 next configured model is asked, and when every model's answer is unusable
 the step fails with `model request failed: <provider>/<model>: ...` naming
 each answer's fault. An empty cell within the range is a null value, since
-a form may leave a box blank. `trim` and `formulas` read the cell as `xlsx.read`
-would. A property's `type` pins the cell: `number`, `integer`, `boolean`,
-`string`, and `string` with `format: date` or `date-time`; a property
-without a type gets the cell's own typed value. A cell that fails its type
-fails the step with the usual `quote.xlsx Sheet1!B7: expected number,
-found "n/a"`; Japanese text such as `￥123,000`, `12万3,500円`, `令和8年10月15日
-午後2時30分`, or `済` is read as Japanese text under a pinned type describes. An empty cell or an absent field is null.
+a form may leave a box blank. `trim` and `formulas` read the cell as
+`xlsx.read` would, its stale cached formula warning included. A property's
+`type` pins the cell: `number`, `integer`, `boolean`, `string`, and
+`string` with `format: date` or `date-time`; a property without a type
+gets the cell's own typed value. A cell that fails its type fails the step
+with the usual `quote.xlsx Sheet1!B7: expected number, found "n/a"`;
+Japanese text such as `￥123,000`, `12万3,500円`, `令和8年10月15日
+午後2時30分`, or `済` is read as Japanese text under a pinned type
+describes. An empty cell or an absent field is null.
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
 as browser steps do. Several models are tried in order, each set up when
@@ -843,27 +862,28 @@ form and booleans as `true` and `false`; JSON keeps the typed values. The
 file is written through a temporary file in its directory and renamed into
 place unless `atomic: false`.
 
-CSV takes `encoding`: `utf-8` (default, no byte order mark), `utf-8-bom`
-for Excel to open the file as UTF-8 by double click, or `shift_jis` as
-Windows uses it (code page 932, Windows-31J; `cp932`, `windows-31j`,
-`sjis`, and `ms932` are accepted spellings), and `delimiter`, one
-character, a comma by default. The outputs are `path`, `format`, `count`,
-`sheet`, `range`, `warnings`, and with `artifact: true` the file's copy.
-The other direction, a csv, json, or jsonl file into a workbook, is
-`xlsx.write` with `input`.
+CSV takes `encoding`: `utf-8-bom` (by default, so Excel opens it as UTF-8;
+a file without the byte order mark opens in the system code page), `utf-8`
+for no byte order mark, or `shift_jis` as Windows uses it (code page 932,
+Windows-31J; `cp932`, `windows-31j`, `sjis`, and `ms932` are accepted
+spellings), and `delimiter`, one character, a comma by default. The outputs
+are `path`, `format`, `count`, `sheet`, `range`, `warnings`, and with
+`artifact: true` the file's copy. The other direction, a csv, json, or
+jsonl file into a workbook, is `xlsx.write` with `input`.
 
 ### Input encoding
 
-The `input` file of `xlsx.write` and `xlsx.append` takes the same
-`encoding` and `delimiter` when it is csv; a byte order mark is dropped
-either way. Both fields require `input`. Without `encoding` the csv's
-encoding is detected: a UTF-8 byte order mark means UTF-8, valid UTF-8 is
-UTF-8, and otherwise the file is Shift_JIS when every byte decodes as it,
-which is how Excel on Japanese Windows saves a CSV. A file that is neither
-fails naming it, `input: <path>: not valid UTF-8 or Shift_JIS`. With
-`encoding: utf-8` or `utf-8-bom`, and for a json or jsonl input, a file
-that is not valid UTF-8 fails as `input: <path>: not valid UTF-8`; bytes
-that are not UTF-8 are never written as replacement characters.
+The `input` file of `xlsx.write` and `xlsx.append` takes `encoding` and
+`delimiter` when it is csv, with the spellings `xlsx.convert` accepts but
+no `utf-8-bom` default; a byte order mark is dropped either way. Both
+fields require `input`. Without `encoding` the csv's encoding is detected:
+a UTF-8 byte order mark means UTF-8, valid UTF-8 is UTF-8, and otherwise
+the file is Shift_JIS when every byte decodes as it, which is how Excel on
+Japanese Windows saves a CSV. A file that is neither fails naming it,
+`input: <path>: not valid UTF-8 or Shift_JIS`. With `encoding: utf-8` or
+`utf-8-bom`, and for a json or jsonl input, a file that is not valid UTF-8
+fails as `input: <path>: not valid UTF-8`; bytes that are not UTF-8 are
+never written as replacement characters.
 
 ### Dry-run checks
 

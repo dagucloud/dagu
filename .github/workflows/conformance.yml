@@ -22,7 +22,7 @@ on:
       - synchronize
       - ready_for_review
       - converted_to_draft # cancels the run in progress
-      - labeled # the full-ci label runs the Windows, Conformance, and E2E jobs
+      - labeled # the full-ci label runs these jobs
     paths:
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/conformance.yml"

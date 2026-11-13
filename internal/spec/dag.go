@@ -132,6 +132,8 @@ type dag struct {
 	HistRetentionDays *int `yaml:"hist_retention_days,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to retain in history.
 	HistRetentionRuns *int `yaml:"hist_retention_runs,omitempty"`
+	// SlotRetentionDays is how many days the record of each schedule slot is kept.
+	SlotRetentionDays *int `yaml:"slot_retention_days,omitempty"`
 	// Preconditions is the condition to run the DAG.
 	Preconditions any `yaml:"preconditions,omitempty"`
 	// MaxActiveRuns is the maximum number of concurrent dag-runs.
@@ -614,6 +616,7 @@ var fullInteractionStage = transformStage{
 var fullRetentionStage = transformStage{
 	dagField("hist_retention_days", buildHistRetentionDays, func(out *ir.DAG, v int) { out.HistRetentionDays = v }),
 	dagField("hist_retention_runs", buildHistRetentionRuns, func(out *ir.DAG, v int) { out.HistRetentionRuns = v }),
+	dagField("slot_retention_days", buildSlotRetentionDays, func(out *ir.DAG, v int) { out.SlotRetentionDays = v }),
 	dagField("max_clean_up_time_sec", buildMaxCleanUpTime, func(out *ir.DAG, v time.Duration) { out.MaxCleanUpTime = v }),
 }
 
@@ -2187,6 +2190,16 @@ func buildHistRetentionRuns(_ buildContext, d *dag) (int, error) {
 			return 0, fmt.Errorf("hist_retention_runs must be > 0")
 		}
 		return *d.HistRetentionRuns, nil
+	}
+	return 0, nil
+}
+
+func buildSlotRetentionDays(_ buildContext, d *dag) (int, error) {
+	if d.SlotRetentionDays != nil {
+		if *d.SlotRetentionDays <= 0 {
+			return 0, fmt.Errorf("slot_retention_days must be > 0")
+		}
+		return *d.SlotRetentionDays, nil
 	}
 	return 0, nil
 }

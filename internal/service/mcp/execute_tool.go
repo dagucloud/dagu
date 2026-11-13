@@ -90,6 +90,8 @@ type executeInput struct {
 	Inputs    json.RawMessage
 	Reason    string
 	AttemptID string
+	// Backfill holds the fields of the backfill actions.
+	Backfill backfillInput
 }
 
 func executeToolInputSchema() json.RawMessage {
@@ -98,8 +100,8 @@ func executeToolInputSchema() json.RawMessage {
 		"properties": {
 			"action": {
 				"type": "string",
-				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back"],
-				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected."
+				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back", "backfill", "backfill_resume", "backfill_cancel"],
+				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected. backfill plans and submits runs of the DAG for past schedule slots, oldest first; backfill_resume runs again a backfill's slots that have not succeeded; backfill_cancel cancels one."
 			},
 			"targetType": {
 				"type": "string",
@@ -175,6 +177,50 @@ func executeToolInputSchema() json.RawMessage {
 				"type": "boolean",
 				"description": "When true, wait for the identified run to reach a terminal state or a waiting checkpoint and include its result summary in the output."
 			},
+			"backfillId": {
+				"type": "string",
+				"description": "Backfill ID. Required for backfill_resume and backfill_cancel."
+			},
+			"from": {
+				"type": "string",
+				"description": "For backfill: first slot, inclusive: a date, a time in the schedule's zone (2006-01-02T15:04), or RFC 3339. Required without slots."
+			},
+			"to": {
+				"type": "string",
+				"description": "For backfill: last slot, inclusive. Defaults to now."
+			},
+			"slots": {
+				"type": "array",
+				"items": {"type": "string"},
+				"description": "For backfill: slots to run instead of a range. Excludes from, to, and rerun."
+			},
+			"rerun": {
+				"type": "string",
+				"enum": ["none", "failed", "all"],
+				"description": "For backfill: which slots that already have a run run again. Defaults to none."
+			},
+			"maxConcurrency": {
+				"type": "integer",
+				"minimum": 1,
+				"description": "For backfill and backfill_resume: runs of the backfill allowed at once."
+			},
+			"onFailure": {
+				"type": "string",
+				"enum": ["stop", "continue"],
+				"description": "For backfill and backfill_resume: what to do after a slot fails. Defaults to stop."
+			},
+			"dryRun": {
+				"type": "boolean",
+				"description": "For backfill and backfill_resume: return the plan and start nothing."
+			},
+			"revision": {
+				"type": "string",
+				"description": "For backfill and backfill_resume: the revision of a plan from a dry run. A plan that changed since is refused with conflict and returned."
+			},
+			"stopRunning": {
+				"type": "boolean",
+				"description": "For backfill_cancel: also stop the backfill's running and waiting runs."
+			},
 			"waitTimeoutSeconds": {
 				"type": "integer",
 				"minimum": 1,
@@ -230,6 +276,9 @@ func (svc *Service) executeTool(ctx context.Context, req *mcpsdk.CallToolRequest
 func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
 	if err := svc.requireAPI(); err != nil {
 		return nil, nil, err
+	}
+	if isBackfillAction(input.Action) {
+		return svc.executeBackfill(ctx, input)
 	}
 
 	var (
@@ -479,6 +528,10 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 		case executeFieldAttemptID:
 			input.AttemptID, parseErr = executeStringField(field, value)
 		default:
+			if isBackfillField(field) {
+				parseErr = parseBackfillField(&input.Backfill, field, value)
+				break
+			}
 			parseErr = executeInputError("Unknown field "+field+".", field)
 		}
 		if parseErr != nil {
@@ -535,8 +588,15 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 		return executeInputError("The action field is required.", executeFieldAction)
 	case executeActionStart, executeActionEnqueue, executeActionRetry, executeActionStop,
 		executeActionApprove, executeActionReject, executeActionPushBack:
+	case executeActionBackfill, executeActionBackfillResume, executeActionBackfillCancel:
+		return validateBackfillInput(input, provided)
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
+	}
+	for field := range provided {
+		if isBackfillField(field) {
+			return executeInputError("The "+field+" field is only valid for backfill, backfill_resume, and backfill_cancel.", field)
+		}
 	}
 	decision := isStepDecisionAction(input.Action)
 

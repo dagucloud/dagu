@@ -280,12 +280,21 @@ func validateConfig(operation string, cfg *config) error {
 // validateCSVConfig parses the encoding and delimiter of a CSV file: the
 // input of write and append, or the output of convert.
 func validateCSVConfig(operation string, cfg *config) error {
+	// YAML parses an unquoted null as nil, so a present but empty encoding
+	// is the same as none.
+	if cfg.provided("encoding") && strings.TrimSpace(cfg.Encoding) == "" {
+		delete(cfg.present, "encoding")
+	}
 	if cfg.provided("encoding") {
 		enc, err := workbook.ParseEncoding(cfg.Encoding)
 		if err != nil {
 			return fmt.Errorf("%w: encoding must be utf-8, utf-8-bom, or shift_jis", errConfig)
 		}
 		cfg.encoding = enc
+	} else if operation == opConvert {
+		// Excel opens a CSV without a byte order mark in the system code page,
+		// so the file written carries one unless utf-8 is named.
+		cfg.encoding = workbook.EncodingUTF8BOM
 	}
 	if cfg.provided("delimiter") {
 		runes := []rune(cfg.Delimiter)
@@ -800,7 +809,7 @@ var configSchema = &jsonschema.Schema{
 		"key": {Type: "string", Description: "Column that identifies a row for xlsx.update_rows, or _row to address rows by the _row each row carries. " +
 			"A key column that is no longer in the header row fails the step before any cell changes."},
 		"set": {Type: "object", Description: "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, " +
-			"{Reviewed: {value: yes}} writes one literal to every row. Omitted: every field other than the key and _row goes to the column of the same name. " +
+			"{Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key and _row goes to the column of the same name. " +
 			"A column missing from the header is added at the right."},
 		"missing": {Type: "string", Enum: []any{"fail", "skip", "append"},
 			Description: "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."},
@@ -826,13 +835,13 @@ var configSchema = &jsonschema.Schema{
 		"if_exists": {Type: "string", Enum: []any{"fail", "skip", "replace"},
 			Description: "What xlsx.sheet does when the sheet to create already exists: fail (default), skip with a warning, or replace its contents."},
 		"position": {Description: "xlsx.sheet: 1-based position of the sheet add or copy creates; by default an added sheet goes last and a copy right after its source."},
-		"encoding": {Type: "string", Enum: []any{"utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932"},
-			Description: "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS."},
+		"encoding": {Enum: []any{"utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932", "", nil},
+			Description: "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS; convert writes utf-8-bom by default so Excel opens it as UTF-8."},
 		"delimiter": {Type: "string", Description: "Field separator of a csv file, one character; a comma by default."},
 		"instruction": {Type: "string", Description: "xlsx.extract: what to find on the sheet, such as 'A supplier quote; find the quote number, delivery date, and total'. " +
-			"Sent to the model with the sheet's cells; must not contain a secret."},
+			"Sent to the model with the sheet's cells; must not contain a secret. Required."},
 		"schema": {Type: "object", Description: "xlsx.extract: a JSON Schema with type: object whose properties name the fields to find. " +
-			"Each property becomes an output holding the typed value of the cell the model names; a property's type (string, number, integer, boolean; string with format date or date-time) pins how the cell is read."},
+			"Each property becomes an output holding the typed value of the cell the model names; a property's type (string, number, integer, boolean; string with format date or date-time) pins how the cell is read. A string is a value reference resolved at run time. Required."},
 		"send_values": boolOrRef("xlsx.extract: list every cell's text for the model (default). false lists non-text cells by kind only, so amounts and dates stay on the host."),
 		"cache":       boolOrRef("xlsx.extract: keep the cells the model named by sheet layout, so a repeated layout needs no model call (default true)."),
 		"llm":         {Type: "object", Description: "xlsx.extract: the model to ask, replacing the DAG-level llm block; the same fields as that block."},

@@ -110,8 +110,9 @@ func TestWriteFromInputFileAndDryRun(t *testing.T) {
 
 // TestWriteDetectsInputEncoding is the regression test for a CSV that Excel
 // on Japanese Windows saved in Shift_JIS: without encoding the file is
-// detected and written as text, and with encoding: utf-8 it fails rather
-// than writing replacement characters.
+// detected and written as text, as it is with an empty encoding such as
+// YAML's null, and with encoding: utf-8 it fails rather than writing
+// replacement characters.
 func TestWriteDetectsInputEncoding(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -119,15 +120,20 @@ func TestWriteDetectsInputEncoding(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sales.csv"), sjis, 0o600))
 
-	tw, err := newTestWriter(t, dir, opWrite, map[string]any{"path": "out.xlsx", "input": "sales.csv"})
-	require.NoError(t, err)
-	require.NoError(t, tw.exec.Run(context.Background()))
-	back, err := workbook.Read(context.Background(), filepath.Join(dir, "out.xlsx"), workbook.ReadOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"氏名", "金額"}, back.Headers)
-	assert.Equal(t, "山田太郎", back.Rows[0]["氏名"])
+	for name, step := range map[string]map[string]any{
+		"absent": {"path": "out.xlsx", "input": "sales.csv"},
+		"null":   {"path": "null.xlsx", "input": "sales.csv", "encoding": nil},
+	} {
+		tw, err := newTestWriter(t, dir, opWrite, step)
+		require.NoError(t, err, name)
+		require.NoError(t, tw.exec.Run(context.Background()), name)
+		back, err := workbook.Read(context.Background(), filepath.Join(dir, step["path"].(string)), workbook.ReadOptions{})
+		require.NoError(t, err, name)
+		assert.Equal(t, []string{"氏名", "金額"}, back.Headers, name)
+		assert.Equal(t, "山田太郎", back.Rows[0]["氏名"], name)
+	}
 
-	tw, err = newTestWriter(t, dir, opWrite, map[string]any{"path": "strict.xlsx", "input": "sales.csv", "encoding": "utf-8"})
+	tw, err := newTestWriter(t, dir, opWrite, map[string]any{"path": "strict.xlsx", "input": "sales.csv", "encoding": "utf-8"})
 	require.NoError(t, err)
 	err = tw.exec.Run(context.Background())
 	require.ErrorContains(t, err, "input: "+filepath.Join(dir, "sales.csv")+": not valid UTF-8")
@@ -168,6 +174,8 @@ func TestWriteValidation(t *testing.T) {
 		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: map[string]any{"path": "a.xlsx", "rows": "[]", "wait_for_unlock": "5m", "atomic": false}},
 	}
 	require.NoError(t, validateStep(ok))
+	ok.ExecutorConfig.Config["encoding"] = nil
+	require.NoError(t, validateStep(ok), "an empty encoding is no encoding, so it needs no input")
 }
 
 func TestWriteBadRowsFailAtRun(t *testing.T) {

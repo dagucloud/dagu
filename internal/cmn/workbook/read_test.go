@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/test/xlsxtest"
 	"github.com/richardlehane/mscfb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,35 +55,11 @@ func custom(code string) *excelize.Style {
 	return &excelize.Style{CustomNumFmt: &code}
 }
 
-// rawBook writes a minimal xlsx by hand so the test can author cell kinds
-// excelize cannot: error cells, ISO date cells, and formulas with and
-// without cached values.
-func rawBook(t *testing.T, sheetXML string) string {
+// rawBook writes a hand-authored workbook whose one sheet is named Raw.
+func rawBook(t testing.TB, sheetXML string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "raw.xlsx")
-	out, err := os.Create(path)
-	require.NoError(t, err)
-	zw := zip.NewWriter(out)
-	parts := map[string]string{
-		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
-		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-		"xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Raw" sheetId="1" r:id="rId1"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` + sheetXML + `</worksheet>`,
-	}
-	for name, body := range parts {
-		w, err := zw.Create(name)
-		require.NoError(t, err)
-		_, err = w.Write([]byte(body))
-		require.NoError(t, err)
-	}
-	require.NoError(t, zw.Close())
-	require.NoError(t, out.Close())
+	xlsxtest.RawWorkbook(t, path, "Raw", sheetXML)
 	return path
 }
 
@@ -1156,6 +1133,144 @@ func TestFormulasCalculateRecomputesCachedCells(t *testing.T) {
 	fresh, err := Read(context.Background(), path, ReadOptions{Formulas: FormulaCalculate})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), fresh.Rows[0]["f"])
+}
+
+// staleBook is a sheet whose amounts in C were cached for older
+// quantities: C is stale in every row, D is current, E cannot be
+// evaluated, F is a boolean formula, and G is stale but never read.
+func staleBook(t *testing.T, rows int) string {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString(`<sheetData><row r="1">` + inline("A1", "qty") + inline("B1", "price") + inline("C1", "amount") + inline("D1", "ok") + inline("E1", "unsupported") + inline("F1", "flag") + inline("G1", "other") + `</row>`)
+	for r := 2; r < rows+2; r++ {
+		fmt.Fprintf(&b, `<row r="%d"><c r="A%d"><v>40</v></c><c r="B%d"><v>3100</v></c>`, r, r, r)
+		fmt.Fprintf(&b, `<c r="C%d"><f>A%d*B%d</f><v>93000</v></c>`, r, r, r)
+		fmt.Fprintf(&b, `<c r="D%d"><f>A%d+B%d</f><v>3140</v></c>`, r, r, r)
+		fmt.Fprintf(&b, `<c r="E%d"><f>NOSUCHFN(A%d)</f><v>1</v></c>`, r, r)
+		fmt.Fprintf(&b, `<c r="F%d" t="b"><f>A%d&gt;1</f><v>1</v></c>`, r, r)
+		fmt.Fprintf(&b, `<c r="G%d"><f>A%d*2</f><v>0</v></c></row>`, r, r)
+	}
+	b.WriteString(`</sheetData>`)
+	return rawBook(t, b.String())
+}
+
+// BenchmarkReadStaleCheck times a default read of a 5000-row, 20-column
+// sheet whose last two columns are formulas with current cached values,
+// which the read checks cell by cell. The workbook is opened once so the
+// read, not the parse, is what is measured.
+func BenchmarkReadStaleCheck(b *testing.B) {
+	const rows, cols = 5000, 20
+	var sb strings.Builder
+	sb.WriteString(`<sheetData><row r="1">`)
+	for c := 1; c <= cols; c++ {
+		sb.WriteString(inline(cellName(c, 1), fmt.Sprintf("c%d", c)))
+	}
+	sb.WriteString(`</row>`)
+	for r := 2; r <= rows+1; r++ {
+		fmt.Fprintf(&sb, `<row r="%d">`, r)
+		for c := 1; c <= cols-2; c++ {
+			fmt.Fprintf(&sb, `<c r="%s"><v>%d</v></c>`, cellName(c, r), r*c)
+		}
+		fmt.Fprintf(&sb, `<c r="S%d"><f>A%d*B%d</f><v>%d</v></c>`, r, r, r, r*r*2)
+		fmt.Fprintf(&sb, `<c r="T%d" t="str"><f>"x"&amp;C%d</f><v>x%d</v></c></row>`, r, r, r*3)
+	}
+	sb.WriteString(`</sheetData>`)
+	w, err := open(rawBook(b, sb.String()), "")
+	require.NoError(b, err)
+	defer w.close()
+	opts := ReadOptions{MaxRows: rows}
+	read := func() {
+		result, err := w.read(context.Background(), opts)
+		require.NoError(b, err)
+		require.Equal(b, rows, result.Count)
+		require.Empty(b, result.Warnings)
+	}
+	read() // fills the grid cache
+	for b.Loop() {
+		read()
+	}
+}
+
+// A cached read says which formula cells hold a value their formula no
+// longer evaluates to, so a workflow can stop or read with formulas:
+// calculate. Only the returned columns and rows are checked, a formula
+// the engine cannot evaluate says nothing, and the warning names at most
+// five cells.
+func TestStaleCachedFormulasWarn(t *testing.T) {
+	t.Parallel()
+	path := staleBook(t, 7)
+	const stale = ": cached formula value is stale; set formulas: calculate to read current values"
+
+	result, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "amount", As: "amount"}, {Source: "ok", As: "ok"}, {Source: "unsupported", As: "u"}, {Source: "flag", As: "flag"}}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(93000), result.Rows[0]["amount"], "the cached value is still what is read")
+	assert.Equal(t, true, result.Rows[0]["flag"])
+	assert.Equal(t, []string{"Raw!C2, Raw!C3, Raw!C4, Raw!C5, Raw!C6 and 2 more cells" + stale}, result.Warnings)
+
+	current, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "ok", As: "ok"}, {Source: "unsupported", As: "u"}, {Source: "flag", As: "flag"}}})
+	require.NoError(t, err)
+	assert.Empty(t, current.Warnings, "columns not read are not checked; a formula that cannot be evaluated is not stale")
+
+	limited, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "amount", As: "amount"}}, MaxRows: 2})
+	require.NoError(t, err)
+	assert.Contains(t, limited.Warnings, "Raw!C2, Raw!C3"+stale, "only the rows returned are checked")
+
+	filtered, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "amount", As: "amount"}}, Where: map[string]any{"qty": 41}})
+	require.NoError(t, err)
+	assert.Empty(t, filtered.Warnings, "rows a where filter drops are not checked")
+
+	for _, mode := range []FormulaMode{FormulaCalculate, FormulaText} {
+		fresh, err := Read(context.Background(), path, ReadOptions{Formulas: mode})
+		require.NoError(t, err)
+		assert.Empty(t, fresh.Warnings, string(mode))
+	}
+}
+
+// The stale check follows the cell's type: a text result compares exactly,
+// so leading zeros count and an empty `=""` is a value; a number cell
+// whose evaluation is empty, a reference to a blank cell, is not stale;
+// and a merged region is checked at its origin, once, even when only a
+// covered cell is read.
+func TestStaleCachedFormulasByCellType(t *testing.T) {
+	t.Parallel()
+	const stale = ": cached formula value is stale; set formulas: calculate to read current values"
+	path := rawBook(t, `<sheetData><row r="1">`+inline("A1", "merged")+inline("B1", "covered")+inline("C1", "zeros")+inline("D1", "blank")+inline("E1", "empty")+inline("F1", "number")+inline("G1", "errtext")+`</row>`+
+		`<row r="2"><c r="A2"><f>1+2</f><v>5</v></c>`+
+		`<c r="C2" t="str"><f>"123"</f><v>00123</v></c>`+
+		`<c r="D2"><f>H2</f><v>0</v></c>`+
+		`<c r="E2" t="str"><f>""</f><v>old</v></c>`+
+		`<c r="F2"><f>1/3</f><v>0.33333333333333331</v></c>`+
+		`<c r="G2" t="str"><f>"#N/A"</f><v>old</v></c></row></sheetData>`+
+		`<mergeCells count="1"><mergeCell ref="A2:B2"/></mergeCells>`)
+
+	covered, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "covered", As: "covered"}}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), covered.Rows[0]["covered"])
+	assert.Equal(t, []string{"Raw!A2" + stale}, covered.Warnings, "a covered cell is checked at its merge origin")
+
+	both, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "merged", As: "m"}, {Source: "covered", As: "c"}}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Raw!A2" + stale}, both.Warnings, "an origin read through two cells is named once")
+
+	text, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "zeros", As: "zeros"}, {Source: "empty", As: "empty"}, {Source: "errtext", As: "errtext"}}})
+	require.NoError(t, err)
+	assert.Equal(t, "00123", text.Rows[0]["zeros"])
+	assert.Equal(t, []string{"Raw!C2, Raw!E2, Raw!G2" + stale}, text.Warnings, "text compares exactly; an empty text result, or one spelled like an error, is a value")
+
+	numbers, err := Read(context.Background(), path, ReadOptions{Columns: []ColumnSelect{{Source: "blank", As: "blank"}, {Source: "number", As: "number"}}})
+	require.NoError(t, err)
+	assert.Empty(t, numbers.Warnings, "a blank reference evaluates to nothing, and digits beyond a writer's precision do not count")
+
+	// Error results live in their own book: an error cell warns in every
+	// read of its sheet.
+	errBook := rawBook(t, `<sheetData><row r="1">`+inline("A1", "na")+inline("B1", "iferr")+`</row>`+
+		`<row r="2"><c r="A2" t="e"><f>NA()</f><v>#N/A</v></c>`+
+		`<c r="B2"><f>IF(1,NA(),1)</f><v>1</v></c></row></sheetData>`)
+	errors, err := Read(context.Background(), errBook, ReadOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, errors.Rows[0]["na"])
+	assert.Equal(t, int64(1), errors.Rows[0]["iferr"])
+	assert.Equal(t, []string{"Raw!A2: error cell #N/A"}, errors.Warnings, "an error result, returned as an error or as a value, is not stale")
 }
 
 // Japanese text under a pinned type: full-width digits and punctuation,

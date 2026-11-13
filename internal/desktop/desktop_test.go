@@ -162,7 +162,7 @@ type asciiBackend struct {
 	failRestore bool
 }
 
-func (b *asciiBackend) ASCIITyping() (func() error, error) {
+func (b *asciiBackend) ASCIITyping(context.Context) (func() error, error) {
 	b.events = append(b.events, "ascii input source")
 	return func() error {
 		b.events = append(b.events, "previous input source")

@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
@@ -190,19 +191,23 @@ func (o *operator) checkNavigation(ctx context.Context, index int, target string
 	return certificateFailure(page, failures, o.presented, o.certificateProxy)
 }
 
-// pageRefusal returns the refusal the page shows, if it shows one. A page a
-// client certificate kept from opening is the certificate's to explain. The
-// error reports a page that cannot be read, which tells nothing either way.
-func (o *operator) pageRefusal(ctx context.Context) (refusal, bool, error) {
+// pageRefusal returns the refusal the page shows, or nil for a page that
+// shows none. A page a client certificate kept from opening is the
+// certificate's to explain. The error reports a page that cannot be read,
+// which tells nothing either way.
+func (o *operator) pageRefusal(ctx context.Context) (*refusal, error) {
 	page, err := o.eng.PageOutcome(ctx)
 	if err != nil {
-		return refusal{}, false, err
+		return nil, err
 	}
 	if certificateFailure(page, nil, o.presented, o.certificateProxy) != nil {
-		return refusal{}, false, nil
+		return nil, nil
 	}
 	refused, ok := refusalOf(page)
-	return refused, ok, nil
+	if !ok {
+		return nil, nil
+	}
+	return &refused, nil
 }
 
 // explainWait adds to err the connections the certificate proxy still waits
@@ -562,7 +567,9 @@ func (o *operator) evaluate(ctx context.Context, c condition, timeout time.Durat
 		if err != nil {
 			return false, "", err
 		}
-		if strings.Contains(text, c.Text) {
+		// Both sides are compared as a computer check compares text, so a
+		// check written in ASCII finds a number the page shows in full-width.
+		if strings.Contains(stringutil.NormalizeText(text), stringutil.NormalizeText(c.Text)) {
 			return true, fmt.Sprintf("the page text contains %q", c.Text), nil
 		}
 		return false, fmt.Sprintf("the page text does not contain %q", c.Text), nil

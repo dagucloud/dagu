@@ -73,6 +73,12 @@ func windowOf(active []Schedule, loc *time.Location, slot time.Time) ScheduleWin
 	return window
 }
 
+// HasRecurringSchedule reports whether a recurring start schedule is active
+// for the profile: one with no profile or with the profile.
+func HasRecurringSchedule(schedules []Schedule, profile string) bool {
+	return len(activeWindowSchedules(schedules, profile)) > 0
+}
+
 // activeWindowSchedules returns the recurring start schedules that are active
 // for the profile: those with no profile or with the profile.
 func activeWindowSchedules(schedules []Schedule, profile string) []Schedule {
@@ -100,6 +106,28 @@ func PreviousFire(schedules []Schedule, t time.Time) time.Time {
 		}
 	}
 	return latest
+}
+
+// FiringScheduleExpression returns the expression of the first recurring
+// schedule active for profile that fires at t, or empty when none does. A
+// schedule without its own time zone fires in loc. A schedule whose business
+// calendar is not bound, as one read back from a run snapshot, is matched by
+// its cron expression alone.
+func FiringScheduleExpression(schedules []Schedule, profile string, loc *time.Location, t time.Time) string {
+	for _, sched := range activeWindowSchedules(schedules, profile) {
+		at := t.In(scheduleZone(sched, loc))
+		if _, bound := sched.BoundCalendar(); bound {
+			if firesAt(sched, at) {
+				return sched.Expression
+			}
+			continue
+		}
+		base, ok := sched.baseCron()
+		if ok && base.Next(at.Add(-time.Second)).Equal(at) {
+			return sched.Expression
+		}
+	}
+	return ""
 }
 
 // previousFire returns the schedule's latest fire strictly before slot, or
