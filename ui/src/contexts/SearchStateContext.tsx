@@ -73,13 +73,13 @@ export function SearchStateProvider({
     }
   }, []);
 
-  const readState = React.useCallback(<T,>(
-    pageKey: string,
-    remoteKey?: string
-  ): T | undefined => {
-    const key = buildKey(pageKey, remoteKey);
-    return storeRef.current[key] as T | undefined;
-  }, []);
+  const readState = React.useCallback(
+    <T,>(pageKey: string, remoteKey?: string): T | undefined => {
+      const key = buildKey(pageKey, remoteKey);
+      return storeRef.current[key] as T | undefined;
+    },
+    []
+  );
 
   const writeState = React.useCallback(
     <T,>(pageKey: string, remoteKey: string | undefined, value: T) => {
@@ -138,9 +138,7 @@ export function SearchStateProvider({
 export function useSearchState() {
   const ctx = React.useContext(SearchStateContext);
   if (!ctx) {
-    throw new Error(
-      'useSearchState must be used within a SearchStateProvider'
-    );
+    throw new Error('useSearchState must be used within a SearchStateProvider');
   }
   return ctx;
 }
