@@ -6,6 +6,8 @@ import {
   buildDAGPageURL,
   buildDAGRunPageURL,
   buildRunningTaskURL,
+  rootRunFileName,
+  legacyRunPageRedirectURL,
 } from '../dagRunUrls';
 
 // parity:common-url-builders
@@ -83,6 +85,38 @@ describe('dagRunUrls', () => {
       })
     ).toBe(
       '/dags/flow?remoteNode=local&workspace=ops&run=r1&step=build&dock=artifacts'
+    );
+  });
+
+  it('keeps the file, workspace, step and dock tab of a sub-DAG run URL', () => {
+    expect(
+      buildDAGRunPageURL({
+        rootDAGRunName: 'root-dag',
+        rootDAGRunId: 'root-run',
+        fileName: 'root_file',
+        remoteNode: 'local',
+        workspace: 'ops',
+        subDAGRunId: 'child-run',
+        step: 'build',
+        dock: 'timeline',
+      })
+    ).toBe(
+      '/dags/root_file?remoteNode=local&workspace=ops&run=root-run&dagRunName=root-dag&subRun=child-run&step=build&dock=timeline'
+    );
+  });
+
+  it('sends a sub-run link of the old run page to ?subRun', () => {
+    expect(
+      legacyRunPageRedirectURL(
+        'root',
+        'r1',
+        new URLSearchParams(
+          'subDAGRunId=child&dagRunId=r1&dagRunName=root&step=load&workspace=ops'
+        ),
+        'local'
+      )
+    ).toBe(
+      '/dags/root?remoteNode=local&workspace=ops&run=r1&subRun=child&step=load'
     );
   });
 
@@ -193,5 +227,47 @@ describe('dagRunUrls', () => {
     });
     expect(url).toBe('/dags/flow.yaml?remoteNode=local&run=r1&dock=log');
     expect(new URL(url, 'http://x').searchParams.has('dagRunId')).toBe(false);
+  });
+});
+
+describe('rootRunFileName', () => {
+  it('gives the source file of a root run', () => {
+    expect(
+      rootRunFileName({
+        dagRunId: 'r1',
+        rootDAGRunId: 'r1',
+        sourceFileName: 'etl-v2',
+      })
+    ).toBe('etl-v2');
+    expect(rootRunFileName({ dagRunId: 'r1', sourceFileName: 'etl-v2' })).toBe(
+      'etl-v2'
+    );
+  });
+
+  // The source file of a sub-run is the file of the sub-DAG, not of the root.
+  // Run lists and the workflow page hold runs without a source file.
+  it('gives the file of the page for a root run without a source file', () => {
+    expect(rootRunFileName({ dagRunId: 'r1' }, 'etl-v2')).toBe('etl-v2');
+    expect(
+      rootRunFileName({ dagRunId: 'r1', sourceFileName: 'etl-run' }, 'etl-page')
+    ).toBe('etl-run');
+  });
+
+  it('gives none for a sub-run, so the root name stays the fallback', () => {
+    expect(
+      rootRunFileName({
+        dagRunId: 'child',
+        rootDAGRunId: 'r1',
+        sourceFileName: 'child-dag',
+      })
+    ).toBeUndefined();
+  });
+
+  it('gives none when the run has no source file', () => {
+    expect(
+      rootRunFileName({ dagRunId: 'child', rootDAGRunId: 'r1' }, 'etl-v2')
+    ).toBeUndefined();
+    expect(rootRunFileName({ dagRunId: 'r1' })).toBeUndefined();
+    expect(rootRunFileName(undefined)).toBeUndefined();
   });
 });

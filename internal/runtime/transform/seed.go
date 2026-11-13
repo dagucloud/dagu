@@ -104,6 +104,7 @@ func skippedNodeState(source *ir.Node) runtime.NodeState {
 	state.ChatMessages = append([]ir.LLMMessage(nil), source.ChatMessages...)
 	state.AgentSession = ir.CloneAgentSession(source.AgentSession)
 	state.ToolDefinitions = append([]ir.ToolDefinition(nil), source.ToolDefinitions...)
+	state.SkillDefinitions = append([]ir.SkillDefinition(nil), source.SkillDefinitions...)
 	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
 	state.StepOutputsValue = cloneString(source.StepOutputsValue)
 	state.HumanTaskCompletedBy = source.HumanTaskCompletedBy

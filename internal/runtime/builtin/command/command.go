@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 var errNoCommandSpecified = fmt.Errorf("no command specified")
@@ -74,6 +75,11 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		defer func() {
 			_ = fileutil.Remove(scriptFile)
 		}()
+		// The restricted user reads the script and cannot write it (Spec 092).
+		if err := untrusted.FromContext(ctx).ShareReadOnly(scriptFile); err != nil {
+			e.mu.Unlock()
+			return err
+		}
 	}
 	// Wrap stderr with a tailing writer so we can include recent
 	// stderr output (rolling, up to limit) in error messages.
@@ -100,7 +106,7 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 			e.mu.Unlock()
 			return err
 		}
-		stdin, err := os.Open(stdinPath)
+		stdin, err := runtime.OpenStepFile(ctx, stdinPath, os.O_RDONLY, 0)
 		if err != nil {
 			e.mu.Unlock()
 			return fmt.Errorf("failed to open stdin file %q: %w", stdinPath, err)
@@ -115,7 +121,7 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to create command: %w", err)
 	}
 
-	process, err := cmdutil.StartManagedProcess(cmd)
+	process, err := untrusted.StartManagedProcess(ctx, cmd)
 	if err != nil {
 		e.exitCode = exitCodeFromError(err)
 		e.mu.Unlock()
@@ -163,6 +169,10 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		return nil
 	}
 }
+
+// RunsUntrusted implements executor.UntrustedRunner: Run starts the process
+// through untrusted.StartManagedProcess.
+func (*commandExecutor) RunsUntrusted() {}
 
 func (e *commandExecutor) SetStdout(out io.Writer) {
 	e.config.Stdout = out

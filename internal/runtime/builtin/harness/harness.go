@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/goccy/go-yaml"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -325,6 +326,10 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
+// RunsUntrusted implements executor.UntrustedRunner: each process of the
+// harness starts through untrusted.StartManagedProcess.
+func (*harnessExecutor) RunsUntrusted() {}
+
 func (e *harnessExecutor) isStopRequested() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -333,12 +338,26 @@ func (e *harnessExecutor) isStopRequested() bool {
 
 // runOnce dispatches one provider attempt to its protocol and execution backend.
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
+	hasRootContainer := rootContainerConfigured(ctx)
+	if untrusted.FromContext(ctx) != nil {
+		// An untrusted step runs its agent as a process of the host, never in a
+		// container or in the managed OpenCode service of the server (Spec 092).
+		if e.step.Container != nil || hasRootContainer {
+			return nil, fmt.Errorf("harness: untrusted step %q cannot run in a container", e.step.Name)
+		}
+		if cfg.managed {
+			if cfg.required {
+				return nil, fmt.Errorf("harness: untrusted step %q cannot use the managed OpenCode service", e.step.Name)
+			}
+			_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI because the step is untrusted")
+			cfg.managed = false
+		}
+	}
 	if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
 		// An ACP agent does not report what its models used.
 		modelusage.FromContext(ctx).MarkNotReported(cfg.name)
 		return e.runACP(ctx, cfg)
 	}
-	hasRootContainer := rootContainerConfigured(ctx)
 	if cfg.managed && e.step.Container == nil && !hasRootContainer {
 		host, available, err := opencodehost.ConfigFromContext(ctx)
 		if err != nil && cfg.required {
@@ -448,9 +467,14 @@ func (e *harnessExecutor) runHostSubprocessOnce(ctx context.Context, cfg provide
 	return e.startAndWaitLocked(ctx, cmd, stdout, tw, env.LogEncodingCharset)
 }
 
-func (e *harnessExecutor) invocationCommand(ctx context.Context, cfg providerConfig, args []string, stdin io.Reader, stdout *os.File, stderr io.Writer) (*exec.Cmd, error) {
+func (e *harnessExecutor) invocationCommand(ctx context.Context, cfg providerConfig, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (*exec.Cmd, error) {
 	envs := runtime.AllEnvsMap(ctx)
-	binaryPath, err := resolveBinaryPath(cfg.binaryName(), e.workDir, envs)
+	lookup := cfg.binaryName()
+	if path, ok := runtime.AgentProviderBinary(ctx, cfg.name); ok && cfg.provider != nil {
+		// An agent worker runs the binary of its option --agent (Spec 092).
+		lookup = path
+	}
+	binaryPath, err := resolveBinaryPath(lookup, e.workDir, envs)
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return nil, fmt.Errorf("harness: %q CLI not found in PATH; install it first: %w", cfg.binaryName(), err)
@@ -869,7 +893,7 @@ func sharedContainerHarnessEnv(userEnv map[string]string) []string {
 }
 
 func (e *harnessExecutor) startAndWaitLocked(ctx context.Context, cmd *exec.Cmd, stdout *os.File, tw *executor.TailWriter, logEncoding string) (*os.File, error) {
-	process, err := cmdutil.StartManagedProcess(cmd)
+	process, err := untrusted.StartManagedProcess(ctx, cmd)
 	if err != nil {
 		e.exitCode = exitCodeFromError(err)
 		_ = cleanupStdoutSpool(stdout)
@@ -1044,7 +1068,7 @@ func newHarness(ctx context.Context, step ir.Step) (executor.Executor, error) {
 
 	prompt := extractPrompt(step)
 
-	return &harnessExecutor{
+	h := &harnessExecutor{
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
 		step:    step,
@@ -1052,7 +1076,11 @@ func newHarness(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		prompt:  prompt,
 		script:  step.Script,
 		workDir: env.WorkingDir,
-	}, nil
+	}
+	if step.Agent != nil {
+		return newAgentHarness(h, step)
+	}
+	return h, nil
 }
 
 // dropInheritedRemoteOptions removes DAG-level options that a step inherited
@@ -1349,6 +1377,11 @@ func validateHarnessStep(step ir.Step) error {
 }
 
 func validatePromptCommand(step ir.Step) error {
+	if step.Agent != nil {
+		// An agent.run step keeps its prompt in the compiled form, not in the
+		// command, so that no command substitution can run on it.
+		return nil
+	}
 	if len(step.Commands) > 1 {
 		return ir.NewValidationError("command", nil, fmt.Errorf("action %q supports only one command", "harness"))
 	}

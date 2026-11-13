@@ -364,9 +364,9 @@ export function SubRunStackModal({
                   name={top.name}
                   dagRunId={top.dagRunId}
                   dagRun={shown}
+                  initialStepName={top.step}
                   refreshFn={refresh}
                   fillHeight
-                  initialStepName={top.step}
                 />
               ) : (
                 <LoadingIndicator />

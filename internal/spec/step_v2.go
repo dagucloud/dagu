@@ -53,6 +53,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"archive.list":        operationAction("archive", "list"),
 	"browser.extract":     normalizeBrowserExtractAction,
 	"browser.run":         normalizeBrowserRunAction,
+	"agent.run":           normalizeAgentRunAction,
 	"chat.completion":     normalizeChatAction,
 	"clickhouse.query":    normalizeClickHouseQueryAction,
 	"computer.extract":    normalizeComputerExtractAction,
@@ -226,7 +227,6 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 	if err != nil {
 		return err
 	}
-
 	if isRegisteredExecutorTypeName(action) {
 		return finishAction(normalized, action, with)
 	}
@@ -906,6 +906,9 @@ func normalizeRouterAction(normalized map[string]any, with map[string]any) error
 }
 
 func normalizeChatAction(normalized map[string]any, with map[string]any) error {
+	if err := normalizeChatEndpoint(with); err != nil {
+		return err
+	}
 	messages, ok, err := actionMessages(with)
 	if err != nil {
 		return err

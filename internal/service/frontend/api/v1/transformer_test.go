@@ -986,3 +986,29 @@ func TestToDAGRunDetailsOmitsProcessForRemoteRun(t *testing.T) {
 
 	assert.Nil(t, details.Process)
 }
+
+func TestToToolDefinitionsKeepsSource(t *testing.T) {
+	got := toToolDefinitions([]ir.ToolDefinition{
+		{Name: "a", Source: "mcp:billing"},
+		{Name: "b"},
+	})
+	require.NotNil(t, got)
+	require.Len(t, *got, 2)
+	assert.Equal(t, "mcp:billing", *(*got)[0].Source)
+	assert.Nil(t, (*got)[1].Source)
+}
+
+func TestToSkillDefinitionsKeepsDescriptionAndOmitted(t *testing.T) {
+	assert.Nil(t, toSkillDefinitions(nil))
+
+	got := toSkillDefinitions([]ir.SkillDefinition{
+		{Name: "a", Description: "About a", Hash: "h1"},
+		{Name: "b", Omitted: "when"},
+	})
+	require.NotNil(t, got)
+	require.Len(t, *got, 2)
+	assert.Equal(t, "About a", *(*got)[0].Description)
+	assert.Equal(t, "h1", *(*got)[0].Hash, "the record keeps the version of the skill")
+	assert.Nil(t, (*got)[1].Hash)
+	assert.Equal(t, "when", *(*got)[1].Omitted)
+}
