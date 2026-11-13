@@ -112,6 +112,44 @@ describe('StartBackfillDialog', () => {
     expect(screen.getByRole('button', { name: 'Start 5 runs' })).toBeEnabled();
   });
 
+  // A start can find that the plan changed: a plan that runs more slots that
+  // succeeded asks again before it runs them.
+  it('asks again when a newer plan runs more slots that succeeded', async () => {
+    post.mockImplementation(
+      async (_path: string, { body }: { body: { dryRun: boolean } }) =>
+        body.dryRun
+          ? { data: { plan: plan('r1', 5) } }
+          : {
+              error: {
+                message: 'stale',
+                plan: {
+                  ...plan('r2', 6),
+                  runCounts: { none: 2, failed: 3, all: 6 },
+                },
+              },
+              response: { status: 409 },
+            }
+    );
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+
+    fireEvent.click(
+      await screen.findByRole('radio', { name: /Redo everything/ })
+    );
+    fireEvent.click(
+      await screen.findByRole('checkbox', {
+        name: 'Run 2 slots that succeeded again',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start 5 runs' }));
+
+    expect(
+      await screen.findByRole('checkbox', {
+        name: 'Run 3 slots that succeeded again',
+      })
+    ).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Start 6 runs' })).toBeDisabled();
+  });
+
   it('runs picked slots as they are, without a choice of what to run', async () => {
     post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
     renderDialog({

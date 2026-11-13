@@ -109,7 +109,9 @@ export function StartBackfillDialog({
   const [concurrency, setConcurrency] = useState(1);
   const [onFailure, setOnFailure] = useState(BackfillOnFailure.stop);
   const [params, setParams] = useState('');
-  const [redoConfirmed, setRedoConfirmed] = useState(false);
+  // The plan and count of succeeded slots a confirmation was given for: a
+  // plan that runs other slots asks again.
+  const [confirmedRedo, setConfirmedRedo] = useState<string | null>(null);
   const [plan, setPlan] = useState<BackfillPlan | null>(null);
   // The options the plan shown was made with: a start sends only those,
   // not options changed since.
@@ -188,7 +190,7 @@ export function StartBackfillDialog({
       setPlan(null);
       setStale(false);
       setError(null);
-      setRedoConfirmed(false);
+      setConfirmedRedo(null);
     }
     onOpenChange(next);
   };
@@ -201,6 +203,8 @@ export function StartBackfillDialog({
     !named && rerun === BackfillRerun.all && plan
       ? plan.runCounts.all - plan.runCounts.failed
       : 0;
+  const redoKey = `${plan?.revision ?? ''}/${redone}`;
+  const redoConfirmed = confirmedRedo === redoKey;
   const first = plan?.slots[0]?.slot;
   const last = plan?.slots[plan.slots.length - 1]?.slot;
 
@@ -267,7 +271,7 @@ export function StartBackfillDialog({
                     checked={rerun === value}
                     onChange={() => {
                       setRerun(value);
-                      setRedoConfirmed(false);
+                      setConfirmedRedo(null);
                     }}
                   />
                   <span>{ts(RERUN_LABEL[value])}</span>
@@ -393,7 +397,7 @@ export function StartBackfillDialog({
               <Checkbox
                 checked={redoConfirmed}
                 onCheckedChange={(checked) =>
-                  setRedoConfirmed(checked === true)
+                  setConfirmedRedo(checked === true ? redoKey : null)
                 }
               />
               {redone === 1
