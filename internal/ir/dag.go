@@ -107,6 +107,9 @@ type DAG struct {
 	Schedule []Schedule `json:"schedule,omitempty"`
 	// Calendar is the calendar of start schedules that name none.
 	Calendar string `json:"calendar,omitempty"`
+	// Dates derives dates from the run's schedule slot, in declaration
+	// order.
+	Dates []DateSpec `json:"dates,omitempty"`
 	// StopSchedule contains the cron expressions for stopping the DAG.
 	StopSchedule []Schedule `json:"stopSchedule,omitempty"`
 	// RestartSchedule contains the cron expressions for restarting the DAG.
