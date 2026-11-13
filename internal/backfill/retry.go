@@ -11,9 +11,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// FollowRetry queues again the slot of a backfill run that a retry made
-// active, so the backfill follows the run until the retry ends. A run that
-// is not the current run of a slot of its backfill is left alone.
+// FollowRetry queues again the slot of a backfill run that a retry is about
+// to make active, so the backfill follows the run until the retry ends. A
+// retry calls it first and fails when it fails. A run that is not the
+// current run of a slot of its backfill is left alone.
 func FollowRetry(ctx context.Context, store Store, status *ir.DAGRunStatus, now time.Time) error {
 	if status.BackfillID == "" {
 		return nil

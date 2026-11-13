@@ -34,20 +34,22 @@ type dispatchFixture struct {
 	dag        *ir.DAG
 	sched      backfill.SlotSchedule
 	queued     []string
+	// clock is the time the dispatcher and the retries see.
+	clock time.Time
 }
 
 func newDispatchFixture(t *testing.T) *dispatchFixture {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
-	f := &dispatchFixture{t: t, ctx: ctx}
+	f := &dispatchFixture{t: t, ctx: ctx, clock: at(20, 0)}
 	f.store = filebackfill.New(filepath.Join(dir, "backfills"))
-	now := func() time.Time { return at(20, 0) }
+	now := func() time.Time { return f.clock }
 	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
 		SlotIndex: slotindex.New(filepath.Join(dir, "slot-index")),
 		Location:  time.UTC,
-		OnRetry: func(ctx context.Context, status *ir.DAGRunStatus) {
-			require.NoError(t, backfill.FollowRetry(ctx, f.store, status, now()))
+		OnRetry: func(ctx context.Context, status *ir.DAGRunStatus) error {
+			return backfill.FollowRetry(ctx, f.store, status, now())
 		},
 	})
 	dag, err := spec.LoadYAML(ctx, []byte("name: etl\nschedule: \"0 2 * * *\"\nsteps:\n  - run: echo hi\n"))
@@ -106,7 +108,7 @@ func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	current, err := attempt.ReadStatusUncached(f.ctx)
 	require.NoError(f.t, err)
 	require.NoError(f.t, attempt.Open(f.ctx))
-	current.Status = status
+	current.Status, current.FinishedAt = status, f.clock.Format(time.RFC3339)
 	require.NoError(f.t, attempt.Write(f.ctx, *current))
 	require.NoError(f.t, attempt.Close(f.ctx))
 }
@@ -395,4 +397,58 @@ func TestDescribeKeepsARetryOverAnOlderOutcome(t *testing.T) {
 	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
 	require.NoError(t, err)
 	assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State)
+}
+
+// A run that a retry queued again but has not made active yet counts as
+// active for a while, so the backfill does not end between the two.
+func TestDispatchWaitsForARetryToStart(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{OnFailure: backfill.OnFailureContinue})
+	for range 3 {
+		f.tick()
+		f.finish(f.queued[len(f.queued)-1], ir.Failed)
+	}
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, f.queued[0]))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	f.clock = f.clock.Add(time.Second)
+	require.NoError(t, backfill.FollowRetry(f.ctx, f.store, status, f.clock))
+
+	f.tick()
+	assert.True(t, f.record(record.ID).Open(), "the retry is about to start the run")
+	f.clock = f.clock.Add(2 * time.Minute)
+	f.tick()
+	assert.Equal(t, backfill.StatusFailed, f.record(record.ID).Status, "the retry never started")
+}
+
+// A retry that queues a slot again while a tick runs keeps the backfill
+// open, though the tick saw every slot ended.
+func TestDispatchStaysOpenForARetryDuringATick(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{OnFailure: backfill.OnFailureContinue})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	for range 2 {
+		f.tick()
+		f.finish(f.queued[len(f.queued)-1], ir.Succeeded)
+	}
+	read := f.dispatcher.ReadRun
+	f.dispatcher.ReadRun = func(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+		if ref.ID == f.queued[2] {
+			f.retry(f.queued[0])
+		}
+		return read(ctx, ref)
+	}
+	f.tick()
+	f.dispatcher.ReadRun = read
+	assert.True(t, f.record(record.ID).Open(), "the retried slot is active again")
+
+	f.tick()
+	assert.True(t, f.record(record.ID).Open())
+	f.finish(f.queued[0], ir.Succeeded)
+	f.tick()
+	assert.Equal(t, backfill.StatusSucceeded, f.record(record.ID).Status)
 }

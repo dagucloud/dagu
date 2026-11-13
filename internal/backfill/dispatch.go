@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -107,13 +108,14 @@ const (
 )
 
 func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
+	// Every progress event and run status read below is at least as recent
+	// as observed.
+	observed := d.now()
 	progress, err := d.Store.Progress(ctx, record.ID)
 	if err != nil {
 		return err
 	}
 	byslot := currentProgress(record, progress)
-	// Every run status read below is at least as recent as observed.
-	observed := d.now()
 
 	var (
 		pending []RecordSlot
@@ -122,7 +124,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	active, failed := 0, false
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
-		outcome, err := d.outcome(ctx, record, event)
+		outcome, err := d.outcome(ctx, record, event, observed)
 		if err != nil {
 			return err
 		}
@@ -159,9 +161,15 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 			return d.cancelRemaining(ctx, record, pending)
 		}
 	}
+	// A retry can queue a slot again while this tick runs: the backfill
+	// ends only on the progress it read.
+	seen := len(progress) + len(ended)
 	if failed && record.Options.OnFailure == OnFailureStop {
 		if active > 0 {
 			return nil
+		}
+		if unchanged, err := d.progressUnchanged(ctx, record, seen); err != nil || !unchanged {
+			return err
 		}
 		return d.stop(ctx, record, pending)
 	}
@@ -183,6 +191,9 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		}
 	}
 	if len(pending) == 0 && active == 0 {
+		if unchanged, err := d.progressUnchanged(ctx, record, seen); err != nil || !unchanged {
+			return err
+		}
 		status := StatusSucceeded
 		if failed {
 			status = StatusFailed
@@ -192,9 +203,31 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	return nil
 }
 
+// progressUnchanged reports whether the backfill's progress still holds the
+// seen events only.
+func (d *Dispatcher) progressUnchanged(ctx context.Context, record *Record, seen int) (bool, error) {
+	progress, err := d.Store.Progress(ctx, record.ID)
+	if err != nil {
+		return false, err
+	}
+	return len(progress) == seen, nil
+}
+
+// retryStartGrace bounds how long a run that a retry queued again may stay
+// ended before the retry makes it active. Past it, the retry is taken to
+// have failed to start.
+const retryStartGrace = time.Minute
+
+// awaitsRetry reports whether a retry queued the slot's ended run again and
+// has not made it active yet. A retry queues the slot just before it does.
+func awaitsRetry(event Progress, status *ir.DAGRunStatus, now time.Time) bool {
+	finished, err := stringutil.ParseTime(status.FinishedAt)
+	return err == nil && !finished.IsZero() && finished.Before(event.At) && now.Sub(event.At) < retryStartGrace
+}
+
 // outcome reads where a slot stands from its last progress event and, while
 // its run has not been seen to end, from its run.
-func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress) (slotOutcome, error) {
+func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress, now time.Time) (slotOutcome, error) {
 	switch event.Kind {
 	case ProgressSkipped, ProgressNotRun, ProgressCancelled:
 		return slotSettled, nil
@@ -214,7 +247,7 @@ func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress
 		return slotPending, err
 	}
 	switch {
-	case status.Status.IsActive():
+	case status.Status.IsActive(), awaitsRetry(event, status, now):
 		return slotActive, nil
 	case status.Status.IsSuccess():
 		return slotSucceeded, nil
