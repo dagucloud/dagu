@@ -36,9 +36,16 @@ vi.mock('../../dock/DockContext', () => ({
 vi.mock('../../canvas/WorkspaceEditorContext', () => ({
   useWorkspaceEditor: () => ({ handle: null }),
 }));
-vi.mock('../StepsGrid', () => ({ StepsGrid: () => <div /> }));
+vi.mock('../StepsGrid', () => ({
+  StepsGrid: () => <div data-testid="grid" />,
+}));
+vi.mock('../../continuous/SamplesPanel', () => ({
+  SamplesPanel: (props: { testId: string; source: unknown }) => (
+    <div data-testid={props.testId}>{JSON.stringify(props.source)}</div>
+  ),
+}));
 
-function renderBody() {
+function renderBody(dag: object = { name: 'demo', steps: [] }) {
   render(
     <>
       <button type="button" id="ww-dock-tab-history">
@@ -48,7 +55,7 @@ function renderBody() {
       <HistoryBody
         run={{ details: null, nodeByStep: new Map() } as never}
         fileName="demo.yaml"
-        dag={{ name: 'demo', steps: [] } as never}
+        dag={dag as never}
       />
     </>
   );
@@ -56,6 +63,7 @@ function renderBody() {
 
 // Left and Right on the focused History tab of the Activity panel go
 // through the runs, as the arrows of the run chip do.
+// parity:test-history-tab-untested
 describe('HistoryBody on the focused History tab', () => {
   beforeEach(() => {
     h.setUrl.mockReset();
@@ -101,5 +109,27 @@ describe('HistoryBody on the focused History tab', () => {
       key: 'ArrowLeft',
     });
     expect(h.setUrl).not.toHaveBeenCalled();
+  });
+});
+
+// The history of a service DAG always shows above its runs.
+describe('HistoryBody of a service DAG', () => {
+  const service = { name: 'demo', steps: [], restartPolicy: 'always' };
+
+  it('shows the run history above the grid', () => {
+    renderBody(service);
+    const panel = screen.getByTestId('ww-history-service');
+    expect(panel).toHaveTextContent(
+      '{"kind":"run-history","fileName":"demo.yaml"}'
+    );
+    expect(
+      panel.compareDocumentPosition(screen.getByTestId('grid')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('adds nothing for another DAG', () => {
+    renderBody();
+    expect(screen.queryByTestId('ww-history-service')).toBeNull();
   });
 });

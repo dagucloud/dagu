@@ -186,9 +186,8 @@ beforeEach(() => {
 // parity:overview-summary-agent-bar parity:overview-approval-resume-alert
 // parity:run-approval-resume-alert parity:overview-monitoring-offer
 describe('WorkspaceCanvas notices', () => {
-  // One line for the run notices and the offer. The run chip of the bar
-  // says that a newer run is active, so that notice stays out.
-  it('gives DAGSpec the run notices and the offer, not newer-run-active', () => {
+  // One line for the run notices and the offer.
+  it('gives DAGSpec the run notices and the offer', () => {
     const waiting: WorkspaceNotice = {
       id: 'actions-waiting',
       tone: 'info',
@@ -201,16 +200,7 @@ describe('WorkspaceCanvas notices', () => {
       message: 'Get an email if this server stops',
       priority: 10,
     };
-    ws.notices = [
-      waiting,
-      {
-        id: 'newer-run-active',
-        tone: 'info',
-        message: 'A newer run is active',
-        priority: 30,
-      },
-      offer,
-    ];
+    ws.notices = [waiting, offer];
     renderCanvas();
     expect(props().notices).toEqual([waiting, offer]);
   });

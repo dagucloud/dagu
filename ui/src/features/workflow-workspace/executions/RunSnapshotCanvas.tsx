@@ -18,7 +18,6 @@ import {
   useActiveRightPanel,
 } from '@/contexts/RightPanelContext';
 import { NoticeLine } from '@/features/dags/components/dag-editor/NoticeLine';
-import { useStepViewForm } from '@/features/dags/components/dag-editor/stepViewMode';
 import { useYamlSection } from '@/features/dags/components/dag-editor/useYamlSection';
 import {
   ReadOnlyMarker,
@@ -150,9 +149,7 @@ function RunCanvasBody({
   const yamlEditorRef = useRef<CodeEditorLike | null>(null);
   const [, setEditorEpoch] = useState(0);
   const [yamlStepPath, setYamlStepPath] = useState<string[] | null>(null);
-  const [drawerForm, setDrawerForm] = useStepViewForm(
-    paneActive && ndvState === 'expanded' && url.step !== null
-  );
+  const [drawerForm, setDrawerForm] = useState(false);
   const [bodyRoot, setBodyRoot] = useState<HTMLDivElement | null>(null);
   // The step opens on its definition; the bar of the editor, which the frame
   // holds, has the Form button.
@@ -300,7 +297,10 @@ function RunCanvasBody({
             stepName={url.step}
             dag={validation?.dag}
             runDetails={details}
-            onSelectStep={onSelectedStepNameChange}
+            onSelectStep={(name) => {
+              // The arrows move to the YAML of another step, never its form.
+              if (!handle?.openYaml(name)) onSelectedStepNameChange(name);
+            }}
             onRunStep={runStep}
             formMode={drawerForm}
             formRootRef={setBodyRoot}
