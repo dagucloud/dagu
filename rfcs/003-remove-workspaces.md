@@ -322,6 +322,25 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   grants and no binding. An admin can also relink a missing project to any
   unregistered directory, or delete it.
 
+### Moving a DAG
+
+Teams reorganize, so DAGs move between projects. In v2 a label change moved
+a DAG and kept its history; a move between projects keeps it too.
+
+- A user who can edit DAGs in both projects moves a DAG in the UI or API, or
+  with `dagu move`. Its file, runs, logs, artifacts, DAG state, suspend
+  flag, settings, and per-DAG webhooks move with it, and its webhook URLs
+  keep working.
+- Before anything moves, the move lists the secrets, profiles, and
+  notification routes the DAG uses that the target project lacks, so what
+  the DAG runs with never changes silently.
+- The move is refused while a DAG in the source project calls it with
+  `dag.run`, since that call would become a load error. It is also refused
+  while the DAG has runs queued, running, or waiting, and when the target
+  project already has a DAG of that name.
+- When git moves a DAG file from one project's directory to another's, the
+  projects page offers the same move for its history.
+
 ### UI
 
 - The workspace selector becomes a project selector. It lists the projects
@@ -588,6 +607,9 @@ v2 gets no new workspace features.
 25. After migration, an API call, CLI command, MCP call, or webhook URL that
     named a v2 DAG without its workspace still reaches the DAG, with a
     deprecation warning, unless the caller cannot see its project.
+26. Moving a DAG to another project keeps its runs, logs, state, and webhook
+    URLs. It lists what the target project lacks before it moves, and is
+    refused while a `dag.run` caller remains in the source project.
 
 ## Alternatives considered
 
@@ -645,6 +667,8 @@ v2 gets no new workspace features.
   later major release, the one project that has the DAG they name.
 - `dag.run` cannot cross projects. Shared child DAGs live in the library and
   run in the caller's project.
+- A DAG moves between projects with its history, as a v2 label change kept
+  it.
 - The scheduler gains a supervisor, and project units reuse the current
   scheduling logic.
 - "Workspace" means only the Dagu Cloud account.
