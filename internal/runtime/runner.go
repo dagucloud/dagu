@@ -1677,7 +1677,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	defer func() { _ = node.Teardown() }()
 
 	err, readErr := evalPreconditions(ctx, node)
-	if readErr != nil {
+	if readErr != nil && !errors.Is(err, errConditionInterrupted) {
 		node.SetStatus(ir.NodeFailed)
 		return readErr
 	}
@@ -2054,7 +2054,7 @@ func isMaskedRead(err error) bool {
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
 	err, readErr := evalPreconditions(ctx, node)
-	if readErr != nil {
+	if readErr != nil && !errors.Is(err, errConditionInterrupted) {
 		node.SetStatus(ir.NodeFailed)
 		node.MarkError(readErr)
 		r.setLastError(readErr)
