@@ -93,6 +93,11 @@ func decodeDateSpec(name string, value any) (ir.DateSpec, error) {
 			if !isString || strings.TrimSpace(text) == "" {
 				return ir.DateSpec{}, &FieldError{Path: path + "." + key, Err: errors.New("must be a non-empty string")}
 			}
+			if key == "format" {
+				// A strftime pattern keeps its spaces and newlines.
+				*target = text
+				continue
+			}
 			*target = strings.TrimSpace(text)
 		}
 		if raw, ok := v["shift"]; ok {

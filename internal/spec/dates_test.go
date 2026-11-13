@@ -42,6 +42,33 @@ steps:
 	assert.Empty(t, dag.BuildWarnings)
 }
 
+// Aliases and merge keys resolve as anywhere else in the document, and a
+// strftime pattern keeps its spaces.
+func TestLoadDatesAliases(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(`
+schedule: "0 2 * * *"
+dates:
+  first_day: &day [-1d, day_start]
+  target_day: *day
+  base: &base { shift: -1d, timezone: UTC }
+  compact:
+    <<: *base
+    format: " %Y %m\n"
+steps:
+  - run: echo load
+`))
+	require.NoError(t, err)
+
+	assert.Equal(t, []ir.DateSpec{
+		{Name: "first_day", Shift: []string{"-1d", "day_start"}},
+		{Name: "target_day", Shift: []string{"-1d", "day_start"}},
+		{Name: "base", Shift: []string{"-1d"}, Timezone: "UTC"},
+		{Name: "compact", Shift: []string{"-1d"}, Format: " %Y %m\n", Timezone: "UTC"},
+	}, dag.Dates)
+}
+
 // Errors name the entry, so editors can mark its line.
 func TestDatesErrorPositions(t *testing.T) {
 	t.Parallel()
