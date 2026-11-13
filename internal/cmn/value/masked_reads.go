@@ -162,8 +162,8 @@ func noteShellReads(ctx context.Context, text string) {
 // environment when it runs text: each one the script expands before it sets
 // or unsets a value of its own. A value set in a subshell, in code that may
 // not run, or as a function's local holds only there, and a function body
-// counts where the function is first called. Text the parser rejects counts
-// every name outside single quotes.
+// counts where the function first runs. Text the parser rejects counts every
+// name outside single quotes.
 func shellEnvReads(text string) []string {
 	file, err := syntax.NewParser().Parse(strings.NewReader(text), "")
 	if err != nil {
@@ -183,14 +183,20 @@ func shellEnvReads(text string) []string {
 	return names
 }
 
-// shellPos orders the points where a script runs: call is where the
-// enclosing function is called, or the offset itself outside a function.
-type shellPos struct {
-	call, offset uint
-}
+// shellPos orders the points where a script runs: the offsets of the calls
+// that first run the enclosing functions, outermost first, then the offset
+// itself.
+type shellPos []uint
 
+// before reports whether the script reaches p before q. A call comes before
+// the body it runs.
 func (p shellPos) before(q shellPos) bool {
-	return p.call < q.call || (p.call == q.call && p.offset < q.offset)
+	for i := range min(len(p), len(q)) {
+		if p[i] != q[i] {
+			return p[i] < q[i]
+		}
+	}
+	return len(p) < len(q)
 }
 
 type scopeKind int
@@ -218,8 +224,8 @@ type shellVar struct {
 }
 
 type shellScan struct {
-	// calls holds the offset where each function is first called.
-	calls  map[string]uint
+	// calls holds the point where each function first runs.
+	calls  map[string]shellPos
 	scopes []shellScope
 	reads  []shellVar
 	sets   []shellVar
@@ -276,14 +282,11 @@ func (s *shellScan) localScope(scope int) int {
 	return scope
 }
 
-// walk scans node, which runs in scope; call is the offset of the call that
-// runs it, or nil.
-func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
+// walk scans node, which runs in scope; call is the point where the
+// enclosing function first runs, or nil outside a function.
+func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 	at := func(pos syntax.Pos) shellPos {
-		if call != nil {
-			return shellPos{call: *call, offset: pos.Offset()}
-		}
-		return shellPos{call: pos.Offset(), offset: pos.Offset()}
+		return append(slices.Clip(call), pos.Offset())
 	}
 	read := func(name string, pos syntax.Pos) {
 		s.reads = append(s.reads, shellVar{name: name, at: at(pos), scope: scope})
@@ -301,7 +304,7 @@ func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 		switch n := node.(type) {
 		case *syntax.FuncDecl:
 			if first, ok := s.calls[n.Name.Value]; ok {
-				s.walk(n.Body, s.newScope(scope, scopeFunction), &first)
+				s.walk(n.Body, s.newScope(scope, scopeFunction), first)
 			}
 			return false
 		case *syntax.Subshell:
@@ -405,7 +408,7 @@ func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 
 // walkIf scans an if clause that runs in scope and returns the variables
 // that every one of its branches sets.
-func (s *shellScan) walkIf(n *syntax.IfClause, scope int, call *uint) map[string]bool {
+func (s *shellScan) walkIf(n *syntax.IfClause, scope int, call shellPos) map[string]bool {
 	for _, stmt := range n.Cond {
 		s.walk(stmt, scope, call)
 	}
@@ -471,10 +474,10 @@ func assignedNames(args []*syntax.Word) []string {
 	return names
 }
 
-// firstCalls returns the offset where each function text defines first runs:
-// its first call outside a function, or the first run of the function whose
-// body calls it.
-func firstCalls(file *syntax.File) map[string]uint {
+// firstCalls returns the point where each function text defines first runs:
+// its first call outside a function, or its call in the body of a function,
+// placed where that function first runs.
+func firstCalls(file *syntax.File) map[string]shellPos {
 	type callSite struct {
 		// caller is the function whose body holds the call, or empty.
 		caller string
@@ -501,22 +504,23 @@ func firstCalls(file *syntax.File) map[string]uint {
 		})
 	}
 	visit(file, "")
-	calls := make(map[string]uint)
+	calls := make(map[string]shellPos)
 	// A call in a function body runs when that function first runs, so the
-	// offsets settle over passes.
+	// points settle over passes. A recursive call never comes first.
 	for changed := true; changed; {
 		changed = false
 		for name := range functions {
 			for _, site := range sites[name] {
-				at := site.offset
+				var caller shellPos
 				if site.caller != "" {
 					first, ok := calls[site.caller]
 					if !ok {
 						continue
 					}
-					at = first
+					caller = first
 				}
-				if prev, ok := calls[name]; !ok || at < prev {
+				at := append(slices.Clip(caller), site.offset)
+				if prev, ok := calls[name]; !ok || at.before(prev) {
 					calls[name] = at
 					changed = true
 				}
