@@ -14150,6 +14150,13 @@ components:
         coveredBy:
           type: string
           format: date-time
+        trigger:
+          $ref: "#/components/schemas/TriggerType"
+        dates:
+          type: array
+          description: "Dates the slot's run gets, in declaration order; absent when the DAG declares none"
+          items:
+            $ref: "#/components/schemas/RunDateValue"
       required:
         - slot
         - status

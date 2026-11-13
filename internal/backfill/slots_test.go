@@ -211,7 +211,8 @@ func TestSlotStates(t *testing.T) {
 			require.Len(t, states, 1)
 			got := states[0]
 			assert.Equal(t, got.RunID != "", !got.RecordedAt.IsZero(), "a slot with a run knows when it was recorded")
-			got.RecordedAt = time.Time{}
+			assert.Equal(t, got.RunID != "", got.Trigger != ir.TriggerTypeUnknown, "a slot with a run knows how it started")
+			got.RecordedAt, got.Trigger = time.Time{}, ir.TriggerTypeUnknown
 			assert.Equal(t, want, got)
 		})
 	}
@@ -246,4 +247,18 @@ func TestHeldByBackfill(t *testing.T) {
 		Runs:   live(started("m", ir.Succeeded)),
 	}
 	assert.False(t, backfill.HeldByBackfill(slot, sched, manual))
+}
+
+// A slot tells how the run its status comes from started.
+func TestSlotStatesTellTheTrigger(t *testing.T) {
+	t.Parallel()
+
+	slot := at(5, 2)
+	events := (&eventLog{}).run("a", slot, scheduler, "0 2 * * *").run("b", slot, ir.TriggerTypeManual, "0 2 * * *")
+	states := backfill.SlotStates([]time.Time{slot}, dailyAt(t, "0 2 * * *"), backfill.History{
+		Events: events.events,
+		Runs:   live(started("a", ir.Succeeded), started("b", ir.Failed)),
+	})
+	require.Len(t, states, 1)
+	assert.Equal(t, ir.TriggerTypeManual, states[0].Trigger)
 }

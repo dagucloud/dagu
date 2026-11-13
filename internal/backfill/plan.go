@@ -265,7 +265,7 @@ func MakePlan(req PlanRequest, rng SlotRange, states []Slot, pending map[time.Ti
 			At:     at,
 			Window: ir.ScheduleWindowAt(req.Schedule.Schedules, req.Schedule.Profile, req.Schedule.Location, at),
 			Action: actionFor(state.Status, req.Rerun, named),
-			Dates:  slotDates(req.DAG, req.Schedule, at),
+			Dates:  SlotDates(req.DAG, req.Schedule, at),
 		}
 		if slot.Action != ActionRun {
 			slot.RunID = state.RunID

@@ -290,5 +290,22 @@ steps:
 			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
 		assert.Equal(t, "2026-11-09", targetDay(details.DagRun.Dates))
 		assert.Nil(t, details.DagRun.DefaultSlot)
+
+		// The Slots view labels each slot with its dates and tells how the
+		// run of the slot started.
+		var slots struct{ Slots []api.DAGSlot }
+		server.Client().Get("/api/v1/dags/dated_dag/slots?from=2026-11-09T00:00:00Z&to=2026-11-10T00:00:00Z").
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &slots)
+		var ran *api.DAGSlot
+		for i := range slots.Slots {
+			if slots.Slots[i].Slot.Equal(time.Date(2026, 11, 9, 17, 0, 0, 0, time.UTC)) {
+				ran = &slots.Slots[i]
+			}
+		}
+		require.NotNil(t, ran, "the slot of the run is listed: %+v", slots.Slots)
+		assert.Equal(t, "2026-11-09", targetDay(ran.Dates))
+		assert.Equal(t, resp.DagRunId, valueOrEmpty(ran.RunId))
+		require.NotNil(t, ran.Trigger)
+		assert.Equal(t, api.TriggerTypeManual, *ran.Trigger)
 	})
 }

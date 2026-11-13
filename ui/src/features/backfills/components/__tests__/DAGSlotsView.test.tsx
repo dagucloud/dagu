@@ -4,7 +4,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DAGSlotStatus } from '@/api/v1/schema';
+import { DAGSlotStatus, TriggerType } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import type { DAGSlot } from '../../lib/dagSlots';
 import { DAGSlotsView } from '../DAGSlotsView';
@@ -78,6 +78,44 @@ describe('DAGSlotsView', () => {
         '2026-10-04T02:00:00Z',
       ],
     });
+  });
+
+  // A slot of a DAG with dates is labeled by the date it loads, and its
+  // row by that date's month, so choosing October chooses the cells that
+  // load October. Its name tells every date and how its run started.
+  it('labels slots with the date they load', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        slots: [
+          {
+            slot: '2026-11-01T02:00:00Z',
+            status: DAGSlotStatus.succeeded,
+            runId: 'run-1',
+            trigger: TriggerType.scheduler,
+            dates: [{ name: 'target_day', value: '2026-10-31' }],
+          },
+          {
+            slot: '2026-11-02T02:00:00Z',
+            status: DAGSlotStatus.missing,
+            dates: [{ name: 'target_day', value: '2026-11-01' }],
+          },
+        ],
+      },
+      mutate: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <DAGSlotsView fileName="etl" canExecute={false} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('2026-10')).toBeInTheDocument();
+    expect(screen.getByText('2026-11')).toBeInTheDocument();
+    const first = screen.getByRole('link');
+    expect(first).toHaveTextContent('31');
+    expect(first).toHaveAccessibleName(/loads 2026-10-31/);
+    expect(first.getAttribute('title')).toContain('target_day 2026-10-31');
+    expect(first.getAttribute('title')).toContain('Scheduled');
   });
 
   it('backfills the whole range with nothing picked', () => {

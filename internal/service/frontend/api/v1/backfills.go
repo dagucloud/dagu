@@ -117,6 +117,8 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 				Status:      dagSlotStatus(state.Status),
 				RunId:       stringOrNil(state.RunID),
 				CoveredBy:   timeOrNil(state.CoveredAt),
+				Trigger:     toTriggerType(state.Trigger),
+				Dates:       toAPIRunDates(backfill.SlotDates(dag, sched, state.At)),
 			})
 		}
 	}
