@@ -28,6 +28,7 @@ func TestSQLRejectsUnknownWithKey(t *testing.T) {
 
 			require.NoError(t, registry.ValidateExecutorConfig(executorType, map[string]any{
 				"dsn": "file:test.db", "output_format": "json", "params": []any{1, 2},
+				"transaction": true, "isolation_level": "serializable",
 			}))
 		})
 	}
