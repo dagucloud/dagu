@@ -62,7 +62,12 @@ type PlanRequest struct {
 	From, To time.Time
 	// Slots names the slots to run, instead of a range.
 	Slots []time.Time
-	Rerun Rerun
+	// By names the dates entry the range selects by. FromDate and ToDate,
+	// both inclusive, then bound the entry's dates instead of From and To;
+	// a zero ToDate means up to now.
+	By               string
+	FromDate, ToDate ir.CivilDate
+	Rerun            Rerun
 	// Resume plans named slots by Rerun, as a resume does, rather than run
 	// them whatever their history.
 	Resume   bool
@@ -77,8 +82,12 @@ type Plan struct {
 	From, To time.Time
 	// Clamped reports that To was later than now.
 	Clamped bool
-	Rerun   Rerun
-	Slots   []PlanSlot
+	// By names the dates entry the range selects by, with FromDate and
+	// ToDate its dates; ToDate is zero when it defaulted to now.
+	By               string
+	FromDate, ToDate ir.CivilDate
+	Rerun            Rerun
+	Slots            []PlanSlot
 	// RunCounts is how many slots each Rerun value would run.
 	RunCounts map[Rerun]int
 	// OtherCadence counts slots that run because their nearest run fired
@@ -99,6 +108,24 @@ type PlanSlot struct {
 	// CoveredAt is the scheduled time of a run under an earlier schedule
 	// that a skip relies on, or zero.
 	CoveredAt time.Time
+	// Dates are the dates the slot's run gets, or nil when the DAG
+	// declares none.
+	Dates []ir.DateValue
+}
+
+// LoadsEntry returns the name of the date a plan describes its slots by:
+// the entry it selects by, else the DAG's first, or empty when there is
+// none.
+func (p Plan) LoadsEntry() string {
+	if p.By != "" {
+		return p.By
+	}
+	for _, slot := range p.Slots {
+		if len(slot.Dates) > 0 {
+			return slot.Dates[0].Name
+		}
+	}
+	return ""
 }
 
 // Runs returns the slots the plan runs.
@@ -138,12 +165,15 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 		}
 		return SlotRange{Slots: slots}, checkMaxSlots(len(slots), req.MaxSlots)
 	}
+	// Fires in the current minute or later are left to the live schedule.
+	liveFrom := req.Now.Truncate(time.Minute)
+	if req.By != "" {
+		return slotRangeByDate(req, liveFrom)
+	}
 	if req.From.After(req.Now) {
 		return SlotRange{}, invalid("from %s is later than now", req.From.Format(time.RFC3339))
 	}
 	rng := SlotRange{To: req.To}
-	// Fires in the current minute or later are left to the live schedule.
-	liveFrom := req.Now.Truncate(time.Minute)
 	if rng.To.IsZero() || !rng.To.Before(liveFrom) {
 		rng.Clamped = !rng.To.IsZero()
 		rng.To = liveFrom.Add(-time.Nanosecond)
@@ -154,6 +184,25 @@ func SlotsOf(req PlanRequest) (SlotRange, error) {
 	slots, more := ir.ScheduleFiresBetween(req.Schedule.Schedules, req.Schedule.Profile, req.Schedule.Location, req.From, rng.To, maxSlotsOf(req.MaxSlots))
 	if more {
 		return SlotRange{}, invalid("the range has more than %d slots, the bound set by scheduler.backfill_max_slots", maxSlotsOf(req.MaxSlots))
+	}
+	rng.Slots = slots
+	return rng, nil
+}
+
+// slotRangeByDate lists the slots whose By entry falls in the range of dates.
+// A range that reaches today is clamped to now.
+func slotRangeByDate(req PlanRequest, liveFrom time.Time) (SlotRange, error) {
+	today := ir.DateOf(req.Now.In(req.Schedule.Location))
+	if today.Before(req.FromDate) {
+		return SlotRange{}, invalid("from %s is later than today", req.FromDate)
+	}
+	rng := SlotRange{To: liveFrom.Add(-time.Nanosecond)}
+	if !req.ToDate.IsZero() {
+		rng.Clamped = !req.ToDate.Before(today)
+	}
+	slots, err := slotsByDate(req, liveFrom)
+	if err != nil {
+		return SlotRange{}, err
 	}
 	rng.Slots = slots
 	return rng, nil
@@ -199,6 +248,9 @@ func MakePlan(req PlanRequest, rng SlotRange, states []Slot, pending map[time.Ti
 		From:      req.From,
 		To:        rng.To,
 		Clamped:   rng.Clamped,
+		By:        req.By,
+		FromDate:  req.FromDate,
+		ToDate:    req.ToDate,
 		Rerun:     req.Rerun,
 		RunCounts: make(map[Rerun]int, len(Reruns)),
 	}
@@ -213,6 +265,7 @@ func MakePlan(req PlanRequest, rng SlotRange, states []Slot, pending map[time.Ti
 			At:     at,
 			Window: ir.ScheduleWindowAt(req.Schedule.Schedules, req.Schedule.Profile, req.Schedule.Location, at),
 			Action: actionFor(state.Status, req.Rerun, named),
+			Dates:  slotDates(req.DAG, req.Schedule, at),
 		}
 		if slot.Action != ActionRun {
 			slot.RunID = state.RunID
@@ -280,12 +333,13 @@ func (p Plan) revision() string {
 // MarshalJSON encodes the plan with times in RFC 3339.
 func (p Plan) MarshalJSON() ([]byte, error) {
 	type slotJSON struct {
-		At          string `json:"slot"`
-		WindowStart string `json:"windowStart,omitempty"`
-		WindowEnd   string `json:"windowEnd"`
-		Action      Action `json:"action"`
-		RunID       string `json:"runId,omitempty"`
-		CoveredAt   string `json:"coveredBy,omitempty"`
+		At          string         `json:"slot"`
+		WindowStart string         `json:"windowStart,omitempty"`
+		WindowEnd   string         `json:"windowEnd"`
+		Action      Action         `json:"action"`
+		RunID       string         `json:"runId,omitempty"`
+		CoveredAt   string         `json:"coveredBy,omitempty"`
+		Dates       []ir.DateValue `json:"dates,omitempty"`
 	}
 	slots := make([]slotJSON, 0, len(p.Slots))
 	for _, slot := range p.Slots {
@@ -296,6 +350,7 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 			Action:      slot.Action,
 			RunID:       slot.RunID,
 			CoveredAt:   formatOptional(slot.CoveredAt),
+			Dates:       slot.Dates,
 		}
 		slots = append(slots, item)
 	}
@@ -304,6 +359,9 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 		From         string        `json:"from,omitempty"`
 		To           string        `json:"to,omitempty"`
 		Clamped      bool          `json:"clamped,omitempty"`
+		By           string        `json:"by,omitempty"`
+		FromDate     string        `json:"fromDate,omitempty"`
+		ToDate       string        `json:"toDate,omitempty"`
 		Rerun        Rerun         `json:"rerun"`
 		RunCounts    map[Rerun]int `json:"runCounts"`
 		OtherCadence int           `json:"otherCadence,omitempty"`
@@ -314,6 +372,9 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 		From:         formatOptional(p.From),
 		To:           formatOptional(p.To),
 		Clamped:      p.Clamped,
+		By:           p.By,
+		FromDate:     dateOrEmpty(p.FromDate),
+		ToDate:       dateOrEmpty(p.ToDate),
 		Rerun:        p.Rerun,
 		RunCounts:    p.RunCounts,
 		OtherCadence: p.OtherCadence,

@@ -71,6 +71,11 @@ type planJSON struct {
 		Slot      string `json:"slot"`
 		Action    string `json:"action"`
 		CoveredBy string `json:"coveredBy"`
+		Dates     []struct {
+			Name   string   `json:"name"`
+			Value  string   `json:"value"`
+			Values []string `json:"values"`
+		} `json:"dates"`
 	} `json:"slots"`
 }
 
@@ -190,6 +195,35 @@ func TestToIsClampedToNow(t *testing.T) {
 	plan := newProject(t).plan(t, "etl.yaml", "--from", "2025-10-01", "--to", "2099-01-01")
 	if !plan.Clamped {
 		t.Fatal("plan is not clamped")
+	}
+}
+
+// --by selects the slots whose entry falls in the range of dates, whatever
+// the entry's format, and the plan carries each slot's dates.
+func TestByDate(t *testing.T) {
+	t.Parallel()
+
+	for _, entry := range []string{"target_day", "target_unix"} {
+		plan := newProject(t).plan(t, "hourly_dates.yaml", "--by", entry, "--from", "2025-10-01", "--to", "2025-10-31")
+		if len(plan.Slots) != 744 {
+			t.Fatalf("--by %s selected %d slots, want 744", entry, len(plan.Slots))
+		}
+		first, last := plan.Slots[0], plan.Slots[len(plan.Slots)-1]
+		if first.Slot != "2025-10-02T00:00:00Z" || last.Slot != "2025-11-01T23:00:00Z" {
+			t.Fatalf("--by %s selected %s to %s", entry, first.Slot, last.Slot)
+		}
+		if len(first.Dates) == 0 || first.Dates[0].Name != "target_day" || first.Dates[0].Value != "2025-10-01" {
+			t.Fatalf("first slot dates = %+v", first.Dates)
+		}
+	}
+
+	// Monday's window on a weekday schedule holds the weekend.
+	plan := newProject(t).plan(t, "weekday_window.yaml", "--by", "window_days", "--from", "2025-11-08", "--to", "2025-11-08")
+	if len(plan.Slots) != 1 || plan.Slots[0].Slot != "2025-11-10T02:00:00Z" {
+		t.Fatalf("--by window_days selected %+v", plan.Slots)
+	}
+	if got := strings.Join(plan.Slots[0].Dates[0].Values, ","); got != "2025-11-07,2025-11-08,2025-11-09" {
+		t.Fatalf("window_days = %s", got)
 	}
 }
 

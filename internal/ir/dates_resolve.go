@@ -125,17 +125,13 @@ func newDateResolver(specs []DateSpec, dc DateContext) (*dateResolver, error) {
 
 func (r *dateResolver) value(spec DateSpec) (DateValue, error) {
 	if spec.Each != "" {
-		instants, zone, err := r.list(spec)
+		instants, err := r.shiftedList(spec)
 		if err != nil {
 			return DateValue{}, err
 		}
 		values := make([]string, 0, len(instants))
 		for _, at := range instants {
-			shifted, err := r.shift(spec, at.In(zone))
-			if err != nil {
-				return DateValue{}, err
-			}
-			text, err := formatDate(spec.Format, shifted)
+			text, err := formatDate(spec.Format, at)
 			if err != nil {
 				return DateValue{}, err
 			}
@@ -224,6 +220,24 @@ func (r *dateResolver) requireSlot(field string) error {
 		return nil
 	}
 	return fmt.Errorf("%s needs the window of a schedule slot, and the run has no slot", field)
+}
+
+// shiftedList returns the values of a list entry as instants, after its
+// shift.
+func (r *dateResolver) shiftedList(spec DateSpec) ([]time.Time, error) {
+	instants, zone, err := r.list(spec)
+	if err != nil {
+		return nil, err
+	}
+	shifted := make([]time.Time, 0, len(instants))
+	for _, at := range instants {
+		t, err := r.shift(spec, at.In(zone))
+		if err != nil {
+			return nil, err
+		}
+		shifted = append(shifted, t)
+	}
+	return shifted, nil
 }
 
 // list returns the instants an entry steps through, from interval_start up
@@ -437,4 +451,31 @@ func DateTexts(values []DateValue) map[string]any {
 		texts[value.Name] = value.Text()
 	}
 	return texts
+}
+
+// ResolveDateInstants returns the instants of the named entry for a run,
+// after its shift and in its zone: one for a single entry, and one per value
+// for a list. It ignores the entry's format, so callers compare dates rather
+// than text.
+func ResolveDateInstants(specs []DateSpec, name string, dc DateContext) ([]time.Time, error) {
+	r, err := newDateResolver(specs, dc)
+	if err != nil {
+		return nil, err
+	}
+	spec, ok := r.byName[name]
+	if !ok {
+		return nil, fmt.Errorf("dates: no entry %q", name)
+	}
+	if spec.Each == "" {
+		instant, err := r.instant(name, 0)
+		if err != nil {
+			return nil, fmt.Errorf("dates.%s: %w", name, err)
+		}
+		return []time.Time{instant.at}, nil
+	}
+	instants, err := r.shiftedList(spec)
+	if err != nil {
+		return nil, fmt.Errorf("dates.%s: %w", name, err)
+	}
+	return instants, nil
 }

@@ -95,14 +95,15 @@ A backfill reads each slot's state from its history:
 ### Starting a backfill
 
 ```sh
-dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flags]
+dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --slot <time>...) [flags]
 ```
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
 | `--from` | First slot, inclusive. A date, a time without an offset, or an RFC 3339 time. | required without `--slot` |
 | `--to` | Last slot, inclusive. | now |
-| `--slot` | A slot to run. Repeatable. Excludes `--from`, `--to`, and `--rerun`. | none |
+| `--by` | An entry of the DAG's `dates` ([Spec 097](097-derived-dates.md)). `--from` and `--to` are then dates of that entry, not fire times. | none |
+| `--slot` | A slot to run. Repeatable. Excludes `--from`, `--to`, `--by`, and `--rerun`. | none |
 | `--rerun` | `none`, `failed`, or `all`. | `none` |
 | `--max-concurrency` | Runs of the backfill allowed at once. | `1` |
 | `--on-failure` | `stop` or `continue`. | `stop` |
@@ -120,6 +121,12 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A `--to` at or after the current minute is clamped to just before it, and
   the plan says so. A `--from` later than now is rejected.
 - A `--slot` that is not a fire time, or that is later than now, is rejected.
+- With `--by`, `--from` and `--to` are dates (`YYYY-MM-DD`). A slot is in the
+  range when the calendar date of the entry's instant, in the entry's zone,
+  falls between them, whatever the entry's format. For a list entry, when any
+  of its values does. The entry is resolved as the slot's run resolves it. A
+  `--to` of today or later runs to now and is clamped, and a `--from` later
+  than today is rejected.
 - Each slot's action follows `--rerun`:
 
   | Slot state | `none` | `failed` | `all` | `--slot` |
@@ -133,6 +140,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - The plan lists every slot with its window start and action, and the number
   of slots each `--rerun` value would run. The text plan shows the first and
   last three slots; `--format json` shows every slot.
+- For a DAG with `dates`, the plan gives each slot the dates its run gets.
+  The text plan adds a column and a `Loads <first> to <last> (<entry>)` line
+  for the `--by` entry, else the DAG's first, over the slots it runs.
 - Without `--yes`, the command prints the plan and asks before starting. With
   no terminal to ask on, or with `--format json`, it fails and names `--yes`.
 - A submit records the backfill, with the DAG's definition and each slot's
@@ -307,7 +317,9 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   error naming `slot_retention_days`.
 - `dagu backfill start` exits with status 1 and starts nothing when:
   - neither `--from` nor `--slot` is given, or `--slot` is combined with
-    `--from`, `--to`, or `--rerun`;
+    `--from`, `--to`, `--by`, or `--rerun`;
+  - `--by` names no entry of the DAG's `dates`, or `--from` or `--to` is not
+    a date with `--by`, or `--to` is before `--from`;
   - `--from` or a `--slot` is later than now, or a `--slot` is not a fire time;
   - the range has more slots than `scheduler.backfill_max_slots`;
   - the DAG has no schedule;
@@ -336,7 +348,9 @@ asserts that the plan skips slots whose latest run succeeded or failed and
 counts the slots of each `--rerun` value; that a slot keeps the status of a
 run history retention removed; that a run removed with `dagu rm --history` no
 longer counts; that a scheduler run under an earlier schedule covers the
-nearest slot after the schedule moves; that `--to` is clamped to now; that the
+nearest slot after the schedule moves; that `--to` is clamped to now; that
+`--by` selects the slots whose entry falls in the range, whatever its format,
+including a list entry, and that the plan shows each slot's dates; that the
 rejections under Errors fail with status 1; and that submitting the same
 backfill while it is open starts nothing while an overlapping one leaves the
 open backfill's slots active. With a scheduler running, it asserts that a

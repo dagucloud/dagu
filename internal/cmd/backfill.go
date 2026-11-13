@@ -43,6 +43,10 @@ var (
 		name:  "to",
 		usage: "Last slot, inclusive (default: now)",
 	}
+	backfillByFlag = commandLineFlag{
+		name:  "by",
+		usage: "A dates entry; --from and --to then name its dates rather than fire times",
+	}
 	backfillSlotFlag = commandLineFlag{
 		name:          "slot",
 		usage:         "A slot to run; repeatable. Excludes --from, --to, and --rerun",
@@ -480,14 +484,19 @@ A date for --from means the start of that day, and for --to the end of it.
 Dates and times without an offset are read in the schedule's time zone.
 --to defaults to now, and a later --to is clamped to now.
 
+With --by, --from and --to are dates of a dates entry: the backfill runs the
+slots whose entry falls in the range, in the entry's zone, whatever its
+format. For a list entry, any of its values.
+
 Examples:
   dagu backfill start etl --from 2026-10-02 --to 2026-11-01
+  dagu backfill start etl --by target_day --from 2026-10-01 --to 2026-10-31
   dagu backfill start etl --from 2026-10-02 --rerun failed --dry-run
   dagu backfill start etl --slot 2026-10-05T02:00 --slot 2026-10-09T02:00 --yes
 `,
 		Args: cobra.ExactArgs(1),
 	}, []commandLineFlag{
-		backfillFromFlag, backfillToFlag, backfillSlotFlag, backfillRerunFlag,
+		backfillFromFlag, backfillToFlag, backfillByFlag, backfillSlotFlag, backfillRerunFlag,
 		backfillMaxConcurrencyFlag, backfillOnFailureFlag, backfillParamsFlag, profileFlag,
 		backfillDryRunFlag, backfillFormatFlag, backfillYesFlag,
 	}, runBackfillStart)
@@ -576,6 +585,9 @@ func parseBackfillStartFlags(ctx *Context) (backfillStartOptions, error) {
 		return opts, err
 	}
 	if req.To, err = flags.GetString("to"); err != nil {
+		return opts, err
+	}
+	if req.By, err = flags.GetString("by"); err != nil {
 		return opts, err
 	}
 	if req.Slots, err = flags.GetStringArray("slot"); err != nil {
@@ -669,6 +681,10 @@ func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Opti
 	if !first.Window.Start.IsZero() {
 		fmt.Fprintf(&b, "Windows     %s to %s\n", formatBackfillTime(first.Window.Start.In(first.At.Location())), formatBackfillTime(last.At))
 	}
+	entry := plan.LoadsEntry()
+	if from, to := loadsRange(plan, entry); from != "" {
+		fmt.Fprintf(&b, "Loads       %s to %s (%s)\n", from, to, entry)
+	}
 	if plan.Clamped {
 		fmt.Fprintf(&b, "--to clamped to now, %s\n", formatBackfillTime(plan.To.In(first.At.Location())))
 	}
@@ -684,7 +700,11 @@ func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Opti
 	}
 
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SLOT\tWINDOW START\tACTION")
+	loadsHeader := ""
+	if entry != "" {
+		loadsHeader = strings.ToUpper(entry) + "\t"
+	}
+	_, _ = fmt.Fprintf(w, "SLOT\tWINDOW START\t%sACTION\n", loadsHeader)
 	for i, slot := range plan.Slots {
 		if len(plan.Slots) > 2*backfillPlanEdgeRows && i == backfillPlanEdgeRows {
 			_, _ = fmt.Fprintln(w, "...\t\t")
@@ -700,7 +720,11 @@ func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Opti
 		if !slot.CoveredAt.IsZero() {
 			action += fmt.Sprintf(" (run of %s)", formatBackfillTime(slot.CoveredAt.In(slot.At.Location())))
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", formatBackfillTime(slot.At), windowStart, action)
+		loads := ""
+		if entry != "" {
+			loads = slotLoads(slot, entry) + "\t"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s%s\n", formatBackfillTime(slot.At), windowStart, loads, action)
 	}
 	if err := w.Flush(); err != nil {
 		return err
@@ -715,6 +739,49 @@ func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Opti
 		return err
 	}
 	return nil
+}
+
+// loadsRange returns the first and last value of entry over the plan's
+// slots, or empty strings when the slots have none.
+func loadsRange(plan backfill.Plan, entry string) (string, string) {
+	var values []string
+	for _, slot := range plan.Slots {
+		for _, date := range slot.Dates {
+			if date.Name != entry {
+				continue
+			}
+			if date.List {
+				values = append(values, date.Values...)
+			} else {
+				values = append(values, date.Value)
+			}
+		}
+	}
+	if len(values) == 0 {
+		return "", ""
+	}
+	return values[0], values[len(values)-1]
+}
+
+// slotLoads shows a slot's value of entry: the date, or a list's first and
+// last value.
+func slotLoads(slot backfill.PlanSlot, entry string) string {
+	for _, date := range slot.Dates {
+		if date.Name != entry {
+			continue
+		}
+		switch {
+		case !date.List:
+			return date.Value
+		case len(date.Values) == 0:
+			return "-"
+		case len(date.Values) == 1:
+			return date.Values[0]
+		default:
+			return date.Values[0] + ".." + date.Values[len(date.Values)-1]
+		}
+	}
+	return ""
 }
 
 func backfillActionCounts(plan backfill.Plan) string {
