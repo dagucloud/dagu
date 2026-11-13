@@ -45,6 +45,8 @@ type Config struct {
 	// Hello introduces the server to the relay; the service names its
 	// process.
 	Hello cloudrelay.Hello
+	// LastCall keeps the latest call the server served; nil keeps none.
+	LastCall StateStore
 }
 
 // State is how this process's connection for calls stands.
@@ -99,12 +101,27 @@ func New(cfg Config) *Service {
 	}
 	// The relay keeps one connection per process, by this name.
 	cfg.Hello.Instance = newInstance()
+	var last *lastCalls
+	if cfg.LastCall != nil {
+		last = &lastCalls{store: cfg.LastCall, now: time.Now}
+	}
 	return &Service{
 		Settings: cfg.Settings,
 		cfg:      cfg,
 		timing:   defaultTiming,
-		calls:    &calls{settings: cfg.Settings, credentials: cfg.Credentials, verifier: newVerifier(cfg.Key)},
+		calls: &calls{settings: cfg.Settings, credentials: cfg.Credentials, verifier: newVerifier(cfg.Key),
+			lastCalls: last},
 	}
+}
+
+// LastCall returns the latest call from Dagu Cloud the server served under
+// its current license, and false while there is none.
+func (s *Service) LastCall(ctx context.Context) (LastCall, bool, error) {
+	creds, connected := s.cfg.Credentials()
+	if s.calls.lastCalls == nil || !connected {
+		return LastCall{}, false, nil
+	}
+	return s.calls.lastCalls.get(ctx, creds.LicenseID)
 }
 
 // State returns how the connection stands.

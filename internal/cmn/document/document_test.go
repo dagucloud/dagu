@@ -163,6 +163,12 @@ func TestReadTextInShiftJIS(t *testing.T) {
 	file, err := document.Read(context.Background(), write(t, "memo.txt", encoded))
 	require.NoError(t, err)
 	assert.Equal(t, "請求書\n", file.Text)
+
+	// A text file in neither encoding fails rather than being given to the
+	// model as replacement characters.
+	path := write(t, "garbage.txt", []byte("a\x81 b\n"))
+	_, err = document.Read(context.Background(), path)
+	require.EqualError(t, err, path+": the text file could not be read: not valid UTF-8 or Shift_JIS")
 }
 
 func TestReadRefuses(t *testing.T) {

@@ -5,7 +5,13 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import * as React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DAGRunActivityQueueBlockedReason, Status } from '@/api/v1/schema';
+import {
+  DAGRunActivityQueueBlockedReason,
+  RestartPolicy,
+  ServiceDAGState,
+  Status,
+  type components,
+} from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { PeekContext } from '@/features/peek/PeekContext';
@@ -26,6 +32,18 @@ import DashboardPage from '../index';
 
 vi.mock('../../features/activity/hooks/useDAGRunActivity', () => ({
   useDAGRunActivity: vi.fn(),
+}));
+
+const serviceDAGs = vi.hoisted(() => ({
+  current: [] as components['schemas']['ServiceDAG'][],
+  error: null as unknown,
+}));
+
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: () => ({
+    serviceDAGs: serviceDAGs.current,
+    error: serviceDAGs.error,
+  }),
 }));
 
 vi.mock('../../features/activity/hooks/useGettingStarted', () => ({
@@ -257,6 +275,8 @@ describe('DashboardPage', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    serviceDAGs.current = [];
+    serviceDAGs.error = null;
   });
 
   it('shows what needs attention with the failing step', () => {
@@ -613,6 +633,61 @@ describe('DashboardPage', () => {
     ).not.toBeInTheDocument();
   });
 
+  // The lists leave out the runs of service DAGs, so a crashing one must not
+  // leave the page saying that all is clear.
+  it('lists a service DAG that keeps failing', () => {
+    serviceDAGs.current = [
+      {
+        fileName: 'worker',
+        name: 'worker',
+        restartPolicy: RestartPolicy.always,
+        restartWaitSec: 5,
+        queue: 'worker',
+        state: ServiceDAGState.failing,
+        suspended: false,
+        consecutiveFailures: 3,
+        latestRun: {
+          dagRunId: 'w-3',
+          status: Status.Failed,
+          error: 'serve: exit status 3',
+        },
+      },
+    ];
+    mockActivity({ activity: makeActivity({ runs: reportRuns }) });
+
+    renderPage();
+
+    expect(screen.queryByText(/All clear/)).toBeNull();
+    const attention = screen.getByRole('region', { name: /Needs attention/ });
+    const item = within(attention).getByRole('listitem');
+    expect(item).toHaveTextContent('worker');
+    expect(item).toHaveTextContent('3 failures in a row: serve: exit status 3');
+  });
+
+  // The panel leaves out the runs of service DAGs, so it must not say that
+  // nothing runs while one does.
+  it('says when only service DAGs are running', () => {
+    serviceDAGs.current = [
+      {
+        fileName: 'worker',
+        name: 'worker',
+        restartPolicy: RestartPolicy.always,
+        restartWaitSec: 5,
+        queue: 'worker',
+        state: ServiceDAGState.running,
+        suspended: false,
+        consecutiveFailures: 0,
+        latestRun: { dagRunId: 'w-1', status: Status.Running },
+      },
+    ];
+    mockActivity({ activity: makeActivity({ runs: reportRuns }) });
+
+    renderPage();
+
+    expect(screen.queryByText('Nothing is running.')).toBeNull();
+    expect(screen.getByText('Only service DAGs are running.')).toBeVisible();
+  });
+
   it('says all is clear when nothing needs attention', () => {
     mockActivity({ activity: makeActivity({ runs: reportRuns }) });
 
@@ -718,6 +793,21 @@ describe('DashboardPage', () => {
     expect(screen.getByText(/Start a workflow from the/)).toBeVisible();
     expect(
       screen.queryByText('Create your first workflow')
+    ).not.toBeInTheDocument();
+  });
+
+  // The page leaves out the runs of service DAGs, so it must not say that
+  // nothing ran while the service DAGs cannot be read.
+  it('keeps the page when the service DAGs cannot be read', () => {
+    serviceDAGs.error = { code: 'internal_error', message: 'store is down' };
+    mockDAGList(['etl', 'backup']);
+    mockActivity({ activity: makeActivity() });
+
+    renderPage();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('store is down');
+    expect(
+      screen.queryByText(/Start a workflow from the/)
     ).not.toBeInTheDocument();
   });
 

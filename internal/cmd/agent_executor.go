@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -40,13 +41,13 @@ func ExecuteAgent(ctx *Context, agentInstance *agent.Agent, dag *ir.DAG, dagRunI
 			_ = ctx.Proc.Stop(ctx)
 		}
 		if ctx.Quiet {
-			os.Exit(1)
+			exitFailed()
 		} else {
 			agentInstance.PrintSummary(ctx)
 			// If progress display was enabled, exit directly without returning error
 			// to avoid printing "exit status 1" which ruins the UI
 			if enableProgress {
-				os.Exit(1)
+				exitFailed()
 			}
 			return fmt.Errorf("failed to execute the dag-run %s (dag-run ID: %s): %w",
 				dag.Name, dagRunID, err)
@@ -88,4 +89,11 @@ func configureLoggerForProgress(ctx *Context, logFile *os.File) {
 // isTerminal checks if the given file is a terminal
 func isTerminal(f *os.File) bool {
 	return term.IsTerminal(int(f.Fd()))
+}
+
+// exitFailed ends the process with status 1 at once, first removing what a
+// command removes as it returns.
+func exitFailed() {
+	buildenv.Release()
+	os.Exit(1)
 }

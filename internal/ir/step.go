@@ -164,6 +164,11 @@ const (
 	StepDeclaredOutputSourceCapture = "capture"
 )
 
+// BrowserOutputDownloads is the output every browser step publishes: the
+// absolute paths of the files it downloaded, in the order they finished.
+// An extract schema may not list a property of that name.
+const BrowserOutputDownloads = "downloads"
+
 // StepOutputEntry defines one structured object-form output entry.
 type StepOutputEntry struct {
 	// HasValue distinguishes literal/null values from source-based outputs.

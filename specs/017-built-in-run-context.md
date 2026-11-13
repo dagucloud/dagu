@@ -284,9 +284,14 @@ Rules:
 Rules:
 
 - Valid `context.trigger.type` values are `unknown`, `manual`, `scheduler`,
-  `webhook`, `subdag`, `retry`, `catchup`, and `restart`. `restart` is the
-  trigger type of the runs started because of a DAG's `restart_policy`
-  ([Spec 080](080-restart-policy.md)).
+  `webhook`, `subdag`, `retry`, `catchup`, `restart`, and `backfill`.
+  `restart` is the trigger type of the runs started because of a DAG's
+  `restart_policy` ([Spec 080](080-restart-policy.md)). `backfill` is the
+  trigger type of the runs a backfill starts
+  ([Spec 086](086-backfill.md)).
+- A retry of a run is `retry`, except that a retry of a `backfill` run stays
+  `backfill`. This holds for a retry by hand and by the DAG's retry policy,
+  and on a local or a distributed worker.
 - `context.trigger.actor` must not contain credentials, bearer tokens, session IDs, or
   other authenticators.
 - Webhook payload and headers are object-valued trigger context and are exposed
