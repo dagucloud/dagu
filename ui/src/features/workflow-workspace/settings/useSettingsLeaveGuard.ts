@@ -16,8 +16,11 @@ import {
   type ReactNode,
 } from 'react';
 
-/** A section of the Workflow panel with a draft that is not saved. */
-export type DirtySection = 'notifications' | 'incidents' | 'profile';
+/**
+ * A section of the Workflow panel with a draft that is not saved, or 'page':
+ * the draft of a page that has no Workflow panel, such as an agent.
+ */
+export type DirtySection = 'notifications' | 'incidents' | 'profile' | 'page';
 
 export interface SettingsLeaveGuard {
   setDirty(section: DirtySection, dirty: boolean): void;
@@ -44,6 +47,7 @@ interface Risk {
   notifications: boolean;
   incidents: boolean;
   profile: boolean;
+  page: boolean;
   secret: boolean;
   editor: boolean;
 }
@@ -52,12 +56,19 @@ const NO_RISK: Risk = {
   notifications: false,
   incidents: false,
   profile: false,
+  page: false,
   secret: false,
   editor: false,
 };
 
 function isAtRisk(risk: Risk): boolean {
-  return risk.notifications || risk.incidents || risk.profile || risk.secret;
+  return (
+    risk.notifications ||
+    risk.incidents ||
+    risk.profile ||
+    risk.page ||
+    risk.secret
+  );
 }
 
 function isAnyRisk(risk: Risk): boolean {
@@ -84,6 +95,7 @@ function useGuardController(): SettingsLeaveGuard {
       next.notifications === riskRef.current.notifications &&
       next.incidents === riskRef.current.incidents &&
       next.profile === riskRef.current.profile &&
+      next.page === riskRef.current.page &&
       next.secret === riskRef.current.secret &&
       next.editor === riskRef.current.editor
     ) {

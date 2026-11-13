@@ -53,6 +53,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   buildDAGPageURL,
   buildDAGRunPageURL,
+  rootRunFileName,
 } from '../../../dag-runs/lib/dagRunUrls';
 import { DAGRunContext } from '../../../dag-runs/contexts/DAGRunContext';
 import {
@@ -489,12 +490,13 @@ function NodeStatusTableRow({
         return;
       }
 
-      // Child runs open on the run page under their root run.
+      // A child run opens on the workflow page of its root run, through ?subRun.
       const url = buildDAGRunPageURL({
         rootDAGRunName: dagRun?.rootDAGRunId
           ? dagRun.rootDAGRunName
           : dagRun?.name || name,
         rootDAGRunId: dagRun?.rootDAGRunId || dagRunId || '',
+        fileName: rootRunFileName(dagRun, name),
         subDAGRunId,
         remoteNode,
       });

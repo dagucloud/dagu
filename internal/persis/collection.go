@@ -17,6 +17,9 @@ import (
 )
 
 const (
+	CollectionAIEndpointModels      = "ai_endpoint_models"
+	CollectionAIEndpoints           = "ai_endpoints"
+	CollectionAIMCPServers          = "ai_mcp_servers"
 	CollectionAPIKeys               = "api_keys"
 	CollectionActiveDistributedRuns = "active_distributed_runs"
 	CollectionAgentSessionCleanups  = "agent_session_cleanups"
