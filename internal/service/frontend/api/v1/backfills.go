@@ -147,9 +147,24 @@ func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsReques
 }
 
 func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObject) (api.GetBackfillResponseObject, error) {
-	_, report, err := a.backfillReport(ctx, request.BackfillId)
+	item, err := a.backfillDetails(ctx, request.BackfillId)
 	if err != nil {
 		return nil, err
+	}
+	return api.GetBackfill200JSONResponse(item), nil
+}
+
+// GetBackfillData returns a backfill for SSE.
+// Identifier format: the backfill ID.
+func (a *API) GetBackfillData(ctx context.Context, id string) (any, error) {
+	return a.backfillDetails(ctx, id)
+}
+
+// backfillDetails reports one backfill with why it waits.
+func (a *API) backfillDetails(ctx context.Context, id string) (api.Backfill, error) {
+	_, report, err := a.backfillReport(ctx, id)
+	if err != nil {
+		return api.Backfill{}, err
 	}
 	item := toAPIBackfill(report, a.schedulerActive(ctx))
 	if a.queueStore != nil && a.procRepository != nil {
@@ -159,11 +174,11 @@ func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObj
 			Limit: a.config.QueueLimit,
 		}, a.config.Core.Location)
 		if err != nil {
-			return nil, err
+			return api.Backfill{}, err
 		}
 		item.Waiting = stringOrNil(wait)
 	}
-	return api.GetBackfill200JSONResponse(item), nil
+	return item, nil
 }
 
 // aliveRuns counts a queue's runs in progress on this server's processes.

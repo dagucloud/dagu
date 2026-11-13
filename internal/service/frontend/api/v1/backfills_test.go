@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -107,6 +108,40 @@ steps:
 	assert.Equal(t, 2, resumed.Backfill.MaxConcurrency)
 }
 
+// The runs of a backfill are listed by its ID, and each run names it.
+func TestListDAGRunsOfABackfill(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	dag := server.DAG(t, "steps:\n  - run: \"true\"\n")
+	ctx := context.Background()
+	for runID, backfillID := range map[string]string{"bf-run": "bf123456", "other-bf-run": "bf654321", "live-run": ""} {
+		attempt, err := server.DAGRunRepository.CreateAttempt(ctx, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(ctx))
+		require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
+			Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: ir.Succeeded, BackfillID: backfillID,
+		}))
+		require.NoError(t, attempt.Close(ctx))
+	}
+
+	var page api.DAGRunsPageResponse
+	server.Client().Get("/api/v1/dag-runs?backfillId=bf123456").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &page)
+	require.Len(t, page.DagRuns, 1)
+	assert.Equal(t, "bf-run", page.DagRuns[0].DagRunId)
+	assert.Equal(t, new("bf123456"), page.DagRuns[0].BackfillId)
+
+	live, err := newDAGPinAPIWithStore(server.Helper, nil).GetDAGRunsListData(ctx, "backfillId=bf123456")
+	require.NoError(t, err)
+	liveRuns := live.(api.DAGRunsPageResponse).DagRuns
+	require.Len(t, liveRuns, 1, "the live run list filters alike")
+	assert.Equal(t, "bf-run", liveRuns[0].DagRunId)
+
+	var details api.GetDAGRunDetails200JSONResponse
+	server.Client().Get("/api/v1/dag-runs/"+dag.Name+"/bf-run").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+	assert.Equal(t, new("bf123456"), details.DagRunDetails.BackfillId)
+}
+
 func TestBackfillAPIRejects(t *testing.T) {
 	t.Parallel()
 
@@ -154,6 +189,11 @@ func TestBackfillWorkspaceAccess(t *testing.T) {
 	requireAPIErrorStatus(t, err, http.StatusNotFound)
 	_, err = apiImpl.GetBackfill(viewer, api.GetBackfillRequestObject{BackfillId: "ops12345"})
 	require.NoError(t, err)
+	_, err = apiImpl.GetBackfillData(other, "ops12345")
+	requireAPIErrorStatus(t, err, http.StatusNotFound)
+	live, err := apiImpl.GetBackfillData(viewer, "ops12345")
+	require.NoError(t, err)
+	assert.Equal(t, "ops12345", live.(api.Backfill).Id, "the live feed reports the backfill")
 
 	require.NoError(t, os.Remove(dagFile))
 	cancel := api.CancelBackfillRequestObject{BackfillId: "ops12345", Body: &api.CancelBackfillJSONRequestBody{}}
