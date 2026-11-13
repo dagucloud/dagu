@@ -202,6 +202,15 @@
     "browser": {
       "$ref": "#/definitions/BrowserDef"
     },
+    "untrusted": {
+      "$ref": "#/definitions/UntrustedDef"
+    },
+    "agent_tools": {
+      "$ref": "#/definitions/AgentToolsDef"
+    },
+    "ai": {
+      "$ref": "#/definitions/AIDef"
+    },
     "proc": {
       "$ref": "#/definitions/ProcDef"
     },
@@ -1178,7 +1187,50 @@
         },
         "worker_wait_timeout": {
           "type": "string",
-          "description": "How long a dispatch with no healthy worker matching its selector is held, as a queued run, for such a worker to register before the run fails. Default: '2m'. Set to '0' to refuse the dispatch at once."
+          "description": "How long a dispatch waits for a matching worker to take it before the run fails. A dispatch with no healthy worker matching its selector waits as a queued run. Default: '2m'. Set to '0' to refuse such a dispatch at once; a dispatch that a healthy worker matched then waits 90 seconds."
+        },
+        "worker_pools": {
+          "type": "array",
+          "description": "Worker pools (Spec 092). Each pool binds the labels that a worker can announce to the subject Common Name of its client certificate. Pools need peer.cert_file, peer.key_file and peer.client_ca_file. Default: no pools; a worker then cannot announce a label that starts with agent.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "identities"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "description": "The name of the pool. Unique."
+              },
+              "identities": {
+                "type": "array",
+                "minItems": 1,
+                "description": "The subject Common Names of the client certificates of the pool. An identity is in one pool only.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "labels": {
+                "type": "object",
+                "description": "A label key and its allowed value. The value '*' allows any value. The label agent.provider.<provider> takes the value 'true'. The labels os and arch are always allowed and are not keys of this map.",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "dispatchers": {
+          "type": "array",
+          "description": "The subject Common Names of the client certificates that make the calls that are not calls of a worker, such as a dispatch: the server, the scheduler and the command line (Spec 092). Required with worker_pools; invalid without them. An identity of a dispatcher is in no pool. A worker of a pool makes such a call only for a run whose lease it holds.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -1197,6 +1249,164 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "UntrustedDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "dependentRequired": {
+        "uid": ["gid"],
+        "gid": ["uid"]
+      },
+      "description": "The restricted user that runs an untrusted step (Spec 092). Give uid and gid together. Without them, an untrusted step fails, unless isolation is off. The file is the only source: the variable DAGU_UNTRUSTED stops Dagu at start.",
+      "properties": {
+        "isolation": {
+          "type": "string",
+          "enum": ["on", "off"],
+          "default": "on",
+          "description": "With on, an untrusted step needs uid and gid and fails without them. With off, an untrusted step runs without isolation, as the process user: use it for development and tests. Not valid with uid and gid."
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967294,
+          "description": "The user ID of the restricted user. Not the user ID of the process."
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967294,
+          "description": "The group ID of the restricted user. Not the group ID of the process."
+        }
+      }
+    },
+    "AgentToolsDef": {
+      "type": "object",
+      "description": "Limits of the tool catalog of an agent step (Spec 090). They are the defaults of each step of the process. The block is closed: an unknown key stops Dagu at start. The file is the only source of these values.",
+      "additionalProperties": false,
+      "properties": {
+        "max_tools": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The most tools in the effective catalog of a step. A larger catalog fails the step.",
+          "default": 64
+        },
+        "tool_result_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The size limit of one tool result that goes to the model. Zero means no limit.",
+          "default": 524288
+        }
+      }
+    },
+    "AIDef": {
+      "type": "object",
+      "description": "Operational values of the AI gateway and of the models list (Spec 093). The coordinator, the server and a local process read them. The block is closed: an unknown key, a wrong type, a value out of range or a contradiction of two keys stops Dagu at start. The block has no secret, and the file is the only source of these values.",
+      "additionalProperties": false,
+      "properties": {
+        "models_refresh_hours": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 720,
+          "description": "The period of the refresh of the models lists, in hours. Zero stops the automatic refresh.",
+          "default": 24
+        },
+        "models_timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "description": "The time limit of the read of one models list, in seconds.",
+          "default": 30
+        },
+        "upstream": {
+          "$ref": "#/definitions/AIUpstreamDef"
+        },
+        "relay": {
+          "$ref": "#/definitions/AIRelayDef"
+        }
+      }
+    },
+    "AIUpstreamDef": {
+      "type": "object",
+      "description": "The calls of the coordinator to the providers.",
+      "additionalProperties": false,
+      "properties": {
+        "proxy_url": {
+          "type": "string",
+          "pattern": "^$|^https?://[^@/]+(/.*)?$",
+          "description": "The proxy of the calls of the coordinator to the providers. An http or https URL with no user information. An empty value means a direct call. Dagu never reads HTTP_PROXY, HTTPS_PROXY or NO_PROXY.",
+          "default": ""
+        }
+      }
+    },
+    "AIRelayDef": {
+      "type": "object",
+      "description": "The limits of the AI relay. A contradiction stops Dagu at start: max_streams_per_run above max_streams, and response_header_timeout_sec or idle_timeout_sec above total_timeout_sec.",
+      "additionalProperties": false,
+      "properties": {
+        "max_request_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 268435456,
+          "description": "The size limit of the body of one request. A larger body gives request_too_large.",
+          "default": 16777216
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1073741824,
+          "description": "The size limit of one response. A larger response ends the stream with response_too_large.",
+          "default": 268435456
+        },
+        "max_header_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1048576,
+          "description": "The size limit of the request headers that the relay forwards, all together.",
+          "default": 32768
+        },
+        "max_streams_per_run": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "description": "The most open streams of one run.",
+          "default": 8
+        },
+        "max_streams": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536,
+          "description": "The most open streams of the coordinator.",
+          "default": 128
+        },
+        "connect_timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "description": "The time limit to connect to the provider, in seconds.",
+          "default": 10
+        },
+        "response_header_timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "The time limit to wait for the response head of the provider, in seconds.",
+          "default": 600
+        },
+        "idle_timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "A stream that moves no byte for this time ends, in seconds.",
+          "default": 300
+        },
+        "total_timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400,
+          "description": "The time limit of one request, in seconds.",
+          "default": 3600
         }
       }
     },
