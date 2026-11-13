@@ -80,7 +80,14 @@ export function WorkflowTabsPanel({
   const { ts } = useI18n();
   const [url, setUrl] = useWorkspaceUrl();
   const { guard, setDirty } = useSettingsLeaveGuard();
-  const tab: WorkflowPanelTab = url.wtab ?? 'overview';
+  // A tab the workflow lacks, such as Backfills once its schedule is gone,
+  // opens the overview.
+  const requested: WorkflowPanelTab = url.wtab ?? 'overview';
+  const tab: WorkflowPanelTab = workflowTabsOf(dag).some(
+    ({ id }) => id === requested
+  )
+    ? requested
+    : 'overview';
   const stripTabs = useMemo(
     () =>
       workflowTabsOf(dag).map(({ id, label, icon }) => ({

@@ -124,4 +124,31 @@ describe('ResumeBackfillDialog', () => {
     expect(screen.getByRole('button', { name: 'Resume 3 runs' })).toBeEnabled();
     expect(onResumed).not.toHaveBeenCalled();
   });
+
+  it('resumes only with the options its plan was made with', async () => {
+    let answer: (value: unknown) => void = () => {};
+    post
+      .mockResolvedValueOnce({ data: { plan: plan('r1', 2) } })
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (answer = resolve))
+      );
+    renderDialog();
+    await screen.findByText('Runs 2 slots');
+
+    fireEvent.change(screen.getByRole('spinbutton'), {
+      target: { value: '2' },
+    });
+    expect(
+      screen.getByRole('button', { name: 'Resume 2 runs' })
+    ).toBeDisabled();
+    expect(screen.getByText('Runs 2 slots')).toBeInTheDocument();
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    answer({ data: { plan: plan('r2', 2) } });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Resume 2 runs' })
+      ).toBeEnabled()
+    );
+  });
 });

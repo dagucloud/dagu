@@ -20,6 +20,7 @@ type Backfill = components['schemas']['Backfill'];
 
 const sse = vi.hoisted(() => ({
   data: null as Backfill | null,
+  connected: true,
   calls: [] as unknown[][],
 }));
 
@@ -28,12 +29,14 @@ vi.mock('@/hooks/useBackfillSSE', () => ({
     sse.calls.push(args);
     return {
       data: sse.data,
-      isConnected: true,
+      isConnected: sse.connected,
       isConnecting: false,
       shouldUseFallback: false,
     };
   },
 }));
+// A read while the feed is down; these tests keep the feed up or ended.
+vi.mock('@/hooks/api', () => ({ useQuery: () => ({ data: undefined }) }));
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <MemoryRouter>{children}</MemoryRouter>
@@ -58,6 +61,7 @@ describe('useBackfillNotice', () => {
   beforeEach(() => {
     localStorage.clear();
     sse.data = null;
+    sse.connected = true;
     sse.calls = [];
   });
 
@@ -72,7 +76,11 @@ describe('useBackfillNotice', () => {
       'Backfill running: 14 of 28 slots done, 1 failed'
     );
     expect(result.current?.dismissible).toBeFalsy();
-    expect(sse.calls[sse.calls.length - 1]).toEqual(['bf123456', true, 'local']);
+    expect(sse.calls[sse.calls.length - 1]).toEqual([
+      'bf123456',
+      true,
+      'local',
+    ]);
   });
 
   it('keeps a failure notice until it is dismissed, then for good', () => {
@@ -86,7 +94,11 @@ describe('useBackfillNotice', () => {
     expect(first.result.current?.message).toBe(
       'Backfill failed: 20 slots did not succeed'
     );
-    expect(sse.calls[sse.calls.length - 1]).toEqual(['bf123456', false, 'local']);
+    expect(sse.calls[sse.calls.length - 1]).toEqual([
+      'bf123456',
+      false,
+      'local',
+    ]);
 
     act(() => first.result.current?.dismiss?.());
     expect(first.result.current).toBeNull();
@@ -103,5 +115,58 @@ describe('useBackfillNotice', () => {
       wrapper,
     });
     expect(result.current).toBeNull();
+  });
+
+  it('stops following a backfill once its feed says it ended', () => {
+    sse.data = backfill({
+      status: BackfillStatus.succeeded,
+      counts: { succeeded: 28 },
+    });
+    const { result } = renderHook(
+      () => useBackfillNotice(backfill(), 'local'),
+      { wrapper }
+    );
+
+    expect(result.current).toBeNull();
+    expect(sse.calls[sse.calls.length - 1]).toEqual([
+      'bf123456',
+      false,
+      'local',
+    ]);
+  });
+
+  it("keeps the workflow's counts over a feed that went down", () => {
+    sse.data = backfill({ counts: { succeeded: 20, pending: 8 } });
+    sse.connected = false;
+    const { result } = renderHook(
+      () => useBackfillNotice(backfill(), 'local'),
+      { wrapper }
+    );
+
+    expect(result.current?.message).toBe(
+      'Backfill running: 12 of 28 slots done'
+    );
+  });
+
+  it("opens the backfill in a new tab under the app's base path", () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(
+      () => useBackfillNotice(backfill(), 'local'),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <MemoryRouter basename="/dagu" initialEntries={['/dagu/dags/etl']}>
+            {children}
+          </MemoryRouter>
+        ),
+      }
+    );
+
+    result.current?.action?.run({ metaKey: true, ctrlKey: false });
+    expect(open).toHaveBeenCalledWith(
+      '/dagu/backfills/bf123456',
+      '_blank',
+      'noopener'
+    );
+    open.mockRestore();
   });
 });

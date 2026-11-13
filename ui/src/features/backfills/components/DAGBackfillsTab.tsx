@@ -7,10 +7,10 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import RelativeTime from '@/components/ui/relative-time';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
-import { useBackfillSSE } from '@/hooks/useBackfillSSE';
-import { usePageVisible } from '@/hooks/usePageVisible';
 import { useI18n } from '@/i18n/I18nProvider';
-import { type Backfill, isOpenBackfill, slotsDone } from '../lib/backfillState';
+import { useLiveBackfill } from '../hooks/useBackfill';
+import { backfillPath } from '../lib/backfillLinks';
+import { type Backfill, slotsDone } from '../lib/backfillState';
 import { BackfillProgress } from './BackfillProgress';
 import { BackfillStatusChip } from './BackfillStatusChip';
 
@@ -90,17 +90,11 @@ function BackfillRow({
   backfill: Backfill;
   remoteNode: string;
 }) {
-  const visible = usePageVisible();
-  const sse = useBackfillSSE(
-    listed.id,
-    visible && isOpenBackfill(listed),
-    remoteNode
-  );
-  const backfill = sse.data ?? listed;
+  const backfill = useLiveBackfill(listed, remoteNode) ?? listed;
   return (
     <li>
       <Link
-        to={`/backfills/${encodeURIComponent(backfill.id)}`}
+        to={backfillPath(backfill.id, remoteNode)}
         className="flex flex-col gap-1.5 px-3 py-2 outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <div className="flex items-center justify-between gap-2">

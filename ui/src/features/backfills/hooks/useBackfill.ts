@@ -22,6 +22,17 @@ const READ_ONCE = {
 } as const;
 
 /**
+ * A page of slots is read when it is shown again, as it may have changed
+ * while another page was, and else only when the backfill's counts change.
+ */
+const READ_ON_SHOW = {
+  revalidateOnFocus: false,
+  revalidateIfStale: true,
+  refreshInterval: 0,
+  keepPreviousData: true,
+} as const;
+
+/**
  * A backfill. While it is open and the tab is visible, the live feed
  * refreshes it when one of its runs changes; a read every 5s stands in only
  * while the feed is down. An ended backfill is read once, and so is one
@@ -48,9 +59,9 @@ export function useBackfill(backfillId: string, remoteNode: string) {
 }
 
 /**
- * A page of a backfill's slots, in a state or in all. It is read again when
- * the backfill's counts or status change, which is when its slots can, and
- * never on a timer.
+ * A page of a backfill's slots, in a state or in all. It is read when it is
+ * shown, and again when the backfill's counts or status change, which is
+ * when its slots can; never on a timer.
  */
 export function useBackfillSlots(
   backfill: Backfill | undefined,
@@ -73,7 +84,7 @@ export function useBackfillSlots(
           },
         }
       : null,
-    { ...READ_ONCE, keepPreviousData: true }
+    READ_ON_SHOW
   );
   const signature = backfill
     ? `${backfill.status}:${JSON.stringify(backfill.counts)}`
@@ -88,4 +99,50 @@ export function useBackfillSlots(
     if (!first) void mutate();
   }, [signature, mutate]);
   return query;
+}
+
+/**
+ * A backfill known from a list or a details read, kept current while it is
+ * open and the tab is visible: by its live feed while the feed is up, and
+ * by a read every 5s while it is down. Once it is seen to end, nothing
+ * follows it. A new `known` from the caller replaces what was seen.
+ */
+export function useLiveBackfill(
+  known: Backfill | undefined,
+  remoteNode: string
+): Backfill | undefined {
+  const visible = usePageVisible();
+  // What the caller knows, by content: a read that brings newer counts
+  // replaces what was seen, the same counts in a new object do not.
+  const knownKey = known
+    ? `${known.id}:${known.status}:${JSON.stringify(known.counts)}`
+    : '';
+  const knownId = known?.id;
+  const [seen, setSeen] = useState<{ key: string; value: Backfill }>();
+  const current = known && seen?.key === knownKey ? seen.value : known;
+  const live = !!current && visible && isOpenBackfill(current);
+  const sse = useBackfillSSE(current?.id ?? '', live, remoteNode);
+  const down =
+    live && (sse.shouldUseFallback || (!sse.isConnected && !sse.isConnecting));
+  const { data } = useQuery(
+    '/backfills/{backfillId}',
+    down && current
+      ? { params: { path: { backfillId: current.id }, query: { remoteNode } } }
+      : null,
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: true,
+      refreshInterval: FALLBACK_POLL_MS,
+    }
+  );
+  const streamed = sse.isConnected ? sse.data : undefined;
+  useEffect(() => {
+    if (streamed && streamed.id === knownId) {
+      setSeen({ key: knownKey, value: streamed });
+    }
+  }, [knownId, knownKey, streamed]);
+  useEffect(() => {
+    if (data && data.id === knownId) setSeen({ key: knownKey, value: data });
+  }, [knownId, knownKey, data]);
+  return current;
 }

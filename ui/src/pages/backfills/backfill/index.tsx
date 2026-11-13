@@ -10,7 +10,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import React from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { BackfillSlotState } from '@/api/v1/schema';
 import {
   LoadErrorState,
@@ -34,6 +34,10 @@ import {
   useBackfillSlots,
 } from '@/features/backfills/hooks/useBackfill';
 import {
+  backfillRunsPath,
+  workflowPath,
+} from '@/features/backfills/lib/backfillLinks';
+import {
   type Backfill,
   canResume,
   isOpenBackfill,
@@ -52,8 +56,13 @@ import { isNotFoundQueryError } from '@/lib/queryErrors';
 export default function BackfillPage() {
   const { ts } = useI18n();
   const { backfillId = '' } = useParams();
+  const [searchParams] = useSearchParams();
   const appBarContext = React.useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  // A link from a workflow on another node names that node.
+  const remoteNode =
+    searchParams.get('remoteNode') ||
+    appBarContext.selectedRemoteNode ||
+    'local';
   const canExecute = useCanExecute();
   const { data: backfill, error, mutate } = useBackfill(backfillId, remoteNode);
   const [state, setState] = React.useState<BackfillSlotState | null>(null);
@@ -72,6 +81,13 @@ export default function BackfillPage() {
     setPage(0);
   };
   const replace = (next: Backfill) => void mutate(next, { revalidate: false });
+  const total = slots.data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / SLOT_PAGE_SIZE));
+  // Slots leave a state as the backfill goes on: a page past the end moves
+  // back to the last one.
+  React.useEffect(() => {
+    if (slots.data && page >= pages) setPage(pages - 1);
+  }, [slots.data, page, pages]);
 
   if (!backfill) {
     if (error && isNotFoundQueryError(error)) {
@@ -95,10 +111,11 @@ export default function BackfillPage() {
   }
 
   const open = isOpenBackfill(backfill);
-  const total = slots.data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / SLOT_PAGE_SIZE));
-  const runsLink = `/dag-runs?backfillId=${encodeURIComponent(backfill.id)}`;
-  const workflowLink = `/dags/${encodeURIComponent(backfill.fileName ?? backfill.dag)}`;
+  const runsLink = backfillRunsPath(backfill.id, remoteNode);
+  const workflowLink = workflowPath(
+    backfill.fileName ?? backfill.dag,
+    remoteNode
+  );
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
@@ -214,7 +231,22 @@ export default function BackfillPage() {
               </div>
             )}
           </div>
-          <div className="px-3 py-3">
+          <div className="flex flex-col gap-2 px-3 py-3">
+            {slots.error && (
+              <p
+                role="alert"
+                className="flex items-center gap-2 text-sm text-destructive"
+              >
+                {ts('Failed to load the slots')}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => void slots.mutate()}
+                >
+                  {ts('Retry')}
+                </Button>
+              </p>
+            )}
             {slots.data && slots.data.slots.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {ts('No slots in this state.')}

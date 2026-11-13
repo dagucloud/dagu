@@ -399,6 +399,13 @@ describe('WorkflowTabsPanel', () => {
     ).toEqual(['/backfills/new12345', '/backfills/old12345']);
   });
 
+  it('opens the overview for Backfills of a workflow without a schedule', () => {
+    renderAt(['/dags/nightly.yaml?wtab=backfills']);
+
+    expect(tab('Overview')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
+  });
+
   it('opens the tab that ?wtab names', async () => {
     renderAt(['/dags/nightly.yaml?wtab=wiki']);
 

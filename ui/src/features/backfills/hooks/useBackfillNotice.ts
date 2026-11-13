@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useHref, useNavigate } from 'react-router-dom';
 import { BackfillSlotState, BackfillStatus } from '@/api/v1/schema';
 import type { WorkspaceNotice } from '@/features/dags/components/dag-editor/hostTypes';
-import { useBackfillSSE } from '@/hooks/useBackfillSSE';
-import { usePageVisible } from '@/hooks/usePageVisible';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   type Backfill,
@@ -14,6 +12,8 @@ import {
   slotsDone,
   slotsIn,
 } from '../lib/backfillState';
+import { backfillPath } from '../lib/backfillLinks';
+import { useLiveBackfill } from './useBackfill';
 
 /** The backfills whose failure notice was dismissed, newest last. */
 export const DISMISSED_BACKFILLS_KEY = 'dagu.backfills.dismissedNotices';
@@ -55,13 +55,10 @@ export function useBackfillNotice(
 ): WorkspaceNotice | null {
   const { ts } = useI18n();
   const navigate = useNavigate();
-  const visible = usePageVisible();
-  const sse = useBackfillSSE(
-    latest?.id ?? '',
-    !!latest && visible && isOpenBackfill(latest),
-    remoteNode
-  );
-  const backfill = sse.data && sse.data.id === latest?.id ? sse.data : latest;
+  const backfill = useLiveBackfill(latest, remoteNode);
+  const path = backfill ? backfillPath(backfill.id, remoteNode) : '/';
+  // A new tab opens the page under the app's base path.
+  const href = useHref(path);
   const [dismissed, setDismissed] = useState(readDismissed);
   const dismiss = useCallback(() => {
     if (!backfill) return;
@@ -72,12 +69,11 @@ export function useBackfillNotice(
 
   return useMemo(() => {
     if (!backfill) return null;
-    const path = `/backfills/${encodeURIComponent(backfill.id)}`;
     const action = {
       label: ts('Open backfill'),
       run: (click?: { metaKey: boolean; ctrlKey: boolean }) =>
         click?.metaKey || click?.ctrlKey
-          ? window.open(path, '_blank', 'noopener')
+          ? window.open(href, '_blank', 'noopener')
           : navigate(path),
     };
     if (isOpenBackfill(backfill)) {
@@ -120,7 +116,7 @@ export function useBackfillNotice(
       dismiss,
       priority: BACKFILL_NOTICE_PRIORITY,
     };
-  }, [backfill, dismissed, dismiss, navigate, ts]);
+  }, [backfill, dismissed, dismiss, navigate, path, href, ts]);
 }
 
 /** Below the notices of the selected run, above the monitoring offer. */

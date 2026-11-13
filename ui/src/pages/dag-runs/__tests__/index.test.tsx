@@ -298,13 +298,20 @@ describe('DAGRuns page', () => {
   });
 
   // A backfill links to its runs: the list asks for them from the backfill's
-  // start on, whatever the date filter, until the scope is cleared.
+  // start on, without the page's filters and views, until the scope is
+  // cleared.
   it('lists the runs of a backfill that the URL names', async () => {
     renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
 
-    expect(lastRunQuery()).toMatchObject({ backfillId: 'bf123456' });
-    expect(lastRunQuery()['fromDate']).toBeUndefined();
-    expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
+    expect(lastRunQuery()).toEqual({
+      remoteNode: 'local',
+      backfillId: 'bf123456',
+      limit: 100,
+      workspace: 'all',
+    });
+    expect(
+      screen.queryByPlaceholderText('Filter by workflow name...')
+    ).toBeNull();
     expect(screen.getByRole('link', { name: 'bf123456' })).toHaveAttribute(
       'href',
       '/backfills/bf123456'

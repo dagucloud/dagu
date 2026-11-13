@@ -74,23 +74,37 @@ const SLOTS: BackfillSlot[] = [
   { slot: '2026-10-03T02:00:00Z', state: BackfillSlotState.pending },
 ];
 
-function renderPage(data: Backfill) {
+/** The answer to the slot query, which a test may change. */
+const slotsAnswer = vi.hoisted(() => ({
+  value: null as null | Record<string, unknown>,
+}));
+
+function renderPage(data: Backfill, search = '') {
   useQueryMock.mockImplementation((path: string) =>
     path === '/backfills/{backfillId}'
       ? { data, error: undefined, mutate: vi.fn() }
-      : { data: { slots: SLOTS, total: SLOTS.length }, mutate: vi.fn() }
+      : (slotsAnswer.value ?? {
+          data: { slots: SLOTS, total: SLOTS.length },
+          mutate: vi.fn(),
+        })
   );
-  render(
-    <MemoryRouter initialEntries={[`/backfills/${data.id}`]}>
-      <AppBarContext.Provider
-        value={{ setTitle: vi.fn(), selectedRemoteNode: 'local' } as never}
-      >
+  const appBar = { setTitle: vi.fn(), selectedRemoteNode: 'local' } as never;
+  // A new tick renders the page again, as a new answer of a query would.
+  const tree = (tick: number) => (
+    <MemoryRouter initialEntries={[`/backfills/${data.id}${search}`]}>
+      <AppBarContext.Provider value={appBar}>
         <Routes>
-          <Route path="/backfills/:backfillId" element={<BackfillPage />} />
+          <Route
+            path="/backfills/:backfillId"
+            element={<BackfillPage key="page" data-tick={tick} />}
+          />
         </Routes>
       </AppBarContext.Provider>
     </MemoryRouter>
   );
+  let tick = 0;
+  const view = render(tree(tick));
+  return { rerender: () => view.rerender(tree(++tick)) };
 }
 
 function slotQueries(): Array<Record<string, unknown>> {
@@ -118,6 +132,7 @@ describe('BackfillPage', () => {
     useQueryMock.mockReset();
     mocks.post.mockReset();
     mocks.sse.mockReset();
+    slotsAnswer.value = null;
     mocks.sse.mockReturnValue({
       data: null,
       isConnected: true,
@@ -216,5 +231,50 @@ describe('BackfillPage', () => {
     await waitFor(() =>
       expect(mocks.sse).toHaveBeenLastCalledWith('bf123456', false, 'local')
     );
+  });
+
+  it('reads a backfill on the node that the link names', () => {
+    renderPage(backfill(), '?remoteNode=edge');
+
+    expect(slotQueries().slice(-1)[0]).toMatchObject({ remoteNode: 'edge' });
+    expect(mocks.sse).toHaveBeenLastCalledWith('bf123456', true, 'edge');
+    expect(screen.getByRole('link', { name: 'View runs' })).toHaveAttribute(
+      'href',
+      '/dag-runs?backfillId=bf123456&remoteNode=edge'
+    );
+    expect(screen.getByRole('link', { name: 'etl' })).toHaveAttribute(
+      'href',
+      '/dags/etl?remoteNode=edge'
+    );
+  });
+
+  it('moves back to the last page when the slots of a state shrink', async () => {
+    slotsAnswer.value = { data: { slots: SLOTS, total: 450 }, mutate: vi.fn() };
+    const view = renderPage(backfill());
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(slotQueries().slice(-1)[0]).toMatchObject({ offset: 400 });
+
+    slotsAnswer.value = { data: { slots: SLOTS, total: 190 }, mutate: vi.fn() };
+    view.rerender();
+    await waitFor(() =>
+      expect(slotQueries().slice(-1)[0]).toMatchObject({ offset: 0 })
+    );
+  });
+
+  it('reports slots that fail to load, with a retry', () => {
+    const retry = vi.fn();
+    slotsAnswer.value = {
+      data: undefined,
+      error: new Error('boom'),
+      mutate: retry,
+    };
+    renderPage(backfill());
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Failed to load the slots'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(retry).toHaveBeenCalled();
   });
 });

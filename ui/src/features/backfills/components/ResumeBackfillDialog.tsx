@@ -64,6 +64,9 @@ export function ResumeBackfillDialog({
   const [concurrency, setConcurrency] = useState(backfill.maxConcurrency);
   const [onFailure, setOnFailure] = useState(backfill.onFailure);
   const [plan, setPlan] = useState<BackfillPlan | null>(null);
+  // The options the plan shown was made with: a resume starts only with
+  // those, not with options changed since.
+  const [plannedWith, setPlannedWith] = useState('');
   const [stale, setStale] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +90,7 @@ export function ResumeBackfillDialog({
         if (!current) return;
         if (data) {
           setPlan(data.plan);
+          setPlannedWith(`${concurrency}:${onFailure}`);
           setStale(false);
           setError(null);
         } else {
@@ -125,6 +129,7 @@ export function ResumeBackfillDialog({
   const runs =
     plan?.slots.filter((slot) => slot.action === BackfillPlanSlotAction.run)
       .length ?? 0;
+  const planned = plannedWith === `${concurrency}:${onFailure}`;
 
   const resume = async () => {
     if (!plan) return;
@@ -148,6 +153,7 @@ export function ResumeBackfillDialog({
         changeOpen(false);
       } else if (response.status === 409 && apiError && 'plan' in apiError) {
         setPlan((apiError as SubmitResponse).plan);
+        setPlannedWith(`${concurrency}:${onFailure}`);
         setStale(true);
       } else {
         setError(messageOf(apiError, ts('Failed to resume the backfill')));
@@ -261,6 +267,11 @@ export function ResumeBackfillDialog({
             )}
           </div>
 
+          {plan && !planned && !error && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {ts('Planning…')}
+            </p>
+          )}
           {stale && (
             <p
               role="status"
@@ -284,7 +295,9 @@ export function ResumeBackfillDialog({
           <Button
             variant="primary"
             size="sm"
-            disabled={!plan || runs === 0 || !validConcurrency || submitting}
+            disabled={
+              !plan || !planned || runs === 0 || !validConcurrency || submitting
+            }
             onClick={() => void resume()}
           >
             {!plan

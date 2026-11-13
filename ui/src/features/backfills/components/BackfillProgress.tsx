@@ -33,7 +33,11 @@ export function BackfillProgress({
 }: Props) {
   const { ts } = useI18n();
   const total = Math.max(backfill.slotCount, 1);
-  const present = SLOT_STATES.filter((state) => slotsIn(backfill, state) > 0);
+  // The state the list shows stays in the legend at zero, so that it can be
+  // cleared.
+  const present = SLOT_STATES.filter(
+    (state) => slotsIn(backfill, state) > 0 || state === selected
+  );
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div
