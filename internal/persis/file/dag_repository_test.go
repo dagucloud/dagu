@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+
+	// Registers the chat executor that the test workflow uses.
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
 )
 
 func TestDAGRepositoryPreservesLegacyFlags(t *testing.T) {
@@ -460,4 +464,40 @@ func TestDAGChangeMarkerPathMatchesStore(t *testing.T) {
 
 	cfg.Paths.DataDir = ""
 	assert.Empty(t, persisfile.DAGChangeMarkerPath(cfg), "no data directory, no marker")
+}
+
+// A definition that has no file still finds the skills directory of the DAGs
+// directory. The loaded step keeps the skill.
+func TestDAGRepositoryLoadSpecFindsSkills(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	homeDir := t.TempDir()
+	dataDir := filepath.Join(homeDir, "data")
+	flagsDir := filepath.Join(dataDir, "suspend")
+	legacyDir := filepath.Join(homeDir, "suspend")
+	cfg := suspendFlagsTestConfig(homeDir, dataDir, flagsDir, legacyDir)
+
+	skill := filepath.Join(cfg.Paths.DAGsDir, "skills", "support")
+	require.NoError(t, os.MkdirAll(skill, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(skill, "SKILL.md"),
+		[]byte("---\nname: support\ndescription: Support rules\n---\nBe kind.\n"), 0o600))
+
+	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
+	require.NoError(t, err)
+
+	source := []byte(`
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      provider: local
+      model: m
+      skills: [support]
+      prompt: hi
+`)
+	dag, err := repo.LoadSpec(ctx, source, "flow", persis.DAGLoadOptions{})
+	require.NoError(t, err)
+	require.Len(t, dag.Steps[0].LLM.Skills, 1)
+	assert.Equal(t, "support", dag.Steps[0].LLM.Skills[0].Name)
+	assert.Equal(t, "Be kind.", strings.TrimSpace(dag.Steps[0].LLM.Skills[0].Body))
 }

@@ -1,12 +1,14 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { CSSProperties } from 'react';
+import type { ComponentProps, CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 import { MermaidBlock } from '@/components/ui/mermaid-block';
 
 interface MarkdownProps {
   content: string;
   className?: string;
+  /** Plugins that run after GitHub-flavoured Markdown. */
+  remarkPlugins?: ComponentProps<typeof ReactMarkdown>['remarkPlugins'];
 }
 
 const inlineCodeStyle: CSSProperties = {
@@ -25,7 +27,11 @@ const codeBlockInnerStyle: CSSProperties = {
 };
 
 // Compact markdown renderer for chat messages
-export function Markdown({ content, className }: MarkdownProps) {
+export function Markdown({
+  content,
+  className,
+  remarkPlugins = [],
+}: MarkdownProps) {
   return (
     <div
       className={cn(
@@ -46,7 +52,7 @@ export function Markdown({ content, className }: MarkdownProps) {
       )}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, ...(remarkPlugins ?? [])]}
         components={{
           // Custom code block rendering
           code({ className: codeClassName, children, style, ...props }) {

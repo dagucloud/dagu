@@ -66,6 +66,17 @@ func (oc *OutputCoordinator) StdoutFile() string {
 	return oc.stdoutFileName
 }
 
+// stderrLog returns the writer of the stderr log of the step, or io.Discard
+// before the setup of the writers.
+func (oc *OutputCoordinator) stderrLog() io.Writer {
+	oc.mu.Lock()
+	defer oc.mu.Unlock()
+	if oc.stderrWriter == nil {
+		return io.Discard
+	}
+	return oc.stderrWriter
+}
+
 func (oc *OutputCoordinator) lock() {
 	oc.mu.Lock()
 }
@@ -79,17 +90,8 @@ func (oc *OutputCoordinator) setupMasker(ctx context.Context, _ NodeData) error 
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 
-	// Get secrets from DAGContext via EnvScope
-	rCtx := GetDAGContext(ctx)
-
-	// Use EnvScope.AllSecrets() for unified source tracking
-	secrets := rCtx.EnvScope.AllSecrets()
-
-	// Convert secret envs map to []string format for masker
-	var secretEnvs []string
-	for k, v := range secrets {
-		secretEnvs = append(secretEnvs, k+"="+v)
-	}
+	// Every secret of the run, also one that this step does not get (Spec 092).
+	secretEnvs := GetDAGContext(ctx).SecretsForMasking()
 
 	// Create masker if there are secrets to mask
 	if len(secretEnvs) > 0 {
@@ -530,6 +532,10 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, art
 		// Keep existing content until an attempt starts, and avoid append mode:
 		// Windows does not allow truncating an append-mode file.
 		open = fileutil.OpenOrCreateFileForRandomWrite
+	} else if GetDAGContext(ctx).DAG.HasUntrustedStep() {
+		open = func(path string) (*os.File, error) {
+			return OpenStepFile(ctx, path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0o600)
+		}
 	}
 	file, err := open(absFilePath)
 	// Artifact parents are created and validated when the path is resolved.
