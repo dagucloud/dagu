@@ -8,6 +8,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
+import { NEW_SKILL_SEGMENT } from '@/features/skills/skill';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n/I18nProvider';
 import { translate, type TranslationKey } from '@/i18n/messages';
@@ -36,6 +37,7 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/dags': 'navigation.workflows',
   '/search': 'navigation.search',
   '/base-config': 'navigation.baseConfig',
+  '/ai': 'navigation.ai',
   '/calendars': 'navigation.calendars',
   '/wiki': 'navigation.wiki',
   '/queues': 'navigation.queues',
@@ -164,6 +166,32 @@ export function getBreadcrumbItems(
         label: decodePathSegment(segments[1]),
         to: `/queues/${segments[1]}`,
       });
+    }
+    return items;
+  }
+
+  if (segments[0] === 'ai') {
+    items.push({ label: t('navigation.ai'), to: '/ai' });
+    if (segments[1] === 'endpoints') {
+      items.push({ label: t('navigation.endpoints'), to: '/ai/endpoints' });
+      return items;
+    }
+    if (segments[1] === 'mcp') {
+      items.push({ label: t('navigation.mcp'), to: '/ai/mcp' });
+      return items;
+    }
+    if (segments[1] === 'skills') {
+      items.push({ label: t('navigation.skills'), to: '/ai/skills' });
+      if (segments[2]) {
+        items.push({
+          label:
+            segments[2] === NEW_SKILL_SEGMENT
+              ? t('navigation.newSkill')
+              : decodePathSegment(segments[2]),
+          to: `/ai/skills/${segments[2]}`,
+        });
+      }
+      return items;
     }
     return items;
   }

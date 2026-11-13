@@ -301,18 +301,41 @@ describe('Layout', () => {
     expect(screen.getByTestId('scheduler-pause-banner')).toBeInTheDocument();
   });
 
-  // The workflow page owns its first row and its area: the frame takes that
-  // shape from the address, with no claim, so that a reload shows no strip and
-  // no padding that go away once the page has loaded.
-  it('gives a workflow page its frame from the first render', () => {
-    renderLayout('/dags/example', undefined, <FullBleedPage on={false} />);
-    const contentArea = screen.getByText('Page Content').parentElement;
-    expect(contentArea).toHaveClass('overflow-hidden', 'min-h-0', 'flex-1');
+  // The frame takes its shape only from a page that claims it. A workflow
+  // route whose page makes no claim (the classic tabs) scrolls on its own, with
+  // its padding and its breadcrumb.
+  it('keeps scroll, padding and breadcrumb on a workflow route with no claim', () => {
+    for (const path of [
+      '/dags/example',
+      '/dags/example/history',
+      '/dags/example/settings',
+    ]) {
+      const { unmount } = renderLayout(path);
+      const contentArea = screen.getByText('Page Content').parentElement;
+      expect(contentArea).toHaveClass('overflow-auto', 'p-4', 'md:p-6');
+      expect(contentArea).not.toHaveClass('overflow-hidden');
+      expect(
+        screen.getByRole('navigation', { name: 'breadcrumb' })
+      ).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('gives a workflow route the frame that its page claims', () => {
+    renderLayout(
+      '/dags/example/history',
+      undefined,
+      <>
+        <FullBleedPage on />
+        <HideBreadcrumbPage on />
+      </>
+    );
+    const contentArea = screen.getAllByText('Page Content')[0]?.parentElement;
+    expect(contentArea).toHaveClass('overflow-hidden');
     expect(contentArea).not.toHaveClass('p-4');
     expect(
       screen.queryByRole('navigation', { name: 'breadcrumb' })
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId('update-banner')).toBeInTheDocument();
   });
 
   it('keeps the strip on the other pages and on the workflow list', () => {

@@ -67,6 +67,7 @@ import {
 import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
 import { overlayStepOfKey } from '@/features/peek/overlayKeys';
 import { peekPageURL, type PeekTarget } from '@/features/peek/peekParams';
+import { OVERLAY_MOUNTED } from '@/features/peek/overlayMounted';
 import {
   useWorkflowOverlay,
   WorkflowOverlayProvider,
@@ -76,6 +77,7 @@ import { useOverlayExit } from '@/features/peek/useOverlayExit';
 import { cn } from '@/lib/utils';
 import { translateStatic } from '@/i18n/translateStatic';
 import { I18nText } from '@/i18n/I18nText';
+import { LegacyToolboxRedirect } from './pages/ai/LegacyToolboxRedirect';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
 const APIKeysPage = React.lazy(() => import('./pages/api-keys'));
@@ -122,6 +124,7 @@ const SettingsPage = React.lazy(() => import('./pages/settings'));
 const SystemStatus = React.lazy(() => import('./pages/system-status'));
 const TerminalPage = React.lazy(() => import('./pages/terminal'));
 const UsersPage = React.lazy(() => import('./pages/users'));
+const AIPage = React.lazy(() => import('./pages/ai'));
 const WebhooksPage = React.lazy(() => import('./pages/webhooks'));
 
 type Props = {
@@ -155,6 +158,8 @@ const STATIC_PAGE_TITLES = new Set([
   'System Status',
   'Terminal',
   'Timeline',
+  'AI',
+  'New skill',
   'User Management',
   'Webhooks',
   'Wiki',
@@ -396,6 +401,11 @@ function preloadWhenIdle(): () => void {
   const id = window.setTimeout(preload, IDLE_PRELOAD_TIMEOUT_MS);
   return () => window.clearTimeout(id);
 }
+
+// Without the overlay, the host renders nothing and no list shows a peek.
+const OverlayProvider = OVERLAY_MOUNTED
+  ? WorkflowOverlayProvider
+  : React.Fragment;
 
 function LazyRoutes({
   children,
@@ -967,7 +977,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                               path="/*"
                               element={
                                 <ProtectedRoute>
-                                  <WorkflowOverlayProvider>
+                                  <OverlayProvider>
                                     <Layout navbarColor={config.navbarColor}>
                                       <LazyRoutes>
                                         <Route
@@ -1081,6 +1091,39 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/queues/:name"
                                           element={<QueueDetailsPage />}
+                                        />
+                                        <Route
+                                          path="/toolbox/*"
+                                          element={<LegacyToolboxRedirect />}
+                                        />
+                                        <Route
+                                          path="/ai"
+                                          element={<AIPage />}
+                                        />
+                                        <Route
+                                          path="/ai/endpoints"
+                                          element={<AIPage />}
+                                        />
+                                        <Route
+                                          path="/ai/providers"
+                                          element={
+                                            <Navigate
+                                              to="/ai/endpoints"
+                                              replace
+                                            />
+                                          }
+                                        />
+                                        <Route
+                                          path="/ai/mcp"
+                                          element={<AIPage />}
+                                        />
+                                        <Route
+                                          path="/ai/skills"
+                                          element={<AIPage />}
+                                        />
+                                        <Route
+                                          path="/ai/skills/:name"
+                                          element={<AIPage />}
                                         />
                                         <Route
                                           path="/dag-runs"
@@ -1228,7 +1271,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       </LazyRoutes>
                                       <WorkflowOverlayHost />
                                     </Layout>
-                                  </WorkflowOverlayProvider>
+                                  </OverlayProvider>
                                 </ProtectedRoute>
                               }
                             />

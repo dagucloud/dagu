@@ -11,7 +11,10 @@ import {
 } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useActiveRightPanel } from '@/contexts/RightPanelContext';
+import {
+  useActiveRightPanel,
+  useCloseRightPanel,
+} from '@/contexts/RightPanelContext';
 import DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import type { DAGSpecHostProps } from '@/features/dags/components/dag-editor/hostTypes';
 import type {
@@ -48,6 +51,7 @@ import type {
   WorkspaceEditorHandle,
 } from '../contracts';
 import { useWorkspacePermissions, useWorkspaceRun } from '../data';
+import { isNeverRun } from '../data/runFacts';
 import { useStandaloneRun } from '../data/context';
 import { RunSnapshotCanvas } from '../executions/RunSnapshotCanvas';
 import { PaneActiveContext, useModePaneActive } from '../layout/paneActive';
@@ -66,6 +70,7 @@ import { useTestRunNotice } from './useTestRunNotice';
 import { useEscInStepYaml } from './useEscInStepYaml';
 import { useOpenStepDetails } from './useOpenStepDetails';
 import { RightColumn } from './RightColumn';
+import { RIGHT_COLUMN_MOUNTED } from './rightColumnMounted';
 import { useRightColumn, type RightColumnTab } from './useRightColumn';
 import { useRightPanelClearance } from './useRightPanelClearance';
 import { runStepGates, useStepCommandHost } from './useStepCommandHost';
@@ -265,6 +270,34 @@ function MountAfterDockYield({
 }
 
 /**
+ * Closes the right panel and the step panel when Activity opens. It is a
+ * component of its own: the state of the dock changes with each toggle, and
+ * the canvas must not render again for it.
+ */
+function CloseRightPanelOnActivity({
+  paneActive,
+  closeStepPanel,
+}: {
+  paneActive: boolean;
+  closeStepPanel: () => void;
+}) {
+  const dock = useDock();
+  const closeRightPanel = useCloseRightPanel();
+  const activePanel = useActiveRightPanel();
+  const panelRef = useRef(activePanel);
+  panelRef.current = activePanel;
+  const dockWasOpen = useRef(dock.open);
+  useEffect(() => {
+    const opened = dock.open && !dockWasOpen.current;
+    dockWasOpen.current = dock.open;
+    if (!opened || !paneActive) return;
+    if (panelRef.current !== null) closeRightPanel();
+    closeStepPanel();
+  }, [dock.open, paneActive, closeRightPanel, closeStepPanel]);
+  return null;
+}
+
+/**
  * The editor pane: DAGSpec in host mode at full height, on the live file with
  * the selected run overlaid on it by step name (canvasRunPolicy). The URL
  * selection and the step actions of the workspace drive it, and it gives its
@@ -300,16 +333,12 @@ export function WorkspaceCanvas({
     handle,
     editorState?.dirty ?? false
   );
-  // One line for the run notices and the offer. The run chip of the bar
-  // already says that a newer run is active.
+  // One line for the run notices and the offer.
   const allNotices = useWorkspaceNotices();
   // A test run stays on the line while it is shown.
   const testRunNotice = useTestRunNotice(run.details);
   const notices = useMemo(
-    () => [
-      ...allNotices.filter((notice) => notice.id !== 'newer-run-active'),
-      ...(testRunNotice ? [testRunNotice] : []),
-    ],
+    () => [...allNotices, ...(testRunNotice ? [testRunNotice] : [])],
     [allNotices, testRunNotice]
   );
   // The snapshot takes the place of the editor: the hidden editor is not
@@ -317,10 +346,11 @@ export function WorkspaceCanvas({
   const snapshot = url.def === 'run';
   const paneActive = useModePaneActive() && !snapshot;
   const activePanel = useActiveRightPanel();
-  // On a wide window the Workflow panel and the YAML of the file are the tabs
-  // of a right column beside the graph zone, which only the user opens,
-  // switches and collapses. A phone keeps them as panels over the zone.
-  const columnMode = useMediaQuery(WIDE_QUERY, true);
+  // On a wide window the Workflow panel and the YAML of the file can be the
+  // tabs of a right column beside the graph zone, when the app mounts it
+  // (RIGHT_COLUMN_MOUNTED). Otherwise they are docks over the zone.
+  const wide = useMediaQuery(WIDE_QUERY, true);
+  const columnMode = RIGHT_COLUMN_MOUNTED && wide;
   const [columnTab, setColumnTab] = useRightColumn();
   const columnTabRef = useRef(columnTab);
   columnTabRef.current = columnTab;
@@ -492,10 +522,26 @@ export function WorkspaceCanvas({
     setUrl({ panel: null }, { replace: true });
   }, [handle, wantedPanel, setUrl]);
 
+  const latestRun = isNeverRun(dagData.latestDAGRun)
+    ? null
+    : dagData.latestDAGRun;
   // The panels guard their close, as a draft or a one-time secret is at risk.
   const launcherHost = useMemo<LauncherHost>(
-    () => ({ guard, setSecretVisible }),
-    [guard, setSecretVisible]
+    () => ({
+      guard,
+      setSecretVisible,
+      suspended: dagData.suspended,
+      latestRun: latestRun
+        ? { status: latestRun.status, finishedAt: latestRun.finishedAt }
+        : null,
+    }),
+    [
+      guard,
+      setSecretVisible,
+      dagData.suspended,
+      latestRun?.status,
+      latestRun?.finishedAt,
+    ]
   );
   const renderWorkflowPanel = useCallback<
     NonNullable<DAGSpecHostProps['renderWorkflowPanel']>
@@ -529,8 +575,10 @@ export function WorkspaceCanvas({
   const panelStep = stepPanel.shown ? url.step : null;
   const openStepDetails = useOpenStepDetails();
 
-  // The step panel is a right panel too, without a claim of its own. Each
-  // click on a step can hold off its mark, so each one watches again.
+  // The step panel is a right panel too, without a claim of its own: it takes
+  // turns with Activity (useDockYield) and yields to the other right panels
+  // (covered). Each click on a step can hold off its mark, so each one watches
+  // again.
   const clearance = useRightPanelClearance(
     zoneRef,
     activePanel ??
@@ -571,10 +619,16 @@ export function WorkspaceCanvas({
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
-  // The expanded step view fills the zone and holds the room of the Run
-  // panel; Activity comes back when it closes. A right panel (a launcher, the
-  // Workflow, the YAML) sits in the zone above Activity: both stay open.
-  useDockYield(paneActive && shownNdv === 'expanded');
+  // The right panel (a launcher, the Workflow, the YAML, the node view, the
+  // step panel) and the Activity panel take turns. A panel that opens
+  // collapses Activity, which comes back when the panel closes. Activity that
+  // opens closes the panel.
+  useDockYield(
+    paneActive &&
+      (activePanel !== null ||
+        shownNdv === 'expanded' ||
+        (stepPanel.shown && !columnMode))
+  );
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -648,6 +702,10 @@ export function WorkspaceCanvas({
           TOOLBAR_ZONE_CLASS
         )}
       >
+        <CloseRightPanelOnActivity
+          paneActive={paneActive}
+          closeStepPanel={stepPanel.close}
+        />
         <div
           ref={setToolbarRow}
           data-testid="ww-canvas-toolbar"
@@ -719,14 +777,19 @@ export function WorkspaceCanvas({
           </PanelColumnProvider>
         </CanvasOverlayInsetContext.Provider>
         {panelStep !== null && !columnMode && (
-          <StepPanel
-            step={panelStep}
-            openedAt={stepPanel.openedAt}
-            onClose={stepPanel.close}
-            onStepCommand={onStepCommand}
-            gates={stepCommandGates}
-            onOpenStep={() => openStepDetails(panelStep)}
-          />
+          // A panel of the zone: its title and Close button sit in the row.
+          <PanelPlacementProvider value="zone">
+            <CanvasToolbarHostContext.Provider value={toolbarRow}>
+              <StepPanel
+                step={panelStep}
+                openedAt={stepPanel.openedAt}
+                onClose={stepPanel.close}
+                onStepCommand={onStepCommand}
+                gates={stepCommandGates}
+                onOpenStep={() => openStepDetails(panelStep)}
+              />
+            </CanvasToolbarHostContext.Provider>
+          </PanelPlacementProvider>
         )}
         {snapshot && <RunSnapshotCanvas />}
         {actions.dialogs}

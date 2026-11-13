@@ -11,7 +11,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import type { WorkspaceNotice } from '../contracts';
 import { useWorkspaceRun } from '../data';
 import { useWorkspaceData } from '../data/context';
-import { firstWaitingCallStep, isNewerRun } from '../data/runFacts';
+import { firstWaitingCallStep } from '../data/runFacts';
 import { useSubRuns } from '../data/useSubRuns';
 import { useDockCommands } from '../dock/DockContext';
 import { allSubRunsOf } from '../step/useStepRunActions';
@@ -24,17 +24,8 @@ export const RUN_NOTICE_PRIORITY = {
   'agent-waiting': 45,
   'actions-waiting': 40,
   'sub-run-waiting': 35,
-  'newer-run-active': 30,
   'monitoring-offer': 10,
 } as const;
-
-// The statuses for which isRunActive is true.
-const ACTIVE_STATUSES: ReadonlySet<Status> = new Set([
-  Status.NotStarted,
-  Status.Queued,
-  Status.Running,
-  Status.Waiting,
-]);
 
 /**
  * Run-level notices of the workspace, highest priority first. DAGSpec adds
@@ -48,7 +39,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const dock = useDockCommands();
   const offer = useMonitoringOfferState();
 
-  const { notFound, hasRun, selection, latestRef, waiting, select } = run;
+  const { notFound, hasRun, waiting, select } = run;
   const status = run.details?.status;
   const resumePending =
     status === Status.Waiting && !!run.details?.approvalResumePending;
@@ -56,14 +47,6 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     status === Status.Waiting && !!run.details?.humanTaskResumePending;
   const actionCount = waiting.approvals + waiting.humanTasks;
   const agentWaiting = waiting.agent > 0;
-  const pinnedRunId = selection === 'latest' ? null : selection.runId;
-  const selectedRun = run.details;
-  const newerRunActive =
-    pinnedRunId !== null &&
-    latestRef !== null &&
-    latestRef.runId !== pinnedRunId &&
-    ACTIVE_STATUSES.has(latestRef.status) &&
-    (selectedRun === null || isNewerRun(latestRef, selectedRun));
   // Scheduled runs happen unattended, which is when alerts matter.
   const runsOnSchedule = !!dagData.dag?.schedule?.length && !dagData.suspended;
   // A phone keeps the top of the graph free: the offer stays in Settings.
@@ -150,15 +133,6 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
         priority: RUN_NOTICE_PRIORITY['sub-run-waiting'],
       });
     }
-    if (newerRunActive) {
-      notices.push({
-        id: 'newer-run-active',
-        tone: 'info',
-        message: ts('A newer run is active'),
-        action: { label: ts('Follow latest'), run: () => select('latest') },
-        priority: RUN_NOTICE_PRIORITY['newer-run-active'],
-      });
-    }
     if (offerVisible) {
       notices.push({
         id: 'monitoring-offer',
@@ -187,7 +161,6 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     agentWaiting,
     actionCount,
     waitingSubRun,
-    newerRunActive,
     offerVisible,
   ]);
 }

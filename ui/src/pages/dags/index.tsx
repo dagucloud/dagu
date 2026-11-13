@@ -25,6 +25,8 @@ import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
+import { ACTIVITY_WINDOW_SECONDS } from '../../features/dags/components/dag-list/activityBars';
+import { useHideBreadcrumb } from '@/contexts/LayoutChromeContext';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import {
   isRunSortField,
@@ -52,7 +54,8 @@ import {
   workspaceSelectionQuery,
 } from '../../lib/workspace';
 import LoadingIndicator from '@/components/ui/loading-indicator';
-import { useViews, type View, type ViewSpec } from '@/hooks/useViews';
+import { type View, type ViewSpec } from '@/hooks/useViews';
+import { useSharedViews } from '@/hooks/useSharedViews';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
@@ -259,6 +262,8 @@ function supportsIntersectionObserver(): boolean {
 }
 
 function DAGsContent() {
+  // The page has its own title row: no breadcrumb strip above it.
+  useHideBreadcrumb(true);
   const location = useLocation();
   const navigate = useNavigate();
   const { ts } = useI18n();
@@ -303,7 +308,7 @@ function DAGsContent() {
     createView,
     updateView,
     deleteView,
-  } = useViews(ViewSpecType.workflow);
+  } = useSharedViews('workflow');
   const scopedWorkflowViews = React.useMemo(
     () =>
       sharedWorkflowViews.filter((view) =>
@@ -612,6 +617,7 @@ function DAGsContent() {
       active: requestFilters.activeOnly || undefined,
       sort: workflowSortFieldQuery(requestFilters.sortField),
       order: workflowSortOrderQuery(requestFilters.sortOrder),
+      activityWindow: ACTIVITY_WINDOW_SECONDS,
       ...workspaceQuery,
     }),
     [remoteNode, preferences.pageLimit, requestFilters, workspaceQuery]
@@ -792,6 +798,31 @@ function DAGsContent() {
           'Please try again or check the server connection.'
         );
         return;
+      }
+      await reloadDAGList();
+    },
+    [client, reloadDAGList, remoteNode, showError]
+  );
+
+  // A group pins in one go: the requests run together, the list reloads once.
+  const handleSetDAGsPinned = React.useCallback(
+    async (fileNames: string[], pinned: boolean): Promise<void> => {
+      const results = await Promise.allSettled(
+        fileNames.map((fileName) =>
+          setDAGPinned(client, { fileName, pinned, remoteNode })
+        )
+      );
+      const failed = results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === 'rejected'
+      );
+      if (failed) {
+        showError(
+          failed.reason instanceof Error
+            ? failed.reason.message
+            : String(failed.reason),
+          'Please try again or check the server connection.'
+        );
       }
       await reloadDAGList();
     },
@@ -990,6 +1021,40 @@ function DAGsContent() {
     }
   };
 
+  const handleRenameWorkflowView = async (
+    viewId: string,
+    name: string
+  ): Promise<void> => {
+    const view = scopedWorkflowViews.find((item) => item.id === viewId);
+    if (!view) {
+      return;
+    }
+    // The saved filters stay as they are: a rename does not save the edits.
+    const saved = workflowViews.find((item) => item.id === viewId);
+    if (!saved) {
+      return;
+    }
+    setWorkflowViewError(null);
+    try {
+      await updateView(
+        viewId,
+        buildWorkflowViewSpec(
+          name,
+          cloneFilters(saved.filters),
+          view.isDefault ?? false,
+          view.pinned ?? false
+        )
+      );
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to rename the workflow view'
+      );
+      throw error;
+    }
+  };
+
   const handleDeleteWorkflowView = async (viewId: string): Promise<void> => {
     const deletingActiveView = viewId === activeWorkflowViewId;
     setWorkflowViewError(null);
@@ -1014,6 +1079,9 @@ function DAGsContent() {
   const isWorkflowViewEdited = activeWorkflowView
     ? !areDAGDefinitionsFiltersEqual(activeWorkflowView.filters, currentFilters)
     : false;
+  const areWorkflowFiltersSaved = workflowViews.some((view) =>
+    areDAGDefinitionsFiltersEqual(view.filters, currentFilters)
+  );
   const isAllWorkflowsView =
     activeWorkflowViewId === null &&
     areDAGDefinitionsFiltersEqual(currentFilters, defaultFilters);
@@ -1188,7 +1256,10 @@ function DAGsContent() {
 
   return (
     <div>
-      <DAGListHeader onRefresh={refreshFn} />
+      <DAGListHeader
+        onRefresh={refreshFn}
+        resultCount={data?.pagination.totalRecords}
+      />
       {filtersReady && data ? (
         <>
           <DAGErrors
@@ -1215,6 +1286,7 @@ function DAGsContent() {
             defaultWorkflowViewId={defaultWorkflowViewId}
             isAllWorkflowsView={isAllWorkflowsView}
             isWorkflowViewEdited={isWorkflowViewEdited}
+            areWorkflowFiltersSaved={areWorkflowFiltersSaved}
             canManageWorkflowViews={canManageWorkflowViews}
             canDeleteDAGs={canManageWorkflowViews}
             canRenameDAGs={canManageWorkflowViews}
@@ -1227,11 +1299,12 @@ function DAGsContent() {
             onSetDefaultWorkflowView={handleSetDefaultWorkflowView}
             onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
+            onRenameWorkflowView={handleRenameWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
             onRenameDAG={handleRenameDAG}
             canPinDAG={canPinDAG}
             onSetDAGPinned={handleSetDAGPinned}
-            resultCount={data.pagination.totalRecords}
+            onSetDAGsPinned={handleSetDAGsPinned}
           />
           <div className="mt-3 flex flex-col items-center gap-2">
             {loadMoreError && (
@@ -1259,10 +1332,6 @@ function DAGsContent() {
                   </Button>
                 )}
               </>
-            ) : dagFiles.length > 0 ? (
-              <div className="text-sm text-muted-foreground">
-                <I18nText text={'All workflows are displayed.'} />
-              </div>
             ) : null}
           </div>
         </>

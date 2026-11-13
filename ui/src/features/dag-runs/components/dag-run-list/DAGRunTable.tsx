@@ -18,6 +18,7 @@ import { useConfig } from '../../../../contexts/ConfigContext';
 import dayjs from '../../../../lib/dayjs';
 import RelativeTime from '@/components/ui/relative-time';
 import { RunStatusChip } from '../common/RunStatusChip';
+import { StatusDot } from '@/components/ui/status-dot';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { TriggerTypeIndicator } from '../../../dags/components/common/TriggerTypeIndicator';
 import {
@@ -36,6 +37,13 @@ import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
 import { RunListDuration } from './RunListDuration';
+import { statusMoment } from '@/features/dags/components/dag-list/recentRunFacts';
+import type { ServiceDAG } from '../../hooks/useServiceDAGs';
+import {
+  ServiceDAGCard,
+  ServiceDAGRow,
+  type ServiceRunWindow,
+} from './ServiceDAGRow';
 
 interface DAGRunTableProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
@@ -43,7 +51,18 @@ interface DAGRunTableProps {
   isLoading?: boolean;
   selectedRunKeys?: Set<string>;
   onToggleBulkSelect?: (dagRun: DAGRunSelectionItem) => void;
+  /** Selects all the loaded runs, or clears the selection. */
+  onSelectAll?: (checked: boolean) => void;
+  /**
+   * The service DAGs: one row each, before the runs. The runs of these DAGs
+   * are not in `dagRuns`.
+   */
+  serviceDags?: readonly ServiceDAG[];
+  /** The window of the rows of the service DAGs. */
+  serviceWindow?: ServiceRunWindow;
 }
+
+const NO_SERVICE_DAGS: readonly ServiceDAG[] = [];
 
 function isInteractiveEventTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -66,6 +85,9 @@ function DAGRunTable({
   isLoading = false,
   selectedRunKeys,
   onToggleBulkSelect,
+  onSelectAll,
+  serviceDags = NO_SERVICE_DAGS,
+  serviceWindow,
 }: DAGRunTableProps) {
   const config = useConfig();
   const peekOrOpen = usePeekOrOpen();
@@ -121,7 +143,7 @@ function DAGRunTable({
   // Helper function to scroll to the selected row
   const scrollToSelectedRow = (index: number) => {
     if (index >= 0 && tableRef.current) {
-      const rows = tableRef.current.querySelectorAll('tbody tr');
+      const rows = tableRef.current.querySelectorAll('tbody tr[data-run-row]');
       if (rows[index]) {
         rows[index].scrollIntoView({
           behavior: 'smooth',
@@ -212,9 +234,6 @@ function DAGRunTable({
         : value.utcOffset(config.tzOffsetInSec / 60);
     return configuredTime.format('YYYY-MM-DD HH:mm:ss');
   };
-  const showScheduleColumn = dagRuns.some((dagRun) =>
-    Boolean(dagRun.scheduleTime)
-  );
   const showProfileColumn = dagRuns.some((dagRun) =>
     Boolean(dagRun.profileName)
   );
@@ -239,7 +258,7 @@ function DAGRunTable({
   );
 
   // If there are no DAG runs, show empty state (unless the first page is still loading)
-  if (dagRuns.length === 0) {
+  if (dagRuns.length === 0 && serviceDags.length === 0) {
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
@@ -250,165 +269,177 @@ function DAGRunTable({
     return <EmptyState />;
   }
 
+  const shownServiceDags = serviceWindow === undefined ? [] : serviceDags;
+
   // Card view for small screens - Direct navigation without modal
   if (isSmallScreen) {
     return (
       <div className="space-y-2">
-        {dagRuns.map((dagRun, index) => (
-          <div
-            key={dagRun.dagRunId}
-            data-peek-shown={index === shownIndex || undefined}
-            className={`p-3 rounded-lg border border-l-4 min-h-[80px] flex flex-col bg-card border-border ${rowMark(index)} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''} cursor-pointer`}
-            onClick={(e) => openRun(dagRun, e)}
-          >
-            {/* Header with name and status */}
-            <div className="flex justify-between items-start gap-3 mb-2">
-              <div className="flex items-start gap-2 min-w-0">
-                {onToggleBulkSelect && (
-                  <div
-                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-within:ring-2 focus-within:ring-ring"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (event.target !== event.currentTarget) {
-                        return;
-                      }
-                      onToggleBulkSelect({
-                        name: dagRun.name,
-                        dagRunId: dagRun.dagRunId,
-                      });
-                    }}
-                  >
-                    <Checkbox
-                      aria-label={`Select DAG run ${dagRun.name} ${dagRun.dagRunId}`}
-                      checked={isBulkSelected(dagRun)}
-                      onCheckedChange={() =>
+        {[
+          ...shownServiceDags.map((dag) => (
+            <ServiceDAGCard
+              key={`service:${dag.fileName}`}
+              dag={dag}
+              window={serviceWindow!}
+            />
+          )),
+          ...dagRuns.map((dagRun, index) => (
+            <div
+              key={dagRun.dagRunId}
+              data-run-row=""
+              data-peek-shown={index === shownIndex || undefined}
+              className={`p-3 rounded-lg border border-l-4 min-h-[80px] flex flex-col bg-card border-border ${rowMark(index)} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''} cursor-pointer`}
+              onClick={(e) => openRun(dagRun, e)}
+            >
+              {/* Header with name and status */}
+              <div className="flex justify-between items-start gap-3 mb-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  {onToggleBulkSelect && (
+                    <div
+                      className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-within:ring-2 focus-within:ring-ring"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (event.target !== event.currentTarget) {
+                          return;
+                        }
                         onToggleBulkSelect({
                           name: dagRun.name,
                           dagRunId: dagRun.dagRunId,
-                        })
-                      }
-                      className="h-5 w-5 pointer-events-none"
-                    />
+                        });
+                      }}
+                    >
+                      <Checkbox
+                        aria-label={`Select DAG run ${dagRun.name} ${dagRun.dagRunId}`}
+                        checked={isBulkSelected(dagRun)}
+                        onCheckedChange={() =>
+                          onToggleBulkSelect({
+                            name: dagRun.name,
+                            dagRunId: dagRun.dagRunId,
+                          })
+                        }
+                        className="size-3.5 pointer-events-none"
+                      />
+                    </div>
+                  )}
+                  <PeekLink
+                    peek={{ dag: dagRun.name, run: dagRun.dagRunId }}
+                    className="font-normal text-sm hover:underline"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {dagRun.name}
+                  </PeekLink>
+                </div>
+                <div className="flex items-start gap-2">
+                  <DAGRunArtifactsButton dagRun={dagRun} />
+                  <StepDetailsTooltip dagRun={dagRun}>
+                    <div className="flex flex-col items-end gap-1">
+                      <RunStatusChip
+                        name={dagRun.name}
+                        dagRunId={dagRun.dagRunId}
+                        status={dagRun.status}
+                        size="xs"
+                      >
+                        {dagRun.statusLabel}
+                      </RunStatusChip>
+                      <AutoRetryBadge
+                        status={dagRun.status}
+                        count={dagRun.autoRetryCount}
+                        limit={dagRun.autoRetryLimit}
+                        className="text-[10px]"
+                      />
+                    </div>
+                  </StepDetailsTooltip>
+                </div>
+              </div>
+
+              {/* DAG-run ID and Trigger */}
+              <div className="flex items-center justify-between text-xs mb-2 min-w-0">
+                <span className="font-mono text-muted-foreground truncate">
+                  {dagRun.dagRunId}
+                </span>
+                <TriggerTypeIndicator
+                  type={dagRun.triggerType}
+                  actor={dagRun.triggerActor}
+                />
+              </div>
+
+              {/* Timestamps */}
+              <div className="space-y-1 text-xs mt-2">
+                {dagRun.scheduleTime && (
+                  <div className="flex justify-between items-center">
+                    <div className="whitespace-normal break-words">
+                      <span className="text-muted-foreground">
+                        <I18nText text={'Scheduled:'} />{' '}
+                      </span>
+                      <span title={dagRun.scheduleTime}>
+                        {formatScheduleTime(dagRun.scheduleTime)}
+                      </span>
+                    </div>
                   </div>
                 )}
-                <PeekLink
-                  peek={{ dag: dagRun.name, run: dagRun.dagRunId }}
-                  className="font-normal text-sm hover:underline"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {dagRun.name}
-                </PeekLink>
-              </div>
-              <div className="flex items-start gap-2">
-                <DAGRunArtifactsButton dagRun={dagRun} />
-                <StepDetailsTooltip dagRun={dagRun}>
-                  <div className="flex flex-col items-end gap-1">
-                    <RunStatusChip
-                      name={dagRun.name}
-                      dagRunId={dagRun.dagRunId}
-                      status={dagRun.status}
-                      size="xs"
-                    >
-                      {dagRun.statusLabel}
-                    </RunStatusChip>
-                    <AutoRetryBadge
-                      status={dagRun.status}
-                      count={dagRun.autoRetryCount}
-                      limit={dagRun.autoRetryLimit}
-                      className="text-[10px]"
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="text-muted-foreground">
+                      <I18nText text={'Queued:'} />{' '}
+                    </span>
+                    <RelativeTime
+                      timestamp={dagRun.queuedAt}
+                      absolute={dagRun.queuedAt}
                     />
                   </div>
-                </StepDetailsTooltip>
-              </div>
-            </div>
-
-            {/* DAG-run ID and Trigger */}
-            <div className="flex items-center justify-between text-xs mb-2 min-w-0">
-              <span className="font-mono text-muted-foreground truncate">
-                {dagRun.dagRunId}
-              </span>
-              <TriggerTypeIndicator
-                type={dagRun.triggerType}
-                actor={dagRun.triggerActor}
-              />
-            </div>
-
-            {/* Timestamps */}
-            <div className="space-y-1 text-xs mt-2">
-              {dagRun.scheduleTime && (
-                <div className="flex justify-between items-center">
-                  <div className="whitespace-normal break-words">
+                  <div>
                     <span className="text-muted-foreground">
-                      <I18nText text={'Scheduled:'} />{' '}
+                      <I18nText text={'Started:'} />{' '}
                     </span>
-                    <span title={dagRun.scheduleTime}>
-                      {formatScheduleTime(dagRun.scheduleTime)}
-                    </span>
+                    <RelativeTime
+                      timestamp={dagRun.startedAt}
+                      absolute={dagRun.startedAt}
+                    />
                   </div>
                 </div>
-              )}
-              <div className="flex justify-between items-center">
-                <div>
+                <div className="text-left flex items-center gap-1.5">
                   <span className="text-muted-foreground">
-                    <I18nText text={'Queued:'} />{' '}
+                    <I18nText text={'Duration:'} />{' '}
                   </span>
-                  <RelativeTime
-                    timestamp={dagRun.queuedAt}
-                    absolute={dagRun.queuedAt}
-                  />
-                </div>
-                <div>
-                  <span className="text-muted-foreground">
-                    <I18nText text={'Started:'} />{' '}
+                  <span className="flex items-center gap-1">
+                    <RunListDuration
+                      startedAt={dagRun.startedAt}
+                      finishedAt={dagRun.finishedAt}
+                      status={dagRun.status}
+                    />
                   </span>
-                  <RelativeTime
-                    timestamp={dagRun.startedAt}
-                    absolute={dagRun.startedAt}
-                  />
                 </div>
+                {dagRun.workerId && (
+                  <div className="text-left">
+                    <span className="text-muted-foreground">
+                      <I18nText text={'Worker:'} />{' '}
+                    </span>
+                    {dagRun.workerId}
+                  </div>
+                )}
+                {dagRun.profileName && (
+                  <div className="text-left flex min-w-0 items-center gap-1.5">
+                    <span className="text-muted-foreground">
+                      <I18nText text={'Profile:'} />{' '}
+                    </span>
+                    <span
+                      className="inline-flex min-w-0 items-center gap-1 font-mono"
+                      title={dagRun.profileName}
+                    >
+                      <SlidersHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{dagRun.profileName}</span>
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="text-left flex items-center gap-1.5">
-                <span className="text-muted-foreground">
-                  <I18nText text={'Duration:'} />{' '}
-                </span>
-                <span className="flex items-center gap-1">
-                  <RunListDuration
-                    startedAt={dagRun.startedAt}
-                    finishedAt={dagRun.finishedAt}
-                    status={dagRun.status}
-                  />
-                </span>
-              </div>
-              {dagRun.workerId && (
-                <div className="text-left">
-                  <span className="text-muted-foreground">
-                    <I18nText text={'Worker:'} />{' '}
-                  </span>
-                  {dagRun.workerId}
-                </div>
-              )}
-              {dagRun.profileName && (
-                <div className="text-left flex min-w-0 items-center gap-1.5">
-                  <span className="text-muted-foreground">
-                    <I18nText text={'Profile:'} />{' '}
-                  </span>
-                  <span
-                    className="inline-flex min-w-0 items-center gap-1 font-mono"
-                    title={dagRun.profileName}
-                  >
-                    <SlidersHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{dagRun.profileName}</span>
-                  </span>
-                </div>
-              )}
-            </div>
 
-            {/* Timezone info */}
-            <div className="text-xs text-muted-foreground text-right pt-1">
-              {timezoneInfo}
+              {/* Timezone info */}
+              <div className="text-xs text-muted-foreground text-right pt-1">
+                {timezoneInfo}
+              </div>
             </div>
-          </div>
-        ))}
+          )),
+        ]}
       </div>
     );
   }
@@ -420,12 +451,28 @@ function DAGRunTable({
         <TableHeader>
           <TableRow>
             {onToggleBulkSelect && (
-              <TableHead className="w-10">
-                <I18nText text={'Select'} />
+              <TableHead className="w-10 px-0">
+                <div className="flex h-8 items-center justify-center">
+                  <Checkbox
+                    className="size-3.5"
+                    aria-label="Select all loaded runs"
+                    disabled={!onSelectAll || dagRuns.length === 0}
+                    checked={
+                      dagRuns.some(isBulkSelected)
+                        ? dagRuns.every(isBulkSelected)
+                          ? true
+                          : 'indeterminate'
+                        : false
+                    }
+                    onCheckedChange={(checked) =>
+                      onSelectAll?.(checked === true)
+                    }
+                  />
+                </div>
               </TableHead>
             )}
             <TableHead>
-              <I18nText text={'Workflow name'} />
+              <I18nText text={'Name'} />
             </TableHead>
             <TableHead>
               <I18nText text={'Run ID'} />
@@ -441,31 +488,11 @@ function DAGRunTable({
                 <I18nText text={'Profile'} />
               </TableHead>
             )}
-            {showScheduleColumn && (
-              <TableHead>
-                <div>
-                  <I18nText text={'Scheduled At'} />
-                </div>
-                <div className="text-xs text-muted-foreground font-normal">
-                  {timezoneInfo}
-                </div>
-              </TableHead>
-            )}
             <TableHead>
-              <div>
-                <I18nText text={'Queued At'} />
-              </div>
-              <div className="text-xs text-muted-foreground font-normal">
-                {timezoneInfo}
-              </div>
+              <I18nText text={'Queued At'} />
             </TableHead>
             <TableHead>
-              <div>
-                <I18nText text={'Started At'} />
-              </div>
-              <div className="text-xs text-muted-foreground font-normal">
-                {timezoneInfo}
-              </div>
+              <I18nText text={'Started At'} />
             </TableHead>
             <TableHead>
               <I18nText text={'Duration'} />
@@ -476,141 +503,151 @@ function DAGRunTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {dagRuns.map((dagRun, index) => (
-            <TableRow
-              key={dagRun.dagRunId}
-              data-peek-shown={index === shownIndex || undefined}
-              className={`cursor-pointer hover:bg-muted/50 border-l-4 ${rowMark(
-                index
-              )} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''}`}
-              style={{ fontSize: '0.8125rem' }}
-              onClick={(e) => {
-                setSelectedIndex(index);
-                openRun(dagRun, e);
-              }}
-            >
-              {onToggleBulkSelect && (
-                <TableCell className="py-1 px-2">
-                  <div
-                    className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-within:ring-2 focus-within:ring-ring"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (event.target !== event.currentTarget) {
-                        return;
-                      }
-                      onToggleBulkSelect({
-                        name: dagRun.name,
-                        dagRunId: dagRun.dagRunId,
-                      });
-                    }}
-                  >
-                    <Checkbox
-                      aria-label={`Select DAG run ${dagRun.name} ${dagRun.dagRunId}`}
-                      checked={isBulkSelected(dagRun)}
-                      onCheckedChange={() =>
+          {[
+            ...shownServiceDags.map((dag) => (
+              <ServiceDAGRow
+                key={`service:${dag.fileName}`}
+                dag={dag}
+                window={serviceWindow!}
+                bulk={Boolean(onToggleBulkSelect)}
+                profile={showProfileColumn}
+              />
+            )),
+            ...dagRuns.map((dagRun, index) => (
+              <TableRow
+                key={dagRun.dagRunId}
+                data-run-row=""
+                data-peek-shown={index === shownIndex || undefined}
+                className={`cursor-pointer hover:bg-muted/50 border-l-4 ${rowMark(
+                  index
+                )} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''}`}
+                style={{ fontSize: '0.8125rem' }}
+                onClick={(e) => {
+                  setSelectedIndex(index);
+                  openRun(dagRun, e);
+                }}
+              >
+                {onToggleBulkSelect && (
+                  <TableCell className="py-1 px-0">
+                    <div
+                      className="flex h-8 w-10 items-center justify-center rounded-md transition-colors hover:bg-muted focus-within:ring-2 focus-within:ring-ring"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (event.target !== event.currentTarget) {
+                          return;
+                        }
                         onToggleBulkSelect({
                           name: dagRun.name,
                           dagRunId: dagRun.dagRunId,
-                        })
-                      }
-                      className="h-5 w-5 pointer-events-none"
-                    />
+                        });
+                      }}
+                    >
+                      <Checkbox
+                        aria-label={`Select DAG run ${dagRun.name} ${dagRun.dagRunId}`}
+                        checked={isBulkSelected(dagRun)}
+                        onCheckedChange={() =>
+                          onToggleBulkSelect({
+                            name: dagRun.name,
+                            dagRunId: dagRun.dagRunId,
+                          })
+                        }
+                        className="size-3.5 pointer-events-none"
+                      />
+                    </div>
+                  </TableCell>
+                )}
+                <TableCell className="py-1 px-2 font-normal">
+                  <div className="flex items-center gap-2">
+                    <PeekLink
+                      peek={{ dag: dagRun.name, run: dagRun.dagRunId }}
+                      className="min-w-0 truncate hover:underline"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {dagRun.name}
+                    </PeekLink>
+                    <DAGRunArtifactsButton dagRun={dagRun} />
                   </div>
                 </TableCell>
-              )}
-              <TableCell className="py-1 px-2 font-normal">
-                <div className="flex items-center gap-2">
-                  <PeekLink
-                    peek={{ dag: dagRun.name, run: dagRun.dagRunId }}
-                    className="min-w-0 truncate hover:underline"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {dagRun.name}
-                  </PeekLink>
-                  <DAGRunArtifactsButton dagRun={dagRun} />
-                </div>
-              </TableCell>
-              <TableCell className="py-1 px-2 font-mono text-muted-foreground">
-                {dagRun.dagRunId}
-              </TableCell>
-              <TableCell className="py-1 px-2">
-                <StepDetailsTooltip dagRun={dagRun}>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <RunStatusChip
-                      name={dagRun.name}
-                      dagRunId={dagRun.dagRunId}
-                      status={dagRun.status}
-                      size="xs"
-                    >
-                      {dagRun.statusLabel}
-                    </RunStatusChip>
-                    <AutoRetryBadge
-                      status={dagRun.status}
-                      count={dagRun.autoRetryCount}
-                      limit={dagRun.autoRetryLimit}
-                      className="text-[10px]"
-                    />
-                  </div>
-                </StepDetailsTooltip>
-              </TableCell>
-              <TableCell className="py-1 px-2">
-                <TriggerTypeIndicator
-                  type={dagRun.triggerType}
-                  actor={dagRun.triggerActor}
-                />
-              </TableCell>
-              {showProfileColumn && (
+                <TableCell className="py-1 px-2 font-mono text-muted-foreground">
+                  {dagRun.dagRunId}
+                </TableCell>
                 <TableCell className="py-1 px-2">
-                  {dagRun.profileName ? (
-                    <span
-                      className="inline-flex max-w-[160px] items-center gap-1 font-mono text-xs"
-                      title={dagRun.profileName}
-                    >
-                      <SlidersHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{dagRun.profileName}</span>
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
+                  <StepDetailsTooltip dagRun={dagRun}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <StatusDot kind="run" status={dagRun.status} />
+                      <AutoRetryBadge
+                        status={dagRun.status}
+                        count={dagRun.autoRetryCount}
+                        limit={dagRun.autoRetryLimit}
+                        className="text-[10px]"
+                      />
+                      {statusMoment(dagRun) && (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <RelativeTime
+                            timestamp={statusMoment(dagRun) ?? ''}
+                            absolute={statusMoment(dagRun) ?? ''}
+                            compact
+                            ago
+                            className="text-muted-foreground"
+                          />
+                        </>
+                      )}
+                    </div>
+                  </StepDetailsTooltip>
                 </TableCell>
-              )}
-              {showScheduleColumn && (
-                <TableCell className="py-1 px-2 text-left whitespace-nowrap">
-                  {dagRun.scheduleTime ? (
-                    <span title={dagRun.scheduleTime}>
-                      {formatScheduleTime(dagRun.scheduleTime)}
-                    </span>
-                  ) : (
-                    '-'
-                  )}
-                </TableCell>
-              )}
-              <TableCell className="py-1 px-2 text-left whitespace-nowrap">
-                <RelativeTime
-                  timestamp={dagRun.queuedAt}
-                  absolute={dagRun.queuedAt}
-                />
-              </TableCell>
-              <TableCell className="py-1 px-2 text-left whitespace-nowrap">
-                <RelativeTime
-                  timestamp={dagRun.startedAt}
-                  absolute={dagRun.startedAt}
-                />
-              </TableCell>
-              <TableCell className="py-1 px-2 text-left">
-                <div className="flex items-center gap-1">
-                  <RunListDuration
-                    startedAt={dagRun.startedAt}
-                    finishedAt={dagRun.finishedAt}
-                    status={dagRun.status}
+                <TableCell className="py-1 px-2">
+                  <TriggerTypeIndicator
+                    type={dagRun.triggerType}
+                    actor={dagRun.triggerActor}
                   />
-                </div>
-              </TableCell>
-              <TableCell className="py-1 px-2 text-muted-foreground">
-                {dagRun.workerId || '-'}
-              </TableCell>
-            </TableRow>
-          ))}
+                </TableCell>
+                {showProfileColumn && (
+                  <TableCell className="py-1 px-2">
+                    {dagRun.profileName ? (
+                      <span
+                        className="inline-flex max-w-[160px] items-center gap-1 font-mono text-xs"
+                        title={dagRun.profileName}
+                      >
+                        <SlidersHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{dagRun.profileName}</span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                )}
+                <TableCell className="py-1 px-2 text-left whitespace-nowrap">
+                  <RelativeTime
+                    timestamp={dagRun.queuedAt}
+                    absolute={dagRun.queuedAt}
+                    compact
+                    ago
+                  />
+                </TableCell>
+                <TableCell className="py-1 px-2 text-left whitespace-nowrap">
+                  <RelativeTime
+                    timestamp={dagRun.startedAt}
+                    absolute={dagRun.startedAt}
+                    compact
+                    ago
+                  />
+                </TableCell>
+                <TableCell className="py-1 px-2 text-left">
+                  <div className="flex items-center gap-1">
+                    <RunListDuration
+                      startedAt={dagRun.startedAt}
+                      finishedAt={dagRun.finishedAt}
+                      status={dagRun.status}
+                    />
+                  </div>
+                </TableCell>
+                <TableCell className="py-1 px-2 text-muted-foreground">
+                  {dagRun.workerId || '-'}
+                </TableCell>
+              </TableRow>
+            )),
+          ]}
         </TableBody>
       </Table>
     </div>

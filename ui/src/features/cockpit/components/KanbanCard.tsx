@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/tooltip';
 import AutoRetryBadge from '@/features/dag-runs/components/common/AutoRetryBadge';
 import dayjs from '@/lib/dayjs';
-import StatusChip from '@/components/ui/status-chip';
+import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import Ticker from '@/components/ui/ticker';
 import { I18nText } from '@/i18n/I18nText';
 
@@ -99,9 +99,14 @@ export function KanbanCard({
               {run.name}
             </span>
             <div className="flex shrink-0 flex-col items-end gap-1">
-              <StatusChip status={run.status} size="xs">
+              <RunStatusChip
+                name={run.name}
+                dagRunId={run.dagRunId}
+                status={run.status}
+                size="xs"
+              >
                 {run.statusLabel}
-              </StatusChip>
+              </RunStatusChip>
               <AutoRetryBadge
                 status={run.status}
                 count={run.autoRetryCount}
@@ -132,7 +137,7 @@ export function KanbanCard({
             <div
               className={`text-[11px] text-muted-foreground ${showArtifacts ? 'pr-10' : ''}`}
             >
-              <I18nText text={"Scheduled"} /> {scheduleTime}
+              <I18nText text={'Scheduled'} /> {scheduleTime}
             </div>
           )}
           {params && (
@@ -155,7 +160,9 @@ export function KanbanCard({
                 <Archive className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent><I18nText text={"View artifacts"} /></TooltipContent>
+            <TooltipContent>
+              <I18nText text={'View artifacts'} />
+            </TooltipContent>
           </Tooltip>
         )}
       </div>

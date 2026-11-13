@@ -48,6 +48,9 @@ vi.mock('@/hooks/api', () => ({
   useQuery: useQueryMock,
 }));
 
+// The app does not mount the overlay by default; these tests need it.
+vi.mock('@/features/peek/overlayMounted', () => ({ OVERLAY_MOUNTED: true }));
+
 vi.mock('../layouts/Layout', () => ({
   default: ({ children }: { children: React.ReactNode }) => {
     const license = useLicense();
@@ -74,6 +77,7 @@ vi.mock('../layouts/Layout', () => ({
 vi.mock('../pages/administration', () => ({
   default: () => <h1>Administration</h1>,
 }));
+vi.mock('../pages/ai', () => ({ default: () => <h1>AI page</h1> }));
 vi.mock('../pages/api-keys', () => ({ default: () => <h1>API Keys</h1> }));
 vi.mock('../pages/api-docs', () => ({ default: () => <h1>API Docs</h1> }));
 vi.mock('../pages/audit-logs', () => ({
@@ -396,6 +400,19 @@ describe('legacy Wiki routing', () => {
       expect(window.location.pathname).toBe('/wiki/runbooks/deploy');
       expect(window.location.search).toBe('?workspace=ops');
       expect(window.location.hash).toBe('#rollback');
+    });
+  });
+});
+
+describe('legacy AI routing', () => {
+  it('sends /ai/providers to /ai/endpoints', async () => {
+    renderAt('/ai/providers');
+
+    expect(
+      await screen.findByRole('heading', { name: 'AI page' })
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/ai/endpoints');
     });
   });
 });

@@ -21,6 +21,11 @@ import {
 } from '@/features/dags/components/step-details/PanelShell';
 import { StepDetails } from '@/features/dags/components/step-details/StepDetails';
 import { getStoredDrawerWidth } from '@/features/dags/components/step-details/StepSideDrawer';
+import {
+  PanelRowTitle,
+  ROW_PANEL_HEADER_CLASS,
+  usePanelInToolbarRow,
+} from '@/features/visual-editor/canvas/toolbarHost';
 import type {
   StepCommand,
   StepCommandGates,
@@ -84,6 +89,9 @@ export function StepPanel({
   placement = 'zone',
 }: StepPanelProps) {
   const inColumn = placement === 'column';
+  // In a zone with a row of toolbars the row has the title and the Close
+  // button from md; the toolbars end before the button.
+  const inRow = usePanelInToolbarRow() && !inColumn;
   const { ts } = useI18n();
   const { dagData, fileName, run } = useWorkspaceData('StepPanel');
   const { handle } = useWorkspaceEditor();
@@ -120,6 +128,15 @@ export function StepPanel({
     return () => window.clearTimeout(timer);
   }, [openedAt]);
 
+  const statusDot = node && (
+    <StatusDot
+      kind="step"
+      status={node.status}
+      decorative
+      className="h-2 w-2 shrink-0"
+    />
+  );
+
   return (
     <aside
       ref={ref}
@@ -147,15 +164,19 @@ export function StepPanel({
           : { width: getStoredDrawerWidth(), maxWidth: panelMaxWidth() }
       }
     >
-      <header className={PANEL_HEADER_CLASS}>
-        {node && (
-          <StatusDot
-            kind="step"
-            status={node.status}
-            decorative
-            className="h-2 w-2 shrink-0"
-          />
-        )}
+      {inRow && (
+        <PanelRowTitle
+          leading={statusDot}
+          subtitle={dagData.dag?.name ?? fileName}
+          title={step}
+          closeLabel={ts('Close')}
+          onClose={onClose}
+        />
+      )}
+      <header
+        className={cn(PANEL_HEADER_CLASS, inRow && ROW_PANEL_HEADER_CLASS)}
+      >
+        {statusDot}
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[11px] text-muted-foreground">
             {dagData.dag?.name ?? fileName}

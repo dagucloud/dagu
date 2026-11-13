@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, NodeStatusLabel, Status } from '@/api/v1/schema';
+import { PanelPlacementProvider } from '@/features/dags/components/step-details/PanelShell';
+import { CanvasToolbarHostContext } from '@/features/visual-editor/canvas/toolbarHost';
 import type { StepCommandGates } from '@/features/visual-editor/contracts';
 import type {
   ApiDAGDetails,
@@ -97,43 +100,57 @@ function setup({
   allow = true,
   loadingId,
   openedAt,
+  host,
 }: {
   details: ApiDAGRunDetails | null;
   step?: string;
   allow?: boolean;
   loadingId?: string;
   openedAt?: { clientX: number; clientY: number };
+  /** The row of the toolbars of the zone that holds the panel. */
+  host?: HTMLElement;
 }) {
   const onClose = vi.fn();
   const onStepCommand = vi.fn();
   const onOpenStep = vi.fn();
   type ClickPoint = { clientX: number; clientY: number };
+  const inZone = (children: ReactNode) =>
+    host ? (
+      <PanelPlacementProvider value="zone">
+        <CanvasToolbarHostContext.Provider value={host}>
+          {children}
+        </CanvasToolbarHostContext.Provider>
+      </PanelPlacementProvider>
+    ) : (
+      children
+    );
   const panel = (
     value: ApiDAGRunDetails | null,
     name = step,
     at: ClickPoint | undefined = openedAt
-  ) => (
-    <MemoryRouter>
-      <WorkspaceDataContext.Provider
-        value={
-          {
-            fileName: FILE_NAME,
-            dagData: { dag: DAG },
-            run: runValue(value, loadingId),
-          } as unknown as WorkspaceDataValue
-        }
-      >
-        <StepPanel
-          step={name}
-          openedAt={at}
-          onClose={onClose}
-          onStepCommand={onStepCommand}
-          gates={gates(allow)}
-          onOpenStep={onOpenStep}
-        />
-      </WorkspaceDataContext.Provider>
-    </MemoryRouter>
-  );
+  ) =>
+    inZone(
+      <MemoryRouter>
+        <WorkspaceDataContext.Provider
+          value={
+            {
+              fileName: FILE_NAME,
+              dagData: { dag: DAG },
+              run: runValue(value, loadingId),
+            } as unknown as WorkspaceDataValue
+          }
+        >
+          <StepPanel
+            step={name}
+            openedAt={at}
+            onClose={onClose}
+            onStepCommand={onStepCommand}
+            gates={gates(allow)}
+            onOpenStep={onOpenStep}
+          />
+        </WorkspaceDataContext.Provider>
+      </MemoryRouter>
+    );
   // The run and the step that the panel shows now: each helper changes one.
   let shown = { details, step, openedAt };
   const view = render(panel(details));
@@ -184,6 +201,36 @@ describe('StepPanel', () => {
 
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // In a zone with a row of toolbars, the row has the title at the left and
+  // the Close button at the right end, in the band of the toolbars; the bar
+  // of the panel stays for a window below md, where the row is hidden.
+  it('puts the step name and the Close button in the row of the toolbars', () => {
+    const { onClose } = setup({
+      details: failedBuild(),
+      host: document.createElement('div'),
+    });
+    const panel = screen.getByRole('complementary', {
+      name: 'Details of build',
+    });
+    const title = within(panel).getByTestId('panel-row-title');
+    expect(title).toHaveTextContent('build');
+    expect(title).toHaveTextContent(DAG_NAME);
+    expect(panel.querySelector('header')).toHaveClass('md:hidden');
+    const slot = panel.querySelector('[data-panel-close="row"]');
+    expect(slot).not.toBeNull();
+    fireEvent.click(within(slot as HTMLElement).getByRole('button'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its own bar with no row of toolbars', () => {
+    setup({ details: failedBuild() });
+    const panel = screen.getByRole('complementary', {
+      name: 'Details of build',
+    });
+    expect(panel.querySelector('[data-panel-close]')).toBeNull();
+    expect(panel.querySelector('header')).not.toHaveClass('md:hidden');
   });
 
   it('sends Retry step, Change status and Open sub-run through the host commands', () => {

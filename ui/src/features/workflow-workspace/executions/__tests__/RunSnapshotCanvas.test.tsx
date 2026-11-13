@@ -120,7 +120,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -1154,15 +1157,7 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
     h.post.mockResolvedValue({ data: { referenceScope: scopeHttpJq } });
     h.runSpec = yamlHttpJq;
     h.run = makeRun(
-      runDetails(
-        'run-1',
-        [
-          node('fetch'),
-          node('extract'),
-          node('publish', NodeStatus.NotStarted),
-        ],
-        Status.Success
-      )
+      runDetails('run-1', [node('fetch'), node('extract')], Status.Success)
     );
     renderCanvas('/dags/demo?run=run-1&def=run&step=extract&ndv=expanded');
 

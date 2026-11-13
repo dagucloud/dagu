@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react';
 import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
@@ -23,7 +23,7 @@ import {
 import type { View } from '@/hooks/useViews';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
-import { WorkspaceKind } from '@/lib/workspace';
+import { WorkspaceKind, type WorkspaceSelection } from '@/lib/workspace';
 import DAGRuns from '..';
 
 const {
@@ -32,9 +32,7 @@ const {
   deleteRunViewMock,
   readSearchStateMock,
   searchStateMock,
-  serviceDAGsState,
   sharedRunViewState,
-  runViewMode,
   updateRunViewMock,
   viewsLoadingState,
   writeSearchStateMock,
@@ -45,14 +43,13 @@ const {
     createRunViewMock: vi.fn(),
     dagsListState: {
       dags: [] as { fileName: string; dag: { name: string } }[],
+      get: vi.fn(),
     },
     deleteRunViewMock: vi.fn(),
     updateRunViewMock: vi.fn(),
     readSearchStateMock: readState,
     searchStateMock: { readState, writeState },
-    serviceDAGsState: { count: 0 },
     sharedRunViewState: { views: [] as View[] },
-    runViewMode: { current: 'list' },
     viewsLoadingState: { current: false },
     writeSearchStateMock: writeState,
   };
@@ -63,12 +60,32 @@ vi.mock('@/contexts/SearchStateContext', () => ({
 }));
 
 vi.mock('@/contexts/AuthContext', () => ({
+  useCanWrite: () => true,
   useCanWriteForWorkspace: () => true,
 }));
 
+// The page reads its views through useSharedViews, which calls useViews once
+// for the workflow type and once for the run type and merges both lists. Like
+// the real hook, the mock keeps the same array while the views do not change.
+const viewsOfTypeCache = vi.hoisted(() => new Map<string, unknown[]>());
+
+function viewsOfType(type: ViewSpecType): View[] {
+  const next = sharedRunViewState.views.filter((view) => view.type === type);
+  const cached = viewsOfTypeCache.get(type) as View[] | undefined;
+  if (
+    cached &&
+    cached.length === next.length &&
+    cached.every((view, i) => view === next[i])
+  ) {
+    return cached;
+  }
+  viewsOfTypeCache.set(type, next);
+  return next;
+}
+
 vi.mock('@/hooks/useViews', () => ({
-  useViews: () => ({
-    views: sharedRunViewState.views,
+  useViews: (type: ViewSpecType) => ({
+    views: viewsOfType(type),
     isLoading: viewsLoadingState.current,
     error: undefined,
     createView: createRunViewMock,
@@ -78,16 +95,11 @@ vi.mock('@/hooks/useViews', () => ({
   }),
 }));
 
-vi.mock('@/contexts/UserPreference', () => ({
-  useUserPreferences: () => ({
-    preferences: {
-      dagRunsViewMode: runViewMode.current,
-    },
-    updatePreference: vi.fn(),
-  }),
-}));
-
 vi.mock('@/hooks/api', () => ({
+  useClient: () => ({
+    POST: vi.fn(),
+    GET: dagsListState.get,
+  }),
   useQuery: (path: string, init?: unknown) => ({
     data:
       init === null
@@ -100,26 +112,16 @@ vi.mock('@/hooks/api', () => ({
   }),
 }));
 
-vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
-  useServiceDAGs: () => ({
-    serviceDAGs: Array.from({ length: serviceDAGsState.count }, (_, index) => ({
-      fileName: `dag-${index}`,
-      name: `dag-${index}`,
-      restartPolicy: 'always',
-      restartWaitSec: 5,
-      queue: `dag-${index}`,
-      state: 'running',
-      suspended: false,
-      consecutiveFailures: 0,
-    })),
-    error: null,
-  }),
-}));
-
 const usePaginatedDAGRunsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/features/dag-runs/hooks/dagRunPagination', () => ({
   usePaginatedDAGRuns: usePaginatedDAGRunsMock,
+}));
+
+const useServiceDAGsMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/features/dag-runs/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: useServiceDAGsMock,
 }));
 
 vi.mock('@/features/dag-runs/hooks/useBulkDAGRunSelection', () => ({
@@ -137,21 +139,19 @@ vi.mock('@/features/dag-runs/components/common/DAGRunBatchActions', () => ({
   default: () => null,
 }));
 
-vi.mock(
-  '@/features/dag-runs/components/dag-run-list/DAGRunGroupedView',
-  () => ({
-    default: () => <div>Grouped Runs</div>,
-  })
-);
-
 const dagRunTableProps = vi.hoisted(() => ({
-  current: {} as { isLoading?: boolean },
+  current: {} as {
+    isLoading?: boolean;
+    dagRuns?: { name: string; dagRunId: string }[];
+    serviceDags?: { name: string; fileName: string }[];
+    serviceWindow?: { from: number; to?: number };
+  },
 }));
 
 vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', async () => {
   const { usePeekOrOpen } = await import('@/features/peek/usePeekOrOpen');
   return {
-    default: function RunTable(props: { isLoading?: boolean }) {
+    default: function RunTable(props: typeof dagRunTableProps.current) {
       dagRunTableProps.current = props;
       const peekOrOpen = usePeekOrOpen();
       return (
@@ -174,7 +174,6 @@ const config = {
 } as Config;
 
 beforeEach(() => {
-  runViewMode.current = 'list';
   readSearchStateMock.mockReset();
   readSearchStateMock.mockReturnValue(null);
   writeSearchStateMock.mockReset();
@@ -184,7 +183,9 @@ beforeEach(() => {
   deleteRunViewMock.mockReset();
   sharedRunViewState.views = [];
   dagsListState.dags = [];
-  serviceDAGsState.count = 0;
+  dagsListState.get.mockReset();
+  useServiceDAGsMock.mockReset();
+  useServiceDAGsMock.mockReturnValue([]);
   usePaginatedDAGRunsMock.mockReset();
   usePaginatedDAGRunsMock.mockReturnValue({
     dagRuns: [],
@@ -251,10 +252,19 @@ function locationSearchParams(): URLSearchParams {
   );
 }
 
+async function choosePeriod(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+): Promise<void> {
+  await user.click(screen.getByRole('combobox', { name: 'Period' }));
+  await user.click(await screen.findByRole('option', { name }));
+}
+
 function renderPage(
   setTitle = vi.fn(),
   initialEntry = '/dag-runs',
-  configOverrides: Partial<Config> = {}
+  configOverrides: Partial<Config> = {},
+  workspaceSelection: WorkspaceSelection = { kind: WorkspaceKind.all }
 ): void {
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -272,7 +282,7 @@ function renderPage(
             {
               setTitle,
               selectedRemoteNode: 'local',
-              workspaceSelection: { kind: WorkspaceKind.all },
+              workspaceSelection,
             } as never
           }
         >
@@ -284,48 +294,18 @@ function renderPage(
 }
 
 describe('DAGRuns page', () => {
-  // A service DAG restarts without end; its runs would fill the unfiltered list.
-  // A card for each service DAG stands in for them.
-  it('leaves the runs of service DAGs out of the unfiltered list', () => {
-    serviceDAGsState.count = 2;
-
-    renderPage();
-
-    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
-    const serviceDAGs = screen.getByRole('region', { name: 'Service DAGs' });
-    expect(within(serviceDAGs).getByText('dag-0')).toBeInTheDocument();
-    expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
-  });
-
-  it('shows no service DAG section when no DAG is one', () => {
-    renderPage();
-
-    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
-    expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
-  });
-
-  it.each(['name=worker', 'dagRunId=run-1', 'status=2', 'labels=team%3Ddata'])(
-    'shows the runs of service DAGs when the list is filtered by %s',
-    (filter) => {
-      serviceDAGsState.count = 2;
-
-      renderPage(vi.fn(), `/dag-runs?${filter}`);
-
-      expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
-      expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
-    }
-  );
-
-  it('uses the Executions page title', () => {
+  it('uses the Workflows page title with the Runs mode selected', () => {
     const setTitle = vi.fn();
 
     renderPage(setTitle);
 
-    expect(
-      screen.getByRole('heading', { name: /^executions$/i })
-    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: /^workflows$/i })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: /executions/i })).toBeNull();
     expect(screen.queryByRole('heading', { name: /dag runs/i })).toBeNull();
-    expect(setTitle).toHaveBeenCalledWith('Executions');
+    expect(setTitle).toHaveBeenCalledWith('Workflows');
+    expect(screen.getByRole('button', { name: 'Runs' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workflows' })).toBeVisible();
+    expect(screen.getByTestId('workflow-count')).toHaveTextContent('0 runs');
   });
 
   // A preset range means "relative to now", so a session left open across a
@@ -421,7 +401,7 @@ describe('DAGRuns page', () => {
       screen.getByRole('combobox', { name: 'Status' }).className
     ).toContain('h-9');
     expect(
-      screen.getByRole('combobox', { name: 'Date preset' }).className
+      screen.getByRole('combobox', { name: 'Period' }).className
     ).toContain('h-9');
     expect(screen.getByRole('button', { name: 'Search' }).className).toContain(
       'h-9'
@@ -450,6 +430,7 @@ describe('DAGRuns page', () => {
     expect(locationSearchParams().get('run')).toBe('run-1');
   });
 
+  // Links from before the run page replaced the side panel.
   it('opens the run of a legacy ?selectedRunName link on its workflow page', () => {
     renderPage(
       vi.fn(),
@@ -551,6 +532,7 @@ describe('DAGRuns page', () => {
   });
 
   it('keeps only active date-mode parameters after Search', async () => {
+    const user = userEvent.setup();
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -562,9 +544,7 @@ describe('DAGRuns page', () => {
       expect(params.has('specificPeriod')).toBe(false);
     });
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Specific date/month/year' })
-    );
+    await choosePeriod(user, 'Specific date…');
     await waitFor(() => {
       const params = locationSearchParams();
       expect(params.get('dateMode')).toBe('specific');
@@ -577,7 +557,7 @@ describe('DAGRuns page', () => {
       expect(params.get('specificPeriod')).toBe('date');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }));
+    await choosePeriod(user, 'Custom range…');
     await waitFor(() => {
       const params = locationSearchParams();
       expect(params.get('dateMode')).toBe('custom');
@@ -595,7 +575,7 @@ describe('DAGRuns page', () => {
     const user = userEvent.setup();
     renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }));
+    await choosePeriod(user, 'Custom range…');
     const inputs = await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss');
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;
@@ -686,14 +666,10 @@ describe('DAGRuns page', () => {
       expect(locationSearchParams().get('name')).toBe('nightly');
     });
 
-    await user.click(
+    expect(
       screen.getByRole('button', { name: 'Run view: Custom view' })
-    );
-    await user.click(
-      screen.getByRole('menuitem', {
-        name: 'Save current filters as view…',
-      })
-    );
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Save view' }));
     await user.type(
       screen.getByRole('textbox', { name: 'Name' }),
       'Nightly runs'
@@ -703,7 +679,9 @@ describe('DAGRuns page', () => {
     await waitFor(() => {
       expect(createRunViewMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: ViewSpecType.run,
+          // The two modes share their views, which are created as workflow
+          // views.
+          type: ViewSpecType.workflow,
           name: 'Nightly runs',
           dagName: 'nightly',
           intervalDays: 1,
@@ -990,13 +968,7 @@ describe('DAGRuns page', () => {
       ).toBeVisible();
     });
 
-    await user.click(
-      screen.getByRole('button', { name: 'Run view: Failed runs' })
-    );
-    await user.click(screen.getByRole('menuitem', { name: 'Manage views…' }));
-    await user.click(
-      screen.getByRole('button', { name: 'Delete Failed runs' })
-    );
+    await user.click(screen.getByRole('button', { name: 'Delete view' }));
     await user.click(
       await screen.findByRole('button', { name: 'Delete view' })
     );
@@ -1006,6 +978,85 @@ describe('DAGRuns page', () => {
     });
     await waitFor(() => {
       expect(locationSearchParams().get('view')).toBe('all');
+    });
+  });
+});
+
+// The runs of a service DAG leave the list: one row for each service DAG
+// takes their place (spec 097), over the window of the filters. A filter on
+// the name, the run ID, the status or the labels shows the runs as they are.
+describe('DAGRuns page service DAGs', () => {
+  const svc = { name: 'svc', fileName: 'svc.yaml' };
+  const lastServiceRead = () => {
+    const calls = useServiceDAGsMock.mock.calls;
+    return calls[calls.length - 1] as [Record<string, unknown>, boolean];
+  };
+
+  beforeEach(() => {
+    useServiceDAGsMock.mockReturnValue([svc]);
+  });
+
+  it('leaves out the runs of service DAGs and shows their rows', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(dagRunTableProps.current.serviceDags).toEqual([svc]);
+    });
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    expect(lastServiceRead()).toEqual([
+      { remoteNode: 'local', workspace: 'all' },
+      true,
+    ]);
+    // The window is the date filter: the start of today until now.
+    expect(dagRunTableProps.current.serviceWindow).toEqual({
+      from: dayjs().startOf('day').unix() * 1000,
+      to: undefined,
+    });
+  });
+
+  it('reads the service DAGs of the workspace', async () => {
+    renderPage(
+      vi.fn(),
+      '/dag-runs',
+      {},
+      { kind: WorkspaceKind.workspace, workspace: 'ops' }
+    );
+    await waitFor(() => {
+      expect(lastRunQuery()['workspace']).toBe('ops');
+    });
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    expect(lastServiceRead()).toEqual([
+      { remoteNode: 'local', workspace: 'ops' },
+      true,
+    ]);
+  });
+
+  it.each([
+    ['name', '/dag-runs?name=svc'],
+    ['run ID', '/dag-runs?dagRunId=svc-3'],
+    ['status', '/dag-runs?status=1'],
+    ['labels', '/dag-runs?labels=prod'],
+  ])('shows the runs as they are with a %s filter', async (_, url) => {
+    renderPage(vi.fn(), url);
+    await waitFor(() => {
+      expect(lastServiceRead()[1]).toBe(false);
+    });
+    await act(async () => {});
+    const query = lastRunQuery();
+    expect(query).not.toHaveProperty('excludeServiceDAGRuns', true);
+    expect(JSON.stringify(query)).not.toContain('excludeServiceDAGRuns');
+  });
+
+  it('gives the end date of the filters to the rows', async () => {
+    renderPage(
+      vi.fn(),
+      '/dag-runs?dateMode=custom&fromDate=2026-11-01T00:00&toDate=2026-11-02T00:00'
+    );
+    await waitFor(() => {
+      expect(dagRunTableProps.current.serviceDags).toEqual([svc]);
+    });
+    expect(dagRunTableProps.current.serviceWindow).toEqual({
+      from: Number(lastRunQuery()['fromDate']) * 1000,
+      to: Number(lastRunQuery()['toDate']) * 1000,
     });
   });
 });

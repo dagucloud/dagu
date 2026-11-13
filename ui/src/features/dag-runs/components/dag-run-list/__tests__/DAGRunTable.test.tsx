@@ -193,7 +193,7 @@ describe('DAGRunTable', () => {
     }
   });
 
-  it('shows the scheduled at column and value when schedule time exists', () => {
+  it('merges the scheduled time into the status cell when it exists', () => {
     render(
       <MemoryRouter>
         <ConfigContext.Provider value={config}>
@@ -219,19 +219,86 @@ describe('DAGRunTable', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Scheduled At')).toBeInTheDocument();
-    expect(screen.getByText('2026-03-13 10:00:00')).toHaveAttribute(
-      'title',
-      '2026-03-13T10:00:00Z'
-    );
+    // The scheduled time follows the status dot as a compact relative time.
+    expect(screen.queryByText('Scheduled At')).not.toBeInTheDocument();
+    expect(screen.queryByText('2026-03-13 10:00:00')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeVisible();
+    const statusDot = screen.getByRole('img', { name: 'Failed' });
+    expect(statusDot).toHaveAttribute('data-testid', 'status-dot');
+    const statusCell = statusDot.closest('td') as HTMLElement;
+    expect(statusCell).toHaveTextContent('·');
+    const scheduled = screen.getByTitle('2026-03-13T10:00:00Z');
+    expect(statusCell).toContainElement(scheduled);
+    expect(scheduled).toHaveTextContent(/ago$/);
     expect(screen.getByRole('link', { name: 'scheduled-dag' })).toHaveAttribute(
       'href',
       '/dags/scheduled-dag?remoteNode=local&run=run-1'
     );
-    // Queued At renders as relative time with the absolute time in the tooltip
-    expect(screen.getByTitle('2026-03-13T10:00:30Z')).toBeInTheDocument();
+    // Queued At is a compact relative time with the absolute time in the tooltip.
+    expect(screen.getByTitle('2026-03-13T10:00:30Z')).toHaveTextContent(/ago$/);
     expect(screen.getByText('1/3 auto retries')).toBeInTheDocument();
     expect(screen.queryByText('Select')).not.toBeInTheDocument();
+  });
+
+  it('shows the status dot without a status chip in the table', () => {
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable dagRuns={[queuedRun]} />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('img', { name: 'Failed' })).toHaveAttribute(
+      'data-testid',
+      'status-dot'
+    );
+    // The dot carries the status text in its label only.
+    expect(screen.queryByText('Failed')).not.toBeInTheDocument();
+    // No schedule time: the time of the run follows the dot.
+    expect(screen.getByText('·')).toBeInTheDocument();
+  });
+
+  it('selects all the loaded runs from the header checkbox', () => {
+    const onSelectAll = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable
+            dagRuns={[queuedRun, { ...queuedRun, dagRunId: 'run-2' }]}
+            selectedRunKeys={new Set()}
+            onToggleBulkSelect={vi.fn()}
+            onSelectAll={onSelectAll}
+          />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    const selectAll = screen.getByRole('checkbox', {
+      name: 'Select all loaded runs',
+    });
+    expect(selectAll).toHaveClass('size-3.5');
+    expect(
+      screen.getByRole('checkbox', { name: 'Select DAG run alpha run-1' })
+    ).toHaveClass('size-3.5');
+    fireEvent.click(selectAll);
+
+    expect(onSelectAll).toHaveBeenCalledWith(true);
+  });
+
+  it('disables the header checkbox without onSelectAll', () => {
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable dagRuns={[queuedRun]} onToggleBulkSelect={vi.fn()} />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Select all loaded runs' })
+    ).toBeDisabled();
   });
 
   it('shows the profile column when a run uses a runtime profile', () => {

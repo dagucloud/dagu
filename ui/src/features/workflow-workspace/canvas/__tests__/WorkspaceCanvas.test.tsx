@@ -48,10 +48,16 @@ import {
 type SpecProps = React.ComponentProps<typeof DAGSpec>;
 
 // The tests below run as on a phone, where the Workflow panel and the YAML
-// are panels over the zone; 'right column' sets a wide window.
-const media = vi.hoisted(() => ({ wide: false }));
+// are panels over the zone; 'right column' sets a wide window. The app does
+// not mount the column: that describe turns the switch on for its tests.
+const media = vi.hoisted(() => ({ wide: false, column: false }));
 vi.mock('@/hooks/useMediaQuery', () => ({
   useMediaQuery: () => media.wide,
+}));
+vi.mock('../rightColumnMounted', () => ({
+  get RIGHT_COLUMN_MOUNTED() {
+    return media.column;
+  },
 }));
 
 const host = vi.hoisted(() => ({
@@ -890,9 +896,11 @@ describe('WorkspaceCanvas', () => {
     const column = () => screen.getByTestId('ww-right-column');
     beforeEach(() => {
       media.wide = true;
+      media.column = true;
     });
     afterEach(() => {
       media.wide = false;
+      media.column = false;
     });
 
     it('shows the YAML tab as the docked YAML and keeps ?ndv for the view of a step', () => {
@@ -961,6 +969,25 @@ describe('WorkspaceCanvas', () => {
 
       fireEvent.click(within(column()).getByRole('button', { name: 'YAML' }));
       expect(column()).toHaveAttribute('data-tab', 'yaml');
+    });
+  });
+
+  // The app does not mount the column: on a wide window the Workflow panel
+  // and the YAML are docks that the toolbar toggles, and ?ndv=docked stays.
+  describe('right docks on a wide window', () => {
+    beforeEach(() => {
+      media.wide = true;
+    });
+    afterEach(() => {
+      media.wide = false;
+    });
+
+    it('mounts no right column and keeps ?ndv=docked in the URL', () => {
+      renderCanvas('/dags/example.yaml?ndv=docked');
+      expect(screen.queryByTestId('ww-right-column')).toBeNull();
+      expect(screen.queryByTestId('ww-panel-layer')).toBeNull();
+      expect(props().ndv?.state).toBe('docked');
+      expect(location()).toHaveTextContent('ndv=docked');
     });
   });
 
@@ -1559,6 +1586,38 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(host.dockOpen.length).toBeGreaterThan(0);
       expect(host.dockOpen).not.toContain(true);
+    });
+
+    // The step panel and Activity take turns, as the YAML panel and Activity
+    // do (the owner decided it).
+    it('yields to the step panel and comes back when it closes', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas();
+      expect(yieldToView).not.toHaveBeenCalled();
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', { clientX: 700, clientY: 120 });
+      });
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+      fireEvent.click(screen.getByRole('button', { name: 'close panel' }));
+      expect(yieldToView).toHaveBeenLastCalledWith(false);
+    });
+
+    it('closes the step panel when Activity opens', () => {
+      ws.dock = { ...dock, open: false, yieldToView: vi.fn() };
+      renderCanvas();
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', { clientX: 700, clientY: 120 });
+      });
+      expect(screen.queryByTestId('step-panel')).not.toBeNull();
+      act(() => {
+        ws.dock = { ...(ws.dock as DockController), open: true };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      expect(screen.queryByTestId('step-panel')).toBeNull();
+      expect(location()).toHaveTextContent('step=extract');
     });
 
     // D10: a click on the canvas selects; it never opens the dock.

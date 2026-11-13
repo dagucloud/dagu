@@ -52,4 +52,29 @@ describe('getBreadcrumbItems', () => {
     const items = getBreadcrumbItems('/dags/etl/some-page');
     expect(last(items.map((item) => item.label))).toBe('Some Page');
   });
+
+  // A skill name is a folder name: it keeps its dashes.
+  it('names the skill in the crumbs of the AI page', () => {
+    const labels = (path: string) =>
+      getBreadcrumbItems(path).map((item) => item.label);
+
+    expect(labels('/ai')).toEqual(['Home', 'AI']);
+    expect(labels('/ai/endpoints')).toEqual(['Home', 'AI', 'Endpoints']);
+    expect(labels('/ai/mcp')).toEqual(['Home', 'AI', 'MCP']);
+    // A path that the AI page does not know stops the crumbs at the AI page.
+    expect(labels('/ai/unknown')).toEqual(['Home', 'AI']);
+    expect(labels('/ai/unknown/new')).toEqual(['Home', 'AI']);
+    expect(labels('/ai/skills/triage-2')).toEqual([
+      'Home',
+      'AI',
+      'Skills',
+      'triage-2',
+    ]);
+    expect(labels('/ai/skills/new')).toEqual([
+      'Home',
+      'AI',
+      'Skills',
+      'New skill',
+    ]);
+  });
 });

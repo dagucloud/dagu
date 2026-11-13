@@ -805,8 +805,10 @@ describe('StepRunView logs', () => {
     );
     expect(screen.getByText('first output')).toBeVisible();
     expect(screen.getByRole('group', { name: 'Stream' })).toBeVisible();
-    // A long log reads by page as on its own page, which opens in a new tab.
-    expect(screen.getByRole('group', { name: 'Lines shown' })).toBeVisible();
+    // The log of the workspace shows the latest lines only: no Page View. Its
+    // own page opens in a new tab.
+    expect(screen.queryByRole('group', { name: 'Lines shown' })).toBeNull();
+    expect(screen.queryByText('Page View')).toBeNull();
     expect(
       screen.getByRole('link', { name: 'Open in new tab' })
     ).toHaveAttribute('target', '_blank');
