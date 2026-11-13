@@ -24,7 +24,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { triggerTypeLabels } from '@/features/dags/components/common/TriggerTypeIndicator';
-import { dateText } from '@/features/dags/components/dag-execution/SlotDatesPreview';
+import {
+  dateSummary,
+  dateText,
+} from '@/features/dags/components/dag-execution/SlotDatesPreview';
 import { useClock } from '@/hooks/useClock';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -263,7 +266,7 @@ function SlotFact({ dagRun }: { dagRun: RunFields }) {
   const dates = dagRun.dates ?? [];
   const first = dates[0];
   if (!first) return null;
-  const date = dateText(first);
+  const date = dateSummary(first);
   const slot = formatAbsoluteTime(dagRun.scheduleTime, { seconds: false });
   const text = slot
     ? ts('{slot}, loads {date}', { slot, date })

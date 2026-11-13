@@ -6,7 +6,10 @@ import { UpcomingRunsHold, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ScheduleCalendarLinks } from '@/features/calendars/components/ScheduleCalendarLinks';
-import { dateText } from '@/features/dags/components/dag-execution/SlotDatesPreview';
+import {
+  dateSummary,
+  dateText,
+} from '@/features/dags/components/dag-execution/SlotDatesPreview';
 import dayjs from '@/lib/dayjs';
 import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
@@ -82,7 +85,7 @@ export function UpcomingRuns({
                       .join('\n')}
                   >
                     {' · '}
-                    {ts('loads {date}', { date: dateText(run.dates[0]) })}
+                    {ts('loads {date}', { date: dateSummary(run.dates[0]) })}
                   </span>
                 )}
                 {schedules.length > 1 && schedule && (

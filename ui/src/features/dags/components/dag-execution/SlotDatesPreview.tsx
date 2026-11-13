@@ -24,6 +24,14 @@ export function dateText(date: RunDateValue): string {
   return date.list ? (date.values ?? []).join(', ') || '—' : (date.value ?? '');
 }
 
+/** A date in one short line: its value, or a list's first and last value. */
+export function dateSummary(date: RunDateValue): string {
+  if (!date.list) return date.value ?? '';
+  const values = date.values ?? [];
+  if (values.length <= 1) return values[0] ?? '—';
+  return `${values[0]}..${values[values.length - 1]}`;
+}
+
 /**
  * The slot a start would get, its window, and the dates its run would get,
  * read from the server as the start would resolve them. It reports the

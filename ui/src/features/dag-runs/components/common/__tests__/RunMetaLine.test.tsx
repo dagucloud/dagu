@@ -109,6 +109,26 @@ describe('RunMetaLine', () => {
       'Loads 2026-11-09 · from the clock'
     );
 
+    // A list is told by its first and last date.
+    rerender(
+      <RunMetaLine
+        dagRun={{
+          ...run,
+          scheduleTime: '2026-11-10T02:00:00Z',
+          dates: [
+            {
+              name: 'window_days',
+              list: true,
+              values: ['2026-11-06', '2026-11-07', '2026-11-08'],
+            },
+          ],
+        }}
+      />
+    );
+    expect(screen.getByTitle('Slot')).toHaveTextContent(
+      /, loads 2026-11-06\.\.2026-11-08$/
+    );
+
     rerender(
       <RunMetaLine dagRun={{ ...run, scheduleTime: '2026-11-10T02:00:00Z' }} />
     );
