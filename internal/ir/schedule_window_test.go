@@ -181,6 +181,30 @@ func TestPreviousFire(t *testing.T) {
 	assert.True(t, ir.PreviousFire(nil, at).IsZero())
 }
 
+// Entries that fire at the same instant resolve to the first, so its params
+// are the ones a run of that slot takes.
+func TestFiringSchedule(t *testing.T) {
+	t.Parallel()
+
+	schedules := make([]ir.Schedule, 0, 2)
+	for _, params := range []string{"y", "overlap"} {
+		schedule, err := ir.ParseScheduleValue(
+			map[string]any{"expression": "0 5 * * *", "params": map[string]any{"mode": params}},
+			ir.ScheduleParseOptions{AllowParams: true},
+		)
+		require.NoError(t, err)
+		schedules = append(schedules, schedule)
+	}
+	at := time.Date(2026, 11, 12, 5, 0, 0, 0, time.UTC)
+
+	got, ok := ir.FiringSchedule(schedules, "", time.UTC, at)
+	require.True(t, ok)
+	assert.JSONEq(t, `{"mode":"y"}`, string(got.Params))
+
+	_, ok = ir.FiringSchedule(schedules, "", time.UTC, at.Add(time.Hour))
+	assert.False(t, ok)
+}
+
 func TestFiringScheduleExpression(t *testing.T) {
 	t.Parallel()
 

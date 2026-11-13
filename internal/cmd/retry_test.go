@@ -568,6 +568,7 @@ steps:
 			scheduleTime,
 			ir.ScheduleWindow{},
 			"",
+			"",
 		))
 
 		args := []string{"retry", fmt.Sprintf("--run-id=%s", runID), dagFile.Location}

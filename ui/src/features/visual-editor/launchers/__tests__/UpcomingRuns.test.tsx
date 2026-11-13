@@ -37,6 +37,28 @@ describe('UpcomingRuns', () => {
     expect(screen.getByText('Thu 2027-02-25 09:00')).toBeInTheDocument();
   });
 
+  it('shows how many parameters the matching schedule overrides', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          { expression: '0 5 * * *', paramOverrideCount: 1 },
+          { expression: '0 6 * * *', paramOverrideCount: 2 },
+        ]}
+        runs={[
+          { time: '2027-01-01T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          { time: '2027-01-01T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByText('1 parameter override', { exact: false })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('2 parameter overrides', { exact: false })
+    ).toBeInTheDocument();
+  });
+
   it('names the zone and schedule of each run when they differ', () => {
     render(
       <UpcomingRuns

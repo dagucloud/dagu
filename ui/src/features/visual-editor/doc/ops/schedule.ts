@@ -87,17 +87,55 @@ function seqOf(doc: Document, values: unknown[]): YAMLSeq {
   return seq;
 }
 
-/** The new value of a start list: one string stays a plain string. */
+/** Keeps object entries in place when the Cron launcher edits plain strings. */
 function startNode(
   doc: Document,
   expressions: string[],
-  keep: unknown[]
+  existing: unknown,
+  removedIndex?: number
 ): unknown {
-  if (keep.length === 0 && expressions.length === 1) {
-    return new Scalar(expressions[0]);
+  const others = keepOthers(existing);
+  if (others.length === 0) {
+    return expressions.length === 1
+      ? new Scalar(expressions[0])
+      : seqOf(doc, expressions);
   }
-  const seq = seqOf(doc, expressions);
-  for (const item of keep) seq.items.push(item as never);
+
+  const seq = seqOf(doc, []);
+  if (isMap(existing)) {
+    seq.items.push(existing, ...seqOf(doc, expressions).items);
+    return seq;
+  }
+  if (!isSeq(existing)) return seq;
+
+  const previous = readEntries(existing).expressions;
+  const removed = Math.max(0, previous.length - expressions.length);
+  let firstChange = 0;
+  while (
+    firstChange < expressions.length &&
+    previous[firstChange] === expressions[firstChange]
+  ) {
+    firstChange++;
+  }
+  let oldIndex = 0;
+  let nextIndex = 0;
+  for (const item of existing.items) {
+    if (!isScalar(item) || typeof item.value !== 'string') {
+      seq.items.push(item);
+      continue;
+    }
+    if (item.value.trim() === '') continue;
+    const index = oldIndex++;
+    const removalStart = removedIndex ?? firstChange;
+    if (index >= removalStart && index < removalStart + removed) continue;
+    const expression = expressions[nextIndex++];
+    // A stale removedIndex leaves more old strings than new expressions.
+    if (expression === undefined) continue;
+    seq.items.push(
+      item.value.trim() === expression ? item : new Scalar(expression)
+    );
+  }
+  seq.items.push(...seqOf(doc, expressions.slice(nextIndex)).items);
   return seq;
 }
 
@@ -118,7 +156,11 @@ function clearExpressions(node: unknown): boolean {
   return node.items.length > 0;
 }
 
-function setSchedule(doc: Document, expressions: string[]): MutateOutcome {
+function setSchedule(
+  doc: Document,
+  expressions: string[],
+  removedIndex?: number
+): MutateOutcome {
   if (!isMap(doc.contents)) {
     return {
       ok: false,
@@ -143,11 +185,10 @@ function setSchedule(doc: Document, expressions: string[]): MutateOutcome {
   if (isMap(existing)) {
     // The map form: only `start` changes.
     const start = existing.get('start', true);
-    existing.set('start', startNode(doc, expressions, keepOthers(start)));
+    existing.set('start', startNode(doc, expressions, start, removedIndex));
     return;
   }
-  const keep = keepOthers(existing);
-  const value = startNode(doc, expressions, keep);
+  const value = startNode(doc, expressions, existing, removedIndex);
   if (existing !== undefined) {
     root.set('schedule', value);
     return;
@@ -176,5 +217,7 @@ export function opSetSchedule(
   const expressions = op.expressions
     .map((expression) => expression.trim())
     .filter((expression) => expression !== '');
-  return editDocument(text, (doc) => setSchedule(doc, expressions));
+  return editDocument(text, (doc) =>
+    setSchedule(doc, expressions, op.removedIndex)
+  );
 }

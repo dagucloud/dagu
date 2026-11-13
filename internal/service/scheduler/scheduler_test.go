@@ -145,7 +145,7 @@ func TestScheduler(t *testing.T) {
 		sc.SetClock(func() time.Time { return now })
 
 		var dispatchCount atomic.Int32
-		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
+		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
 			dispatchCount.Add(1)
 			return nil
 		})
@@ -275,7 +275,7 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	sc, err := scheduler.New(th.Config, schedulerDependencies(th, entryReader))
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return now })
-	sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
 		return nil
 	})
 

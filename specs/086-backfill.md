@@ -107,7 +107,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
 | `--rerun` | `none`, `failed`, or `all`. | `none` |
 | `--max-concurrency` | Runs of the backfill allowed at once. | `1` |
 | `--on-failure` | `stop` or `continue`. | `stop` |
-| `--params` | Params for every run. | the DAG's defaults |
+| `--params` | Params for every run. | the slot's schedule overrides and the DAG's defaults |
 | `--profile` | Runtime profile for every run. | the DAG's default |
 | `--dry-run` | Print the plan and start nothing. | off |
 | `--format` | Plan output: `text` or `json`. | `text` |
@@ -213,8 +213,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   as `latestBackfill`. `dagu status <DAG>` without `--run-id` prints it
   after the latest run, except in a remote context.
 - Each run is queued through the DAG's queue and counts against its limit.
-  It runs the definition pinned at submit, with the backfill's params and
-  profile, and has its slot's scheduled time and window. Its
+  It runs the definition pinned at submit, with the backfill's profile and
+  its explicit params or the first matching recurring schedule's overrides.
+  It has its slot's scheduled time and window. Its
   `context.trigger.type` is `backfill`.
 - A backfill run's ID is `backfill-<backfill id>-<generation>-<slot>`, with
   the slot in UTC as `20060102T150405Z`. A scheduler that restarts finds the

@@ -48,6 +48,7 @@ func EnqueueCatchupRun(
 	scheduleTime time.Time,
 	scheduleWindow ir.ScheduleWindow,
 	profileName string,
+	params string,
 ) error {
 	dagRun := ir.NewDAGRunRef(dag.Name, runID)
 
@@ -77,7 +78,7 @@ func EnqueueCatchupRun(
 		return fmt.Errorf("failed to check existing run: %w", err)
 	}
 
-	fullDAG, err := rehydrateExecutionDAG(ctx, dag, nil, baseConfig, workspaceBaseConfigDir)
+	fullDAG, err := rehydrateExecutionDAG(ctx, dag, params, baseConfig, workspaceBaseConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to load full DAG for enqueue: %w", err)
 	}

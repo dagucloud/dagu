@@ -834,6 +834,44 @@ func (s *dagBuildState) bindScheduleCalendars() {
 	}
 }
 
+// validateScheduleParams checks literal overrides without evaluating dynamic
+// defaults. Run admission still validates the fully resolved inputs.
+func (s *dagBuildState) validateScheduleParams() {
+	if s.ctx.opts.Has(buildFlagBaseDefinition) || s.ctx.opts.Has(buildFlagSkipSchemaValidation) ||
+		!slices.ContainsFunc(s.result.Schedule, func(schedule ir.Schedule) bool { return len(schedule.Params) > 0 }) {
+		return
+	}
+	plan, err := buildDAGParamPlan(s.ctx, s.spec)
+	if err != nil {
+		return // The params transformer reports an invalid declaration.
+	}
+	plan.inheritedNames = inheritedParamNames(s.ctx.baseDAG, plan)
+	opts := s.ctx.opts
+	opts.Flags |= buildFlagNoEval
+	ctx := s.ctx.WithOpts(opts)
+	for i, schedule := range s.result.Schedule {
+		if len(schedule.Params) == 0 {
+			continue
+		}
+		input := string(schedule.Params)
+		switch plan.kind {
+		case dagParamKindLegacy:
+			if plan.schema == nil {
+				_, err = resolveLegacyRuntimePairs(plan.entries, plan.inheritedNames, input, nil)
+			} else {
+				_, err = resolveLegacyEntries(ctx, plan, input, nil, true)
+			}
+		case dagParamKindExternalSchema:
+			_, err = resolveExternalSchemaEntries(plan, input, nil)
+		case dagParamKindInlineSchema:
+			_, err = resolveInlineSchemaEntries(plan, input, nil)
+		}
+		if err != nil {
+			s.errs = append(s.errs, s.scheduleFieldError(i, "params", err))
+		}
+	}
+}
+
 // scheduleFieldError reports err at a field of start schedule i, or at the
 // DAG's calendar when field is empty because the schedule took the DAG's.
 // Errors about schedules or calendars inherited from a base config have no
@@ -1266,6 +1304,7 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.runFieldStages()
 	state.composeInheritedContext()
 	state.bindScheduleCalendars()
+	state.validateScheduleParams()
 	state.validateDates()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()

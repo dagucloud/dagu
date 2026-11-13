@@ -304,7 +304,7 @@ func newScheduler(
 	liveRun := liveRunChecker(dagRunRepository)
 	if queuesEnabled {
 		isQueued = liveQueuedChecker(queueStore, liveRun)
-		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
+		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
 			dag := entry.DAG
 			profileName, err := dagExecutor.defaultProfileName(ctx, entry.DefinitionID, dag)
 			if err != nil {
@@ -324,7 +324,7 @@ func newScheduler(
 				triggerType,
 				scheduleTime,
 				ir.ScheduleWindowAt(dag.Schedule, profileName, timeLoc, scheduleTime),
-				profileName,
+				profileName, params,
 			)
 		}
 	}
@@ -349,11 +349,11 @@ func newScheduler(
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning:       isRunning,
-		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
+		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
 			return dagExecutor.HandleJob(
 				ctx, entry,
 				dispatch.DispatchOperationStart,
-				runID, triggerType, scheduleTime,
+				runID, triggerType, scheduleTime, params,
 			)
 		},
 		Stop: func(ctx context.Context, dag *ir.DAG) error {

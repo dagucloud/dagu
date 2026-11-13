@@ -246,7 +246,7 @@ export function CronLauncherPanel({
   /** The server's start schedules, which upcomingRuns index. */
   schedules?: Schedule[];
   /** The new list of start expressions; the other entries stay. */
-  onChange(expressions: string[]): void;
+  onChange(expressions: string[], removedIndex?: number): void;
   onClose(): void;
 }): ReactElement {
   const { ts } = useI18n();
@@ -286,7 +286,10 @@ export function CronLauncherPanel({
               }}
               onRemove={() => {
                 setRemovals((count) => count + 1);
-                onChange(expressions.filter((_, i) => i !== index));
+                onChange(
+                  expressions.filter((_, i) => i !== index),
+                  index
+                );
               }}
             />
           ))}

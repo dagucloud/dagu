@@ -38,7 +38,7 @@ func TestCronLoopWakeGap(t *testing.T) {
 			}
 			require.NoError(t, planner.Init(t.Context(), testDAGEntries(dag)))
 			runs := make(chan PlannedRun, 10)
-			record := func(_ context.Context, entry DAGEntry, id string, trigger ir.TriggerType, scheduled time.Time) error {
+			record := func(_ context.Context, entry DAGEntry, id string, trigger ir.TriggerType, scheduled time.Time, _ string) error {
 				runs <- PlannedRun{DAGEntry: entry, RunID: id, TriggerType: trigger, ScheduledTime: scheduled}
 				return nil
 			}
@@ -76,7 +76,7 @@ func TestCronLoopBackwardClock(t *testing.T) {
 	planner.cfg.Clock = func() time.Time { return base }
 	planner.cfg.Location = time.UTC
 	runs := make(chan struct{}, 10)
-	planner.cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+	planner.cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 		runs <- struct{}{}
 		return nil
 	}

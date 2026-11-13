@@ -7,6 +7,7 @@ Implemented.
 ## Scope
 
 This specification covers calendar descriptors in workflow schedules.
+It also defines how start schedules supply parameter overrides.
 Scheduler dispatch and timing guarantees are outside this conformance suite.
 
 ## Goal
@@ -56,6 +57,36 @@ schedule: "@daily"
 steps:
   - run: echo scheduled
 ```
+
+## Parameter overrides
+
+A recurring or one-off start entry can supply a `params` mapping. Dagu treats
+the mapping as literal run input and fills omitted keys from the DAG's defaults.
+For example:
+
+```yaml
+params:
+  mode: default
+schedule:
+  - expression: "0 5 * * *"
+    params: {mode: y}
+  - expression: "0 6 * * *"
+    params: {mode: z}
+steps:
+  - run: ./process.sh "${params.mode}"
+```
+
+Live runs and catch-up use the selected entry's inputs. A backfill uses the
+matching recurring entry from its pinned DAG definition unless the backfill
+supplies explicit `--params`. Retries use the run's saved inputs. Manual starts
+continue to use their own inputs and DAG defaults. A `restart_policy` restart
+starts from the DAG defaults, not from the entry's `params`.
+
+When multiple active entries fire at the same time, the live scheduler prefers
+a due one-off and otherwise selects the first matching recurring entry in YAML
+order. Catch-up and backfill select the first matching recurring entry.
+Changing only `params` leaves the schedule's identity intact, including the
+consumed state of one-off entries.
 
 ## Conformance
 
