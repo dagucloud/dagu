@@ -503,7 +503,17 @@ steps:
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `passphrase`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+
+`key` is a path, `{file: <path>}`, or `{secret: <ref>}`. `password` and `passphrase` are a string or `{secret: <ref>}`. `bastion` takes the same three fields. A `secret` names a Dagu-managed registry secret, is literal (no `${...}`), resolves once at run start, and is masked but never exported to step environments. A passphrase unlocks an encrypted key, including a default `~/.ssh/id_*` key.
+
+```yaml
+ssh:
+  user: deploy
+  host: server.example.com
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+```
 
 ## http.request
 
