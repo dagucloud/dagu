@@ -20,6 +20,12 @@ type stepReads struct {
 	text []cmnvalue.StepTextReference
 	// values holds the field values, where output variables are read by name.
 	values []string
+	// envValues holds the values of the step's own env, which resolve while
+	// the predecessors' output variables are still in scope.
+	envValues []string
+	// ownEnv names the variables the step's own env defines. They shadow a
+	// predecessor's output variable of the same name in the other fields.
+	ownEnv map[string]struct{}
 }
 
 // stepReads returns what the fields of the node's step read.
@@ -28,6 +34,17 @@ func (n *Node) stepReads() stepReads {
 		for _, field := range reffield.ReferenceFields(&ir.DAG{Steps: []ir.Step{n.Step()}}) {
 			n.reads.text = append(n.reads.text, field.Field.StepTextReferences(field.Value)...)
 			n.reads.values = append(n.reads.values, field.Value)
+			if strings.HasPrefix(field.Path, field.OwnerStepPath+".env[") {
+				n.reads.envValues = append(n.reads.envValues, field.Value)
+			}
+		}
+		for _, entry := range n.Step().Env {
+			if name, _, ok := strings.Cut(entry, "="); ok {
+				if n.reads.ownEnv == nil {
+					n.reads.ownEnv = map[string]struct{}{}
+				}
+				n.reads.ownEnv[name] = struct{}{}
+			}
 		}
 	})
 	return n.reads
@@ -37,7 +54,7 @@ func (n *Node) stepReads() stepReads {
 // masked. It runs once the preconditions hold, since a skipped step reads
 // nothing. A run that restored no masked output skips the predecessor walk.
 func (r *Runner) checkMaskedReads(plan *Plan, node *Node) error {
-	if !slices.ContainsFunc(plan.Nodes(), func(n *Node) bool { return n.State().MaskedOutputs != nil }) {
+	if !slices.ContainsFunc(plan.Nodes(), func(n *Node) bool { return n.MaskedOutputs() != nil }) {
 		return nil
 	}
 	return checkMaskedOutputs(planPredecessorNodes(plan, node), node, false)
@@ -49,7 +66,7 @@ func (r *Runner) checkMaskedReads(plan *Plan, node *Node) error {
 // ${steps...} lookup scope, so those references are no reads there.
 func checkMaskedOutputs(sources []*Node, node *Node, handler bool) error {
 	for _, source := range sources {
-		masked := source.State().MaskedOutputs
+		masked := source.MaskedOutputs()
 		if masked == nil {
 			continue
 		}
@@ -83,9 +100,14 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 	}
 	variables := source.OutputVariablesMap()
 	for _, name := range slices.Sorted(maps.Keys(variables)) {
-		if masked.HasVariable(name) && slices.ContainsFunc(reads.values, func(value string) bool {
-			return readsVariable(value, name)
-		}) {
+		if !masked.HasVariable(name) {
+			continue
+		}
+		values := reads.values
+		if _, shadowed := reads.ownEnv[name]; shadowed {
+			values = reads.envValues
+		}
+		if slices.ContainsFunc(values, func(value string) bool { return readsVariable(value, name) }) {
 			return name, true
 		}
 	}
@@ -102,7 +124,9 @@ func readsMaskedText(ref cmnvalue.StepTextReference, step ir.Step, state NodeSta
 		// nothing there.
 		return !handler && masked.HasPublished(ref.Field)
 	case strings.HasPrefix(path, ref.StepName+".outputs"):
-		// Published outputs take precedence over the captured document.
+		// Published outputs take precedence over the captured document. The
+		// captured flag also covers the captured text, so a step with only
+		// masked text fails a read here that resolves to nothing anyway.
 		if state.StepOutputsValue == nil {
 			return masked.HasCaptured()
 		}

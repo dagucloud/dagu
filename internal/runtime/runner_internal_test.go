@@ -1342,9 +1342,10 @@ func TestCheckMaskedReads(t *testing.T) {
 		name        string
 		command     string
 		description string
-		noID        bool   // fetch has no id
-		published   string // fetch's stored published outputs
-		captured    string // fetch's stored captured text
+		env         []string // the reading step's own env
+		noID        bool     // fetch has no id
+		published   string   // fetch's stored published outputs
+		captured    string   // fetch's stored captured text
 		masked      *ir.MaskedOutputs
 		wantErr     string // the output named in the error; empty when the step runs
 	}{
@@ -1446,6 +1447,21 @@ func TestCheckMaskedReads(t *testing.T) {
 			command: "deploy ${TOKEN_ID}",
 			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 		},
+		// The step's own env shadows the predecessor's output variable.
+		{
+			name:    "variable the step defines itself",
+			command: "deploy ${TOKEN}",
+			env:     []string{"TOKEN=literal"},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
+		},
+		// Its own env value still resolves with the predecessor's in scope.
+		{
+			name:    "own env defined from the masked variable",
+			command: "deploy ${TOKEN}",
+			env:     []string{"TOKEN=${TOKEN}-suffix"},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
+			wantErr: `output "TOKEN" of step "fetch"`,
+		},
 		{
 			name:    "nothing masked",
 			command: "deploy ${steps.fetch.outputs.token} ${TOKEN}",
@@ -1462,7 +1478,7 @@ func TestCheckMaskedReads(t *testing.T) {
 			}
 			plan, err := NewPlan(
 				ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"},
-				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description},
+				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description, Env: tt.env},
 			)
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")
