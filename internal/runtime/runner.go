@@ -5,13 +5,11 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
-	"regexp"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -1123,7 +1121,8 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 	}
 
 	// Load output variables and approval inputs from predecessor nodes.
-	for _, predNode := range planPredecessorNodes(plan, node) {
+	preds := planPredecessorNodes(plan, node)
+	for _, predNode := range preds {
 		// Add predecessor outputs to scope
 		if outputs := predNode.OutputVariablesMap(); len(outputs) > 0 {
 			stepID := predNode.Step().ID
@@ -1133,7 +1132,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
 	}
-	if err := checkMaskedOutputs(planPredecessorNodes(plan, node), node); err != nil {
+	if err := checkMaskedOutputs(preds, node, false); err != nil {
 		return ctx, err
 	}
 
@@ -1300,7 +1299,7 @@ func (r *Runner) setupEnvironEventHandler(
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
 	}
-	if err := checkMaskedOutputs(plan.Nodes(), node); err != nil {
+	if err := checkMaskedOutputs(plan.Nodes(), node, true); err != nil {
 		return ctx, err
 	}
 
@@ -2390,57 +2389,4 @@ func planPredecessorNodes(plan *Plan, node *Node) []*Node {
 		}
 	}
 	return nodes
-}
-
-// checkMaskedOutputs fails a step that reads an output of one of nodes (its
-// predecessors, or every node for a handler step) that a retry restored from a
-// status stored with that output masked. The original text is gone, so the step
-// would run on starred text. Both reference forms are checked:
-// ${steps.ID.outputs.NAME} and the plain ${NAME} variable.
-func checkMaskedOutputs(nodes []*Node, node *Node) error {
-	var text string
-	for _, pred := range nodes {
-		masked := pred.State().MaskedOutputs
-		if masked == nil {
-			continue
-		}
-		if text == "" {
-			data, err := json.Marshal(node.Step())
-			if err != nil {
-				return fmt.Errorf("failed to check the outputs step %q reads: %w", node.Name(), err)
-			}
-			text = string(data)
-		}
-		// Each pattern captures the output name it matched.
-		var patterns []string
-		// Same step key setupVariables puts in scope: the ID, else the name.
-		id := pred.Step().ID
-		if id == "" {
-			id = pred.Step().Name
-		}
-		if id != "" {
-			prefix := `\$\{\s*steps\.` + regexp.QuoteMeta(id) + `\.outputs\.`
-			if masked.All {
-				patterns = append(patterns, prefix+`([A-Za-z0-9_-]+)`)
-			}
-			for _, name := range masked.Names {
-				patterns = append(patterns, prefix+`(`+regexp.QuoteMeta(name)+`)\b`)
-			}
-		}
-		for name := range pred.OutputVariablesMap() {
-			if masked.Has(name) {
-				patterns = append(patterns, `\$\{?(`+regexp.QuoteMeta(name)+`)\b`)
-			}
-		}
-		slices.Sort(patterns)
-		for _, pattern := range patterns {
-			if match := regexp.MustCompile(pattern).FindStringSubmatch(text); match != nil {
-				return fmt.Errorf(
-					"step %q reads output %q of step %q, which was stored masked because it holds a secret; step %q has to run again to produce it",
-					node.Name(), match[1], pred.Name(), pred.Name(),
-				)
-			}
-		}
-	}
-	return nil
 }

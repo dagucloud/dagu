@@ -66,6 +66,11 @@ type Node struct {
 	outputSchemaOnce sync.Once
 	outputSchema     *jsonschema.Resolved
 	outputSchemaErr  error
+
+	// readsOnce caches what the step's fields read from other steps. The
+	// masked-output check needs it on every attempt of a restored run.
+	readsOnce sync.Once
+	reads     stepReads
 }
 
 func NewNode(step ir.Step, state NodeState) *Node {

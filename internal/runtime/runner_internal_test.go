@@ -1339,11 +1339,12 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		command string
-		noID    bool // fetch has no id, so steps.<name> is the key
-		masked  *ir.MaskedOutputs
-		wantErr string // the output named in the error; empty when the step runs
+		name        string
+		command     string
+		description string
+		noID        bool // fetch has no id
+		masked      *ir.MaskedOutputs
+		wantErr     string // the output named in the error; empty when the step runs
 	}{
 		{
 			name:    "step output reference",
@@ -1370,11 +1371,35 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
 		{
-			name:    "step without id is keyed by name",
+			name:    "whole stdout output",
+			command: "deploy ${fetch.output}",
+			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			wantErr: `output "${fetch.output}" of step "fetch"`,
+		},
+		{
+			name:    "structured output field",
+			command: "deploy ${fetch.outputs.region}",
+			masked:  &ir.MaskedOutputs{Names: []string{"region"}},
+			wantErr: `output "region" of step "fetch"`,
+		},
+		// Step references resolve by id, so a step without one has no
+		// ${steps.<name>...} reference to read.
+		{
+			name:    "step without id has no step reference",
 			command: "deploy ${steps.fetch.outputs.token}",
 			noID:    true,
 			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
-			wantErr: `output "token" of step "fetch"`,
+		},
+		{
+			name:    "escaped output variable",
+			command: `deploy \${TOKEN}`,
+			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+		},
+		{
+			name:        "mention in the description",
+			command:     "deploy",
+			description: "uses ${TOKEN} and ${steps.fetch.outputs.token}",
+			masked:      &ir.MaskedOutputs{Names: []string{"TOKEN", "token"}},
 		},
 		{
 			name:    "unmasked step output",
@@ -1402,7 +1427,7 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 			}
 			plan, err := NewPlan(
 				ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"},
-				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command},
+				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description},
 			)
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")
@@ -1426,8 +1451,9 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 	}
 }
 
-// Handler steps (onExit, onFailure, ...) see the outputs of every step, so they
-// fail on a masked output too, not only steps that depend on its producer.
+// Handler steps (onExit, onFailure, ...) see the output variables of every
+// step, so they fail on a masked one. Step references do not resolve in a
+// handler, so they read nothing.
 func TestSetupEnvironEventHandlerFailsOnMaskedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -1438,7 +1464,7 @@ func TestSetupEnvironEventHandlerFailsOnMaskedOutputs(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Names: []string{"TOKEN"}}, wantErr: true},
-		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Names: []string{"token"}}, wantErr: true},
+		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Names: []string{"token"}}},
 		{name: "unmasked output", command: "notify ${steps.fetch.outputs.region}", masked: &ir.MaskedOutputs{Names: []string{"token"}}},
 		{name: "nothing masked", command: "notify ${TOKEN}"},
 	}
