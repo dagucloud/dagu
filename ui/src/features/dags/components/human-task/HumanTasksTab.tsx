@@ -126,6 +126,41 @@ function singleChoiceField(schema?: JSONSchema): ChoiceField | null {
   };
 }
 
+function TaskError({ message }: { message: string }) {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * Holds the task actions at the bottom of the scrolling host while a long
+ * prompt is read above them, with the error of a failed submission in view.
+ */
+function ActionBar({
+  bare,
+  error,
+  children,
+}: {
+  bare?: boolean;
+  error: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'sticky bottom-0 z-10 space-y-2 border-t border-border py-2',
+        bare ? 'bg-card' : '-mx-4 bg-surface px-4'
+      )}
+    >
+      {error && <TaskError message={error} />}
+      <div className="flex flex-wrap justify-end gap-2">{children}</div>
+    </div>
+  );
+}
+
 function useTaskFormUiSchema(schema?: JSONSchema): UiSchema<FormData> {
   return React.useMemo<UiSchema<FormData>>(
     () => ({
@@ -257,13 +292,6 @@ function HumanTaskCard({
     }
   }, [mode]);
 
-  // The actions stay at the bottom of the scrolling host while a long prompt
-  // is read above them.
-  const actionBar = cn(
-    'sticky bottom-0 z-10 flex flex-wrap justify-end gap-2 border-t border-border py-2',
-    bare ? 'bg-card' : '-mx-4 bg-surface px-4'
-  );
-
   const requestChangesButton = pushBack ? (
     <Button
       type="button"
@@ -357,13 +385,6 @@ function HumanTaskCard({
         title={ts('Previous Push-backs')}
       />
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
       {mode === 'push-back' && pushBack ? (
         <div
           ref={pushBackPanel}
@@ -382,6 +403,7 @@ function HumanTaskCard({
               />
             </p>
           </div>
+          {error && <TaskError message={error} />}
           {hasFeedbackForm ? (
             <Form
               tagName="form"
@@ -471,7 +493,7 @@ function HumanTaskCard({
               )}
             </div>
           )}
-          <div className={actionBar}>
+          <ActionBar bare={bare} error={error}>
             {requestChangesButton}
             <div
               role="group"
@@ -494,7 +516,7 @@ function HumanTaskCard({
                 </Button>
               ))}
             </div>
-          </div>
+          </ActionBar>
         </>
       ) : hasForm ? (
         // The submit button sits in the bar outside the form, so the bar can
@@ -526,7 +548,7 @@ function HumanTaskCard({
               )
             }
           />
-          <div className={actionBar}>
+          <ActionBar bare={bare} error={error}>
             {requestChangesButton}
             <Button
               type="submit"
@@ -537,10 +559,10 @@ function HumanTaskCard({
               <Check className="h-4 w-4" />
               {completeButtonLabel}
             </Button>
-          </div>
+          </ActionBar>
         </>
       ) : (
-        <div className={actionBar}>
+        <ActionBar bare={bare} error={error}>
           {requestChangesButton}
           <Button
             type="button"
@@ -551,7 +573,7 @@ function HumanTaskCard({
             <Check className="h-4 w-4" />
             {completeButtonLabel}
           </Button>
-        </div>
+        </ActionBar>
       )}
 
       {!canExecute && (
