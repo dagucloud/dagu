@@ -372,17 +372,13 @@ function StartDAGModal({
   const [slotSelection, setSlotSelection] = React.useState(NO_SLOT_VALUE);
   const [customSlot, setCustomSlot] = React.useState('');
   const remoteNode = useRemoteNode();
-  // The reason the chosen slot's dates cannot resolve, which holds the start.
-  const [datesBlocked, setDatesBlocked] = React.useState<string | null>(null);
-  // Only a DAG with dates gives its upcoming runs dates; the preview is read
-  // for those alone.
-  const hasDates = React.useMemo(
-    () =>
-      (dagDetails?.upcomingRuns ?? []).some(
-        (run) => (run.dates?.length ?? 0) > 0
-      ),
-    [dagDetails]
-  );
+  // The preview is read only for a DAG that declares dates.
+  const showDatesPreview =
+    !!fileName && (dagDetails?.dateNames?.length ?? 0) > 0;
+  // The reason the chosen slot's dates cannot resolve, as the preview last
+  // reported it. It holds the start only while the preview is shown.
+  const [previewBlock, setPreviewBlock] = React.useState<string | null>(null);
+  const datesBlocked = showDatesPreview ? previewBlock : null;
   const previewSlot =
     slotSelection === OTHER_SLOT_VALUE
       ? customSlot.trim() || undefined
@@ -545,7 +541,7 @@ function StartDAGModal({
   );
 
   const handleSubmit = React.useCallback(async () => {
-    if (!dag || loading || !!loadError || submitting) {
+    if (!dag || loading || !!loadError || submitting || !!datesBlocked) {
       return;
     }
 
@@ -642,6 +638,7 @@ function StartDAGModal({
     schemaFormData,
     useSchemaFields,
     submitting,
+    datesBlocked,
     profileSelection,
     slotSelection,
     typedFields,
@@ -857,14 +854,17 @@ function StartDAGModal({
                 </div>
               )}
 
-              {fileName && hasDates && (
+              {fileName && showDatesPreview && (
                 <div className="space-y-1.5 sm:col-span-full">
                   <SlotDatesPreview
                     fileName={fileName}
                     remoteNode={remoteNode}
                     scheduledAt={previewSlot}
-                    profile={selectedProfileName || undefined}
-                    onBlocked={setDatesBlocked}
+                    profile={profileOverrideForSelection(
+                      profileSelection,
+                      hasDefaultProfile
+                    )}
+                    onBlocked={setPreviewBlock}
                   />
                 </div>
               )}

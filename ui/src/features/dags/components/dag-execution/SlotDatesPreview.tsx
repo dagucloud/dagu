@@ -42,6 +42,8 @@ export function SlotDatesPreview({
   remoteNode: string;
   /** The slot as the start API takes it, or undefined for the default. */
   scheduledAt?: string;
+  /** The profile override a start would send: undefined for the DAG default,
+   * empty for no profile. */
   profile?: string;
   onBlocked: (reason: string | null) => void;
 }) {
@@ -59,7 +61,7 @@ export function SlotDatesPreview({
         query: {
           remoteNode,
           ...(settled ? { scheduledAt: settled } : {}),
-          ...(profile ? { profile } : {}),
+          ...(profile !== undefined ? { profile } : {}),
         },
       },
     }),

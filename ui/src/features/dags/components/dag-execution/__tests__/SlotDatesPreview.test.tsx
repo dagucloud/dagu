@@ -40,6 +40,28 @@ describe('SlotDatesPreview', () => {
     expect(onBlocked).toHaveBeenLastCalledWith(null);
   });
 
+  it('asks for a run without a profile', () => {
+    useQueryMock.mockReturnValue({});
+    render(
+      <SlotDatesPreview
+        fileName="etl"
+        remoteNode="local"
+        profile=""
+        onBlocked={vi.fn()}
+      />
+    );
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/slot-preview',
+      {
+        params: {
+          path: { fileName: 'etl' },
+          query: { remoteNode: 'local', profile: '' },
+        },
+      },
+      expect.anything()
+    );
+  });
+
   it('reports dates that cannot resolve', async () => {
     useQueryMock.mockReturnValue({
       error: { message: 'dates.since needs the window of a schedule slot' },

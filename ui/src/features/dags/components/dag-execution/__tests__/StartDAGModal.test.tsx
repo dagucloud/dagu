@@ -10,7 +10,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RuntimeProfileStatus } from '@/api/v1/schema';
 import StartDAGModal from '../StartDAGModal';
 
@@ -18,12 +18,14 @@ const renderedFormProps = vi.fn();
 const useIsAdminMock = vi.hoisted(() => vi.fn(() => true));
 
 const previewBlock = vi.hoisted(() => ({ reason: null as string | null }));
+const previewProps = vi.hoisted(() => vi.fn());
 vi.mock('../SlotDatesPreview', () => ({
-  SlotDatesPreview: ({
-    onBlocked,
-  }: {
+  SlotDatesPreview: (props: {
+    profile?: string;
     onBlocked: (reason: string | null) => void;
   }) => {
+    previewProps(props);
+    const { onBlocked } = props;
     React.useEffect(() => onBlocked(previewBlock.reason), [onBlocked]);
     return <div data-testid="slot-dates-preview" />;
   },
@@ -89,52 +91,89 @@ beforeEach(() => {
 });
 
 describe('StartDAGModal', () => {
-  // The dialog previews the dates of a DAG with dates, and holds the start
-  // while they cannot resolve.
-  it('holds the start while the dates of the slot cannot resolve', async () => {
-    previewBlock.reason = 'dates.since needs a schedule window';
-    render(
-      <StartDAGModal
-        visible
-        fileName="etl"
-        dag={
-          {
-            name: 'etl',
-            upcomingRuns: [
-              {
-                time: '2026-11-15T02:00:00Z',
-                scheduleIndex: 0,
-                timezone: 'UTC',
-                dates: [{ name: 'target_day', value: '2026-11-14' }],
-              },
-            ],
-          } as never
-        }
-        dismissModal={vi.fn()}
-        onSubmit={vi.fn()}
-      />
-    );
+  // The dialog previews the dates of a DAG that declares them, and holds the
+  // start while they cannot resolve.
+  describe('dates preview', () => {
+    const datedDag = { name: 'etl', dateNames: ['target_day'] } as never;
+    const renderModal = (
+      props: Partial<React.ComponentProps<typeof StartDAGModal>> = {}
+    ) =>
+      render(
+        <StartDAGModal
+          visible
+          fileName="etl"
+          dag={datedDag}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          {...props}
+        />
+      );
 
-    expect(screen.getByTestId('slot-dates-preview')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Enqueue|Start/ })
-      ).toBeDisabled()
-    );
-    previewBlock.reason = null;
-  });
+    afterEach(() => {
+      previewBlock.reason = null;
+      previewProps.mockClear();
+    });
 
-  it('previews no dates for a DAG without them', () => {
-    render(
-      <StartDAGModal
-        visible
-        fileName="etl"
-        dag={{ name: 'etl' } as never}
-        dismissModal={vi.fn()}
-        onSubmit={vi.fn()}
-      />
-    );
-    expect(screen.queryByTestId('slot-dates-preview')).toBeNull();
+    it('previews the dates of a DAG without a schedule', () => {
+      renderModal();
+      expect(screen.getByTestId('slot-dates-preview')).toBeInTheDocument();
+    });
+
+    it('previews no dates for a DAG without them', () => {
+      renderModal({ dag: { name: 'etl' } as never });
+      expect(screen.queryByTestId('slot-dates-preview')).toBeNull();
+    });
+
+    it('holds the start while the dates cannot resolve', async () => {
+      previewBlock.reason = 'dates.since needs a schedule window';
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      renderModal({ onSubmit });
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Enqueue' })).toBeDisabled()
+      );
+      await user.click(
+        screen.getByRole('textbox', { name: 'Run ID (optional)' })
+      );
+      await user.keyboard('{Enter}');
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('releases the start once the DAG has no dates', async () => {
+      previewBlock.reason = 'dates.since needs a schedule window';
+      const { rerender } = renderModal();
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Enqueue' })).toBeDisabled()
+      );
+
+      rerender(
+        <StartDAGModal
+          visible
+          fileName="etl"
+          dag={{ name: 'etl' } as never}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Enqueue' })).toBeEnabled();
+    });
+
+    it('previews the profile the run would use', async () => {
+      const user = userEvent.setup();
+      renderModal({ defaultProfile: 'prod' });
+      expect(previewProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ profile: undefined })
+      );
+
+      await user.click(screen.getByRole('combobox', { name: /profile/i }));
+      await user.click(
+        await screen.findByRole('option', { name: 'No profile' })
+      );
+      expect(previewProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ profile: '' })
+      );
+    });
   });
 
   it('groups run settings separately from DAG parameters', () => {

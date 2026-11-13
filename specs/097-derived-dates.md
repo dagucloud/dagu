@@ -190,6 +190,7 @@ A slot's dates can be read before a run exists, and after it records them:
 - `dagu start` and `dagu enqueue` report on stderr the slot and dates of the
   run they create, as `Dates for slot <time>: name=date ...`.
 
+- A DAG's details name the dates it declares as `dateNames`.
 - The upcoming runs of a DAG's details, and of the MCP `dag` read as
   `upcomingRunDates`, list the dates each fire's run gets.
 - `GET /api/v1/dags/{fileName}/slot-preview?scheduledAt=` returns the slot a

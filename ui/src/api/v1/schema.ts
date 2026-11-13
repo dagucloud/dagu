@@ -6529,6 +6529,8 @@ export interface components {
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
             upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
+            /** @description Names the DAG declares in its dates block, in order. Absent when it declares none. */
+            dateNames?: string[];
             /** @description Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime. */
             recentFires?: components["schemas"]["RecentFire"][];
             /** @description Logical grouping of related DAGs for organizational purposes */
