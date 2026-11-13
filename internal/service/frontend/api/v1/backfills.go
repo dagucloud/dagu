@@ -432,7 +432,8 @@ func (a *API) scopeToBackfill(ctx context.Context, query *persis.DAGRunListOptio
 		query.ExactName = record.DAGName
 	}
 	if query.From.IsZero() && query.To.IsZero() {
-		query.From = persis.NewUTC(record.CreatedAt)
+		// A run is listed by its creation to the second.
+		query.From = persis.NewUTC(record.CreatedAt.Truncate(time.Second))
 	}
 	return nil
 }

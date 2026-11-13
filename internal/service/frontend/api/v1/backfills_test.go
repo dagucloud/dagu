@@ -109,7 +109,7 @@ steps:
 }
 
 // The runs of a backfill are listed by its ID, also those created before
-// today, and each run names it.
+// today or in the second the backfill was submitted, and each run names it.
 func TestListDAGRunsOfABackfill(t *testing.T) {
 	t.Parallel()
 
@@ -117,9 +117,11 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 	dag := server.DAG(t, "steps:\n  - run: \"true\"\n")
 	ctx := context.Background()
 	now := time.Now()
+	// Run directories name their creation to the second.
+	submitted := now.Add(-48 * time.Hour).Truncate(time.Second).Add(500 * time.Millisecond)
 	store := filebackfill.New(filebackfill.Dir(server.Config.Paths.DataDir))
 	require.NoError(t, store.Create(ctx, &backfill.Record{
-		ID: "bf123456", DAGName: dag.Name, DAGFile: dag.Location, CreatedAt: now.Add(-48 * time.Hour),
+		ID: "bf123456", DAGName: dag.Name, DAGFile: dag.Location, CreatedAt: submitted,
 		Options: backfill.Options{Rerun: backfill.RerunNone, MaxConcurrency: 1, OnFailure: backfill.OnFailureStop},
 	}))
 	for runID, run := range map[string]struct {
@@ -127,6 +129,7 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 		created    time.Time
 	}{
 		"bf-run":       {"bf123456", now.Add(-24 * time.Hour)},
+		"first-bf-run": {"bf123456", submitted.Add(200 * time.Millisecond)},
 		"other-bf-run": {"bf654321", now},
 		"live-run":     {"", now},
 	} {
@@ -142,14 +145,15 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 
 	var page api.DAGRunsPageResponse
 	server.Client().Get("/api/v1/dag-runs?backfillId=bf123456").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &page)
-	require.Len(t, page.DagRuns, 1)
+	require.Len(t, page.DagRuns, 2)
 	assert.Equal(t, "bf-run", page.DagRuns[0].DagRunId)
+	assert.Equal(t, "first-bf-run", page.DagRuns[1].DagRunId)
 	assert.Equal(t, new("bf123456"), page.DagRuns[0].BackfillId)
 
 	live, err := newDAGPinAPIWithStore(server.Helper, nil, localapi.WithBackfillStore(store)).GetDAGRunsListData(ctx, "backfillId=bf123456")
 	require.NoError(t, err)
 	liveRuns := live.(api.DAGRunsPageResponse).DagRuns
-	require.Len(t, liveRuns, 1, "the live run list filters alike")
+	require.Len(t, liveRuns, 2, "the live run list filters alike")
 	assert.Equal(t, "bf-run", liveRuns[0].DagRunId)
 
 	var details api.GetDAGRunDetails200JSONResponse
