@@ -189,24 +189,6 @@ func (m *MaskedOutputs) Has(name string) bool {
 	return m != nil && (m.All || slices.Contains(m.Names, name))
 }
 
-// Merge adds names, and sets All when all is true.
-func (m *MaskedOutputs) Merge(names []string, all bool) {
-	m.Names = append(m.Names, names...)
-	m.All = m.All || all
-}
-
-// OrNil returns m with its names sorted and unique, or nil when no output is
-// masked.
-func (m *MaskedOutputs) OrNil() *MaskedOutputs {
-	m.Names = slices.DeleteFunc(m.Names, func(name string) bool { return name == "" })
-	slices.Sort(m.Names)
-	m.Names = slices.Compact(m.Names)
-	if len(m.Names) == 0 && !m.All {
-		return nil
-	}
-	return m
-}
-
 // Clone returns a copy of m.
 func (m *MaskedOutputs) Clone() *MaskedOutputs {
 	if m == nil {

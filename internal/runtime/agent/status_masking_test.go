@@ -253,6 +253,21 @@ func TestMaskNodeSecretsRecordsNothingForCleanOutputs(t *testing.T) {
 	assert.Nil(t, node.MaskedOutputs)
 }
 
+// Keeping a document valid re-encodes it, which reorders and respaces the
+// values masking left alone. Only the value masking changed is recorded.
+func TestMaskNodeSecretsRecordsOnlyMaskedValuesAfterReencoding(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"SECRET=4242"})
+	require.NotNil(t, masker)
+	outputs := `{"count":4242,"region":{"zone": "b", "name": "us"}}`
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, OutputsValue: &outputs}
+
+	maskNodeSecrets(masker, node)
+
+	assert.Equal(t, &ir.MaskedOutputs{Names: []string{"count"}}, node.MaskedOutputs)
+}
+
 // A per-name list cannot be trusted when masking changed a key or masked the
 // document as text, so the whole output is marked.
 func TestMaskNodeSecretsMarksWholeOutput(t *testing.T) {

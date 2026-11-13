@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"maps"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -74,25 +76,25 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
 	node.StatusDetails = maskNodeStatusDetails(masker, node.StatusDetails)
-	masked := node.MaskedOutputs.Clone()
-	if masked == nil {
-		masked = &ir.MaskedOutputs{}
+	var masked maskedOutputs
+	if prior := node.MaskedOutputs; prior != nil {
+		masked.add(prior.Names, prior.All)
 	}
 	if node.OutputVariables != nil {
-		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, masked)
+		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, &masked)
 	}
 	outputValue := maskStringPointer(masker, node.OutputValue)
 	if outputValue != nil && *outputValue != *node.OutputValue {
-		masked.Names = append(masked.Names, node.Step.Output)
+		masked.add([]string{node.Step.Output}, false)
 	}
 	node.OutputValue = outputValue
 	outputsValue := maskOutputDocument(masker, node.OutputsValue)
-	masked.Merge(changedOutputNames(node.OutputsValue, outputsValue))
+	masked.add(changedOutputNames(node.OutputsValue, outputsValue))
 	node.OutputsValue = outputsValue
 	stepOutputsValue := maskStepOutputs(masker, node)
-	masked.Merge(changedOutputNames(node.StepOutputsValue, stepOutputsValue))
+	masked.add(changedOutputNames(node.StepOutputsValue, stepOutputsValue))
 	node.StepOutputsValue = stepOutputsValue
-	node.MaskedOutputs = masked.OrNil()
+	node.MaskedOutputs = masked.record()
 	node.AgentSession = ir.MaskAgentSession(node.AgentSession, masker.MaskString)
 }
 
@@ -185,7 +187,30 @@ func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail
 	return masked
 }
 
-func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *ir.MaskedOutputs) *collections.SyncMap {
+// maskedOutputs collects the outputs of one node that masking changed.
+type maskedOutputs struct {
+	names []string
+	all   bool
+}
+
+func (m *maskedOutputs) add(names []string, all bool) {
+	m.names = append(m.names, names...)
+	m.all = m.all || all
+}
+
+// record returns what to store on the node, or nil when masking changed no
+// output.
+func (m *maskedOutputs) record() *ir.MaskedOutputs {
+	names := slices.DeleteFunc(m.names, func(name string) bool { return name == "" })
+	slices.Sort(names)
+	names = slices.Compact(names)
+	if len(names) == 0 && !m.all {
+		return nil
+	}
+	return &ir.MaskedOutputs{Names: names, All: m.all}
+}
+
+func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *maskedOutputs) *collections.SyncMap {
 	if values == nil {
 		return nil
 	}
@@ -200,7 +225,7 @@ func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, ma
 		if maskedText != text {
 			// The stored text is NAME=value, so the key is the output name.
 			name, _ := key.(string)
-			masked.Names = append(masked.Names, name)
+			masked.add([]string{name}, false)
 		}
 		result.Store(key, maskedText)
 		return true
@@ -225,11 +250,30 @@ func changedOutputNames(before, after *string) ([]string, bool) {
 		if !ok {
 			return nil, true
 		}
-		if !bytes.Equal(raw, current) {
+		if !sameJSON(raw, current) {
 			names = append(names, name)
 		}
 	}
 	return names, false
+}
+
+// sameJSON reports whether two encoded values decode to the same value. The
+// masking fallback re-encodes a whole document, which reorders and respaces
+// values it did not mask.
+func sameJSON(a, b json.RawMessage) bool {
+	if bytes.Equal(a, b) {
+		return true
+	}
+	decode := func(raw json.RawMessage) (any, bool) {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		err := decoder.Decode(&value)
+		return value, err == nil
+	}
+	left, okLeft := decode(a)
+	right, okRight := decode(b)
+	return okLeft && okRight && reflect.DeepEqual(left, right)
 }
 
 func maskStepSecrets(masker *masking.Masker, step ir.Step) ir.Step {
