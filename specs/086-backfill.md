@@ -283,7 +283,8 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   backfill 404, and cancelling an ended backfill 409.
 - The event stream's `backfill` topic, identified by the backfill ID, sends
   what `GET /api/v1/backfills/{id}` returns. A change to one of the
-  backfill's runs updates it at once; other changes reach it within 30s.
+  backfill's runs updates it within seconds, at most once every 2s; other
+  changes reach it within 30s.
 
 ## Configuration
 
