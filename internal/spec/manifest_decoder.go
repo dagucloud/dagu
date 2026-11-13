@@ -106,7 +106,37 @@ func preserveEnvMappingOrder(data []byte, parsed map[string]any) error {
 		if doc == nil || doc.Body == nil {
 			continue
 		}
-		return patchOrderedEnvValues(doc.Body, parsed)
+		if err := patchOrderedEnvValues(doc.Body, parsed); err != nil {
+			return err
+		}
+		return patchOrderedDates(doc.Body, parsed)
+	}
+	return nil
+}
+
+// patchOrderedDates replaces the root dates mapping with its entries in
+// document order, the order the run lists its dates in.
+func patchOrderedDates(root ast.Node, parsed map[string]any) error {
+	mapping, ok := root.(*ast.MappingNode)
+	if !ok {
+		return nil
+	}
+	for _, item := range mapping.Values {
+		key, err := manifestNodeString(item.Key)
+		if err != nil {
+			return err
+		}
+		if key != "dates" {
+			continue
+		}
+		if dates, ok := item.Value.(*ast.MappingNode); ok {
+			entries, err := orderedEnvMappingRaw(dates)
+			if err != nil {
+				return err
+			}
+			parsed[key] = entries
+		}
+		return nil
 	}
 	return nil
 }

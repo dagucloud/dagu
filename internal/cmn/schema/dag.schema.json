@@ -148,6 +148,67 @@
       "$ref": "#/definitions/calendarName",
       "description": "Business calendar for the start schedules that name none: 'weekdays' or a calendar file in paths.calendars_dir. Entries opt out with calendar: none."
     },
+    "dates": {
+      "type": "object",
+      "description": "Dates derived from the run's schedule slot, read as ${dates.NAME}. An entry written as a string or a list is its shift, such as -1d or [-1d, month_start].",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "not": {
+          "enum": ["scheduled_at", "interval_start", "interval_end", "next_scheduled_at"]
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/dateShiftOperation"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/dateShiftOperation"
+            },
+            "description": "Shift operations applied left to right."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "The instant the date starts from: scheduled_at (default), interval_start, interval_end, next_scheduled_at, or the name of another entry."
+              },
+              "each": {
+                "type": "string",
+                "pattern": "^[0-9]+(min|h|d|w|mo|y|bd)$",
+                "description": "A step through the run's window, such as 1d or 1bd. The entry becomes a list from interval_start up to, but not including, interval_end."
+              },
+              "shift": {
+                "oneOf": [
+                  {
+                    "$ref": "#/definitions/dateShiftOperation"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/dateShiftOperation"
+                    }
+                  }
+                ],
+                "description": "One operation, or a list applied left to right."
+              },
+              "format": {
+                "type": "string",
+                "description": "date (default), date_compact, datetime, rfc3339, unix, or a strftime pattern such as %Y/%m/%d."
+              },
+              "timezone": {
+                "type": "string",
+                "description": "The zone used for shifting and formatting. Defaults to the zone of the entry it builds on, else context.run.timezone, else the server tz."
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
     "skip_if_successful": {
       "type": "boolean",
       "description": "When true, Dagu checks if this DAG has already succeeded since the last scheduled time. If it has, Dagu will skip the current scheduled run. This is useful for resource-intensive tasks or data processing jobs that shouldn't run twice. Note: Manual triggers always run regardless of this setting."
@@ -993,6 +1054,11 @@
       },
       "additionalProperties": false,
       "description": "Cron start schedule entry, optionally scoped to a runtime profile and to the business days of a calendar."
+    },
+    "dateShiftOperation": {
+      "type": "string",
+      "pattern": "^([+-][0-9]+(min|h|d|w|mo|y|bd)|hour_start|day_start|week_start|month_start|year_start|bd_or_next|bd_or_prev)$",
+      "description": "+N or -N with min, h, d, w, mo, y, or bd; the start of an hour, day, week (Monday), month, or year; or bd_or_next and bd_or_prev, which move a date that is not a business day to the next or previous one."
     },
     "calendarName": {
       "type": "string",
