@@ -31,6 +31,9 @@ Workflow authors can make an HTTP request and consume its result.
 ## Errors
 
 Missing method or URL fields fail validation with a diagnostic naming the field.
+A `with` field the action does not define also fails validation; the error
+names the field and, when a defined field is a likely misspelling of it,
+suggests that field.
 A non-success HTTP response fails the step. When `with.output` names an existing
 file, an error response preserves that file and writes the error body to stdout.
 
