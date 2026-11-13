@@ -67,6 +67,7 @@ type TopicType string
 //   - TopicTypeServiceDAGs: URL query string (e.g., "workspace=ops")
 //   - TopicTypeWikiPage: Wiki page path (e.g., "runbooks/deployment")
 //   - TopicTypeWikiTree: URL query string (e.g., "page=1&perPage=200")
+//   - TopicTypeBackfill: backfill ID
 const (
 	TopicTypeDAGRun     TopicType = "dagrun"
 	TopicTypeSubDAGRun  TopicType = "subdagrun"
@@ -86,6 +87,9 @@ const (
 	TopicTypeServiceDAGs TopicType = "servicedags"
 	TopicTypeWikiPage    TopicType = "wikipage"
 	TopicTypeWikiTree    TopicType = "wikitree"
+	// TopicTypeBackfill streams one backfill: its status, the slots in each
+	// state, and why it waits.
+	TopicTypeBackfill TopicType = "backfill"
 	// TopicTypeLegacyDoc is the deprecated alias for TopicTypeWikiPage.
 	TopicTypeLegacyDoc TopicType = "doc"
 	// TopicTypeLegacyDocTree is the deprecated alias for TopicTypeWikiTree.

@@ -79,7 +79,7 @@ func canonicalizeTopicIdentifier(topicType TopicType, identifier string) (string
 			return "", fmt.Errorf("invalid DAG file name: %w", err)
 		}
 		return identifier, nil
-	case TopicTypeDAGRun, TopicTypeSubDAGRun, TopicTypeStepLog, TopicTypeQueueItems:
+	case TopicTypeDAGRun, TopicTypeSubDAGRun, TopicTypeStepLog, TopicTypeQueueItems, TopicTypeBackfill:
 		if identifier == "" {
 			return "", fmt.Errorf("topic %q requires an identifier", topicType)
 		}

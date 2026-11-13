@@ -101,6 +101,12 @@ const (
 	// serviceDAGsMaxInterval bounds how stale the list gets when nothing wakes
 	// it, such as an operator stop that no run event reports yet.
 	serviceDAGsMaxInterval = 30 * time.Second
+	// backfillMinInterval is the shortest gap between two refetches of one
+	// backfill, which read its record and progress.
+	backfillMinInterval = 2 * time.Second
+	// backfillMaxInterval bounds how stale a backfill gets when no run event
+	// wakes it, such as when the scheduler ends it or queues no run yet.
+	backfillMaxInterval = 30 * time.Second
 )
 
 var wikiSSETopicTypes = [...]sse.TopicType{
@@ -1589,6 +1595,8 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	// of every service DAG, so bursts of run events are merged into one refetch.
 	registrar.SetMinInterval(sse.TopicTypeServiceDAGs, serviceDAGsMinInterval)
 	registrar.SetMaxInterval(sse.TopicTypeServiceDAGs, serviceDAGsMaxInterval)
+	registrar.RegisterFetcher(sse.TopicTypeBackfill, srv.apiV1.GetBackfillData)
+	registrar.SetMinInterval(sse.TopicTypeBackfill, backfillMinInterval)
 	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {
 		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageContentData)
 	}
@@ -1616,9 +1624,11 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			sse.TopicTypeDAGRuns,
 			sse.TopicTypeDAGRunActivity,
 			sse.TopicTypeQueues,
+			sse.TopicTypeBackfill,
 		} {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
 		}
+		registrar.SetMaxInterval(sse.TopicTypeBackfill, backfillMaxInterval)
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
