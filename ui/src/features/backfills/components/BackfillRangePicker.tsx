@@ -3,6 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { DAGSlotStatus } from '@/api/v1/schema';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -49,7 +50,7 @@ export function BackfillRangePicker({
     () => dayjs().subtract(SUCCESS_LOOKBACK_DAYS, 'day').toISOString(),
     []
   );
-  const { data } = useQuery(
+  const { data, error, mutate } = useQuery(
     '/dags/{fileName}/slots',
     { params: { path: { fileName }, query: { remoteNode, from: lookback } } },
     READ_ONCE
@@ -131,12 +132,30 @@ export function BackfillRangePicker({
           {option.label}
         </label>
       ))}
-      {!lastSuccess && data && (
-        <span className="text-xs text-muted-foreground">
-          {ts('No slot succeeded in the last {days} days.', {
-            days: SUCCESS_LOOKBACK_DAYS,
+      {error ? (
+        <span
+          role="alert"
+          className="flex items-center gap-2 text-xs text-destructive"
+        >
+          {ts('Could not read the last success: {message}', {
+            message:
+              typeof error === 'object' && error && 'message' in error
+                ? String((error as { message: unknown }).message)
+                : String(error),
           })}
+          <Button variant="ghost" size="xs" onClick={() => void mutate()}>
+            {ts('Retry')}
+          </Button>
         </span>
+      ) : (
+        !lastSuccess &&
+        data && (
+          <span className="text-xs text-muted-foreground">
+            {ts('No slot succeeded in the last {days} days.', {
+              days: SUCCESS_LOOKBACK_DAYS,
+            })}
+          </span>
+        )
       )}
       {choice === 'custom' && (
         <div className="flex flex-wrap items-center gap-2 pl-6">

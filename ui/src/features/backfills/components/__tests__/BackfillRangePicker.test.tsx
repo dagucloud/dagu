@@ -12,7 +12,7 @@ vi.mock('@/hooks/api', () => ({ useQuery: vi.fn() }));
 const useQueryMock = useQuery as unknown as ReturnType<typeof vi.fn>;
 
 function renderPicker(slots: { slot: string; status: DAGSlotStatus }[]) {
-  useQueryMock.mockReturnValue({ data: { slots } });
+  useQueryMock.mockReturnValue({ data: { slots }, mutate: vi.fn() });
   const onChange = vi.fn();
   render(
     <BackfillRangePicker
@@ -91,5 +91,29 @@ describe('BackfillRangePicker', () => {
       from: '2026-10-01T00:00',
       to: '2026-10-31T23:59',
     });
+  });
+
+  // A failed read says so and offers a retry, and the other presets stay.
+  it('reports a failed read of the slots', () => {
+    const mutate = vi.fn();
+    useQueryMock.mockReturnValue({
+      data: undefined,
+      error: { message: 'slots unavailable' },
+      mutate,
+    });
+    render(
+      <BackfillRangePicker
+        fileName="etl"
+        remoteNode="local"
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not read the last success: slots unavailable'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(mutate).toHaveBeenCalled();
+    expect(screen.getByRole('radio', { name: 'Last 30 days' })).toBeEnabled();
   });
 });

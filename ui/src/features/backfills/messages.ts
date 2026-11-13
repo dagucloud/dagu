@@ -31,6 +31,8 @@ export const backfillMessages = defineMessages({
     Cancelled: 'Cancelled',
     Slots: 'Slots',
     'Run past slots of the schedule': 'Run past slots of the schedule',
+    'Could not read the last success: {message}':
+      'Could not read the last success: {message}',
     'Since the last success': 'Since the last success',
     'Since the last success, {time}': 'Since the last success, {time}',
     'Fire times': 'Fire times',
@@ -166,6 +168,7 @@ export const backfillMessages = defineMessages({
     Cancelled: '已取消',
     Slots: '时段',
     'Run past slots of the schedule': '运行计划中过去的时段',
+    'Could not read the last success: {message}': '无法读取上次成功：{message}',
     'Since the last success': '自上次成功以来',
     'Since the last success, {time}': '自上次成功以来（{time}）',
     'Fire times': '触发时间',
@@ -299,6 +302,8 @@ export const backfillMessages = defineMessages({
     Cancelled: 'キャンセル済み',
     Slots: 'スロット',
     'Run past slots of the schedule': 'スケジュールの過去のスロットを実行',
+    'Could not read the last success: {message}':
+      '最後の成功を読み込めませんでした: {message}',
     'Since the last success': '最後の成功以降',
     'Since the last success, {time}': '最後の成功以降（{time}）',
     'Fire times': '実行時刻',
