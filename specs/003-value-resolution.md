@@ -154,6 +154,7 @@ runtime but produce inspection-only passive notices.
 | `steps` | Spec 007 | `steps.<step_id>.outputs.<name>` | Preserve with reason-specific passive notice. | No |
 | `foreach` | Spec 018 | `foreach.index`, `foreach.key`, `foreach.<as>`, or `foreach.<as>.<field>` | Preserve with passive notice when item scope is unavailable or the item field is missing. | Yes |
 | `context` | Spec 017 | `context.<namespace>.<field>` | Preserve with passive notice. | Yes |
+| `dates` | Spec 097 | `dates.<name>` | Preserve with passive notice. | No |
 
 Spec 017 also defines frozen top-level compatibility aliases `dag`, `run`,
 `attempt`, `step`, `trigger`, `paths`, `profile`, and `pushback`. Only the
@@ -443,6 +444,7 @@ Other specs that mention passive notices follow this inspection-only behavior.
 This rule applies to these misses:
 
 - Unknown const.
+- Unknown date.
 - Missing param value.
 - Unavailable env value.
 - Missing step output.

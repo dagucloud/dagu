@@ -310,6 +310,14 @@ func runStart(ctx *Context, args []string) error {
 	if slot.scheduleTime == "" {
 		slot = historicSlot
 	}
+	// A sub-DAG run may continue a run that recorded its dates, so the run
+	// resolves its own when it starts.
+	var dates []ir.DateValue
+	if !isSubDAGRun {
+		if dates, err = slotDates(ctx, dag, profileName, slot); err != nil {
+			return err
+		}
+	}
 
 	recursiveOutput, err := ctx.Command.Flags().GetBool("recursive-output")
 	if err != nil {
@@ -325,6 +333,7 @@ func runStart(ctx *Context, args []string) error {
 		parallelItem:    parallelItemFromEnv(dag.Env),
 		scheduleTime:    slot.scheduleTime,
 		scheduleWindow:  slot.window,
+		dates:           dates,
 		profileName:     profileName,
 		definitionID:    dagDefinitionIDFromEnv(),
 		noReuse:         noReuse,
@@ -738,6 +747,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             opts.scheduleTime,
 			ScheduleWindow:           opts.scheduleWindow,
+			Dates:                    opts.dates,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
@@ -843,6 +853,9 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 			executor.WithScheduleTime(opts.scheduleTime),
 			executor.WithScheduleWindow(opts.scheduleWindow),
 		)
+	}
+	if opts.dates != nil {
+		taskOpts = append(taskOpts, executor.WithDates(opts.dates))
 	}
 	if opts.profileName != "" {
 		taskOpts = append(taskOpts, executor.WithProfileName(opts.profileName))

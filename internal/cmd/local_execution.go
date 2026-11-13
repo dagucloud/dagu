@@ -27,6 +27,7 @@ type runOptions struct {
 	parallelItem      string
 	scheduleTime      string
 	scheduleWindow    ir.ScheduleWindow
+	dates             []ir.DateValue
 	profileName       string
 	definitionID      string
 	step              string

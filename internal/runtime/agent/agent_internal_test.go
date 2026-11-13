@@ -161,3 +161,35 @@ steps:
 		})
 	}
 }
+
+// A run reads the dates its run recorded, so a retry needs neither the
+// calendar nor the clock that resolved them.
+func TestResolveDatesReusesRecordedDates(t *testing.T) {
+	t.Parallel()
+
+	recorded := []ir.DateValue{{Name: "last_open_day", Value: "2026-11-06"}}
+	a := &Agent{
+		dag: &ir.DAG{
+			Calendar: "missing",
+			Dates:    []ir.DateSpec{{Name: "last_open_day", Shift: []string{"-1bd"}}},
+		},
+		retryTarget: &ir.DAGRunStatus{ScheduleTime: "2026-11-09T02:00:00Z", Dates: recorded},
+	}
+
+	require.NoError(t, a.resolveDates(context.Background()))
+	assert.Equal(t, recorded, a.dates)
+}
+
+// A run started without dates resolves them from its slot as it starts.
+func TestResolveDatesAtStart(t *testing.T) {
+	t.Parallel()
+
+	a := &Agent{
+		dag:            &ir.DAG{Dates: []ir.DateSpec{{Name: "target_day", Shift: []string{"-1d"}}}},
+		scheduleTime:   "2026-11-10T02:00:00Z",
+		scheduleWindow: ir.ScheduleWindow{Timezone: "UTC"},
+	}
+
+	require.NoError(t, a.resolveDates(context.Background()))
+	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}, a.dates)
+}

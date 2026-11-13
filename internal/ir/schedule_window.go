@@ -41,10 +41,16 @@ func ScheduleWindowAt(schedules []Schedule, profile string, loc *time.Location, 
 // windowOf returns the window of the slot among schedules already filtered
 // to the active ones.
 func windowOf(active []Schedule, loc *time.Location, slot time.Time) ScheduleWindow {
+	window, _ := windowAndOwner(active, loc, slot)
+	return window
+}
+
+// windowAndOwner returns the window of the slot among the active schedules
+// and the index of the schedule that owns it: the first firing at the slot,
+// else the schedule of the previous fire, else -1.
+func windowAndOwner(active []Schedule, loc *time.Location, slot time.Time) (ScheduleWindow, int) {
 	slot = slot.In(loc)
 	var window ScheduleWindow
-	// The slot belongs to the first schedule firing at it, else to the
-	// schedule of the previous fire.
 	firing, previous := -1, -1
 	for i, sched := range active {
 		if firing < 0 && firesAt(sched, slot) {
@@ -70,7 +76,20 @@ func windowOf(active []Schedule, loc *time.Location, slot time.Time) ScheduleWin
 	window.Timezone = zoneLabel(slot.In(zone))
 	window.Start = utcOrZero(window.Start)
 	window.Next = utcOrZero(window.Next)
-	return window
+	return window, owner
+}
+
+// SlotCalendar returns the calendar bound to the start schedule that owns
+// the slot among the recurring schedules for the profile, if it has one.
+func SlotCalendar(schedules []Schedule, profile string, loc *time.Location, slot time.Time) (*Calendar, bool) {
+	if loc == nil {
+		loc = time.Local
+	}
+	active := activeWindowSchedules(schedules, profile)
+	if _, owner := windowAndOwner(active, loc, slot); owner >= 0 {
+		return active[owner].BoundCalendar()
+	}
+	return nil, false
 }
 
 // HasRecurringSchedule reports whether a recurring start schedule is active

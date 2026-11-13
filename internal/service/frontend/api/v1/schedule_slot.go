@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -56,6 +57,35 @@ func (a *API) resolveRequestedSlot(dag *ir.DAG, profile string, value *api.Sched
 		window:       slot.Window,
 		warning:      slot.Warning,
 	}, nil
+}
+
+// runDates resolves the dates of a run created now for a slot.
+func (a *API) runDates(dag *ir.DAG, profile, scheduleTime string, window ir.ScheduleWindow) ([]ir.DateValue, error) {
+	if len(dag.Dates) == 0 {
+		return nil, nil
+	}
+	return rundates.Resolve(rundates.Request{
+		DAG:          dag,
+		Profile:      profile,
+		ScheduleTime: scheduleTime,
+		Window:       window,
+		CreatedAt:    time.Now(),
+		Location:     a.serverLocation(),
+		Calendars:    a.calendarSource(),
+	})
+}
+
+// checkDates refuses a run whose dates cannot resolve for slot, so that it
+// is never created. The run resolves them again when it is created.
+func (a *API) checkDates(dag *ir.DAG, profile string, slot *requestedSlot) error {
+	if _, err := a.runDates(dag, profile, slot.scheduleTimeOrEmpty(), slot.windowOrZero()); err != nil {
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	return nil
 }
 
 // rescheduleSlot returns the slot of a run rescheduled from status: the one

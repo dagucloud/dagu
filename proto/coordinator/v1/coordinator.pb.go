@@ -521,8 +521,11 @@ type Task struct {
 	IntervalStart    string `protobuf:"bytes,43,opt,name=interval_start,json=intervalStart,proto3" json:"interval_start,omitempty"`
 	NextScheduledAt  string `protobuf:"bytes,44,opt,name=next_scheduled_at,json=nextScheduledAt,proto3" json:"next_scheduled_at,omitempty"`
 	ScheduleTimezone string `protobuf:"bytes,45,opt,name=schedule_timezone,json=scheduleTimezone,proto3" json:"schedule_timezone,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The run's dates as JSON, resolved when the run was created. Empty when
+	// the run resolves them as it starts.
+	DatesJson     string `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -858,6 +861,13 @@ func (x *Task) GetScheduleTimezone() string {
 	return ""
 }
 
+func (x *Task) GetDatesJson() string {
+	if x != nil {
+		return x.DatesJson
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -1034,6 +1044,10 @@ func (x *Task) SetScheduleTimezone(v string) {
 	x.ScheduleTimezone = v
 }
 
+func (x *Task) SetDatesJson(v string) {
+	x.DatesJson = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -1130,6 +1144,9 @@ type Task_builder struct {
 	IntervalStart    string
 	NextScheduledAt  string
 	ScheduleTimezone string
+	// The run's dates as JSON, resolved when the run was created. Empty when
+	// the run resolves them as it starts.
+	DatesJson string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1180,6 +1197,7 @@ func (b0 Task_builder) Build() *Task {
 	x.IntervalStart = b.IntervalStart
 	x.NextScheduledAt = b.NextScheduledAt
 	x.ScheduleTimezone = b.ScheduleTimezone
+	x.DatesJson = b.DatesJson
 	return m0
 }
 
@@ -6561,7 +6579,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xba\x0f\n" +
+	"\x10DispatchResponse\"\xd9\x0f\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -6618,7 +6636,9 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x12%\n" +
 	"\x0einterval_start\x18+ \x01(\tR\rintervalStart\x12*\n" +
 	"\x11next_scheduled_at\x18, \x01(\tR\x0fnextScheduledAt\x12+\n" +
-	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x1aA\n" +
+	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x12\x1d\n" +
+	"\n" +
+	"dates_json\x18. \x01(\tR\tdatesJson\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +

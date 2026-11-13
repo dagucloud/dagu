@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -140,6 +141,20 @@ func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) 
 		window:         slot.Window,
 		operatorChosen: true,
 	}, nil
+}
+
+// slotDates resolves the dates of a run being created for slot. An error
+// refuses the run before it exists.
+func slotDates(ctx *Context, dag *ir.DAG, profile string, slot runSlot) ([]ir.DateValue, error) {
+	return rundates.Resolve(rundates.Request{
+		DAG:          dag,
+		Profile:      profile,
+		ScheduleTime: slot.scheduleTime,
+		Window:       slot.window,
+		CreatedAt:    time.Now(),
+		Location:     ctx.Config.Core.Location,
+		Calendars:    spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir),
+	})
 }
 
 // boundStartSchedules returns a copy of the DAG's start schedules with their

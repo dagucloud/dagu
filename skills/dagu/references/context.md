@@ -11,6 +11,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | Reference | Meaning |
 | --- | --- |
 | `${consts.NAME}` | Top-level `consts:` value |
+| `${dates.NAME}` | Top-level `dates:` entry, resolved from the run's schedule slot |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
 | `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |
@@ -48,6 +49,33 @@ Rules:
 - Consts from a base config are inherited. A DAG-local const with the same name overrides the inherited value.
 
 Use `consts:` for fixed workflow configuration. Use `params:` for per-run user input. Use `env:` for values that should be available to the running process environment.
+
+## Top-Level `dates:`
+
+Use `dates:` for the dates a scheduled run loads, derived from its slot. Each run resolves them once when it is created, so a retry, a manual run for the slot (`dagu start --scheduled-at`), and the scheduler's run get the same values.
+
+```yaml
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+calendar: jp-banking
+dates:
+  target_day: -1d
+  target_compact: { from: target_day, format: date_compact }
+  month_start: [-1d, month_start]
+  last_open_day: -1bd
+  window_days: { each: 1d }
+steps:
+  - id: load
+    run: ./load.sh --date ${dates.target_day}
+```
+
+- An entry is a shift (`-1d`, `[-1d, month_start]`) or an object with `from`, `each`, `shift`, `format`, and `timezone`.
+- Shifts: `+N`/`-N` with `min`, `h`, `d`, `w`, `mo`, `y`, `bd`; `hour_start` to `year_start` (weeks start Monday); `bd_or_next`, `bd_or_prev`. `m` is rejected: write `min` or `mo`.
+- `from` is `scheduled_at` (default), `interval_start`, `interval_end`, `next_scheduled_at`, or another entry.
+- `each` lists the window from `interval_start` up to the slot as a JSON array, for `parallel: ${dates.window_days}`. A step under a day needs `format`.
+- Formats: `date` (default), `date_compact`, `datetime`, `rfc3339`, `unix`, or a strftime pattern.
+- Business days use the calendar of the schedule entry that owns the slot, else the DAG's `calendar`.
+- A run with no slot resolves `scheduled_at` from the minute it was created. A date that needs a window is refused there, except in a sub-DAG of a run with a slot, which resolves from its parent's slot.
+- Dates are not environment variables. Pass one through `env:` when a script needs it.
 
 ## Supported Context References
 

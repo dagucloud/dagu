@@ -494,6 +494,7 @@ type Task struct {
 	xxx_hidden_IntervalStart              string                 `protobuf:"bytes,43,opt,name=interval_start,json=intervalStart,proto3"`
 	xxx_hidden_NextScheduledAt            string                 `protobuf:"bytes,44,opt,name=next_scheduled_at,json=nextScheduledAt,proto3"`
 	xxx_hidden_ScheduleTimezone           string                 `protobuf:"bytes,45,opt,name=schedule_timezone,json=scheduleTimezone,proto3"`
+	xxx_hidden_DatesJson                  string                 `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3"`
 	XXX_raceDetectHookData                protoimpl.RaceDetectHookData
 	XXX_presence                          [2]uint32
 	unknownFields                         protoimpl.UnknownFields
@@ -836,6 +837,13 @@ func (x *Task) GetScheduleTimezone() string {
 	return ""
 }
 
+func (x *Task) GetDatesJson() string {
+	if x != nil {
+		return x.xxx_hidden_DatesJson
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.xxx_hidden_Operation = v
 }
@@ -986,7 +994,7 @@ func (x *Task) SetIncludeDownstream(v bool) {
 
 func (x *Task) SetBaseConfigWorkspace(v string) {
 	x.xxx_hidden_BaseConfigWorkspace = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 44)
+	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 45)
 }
 
 func (x *Task) SetBypassPreconditions(v bool) {
@@ -1011,6 +1019,10 @@ func (x *Task) SetNextScheduledAt(v string) {
 
 func (x *Task) SetScheduleTimezone(v string) {
 	x.xxx_hidden_ScheduleTimezone = v
+}
+
+func (x *Task) SetDatesJson(v string) {
+	x.xxx_hidden_DatesJson = v
 }
 
 func (x *Task) HasPreviousStatus() bool {
@@ -1110,6 +1122,9 @@ type Task_builder struct {
 	IntervalStart    string
 	NextScheduledAt  string
 	ScheduleTimezone string
+	// The run's dates as JSON, resolved when the run was created. Empty when
+	// the run resolves them as it starts.
+	DatesJson string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1154,7 +1169,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_TargetWorkerId = b.TargetWorkerId
 	x.xxx_hidden_IncludeDownstream = b.IncludeDownstream
 	if b.BaseConfigWorkspace != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 44)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 45)
 		x.xxx_hidden_BaseConfigWorkspace = b.BaseConfigWorkspace
 	}
 	x.xxx_hidden_BypassPreconditions = b.BypassPreconditions
@@ -1163,6 +1178,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_IntervalStart = b.IntervalStart
 	x.xxx_hidden_NextScheduledAt = b.NextScheduledAt
 	x.xxx_hidden_ScheduleTimezone = b.ScheduleTimezone
+	x.xxx_hidden_DatesJson = b.DatesJson
 	return m0
 }
 
@@ -6569,7 +6585,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xba\x0f\n" +
+	"\x10DispatchResponse\"\xd9\x0f\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -6626,7 +6642,9 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x12%\n" +
 	"\x0einterval_start\x18+ \x01(\tR\rintervalStart\x12*\n" +
 	"\x11next_scheduled_at\x18, \x01(\tR\x0fnextScheduledAt\x12+\n" +
-	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x1aA\n" +
+	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x12\x1d\n" +
+	"\n" +
+	"dates_json\x18. \x01(\tR\tdatesJson\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +

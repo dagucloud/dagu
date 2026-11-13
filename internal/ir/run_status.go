@@ -228,6 +228,9 @@ type DAGRunStatus struct {
 	IntervalStart    string `json:"intervalStart,omitempty"`
 	NextScheduledAt  string `json:"nextScheduledAt,omitempty"`
 	ScheduleTimezone string `json:"scheduleTimezone,omitempty"`
+	// Dates are the run's dates, resolved from its DAG's dates block when
+	// the run was created.
+	Dates []DateValue `json:"dates,omitempty"`
 	// BackfillID names the backfill that started the run. Retries keep it.
 	BackfillID     string `json:"backfillId,omitempty"`
 	StartedAt      string `json:"startedAt,omitempty"`

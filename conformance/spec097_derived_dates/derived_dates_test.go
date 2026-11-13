@@ -4,6 +4,8 @@
 package spec097_derived_dates_test
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -51,4 +53,122 @@ func TestDatesNeedingWindowWarn(t *testing.T) {
 	result := harness.NewRunner(t).Run("validate", "warn_window_without_schedule.yaml")
 	result.ExpectExitCode(0)
 	result.ExpectStderrContains("dates.since needs a schedule window, and the DAG has no recurring start schedule")
+}
+
+// utcServer runs the server in UTC, so that dates follow the schedule's zone
+// rather than the server's.
+var utcServer = []string{"DAGU_TZ=UTC"}
+
+// sharedHome is utcServer with one Dagu home for every command of a test,
+// so that a later command sees the runs of an earlier one.
+func sharedHome(t *testing.T) []string {
+	t.Helper()
+	return append([]string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}, utcServer...)
+}
+
+// A run resolves its dates from its slot, in the zone of the slot's
+// schedule, and reads them wherever it reads params.
+func TestRunDates(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		slot string
+		want []string
+	}{
+		{
+			// A Monday on a weekday calendar: the window opens on Friday.
+			slot: "2026-11-09",
+			want: []string{
+				"target=2026-11-08",
+				"same=2026-11-08",
+				"compact=20261108",
+				"open=2026-11-06",
+				"prev_month_end=2026-10-31",
+				"month_last_open=2026-11-30",
+				`days=["2026-11-06","2026-11-07","2026-11-08"]`,
+				"env=2026-11-08",
+			},
+		},
+		{
+			// May 2026 ends on a Sunday.
+			slot: "2026-05-15",
+			want: []string{
+				"target=2026-05-14",
+				"same=2026-05-14",
+				"compact=20260514",
+				"open=2026-05-14",
+				"prev_month_end=2026-04-30",
+				"month_last_open=2026-05-29",
+				`days=["2026-05-14"]`,
+				"env=2026-05-14",
+			},
+		},
+	} {
+		t.Run(tc.slot, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+			result := dagu.RunWithEnv(utcServer, "start", "--scheduled-at="+tc.slot, "run_dates.yaml")
+			result.ExpectExitCode(0)
+			dagu.ExpectFileContent("dates.txt", strings.Join(tc.want, "\n")+"\n")
+		})
+	}
+}
+
+// A list feeds parallel, which runs one child per date.
+func TestDatesListFansOut(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(utcServer, "start", "--scheduled-at=2026-11-09", "fan_out_days.yaml")
+	result.ExpectExitCode(0)
+	for _, day := range []string{"2026-11-06", "2026-11-07", "2026-11-08"} {
+		dagu.ExpectFileContent("day-"+day+".txt", "loaded\n")
+	}
+}
+
+// A sub-DAG resolves its own dates from its parent's slot, while a start of
+// the same DAG with no slot is refused and leaves no run.
+func TestDatesFromParentSlot(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedHome(t)
+	result := dagu.RunWithEnv(env, "start", "--scheduled-at=2026-11-10", "parent_slot.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("child-dates.txt", "since=2026-11-09 02:00:00 day=2026-11-09\n")
+
+	refused := dagu.RunWithEnv(env, "start", "window_without_schedule.yaml")
+	refused.ExpectNonZeroExitCode()
+	refused.ExpectStderrContains("dates.since: interval_start needs the window of a schedule slot", "the DAG has no schedule")
+	dagu.ExpectNoFile("since.txt")
+	status := dagu.RunWithEnv(env, "status", "window_without_schedule.yaml")
+	status.ExpectNonZeroExitCode()
+}
+
+// A retry reads the dates its run recorded, even after the DAG changed.
+func TestRetryKeepsDates(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedHome(t)
+	const runID = "spec097-retry"
+	first := dagu.RunWithEnv(env, "start", "--run-id="+runID, "--scheduled-at=2026-11-10", "retry_dates.yaml")
+	first.ExpectNonZeroExitCode()
+
+	dagu.WriteFile("retry_dates.yaml", strings.Join([]string{
+		"name: retry_dates",
+		"working_dir: .",
+		`schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"`,
+		"dates:",
+		"  target_day: -2d",
+		"steps:",
+		"  - id: capture",
+		"    run: printf 'edited\\n' >> attempts.txt",
+		"",
+	}, "\n"))
+	dagu.WriteFile("allow.txt", "")
+	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, "retry_dates")
+	retry.ExpectExitCode(0)
+	dagu.ExpectFileContent("attempts.txt", "2026-11-09\n2026-11-09\n")
 }

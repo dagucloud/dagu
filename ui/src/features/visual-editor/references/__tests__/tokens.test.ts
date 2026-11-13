@@ -95,6 +95,9 @@ describe('classifyReferencePath', () => {
   it('accepts the canonical namespaces', () => {
     expect(classifyReferencePath('params.region')).toEqual(canonical('params'));
     expect(classifyReferencePath('consts.Max_1')).toEqual(canonical('consts'));
+    expect(classifyReferencePath('dates.target_day')).toEqual(
+      canonical('dates')
+    );
     expect(classifyReferencePath('env.HOME')).toEqual(canonical('env'));
     expect(classifyReferencePath('env._X')).toEqual(canonical('env'));
     expect(classifyReferencePath('steps.fetch.outputs.body')).toEqual(
