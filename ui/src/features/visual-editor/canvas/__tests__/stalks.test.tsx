@@ -104,6 +104,61 @@ describe('step stalk', () => {
     expect(tb.getByTestId('ve-canvas-stalk').style.top).toBe('100%');
   });
 
+  const chatWithRow = () =>
+    makeNode({
+      action: 'chat.completion',
+      subRow: {
+        items: [
+          { key: 'toolsat:steps[0]:model', slot: 'model' },
+          { key: 'toolsat:steps[0]:tools', slot: 'tools', rows: 1 },
+          { key: 'toolsat:steps[0]:skills', slot: 'skills', rows: 1 },
+        ],
+      },
+    } as Partial<CanvasNode>);
+
+  it('hangs from the lower side of the card of a chat step, between its columns, top to bottom', () => {
+    const tb = renderIn(
+      <StepNode {...nodeProps(chatWithRow(), { isSink: true })} />,
+      makeAffordances(),
+      'TB'
+    );
+    const frame = tb.getByTestId('ve-canvas-sub-frame');
+    const stalk = tb.getByTestId('ve-canvas-stalk');
+    // Out of the middle of the lower side of the card, going down. The
+    // sub-nodes are beside the card, so the way down is free.
+    expect(parseFloat(stalk.style.left)).toBe(
+      parseFloat(frame.style.width) / 2
+    );
+    expect(parseFloat(stalk.style.top)).toBeGreaterThanOrEqual(104);
+    expect(parseFloat(stalk.style.top)).toBeLessThanOrEqual(
+      parseFloat(frame.style.height)
+    );
+    expect(stalk).toHaveClass('flex-col');
+    // The exit is at the same place and is not drawn.
+    expect(tb.container.querySelector('[data-handle-id="source"]')).toHaveClass(
+      '!opacity-0'
+    );
+  });
+
+  it('hangs from the right side of the card of a chat step, not from its row of sub-nodes, left to right', () => {
+    const lr = renderIn(
+      <StepNode {...nodeProps(chatWithRow(), { isSink: true })} />,
+      makeAffordances(),
+      'LR'
+    );
+    const frame = lr.getByTestId('ve-canvas-sub-frame');
+    const stalk = lr.getByTestId('ve-canvas-stalk');
+    // Out of the right side of the card, at its middle, going right.
+    expect(parseFloat(stalk.style.top)).toBe(
+      parseFloat(frame.style.height) / 2
+    );
+    expect(parseFloat(stalk.style.left)).toBeGreaterThanOrEqual(336);
+    expect(stalk).toHaveClass('flex-row');
+    expect(lr.container.querySelector('[data-handle-id="source"]')).toHaveClass(
+      '!opacity-0'
+    );
+  });
+
   // The line looks like a dependency edge: 1.5 px of the muted foreground,
   // and it reaches from the handle to the button.
   it('draws a line like the dependency edges, in both layouts', () => {
