@@ -463,6 +463,7 @@ func setNodeOutputs(node *runtime.NodeData, values map[string]string) error {
 			node.State.OutputVariables.Store(name, name+"="+value)
 		}
 	}
+	node.State.MaskedOutputs = unmaskSuppliedOutputs(*node, published, values)
 
 	if len(published) == 0 {
 		return nil
@@ -474,6 +475,40 @@ func setNodeOutputs(node *runtime.NodeData, values map[string]string) error {
 	value := string(encoded)
 	node.State.StepOutputsValue = &value
 	return nil
+}
+
+// unmaskSuppliedOutputs returns the masked record of a carried node without
+// the supplied outputs, whose values replace the stored ones. A record that
+// could not name the masked outputs is narrowed to the outputs still stored.
+func unmaskSuppliedOutputs(node runtime.NodeData, published map[string]json.RawMessage, supplied map[string]string) *ir.MaskedOutputs {
+	masked := node.State.MaskedOutputs
+	if masked == nil {
+		return nil
+	}
+	names := slices.Clone(masked.Names)
+	if masked.All {
+		names = slices.Collect(maps.Keys(published))
+		if node.Step.Output != "" {
+			names = append(names, node.Step.Output)
+		}
+		if variables := node.State.OutputVariables; variables != nil {
+			variables.Range(func(key, _ any) bool {
+				name, _ := key.(string)
+				names = append(names, name)
+				return true
+			})
+		}
+	}
+	names = slices.DeleteFunc(names, func(name string) bool {
+		_, ok := supplied[name]
+		return ok
+	})
+	slices.Sort(names)
+	names = slices.Compact(names)
+	if len(names) == 0 {
+		return nil
+	}
+	return &ir.MaskedOutputs{Names: names}
 }
 
 // resolveStepName maps a step name or ID to the step's name. Names win over

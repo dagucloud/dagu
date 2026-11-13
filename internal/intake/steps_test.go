@@ -232,6 +232,48 @@ func TestSelectedStepNodesOutputs(t *testing.T) {
 	}
 }
 
+// A carried output stored masked cannot be read, but a supplied value replaces
+// it, so the supplied output reads normally and the others stay masked.
+func TestSelectedStepNodesOutputsReplaceMasked(t *testing.T) {
+	t.Parallel()
+
+	stored := `{"token":"*******","claims":"*******"}`
+	tests := []struct {
+		name   string
+		masked *ir.MaskedOutputs
+	}{
+		{"named outputs", &ir.MaskedOutputs{Names: []string{"claims", "token"}}},
+		{"whole output", &ir.MaskedOutputs{All: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			source := &ir.DAGRunStatus{
+				DAGRunID: "source",
+				Status:   ir.Succeeded,
+				Nodes: []*ir.Node{{
+					Step:             ir.Step{Name: "Log in"},
+					Status:           ir.NodeSucceeded,
+					StepOutputsValue: &stored,
+					MaskedOutputs:    tt.masked,
+				}},
+			}
+			outputs := map[string]map[string]string{"login": {"token": "abc"}}
+
+			nodes, _, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, source, nil, outputs, nil)
+			require.NoError(t, err)
+			for _, node := range nodes {
+				if node.Step.Name == "Log in" {
+					require.Equal(t, &ir.MaskedOutputs{Names: []string{"claims"}}, node.State.MaskedOutputs)
+					return
+				}
+			}
+			t.Fatal("expected the Log in node")
+		})
+	}
+}
+
 // outputsDAG has a step with an outputs contract whose name differs from its
 // id, a step with only a string-form output variable, a step without an id,
 // and the selected step.
