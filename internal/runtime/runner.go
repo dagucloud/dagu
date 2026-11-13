@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -2302,72 +2303,46 @@ func waitForExecution(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
+// NewPlanEnv returns an env whose step map holds every node of plan. Its
+// working_dir does not resolve step references.
 func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	maps.Copy(env.StepMap, planStepInfos(ctx, plan.Nodes()))
 	return env
 }
 
+// NewPlanEnvWithError is NewPlanEnv with strict working_dir resolution. It
+// backs lifecycle handlers, which have no step-output lookup scope (spec 009).
 func NewPlanEnvWithError(ctx context.Context, step ir.Step, plan *Plan) (Env, error) {
 	env, err := NewEnvWithError(ctx, step)
 	if err != nil {
 		return Env{}, err
 	}
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	maps.Copy(env.StepMap, planStepInfos(ctx, plan.Nodes()))
 	return env, nil
 }
 
 func NewPlanEnvForNode(ctx context.Context, node *Node, plan *Plan) Env {
-	env := NewEnv(ctx, node.Step())
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
-	return env
+	return newEnvWithSteps(ctx, node.Step(), planStepInfos(ctx, planPredecessorNodes(plan, node)))
 }
 
 func NewPlanEnvForNodeWithError(ctx context.Context, node *Node, plan *Plan) (Env, error) {
-	env, err := NewEnvWithError(ctx, node.Step())
-	if err != nil {
-		return Env{}, err
-	}
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
-	return env, nil
+	return newEnvWithStepsStrict(ctx, node.Step(), planStepInfos(ctx, planPredecessorNodes(plan, node)))
 }
 
-func addInheritedStepMap(ctx context.Context, env *Env) {
-	if env == nil {
-		return
+// planStepInfos returns the inherited step references overlaid with the
+// entries of nodes.
+func planStepInfos(ctx context.Context, nodes []*Node) map[string]cmnvalue.StepInfo {
+	steps := make(map[string]cmnvalue.StepInfo)
+	if inherited, ok := LookupEnv(ctx); ok {
+		maps.Copy(steps, inherited.StepMap)
 	}
-	inherited, ok := LookupEnv(ctx)
-	if !ok || len(inherited.StepMap) == 0 {
-		return
-	}
-	if env.StepMap == nil {
-		env.StepMap = make(map[string]cmnvalue.StepInfo, len(inherited.StepMap))
-	}
-	for id, info := range inherited.StepMap {
-		if _, exists := env.StepMap[id]; !exists {
-			env.StepMap[id] = info
-		}
-	}
-}
-
-func addPlanStepsToEnv(env *Env, plan *Plan) {
-	for _, n := range plan.Nodes() {
+	for _, n := range nodes {
 		if n.Step().ID != "" {
-			env.StepMap[n.Step().ID] = n.StepInfo()
+			steps[n.Step().ID] = n.StepInfo()
 		}
 	}
-}
-
-func addPlanPredecessorStepsToEnv(env *Env, plan *Plan, node *Node) {
-	for _, n := range planPredecessorNodes(plan, node) {
-		if n.Step().ID != "" {
-			env.StepMap[n.Step().ID] = n.StepInfo()
-		}
-	}
+	return steps
 }
 
 func planPredecessorNodes(plan *Plan, node *Node) []*Node {
