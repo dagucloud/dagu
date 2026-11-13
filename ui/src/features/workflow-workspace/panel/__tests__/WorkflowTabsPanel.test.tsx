@@ -396,7 +396,10 @@ describe('WorkflowTabsPanel', () => {
     await screen.findByText('new12345');
     expect(
       screen.getAllByRole('link').map((link) => link.getAttribute('href'))
-    ).toEqual(['/backfills/new12345', '/backfills/old12345']);
+    ).toEqual([
+      '/backfills/new12345?remoteNode=local',
+      '/backfills/old12345?remoteNode=local',
+    ]);
   });
 
   it('opens the overview for Backfills of a workflow without a schedule', () => {

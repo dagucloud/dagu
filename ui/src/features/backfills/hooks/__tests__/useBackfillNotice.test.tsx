@@ -163,7 +163,7 @@ describe('useBackfillNotice', () => {
 
     result.current?.action?.run({ metaKey: true, ctrlKey: false });
     expect(open).toHaveBeenCalledWith(
-      '/dagu/backfills/bf123456',
+      '/dagu/backfills/bf123456?remoteNode=local',
       '_blank',
       'noopener'
     );

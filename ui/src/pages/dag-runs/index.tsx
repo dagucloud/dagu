@@ -762,6 +762,14 @@ function DAGRuns() {
     () => new URLSearchParams(location.search).get('backfillId') ?? '',
     [location.search]
   );
+  // The node of the backfill, as its page links to its runs.
+  const backfillNode = React.useMemo(
+    () =>
+      backfillId
+        ? (new URLSearchParams(location.search).get('remoteNode') ?? '')
+        : '',
+    [backfillId, location.search]
+  );
   const clearBackfill = React.useCallback(() => {
     const params = new URLSearchParams(location.search);
     params.delete('backfillId');
@@ -787,7 +795,8 @@ function DAGRuns() {
       // backfill's start on.
       backfillId
         ? {
-            remoteNode: appBarContext.selectedRemoteNode || 'local',
+            remoteNode:
+              backfillNode || appBarContext.selectedRemoteNode || 'local',
             backfillId,
             limit: 100,
             ...workspaceQuery,
@@ -806,6 +815,7 @@ function DAGRuns() {
           },
     [
       backfillId,
+      backfillNode,
       hideServiceDAGRuns,
       apiDagRunId,
       apiFromDate,

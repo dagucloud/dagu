@@ -152,11 +152,11 @@ describe('BackfillPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View runs' })).toHaveAttribute(
       'href',
-      '/dag-runs?backfillId=bf123456'
+      '/dag-runs?backfillId=bf123456&remoteNode=local'
     );
     expect(screen.getByRole('link', { name: 'etl' })).toHaveAttribute(
       'href',
-      '/dags/etl'
+      '/dags/etl?remoteNode=local'
     );
     expect(mocks.sse).toHaveBeenLastCalledWith('bf123456', true, 'local');
   });

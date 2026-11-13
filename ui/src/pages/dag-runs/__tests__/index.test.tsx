@@ -324,6 +324,17 @@ describe('DAGRuns page', () => {
     expect(lastRunQuery()['backfillId']).toBeUndefined();
   });
 
+  // A backfill page links to its runs on the backfill's node, whatever
+  // node the app bar selects.
+  it('lists the runs of a backfill on the node that the link names', () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456&remoteNode=edge');
+
+    expect(lastRunQuery()).toMatchObject({
+      remoteNode: 'edge',
+      backfillId: 'bf123456',
+    });
+  });
+
   it('shows no service DAG section when no DAG is one', () => {
     renderPage();
 
