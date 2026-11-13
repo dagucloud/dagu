@@ -39,7 +39,7 @@ func (s *Service) Cancel(ctx context.Context, id string, control RunControl, sto
 	if !record.Open() {
 		return record, ErrEnded
 	}
-	if err := s.withdraw(ctx, record, control, stopRunning); err != nil {
+	if _, err := s.withdraw(ctx, record, control, stopRunning); err != nil {
 		return nil, err
 	}
 	if err := s.Store.End(ctx, record.ID, StatusCancelled, s.now()); err != nil {
@@ -71,6 +71,14 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		return SubmitResult{}, err
 	}
 	defer unlock()
+	// A retry can queue a slot again, and open an ended backfill, while the
+	// resume plans: the resume then writes only over what it read.
+	read := *record
+	progress, err := s.Store.Progress(ctx, record.ID)
+	if err != nil {
+		return SubmitResult{}, err
+	}
+	seen := len(progress)
 
 	report, err := Describe(ctx, s.Store, control.ReadRun, record)
 	if err != nil {
@@ -127,9 +135,11 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		return result, nil
 	}
 	if record.Open() {
-		if err := s.withdraw(ctx, record, control, false); err != nil {
+		withdrawn, err := s.withdraw(ctx, record, control, false)
+		if err != nil {
 			return SubmitResult{}, err
 		}
+		seen += withdrawn
 	}
 
 	windows := make(map[time.Time]ir.ScheduleWindow, len(record.Slots))
@@ -160,19 +170,48 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 	if req.OnFailure != "" {
 		record.Options.OnFailure = req.OnFailure
 	}
-	if err := s.Store.Update(ctx, record); err != nil {
-		return SubmitResult{}, fmt.Errorf("record the resumed backfill: %w", err)
+	if err := s.updateUnchanged(ctx, &read, seen, record); err != nil {
+		return result, err
 	}
 	result.Record = record
 	return result, nil
 }
 
-// withdraw removes the queued runs of an open backfill and cancels the
-// slots it has not reached; with stopRunning, it also stops active runs.
-func (s *Service) withdraw(ctx context.Context, record *Record, control RunControl, stopRunning bool) error {
-	report, err := Describe(ctx, s.Store, control.ReadRun, record)
+// updateUnchanged rewrites a record, provided the backfill still has the
+// status, end, and generation of read and seen progress events. Otherwise
+// it fails with ErrStalePlan. The record lock orders it with a retry that
+// queues a slot again or opens the backfill.
+func (s *Service) updateUnchanged(ctx context.Context, read *Record, seen int, record *Record) error {
+	unlock, err := s.Store.LockRecord(ctx, record.ID)
 	if err != nil {
 		return err
+	}
+	defer unlock()
+	current, err := s.Store.Get(ctx, record.ID)
+	if err != nil {
+		return err
+	}
+	progress, err := s.Store.Progress(ctx, record.ID)
+	if err != nil {
+		return err
+	}
+	if current.Status != read.Status || !current.EndedAt.Equal(read.EndedAt) ||
+		current.Generation != read.Generation || len(progress) != seen {
+		return ErrStalePlan
+	}
+	if err := s.Store.Update(ctx, record); err != nil {
+		return fmt.Errorf("record the resumed backfill: %w", err)
+	}
+	return nil
+}
+
+// withdraw removes the queued runs of an open backfill and cancels the
+// slots it has not reached; with stopRunning, it also stops active runs. It
+// returns the number of progress events it appended.
+func (s *Service) withdraw(ctx context.Context, record *Record, control RunControl, stopRunning bool) (int, error) {
+	report, err := Describe(ctx, s.Store, control.ReadRun, record)
+	if err != nil {
+		return 0, err
 	}
 	var events []Progress
 	now := s.now()
@@ -189,12 +228,12 @@ func (s *Service) withdraw(ctx context.Context, record *Record, control RunContr
 		switch slot.State {
 		case SlotStateQueued:
 			if err := control.Withdraw(ctx, ref); err != nil {
-				return failed(fmt.Errorf("withdraw run %s: %w", slot.RunID, err))
+				return 0, failed(fmt.Errorf("withdraw run %s: %w", slot.RunID, err))
 			}
 		case SlotStateRunning, SlotStateWaiting:
 			if stopRunning {
 				if err := control.Stop(ctx, ref); err != nil {
-					return failed(fmt.Errorf("stop run %s: %w", slot.RunID, err))
+					return 0, failed(fmt.Errorf("stop run %s: %w", slot.RunID, err))
 				}
 			}
 			continue
@@ -205,9 +244,9 @@ func (s *Service) withdraw(ctx context.Context, record *Record, control RunContr
 		events = append(events, Progress{Slot: slot.At, Kind: ProgressCancelled, Generation: record.Generation, At: now})
 	}
 	if len(events) == 0 {
-		return nil
+		return 0, nil
 	}
-	return s.Store.Append(ctx, record.ID, events...)
+	return len(events), s.Store.Append(ctx, record.ID, events...)
 }
 
 // lockRecord reads a backfill under its DAG's lock.

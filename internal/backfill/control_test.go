@@ -207,3 +207,43 @@ func TestCancelRecordsRunsWithdrawnBeforeAFailure(t *testing.T) {
 	assert.Equal(t, backfill.SlotStateCancelled, f.states(record.ID)[0])
 	assert.True(t, f.record(record.ID).Open(), "the cancel did not finish")
 }
+
+// A retry that opens the backfill while a resume plans it makes the resume's
+// plan stale: the resume writes nothing over the retry.
+func TestResumeYieldsToARetryThatOpensTheBackfill(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	runID := f.queued[0]
+	f.finish(runID, ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	var stopped []string
+	history := f.service.History
+	f.service.History = historyHook{HistoryReader: history, before: func() { f.retry(runID) }}
+	req := backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}
+	_, err := f.service.Resume(f.ctx, req, f.control(&stopped))
+	f.service.History = history
+	require.ErrorIs(t, err, backfill.ErrStalePlan)
+	current := f.record(record.ID)
+	assert.True(t, current.Open(), "the retry opened the backfill")
+	assert.Zero(t, current.Generation, "the resume wrote nothing")
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, current)
+	require.NoError(t, err)
+	assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State, "the backfill follows the retry")
+}
+
+// historyHook runs before once, as the history is first read.
+type historyHook struct {
+	backfill.HistoryReader
+	before func()
+}
+
+func (h historyHook) SlotEvents(ctx context.Context, dag *ir.DAG, from, to time.Time) ([]persis.SlotEvent, error) {
+	if h.before != nil {
+		h.before()
+	}
+	return h.HistoryReader.SlotEvents(ctx, dag, from, to)
+}
