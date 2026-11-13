@@ -244,7 +244,8 @@ func TestStepWorkingDirResolvesPredecessorStepOutput(t *testing.T) {
 	plan, err := runtime.NewPlanFromNodes(worktree, show)
 	require.NoError(t, err)
 
-	env := runtime.NewPlanEnvForNode(context.Background(), show, plan)
+	env, err := runtime.NewPlanEnvForNodeWithError(context.Background(), show, plan)
+	require.NoError(t, err)
 	require.Equal(t, filepath.Clean(wantDir), env.WorkingDir)
 }
 
@@ -290,7 +291,8 @@ func TestStepWorkingDirWithoutPredecessorOutputKeepsLiteralDir(t *testing.T) {
 	plan, err := runtime.NewPlanFromNodes(worktree, show)
 	require.NoError(t, err)
 
-	env := runtime.NewPlanEnvForNode(context.Background(), show, plan)
+	env, err := runtime.NewPlanEnvForNodeWithError(context.Background(), show, plan)
+	require.NoError(t, err)
 	require.Equal(t, "${steps.worktree.outputs.path}", env.WorkingDir)
 }
 
