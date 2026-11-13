@@ -358,7 +358,7 @@ func TestHTTPExecutor_RejectsUnknownWithKey(t *testing.T) {
 	}))
 }
 
-// status_exit_codes keys are a status code (100-599) or class (1xx-5xx), and
+// status_exit_codes keys are a status code (300-599) or class (3xx-5xx), and
 // values are exit codes (0-255), so dagu validate rejects anything else.
 func TestHTTPExecutor_StatusExitCodesSchema(t *testing.T) {
 	t.Parallel()
