@@ -639,11 +639,13 @@ func showBackfillPlan(ctx *Context, out io.Writer, dag *ir.DAG, plan backfill.Pl
 		return err
 	}
 	suspended, err := ctx.Persistence.DAGRepository.IsSuspended(ctx, dag.SuspendFlagName())
+	given, _ := spec.ParamNames(options.Params)
 	warnings := plan.Warnings(backfill.WarningInput{
 		SchedulerRunning: schedulerRunning(ctx),
 		Suspended:        err == nil && suspended,
 		DAG:              dag,
 		Outlook:          outlook,
+		GivenParams:      given,
 	})
 	return renderBackfillPlan(out, plan, options, outlook, warnings)
 }

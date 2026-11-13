@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -156,6 +157,8 @@ type WarningInput struct {
 	Suspended        bool
 	DAG              *ir.DAG
 	Outlook          Outlook
+	// GivenParams names the params the backfill gives every run.
+	GivenParams []string
 }
 
 // Warnings lists what an operator should know before starting a plan.
@@ -183,7 +186,25 @@ func (p Plan) Warnings(in WarningInput) []string {
 	if p.OtherCadence > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d slots run because the schedule's cadence changed since their runs.", p.OtherCadence))
 	}
+	if names := givenDateParams(in.DAG, in.GivenParams); len(names) > 0 {
+		warnings = append(warnings, fmt.Sprintf("The params give %s one value for every slot, in place of the dates its eval reads from each slot.", strings.Join(names, ", ")))
+	}
 	return warnings
+}
+
+// givenDateParams returns the given params whose eval reads the run's
+// dates: a value given to them holds for every slot.
+func givenDateParams(dag *ir.DAG, given []string) []string {
+	if dag == nil {
+		return nil
+	}
+	var names []string
+	for _, def := range dag.ParamDefs {
+		if slices.Contains(given, def.Name) && cmnvalue.HasReferenceToNamespace(def.Eval, "dates") {
+			names = append(names, def.Name)
+		}
+	}
+	return names
 }
 
 func handlerNames(dag *ir.DAG) []string {

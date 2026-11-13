@@ -70,7 +70,7 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 		DryRun:   dryRun,
 		Revision: valueOf(body.Revision),
 	})
-	response, respErr := a.backfillSubmitResponse(ctx, store, dag, options.MaxConcurrency, result)
+	response, respErr := a.backfillSubmitResponse(ctx, store, dag, options.MaxConcurrency, options.Params, result)
 	if respErr != nil {
 		return nil, respErr
 	}
@@ -282,7 +282,7 @@ func (a *API) ResumeBackfill(ctx context.Context, request api.ResumeBackfillRequ
 	if req.MaxConcurrency > 0 {
 		maxConcurrency = req.MaxConcurrency
 	}
-	response, respErr := a.backfillSubmitResponse(ctx, store, dag, maxConcurrency, result)
+	response, respErr := a.backfillSubmitResponse(ctx, store, dag, maxConcurrency, record.Options.Params, result)
 	if respErr != nil {
 		return nil, respErr
 	}
@@ -366,18 +366,20 @@ func (a *API) backfillReport(ctx context.Context, id string) (backfill.Store, ba
 }
 
 // backfillSubmitResponse reports a submit's plan, with how it would run at
-// maxConcurrency, and the backfill it created or found.
-func (a *API) backfillSubmitResponse(ctx context.Context, store backfill.Store, dag *ir.DAG, maxConcurrency int, result backfill.SubmitResult) (api.BackfillSubmitResponse, error) {
+// maxConcurrency with params, and the backfill it created or found.
+func (a *API) backfillSubmitResponse(ctx context.Context, store backfill.Store, dag *ir.DAG, maxConcurrency int, params string, result backfill.SubmitResult) (api.BackfillSubmitResponse, error) {
 	outlook, err := backfill.LoadOutlook(ctx, a.dagRunRepository, dag, maxConcurrency, a.config.QueueLimit(dag.ProcGroup()))
 	if err != nil {
 		return api.BackfillSubmitResponse{}, err
 	}
 	suspended, err := a.dagRepository.IsSuspended(ctx, dag.SuspendFlagName())
+	given, _ := spec.ParamNames(params)
 	warnings := result.Plan.Warnings(backfill.WarningInput{
 		SchedulerRunning: a.schedulerActive(ctx),
 		Suspended:        err == nil && suspended,
 		DAG:              dag,
 		Outlook:          outlook,
+		GivenParams:      given,
 	})
 	response := api.BackfillSubmitResponse{Plan: toAPIBackfillPlan(result.Plan, outlook, warnings)}
 	if result.Record != nil {

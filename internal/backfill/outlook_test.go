@@ -77,3 +77,23 @@ func TestPlanWarningsOfOutlook(t *testing.T) {
 	}, warnings(backfill.Outlook{MaxConcurrency: 1, Concurrency: 1, QueueName: "etl", QueueLimit: 1}))
 	assert.Empty(t, warnings(backfill.Outlook{MaxConcurrency: 1, Concurrency: 1, QueueName: "shared", QueueLimit: 2}))
 }
+
+// A param whose eval reads dates takes each slot's own date, unless the
+// backfill gives it a value, which then holds for every slot.
+func TestPlanWarnsOfParamsGivenOverDates(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{ParamDefs: []ir.ParamDef{
+		{Name: "day", Eval: "${dates.target_day}"},
+		{Name: "region", Eval: "`echo us`"},
+	}}
+	warnings := func(given ...string) []string {
+		return backfill.Plan{}.Warnings(backfill.WarningInput{SchedulerRunning: true, DAG: dag, GivenParams: given})
+	}
+
+	assert.Equal(t, []string{
+		"The params give day one value for every slot, in place of the dates its eval reads from each slot.",
+	}, warnings("day", "region"))
+	assert.Empty(t, warnings("region"))
+	assert.Empty(t, warnings())
+}

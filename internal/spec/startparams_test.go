@@ -6,6 +6,7 @@ package spec
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -279,4 +280,20 @@ func TestShouldSkipDashArgsPositionalValidation(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestParamNames(t *testing.T) {
+	t.Parallel()
+
+	names, err := ParamNames(`day=2026-11-01 region="us east" positional`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"day", "region"}, names)
+
+	names, err = ParamNames(`{"day": "2026-11-01"}`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"day"}, names)
+
+	names, err = ParamNames("")
+	require.NoError(t, err)
+	assert.Empty(t, names)
 }
