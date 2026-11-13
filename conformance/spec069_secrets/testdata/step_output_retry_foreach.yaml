@@ -1,0 +1,23 @@
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+steps:
+  - id: login
+    run: |
+      printf 'login\n' >> logins.out
+      printf '%s\n' "$API_TOKEN"
+    output: TOKEN
+
+  - id: use
+    depends: login
+    foreach:
+      items: [one]
+      steps:
+        - id: body
+          env:
+            - TOKEN: local
+          run: |
+            printf '%s\n' "${TOKEN}" >> received.out
+            [ -f ready ]

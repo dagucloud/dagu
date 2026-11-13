@@ -87,40 +87,41 @@ after an approval or a human task, and a run that carries another run's
 outputs. Stored outputs stay masked, and stored status records which outputs
 masking changed. A step that reads a recorded output after such a restore
 fails before it runs, with an error that names the step and the output and
-says the producing step has to run again. A read is one of these in a field
-that value resolution reads:
+says the producing step has to run again. A step reads an output where value
+resolution inserts it into one of the step's fields, or where a shell that
+runs the step's command or script expands it:
 
 - `${steps.<id>.outputs.<name>}` reads a published output.
 - `${<id>.outputs}` and any path under it read the published outputs when the
   step published any, and the captured output document otherwise.
 - `${<id>.output}` reads the captured output text, or the step's output
   variable when no captured text is stored.
-- `${NAME}` and `$NAME` read an output variable. When several predecessors set
-  the same variable, they read the one whose value is in the step's scope.
+- `${NAME}`, `$NAME`, and `${env.NAME}` read an output variable when the value
+  under that name in the step's scope is the output variable.
 
-Each reference fails only when masking changed the output it reads. In a
-handler step, `${steps.<id>.outputs.<name>}` does not resolve, so it is not a
-read there; the other forms are.
+Each reference fails only when masking changed the output it reads. A reference
+that resolution leaves as written reads nothing: an escaped reference, a name
+a shell leaves in single quotes, and a `js` or `template` script, which is
+passed on as written. A variable the step's own `env:` defines takes the place
+of the output variable in its other fields and in the `env:` entries after the
+one that defines it, and of two predecessors that set the same variable, the
+one later in scope order does. A handler step resolves its `env:` before output
+variables are in scope, and `${steps.<id>.outputs.<name>}` does not resolve in
+it. A foreach body step reads outputs in its own scope, which holds the foreach
+step's output variables under its own `env:`.
 
-A `js` or `template` script is passed on as written, so it holds no reads. An
-escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
-count as reads wherever they appear in such a field, even where a shell would
-not expand them, such as inside single quotes. A variable a step defines in its
-own `env:` is the step's own value in its other fields and in the `env:`
-entries after the one that defines it, so only the entries up to that one read
-the output variable there; a handler step resolves its `env:`
-before output variables are in scope, so its `env:` values never read one and
-its other fields do. Only the step's fields are checked: a program the step
-runs that reads an output variable from its environment receives `*******`.
-When masking changed the name of a published output, or masked the published
-outputs as text, every published output of that step counts as masked. Outputs
-that masking did not change are reused unchanged, and a value supplied for an
-output of a carried step replaces the recorded one. The check runs once the
-step's preconditions hold, so a step whose preconditions are not met is skipped
-as before; a precondition that reads a recorded output reads `*******`, and
-when it holds the step fails, since the precondition is one of its reads. A
-step that needs a secret after an approval or a human task reads the secret
-itself instead of through an output.
+A program the step runs that reads an output variable from its environment
+receives `*******`; only the reads above are checked. When masking changed the
+name of a published output, or masked the published outputs as text, every
+published output of that step counts as masked. Outputs that masking did not
+change are reused unchanged, and a value supplied for an output of a carried
+step replaces the recorded one. The check runs once the step's preconditions
+hold, so a step whose preconditions are not met is skipped as before; a
+precondition that reads a recorded output reads `*******`, and when it holds
+the step fails, since the precondition is one of its reads. A field that an
+executor resolves while the step runs fails the step when it ends. A step that
+needs a secret after an approval or a human task reads the secret itself
+instead of through an output.
 
 Provider-specific behavior covered here:
 
