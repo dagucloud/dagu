@@ -17,8 +17,11 @@ import (
 // StepMasks names the outputs of a step that were restored with a secret
 // masked. Their original values are gone, so a read gets starred text.
 type StepMasks struct {
-	// Output marks StepInfo.Output.
-	Output bool
+	// Output names the masked top-level fields of StepInfo.Output, a JSON
+	// object.
+	Output []string
+	// AllOutput marks all of StepInfo.Output.
+	AllOutput bool
 	// Outputs names the masked top-level fields of StepInfo.Outputs and
 	// StepInfo.DeclaredOutputs.
 	Outputs []string
@@ -120,57 +123,103 @@ func noteShellReads(ctx context.Context, text string) {
 
 // shellEnvReads returns the variables a POSIX shell reads from its
 // environment when it runs text: each one the script expands before it sets
-// a value of its own. Text the parser rejects counts every name outside
-// single quotes.
+// or unsets a value of its own. A function body counts where the function is
+// first called. Text the parser rejects counts every name outside single
+// quotes.
 func shellEnvReads(text string) []string {
 	file, err := syntax.NewParser().Parse(strings.NewReader(text), "")
 	if err != nil {
 		return unparsedShellReads(text)
 	}
-	type expansion struct {
-		name string
-		at   uint
+	scan := shellScan{calls: firstCalls(file), set: make(map[string]shellPos)}
+	scan.walk(file, nil)
+	var names []string
+	for _, r := range scan.reads {
+		if at, ok := scan.set[r.name]; ok && !r.at.before(at) {
+			continue
+		}
+		names = append(names, r.name)
 	}
-	var expansions []expansion
-	read := func(name string, at syntax.Pos) {
-		expansions = append(expansions, expansion{name: name, at: at.Offset()})
-	}
-	// set holds, for each variable the script sets, the earliest offset
+	return names
+}
+
+// shellPos orders the points where a script runs: call is where the
+// enclosing function is called, or the offset itself outside a function.
+type shellPos struct {
+	call, offset uint
+}
+
+func (p shellPos) before(q shellPos) bool {
+	return p.call < q.call || (p.call == q.call && p.offset < q.offset)
+}
+
+type shellScan struct {
+	// calls holds the offset where each function is first called.
+	calls map[string]uint
+	reads []shellRead
+	// set holds, for each variable the script sets, the earliest point
 	// where its own value takes effect.
-	set := make(map[string]uint)
-	assign := func(name string, at syntax.Pos) {
-		if prev, ok := set[name]; !ok || at.Offset() < prev {
-			set[name] = at.Offset()
+	set map[string]shellPos
+}
+
+type shellRead struct {
+	name string
+	at   shellPos
+}
+
+// walk scans node; call is the offset of the call that runs it, or nil.
+func (s *shellScan) walk(node syntax.Node, call *uint) {
+	at := func(pos syntax.Pos) shellPos {
+		if call != nil {
+			return shellPos{call: *call, offset: pos.Offset()}
+		}
+		return shellPos{call: pos.Offset(), offset: pos.Offset()}
+	}
+	read := func(name string, pos syntax.Pos) {
+		s.reads = append(s.reads, shellRead{name: name, at: at(pos)})
+	}
+	assign := func(name string, pos syntax.Pos) {
+		if prev, ok := s.set[name]; !ok || at(pos).before(prev) {
+			s.set[name] = at(pos)
 		}
 	}
-	syntax.Walk(file, func(node syntax.Node) bool {
+	syntax.Walk(node, func(node syntax.Node) bool {
 		switch n := node.(type) {
+		case *syntax.FuncDecl:
+			if first, ok := s.calls[n.Name.Value]; ok {
+				s.walk(n.Body, &first)
+			}
+			return false
 		case *syntax.ParamExp:
 			if n.Param != nil {
 				read(n.Param.Value, n.Pos())
 			}
 		case *syntax.CallExpr:
-			switch {
-			case len(n.Args) == 0:
+			if len(n.Args) == 0 {
 				// NAME=value without a command sets a shell variable;
 				// before a command it is only that command's environment.
 				for _, a := range n.Assigns {
 					if a.Name != nil {
+						if a.Append {
+							read(a.Name.Value, a.Pos())
+						}
 						assign(a.Name.Value, a.End())
 					}
 				}
-			case n.Args[0].Lit() == "read":
-				for _, arg := range n.Args[1:] {
-					if name := arg.Lit(); ValidEnvName(name) {
-						assign(name, n.End())
-					}
-				}
+				break
+			}
+			for _, name := range assignedNames(n.Args) {
+				assign(name, n.End())
 			}
 		case *syntax.DeclClause:
 			for _, a := range n.Args {
-				if a.Name != nil && !a.Naked {
-					assign(a.Name.Value, a.End())
+				if a.Name == nil || (a.Naked && (n.Variant.Value == "export" || n.Variant.Value == "readonly")) {
+					continue
 				}
+				if a.Append {
+					read(a.Name.Value, a.Pos())
+				}
+				assign(a.Name.Value, a.End())
 			}
 		case *syntax.WordIter:
 			assign(n.Name.Value, n.End())
@@ -185,14 +234,52 @@ func shellEnvReads(text string) []string {
 		}
 		return true
 	})
+}
+
+// assignedNames returns the variables a builtin call sets or unsets: read,
+// printf -v, and unset.
+func assignedNames(args []*syntax.Word) []string {
 	var names []string
-	for _, e := range expansions {
-		if at, ok := set[e.name]; ok && at <= e.at {
-			continue
+	switch args[0].Lit() {
+	case "read", "unset":
+		for _, arg := range args[1:] {
+			if name := arg.Lit(); ValidEnvName(name) {
+				names = append(names, name)
+			}
 		}
-		names = append(names, e.name)
+	case "printf":
+		for i := 1; i+1 < len(args); i++ {
+			if args[i].Lit() == "-v" && ValidEnvName(args[i+1].Lit()) {
+				names = append(names, args[i+1].Lit())
+			}
+		}
 	}
 	return names
+}
+
+// firstCalls returns the offset where each function text defines is first
+// called.
+func firstCalls(file *syntax.File) map[string]uint {
+	functions := make(map[string]bool)
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if fn, ok := node.(*syntax.FuncDecl); ok {
+			functions[fn.Name.Value] = true
+		}
+		return true
+	})
+	calls := make(map[string]uint)
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		name := call.Args[0].Lit()
+		if prev, seen := calls[name]; functions[name] && (!seen || call.Pos().Offset() < prev) {
+			calls[name] = call.Pos().Offset()
+		}
+		return true
+	})
+	return calls
 }
 
 // arithmReads reports each variable that an arithmetic expression names
@@ -236,7 +323,10 @@ func (s StepMasks) path(path string) (string, bool) {
 	case !ok:
 		return "", false
 	case !strings.HasPrefix(path, ".outputs"):
-		return "output", s.Output
+		if field == "" {
+			return "output", s.AllOutput || len(s.Output) > 0
+		}
+		return field, s.AllOutput || slices.Contains(s.Output, field)
 	case field == "":
 		return "outputs", s.AllOutputs || len(s.Outputs) > 0
 	default:

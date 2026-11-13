@@ -18,12 +18,16 @@ func TestMaskedRead(t *testing.T) {
 
 	captured := "*******"
 	published := `{"token":"*******","region":"us"}`
-	steps := map[string]StepInfo{"fetch": {
-		Output:          &captured,
-		Outputs:         &published,
-		DeclaredOutputs: &published,
-		Masked:          StepMasks{Output: true, Outputs: []string{"token"}},
-	}}
+	config := `{"token":"*******","region":"us"}`
+	steps := map[string]StepInfo{
+		"fetch": {
+			Output:          &captured,
+			Outputs:         &published,
+			DeclaredOutputs: &published,
+			Masked:          StepMasks{AllOutput: true, Outputs: []string{"token"}},
+		},
+		"config": {Output: &config, Masked: StepMasks{Output: []string{"token"}}},
+	}
 	restored := NewEnvScope(nil, false).
 		WithStepOutputs(map[string]string{"TOKEN": "*******", "REGION": "us"}, "fetch", "TOKEN")
 	workflow := WorkflowField("run")
@@ -35,6 +39,7 @@ func TestMaskedRead(t *testing.T) {
 		field Field
 		scope *EnvScope // the env scope; the restored one when nil
 		want  string    // the output read; empty when none is
+		step  string    // the step the output belongs to; fetch when empty
 	}{
 		{name: "variable", raw: "deploy ${TOKEN}", field: workflow, want: "TOKEN"},
 		{name: "unbraced variable", raw: "deploy $TOKEN", field: workflow, want: "TOKEN"},
@@ -48,6 +53,8 @@ func TestMaskedRead(t *testing.T) {
 			scope: restored.WithEntry("TOKEN", "local", EnvSourceStepEnv),
 		},
 		{name: "captured output", raw: "deploy ${fetch.output}", field: workflow, want: "output"},
+		{name: "masked field of a captured object", raw: "deploy ${config.output.token}", field: workflow, want: "token", step: "config"},
+		{name: "unmasked field of a captured object", raw: "deploy ${config.output.region}", field: workflow},
 		{name: "published output", raw: "deploy ${fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked published output", raw: "deploy ${fetch.outputs.region}", field: workflow},
 		{name: "declared output", raw: "deploy ${steps.fetch.outputs.token}", field: workflow, want: "token"},
@@ -68,6 +75,12 @@ func TestMaskedRead(t *testing.T) {
 		{name: "heredoc", raw: "cat <<EOF\n$TOKEN\nEOF", field: shell, want: "TOKEN"},
 		{name: "apostrophe in a comment", raw: "# don't log it\ndeploy \"$TOKEN\"", field: shell, want: "TOKEN"},
 		{name: "shell arithmetic", raw: `deploy $((TOKEN + 1))`, field: shell, want: "TOKEN"},
+		{name: "shell append", raw: `TOKEN+=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
+		{name: "shell variable after unset", raw: `unset TOKEN; deploy "${TOKEN:-none}"`, field: shell},
+		{name: "shell variable printf sets", raw: `printf -v TOKEN '%s' local; deploy "$TOKEN"`, field: shell},
+		{name: "function called after the script sets it", raw: `f() { deploy "$TOKEN"; }; TOKEN=local; f`, field: shell},
+		{name: "function called before the script sets it", raw: `f() { deploy "$TOKEN"; }; f; TOKEN=local`, field: shell, want: "TOKEN"},
+		{name: "function never called", raw: `f() { deploy "$TOKEN"; }`, field: shell},
 		{name: "single-quoted braced shell variable", raw: `deploy '${TOKEN}'`, field: shell},
 		// Dagu inserts a quoted reference in a single-quoted span itself.
 		{name: "quoted reference in single quotes", raw: `curl -d '{"token":"${TOKEN}"}'`, field: shell, want: "TOKEN"},
@@ -92,9 +105,13 @@ func TestMaskedRead(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
+			step := tt.step
+			if step == "" {
+				step = "fetch"
+			}
 			var read *MaskedReadError
 			require.ErrorAs(t, err, &read)
-			assert.Equal(t, MaskedReadError{Step: "fetch", Output: tt.want}, *read)
+			assert.Equal(t, MaskedReadError{Step: step, Output: tt.want}, *read)
 		})
 	}
 }
