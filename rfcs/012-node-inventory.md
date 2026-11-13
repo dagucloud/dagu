@@ -583,7 +583,7 @@ part of the fleet.
 - Additive. An install without an inventory behaves as before.
 - `nodes.yaml` and `nodes.ui.yaml` beside `base.yaml` are new files.
   `cloud.inventory_sync` is a new setting in RFC 002's `cloud` section.
-- Node name `local` is reserved for RFC 013.
+- Node name `local` is reserved for a later `nodes: local` in RFC 013.
 
 Rollout:
 
