@@ -119,10 +119,13 @@ function firstTestRunRemoval(
 export function useRunHistory({
   enabled,
   includeEphemeral = false,
+  includeBackfill = false,
   pollTestRuns = false,
 }: {
   enabled: boolean;
   includeEphemeral?: boolean;
+  /** Also lists the backfill runs, which the server leaves out by default. */
+  includeBackfill?: boolean;
   pollTestRuns?: boolean;
 }): RunHistory {
   const { fileName, remoteNode, registerHistory, standaloneRun } =
@@ -133,7 +136,12 @@ export function useRunHistory({
     [standaloneRun]
   );
   const active = enabled && fileName !== '' && standaloneRuns === null;
-  const historySSE = useDAGHistorySSE(fileName, active, remoteNode);
+  const historySSE = useDAGHistorySSE(
+    fileName,
+    active,
+    remoteNode,
+    includeBackfill
+  );
   const startedAt = useTestRunStartedAt(fileName);
   const base = sseFallbackOptions(historySSE);
   const baseInterval = base.refreshInterval;
@@ -155,9 +163,11 @@ export function useRunHistory({
     '/dags/{fileName}/dag-runs',
     whenEnabled(active, {
       params: {
-        query: includeEphemeral
-          ? { remoteNode, includeEphemeral: true }
-          : { remoteNode },
+        query: {
+          remoteNode,
+          ...(includeEphemeral ? { includeEphemeral: true } : {}),
+          ...(includeBackfill ? { includeBackfill: true } : {}),
+        },
         path: { fileName },
       },
     }),

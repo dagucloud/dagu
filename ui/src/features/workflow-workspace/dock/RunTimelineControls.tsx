@@ -200,6 +200,9 @@ export interface RunTimelineControlsProps {
   hasCachedTime?: boolean;
   showCached?: boolean;
   onShowCachedChange?(show: boolean): void;
+  /** Whether the history holds backfill runs, which it leaves out by default. */
+  showBackfill?: boolean;
+  onShowBackfillChange?(show: boolean): void;
   /**
    * The trigger types that the history holds and those that the timeline
    * hides. The filter menu shows when the history has more than one type.
@@ -217,6 +220,8 @@ export type RunViewMenuProps = Pick<
   | 'hasCachedTime'
   | 'showCached'
   | 'onShowCachedChange'
+  | 'showBackfill'
+  | 'onShowBackfillChange'
   | 'triggerTypes'
   | 'hiddenTypes'
   | 'onHiddenTypesChange'
@@ -224,7 +229,7 @@ export type RunViewMenuProps = Pick<
 
 /**
  * What the timeline shows, as one menu named View: the trigger types, the
- * test runs and the cached time. A choice keeps the menu open, so that
+ * test runs, the cached time and the backfill runs. A choice keeps the menu open, so that
  * several change in a row. A choice that has nothing to act on is disabled.
  * The button is marked while the view hides something.
  */
@@ -235,12 +240,19 @@ export function RunViewMenu({
   hasCachedTime = false,
   showCached = true,
   onShowCachedChange,
+  showBackfill = false,
+  onShowBackfillChange,
   triggerTypes = [],
   hiddenTypes = [],
   onHiddenTypesChange,
 }: RunViewMenuProps) {
   const { ts } = useI18n();
-  if (!onHiddenTypesChange && !onShowTestsChange && !onShowCachedChange) {
+  if (
+    !onHiddenTypesChange &&
+    !onShowTestsChange &&
+    !onShowCachedChange &&
+    !onShowBackfillChange
+  ) {
     return null;
   }
   // With one trigger type there is nothing to choose.
@@ -295,9 +307,9 @@ export function RunViewMenu({
                 {ts(triggerTypeLabels[type])}
               </DropdownMenuCheckboxItem>
             ))}
-            {(onShowTestsChange || onShowCachedChange) && (
-              <DropdownMenuSeparator />
-            )}
+            {(onShowTestsChange ||
+              onShowCachedChange ||
+              onShowBackfillChange) && <DropdownMenuSeparator />}
           </>
         )}
         {onShowTestsChange && (
@@ -324,6 +336,17 @@ export function RunViewMenu({
             {ts('Show cached time')}
           </DropdownMenuCheckboxItem>
         )}
+        {onShowBackfillChange && (
+          <DropdownMenuCheckboxItem
+            checked={showBackfill}
+            data-testid="ww-run-timeline-backfill"
+            className={MENU_ITEM}
+            onSelect={keepOpen}
+            onCheckedChange={(on) => onShowBackfillChange(on)}
+          >
+            {ts('Show backfill runs')}
+          </DropdownMenuCheckboxItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -347,6 +370,8 @@ export const RunTimelineControls = memo(function RunTimelineControls({
   hasCachedTime = false,
   showCached = true,
   onShowCachedChange,
+  showBackfill = false,
+  onShowBackfillChange,
   triggerTypes = [],
   hiddenTypes = [],
   onHiddenTypesChange,
@@ -406,6 +431,8 @@ export const RunTimelineControls = memo(function RunTimelineControls({
         hasCachedTime={hasCachedTime}
         showCached={showCached}
         onShowCachedChange={onShowCachedChange}
+        showBackfill={showBackfill}
+        onShowBackfillChange={onShowBackfillChange}
         triggerTypes={triggerTypes}
         hiddenTypes={hiddenTypes}
         onHiddenTypesChange={onHiddenTypesChange}

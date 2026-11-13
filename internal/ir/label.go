@@ -199,8 +199,6 @@ const (
 	LabelFilterTypeKeyOnly LabelFilterType = iota
 	// LabelFilterTypeExact matches labels with exact key=value.
 	LabelFilterTypeExact
-	// LabelFilterTypeNegation matches if the key does NOT exist.
-	LabelFilterTypeNegation
 	// LabelFilterTypeWildcard matches labels using glob patterns (* and ?).
 	LabelFilterTypeWildcard
 )
@@ -210,62 +208,80 @@ type LabelFilter struct {
 	Type  LabelFilterType
 	Key   string
 	Value string
+	// HasValue reports that the term named a value after "=". An empty value
+	// then matches only labels with no value.
+	HasValue bool
+	// Negate selects the labels the condition does not match.
+	Negate bool
 }
 
-// ParseLabelFilter parses a filter string into LabelFilter.
-// Formats:
-//   - "key" - matches any label with that key (KeyOnly)
-//   - "key=value" - matches exact key=value (Exact)
-//   - "!key" - matches if key does NOT exist (Negation)
-//   - "key*" or "key=value*" - matches using glob patterns (Wildcard)
-func ParseLabelFilter(s string) LabelFilter {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return LabelFilter{}
+// ErrInvalidLabelFilter reports a filter term that is not a label key, a
+// key=value pair, or a glob of either, with or without a leading "!".
+var ErrInvalidLabelFilter = errors.New("invalid label filter")
+
+// Label filter term patterns: label key and value characters plus the glob
+// characters * and ?.
+var (
+	labelFilterKeyPattern   = regexp.MustCompile(`^[a-zA-Z0-9*?][a-zA-Z0-9_.*?-]*$`)
+	labelFilterValuePattern = regexp.MustCompile(`^[a-zA-Z0-9*?][a-zA-Z0-9_./*?-]*$`)
+)
+
+// ParseLabelFilter parses one filter term, matching without case:
+//   - "key" matches labels with that key
+//   - "key=value" matches that exact label; "key=" matches the key with no value
+//   - * and ? in a key or value match as globs
+//   - a leading "!" negates any of the above
+//
+// Any other term is an ErrInvalidLabelFilter.
+func ParseLabelFilter(s string) (LabelFilter, error) {
+	term := strings.TrimSpace(s)
+	var filter LabelFilter
+	if after, ok := strings.CutPrefix(term, "!"); ok {
+		filter.Negate = true
+		term = strings.TrimSpace(after)
 	}
 
-	// Negation filter
-	if after, ok := strings.CutPrefix(s, "!"); ok {
-		return LabelFilter{
-			Type: LabelFilterTypeNegation,
-			Key:  strings.ToLower(strings.TrimSpace(after)),
+	key, value, hasValue := strings.Cut(term, "=")
+	filter.HasValue = hasValue
+	filter.Key = strings.ToLower(strings.TrimSpace(key))
+	filter.Value = strings.ToLower(strings.TrimSpace(value))
+	if !labelFilterKeyPattern.MatchString(filter.Key) ||
+		(filter.Value != "" && !labelFilterValuePattern.MatchString(filter.Value)) {
+		return LabelFilter{}, fmt.Errorf("%w %q: a term is key, key=value, or a glob of either, and a leading ! negates it",
+			ErrInvalidLabelFilter, strings.TrimSpace(s))
+	}
+
+	switch {
+	case containsWildcard(filter.Key) || containsWildcard(filter.Value):
+		filter.Type = LabelFilterTypeWildcard
+	case hasValue:
+		filter.Type = LabelFilterTypeExact
+	default:
+		filter.Type = LabelFilterTypeKeyOnly
+	}
+	return filter, nil
+}
+
+// ParseLabelFilters parses filter terms, skipping blank ones. It reports
+// every invalid term.
+func ParseLabelFilters(terms []string) ([]LabelFilter, error) {
+	filters := make([]LabelFilter, 0, len(terms))
+	var errs []error
+	for _, term := range terms {
+		if strings.TrimSpace(term) == "" {
+			continue
 		}
-	}
-
-	// Key=value filter
-	if key, value, found := strings.Cut(s, "="); found {
-		key = strings.ToLower(strings.TrimSpace(key))
-		value = strings.ToLower(strings.TrimSpace(value))
-
-		// Check for wildcard pattern in key or value
-		if containsWildcard(key) || containsWildcard(value) {
-			return LabelFilter{
-				Type:  LabelFilterTypeWildcard,
-				Key:   key,
-				Value: value,
-			}
+		filter, err := ParseLabelFilter(term)
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
-
-		return LabelFilter{
-			Type:  LabelFilterTypeExact,
-			Key:   key,
-			Value: value,
-		}
+		filters = append(filters, filter)
 	}
-
-	// Key-only filter - check for wildcard
-	key := strings.ToLower(s)
-	if containsWildcard(key) {
-		return LabelFilter{
-			Type: LabelFilterTypeWildcard,
-			Key:  key,
-		}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
-
-	return LabelFilter{
-		Type: LabelFilterTypeKeyOnly,
-		Key:  key,
-	}
+	return filters, nil
 }
 
 // containsWildcard checks if a string contains glob wildcard characters.
@@ -275,6 +291,10 @@ func containsWildcard(s string) bool {
 
 // MatchesLabels checks if a label collection matches this filter.
 func (f LabelFilter) MatchesLabels(labels Labels) bool {
+	return f.matches(labels) != f.Negate
+}
+
+func (f LabelFilter) matches(labels Labels) bool {
 	switch f.Type {
 	case LabelFilterTypeKeyOnly:
 		return labels.HasKey(f.Key)
@@ -287,16 +307,13 @@ func (f LabelFilter) MatchesLabels(labels Labels) bool {
 		}
 		return false
 
-	case LabelFilterTypeNegation:
-		return !labels.HasKey(f.Key)
-
 	case LabelFilterTypeWildcard:
 		for _, t := range labels {
 			if !matchGlob(f.Key, t.Key) {
 				continue
 			}
 			// Key matches; check value if specified
-			if f.Value == "" || matchGlob(f.Value, t.Value) {
+			if !f.HasValue || matchGlob(f.Value, t.Value) {
 				return true
 			}
 		}

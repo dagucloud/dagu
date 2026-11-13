@@ -969,7 +969,10 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 		return nil, err
 	}
 	pg := pagination.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
-	labels := parseCommaSeparatedLabels(labelsParam)
+	labels, err := parseCommaSeparatedLabels(labelsParam)
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -2321,8 +2324,15 @@ func (a *API) GetDAGDetailsData(ctx context.Context, fileName string) (any, erro
 }
 
 // GetDAGHistoryData returns DAG execution history for SSE.
-// Identifier format: "fileName"
-func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, error) {
+// Identifier format: "fileName", or "fileName?includeBackfill=true" to list
+// the DAG's backfill runs too.
+func (a *API) GetDAGHistoryData(ctx context.Context, identifier string) (any, error) {
+	fileName, query, _ := strings.Cut(identifier, "?")
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DAG history query %q: %w", query, err)
+	}
+	includeBackfill := values.Get("includeBackfill") == "true"
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/dags/{fileName}/dag-runs",
 		dagName:  fileName,
@@ -2336,11 +2346,11 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		// The live feed mirrors the default page, which leaves out backfill
-		// runs.
+		// The live feed mirrors the first page, which leaves out backfill
+		// runs unless asked.
 		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{
 			Limit:           defaultHistoryLimit,
-			ExcludeBackfill: true,
+			ExcludeBackfill: !includeBackfill,
 		})
 	})
 }
@@ -2415,7 +2425,10 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 	if labelErr != nil {
 		return persis.DAGListOptions{}, labelErr
 	}
-	labels := parseCommaSeparatedLabels(labelQueryParam)
+	labels, labelErr := parseCommaSeparatedLabels(labelQueryParam)
+	if labelErr != nil {
+		return persis.DAGListOptions{}, labelErr
+	}
 
 	pg := pagination.NewPaginator(page, perPage)
 	workspaceParam := workspaceParamFromValues(params)

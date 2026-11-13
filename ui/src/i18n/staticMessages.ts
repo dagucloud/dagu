@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Locale } from '@/contexts/UserPreference';
+import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -3223,13 +3224,21 @@ const baseEnglish = {
   'No run in the last {days} days': 'No run in the last {days} days',
   'Last run failed': 'Last run failed',
   '{count} failures in a row': '{count} failures in a row',
+  'Multi-line or file': 'Multi-line or file',
+  'Value source': 'Value source',
+  '{name} loaded ({size} bytes)': '{name} loaded ({size} bytes)',
+  'Failed to read the selected file': 'Failed to read the selected file',
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
 
 // Base entries are listed last: an existing translation always wins over a
 // workspace module entry with the same key.
-const english = { ...workspaceMessages.en, ...baseEnglish } as const;
+const english = {
+  ...workspaceMessages.en,
+  ...backfillMessages.en,
+  ...baseEnglish,
+} as const;
 
 export type StaticMessage = keyof typeof english;
 
@@ -6362,6 +6371,10 @@ const baseChinese = {
   'No run in the last {days} days': '最近 {days} 天没有运行',
   'Last run failed': '上次运行失败',
   '{count} failures in a row': '连续 {count} 次失败',
+  'Multi-line or file': '多行或文件',
+  'Value source': '值来源',
+  '{name} loaded ({size} bytes)': '已加载 {name}（{size} 字节）',
+  'Failed to read the selected file': '无法读取所选文件',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -9616,15 +9629,21 @@ const baseJapanese = {
   'No run in the last {days} days': '過去 {days} 日間の実行なし',
   'Last run failed': '前回の実行が失敗',
   '{count} failures in a row': '{count} 回連続で失敗',
+  'Multi-line or file': '複数行またはファイル',
+  'Value source': '値の入力方法',
+  '{name} loaded ({size} bytes)': '{name} を読み込みました（{size} バイト）',
+  'Failed to read the selected file': '選択したファイルを読み込めませんでした',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {
   ...workspaceMessages['zh-CN'],
+  ...backfillMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
+  ...backfillMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 

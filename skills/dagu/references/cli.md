@@ -176,7 +176,7 @@ Flags:
 - `--last` — Relative time period (e.g. `7d`, `24h`, `1w`). Cannot combine with `--from`/`--to`
 - `--status` — Filter by status: `running`, `succeeded`, `failed`, `aborted`, `queued`, `waiting`, `rejected`, `not_started`, `partially_succeeded`
 - `--run-id` — Filter by run ID (partial match supported)
-- `--labels` — Filter by labels (comma-separated key=value or key-only, AND logic)
+- `--labels` — Filter by labels, comma-separated with AND logic: `key`, `key=value`, globs with `*` and `?`, and `!` to negate any term (e.g., `env=prod,!canary`). An invalid term is an error
 - `--tags` — Deprecated alias for `--labels`
 - `--format/-f` — Output format: `table` (default), `json`, `csv`
 - `--limit/-l` — Max results (default 100, max 1000)

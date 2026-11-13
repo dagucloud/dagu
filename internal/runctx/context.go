@@ -155,6 +155,7 @@ type contextOptions struct {
 	inheritedEnvs      []cmnvalue.EnvEntry
 	defaultSecretEnvs  []string
 	secretEnvs         []string
+	maskedSecrets      map[string]string
 	profileDefaults    []string
 	profileDefaultSec  []string
 	profileSelected    []string
@@ -322,6 +323,14 @@ func WithDefaultSecrets(secrets []string) ContextOption {
 func WithSecrets(secrets []string) ContextOption {
 	return func(o *contextOptions) {
 		o.secretEnvs = secrets
+	}
+}
+
+// WithMaskedSecrets sets secret values that are masked in output but are not
+// environment variables, keyed by a label that is not a variable name.
+func WithMaskedSecrets(values map[string]string) ContextOption {
+	return func(o *contextOptions) {
+		o.maskedSecrets = values
 	}
 }
 
@@ -498,6 +507,7 @@ func NewContext(
 	if len(secretEnvs) > 0 {
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
+	scope = scope.WithMaskedSecrets(options.maskedSecrets)
 
 	// Fields the caller cannot set through an option, because they are derived
 	// from the required arguments or from the environment layering above.

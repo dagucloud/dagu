@@ -34,7 +34,7 @@ import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useDockCommands, useDockFrame } from '../dock/DockContext';
 import { DOCK_TAB_LABELS } from '../dock/DockTabStrip';
 import { dockTabBodies } from '../dock/tabs';
-import { WORKFLOW_TABS } from '../panel/WorkflowTabsPanel';
+import { workflowTabsOf } from '../panel/WorkflowTabsPanel';
 import { useSettingsLeaveGuard } from '../settings/useSettingsLeaveGuard';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 
@@ -177,7 +177,7 @@ export function WorkflowCommands({
         run: () => dock.setTab(tab, { user: true }),
       });
     }
-    for (const tab of WORKFLOW_TABS) {
+    for (const tab of workflowTabsOf(dag)) {
       list.push({
         id: `workflow-tab:${tab.id}`,
         label: ts('Workflow > {tab}', { tab: ts(tab.label) }),
@@ -254,7 +254,7 @@ export function WorkflowCommands({
     return list;
   }, [
     canManageWebhooks,
-    dag.steps,
+    dag,
     dock,
     frame.tabs,
     guard,

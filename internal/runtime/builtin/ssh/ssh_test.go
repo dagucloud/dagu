@@ -746,7 +746,7 @@ func TestNewClient_WithBastionConfig(t *testing.T) {
 		},
 	}
 
-	client, err := NewClient(cfg)
+	client, err := NewClient(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 
@@ -1268,7 +1268,7 @@ func TestSelectSSHAuthMethod_Password(t *testing.T) {
 		Password: "testpassword",
 	}
 
-	authMethod, err := selectSSHAuthMethod(cfg)
+	authMethod, err := selectSSHAuthMethod(context.Background(), cfg.SSHAuth)
 	require.NoError(t, err)
 	require.NotNil(t, authMethod)
 }
@@ -1286,7 +1286,7 @@ func TestSelectSSHAuthMethod_NoAuth(t *testing.T) {
 		// Empty - no auth method specified
 	}
 
-	_, err := selectSSHAuthMethod(cfg)
+	_, err := selectSSHAuthMethod(context.Background(), cfg.SSHAuth)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no SSH key specified")
 }
@@ -1300,7 +1300,7 @@ func TestSelectBastionAuthMethod_Password(t *testing.T) {
 		Password: "bastionpass",
 	}
 
-	authMethod, err := selectBastionAuthMethod(bastion)
+	authMethod, err := selectBastionAuthMethod(context.Background(), bastion.SSHAuth)
 	require.NoError(t, err)
 	require.NotNil(t, authMethod)
 }
@@ -1319,7 +1319,7 @@ func TestSelectBastionAuthMethod_NoAuth(t *testing.T) {
 		// No key, no password
 	}
 
-	_, err := selectBastionAuthMethod(bastion)
+	_, err := selectBastionAuthMethod(context.Background(), bastion.SSHAuth)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no authentication method available for bastion")
 }
@@ -1373,15 +1373,19 @@ func TestSSHAcceptsDeclaredKeys(t *testing.T) {
 	t.Parallel()
 
 	config := map[string]any{
-		"host": "example.com",
-		"user": "me",
-		"port": 22,
+		"host":       "example.com",
+		"user":       "me",
+		"port":       22,
+		"key":        map[string]any{"secret": "ssh/key"},
+		"password":   map[string]any{"secret": "ssh/password"},
+		"passphrase": "literal",
 		"bastion": map[string]any{
-			"host":     "jump.example.com",
-			"port":     22,
-			"user":     "ops",
-			"key":      "/path/to/key",
-			"password": "secret",
+			"host":       "jump.example.com",
+			"port":       22,
+			"user":       "ops",
+			"key":        "/path/to/key",
+			"password":   "secret",
+			"passphrase": map[string]any{"secret": "ssh/jump-passphrase"},
 		},
 	}
 

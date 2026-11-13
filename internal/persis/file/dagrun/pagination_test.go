@@ -90,11 +90,10 @@ func (s *oracleSeed) update(t *testing.T, name, id string, status ir.Status) {
 }
 
 // expected lists the seeded runs matching query in list order.
-func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
-	labelFilters := make([]ir.LabelFilter, 0, len(query.Labels))
-	for _, label := range query.Labels {
-		labelFilters = append(labelFilters, ir.ParseLabelFilter(label))
-	}
+func (s *oracleSeed) expected(t *testing.T, query persis.DAGRunStatusQuery) []string {
+	t.Helper()
+	labelFilters, err := ir.ParseLabelFilters(query.Labels)
+	require.NoError(t, err)
 	var matched []seededRun
 	for _, run := range s.runs {
 		labels := ir.NewLabels(run.labels)
@@ -242,7 +241,7 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 	}
 
 	for filterName, filter := range filters {
-		want := seed.expected(filter)
+		want := seed.expected(t, filter)
 		require.NotEmpty(t, want, filterName)
 		for tuningName, tuning := range tunings {
 			for _, limit := range []int{0, 3, 100} {
@@ -280,7 +279,7 @@ func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(broken, "dag-runs"), nil, 0o600))
 
 	query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}}
-	require.Equal(t, seed.expected(query), listAll(t, seed.th.Backend, query))
+	require.Equal(t, seed.expected(t, query), listAll(t, seed.th.Backend, query))
 	if runtime.GOOS != "windows" {
 		_, err := seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{})
 		require.Error(t, err)
@@ -385,4 +384,31 @@ func TestNextRunGroup(t *testing.T) {
 		{"dag-run_20260301_000000Z_a"},
 		{},
 	}, groups)
+}
+
+// An invalid label filter fails even when no DAG directory is read: with no
+// runs at all, and with every DAG excluded.
+func TestQueryStatusesRejectsInvalidLabelFilter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NoRuns", func(t *testing.T) {
+		t.Parallel()
+		th := setupTestRepository(t)
+
+		_, err := th.Backend.QueryStatuses(th.Context, persis.DAGRunStatusQuery{Labels: []string{"env==prod"}})
+		require.ErrorIs(t, err, ir.ErrInvalidLabelFilter)
+	})
+
+	t.Run("AllExcluded", func(t *testing.T) {
+		t.Parallel()
+		th := setupTestRepository(t)
+		dag := th.DAG("excluded-dag")
+		th.CreateAttemptWithDAG(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "run-1", ir.Succeeded, dag.DAG)
+
+		_, err := th.Backend.QueryStatuses(th.Context, persis.DAGRunStatusQuery{
+			Labels:          []string{"env==prod"},
+			ExcludeDAGNames: []string{"excluded-dag"},
+		})
+		require.ErrorIs(t, err, ir.ErrInvalidLabelFilter)
+	})
 }

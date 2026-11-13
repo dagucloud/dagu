@@ -297,6 +297,44 @@ describe('DAGRuns page', () => {
     expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
   });
 
+  // A backfill links to its runs: the list asks for them from the backfill's
+  // start on, without the page's filters and views, until the scope is
+  // cleared.
+  it('lists the runs of a backfill that the URL names', async () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
+
+    expect(lastRunQuery()).toEqual({
+      remoteNode: 'local',
+      backfillId: 'bf123456',
+      limit: 100,
+      workspace: 'all',
+    });
+    expect(
+      screen.queryByPlaceholderText('Filter by workflow name...')
+    ).toBeNull();
+    expect(screen.getByRole('link', { name: 'bf123456' })).toHaveAttribute(
+      'href',
+      '/backfills/bf123456'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all runs' }));
+    await waitFor(() =>
+      expect(locationSearchParams().has('backfillId')).toBe(false)
+    );
+    expect(lastRunQuery()['backfillId']).toBeUndefined();
+  });
+
+  // A backfill page links to its runs on the backfill's node, whatever
+  // node the app bar selects.
+  it('lists the runs of a backfill on the node that the link names', () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456&remoteNode=edge');
+
+    expect(lastRunQuery()).toMatchObject({
+      remoteNode: 'edge',
+      backfillId: 'bf123456',
+    });
+  });
+
   it('shows no service DAG section when no DAG is one', () => {
     renderPage();
 

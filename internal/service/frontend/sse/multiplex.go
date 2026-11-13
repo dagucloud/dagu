@@ -287,7 +287,7 @@ func (m *Multiplexer) wakeDAGFileTopics(topicType TopicType, fileName string) {
 	var topics []*multiplexTopic
 	for _, topic := range m.topics {
 		if topic != nil && topic.topicType == topicType &&
-			fileutil.TrimYAMLFileExtension(topic.identifier) == name {
+			fileutil.TrimYAMLFileExtension(topicDAGFile(topic.identifier)) == name {
 			topics = append(topics, topic)
 		}
 	}
@@ -295,6 +295,13 @@ func (m *Multiplexer) wakeDAGFileTopics(topicType TopicType, fileName string) {
 	for _, topic := range topics {
 		topic.requestPoll(nil)
 	}
+}
+
+// topicDAGFile returns the DAG file a DAG or DAG history topic names,
+// without the query of a history topic.
+func topicDAGFile(identifier string) string {
+	fileName, _, _ := strings.Cut(identifier, "?")
+	return fileName
 }
 
 func (m *Multiplexer) wakeTopicKey(key string) {

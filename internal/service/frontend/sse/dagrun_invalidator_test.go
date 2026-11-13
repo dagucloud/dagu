@@ -150,7 +150,7 @@ func TestDAGRunInvalidatorWakesDAGFileTopics(t *testing.T) {
 		mux.SetRefreshMode(topicType, TopicRefreshModeOnDemand)
 	}
 
-	woken := []string{"dag:test", "dag:test.yaml", "daghistory:test.yaml", "daghistory:test.YML"}
+	woken := []string{"dag:test", "dag:test.yaml", "daghistory:test.yaml", "daghistory:test.YML", "daghistory:test?includeBackfill=true"}
 	other := []string{"dag:other.yaml", "daghistory:other"}
 	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), append(woken, other...), 0)
 	require.NoError(t, err)
@@ -186,6 +186,42 @@ func TestDAGRunInvalidatorWakesDAGFileTopics(t *testing.T) {
 		}
 		return false
 	}, 200*time.Millisecond, 20*time.Millisecond)
+}
+
+// A backfill run's event wakes the topic of its backfill only.
+func TestDAGRunInvalidatorWakesBackfillTopic(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	var counts sync.Map
+	count := func(id string) int64 {
+		counter, ok := counts.Load(id)
+		if !ok {
+			return 0
+		}
+		return counter.(*atomic.Int64).Load()
+	}
+	mux.RegisterFetcher(TopicTypeBackfill, func(_ context.Context, identifier string) (any, error) {
+		counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+		counter.(*atomic.Int64).Add(1)
+		return nil, nil
+	})
+	mux.SetRefreshMode(TopicTypeBackfill, TopicRefreshModeOnDemand)
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), []string{"backfill:bf123456", "backfill:bf654321"}, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	event := eventstore.NewDAGRunEvent(
+		eventstore.Source{Service: eventstore.SourceServiceServer},
+		eventstore.TypeDAGRunSucceeded,
+		&ir.DAGRunStatus{Name: "etl", DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Succeeded, BackfillID: "bf123456"},
+		nil,
+	)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{event}, nil)
+
+	require.Eventually(t, func() bool { return count("bf123456") == 1 }, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return count("bf654321") != 0 }, 200*time.Millisecond, 20*time.Millisecond)
 }
 
 // An API write names a DAG file as its request did, with or without a YAML

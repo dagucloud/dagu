@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -57,7 +58,10 @@ type Dispatcher struct {
 	// A backfill whose DAG was renamed or deleted is cancelled. Nil assumes
 	// it has.
 	DAGExists func(ctx context.Context, record *Record) (bool, error)
-	Now       func() time.Time
+	// RetryWindow is how long after a run's creation the scheduler retries
+	// it under its DAG's retry policy. Zero retries no run.
+	RetryWindow time.Duration
+	Now         func() time.Time
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer
@@ -107,16 +111,21 @@ const (
 )
 
 func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
+	observed := d.now()
 	progress, err := d.Store.Progress(ctx, record.ID)
 	if err != nil {
 		return err
 	}
 	byslot := currentProgress(record, progress)
 
-	var pending []RecordSlot
+	var (
+		pending []RecordSlot
+		ended   []Progress
+	)
 	active, failed := 0, false
 	for _, slot := range record.Slots {
-		outcome, err := d.outcome(ctx, record, byslot[slot.At.UTC()])
+		event := byslot[slot.At.UTC()]
+		outcome, err := d.outcome(ctx, record, event, observed)
 		if err != nil {
 			return err
 		}
@@ -129,6 +138,22 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 			failed = true
 		case slotSucceeded, slotSettled:
 		}
+		if event.Kind == ProgressEnqueued && (outcome == slotSucceeded || outcome == slotFailed) {
+			kind := ProgressSucceeded
+			if outcome == slotFailed {
+				kind = ProgressFailed
+			}
+			ended = append(ended, Progress{Slot: slot.At, Kind: kind, RunID: event.RunID, Generation: record.Generation, At: observed})
+		}
+	}
+	// Recording how runs ended spares later reads from looking them up. A
+	// retry can queue a slot again while this tick runs; the tick then
+	// leaves the backfill to the next one, which reads the retry.
+	if len(ended) > 0 {
+		recorded, err := d.appendUnchanged(ctx, record, len(progress), ended, nil)
+		if err != nil || !recorded {
+			return err
+		}
 	}
 
 	if d.DAGExists != nil && len(pending) > 0 {
@@ -140,11 +165,12 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 			return d.cancelRemaining(ctx, record, pending)
 		}
 	}
+	seen := len(progress) + len(ended)
 	if failed && record.Options.OnFailure == OnFailureStop {
 		if active > 0 {
 			return nil
 		}
-		return d.stop(ctx, record, pending)
+		return d.finish(ctx, record, seen, StatusFailed, pending)
 	}
 	if len(pending) > 0 && active < record.Options.MaxConcurrency {
 		target, err := d.Target(ctx, record)
@@ -168,17 +194,90 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		if failed {
 			status = StatusFailed
 		}
-		return d.Store.End(ctx, record.ID, status, d.now())
+		return d.finish(ctx, record, seen, status, nil)
 	}
 	return nil
 }
 
-// outcome reads where a slot stands from its last progress event and, once
-// queued, from its run.
-func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress) (slotOutcome, error) {
+// finish ends the backfill with status, after marking the slots it did not
+// reach as not run, unless a retry queued a slot again since the tick read
+// the progress.
+func (d *Dispatcher) finish(ctx context.Context, record *Record, seen int, status Status, notRun []RecordSlot) error {
+	now := d.now()
+	events := make([]Progress, len(notRun))
+	for i, slot := range notRun {
+		events[i] = Progress{Slot: slot.At, Kind: ProgressNotRun, Generation: record.Generation, At: now}
+	}
+	_, err := d.appendUnchanged(ctx, record, seen, events, func() error {
+		return d.Store.End(ctx, record.ID, status, now)
+	})
+	return err
+}
+
+// appendUnchanged appends events to the backfill's progress and, with end
+// set, ends the backfill, provided the progress still holds the seen events
+// only. It reports whether it did. The record lock orders it with a retry
+// that queues a slot again: the retry's event follows what was appended
+// here, or keeps anything from being appended.
+func (d *Dispatcher) appendUnchanged(ctx context.Context, record *Record, seen int, events []Progress, end func() error) (bool, error) {
+	unlock, err := d.Store.LockRecord(ctx, record.ID)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	progress, err := d.Store.Progress(ctx, record.ID)
+	if err != nil || len(progress) != seen {
+		return false, err
+	}
+	if len(events) > 0 {
+		if err := d.Store.Append(ctx, record.ID, events...); err != nil {
+			return false, err
+		}
+	}
+	if end != nil {
+		if err := end(); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// retryStartGrace bounds how long a run that a retry queued again may stay
+// ended before the retry makes it active. Past it, the retry is taken to
+// have failed to start.
+const retryStartGrace = time.Minute
+
+// awaitsAutoRetry reports whether the DAG's retry policy will retry a failed
+// run: it has retries left, and the scheduler still scans it. The DAG's
+// retry policy applies to a backfill run before the backfill counts it.
+func awaitsAutoRetry(status *ir.DAGRunStatus, now time.Time, window time.Duration) bool {
+	if window <= 0 || status.Status != ir.Failed || status.AutoRetryCount >= status.AutoRetryLimit {
+		return false
+	}
+	return status.CreatedAt > 0 && now.Sub(time.UnixMilli(status.CreatedAt)) < window
+}
+
+// awaitsRetry reports whether a retry queued the slot's ended run again and
+// has not made it active yet. A retry queues the slot just before it does.
+func awaitsRetry(event Progress, status *ir.DAGRunStatus, now time.Time) bool {
+	finished, err := stringutil.ParseTime(status.FinishedAt)
+	return err == nil && !finished.IsZero() && finished.Before(event.At) && now.Sub(event.At) < retryStartGrace
+}
+
+// outcome reads where a slot stands from its last progress event and, while
+// its run has not been seen to end, from its run.
+func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress, now time.Time) (slotOutcome, error) {
 	switch event.Kind {
-	case ProgressSkipped, ProgressNotRun, ProgressCancelled:
+	case ProgressSkipped, ProgressCancelled:
 		return slotSettled, nil
+	case ProgressNotRun:
+		// A slot that a stopped backfill did not reach did not succeed,
+		// also once a retry opens the backfill again.
+		return slotFailed, nil
+	case ProgressSucceeded:
+		return slotSucceeded, nil
+	case ProgressFailed:
+		return slotFailed, nil
 	case ProgressEnqueued:
 	default:
 		return slotPending, nil
@@ -191,7 +290,8 @@ func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress
 		return slotPending, err
 	}
 	switch {
-	case status.Status.IsActive():
+	case status.Status.IsActive(), awaitsRetry(event, status, now),
+		awaitsAutoRetry(status, now, d.RetryWindow):
 		return slotActive, nil
 	case status.Status.IsSuccess():
 		return slotSucceeded, nil
@@ -273,21 +373,6 @@ func (d *Dispatcher) cancelRemaining(ctx context.Context, record *Record, pendin
 		return err
 	}
 	return d.Store.End(ctx, record.ID, StatusCancelled, now)
-}
-
-// stop marks the slots a stopped backfill did not reach and ends it failed.
-func (d *Dispatcher) stop(ctx context.Context, record *Record, pending []RecordSlot) error {
-	if len(pending) > 0 {
-		now := d.now()
-		events := make([]Progress, len(pending))
-		for i, slot := range pending {
-			events[i] = Progress{Slot: slot.At, Kind: ProgressNotRun, Generation: record.Generation, At: now}
-		}
-		if err := d.Store.Append(ctx, record.ID, events...); err != nil {
-			return err
-		}
-	}
-	return d.Store.End(ctx, record.ID, StatusFailed, d.now())
 }
 
 func (d *Dispatcher) now() time.Time {

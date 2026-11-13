@@ -392,6 +392,7 @@ func (w *referenceFieldWalker) walkSSH(path string, cfg *ir.SSHConfig, base Refe
 	add(path+".port", cfg.Port)
 	add(path+".key", cfg.Key)
 	add(path+".password", cfg.Password)
+	add(path+".passphrase", cfg.Passphrase)
 	add(path+".known_host_file", cfg.KnownHostFile)
 	add(path+".shell", cfg.Shell)
 	for _, arg := range cfg.ShellArgs {
@@ -403,6 +404,7 @@ func (w *referenceFieldWalker) walkSSH(path string, cfg *ir.SSHConfig, base Refe
 		add(path+".bastion.user", cfg.Bastion.User)
 		add(path+".bastion.key", cfg.Bastion.Key)
 		add(path+".bastion.password", cfg.Bastion.Password)
+		add(path+".bastion.passphrase", cfg.Bastion.Passphrase)
 	}
 }
 

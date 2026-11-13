@@ -73,6 +73,7 @@ import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { InlineLoadError } from '@/components/PageStates';
+import { SecretValueInput } from './SecretValueInput';
 
 type SecretResponse = components['schemas']['SecretResponse'];
 type CreateSecretRequest = components['schemas']['CreateSecretRequest'];
@@ -779,18 +780,13 @@ function SecretFormDialog({
               <Label htmlFor="secret-value">
                 <I18nText text={'Value'} />
               </Label>
-              <Input
+              <SecretValueInput
+                key={String(open)}
                 id="secret-value"
                 value={form.value}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    value: event.target.value,
-                  }))
+                onChange={(value) =>
+                  setForm((current) => ({ ...current, value }))
                 }
-                type="password"
-                autoComplete="new-password"
-                className="h-9"
               />
             </div>
           ) : null}
@@ -934,13 +930,11 @@ function RotateSecretDialog({
             <Label htmlFor="rotate-secret-value">
               <I18nText text={'Value'} />
             </Label>
-            <Input
+            <SecretValueInput
+              key={secret?.id ?? ''}
               id="rotate-secret-value"
               value={value}
-              onChange={(event) => setValue(event.target.value)}
-              type="password"
-              autoComplete="new-password"
-              className="h-9"
+              onChange={setValue}
             />
           </div>
           <DialogFooter>

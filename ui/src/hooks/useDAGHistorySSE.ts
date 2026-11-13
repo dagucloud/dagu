@@ -15,8 +15,12 @@ interface DAGHistorySSEResponse {
 export function useDAGHistorySSE(
   fileName: string,
   enabled: boolean = true,
-  remoteNode?: string
+  remoteNode?: string,
+  /** Also lists the backfill runs, which the feed leaves out by default. */
+  includeBackfill: boolean = false
 ): SSEState<DAGHistorySSEResponse> {
-  const endpoint = `/events/dags/${encodeURIComponent(fileName)}/dag-runs`;
+  const endpoint = `/events/dags/${encodeURIComponent(fileName)}/dag-runs${
+    includeBackfill ? '?includeBackfill=true' : ''
+  }`;
   return useSSE<DAGHistorySSEResponse>(endpoint, enabled, remoteNode);
 }

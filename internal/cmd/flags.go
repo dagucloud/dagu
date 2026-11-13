@@ -532,7 +532,7 @@ var (
 
 	historyLabelsFlag = commandLineFlag{
 		name:  "labels",
-		usage: "Filter by DAG labels, comma-separated with AND logic (e.g., 'prod,critical')",
+		usage: "Filter by DAG labels, comma-separated with AND logic: key, key=value, globs with * and ?, and ! to negate (e.g., 'env=prod,!canary')",
 	}
 
 	historyTagsFlag = commandLineFlag{

@@ -147,9 +147,24 @@ func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsReques
 }
 
 func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObject) (api.GetBackfillResponseObject, error) {
-	_, report, err := a.backfillReport(ctx, request.BackfillId)
+	item, err := a.backfillDetails(ctx, request.BackfillId)
 	if err != nil {
 		return nil, err
+	}
+	return api.GetBackfill200JSONResponse(item), nil
+}
+
+// GetBackfillData returns a backfill for SSE.
+// Identifier format: the backfill ID.
+func (a *API) GetBackfillData(ctx context.Context, id string) (any, error) {
+	return a.backfillDetails(ctx, id)
+}
+
+// backfillDetails reports one backfill with why it waits.
+func (a *API) backfillDetails(ctx context.Context, id string) (api.Backfill, error) {
+	_, report, err := a.backfillReport(ctx, id)
+	if err != nil {
+		return api.Backfill{}, err
 	}
 	item := toAPIBackfill(report, a.schedulerActive(ctx))
 	if a.queueStore != nil && a.procRepository != nil {
@@ -159,11 +174,11 @@ func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObj
 			Limit: a.config.QueueLimit,
 		}, a.config.Core.Location)
 		if err != nil {
-			return nil, err
+			return api.Backfill{}, err
 		}
 		item.Waiting = stringOrNil(wait)
 	}
-	return api.GetBackfill200JSONResponse(item), nil
+	return item, nil
 }
 
 // aliveRuns counts a queue's runs in progress on this server's processes.
@@ -397,6 +412,32 @@ func (a *API) latestBackfill(ctx context.Context, fileName string) (*api.LatestB
 	return &item, nil
 }
 
+// scopeToBackfill narrows a list of a backfill's runs to its DAG and, unless
+// the list names a range, to the runs created since the backfill was
+// submitted. The list then reaches runs from before today without scanning
+// the history of every DAG. A backfill without a record keeps the list as
+// it is.
+func (a *API) scopeToBackfill(ctx context.Context, query *persis.DAGRunListOptions) error {
+	if query.BackfillID == "" || a.backfillStore == nil {
+		return nil
+	}
+	record, err := a.backfillStore.Get(ctx, query.BackfillID)
+	if errors.Is(err, backfill.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if query.Name == "" && query.ExactName == "" {
+		query.ExactName = record.DAGName
+	}
+	if query.From.IsZero() && query.To.IsZero() {
+		// A run is listed by its creation to the second.
+		query.From = persis.NewUTC(record.CreatedAt.Truncate(time.Second))
+	}
+	return nil
+}
+
 // backfillFileName returns the API name of the DAG file a backfill records
 // by its path.
 func backfillFileName(record *backfill.Record) string {
@@ -478,6 +519,7 @@ func toAPIBackfill(report backfill.Report, schedulerRunning bool) api.Backfill {
 	return api.Backfill{
 		Id:             record.ID,
 		Dag:            record.DAGName,
+		FileName:       stringOrNil(backfillFileName(record)),
 		Status:         status,
 		SubmittedAt:    record.CreatedAt,
 		EndedAt:        timeOrNil(record.EndedAt),

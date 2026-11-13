@@ -45,3 +45,22 @@ func TestDAGCloneDeepCopiesKubernetesConfig(t *testing.T) {
 	assert.Equal(t, "100m", original.Kubernetes["resources"].(map[string]any)["requests"].(map[string]any)["cpu"])
 	assert.Equal(t, "/shared", original.Kubernetes["volume_mounts"].([]any)[0].(map[string]any)["mount_path"])
 }
+
+func TestDAGCloneDeepCopiesSSH(t *testing.T) {
+	t.Parallel()
+
+	original := &DAG{SSH: &SSHConfig{
+		Host:      "app",
+		ShellArgs: []string{"-e"},
+		Bastion:   &BastionConfig{Host: "jump"},
+	}}
+
+	cloned := original.Clone()
+	cloned.SSH.Host = "other"
+	cloned.SSH.ShellArgs[0] = "-x"
+	cloned.SSH.Bastion.Host = "other-jump"
+
+	assert.Equal(t, "app", original.SSH.Host)
+	assert.Equal(t, []string{"-e"}, original.SSH.ShellArgs)
+	assert.Equal(t, "jump", original.SSH.Bastion.Host)
+}

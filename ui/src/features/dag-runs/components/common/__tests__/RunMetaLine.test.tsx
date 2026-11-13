@@ -91,6 +91,27 @@ describe('RunMetaLine', () => {
     expect(screen.getByText('region=eu')).toBeInTheDocument();
   });
 
+  it('links the trigger of a backfill run to its backfill', () => {
+    render(
+      <MemoryRouter>
+        <RunMetaLine
+          dagRun={{
+            ...run,
+            triggerType: TriggerType.backfill,
+            triggerActor: undefined,
+            backfillId: 'bf123456',
+          }}
+        />
+      </MemoryRouter>
+    );
+
+    expect(
+      within(screen.getByTitle('Trigger')).getByRole('link', {
+        name: 'Backfill',
+      })
+    ).toHaveAttribute('href', '/backfills/bf123456');
+  });
+
   it('omits start and duration until a queued run starts', () => {
     render(
       <RunMetaLine

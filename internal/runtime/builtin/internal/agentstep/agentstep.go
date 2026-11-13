@@ -25,8 +25,11 @@ import (
 var (
 	// IdentifierPattern matches variable and ask.as names.
 	IdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	// FileNamePattern matches screenshot and profile names.
+	// FileNamePattern matches profile names.
 	FileNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	// ScreenshotNamePattern matches screenshot names: a letter or digit of any
+	// script, then letters, marks, digits, '.', '_', or '-'.
+	ScreenshotNamePattern = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{M}\p{N}._-]*$`)
 	// variableReferencePattern finds %name% references.
 	variableReferencePattern = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
 )
