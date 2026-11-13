@@ -274,6 +274,36 @@ func TestSelectedStepNodesOutputsReplaceMasked(t *testing.T) {
 	}
 }
 
+// A value supplied for a step's output variable replaces its captured output
+// too, so ${<id>.output} reads the value instead of the stored mask.
+func TestSelectedStepNodesOutputReplacesCaptured(t *testing.T) {
+	t.Parallel()
+
+	stored := "*******"
+	source := &ir.DAGRunStatus{
+		DAGRunID: "source",
+		Status:   ir.Succeeded,
+		Nodes: []*ir.Node{{
+			Step:          ir.Step{Name: "fetch"},
+			Status:        ir.NodeSucceeded,
+			OutputValue:   &stored,
+			MaskedOutputs: &ir.MaskedOutputs{Variables: []string{"RESULT"}, Captured: true},
+		}},
+	}
+	outputs := map[string]map[string]string{"fetch": {"RESULT": "real"}}
+
+	nodes, _, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, source, nil, outputs, nil)
+	require.NoError(t, err)
+	for _, node := range nodes {
+		if node.Step.Name == "fetch" {
+			require.NotNil(t, node.State.OutputValue)
+			require.Equal(t, "real", *node.State.OutputValue)
+			return
+		}
+	}
+	t.Fatal("expected the fetch node")
+}
+
 // outputsDAG has a step with an outputs contract whose name differs from its
 // id, a step with only a string-form output variable, a step without an id,
 // and the selected step.

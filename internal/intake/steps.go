@@ -461,6 +461,10 @@ func setNodeOutputs(node *runtime.NodeData, values map[string]string) error {
 				node.State.OutputVariables = &collections.SyncMap{}
 			}
 			node.State.OutputVariables.Store(name, name+"="+value)
+			// ${<id>.output} reads the captured output, which the value
+			// replaces too.
+			captured := value
+			node.State.OutputValue = &captured
 		}
 	}
 	node.State.MaskedOutputs = unmaskSuppliedOutputs(*node, published, values)

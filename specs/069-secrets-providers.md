@@ -124,7 +124,8 @@ receive `*******`; only the reads above are checked. When masking changed the
 name of a published output, or masked the published outputs as text, every
 published output of that step counts as masked. Outputs that masking did not
 change are reused unchanged, and a value supplied for an output of a carried
-step replaces the recorded one.
+step replaces the recorded one, including the captured output when it names
+the step's `output:` variable.
 
 A step whose preconditions are not met is skipped as before, unless a
 precondition reads a recorded output: a precondition decides on what it reads,
