@@ -98,7 +98,8 @@ that runs the step's command or script expands it from its environment:
   variable when no captured text is stored. A path under it reads that field
   of a JSON object.
 - `${NAME}`, `$NAME`, and `${env.NAME}` read an output variable when the value
-  under that name in the step's scope is the output variable.
+  under that name in the step's scope is the output variable. `${NAME.path}`
+  reads the part of it the path selects.
 
 Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, a name
@@ -113,8 +114,9 @@ variables are in scope, and `${steps.<id>.outputs.<name>}` does not resolve in
 it. A foreach body step reads outputs in its own scope, which holds the foreach
 step's output variables under its own `env:`.
 
-A program the step runs that reads an output variable from its environment
-receives `*******`; only the reads above are checked. When masking changed the
+A program the step runs that reads an output variable from its environment,
+and an executor that takes a variable by name, such as through `pass_env`,
+receive `*******`; only the reads above are checked. When masking changed the
 name of a published output, or masked the published outputs as text, every
 published output of that step counts as masked. Outputs that masking did not
 change are reused unchanged, and a value supplied for an output of a carried

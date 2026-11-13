@@ -29,7 +29,11 @@ func TestMaskedRead(t *testing.T) {
 		"config": {Output: &config, Masked: StepMasks{Output: []string{"token"}}},
 	}
 	restored := NewEnvScope(nil, false).
-		WithStepOutputs(map[string]string{"TOKEN": "*******", "REGION": "us"}, "fetch", "TOKEN")
+		WithStepOutputs(map[string]string{
+			"TOKEN":  "*******",
+			"REGION": "us",
+			"CONFIG": `{"token":"*******","region":"us"}`,
+		}, "fetch", "TOKEN", "CONFIG")
 	workflow := WorkflowField("run")
 	shell := ShellCommandField("run", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
 
@@ -59,6 +63,11 @@ func TestMaskedRead(t *testing.T) {
 		{name: "unmasked published output", raw: "deploy ${fetch.outputs.region}", field: workflow},
 		{name: "declared output", raw: "deploy ${steps.fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked declared output", raw: "deploy ${steps.fetch.outputs.region}", field: workflow},
+		// Executor config reads variables from a copy of the scope.
+		{name: "executor config variable", raw: "token=${TOKEN}", field: ExecutorConfigField("with.message"), want: "TOKEN"},
+		{name: "executor config unmasked variable", raw: "region=${REGION}", field: ExecutorConfigField("with.message")},
+		{name: "path into a masked variable", raw: "deploy ${CONFIG.token}", field: workflow, want: "CONFIG"},
+		{name: "unmasked path into a masked variable", raw: "deploy ${CONFIG.region}", field: workflow},
 		// A POSIX shell expands these itself from its environment.
 		{name: "shell variable", raw: `deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "shell parameter expansion", raw: `deploy "${TOKEN:-none}"`, field: shell, want: "TOKEN"},

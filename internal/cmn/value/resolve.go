@@ -6,6 +6,8 @@ package value
 import (
 	"context"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
 // resolver provides unified variable resolution across explicit variable maps,
@@ -33,14 +35,38 @@ func newResolver(ctx context.Context, opts *options) *resolver {
 	}
 }
 
-// lookupVariable searches the explicit variable maps for the given name.
+// lookupVariable searches the explicit variable maps for the given name and
+// records the read.
 func (r *resolver) lookupVariable(name string) (string, bool) {
+	val, ok := r.peekVariable(name)
+	if ok {
+		r.maskedReads.noteEntry(r.scopeEntry(name, val))
+	}
+	return val, ok
+}
+
+// peekVariable searches the explicit variable maps for the given name
+// without recording a read.
+func (r *resolver) peekVariable(name string) (string, bool) {
 	for _, vars := range r.variables {
 		if val, ok := vars[name]; ok {
 			return val, true
 		}
 	}
 	return "", false
+}
+
+// scopeEntry returns the scope entry that holds value under name, such as
+// the one an explicit variable map copied it from, which keeps its masked
+// mark.
+func (r *resolver) scopeEntry(name, value string) EnvEntry {
+	if r.maskedReads == nil || !r.scope.hasMaskedOutput() {
+		return EnvEntry{}
+	}
+	if entry, ok := r.scope.GetEntry(name); ok && entry.Value == value {
+		return entry
+	}
+	return EnvEntry{}
 }
 
 // lookupScopeNonOS searches the scope for a non-OS-sourced entry.
@@ -189,26 +215,33 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 	if !ok {
 		return "", false
 	}
-	return resolveJSONPath(ctx, varName, jsonStr, path)
+	value, ok := resolveJSONPath(ctx, varName, jsonStr, path)
+	// A path reads only the part of the variable it selects, which masking
+	// changed only where it holds the mask.
+	if ok && strings.Contains(value, masking.DefaultMaskString) {
+		r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
+	}
+	return value, ok
 }
 
 // resolveJSONSource looks up a variable's raw value for JSON path resolution.
 // Unlike resolve, this includes OS-sourced scope entries when expandOS is true,
 // because JSON path resolution needs the actual value regardless of source.
+// It records no read: the path decides what the reference reads.
 func (r *resolver) resolveJSONSource(name string) (string, bool) {
-	if val, ok := r.lookupVariable(name); ok {
+	if val, ok := r.peekVariable(name); ok {
 		return val, true
 	}
 	if r.expandOS {
 		if r.scope != nil {
-			if entry, ok := r.scope.GetEntry(name); ok {
-				r.maskedReads.noteEntry(entry)
-				return entry.Value, true
+			if val, ok := r.scope.Get(name); ok {
+				return val, true
 			}
 		}
 		return lookupProcessEnv(name)
 	}
-	return r.lookupScopeNonOS(name)
+	entry, ok := r.peekScopeNonOSEntry(name)
+	return entry.Value, ok
 }
 
 // replaceVars substitutes $VAR and ${VAR} patterns using all resolver sources.
