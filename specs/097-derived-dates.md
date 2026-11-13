@@ -2,9 +2,12 @@
 
 ## Status
 
-Partially implemented. Loading and validation are implemented, and
-conformance covers them through `dagu validate`. Runs do not resolve dates yet,
-and `${dates.NAME}` is not yet a supported reference.
+Partially implemented. Loading, validation, resolution for runs, and
+`${dates.NAME}` are implemented; conformance covers them through
+`dagu validate`, `dagu start`, sub-DAG runs, `parallel`, and `dagu retry`.
+Not yet implemented: the default slot of a run started without one, which
+until then resolves only the dates that need no window, and reading dates
+in `params[].eval`.
 
 ## Scope
 
@@ -162,6 +165,30 @@ resolve without a slot.
 
 A run's dates resolve once, when the run is created, and are recorded on the
 run. Every attempt reads the recorded values.
+
+`dagu start`, `dagu enqueue`, `dagu restart`, and the API's start and enqueue
+resolve the dates before the run exists, and refuse a run whose dates cannot
+resolve. A sub-DAG run resolves its own DAG's dates when it starts, and fails
+at start, naming the date, when one cannot resolve.
+
+### References
+
+`${dates.NAME}` is a Dagu-owned reference in the `dates` namespace of
+[Spec 003](003-value-resolution.md). It resolves wherever `${params.NAME}`
+does, except in the fields that resolve while the DAG loads, before a run's
+dates exist: `consts`, `params[].eval`, and the map form of
+`worker_selector`. There the reference is preserved.
+
+- A single entry inserts its formatted text.
+- A list inserts a JSON array of its values, such as
+  `["2026-11-06","2026-11-07","2026-11-08"]`, so `parallel: ${dates.days}`
+  runs one item per date.
+- A `dates` param stays addressable as `${params.dates}`.
+- Outside a run, as in `dagu validate`, a declared name is unavailable and is
+  preserved with a runtime-only notice. A name the DAG does not declare is a
+  defect.
+- Dates are not environment variables. A DAG passes the ones a script needs
+  through `env`.
 
 ## Errors
 
