@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
 
 const (
@@ -73,16 +73,15 @@ func (s *ArtifactStore) WriteScreenshot(label string, data []byte) (string, erro
 	if s.sequence == 0 {
 		s.sequence = lastScreenshotSequence(dir)
 	}
-	label = fileutil.NormalizeFilename(strings.TrimSuffix(label, screenshotExt), "_")
-	if len(label) > fileutil.MaxSafeNameLength {
-		label = label[:fileutil.MaxSafeNameLength]
-		for !utf8.ValidString(label) {
-			label = label[:len(label)-1]
-		}
+	if strings.EqualFold(filepath.Ext(label), screenshotExt) {
+		label = label[:len(label)-len(screenshotExt)]
 	}
+	label = stringutil.TruncUTF8Bytes(label, fileutil.MaxSafeNameLength)
 	for {
 		s.sequence++
-		name := fmt.Sprintf("%02d-%s%s", s.sequence, label, screenshotExt)
+		// Windows reserves device names only as a whole stem, so the
+		// sequence prefix is normalized together with the label.
+		name := fileutil.NormalizeFilename(fmt.Sprintf("%02d-%s", s.sequence, label), "_") + screenshotExt
 		file, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, artifactFileMode) //nolint:gosec // name is built from a sanitized label
 		if errors.Is(err, fs.ErrExist) {
 			continue
