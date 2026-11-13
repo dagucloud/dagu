@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -47,4 +48,30 @@ func TestRenderBackfillPlan(t *testing.T) {
 	assert.Contains(t, text, "...")
 	assert.Contains(t, text, "2026-10-06 02:00")
 	assert.True(t, strings.HasSuffix(text, "Warning: No scheduler is running.\n"))
+}
+
+// The loads line covers the slots the plan runs, not those it skips.
+func TestLoadsRangeCountsRuns(t *testing.T) {
+	t.Parallel()
+
+	slot := func(day int, action backfill.Action) backfill.PlanSlot {
+		return backfill.PlanSlot{
+			At:     time.Date(2026, 10, day, 2, 0, 0, 0, time.UTC),
+			Action: action,
+			Dates:  []ir.DateValue{{Name: "target_day", Value: fmt.Sprintf("2026-10-%02d", day-1)}},
+		}
+	}
+	plan := backfill.Plan{Slots: []backfill.PlanSlot{
+		slot(2, backfill.ActionSkipSucceeded),
+		slot(3, backfill.ActionRun),
+		slot(4, backfill.ActionRun),
+		slot(5, backfill.ActionSkipActive),
+	}}
+	from, to := loadsRange(plan, "target_day")
+	assert.Equal(t, "2026-10-02", from)
+	assert.Equal(t, "2026-10-03", to)
+
+	plan.Slots = plan.Slots[:1]
+	from, to = loadsRange(plan, "target_day")
+	assert.Empty(t, from+to, "a plan that runs nothing loads nothing")
 }

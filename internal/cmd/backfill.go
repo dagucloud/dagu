@@ -741,11 +741,11 @@ func renderBackfillPlan(out io.Writer, plan backfill.Plan, options backfill.Opti
 	return nil
 }
 
-// loadsRange returns the first and last value of entry over the plan's
-// slots, or empty strings when the slots have none.
+// loadsRange returns the first and last value of entry over the slots the
+// plan runs, or empty strings when they have none.
 func loadsRange(plan backfill.Plan, entry string) (string, string) {
 	var values []string
-	for _, slot := range plan.Slots {
+	for _, slot := range plan.Runs() {
 		for _, date := range slot.Dates {
 			if date.Name != entry {
 				continue

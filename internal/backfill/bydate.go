@@ -4,6 +4,7 @@
 package backfill
 
 import (
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -12,6 +13,16 @@ import (
 // maxBoundarySteps bounds the fires walked to find either end of a range of
 // dates, beyond the first estimate.
 const maxBoundarySteps = 100000
+
+// boundarySlack widens both ends of a range found by walking fires. A month
+// or year shift that clamps to a shorter month can move an entry's date back
+// by up to three days from one fire to the next, so a walk can stop before
+// the last fire whose date is in the range.
+const boundarySlack = 4 * 24 * time.Hour
+
+// maxBoundaryFires bounds the fires a range of dates checks beyond the slots
+// it may select, for the widened ends.
+const maxBoundaryFires = 200000
 
 // slotDateContext is what the run of the slot at resolves its dates from,
 // as that run resolves them.
@@ -45,14 +56,32 @@ type dateSpan struct {
 	ok          bool
 }
 
-func (r PlanRequest) entrySpan(at time.Time) (dateSpan, error) {
+// entryDates returns the calendar dates of the entry's values for the slot
+// at, each in the entry's zone.
+func (r PlanRequest) entryDates(at time.Time) ([]ir.CivilDate, error) {
 	instants, err := ir.ResolveDateInstants(r.DAG.Dates, r.By, slotDateContext(r.Schedule, at))
+	if err != nil {
+		return nil, err
+	}
+	dates := make([]ir.CivilDate, len(instants))
+	for i, t := range instants {
+		dates[i] = ir.DateOf(t)
+	}
+	return dates, nil
+}
+
+// inRange reports whether a date falls in [FromDate, ToDate].
+func (r PlanRequest) inRange(d ir.CivilDate) bool {
+	return !d.Before(r.FromDate) && (r.ToDate.IsZero() || !r.ToDate.Before(d))
+}
+
+func (r PlanRequest) entrySpan(at time.Time) (dateSpan, error) {
+	dates, err := r.entryDates(at)
 	if err != nil {
 		return dateSpan{}, err
 	}
 	var span dateSpan
-	for _, t := range instants {
-		d := ir.DateOf(t)
+	for _, d := range dates {
 		if !span.ok || d.Before(span.first) {
 			span.first = d
 		}
@@ -66,8 +95,10 @@ func (r PlanRequest) entrySpan(at time.Time) (dateSpan, error) {
 
 // slotsByDate returns the fires before liveFrom whose entry has a value
 // dated in [FromDate, ToDate]. An entry's dates move forward with its slot,
-// so the selected fires form one unbroken run: each end is found by stepping
-// fire by fire from an estimate, and the run is then checked slot by slot.
+// apart from short clamps at month ends, so the selected fires form one run
+// but for its ends: each end is found by stepping fire by fire from an
+// estimate and widened by boundarySlack, and every fire in between is then
+// checked value by value.
 func slotsByDate(req PlanRequest, liveFrom time.Time) ([]time.Time, error) {
 	sched := req.Schedule
 	fromStart := time.Date(req.FromDate.Year, req.FromDate.Month, req.FromDate.Day, 0, 0, 0, 0, sched.Location)
@@ -82,19 +113,28 @@ func slotsByDate(req PlanRequest, liveFrom time.Time) ([]time.Time, error) {
 			return nil, err
 		}
 	}
-	fires, more := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, first, last, maxSlotsOf(req.MaxSlots))
+	first = first.Add(-boundarySlack)
+	if widened := last.Add(boundarySlack); widened.Before(liveFrom) {
+		last = widened
+	} else {
+		last = liveFrom.Add(-time.Nanosecond)
+	}
+	fires, more := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, first, last, maxSlotsOf(req.MaxSlots)+maxBoundaryFires)
 	if more {
 		return nil, invalid("the range has more than %d slots, the bound set by scheduler.backfill_max_slots", maxSlotsOf(req.MaxSlots))
 	}
-	selected := fires[:0]
+	var selected []time.Time
 	for _, at := range fires {
-		span, err := req.entrySpan(at)
+		dates, err := req.entryDates(at)
 		if err != nil {
 			return nil, err
 		}
-		if span.ok && !span.last.Before(req.FromDate) && (req.ToDate.IsZero() || !req.ToDate.Before(span.first)) {
+		if slices.ContainsFunc(dates, req.inRange) {
 			selected = append(selected, at)
 		}
+	}
+	if len(selected) > maxSlotsOf(req.MaxSlots) {
+		return nil, invalid("%d slots exceed %d, the bound set by scheduler.backfill_max_slots", len(selected), maxSlotsOf(req.MaxSlots))
 	}
 	return selected, nil
 }

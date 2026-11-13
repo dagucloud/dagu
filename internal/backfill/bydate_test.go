@@ -120,3 +120,33 @@ func TestPlanCarriesDates(t *testing.T) {
 	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-10-01"}}, plan.Slots[0].Dates)
 	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-10-02"}}, plan.Slots[1].Dates)
 }
+
+// A list matches by its values, not by the span between them.
+func TestSlotsByDateListValues(t *testing.T) {
+	t.Parallel()
+
+	weekly := dailyAt(t, "0 2 * * 1")
+	dag := datedDAG(weekly, ir.DateSpec{Name: "days", Each: "2d"})
+	// The slot of Monday, November 9 lists November 2, 4, 6, and 8.
+	_, rng := resolveBy(t, dag, weekly, backfill.Request{By: "days", From: "2026-11-07", To: "2026-11-07"})
+	assert.Empty(t, rng.Slots)
+
+	_, rng = resolveBy(t, dag, weekly, backfill.Request{By: "days", From: "2026-11-08", To: "2026-11-08"})
+	assert.Equal(t, []time.Time{time.Date(2026, 11, 9, 2, 0, 0, 0, time.UTC)}, rng.Slots)
+}
+
+// A month shift clamps at a month end, so a date can move back from one fire
+// to the next; every fire whose date is in the range is still selected.
+func TestSlotsByDateAcrossMonthClamp(t *testing.T) {
+	t.Parallel()
+
+	hourly := dailyAt(t, "0 * * * *")
+	dag := datedDAG(hourly, ir.DateSpec{Name: "due", Shift: []string{"+1mo", "+2h"}})
+	_, rng := resolveBy(t, dag, hourly, backfill.Request{By: "due", From: "2026-02-28", To: "2026-02-28"})
+
+	// January 27 22:00 to 28 21:00, then 00:00 to 21:00 of January 29, 30,
+	// and 31, which clamp to February 28.
+	require.Len(t, rng.Slots, 24+3*22)
+	assert.Equal(t, time.Date(2026, 1, 27, 22, 0, 0, 0, time.UTC), rng.Slots[0])
+	assert.Equal(t, time.Date(2026, 1, 31, 21, 0, 0, 0, time.UTC), rng.Slots[len(rng.Slots)-1])
+}
