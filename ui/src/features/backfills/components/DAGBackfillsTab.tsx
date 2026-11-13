@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Link } from 'react-router-dom';
-import { LoadErrorState, PageLoading } from '@/components/PageStates';
+import { LoadErrorState } from '@/components/PageStates';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import RelativeTime from '@/components/ui/relative-time';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
@@ -44,18 +44,7 @@ export function DAGBackfillsTab({
     READ_ONCE
   );
 
-  if (!data) {
-    return error ? (
-      <LoadErrorState
-        title={ts('Failed to load the backfills')}
-        error={error}
-        onRetry={() => void mutate()}
-      />
-    ) : (
-      <PageLoading />
-    );
-  }
-  const backfills = [...data.backfills].reverse();
+  const backfills = data ? [...data.backfills].reverse() : [];
   return (
     <div className="flex flex-col gap-6">
       <DAGSlotsView fileName={fileName} canExecute={canExecute} />
@@ -70,7 +59,17 @@ export function DAGBackfillsTab({
             }}
           />
         </div>
-        {backfills.length === 0 ? (
+        {!data ? (
+          error ? (
+            <LoadErrorState
+              title={ts('Failed to load the backfills')}
+              error={error}
+              onRetry={() => void mutate()}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">{ts('Loading...')}</p>
+          )
+        ) : backfills.length === 0 ? (
           <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">
               {ts('No backfills yet.')}
