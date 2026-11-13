@@ -459,8 +459,12 @@ func startSignalRun(t *testing.T, commandName string, maxCleanup int, edits ...f
 		progress: filepath.Join(dir, "progress"),
 		pid:      filepath.Join(dir, "pid"),
 	}
+	// The timeout ends a run that outlives the test, as one the server starts
+	// after the test gave up, and the probe stays quiet once its directory is
+	// gone, so such a run cannot fill the disk with its log.
 	yaml := fmt.Sprintf(`
 type: graph
+timeout_sec: 300
 max_clean_up_time_sec: %d
 steps:
   - id: probe
@@ -477,7 +481,7 @@ steps:
       trap 'cleanup INT' INT
       printf '%%s' "$$" > %s
       printf ready > %s
-      while :; do printf x >> %s; sleep 0.05; done
+      while :; do { printf x >> %s; } 2>/dev/null; sleep 0.05; done
 `, maxCleanup, test.PosixQuote(run.stopped), test.PosixQuote(run.release), test.PosixQuote(run.cleaned), test.PosixQuote(run.pid), test.PosixQuote(ready), test.PosixQuote(run.progress))
 	for _, edit := range edits {
 		yaml = edit(yaml)

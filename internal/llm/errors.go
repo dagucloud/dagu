@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -62,6 +63,20 @@ func (e *APIError) Unwrap() error {
 	return e.Err
 }
 
+// Reason returns the provider's explanation of the failure: the first
+// non-blank message of a JSON error body (`error.message`, a string `error`,
+// or a top-level `message`), else the body as received. The text is returned
+// as written, so a caller can mask it before shortening it.
+func (e *APIError) Reason() string {
+	_, messages, _ := apiErrorDetails(e.Message)
+	for _, message := range messages {
+		if strings.TrimSpace(message) != "" {
+			return message
+		}
+	}
+	return e.Message
+}
+
 // NewAPIError creates a new APIError with the given parameters.
 func NewAPIError(provider string, statusCode int, message string) *APIError {
 	return &APIError{
@@ -78,7 +93,10 @@ func classifyAPIError(statusCode int, body string) error {
 		return nil
 	}
 
-	codes, messages := apiErrorDetails(body)
+	codes, messages, isJSON := apiErrorDetails(body)
+	if !isJSON {
+		messages = []string{body}
+	}
 	for _, code := range codes {
 		switch normalizeAPIErrorText(code) {
 		case "context_length_exceeded", "context_window_exceeded", "prompt_too_long", "input_too_long":
@@ -101,14 +119,24 @@ func classifyAPIError(statusCode int, body string) error {
 	return nil
 }
 
-func apiErrorDetails(body string) (codes []string, messages []string) {
+// apiErrorDetails reads the codes and messages of a JSON error body. isJSON
+// is false when the body is not exactly one JSON value, including when text
+// follows it; such a body carries no structured details.
+func apiErrorDetails(body string) (codes []string, messages []string, isJSON bool) {
+	// Numbers stay as written so a value Go cannot hold, such as 1e400,
+	// does not turn a JSON body into plain text.
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.UseNumber()
 	var decoded any
-	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
-		return nil, []string{body}
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, nil, false
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return nil, nil, false
 	}
 	value, ok := decoded.(map[string]any)
 	if !ok {
-		return nil, nil
+		return nil, nil, true
 	}
 	appendFields := func(fields map[string]any) {
 		for _, key := range []string{"code", "type", "status"} {
@@ -127,7 +155,7 @@ func apiErrorDetails(body string) (codes []string, messages []string) {
 	case string:
 		messages = append(messages, apiErr)
 	}
-	return codes, messages
+	return codes, messages, true
 }
 
 func normalizeAPIErrorText(value string) string {

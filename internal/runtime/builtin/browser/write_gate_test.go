@@ -58,7 +58,7 @@ func TestRehearsalStopsAtTheFirstWrite(t *testing.T) {
 	require.NotNil(t, run.launcher.launches[0].WriteGate)
 	assert.Equal(t, writegate.ModeRehearse, run.launcher.launches[0].WriteGate.Mode)
 	assert.Equal(t, []string{"Click the Save button"}, run.engine.actInstructions(), "nothing runs after the write")
-	assert.Equal(t, map[string]any{"order": "A-100"}, execution.exec.GetOutputs(), "what ran before is published")
+	assert.Equal(t, map[string]any{"order": "A-100"}, extracted(execution.exec), "what ran before is published")
 	assert.True(t, run.engine.closed)
 
 	session := execution.exec.GetAgentSession()
@@ -252,6 +252,27 @@ func TestRehearsalStopsAtAWriteAfterTheLastOperation(t *testing.T) {
 	require.NotNil(t, run.readReport().WouldSend)
 }
 
+// A confirm the step did not expect while the last downloads settle fails
+// it even where the rehearsal would have stopped at a write sent meanwhile;
+// the write keeps its commit point and stays reported.
+func TestUnexpectedConfirmAfterTheLastOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.lateDownloadWrites = []writegate.Event{blockedSave}
+	run.engine.lateDialogs = []dialog{{Type: "confirm", Message: "Leave without saving?", Dismissed: true}}
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "rehearse", "on_confirm": "fail"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[0] act failed: confirm dialog "Leave without saving?" was not expected`)
+	status, _ := execution.exec.DetermineNodeStatus()
+	assert.NotEqual(t, ir.NodePartiallySucceeded, status)
+	points := run.commitPoints()
+	require.Len(t, points, 1)
+	assert.Equal(t, "Click the Save button", points[0].Operation)
+	assert.Len(t, run.readReport().Writes, 1)
+}
+
 // A step cancelled after the gate decided a write still reports it.
 func TestCancelledStepReportsItsWrites(t *testing.T) {
 	t.Parallel()
@@ -371,6 +392,21 @@ func TestRecordFailsAWriteAfterTheLastOperation(t *testing.T) {
 	run := newTestRun(t, pageModel(nil))
 	run.engine.handle.WriteGate = runningGate()
 	run.engine.downloadWrites = []writegate.Event{blockedSave}
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "record"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] act failed: write_blocked")
+	require.Len(t, run.commitPoints(), 1)
+}
+
+// A write nothing approved, sent during a download wait that then failed,
+// is still the operation's failure, not the download's.
+func TestBlockedWriteBeatsFailedDownload(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.downloadWrites = []writegate.Event{blockedSave}
+	run.engine.downloadErr = errors.New("download of deals.csv did not finish within 2m0s")
 	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "record"}, "do": [{"act": "Click the Save button"}]}`, nil)
 
 	require.ErrorContains(t, execution.err, "do[0] act failed: write_blocked")
@@ -625,4 +661,47 @@ func TestAskSettlesDownloadsBeforeItWaits(t *testing.T) {
 	require.NoError(t, waiting.err)
 
 	assert.Equal(t, []string{"goto:completed", "act:completed", "download:completed", "write_gate:waiting"}, eventNames(waiting.exec.GetAgentSession()))
+}
+
+// Where the browser cannot outlive the step process, write_gate ask fails
+// before starting a browser, and the error names the alternative: signing
+// the profile in once in a headed browser session.
+func TestUnsupportedWriteGateAsk(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.noAsk = true
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "ask", "profile": "books"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
+	require.ErrorContains(t, execution.err, `sign the profile in once in a headed browser session instead: dagu browser session open "https://books.example.com/deals" --headed --profile books`)
+	assert.Empty(t, run.launcher.launches)
+}
+
+// A write the gate kept back decides the step before the page it left does:
+// a rehearsal that stops at a write sent on a refused page partially
+// succeeds and keeps its commit point, whether an operation follows or not.
+func TestRehearsalStopsAtAWriteOnARefusedPage(t *testing.T) {
+	t.Parallel()
+
+	for name, steps := range map[string]string{
+		"last":     `{"browser": {"write_gate": "rehearse"}, "url": "https://shop.example.com/cart", "do": [{"act": "Click the Save button", "when": "The page asks to verify"}]}`,
+		"followed": `{"browser": {"write_gate": "rehearse"}, "url": "https://shop.example.com/cart", "do": [{"act": "Click the Save button", "when": "The page asks to verify"}, {"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t, pageModel(nil, "The page asks to verify"))
+			run.engine.handle.WriteGate = runningGate()
+			run.engine.outcome = cloudflareCheck
+			run.engine.downloadWrites = []writegate.Event{blockedSave}
+			execution := run.execute(steps, nil)
+			require.NoError(t, execution.err)
+
+			status, _ := execution.exec.DetermineNodeStatus()
+			assert.Equal(t, ir.NodePartiallySucceeded, status)
+			require.NotNil(t, run.readReport().WouldSend)
+			require.Len(t, run.commitPoints(), 1)
+		})
+	}
 }

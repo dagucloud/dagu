@@ -19,6 +19,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
     paths:
       - "scripts/installer.cmd"
       - "scripts/installer.iss"
@@ -38,6 +39,7 @@ jobs:
   test-windows-installer:
     name: Test Windows installer
     runs-on: windows-latest
+    if: github.event.pull_request.draft != true
     timeout-minutes: 20
     steps:
       - name: Check out code

@@ -237,6 +237,44 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
 }
 
+// A backfill run of an old slot says nothing about a DAG's live state: its
+// failure opens no incident, and its success resolves none.
+func TestServiceIgnoresBackfillRuns(t *testing.T) {
+	store := newMemoryStore(t)
+	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
+	store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:   incidentmodel.PolicyScopeGlobal,
+		Enabled: true,
+		Policies: []incidentmodel.Policy{{
+			ProviderID:        provider.ID,
+			Enabled:           true,
+			ResolveOnRecovery: true,
+		}},
+	})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		_ = req.Body.Close()
+		return &http.Response{StatusCode: http.StatusAccepted, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}
+	svc := New(store, WithHTTPClient(client))
+
+	live := failedEvent("daily", "run-1")
+	destinations := svc.NotificationDestinationsForEvent(live)
+	require.Len(t, destinations, 1)
+	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
+		Events: []chatbridge.NotificationEvent{live},
+	}, false))
+
+	backfillFailure := failedEvent("daily", "backfill-1a2b3c4d-0-20261001T020000Z")
+	backfillFailure.Status.BackfillID = "1a2b3c4d"
+	assert.Empty(t, svc.NotificationDestinationsForEvent(backfillFailure), "a failed backfill run opens no incident")
+
+	backfillSuccess := backfillFailure
+	backfillSuccess.Type = eventstore.TypeDAGRunSucceeded
+	backfillSuccess.Status = cloneStatus(backfillFailure.Status)
+	backfillSuccess.Status.Status = ir.Succeeded
+	assert.Empty(t, svc.NotificationDestinationsForEvent(backfillSuccess), "a backfill run leaves the live incident open")
+}
+
 func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	var (
 		requestsMu sync.Mutex

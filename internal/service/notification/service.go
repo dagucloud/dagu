@@ -501,6 +501,11 @@ func (s *Service) NotificationDestinationsForEvent(event chatbridge.Notification
 	if event.Status == nil || routeKey == "" {
 		return nil
 	}
+	// A backfill run sends no notice, so a backfill does not notify once
+	// per slot; a run waiting for a person is still announced.
+	if event.Status.BackfillID != "" && event.Type != eventstore.TypeDAGRunWaiting {
+		return nil
+	}
 	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
 		return nil
 	}

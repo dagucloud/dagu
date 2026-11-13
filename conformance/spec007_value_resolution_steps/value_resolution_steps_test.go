@@ -134,6 +134,12 @@ func TestRuntimeStepOutputReferenceResolution(t *testing.T) {
 			content: "write-v1\n",
 		},
 		{
+			name:    "number outputs insert as base-10 decimal text",
+			file:    "number_output_inserted_in_decimal_form.yaml",
+			output:  "number-output.txt",
+			content: "1045000\n1000000\n0.25\n",
+		},
+		{
 			name:    "escaped and unsupported text is preserved",
 			file:    "quiet_unsupported_escaped.yaml",
 			output:  "quiet.txt",

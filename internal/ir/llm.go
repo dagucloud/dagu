@@ -149,7 +149,14 @@ type LLMConfig struct {
 	WebSearch *WebSearchConfig `json:"webSearch,omitempty"`
 	// Files names the files the model reads with the prompt.
 	Files []string `json:"files,omitempty"`
+	// MaxFileChars bounds the text of all the Files together, in
+	// characters. Default is DefaultMaxFileChars.
+	MaxFileChars *int `json:"maxFileChars,omitempty"`
 }
+
+// DefaultMaxFileChars bounds the text of a chat step's files when the step
+// sets no max_file_chars.
+const DefaultMaxFileChars = 1_000_000
 
 // PromptMessage represents an authored message used to initialize an LLM session.
 type PromptMessage struct {
@@ -187,6 +194,15 @@ func (c *LLMConfig) GetMaxToolIterations() int {
 		return 10
 	}
 	return *c.MaxToolIterations
+}
+
+// GetMaxFileChars returns how many characters of text the step's files may
+// hold together. Default is DefaultMaxFileChars.
+func (c *LLMConfig) GetMaxFileChars() int {
+	if c.MaxFileChars == nil {
+		return DefaultMaxFileChars
+	}
+	return *c.MaxFileChars
 }
 
 // HasTools returns true if tools are configured.

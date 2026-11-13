@@ -18,6 +18,8 @@ interface DAGRunsListParams {
   dagRunId?: string;
   labels?: string;
   workspace?: components['parameters']['Workspace'];
+  /** Leave out the runs that a restart policy started. */
+  excludeServiceDAGRuns?: boolean;
 }
 
 export function useDAGRunsListSSE(

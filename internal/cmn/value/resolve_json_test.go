@@ -122,14 +122,20 @@ func TestExpandReferences_ComplexJSON(t *testing.T) {
 
 func TestResolveJSONNumbers(t *testing.T) {
 	t.Parallel()
-	// Only integers beyond float64 precision render differently; every other
-	// literal keeps the rendering references have always produced.
+	// Numbers insert as base-10 decimal text (Spec 003): whole numbers in full,
+	// never in exponent form, and other numbers in their shortest round-trippable
+	// decimal form.
 	for _, tt := range []struct{ number, want string }{
 		{"42", "42"},
 		{"1.0", "1"},
 		{"1e3", "1000"},
-		{"0.0000042", "4.2e-06"},
-		{"1.2300e+19", "1.23e+19"},
+		{"1000000", "1000000"},
+		{"1045000", "1045000"},
+		{"-1045000.5", "-1045000.5"},
+		{"1e21", "1000000000000000000000"},
+		{"0.0000042", "0.0000042"},
+		{"1e-7", "0.0000001"},
+		{"1.2300e+19", "12300000000000000000"},
 		{"9007199254740993", "9007199254740993"},
 	} {
 		raw := `{"number":` + tt.number + `}`
