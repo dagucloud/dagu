@@ -4,8 +4,13 @@
 package ir
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
 // ParamType identifies which field in Params is active
@@ -106,8 +111,8 @@ func ParseParams(input any) (Params, error) {
 
 	case string:
 		// Try to parse as JSON
-		var m map[string]any
-		if err := json.Unmarshal([]byte(v), &m); err != nil {
+		m, err := decodeParams([]byte(v))
+		if err != nil {
 			return Params{}, fmt.Errorf("failed to parse string as JSON: %w", err)
 		}
 		return ParseParams(m)
@@ -142,7 +147,8 @@ func (p *Params) IsEmpty() bool {
 }
 
 // AsStringMap returns all parameters as map[string]string
-// Non-string values are converted using fmt.Sprintf
+// Non-string values are rendered as string-insertion text; numbers use
+// base-10 decimal form.
 func (p *Params) AsStringMap() (map[string]string, error) {
 	switch p.Type() {
 	case ParamTypeString:
@@ -150,7 +156,7 @@ func (p *Params) AsStringMap() (map[string]string, error) {
 	case ParamTypeAny:
 		result := make(map[string]string, len(p.Rich))
 		for k, v := range p.Rich {
-			result[k] = fmt.Sprintf("%v", v)
+			result[k] = cmnvalue.FormatScalar(v)
 		}
 		return result, nil
 	case ParamTypeRaw:
@@ -160,7 +166,7 @@ func (p *Params) AsStringMap() (map[string]string, error) {
 		}
 		result := make(map[string]string, len(m))
 		for k, v := range m {
-			result[k] = fmt.Sprintf("%v", v)
+			result[k] = cmnvalue.FormatScalar(v)
 		}
 		return result, nil
 	case ParamTypeUnknown:
@@ -176,11 +182,27 @@ func (p *Params) parseRaw() (map[string]any, error) {
 		return nil, fmt.Errorf("raw params is nil")
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal(p.Raw, &result); err != nil {
+	result, err := decodeParams(p.Raw)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse raw params: %w", err)
 	}
 
+	return result, nil
+}
+
+// decodeParams parses one JSON object, keeping integers a float64 cannot hold
+// exactly as json.Number so their digits survive string rendering.
+func decodeParams(data []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var result map[string]any
+	if err := decoder.Decode(&result); err != nil {
+		return nil, err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return nil, errors.New("expected one JSON object")
+	}
+	cmnvalue.NormalizeJSONNumbers(result)
 	return result, nil
 }
 
@@ -209,8 +231,8 @@ func (p *Params) UnmarshalJSON(data []byte) error {
 	}
 
 	// Try to unmarshal as map
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+	m, err := decodeParams(data)
+	if err != nil {
 		return err
 	}
 

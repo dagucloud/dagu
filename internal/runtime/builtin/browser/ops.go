@@ -92,6 +92,9 @@ type run struct {
 	// downloadWindow is the longest timeout of the acts and gotos run so
 	// far, which can start downloads; zero until one runs.
 	downloadWindow time.Duration
+	// downloads holds the absolute paths of the files saved so far, in the
+	// order they finished; the step publishes them as its downloads output.
+	downloads []string
 	// writeGate is the write gate mode the browser runs in.
 	writeGate string
 	// writeSeq is the last write gate event reported, and writes are those
@@ -211,32 +214,31 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 }
 
 func (r *run) execute(ctx context.Context) error {
-	if r.cfg.hasAsk() && !r.exec.askSupported {
-		return errors.New("browser: ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	// An ask without a when certainly runs, so the step fails before starting
+	// a browser; a when-guarded ask fails at its operation if it runs.
+	if r.hasUnguardedAsk() && !r.exec.askSupported {
+		return errors.New("browser: " + r.askUnsupported(askOperations).Error())
 	}
 	if mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate); err == nil && mode == writegate.ModeAsk && !r.exec.askSupported {
-		return errors.New("browser: write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
+		return errors.New("browser: " + r.askUnsupported(writeGateAsk).Error())
 	}
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
 	_ = browserhost.SweepAll(sweepCtx, r.browser, time.Now(), nil)
 	cancel()
 
 	start, err := r.startSession(ctx)
-	r.reportDialogs(-1)
-	r.reportBlocked(-1)
-	if err == nil {
-		var stop *writegate.Event
-		if stop, err = r.reportWrites(ctx, -1); stop != nil {
-			return r.rehearsed(ctx, start-1, *stop)
-		}
+	// What the browser did while the start URL opened, or while an answered
+	// ask held it, belongs to the operation before start.
+	if done, err := r.afterOperation(ctx, start-1, r.kindAt(start-1), err); done {
+		return err
 	}
-	if err == nil {
-		err = r.checkPage(ctx, -1)
-	}
-	if err != nil {
+	if err := r.checkPage(ctx, -1); err != nil {
 		return r.fail(ctx, -1, "", err)
 	}
 	r.reportRefusal(ctx, -1)
+	// ran is the operation that ran last, which a wait after it settles for;
+	// an operation its when skipped is not it.
+	ran := start - 1
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
 		if op.When != nil {
@@ -250,8 +252,14 @@ func (r *run) execute(ctx context.Context) error {
 					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: op.When.via(), Detail: reason,
 					Tokens: r.bridge.totals().sub(before).total(), Duration: time.Since(began),
 				})
+				// The when may have waited while a check passed, so the
+				// operations that follow get the page as it is now.
+				r.reportRefusal(ctx, i)
 				continue
 			}
+		}
+		if op.Ask != nil && !r.exec.askSupported {
+			return r.fail(ctx, i, opAsk, r.askUnsupported(askOperations))
 		}
 		key, page := r.locate(ctx, i, op)
 		decision, decided := r.commitDecisions[i]
@@ -260,8 +268,8 @@ func (r *run) execute(ctx context.Context) error {
 		// A person sees the page once the downloads of the operations before
 		// have settled.
 		if waits {
-			if err := r.settleDownloads(ctx, i-1, true); err != nil {
-				return r.fail(ctx, i, kindDownload, err)
+			if done, err := r.settle(ctx, ran, true); done {
+				return err
 			}
 		}
 		if stopped, err := r.finishWrites(ctx, i-1); stopped {
@@ -269,6 +277,11 @@ func (r *run) execute(ctx context.Context) error {
 		}
 		if err := r.endWrites(ctx); err != nil {
 			return r.fail(ctx, i, kindWriteGate, err)
+		}
+		// A write the gate kept back decides the step before the page it
+		// left does.
+		if err := r.checkRefusal(ctx, i, op); err != nil {
+			return r.fail(ctx, i, op.kind(), err)
 		}
 		if op.Ask != nil {
 			return r.waitForInput(ctx, i, *op.Ask)
@@ -280,29 +293,15 @@ func (r *run) execute(ctx context.Context) error {
 		case commit && !r.sendsCommit(ctx, i, decision):
 			return r.skipCommit(ctx, i, op)
 		}
+		ran = i
 		r.beginWrites(ctx, i, op)
 		result, err := r.runOperation(ctx, i, op)
 		r.opActions = result.Actions
 		if err == nil {
 			r.reportResult(ctx, result)
 		}
-		r.reportDialogs(i)
-		r.reportBlocked(i)
-		// A write the gate kept back ends the step there, whatever the
-		// operation made of the page that did not get its answer: a
-		// rehearsal partially succeeds, and in record mode the step fails.
-		stop, gateErr := r.reportWrites(ctx, i)
-		switch {
-		case gateErr != nil:
-			return r.fail(ctx, i, kindWriteGate, gateErr)
-		case stop != nil:
-			r.noteCommit(ctx, *stop)
-			if writegate.Sends(r.writeGate) {
-				return r.fail(ctx, i, op.kind(), writeBlocked{write: *stop})
-			}
-			return r.rehearsed(ctx, i, *stop)
-		case err != nil:
-			return r.fail(ctx, i, op.kind(), err)
+		if done, err := r.afterOperation(ctx, i, op.kind(), err); done {
+			return err
 		}
 		if err := r.checkPage(ctx, i); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
@@ -311,28 +310,142 @@ func (r *run) execute(ctx context.Context) error {
 		if op.Act != nil || op.Goto != "" {
 			r.downloadWindow = max(r.downloadWindow, op.timeout())
 		}
-		if err := r.settleDownloads(ctx, i, false); err != nil {
-			return r.fail(ctx, i, kindDownload, err)
+		if done, err := r.settle(ctx, i, false); done {
+			return err
 		}
 	}
 	last := len(r.cfg.Do) - 1
-	if err := r.settleDownloads(ctx, last, true); err != nil {
-		return r.fail(ctx, last, kindDownload, err)
+	if done, err := r.settle(ctx, ran, true); done {
+		return err
+	}
+	// The allowance left ends as the browser closes with its gate, and a
+	// write the gate kept back decides the step before the page does.
+	if stopped, err := r.finishWrites(ctx, last); stopped {
+		return err
+	}
+	// A refusal no operation answered for is the step's to report.
+	if refused := r.reportRefusal(ctx, last); refused != nil {
+		return r.fail(ctx, -1, "", refusedPage{*refused})
 	}
 	return r.succeed(ctx)
 }
 
-// reportDialogs records the dialogs the browser accepted while the operation
-// at index ran.
-func (r *run) reportDialogs(index int) {
+// checkRefusal fails the operation at index, before it runs, when the page
+// it would work on is one the site refused: an act, an upload, an expect,
+// or an extract has nothing to do there. One guarded by a when that held
+// runs, since the step chose to go on there, except an extract, which
+// never reads a refused page. A goto leaves the page, a wait can outlast a
+// rate limit, a screenshot keeps what the page shows, and an ask lets a
+// person pass the check, so they run. The refusal is the one reported
+// after the operation before, read again after a when, which can wait
+// while the check passes; a page that cannot be read keeps the refusal
+// seen on it.
+func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
+	switch op.kind() {
+	case opGoto, opWait, opScreenshot, opAsk:
+		return nil
+	}
+	if op.When != nil && op.Extract == nil {
+		return nil
+	}
+	refused := r.refused
+	if op.When != nil {
+		refused = r.reportRefusal(ctx, index-1)
+	}
+	if refused != nil {
+		return refusedPage{*refused}
+	}
+	return nil
+}
+
+// afterOperation reports the dialogs the browser answered, the requests
+// allowed_domains blocked, and what the write gate decided while the
+// operation at index ran, or while the step waited after it, or while the
+// start URL opened when index is before the first operation, and ends the
+// step when one of them or opErr, the operation's error of kind, decides
+// it: done is then true with the step's result. A write the gate kept back
+// ends the step there, whatever the operation made of the page that did
+// not get its answer: a rehearsal partially succeeds, and in record mode
+// the step fails. A confirm the step did not expect fails it even where a
+// rehearsal would have stopped and partially succeeded.
+func (r *run) afterOperation(ctx context.Context, index int, kind string, opErr error) (done bool, err error) {
+	dialogErr := r.reportDialogs(index)
+	r.reportBlocked(index)
+	stop, gateErr := r.reportWrites(ctx, index)
+	switch {
+	case gateErr != nil:
+		return true, r.fail(ctx, index, kindWriteGate, gateErr)
+	case stop != nil:
+		r.noteCommit(ctx, *stop)
+		switch {
+		case writegate.Sends(r.writeGate):
+			return true, r.fail(ctx, index, kind, writeBlocked{write: *stop})
+		case dialogErr != nil:
+			return true, r.fail(ctx, index, kind, dialogErr)
+		}
+		return true, r.rehearsed(ctx, index, *stop)
+	case opErr != nil:
+		if errors.As(opErr, new(downloadFailure)) {
+			kind = kindDownload
+		}
+		return true, r.fail(ctx, index, kind, opErr)
+	case dialogErr != nil:
+		return true, r.fail(ctx, index, kind, dialogErr)
+	}
+	return false, nil
+}
+
+// downloadFailure is a download that did not finish, which fails the
+// operation that started it as a download failure.
+type downloadFailure struct{ cause error }
+
+func (d downloadFailure) Error() string { return d.cause.Error() }
+func (d downloadFailure) Unwrap() error { return d.cause }
+
+// settle waits for the downloads the operation at index started, with a
+// moment for one to begin when the step ends or pauses after it, and
+// reports what the browser did meanwhile as the operation's, before a
+// browser that detaches would lose it. A download that does not finish
+// fails the operation, unless a write the gate kept back decided the step
+// first: done is then true with the step's result.
+func (r *run) settle(ctx context.Context, index int, final bool) (done bool, err error) {
+	var failure error
+	if err := r.settleDownloads(ctx, index, final); err != nil {
+		failure = downloadFailure{err}
+	}
+	return r.afterOperation(ctx, index, r.kindAt(index), failure)
+}
+
+// kindAt is the kind of the operation at index, or empty before the first.
+func (r *run) kindAt(index int) string {
+	if index < 0 {
+		return ""
+	}
+	return r.cfg.Do[index].kind()
+}
+
+// reportDialogs records the dialogs the browser answered while the operation
+// at index ran. Its error is the first confirm on_confirm: fail did not
+// expect, which fails the operation.
+func (r *run) reportDialogs(index int) error {
 	if r.eng == nil {
-		return
+		return nil
 	}
+	var unexpected error
 	for _, d := range r.eng.TakeDialogs() {
-		r.timeline.Operation(agentstep.Report{
-			Index: index, Kind: kindDialog, Subject: d.Message, Status: agentstep.StatusCompleted, Detail: "accepted " + d.Type,
-		})
+		report := agentstep.Report{Index: index, Kind: kindDialog, Subject: d.Message, Status: agentstep.StatusCompleted, Detail: "accepted " + d.Type}
+		if d.Dismissed {
+			report.Detail = "dismissed " + d.Type
+		}
+		if d.Dismissed && r.cfg.onConfirm() == onConfirmFail {
+			report.Status = agentstep.StatusFailed
+			if unexpected == nil {
+				unexpected = fmt.Errorf("%s dialog %q was not expected", d.Type, d.Message)
+			}
+		}
+		r.timeline.Operation(report)
 	}
+	return unexpected
 }
 
 // reportBlocked records the requests allowed_domains blocked while the
@@ -479,13 +592,11 @@ func (r *run) endWrites(ctx context.Context) error {
 // step, with nothing run after the operation at reached, and finishWrites
 // then returns true with the step's result.
 func (r *run) finishWrites(ctx context.Context, reached int) (bool, error) {
-	ran, kind := reached, ""
+	ran := reached
 	if r.opIndex >= 0 {
 		ran = r.opIndex
 	}
-	if ran >= 0 {
-		kind = r.cfg.Do[ran].kind()
-	}
+	kind := r.kindAt(ran)
 	stop, err := r.reportWrites(ctx, ran)
 	switch {
 	case err != nil:
@@ -646,21 +757,22 @@ func (r *run) keepWriteGateReport(stoppedAt *int, write *writegate.Event) {
 }
 
 // reportRefusal records the refusal the page shows after the operation at
-// index, once while the page keeps showing it, and returns it.
+// index, once while the page keeps showing it, and returns it. A page that
+// cannot be read keeps the refusal seen on it: the read says nothing about
+// the page.
 func (r *run) reportRefusal(ctx context.Context, index int) *refusal {
 	if r.eng == nil {
 		return nil
 	}
-	refused, ok := r.pageRefusal(ctx)
-	if !ok {
-		r.refused = nil
-		return nil
+	refused, err := r.pageRefusal(ctx)
+	if err != nil {
+		return r.refused
 	}
-	if r.refused == nil || *r.refused != refused {
-		r.refused = &refused
-		logRefusal(r.timeline, index, refused)
+	if refused != nil && (r.refused == nil || *r.refused != *refused) {
+		logRefusal(r.timeline, index, *refused)
 	}
-	return &refused
+	r.refused = refused
+	return refused
 }
 
 // settleDownloads waits for downloads that are still running and records the
@@ -679,12 +791,24 @@ func (r *run) settleDownloads(ctx context.Context, index int, final bool) error 
 	names, err := r.eng.WaitForDownloads(ctx, grace, r.downloadWindow)
 	for _, name := range names {
 		rel := downloadPath(r.artifacts, name)
+		r.downloads = append(r.downloads, filepath.Join(r.artifacts.Dir(), downloadsSubdir, name))
 		r.timeline.Operation(agentstep.Report{
 			Index: index, Kind: kindDownload, Subject: name, Status: agentstep.StatusCompleted,
 			Detail: rel, Files: []string{rel},
 		})
 	}
 	return err
+}
+
+// publishDownloads adds the files the step saved to its outputs. A step
+// that saved nothing publishes an empty list, so a later step can pass the
+// output on without checking for it.
+func (r *run) publishDownloads() {
+	downloads := r.downloads
+	if downloads == nil {
+		downloads = []string{}
+	}
+	r.outputs[ir.BrowserOutputDownloads] = downloads
 }
 
 // startSession launches a browser, or reattaches to the one an answered ask
@@ -801,6 +925,7 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Proxy:          r.cfg.Browser.Proxy,
 		DownloadsDir:   downloads,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		DismissConfirm: r.cfg.dismissesConfirm(),
 		NoSandbox:      cmnconfig.GetConfig(ctx).Browser.NoSandbox,
 		Generate:       r.bridge.generate,
 
@@ -904,10 +1029,6 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 }
 
 func (r *run) succeed(ctx context.Context) error {
-	// The allowance left ends as the browser closes with its gate.
-	if stopped, err := r.finishWrites(ctx, len(r.cfg.Do)-1); stopped {
-		return err
-	}
 	var files []string
 	if r.cfg.capturesFinalScreenshot() && r.artifacts.Enabled() {
 		if rel, err := r.capture(ctx, finalShotLabel); err == nil {
@@ -937,13 +1058,12 @@ func (r *run) finish(ctx context.Context, summary string, files []string) error 
 		s.State = ir.AgentSessionSucceeded
 		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
 	})
+	r.publishDownloads()
 	r.exec.setOutputs(r.outputs)
-	if len(r.outputs) > 0 {
-		encoder := json.NewEncoder(r.exec.stdout)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(r.outputs); err != nil {
-			return err
-		}
+	encoder := json.NewEncoder(r.exec.stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(r.outputs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -967,10 +1087,12 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	}
 	r.takeCertificateEvents(ctx, index)
 	// A page the site refused explains a failure that follows, however long
-	// after the refusal.
-	var refused *refusal
-	if ctx.Err() == nil && !errors.Is(cause, errBrowserUnresponsive) {
-		refused = r.reportRefusal(ctx, index)
+	// after the refusal, unless the failure is the refusal itself.
+	_, isRefusal := errors.AsType[refusedPage](cause)
+	refused := isRefusal || r.refused != nil
+	note := ""
+	if !isRefusal && r.refused != nil {
+		note = r.masker.MaskString(r.refused.String())
 	}
 	var files []string
 	shots := r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil
@@ -996,15 +1118,13 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		}
 	}
 	_ = r.shutdown(ctx)
-	r.forgetReplays(ctx, index, kind, cause, refused != nil)
+	r.forgetReplays(ctx, index, kind, cause, refused)
 	message := r.masker.MaskString(cause.Error())
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
 	}
-	if refused != nil {
-		if note := r.masker.MaskString(refused.String()); !strings.Contains(message, note) {
-			message += "; " + note
-		}
+	if note != "" {
+		message += "; " + note
 	}
 	if behind != "" {
 		message += "; " + r.masker.MaskString(behind)

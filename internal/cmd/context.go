@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -413,7 +414,17 @@ func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
 	}
-	return cmd.Name()
+	// A subcommand is named by its path below the root, so one named like a
+	// top-level command, as "backfill start", does not take on its config or
+	// its context scope.
+	var path []string
+	for current := cmd; current.HasParent(); current = current.Parent() {
+		path = append([]string{current.Name()}, path...)
+	}
+	if len(path) == 0 {
+		return cmd.Name()
+	}
+	return strings.Join(path, " ")
 }
 
 func isContextCommand(cmd *cobra.Command) bool {
@@ -635,6 +646,9 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 	cmd.SilenceUsage = true
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		buildenv.Claim()
+		defer buildenv.Release()
+
 		// Setup cpu profiling if enabled.
 		cpuProfileEnabled, err := cmd.Flags().GetBool("cpu-profile")
 		if err != nil {

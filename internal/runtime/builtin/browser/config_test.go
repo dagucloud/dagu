@@ -55,6 +55,11 @@ func TestValidateStep(t *testing.T) {
 			want: `do[1]: output "id" is already extracted by do[0]`,
 		},
 		{
+			name: "extracted output named like the downloads output",
+			with: `{"do":[{"extract":{"instruction":"a","schema":{"type":"object","properties":{"downloads":{}}}}}]}`,
+			want: `do[0]: output "downloads" is reserved for the files the step downloads`,
+		},
+		{
 			name: "wait needs exactly one of selector or duration",
 			with: `{"do":[{"wait":{"selector":"#a","duration":"1s"}}]}`,
 			want: "wait must set exactly one of selector or duration",
@@ -112,6 +117,11 @@ func TestValidateStep(t *testing.T) {
 			name: "invalid within",
 			with: `{"do":[{"act":"a","when":{"text":"b","within":"soon"}}]}`,
 			want: `within "soon" must be a positive duration`,
+		},
+		{
+			name: "text of only whitespace",
+			with: `{"do":[{"expect":{"text":"　 "}}]}`,
+			want: "do[0]: expect: text must contain a character other than whitespace",
 		},
 		{
 			name: "empty condition",

@@ -69,6 +69,11 @@ func (r *reporter) reportStep(
 	if r.errorMail == nil {
 		return nil
 	}
+	// A backfill run mails nothing per step either, so a backfill does not
+	// mail once per failed slot.
+	if dagStatus.BackfillID != "" {
+		return nil
+	}
 	if node.State().Status == ir.NodeFailed && node.NodeData().Step.MailOnError {
 		return r.sendConfiguredMail(ctx, r.errorMail, dag.Name, dagStatus)
 	}
@@ -90,6 +95,11 @@ func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus ir.DAGRunSta
 // selectMailConfig returns the appropriate mail config based on status, or nil if no mail should be sent.
 func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) *ir.MailConfig {
 	if dag.MailOn == nil {
+		return nil
+	}
+	// A backfill run sends no mail, so a backfill does not mail once per
+	// slot; a run waiting for a person still mails.
+	if dagStatus.BackfillID != "" && dagStatus.Status != ir.Waiting {
 		return nil
 	}
 

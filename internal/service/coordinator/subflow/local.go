@@ -283,7 +283,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.R
 	}
 	if retryTarget != nil {
 		opts.RetryTarget = retryTarget
-		opts.TriggerType = inProcessRetryTriggerType(retryTarget)
+		opts.TriggerType = queue.ExecutionTriggerType(retryTarget)
 	}
 
 	child, err := r.newAgent(ctx, req, dag, opts)
@@ -375,7 +375,7 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		StepRetry:           req.StepName,
 		IncludeDownstream:   req.IncludeDownstream,
 		BypassPreconditions: req.BypassPreconditions,
-		TriggerType:         inProcessRetryTriggerType(retryTarget),
+		TriggerType:         queue.ExecutionTriggerType(retryTarget),
 		WorkDir:             workspaceDir,
 	}
 	if req.Workspace != nil {
@@ -736,12 +736,4 @@ func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID strin
 		return "", fmt.Errorf("failed to generate child workflow artifact directory: %w", err)
 	}
 	return dir, nil
-}
-
-func inProcessRetryTriggerType(status *ir.DAGRunStatus) ir.TriggerType {
-	triggerType := queue.PreservedQueueTriggerType(status)
-	if triggerType != ir.TriggerTypeUnknown {
-		return triggerType
-	}
-	return ir.TriggerTypeRetry
 }

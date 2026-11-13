@@ -127,21 +127,52 @@ func TestLoadTableEncodingsAndDelimiter(t *testing.T) {
 	assert.Equal(t, []string{"商品", "数量"}, table.Columns)
 	assert.Equal(t, [][]any{{"りんご", "3"}}, table.Rows)
 
-	// Without the encoding the bytes are read as UTF-8 and the header is
-	// mangled, which is a data error, not a crash.
+	// Without the encoding, bytes that are not UTF-8 are read as Shift_JIS,
+	// as Excel on Japanese Windows saves a CSV.
 	table, err = LoadTable(path, LoadOptions{Delimiter: ';'})
 	require.NoError(t, err)
-	assert.NotEqual(t, []string{"商品", "数量"}, table.Columns)
+	assert.Equal(t, []string{"商品", "数量"}, table.Columns, "Shift_JIS is detected")
+
+	// With encoding: utf-8 the same bytes fail, naming the file, rather
+	// than being written as replacement characters.
+	_, err = LoadTable(path, LoadOptions{Encoding: EncodingUTF8, Delimiter: ';'})
+	require.EqualError(t, err, "input: "+path+": not valid UTF-8")
 
 	bom := filepath.Join(dir, "bom.csv")
 	require.NoError(t, os.WriteFile(bom, []byte("\xEF\xBB\xBFa,b\n1,2\n"), 0o600))
 	table, err = LoadTable(bom, LoadOptions{Encoding: EncodingUTF8BOM})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, table.Columns, "the byte order mark is dropped")
+	table, err = LoadTable(bom, LoadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, table.Columns, "a byte order mark means UTF-8 when the encoding is detected")
 
-	for _, name := range []string{"utf-8", "UTF8", "utf-8-bom", "shift_jis", "Shift-JIS", "sjis", "cp932", "windows-31j", "ms932", ""} {
-		_, err := ParseEncoding(name)
+	// A file in neither encoding fails naming it: 0x81 0x20 is not a
+	// Shift_JIS character, and 0x81 is not UTF-8.
+	neither := filepath.Join(dir, "neither.csv")
+	require.NoError(t, os.WriteFile(neither, []byte("a,b\n\x81 ,2\n"), 0o600))
+	_, err = LoadTable(neither, LoadOptions{})
+	require.EqualError(t, err, "input: "+neither+": not valid UTF-8 or Shift_JIS")
+	markedBad := filepath.Join(dir, "marked.csv")
+	require.NoError(t, os.WriteFile(markedBad, append([]byte("\xEF\xBB\xBF"), sjis...), 0o600))
+	_, err = LoadTable(markedBad, LoadOptions{})
+	require.EqualError(t, err, "input: "+markedBad+": not valid UTF-8", "a byte order mark settles the encoding")
+
+	// A JSON input must be UTF-8 too.
+	badJSON := filepath.Join(dir, "bad.json")
+	require.NoError(t, os.WriteFile(badJSON, []byte("[{\"a\": \"\x81 \"}]"), 0o600))
+	_, err = LoadTable(badJSON, LoadOptions{})
+	require.EqualError(t, err, "input: "+badJSON+": not valid UTF-8")
+
+	for name, want := range map[string]Encoding{
+		"utf-8": EncodingUTF8, "UTF8": EncodingUTF8, "utf-8-bom": EncodingUTF8BOM,
+		"shift_jis": EncodingShiftJIS, "Shift-JIS": EncodingShiftJIS, "sjis": EncodingShiftJIS,
+		"cp932": EncodingShiftJIS, "windows-31j": EncodingShiftJIS, "ms932": EncodingShiftJIS,
+		"": "", " ": "",
+	} {
+		enc, err := ParseEncoding(name)
 		assert.NoError(t, err, name)
+		assert.Equal(t, want, enc, name)
 	}
 	_, err = ParseEncoding("latin1")
 	require.ErrorContains(t, err, `unknown encoding "latin1": use utf-8, utf-8-bom, or shift_jis`)

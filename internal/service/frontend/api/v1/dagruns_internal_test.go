@@ -560,7 +560,7 @@ func TestApprovalResumeFailure(t *testing.T) {
 			cfg := &config.Config{Queues: config.Queues{Enabled: true, Config: []config.QueueConfig{{Name: status.Name, MaxActiveRuns: 1}}}}
 			cfg.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true}
 			queueStore := &testutil.MockQueueStore{}
-			queueStore.On("Enqueue", mock.Anything, status.Name, queue.QueuePriorityLow, status.DAGRun()).Return(errors.New("temporary queue failure")).Twice()
+			queueStore.On("Enqueue", mock.Anything, status.Name, queue.QueuePriorityHigh, status.DAGRun()).Return(errors.New("temporary queue failure")).Twice()
 			a := &API{config: cfg, dagRunRepository: repository, procRepository: &manualStepProcRepository{},
 				dagRunMgr: runtimepkg.NewManager(repository, nil, cfg), queueStore: queueStore}
 			ctx := auth.WithUser(t.Context(), &auth.User{ID: "reviewer-id", Username: "reviewer"})
@@ -774,7 +774,7 @@ func TestResumeQueueFailure(t *testing.T) {
 			}
 			if !missing {
 				queueStore := &testutil.MockQueueStore{}
-				queueStore.On("Enqueue", mock.Anything, approved.Name, queue.QueuePriorityLow, approved.DAGRun()).Return(queueErr).Once()
+				queueStore.On("Enqueue", mock.Anything, approved.Name, queue.QueuePriorityHigh, approved.DAGRun()).Return(queueErr).Once()
 				t.Cleanup(func() { queueStore.AssertExpectations(t) })
 				a.queueStore = queueStore
 			}

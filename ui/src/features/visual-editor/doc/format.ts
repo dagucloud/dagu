@@ -61,6 +61,7 @@ export const DAG_KEY_ORDER: readonly string[] = [
   'max_clean_up_time_sec',
   'hist_retention_days',
   'hist_retention_runs',
+  'slot_retention_days',
   'max_output_size',
   'log_dir',
   'log_output',

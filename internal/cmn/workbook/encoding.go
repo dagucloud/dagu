@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/textenc"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/japanese"
 )
@@ -27,12 +29,14 @@ const (
 	EncodingShiftJIS Encoding = "shift_jis"
 )
 
-// ParseEncoding reads an encoding option; empty means UTF-8. Shift_JIS
-// accepts the names it goes by: shift_jis, shift-jis, sjis, cp932,
-// windows-31j, and ms932.
+// ParseEncoding reads an encoding option. Empty is no encoding, the zero
+// Encoding, which LoadOptions detects. Shift_JIS accepts the names it goes
+// by: shift_jis, shift-jis, sjis, cp932, windows-31j, and ms932.
 func ParseEncoding(s string) (Encoding, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "utf-8", "utf8":
+	case "":
+		return "", nil
+	case "utf-8", "utf8":
 		return EncodingUTF8, nil
 	case "utf-8-bom", "utf8-bom", "utf-8-sig":
 		return EncodingUTF8BOM, nil
@@ -52,15 +56,25 @@ func (e Encoding) charset() encoding.Encoding {
 }
 
 // decode turns file bytes in the encoding into UTF-8 and drops a leading
-// byte order mark. UTF-8 input is returned as it is, resliced past the
+// byte order mark; an empty encoding is detected by textenc.Detect. UTF-8
+// input must be valid UTF-8, or the result is textenc.ErrNotUTF8 rather
+// than replacement characters; it is returned as it is, resliced past the
 // mark, so a large file is not copied.
 func (e Encoding) decode(data []byte) ([]byte, error) {
+	if e == "" {
+		return textenc.Detect(data)
+	}
+	bom := []byte(textenc.UTF8BOM)
 	if cs := e.charset(); cs != nil {
 		decoded, err := cs.NewDecoder().Bytes(data)
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", e, err)
 		}
-		data = decoded
+		return bytes.TrimPrefix(decoded, bom), nil
 	}
-	return bytes.TrimPrefix(data, []byte("\xEF\xBB\xBF")), nil
+	data = bytes.TrimPrefix(data, bom)
+	if !utf8.Valid(data) {
+		return nil, textenc.ErrNotUTF8
+	}
+	return data, nil
 }

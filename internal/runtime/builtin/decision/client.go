@@ -12,7 +12,9 @@ import (
 	"io"
 	"math"
 	"strconv"
+	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
 
@@ -24,12 +26,18 @@ var sharedHTTPClient = llm.NewHTTPClient(llm.Config{
 	MaxInterval:     llm.DefaultConfig().MaxInterval,
 })
 
+// maxReasonRunes bounds the provider reason a step error carries.
+const maxReasonRunes = 200
+
 type client struct {
 	maxResponseBytes int64
 	http             *llm.HTTPClient
 	provider         string
 	endpoint         string
 	apiKey           string
+	// masker hides declared secrets in a provider error before it is bounded;
+	// the step masks the final error again, which is harmless.
+	masker *masking.Masker
 }
 
 type request struct {
@@ -46,6 +54,9 @@ func (c *client) evaluate(ctx context.Context, req request) (map[string]any, err
 	response, err := c.http.Do(ctx, c.endpoint, body, map[string]string{"Authorization": "Bearer " + c.apiKey})
 	if err != nil {
 		if apiErr, ok := errors.AsType[*llm.APIError](err); ok {
+			if reason := c.failureReason(apiErr); reason != "" {
+				return nil, fmt.Errorf("decision request failed (HTTP %d): %s", apiErr.StatusCode, reason)
+			}
 			return nil, fmt.Errorf("decision request failed (HTTP %d)", apiErr.StatusCode)
 		}
 		return nil, fmt.Errorf("decision request failed: %w", err)
@@ -74,6 +85,19 @@ func (c *client) evaluate(ctx context.Context, req request) (map[string]any, err
 		return nil, err
 	}
 	return result, nil
+}
+
+// failureReason returns the provider's reason for a failed request as one
+// line of at most maxReasonRunes, with declared secrets hidden. The reason
+// may echo the request, which was sent unmasked; it is masked before
+// whitespace is collapsed or the text is cut, so a secret containing
+// whitespace or crossing the bound is still matched whole.
+func (c *client) failureReason(apiErr *llm.APIError) string {
+	reason := strings.Join(strings.Fields(c.masker.MaskString(apiErr.Reason())), " ")
+	if runes := []rune(reason); len(runes) > maxReasonRunes {
+		reason = string(runes[:maxReasonRunes]) + "..."
+	}
+	return reason
 }
 
 // responseUsage reads the tokens and the cost a decision response reports,

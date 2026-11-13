@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding/japanese"
 )
 
 // TestXlsxWriteSources covers where xlsx.write takes rows from: JSON text
@@ -277,4 +278,40 @@ func TestXlsxSheetCopyThenAppend(t *testing.T) {
 	var second out
 	readJSON(t, dagu, "out.json", &second)
 	require.Equal(t, out{Sheets: []string{"Template", "2026-10"}, Warnings: []string{`sheet "2026-10" already exists; nothing copied`}, Count: 4, Headers: []string{"item", "amount"}}, second)
+}
+
+// TestXlsxInputEncodingDetected covers the input encoding of xlsx.write
+// without encoding: a Shift_JIS CSV, as Excel on Japanese Windows saves
+// one, is detected; a file in neither encoding fails naming it; and with
+// encoding: utf-8 a file that is not UTF-8 fails rather than being written
+// as replacement characters.
+func TestXlsxInputEncodingDetected(t *testing.T) {
+	t.Parallel()
+	sjis, err := japanese.ShiftJIS.NewEncoder().Bytes([]byte("氏名,金額\n山田太郎,1200\n"))
+	require.NoError(t, err)
+
+	detected := harness.NewRunner(t)
+	detected.WriteFile("detect_input.csv", string(sjis))
+	detected.Run("start", "input_detect.yaml").ExpectExitCode(0)
+	var back struct {
+		Headers []string         `json:"headers"`
+		Rows    []map[string]any `json:"rows"`
+	}
+	readJSON(t, detected, "out.json", &back)
+	require.Equal(t, []string{"氏名", "金額"}, back.Headers, "Shift_JIS is detected")
+	require.Equal(t, "山田太郎", back.Rows[0]["氏名"])
+
+	strict := harness.NewRunner(t)
+	strict.WriteFile("detect_input.csv", string(sjis))
+	result := strict.Run("start", "input_utf8_strict.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("detect_input.csv: not valid UTF-8")
+	strict.ExpectNoFile("strict.xlsx")
+
+	neither := harness.NewRunner(t)
+	neither.WriteFile("neither_input.csv", "a,b\n\x81 ,2\n")
+	result = neither.Run("start", "input_detect_neither.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("neither_input.csv: not valid UTF-8 or Shift_JIS")
+	neither.ExpectNoFile("neither.xlsx")
 }

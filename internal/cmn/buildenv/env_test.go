@@ -80,3 +80,31 @@ func TestLoadLegacyMap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Snapshot{Env: map[string]string{"KEY": "value"}}, loaded)
 }
+
+// The process a launcher started removes the file the launcher wrote for it as
+// it ends, while a process that only inherited the file leaves it in place.
+func TestReleaseRemovesTheFileWrittenForThisProcess(t *testing.T) {
+	for name, tt := range map[string]struct {
+		parent  int
+		removed bool
+	}{
+		"started by the writer":      {parent: os.Getpid(), removed: true},
+		"started by another process": {parent: os.Getpid() + 1, removed: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env, cleanup, err := Prepare(NewSnapshot([]string{"KEY=value"}, false))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = cleanup() })
+			path := strings.TrimPrefix(env[0], PresolvedEnvFileKey+"=")
+			t.Setenv(PresolvedEnvFileKey, path)
+			parentPID = func() int { return tt.parent }
+			t.Cleanup(func() { parentPID = os.Getppid })
+
+			Claim()
+			Release()
+
+			_, err = os.Stat(path)
+			assert.Equal(t, tt.removed, os.IsNotExist(err))
+		})
+	}
+}

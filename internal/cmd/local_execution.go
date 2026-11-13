@@ -36,6 +36,7 @@ type runOptions struct {
 	bypassPreconditions bool
 	preparedAttempt     dagrun.Attempt
 	noReuse             bool
+	recursiveOutput     bool
 	// seed is the queued status of a selected-steps run, which is dispatched
 	// as a retry of that attempt.
 	seed *ir.DAGRunStatus
