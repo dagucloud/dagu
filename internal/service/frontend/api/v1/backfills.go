@@ -519,6 +519,7 @@ func toAPIBackfill(report backfill.Report, schedulerRunning bool) api.Backfill {
 	return api.Backfill{
 		Id:             record.ID,
 		Dag:            record.DAGName,
+		FileName:       stringOrNil(backfillFileName(record)),
 		Status:         status,
 		SubmittedAt:    record.CreatedAt,
 		EndedAt:        timeOrNil(record.EndedAt),

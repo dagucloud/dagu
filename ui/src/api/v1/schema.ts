@@ -5069,6 +5069,8 @@ export interface components {
         Backfill: {
             id: string;
             dag: string;
+            /** @description Name of the DAG's file without its extension, as the DAG API takes it */
+            fileName?: string;
             status: components["schemas"]["BackfillStatus"];
             /** Format: date-time */
             submittedAt: string;

@@ -79,6 +79,7 @@ steps:
 	server.Client().Get("/api/v1/backfills?dag="+dag.Name).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &listed)
 	require.Len(t, listed.Backfills, 1)
 	assert.Equal(t, 3, listed.Backfills[0].Counts["pending"])
+	assert.Equal(t, new(fileName), listed.Backfills[0].FileName, "the DAG API finds the DAG by its file")
 
 	var page struct {
 		Slots []api.BackfillSlot

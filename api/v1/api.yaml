@@ -13910,6 +13910,9 @@ components:
           type: string
         dag:
           type: string
+        fileName:
+          type: string
+          description: "Name of the DAG's file without its extension, as the DAG API takes it"
         status:
           $ref: "#/components/schemas/BackfillStatus"
         submittedAt:
