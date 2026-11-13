@@ -13,6 +13,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
+import { backfillPath, workflowPath } from '../lib/backfillLinks';
 import { groupSlots } from '../lib/backfillState';
 import {
   DAG_SLOT_LOOK,
@@ -202,6 +203,7 @@ export function DAGSlotsView({
                       key={slot.slot}
                       slot={slot}
                       fileName={fileName}
+                      remoteNode={remoteNode}
                       selected={selected.has(slot.slot)}
                       onPick={canExecute ? pick : undefined}
                     />
@@ -289,7 +291,7 @@ export function DAGSlotsView({
             if (!open) setTarget(null);
           }}
           onStarted={(backfill) =>
-            navigate(`/backfills/${encodeURIComponent(backfill.id)}`)
+            navigate(backfillPath(backfill.id, remoteNode))
           }
         />
       )}
@@ -300,11 +302,13 @@ export function DAGSlotsView({
 function SlotCell({
   slot,
   fileName,
+  remoteNode,
   selected,
   onPick,
 }: {
   slot: DAGSlot;
   fileName: string;
+  remoteNode: string;
   selected: boolean;
   onPick?: (slot: DAGSlot, extend: boolean) => void;
 }) {
@@ -350,7 +354,7 @@ function SlotCell({
   if (slot.runId) {
     return (
       <Link
-        to={`/dags/${encodeURIComponent(fileName)}?run=${encodeURIComponent(slot.runId)}`}
+        to={`${workflowPath(fileName, remoteNode)}&run=${encodeURIComponent(slot.runId)}`}
         title={label}
         aria-label={label}
         className={focus}

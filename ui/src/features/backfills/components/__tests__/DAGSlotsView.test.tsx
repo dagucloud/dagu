@@ -109,7 +109,7 @@ describe('DAGSlotsView', () => {
 
     expect(screen.getByRole('link', { name: /· Failed$/ })).toHaveAttribute(
       'href',
-      '/dags/etl?run=run-3'
+      '/dags/etl?remoteNode=local&run=run-3'
     );
     expect(screen.queryByRole('button', { name: /Backfill/ })).toBeNull();
   });
