@@ -15,9 +15,11 @@ import { BackfillProgress } from './BackfillProgress';
 import { BackfillStatusChip } from './BackfillStatusChip';
 import { DAGSlotsView } from './DAGSlotsView';
 
-const READ_ONCE = {
+// Read again each time the tab opens: a backfill started from it opens its
+// own page, and the list on return must have it.
+const READ_ON_OPEN = {
   revalidateOnFocus: false,
-  revalidateIfStale: false,
+  revalidateIfStale: true,
   refreshInterval: 0,
 } as const;
 
@@ -41,7 +43,7 @@ export function DAGBackfillsTab({
   const { data, error, mutate } = useQuery(
     '/backfills',
     { params: { query: { remoteNode, dag: dagName } } },
-    READ_ONCE
+    READ_ON_OPEN
   );
 
   const backfills = data ? [...data.backfills].reverse() : [];
