@@ -678,6 +678,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(ir.NodeFailed)
+		reportPreparedNode()
 		return
 	}
 	if r.evaluateBuildNode(ctx, node, buildSession, reportPreparedNode) {
