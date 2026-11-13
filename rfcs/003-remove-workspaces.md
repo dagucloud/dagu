@@ -180,6 +180,12 @@ request, scheduler unit, or task ──▶ project ID ──▶ that project's s
   A project never creates its own key, so migrated secrets decrypt
   unchanged. A project directory copied to another server decrypts there
   only with the same key.
+- **Paths in run records.** Run records store the paths of logs, step
+  output, and artifacts inside the project's directories relative to the
+  project's root, so moving a project or a DAG leaves them valid. Records
+  written before v3.0 hold absolute paths; whatever moves them, migration
+  included, rewrites those paths. A path a DAG sets outside the project's
+  directories stays absolute and does not move.
 - **Reads across projects.** Most pages show one project. Search and the
   All projects view read the stores of each project the user can see, a few
   at a time, and merge the results. Their cost grows with the number of
@@ -636,6 +642,8 @@ v2 gets no new workspace features.
     see, and of no other.
 28. A `dagu` command run inside a project's DAG directory without
     `--project` addresses that project.
+29. After migration, a rename, or a move, the logs, step output, and
+    artifacts of every moved run open as before.
 
 ## Alternatives considered
 
