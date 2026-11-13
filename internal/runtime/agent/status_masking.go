@@ -76,23 +76,21 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
 	node.StatusDetails = maskNodeStatusDetails(masker, node.StatusDetails)
-	var masked maskedOutputs
-	if prior := node.MaskedOutputs; prior != nil {
-		masked.add(prior.Names, prior.All)
-	}
+	masked := newMaskedOutputs(node.MaskedOutputs)
 	if node.OutputVariables != nil {
-		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, &masked)
+		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, masked)
 	}
 	outputValue := maskStringPointer(masker, node.OutputValue)
-	if outputValue != nil && *outputValue != *node.OutputValue {
-		masked.add([]string{node.Step.Output}, false)
+	outputsValue := maskOutputDocument(masker, node.OutputsValue)
+	if changed(node.OutputValue, outputValue) || changed(node.OutputsValue, outputsValue) {
+		masked.captured = true
 	}
 	node.OutputValue = outputValue
-	outputsValue := maskOutputDocument(masker, node.OutputsValue)
-	masked.add(changedOutputNames(node.OutputsValue, outputsValue))
 	node.OutputsValue = outputsValue
 	stepOutputsValue := maskStepOutputs(masker, node)
-	masked.add(changedOutputNames(node.StepOutputsValue, stepOutputsValue))
+	names, all := changedOutputNames(node.StepOutputsValue, stepOutputsValue)
+	masked.published = append(masked.published, names...)
+	masked.allPublished = masked.allPublished || all
 	node.StepOutputsValue = stepOutputsValue
 	node.MaskedOutputs = masked.record()
 	node.AgentSession = ir.MaskAgentSession(node.AgentSession, masker.MaskString)
@@ -187,27 +185,50 @@ func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail
 	return masked
 }
 
-// maskedOutputs collects the outputs of one node that masking changed.
+// maskedOutputs collects the outputs of one node that masking changed,
+// starting from what an earlier pass recorded.
 type maskedOutputs struct {
-	names []string
-	all   bool
+	variables    []string
+	published    []string
+	allPublished bool
+	captured     bool
 }
 
-func (m *maskedOutputs) add(names []string, all bool) {
-	m.names = append(m.names, names...)
-	m.all = m.all || all
+func newMaskedOutputs(prior *ir.MaskedOutputs) *maskedOutputs {
+	if prior == nil {
+		return &maskedOutputs{}
+	}
+	return &maskedOutputs{
+		variables:    slices.Clone(prior.Variables),
+		published:    slices.Clone(prior.Published),
+		allPublished: prior.AllPublished,
+		captured:     prior.Captured,
+	}
 }
 
 // record returns what to store on the node, or nil when masking changed no
 // output.
 func (m *maskedOutputs) record() *ir.MaskedOutputs {
-	names := slices.DeleteFunc(m.names, func(name string) bool { return name == "" })
-	slices.Sort(names)
-	names = slices.Compact(names)
-	if len(names) == 0 && !m.all {
+	record := &ir.MaskedOutputs{
+		Variables:    uniqueNames(m.variables),
+		Published:    uniqueNames(m.published),
+		AllPublished: m.allPublished,
+		Captured:     m.captured,
+	}
+	if len(record.Variables) == 0 && len(record.Published) == 0 && !record.AllPublished && !record.Captured {
 		return nil
 	}
-	return &ir.MaskedOutputs{Names: names, All: m.all}
+	return record
+}
+
+func uniqueNames(names []string) []string {
+	names = slices.DeleteFunc(names, func(name string) bool { return name == "" })
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+func changed(before, after *string) bool {
+	return before != nil && after != nil && *before != *after
 }
 
 func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *maskedOutputs) *collections.SyncMap {
@@ -225,7 +246,7 @@ func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, ma
 		if maskedText != text {
 			// The stored text is NAME=value, so the key is the output name.
 			name, _ := key.(string)
-			masked.add([]string{name}, false)
+			masked.variables = append(masked.variables, name)
 		}
 		result.Store(key, maskedText)
 		return true
@@ -233,7 +254,7 @@ func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, ma
 	return result
 }
 
-// changedOutputNames returns the top-level names of the output document whose
+// changedOutputNames returns the top-level names of the published outputs whose
 // text masking changed, and whether the names cannot be trusted: the document
 // is not an object, or masking changed a key or the number of keys.
 func changedOutputNames(before, after *string) ([]string, bool) {

@@ -89,7 +89,7 @@ func TestSeedNodesFailedSource(t *testing.T) {
 // carry them.
 func TestSeedNodesCarryMaskedOutputs(t *testing.T) {
 	dag := &ir.DAG{Steps: []ir.Step{{Name: "fetch"}, {Name: "other"}}}
-	masked := &ir.MaskedOutputs{Names: []string{"token"}}
+	masked := &ir.MaskedOutputs{Published: []string{"token"}}
 	source := &ir.DAGRunStatus{Nodes: []*ir.Node{
 		{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded, MaskedOutputs: masked},
 		{Step: ir.Step{Name: "other"}, Status: ir.NodeSucceeded, MaskedOutputs: masked},
@@ -111,7 +111,7 @@ func TestNodeMaskedOutputsRoundTrip(t *testing.T) {
 	original := &ir.Node{
 		Step:          ir.Step{Name: "fetch"},
 		Status:        ir.NodeSucceeded,
-		MaskedOutputs: &ir.MaskedOutputs{Names: []string{"TOKEN"}, All: true},
+		MaskedOutputs: &ir.MaskedOutputs{Variables: []string{"TOKEN"}, Published: []string{"token"}, AllPublished: true, Captured: true},
 	}
 
 	restored := transform.ToNode(original)

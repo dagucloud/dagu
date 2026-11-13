@@ -73,27 +73,33 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 			if ref.StepName != id {
 				continue
 			}
-			if ref.Field == "" {
-				// The whole output holds every masked part of it.
-				if masked.All || len(masked.Names) > 0 {
-					return ref.Expression, true
+			if publishedReference(ref) {
+				if masked.HasPublished(ref.Field) {
+					return ref.Field, true
 				}
 				continue
 			}
-			if masked.Has(ref.Field) {
-				return ref.Field, true
+			if masked.HasCaptured() {
+				return ref.Expression, true
 			}
 		}
 	}
 	variables := source.OutputVariablesMap()
 	for _, name := range slices.Sorted(maps.Keys(variables)) {
-		if masked.Has(name) && slices.ContainsFunc(reads.values, func(value string) bool {
+		if masked.HasVariable(name) && slices.ContainsFunc(reads.values, func(value string) bool {
 			return readsVariable(value, name)
 		}) {
 			return name, true
 		}
 	}
 	return "", false
+}
+
+// publishedReference reports whether ref reads a published output, as
+// ${steps.<id>.outputs.<name>}, rather than the captured output.
+func publishedReference(ref cmnvalue.StepTextReference) bool {
+	expression := strings.TrimSpace(strings.TrimPrefix(ref.Expression, "${"))
+	return strings.HasPrefix(expression, "steps.")
 }
 
 // readsVariable reports whether value reads the variable as $NAME or ${NAME}.

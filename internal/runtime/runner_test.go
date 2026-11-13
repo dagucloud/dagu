@@ -5346,7 +5346,7 @@ func TestHumanTask(t *testing.T) {
 				runtime.NewNode(fetch, runtime.NodeState{
 					Status:           ir.NodeSucceeded,
 					StepOutputsValue: &stepOutputs,
-					MaskedOutputs:    &ir.MaskedOutputs{Names: []string{"token"}},
+					MaskedOutputs:    &ir.MaskedOutputs{Published: []string{"token"}},
 				}),
 				runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
 			}

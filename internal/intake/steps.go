@@ -479,36 +479,26 @@ func setNodeOutputs(node *runtime.NodeData, values map[string]string) error {
 
 // unmaskSuppliedOutputs returns the masked record of a carried node without
 // the supplied outputs, whose values replace the stored ones. A record that
-// could not name the masked outputs is narrowed to the outputs still stored.
+// could not name the published outputs is narrowed to the ones still stored.
 func unmaskSuppliedOutputs(node runtime.NodeData, published map[string]json.RawMessage, supplied map[string]string) *ir.MaskedOutputs {
-	masked := node.State.MaskedOutputs
+	masked := node.State.MaskedOutputs.Clone()
 	if masked == nil {
 		return nil
 	}
-	names := slices.Clone(masked.Names)
-	if masked.All {
-		names = slices.Collect(maps.Keys(published))
-		if node.Step.Output != "" {
-			names = append(names, node.Step.Output)
-		}
-		if variables := node.State.OutputVariables; variables != nil {
-			variables.Range(func(key, _ any) bool {
-				name, _ := key.(string)
-				names = append(names, name)
-				return true
-			})
-		}
+	if masked.AllPublished {
+		masked.Published = slices.Sorted(maps.Keys(published))
+		masked.AllPublished = false
 	}
-	names = slices.DeleteFunc(names, func(name string) bool {
+	isSupplied := func(name string) bool {
 		_, ok := supplied[name]
 		return ok
-	})
-	slices.Sort(names)
-	names = slices.Compact(names)
-	if len(names) == 0 {
+	}
+	masked.Published = slices.DeleteFunc(masked.Published, isSupplied)
+	masked.Variables = slices.DeleteFunc(masked.Variables, isSupplied)
+	if len(masked.Published) == 0 && len(masked.Variables) == 0 && !masked.Captured {
 		return nil
 	}
-	return &ir.MaskedOutputs{Names: names}
+	return masked
 }
 
 // resolveStepName maps a step name or ID to the step's name. Names win over

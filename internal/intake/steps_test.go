@@ -242,8 +242,8 @@ func TestSelectedStepNodesOutputsReplaceMasked(t *testing.T) {
 		name   string
 		masked *ir.MaskedOutputs
 	}{
-		{"named outputs", &ir.MaskedOutputs{Names: []string{"claims", "token"}}},
-		{"whole output", &ir.MaskedOutputs{All: true}},
+		{"named outputs", &ir.MaskedOutputs{Published: []string{"claims", "token"}}},
+		{"names that cannot be trusted", &ir.MaskedOutputs{AllPublished: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -265,7 +265,7 @@ func TestSelectedStepNodesOutputsReplaceMasked(t *testing.T) {
 			require.NoError(t, err)
 			for _, node := range nodes {
 				if node.Step.Name == "Log in" {
-					require.Equal(t, &ir.MaskedOutputs{Names: []string{"claims"}}, node.State.MaskedOutputs)
+					require.Equal(t, &ir.MaskedOutputs{Published: []string{"claims"}}, node.State.MaskedOutputs)
 					return
 				}
 			}

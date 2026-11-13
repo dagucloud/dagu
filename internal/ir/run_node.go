@@ -173,20 +173,35 @@ type Node struct {
 }
 
 // MaskedOutputs names the outputs of a node whose stored text secret masking
-// changed. The original text is not stored, so a run that restores the node
-// cannot use these outputs.
+// changed, by how a step reads them. The original text is not stored, so a run
+// that restores the node cannot use these outputs.
 type MaskedOutputs struct {
-	// Names are the output names changed: variables set by the step, and the
-	// names it published.
-	Names []string `json:"names,omitempty"`
-	// All is set when the names cannot be trusted, because masking changed an
-	// output name or masked a whole output document as text.
-	All bool `json:"all,omitempty"`
+	// Variables are the output variables changed, read as ${NAME}.
+	Variables []string `json:"variables,omitempty"`
+	// Published are the published outputs changed, read as
+	// ${steps.<id>.outputs.<name>}.
+	Published []string `json:"published,omitempty"`
+	// AllPublished is set when the published names cannot be trusted, because
+	// masking changed an output name or masked the outputs as text.
+	AllPublished bool `json:"allPublished,omitempty"`
+	// Captured is set when the captured output changed, read as ${<id>.output}
+	// or ${<id>.outputs...}.
+	Captured bool `json:"captured,omitempty"`
 }
 
-// Has reports whether the output name is masked.
-func (m *MaskedOutputs) Has(name string) bool {
-	return m != nil && (m.All || slices.Contains(m.Names, name))
+// HasVariable reports whether the output variable is masked.
+func (m *MaskedOutputs) HasVariable(name string) bool {
+	return m != nil && slices.Contains(m.Variables, name)
+}
+
+// HasPublished reports whether the published output is masked.
+func (m *MaskedOutputs) HasPublished(name string) bool {
+	return m != nil && (m.AllPublished || slices.Contains(m.Published, name))
+}
+
+// HasCaptured reports whether the captured output is masked.
+func (m *MaskedOutputs) HasCaptured() bool {
+	return m != nil && m.Captured
 }
 
 // Clone returns a copy of m.
@@ -194,7 +209,10 @@ func (m *MaskedOutputs) Clone() *MaskedOutputs {
 	if m == nil {
 		return nil
 	}
-	return &MaskedOutputs{Names: slices.Clone(m.Names), All: m.All}
+	clone := *m
+	clone.Variables = slices.Clone(m.Variables)
+	clone.Published = slices.Clone(m.Published)
+	return &clone
 }
 
 // The output fields a stored node's other output fields may repeat.

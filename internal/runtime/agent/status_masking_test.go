@@ -233,11 +233,12 @@ func TestMaskNodeSecretsRecordsMaskedOutputs(t *testing.T) {
 
 	maskNodeSecrets(masker, node)
 
-	assert.Equal(t, &ir.MaskedOutputs{Names: []string{"TOKEN", "header", "key"}}, node.MaskedOutputs)
+	want := &ir.MaskedOutputs{Variables: []string{"TOKEN"}, Published: []string{"key"}, Captured: true}
+	assert.Equal(t, want, node.MaskedOutputs)
 
 	// A second pass sees only masked text and keeps what the first one found.
 	maskNodeSecrets(masker, node)
-	assert.Equal(t, &ir.MaskedOutputs{Names: []string{"TOKEN", "header", "key"}}, node.MaskedOutputs)
+	assert.Equal(t, want, node.MaskedOutputs)
 }
 
 func TestMaskNodeSecretsRecordsNothingForCleanOutputs(t *testing.T) {
@@ -261,15 +262,30 @@ func TestMaskNodeSecretsRecordsOnlyMaskedValuesAfterReencoding(t *testing.T) {
 	masker := newStatusSecretMasker([]string{"SECRET=4242"})
 	require.NotNil(t, masker)
 	outputs := `{"count":4242,"region":{"zone": "b", "name": "us"}}`
-	node := &ir.Node{Step: ir.Step{Name: "fetch"}, OutputsValue: &outputs}
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, StepOutputsValue: &outputs}
 
 	maskNodeSecrets(masker, node)
 
-	assert.Equal(t, &ir.MaskedOutputs{Names: []string{"count"}}, node.MaskedOutputs)
+	assert.Equal(t, &ir.MaskedOutputs{Published: []string{"count"}}, node.MaskedOutputs)
+}
+
+// An output_schema step captures output without an output: variable, so the
+// captured output is recorded even with no name to record.
+func TestMaskNodeSecretsRecordsCapturedOutputWithoutName(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	value := `"very-secret-token"`
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, OutputValue: &value}
+
+	maskNodeSecrets(masker, node)
+
+	assert.Equal(t, &ir.MaskedOutputs{Captured: true}, node.MaskedOutputs)
 }
 
 // A per-name list cannot be trusted when masking changed a key or masked the
-// document as text, so the whole output is marked.
+// document as text, so every published output is marked.
 func TestMaskNodeSecretsMarksWholeOutput(t *testing.T) {
 	t.Parallel()
 
@@ -291,7 +307,7 @@ func TestMaskNodeSecretsMarksWholeOutput(t *testing.T) {
 
 			maskNodeSecrets(masker, node)
 
-			assert.Equal(t, &ir.MaskedOutputs{All: true}, node.MaskedOutputs)
+			assert.Equal(t, &ir.MaskedOutputs{AllPublished: true}, node.MaskedOutputs)
 			assert.NotContains(t, *node.StepOutputsValue, "very-secret-token")
 		})
 	}

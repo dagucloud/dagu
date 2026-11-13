@@ -1347,40 +1347,45 @@ func TestCheckMaskedReads(t *testing.T) {
 		wantErr     string // the output named in the error; empty when the step runs
 	}{
 		{
-			name:    "step output reference",
+			name:    "published output",
 			command: "deploy ${steps.fetch.outputs.token}",
-			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
+			masked:  &ir.MaskedOutputs{Published: []string{"token"}},
 			wantErr: `output "token" of step "fetch"`,
 		},
 		{
 			name:    "output variable",
 			command: "deploy ${TOKEN}",
-			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
 		{
-			name:    "whole output",
+			name:    "published names that cannot be trusted",
 			command: "deploy ${steps.fetch.outputs.region}",
-			masked:  &ir.MaskedOutputs{All: true},
+			masked:  &ir.MaskedOutputs{AllPublished: true},
 			wantErr: `output "region" of step "fetch"`,
 		},
 		{
-			name:    "whole output hides every variable",
-			command: "deploy $TOKEN",
-			masked:  &ir.MaskedOutputs{All: true},
-			wantErr: `output "TOKEN" of step "fetch"`,
-		},
-		{
-			name:    "whole stdout output",
+			name:    "captured output",
 			command: "deploy ${fetch.output}",
-			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			masked:  &ir.MaskedOutputs{Captured: true},
 			wantErr: `output "${fetch.output}" of step "fetch"`,
 		},
 		{
-			name:    "structured output field",
+			name:    "field of the captured output",
 			command: "deploy ${fetch.outputs.region}",
-			masked:  &ir.MaskedOutputs{Names: []string{"region"}},
-			wantErr: `output "region" of step "fetch"`,
+			masked:  &ir.MaskedOutputs{Captured: true},
+			wantErr: `output "${fetch.outputs.region}" of step "fetch"`,
+		},
+		// Each kind of output is read by its own references.
+		{
+			name:    "published names do not mask the captured output",
+			command: "deploy ${fetch.output}",
+			masked:  &ir.MaskedOutputs{Published: []string{"token"}, AllPublished: true},
+		},
+		{
+			name:    "the captured output does not mask published ones",
+			command: "deploy ${steps.fetch.outputs.token} ${TOKEN}",
+			masked:  &ir.MaskedOutputs{Captured: true},
 		},
 		// Step references resolve by id, so a step without one has no
 		// ${steps.<name>...} reference to read.
@@ -1388,34 +1393,34 @@ func TestCheckMaskedReads(t *testing.T) {
 			name:    "step without id has no step reference",
 			command: "deploy ${steps.fetch.outputs.token}",
 			noID:    true,
-			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
+			masked:  &ir.MaskedOutputs{Published: []string{"token"}},
 		},
 		{
 			name:    "escaped output variable",
 			command: `deploy \${TOKEN}`,
-			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 		},
 		{
 			name:    "output variable after a backslash pair",
 			command: `deploy \\${TOKEN}`,
-			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
 		{
 			name:        "mention in the description",
 			command:     "deploy",
 			description: "uses ${TOKEN} and ${steps.fetch.outputs.token}",
-			masked:      &ir.MaskedOutputs{Names: []string{"TOKEN", "token"}},
+			masked:      &ir.MaskedOutputs{Variables: []string{"TOKEN"}, Published: []string{"token"}},
 		},
 		{
-			name:    "unmasked step output",
+			name:    "unmasked published output",
 			command: "deploy ${steps.fetch.outputs.region}",
-			masked:  &ir.MaskedOutputs{Names: []string{"token"}},
+			masked:  &ir.MaskedOutputs{Published: []string{"token"}},
 		},
 		{
 			name:    "similar variable name",
 			command: "deploy ${TOKEN_ID}",
-			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 		},
 		{
 			name:    "nothing masked",
@@ -1463,9 +1468,9 @@ func TestCheckMaskedOutputsInHandler(t *testing.T) {
 		masked  *ir.MaskedOutputs
 		wantErr bool
 	}{
-		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Names: []string{"TOKEN"}}, wantErr: true},
-		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Names: []string{"token"}}},
-		{name: "unmasked output", command: "notify ${steps.fetch.outputs.region}", masked: &ir.MaskedOutputs{Names: []string{"token"}}},
+		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}, wantErr: true},
+		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Published: []string{"token"}}},
+		{name: "unmasked output", command: "notify ${steps.fetch.outputs.region}", masked: &ir.MaskedOutputs{Published: []string{"token"}}},
 		{name: "nothing masked", command: "notify ${TOKEN}"},
 	}
 
