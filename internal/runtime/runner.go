@@ -668,6 +668,12 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 			"step precondition was not met", progressCh)
 		return
 	}
+	if err := r.checkMaskedReads(plan, node); err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		return
+	}
 	if r.evaluateBuildNode(ctx, node, buildSession, reportPreparedNode) {
 		return
 	}
@@ -938,6 +944,13 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 	if !met {
 		return
 	}
+	if err := r.checkMaskedReads(plan, node); err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		r.report(ctx, progressCh, node)
+		return
+	}
 
 	task := node.Step().HumanTask
 	prompt, err := resolveRuntimeString(ctx, task.Prompt, cmnvalue.WorkflowField("with.prompt"))
@@ -1121,8 +1134,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 	}
 
 	// Load output variables and approval inputs from predecessor nodes.
-	preds := planPredecessorNodes(plan, node)
-	for _, predNode := range preds {
+	for _, predNode := range planPredecessorNodes(plan, node) {
 		// Add predecessor outputs to scope
 		if outputs := predNode.OutputVariablesMap(); len(outputs) > 0 {
 			stepID := predNode.Step().ID
@@ -1131,9 +1143,6 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 			}
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
-	}
-	if err := checkMaskedOutputs(preds, node, false); err != nil {
-		return ctx, err
 	}
 
 	// Path-dependent environment values are resolved after build paths
@@ -1298,9 +1307,6 @@ func (r *Runner) setupEnvironEventHandler(
 			}
 			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
 		}
-	}
-	if err := checkMaskedOutputs(plan.Nodes(), node, true); err != nil {
-		return ctx, err
 	}
 
 	return WithEnv(ctx, env), nil
@@ -1664,6 +1670,10 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 			node.SetStatus(ir.NodeSkipped)
 			return nil
 		}
+		node.SetStatus(ir.NodeFailed)
+		return err
+	}
+	if err := checkMaskedOutputs(plan.Nodes(), node, true); err != nil {
 		node.SetStatus(ir.NodeFailed)
 		return err
 	}

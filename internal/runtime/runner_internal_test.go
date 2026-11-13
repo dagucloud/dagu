@@ -1335,7 +1335,7 @@ func TestFailRepeatLimitGracefulStop(t *testing.T) {
 
 // A retry restores a step's outputs from a status stored with secrets masked.
 // A step that reads such an output fails instead of running on starred text.
-func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
+func TestCheckMaskedReads(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1440,13 +1440,7 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 			fetch.setVariable("TOKEN", "***")
 			fetch.inner.State.MaskedOutputs = tt.masked
 
-			ctx := NewContext(
-				context.Background(),
-				&ir.DAG{Name: "test-dag", WorkingDir: t.TempDir()},
-				"run-1",
-				filepath.Join(t.TempDir(), "dag.log"),
-			)
-			_, err = New(&Config{}).setupVariables(ctx, plan, plan.GetNodeByName("use"))
+			err = New(&Config{}).checkMaskedReads(plan, plan.GetNodeByName("use"))
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -1460,7 +1454,7 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 // Handler steps (onExit, onFailure, ...) see the output variables of every
 // step, so they fail on a masked one. Step references do not resolve in a
 // handler, so they read nothing.
-func TestSetupEnvironEventHandlerFailsOnMaskedOutputs(t *testing.T) {
+func TestCheckMaskedOutputsInHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1485,14 +1479,8 @@ func TestSetupEnvironEventHandlerFailsOnMaskedOutputs(t *testing.T) {
 			fetch.setVariable("TOKEN", "***")
 			fetch.inner.State.MaskedOutputs = tt.masked
 
-			ctx := NewContext(
-				context.Background(),
-				&ir.DAG{Name: "test-dag", WorkingDir: t.TempDir()},
-				"run-1",
-				filepath.Join(t.TempDir(), "dag.log"),
-			)
 			handler := NewNode(ir.Step{Name: "onExit", Command: tt.command}, NodeState{})
-			_, err = New(&Config{}).setupEnvironEventHandler(ctx, plan, handler, nil)
+			err = checkMaskedOutputs(plan.Nodes(), handler, true)
 			if !tt.wantErr {
 				require.NoError(t, err)
 				return

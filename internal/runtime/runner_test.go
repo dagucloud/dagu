@@ -5318,6 +5318,48 @@ func TestHumanTask(t *testing.T) {
 		require.NotNil(t, result.nodeByName(t, "review").State().StepOutputsValue)
 		assert.JSONEq(t, stepOutputs, *result.nodeByName(t, "review").State().StepOutputsValue)
 	})
+
+	// A retried step that reads an output restored masked fails, but only once
+	// its preconditions hold: a skipped step reads nothing.
+	for _, tc := range []struct {
+		name       string
+		expected   string
+		wantRun    ir.Status
+		wantNode   ir.NodeStatus
+		wantErrMsg string
+	}{
+		{"RetryFailsStepReadingMaskedOutput", "run", ir.Failed, ir.NodeFailed, `reads output "token" of step "fetch"`},
+		{"RetrySkipsMaskedReadWhenPreconditionNotMet", "skip", ir.Succeeded, ir.NodeSkipped, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := setupRunner(t)
+			stepOutputs := `{"token":"*******"}`
+			fetch := newStep("fetch", withID("fetch"))
+			use := newStep("use",
+				withDepends("fetch"),
+				withCommand(`echo ${steps.fetch.outputs.token}`),
+				withPrecondition(&ir.Condition{Condition: "run", Expected: tc.expected}),
+			)
+			dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch, use}}
+			nodes := []*runtime.Node{
+				runtime.NewNode(fetch, runtime.NodeState{
+					Status:           ir.NodeSucceeded,
+					StepOutputsValue: &stepOutputs,
+					MaskedOutputs:    &ir.MaskedOutputs{Names: []string{"token"}},
+				}),
+				runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+			}
+			plan, err := runtime.CreateRetryPlan(r.Context, dag, nodes...)
+			require.NoError(t, err)
+			result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, tc.wantRun)
+
+			result.assertNodeStatus(t, "use", tc.wantNode)
+			if tc.wantErrMsg != "" {
+				assert.ErrorContains(t, result.nodeByName(t, "use").Error(), tc.wantErrMsg)
+			}
+		})
+	}
 }
 
 func TestWaitStep(t *testing.T) {
