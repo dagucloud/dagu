@@ -211,6 +211,66 @@ steps:
 `))
 		require.ErrorContains(t, err, "files is not valid in a DAG-level llm block; set it on a chat.completion step, under with")
 	})
+
+	t.Run("max_file_chars", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: wide
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read them.
+      files: logs/*.log
+      max_file_chars: 3000000
+  - id: default
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read them.
+      files: logs/*.log
+`))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Steps[0].LLM.MaxFileChars)
+		assert.Equal(t, 3000000, *dag.Steps[0].LLM.MaxFileChars)
+		assert.Equal(t, 3000000, dag.Steps[0].LLM.GetMaxFileChars())
+		assert.Nil(t, dag.Steps[1].LLM.MaxFileChars)
+		assert.Equal(t, 1000000, dag.Steps[1].LLM.GetMaxFileChars())
+	})
+
+	t.Run("max_file_chars must be positive", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: none
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read them.
+      files: logs/*.log
+      max_file_chars: 0
+`))
+		require.ErrorContains(t, err, "max_file_chars must be at least 1")
+	})
+
+	t.Run("max_file_chars not at the DAG level", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+llm:
+  provider: openai
+  model: gpt-4o
+  max_file_chars: 200000
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      prompt: Read it.
+`))
+		require.ErrorContains(t, err, "max_file_chars is not valid in a DAG-level llm block; set it on a chat.completion step, under with")
+	})
 }
 
 func TestProviderOrder(t *testing.T) {

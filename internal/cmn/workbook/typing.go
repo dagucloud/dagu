@@ -90,6 +90,12 @@ const (
 	FormulaCalculate FormulaMode = "calculate"
 )
 
+// cached reports whether formula cells yield their stored result; the
+// empty mode is the default, cached.
+func (m FormulaMode) cached() bool {
+	return m == "" || m == FormulaCached
+}
+
 const (
 	dateLayout     = "2006-01-02"
 	dateTimeLayout = "2006-01-02T15:04:05"
@@ -148,21 +154,21 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 	if err != nil {
 		return nil, w.cellError(sheet, col, row, err.Error())
 	}
-	switch cellType {
-	case excelize.CellTypeBool:
+	switch {
+	case cellType == excelize.CellTypeBool:
 		return raw == "1" || strings.EqualFold(raw, "true"), nil
-	case excelize.CellTypeError:
+	case cellType == excelize.CellTypeError:
 		warn(fmt.Sprintf("%s!%s: error cell %s", sheet, cell, raw))
 		return nil, nil
-	case excelize.CellTypeDate:
+	case cellType == excelize.CellTypeDate:
 		return w.text(raw, opts), nil
-	case excelize.CellTypeSharedString, excelize.CellTypeInlineString, excelize.CellTypeFormula:
+	case isTextCell(cellType):
 		if excelErrors[raw] {
 			warn(fmt.Sprintf("%s!%s: error cell %s", sheet, cell, raw))
 			return nil, nil
 		}
 		return w.text(raw, opts), nil
-	case excelize.CellTypeNumber, excelize.CellTypeUnset:
+	case cellType == excelize.CellTypeNumber, cellType == excelize.CellTypeUnset:
 		if excelErrors[raw] {
 			warn(fmt.Sprintf("%s!%s: error cell %s", sheet, cell, raw))
 			return nil, nil

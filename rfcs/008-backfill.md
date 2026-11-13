@@ -124,8 +124,16 @@ the pinned definition, and one entry per slot.
   `backfill-{backfill id}-{generation}-{timestamp}`. The generation counts
   resumes, so a resumed slot gets a new run. After a crash, the scheduler finds
   the runs it already created.
-- **Trigger type.** The run's `context.trigger.type` is `backfill`, a new
-  value. The actor is the user who submitted the backfill.
+- **Identity.** Each run records its backfill ID, and its
+  `context.trigger.type` is `backfill`, a new value. The actor is the user who
+  submitted the backfill.
+- **Retries keep the identity.** A retry, by hand or by the DAG's retry policy,
+  keeps the backfill ID and the trigger type `backfill`, where other retries
+  become `retry`. Every rule in this RFC that treats backfill runs apart keys
+  on the backfill ID. A retried backfill run therefore keeps its low priority,
+  its exemption from the live checks, its place out of latest status and
+  history, its quiet notifications, and its hold during a pause. It is never
+  treated as a scheduler retry, which a pause or a suspension aborts.
 
 ### Slot index
 
@@ -149,7 +157,8 @@ run on a chosen or default slot (RFC 007), or a backfill.
   - The old and new entries fire equally often and differ only in time of day.
   - The run's fire time is nearer to that slot than to any other. Ties go to
     the later slot.
-  - When the DAG has `dates`, the run's recorded first date equals the slot's.
+  - When the DAG has `dates`, the run's recorded value of the first entry
+    equals the slot's.
 
   After a move from 02:00 to 01:00, the 02:00 run on October 5 covers the 01:00
   slot on October 5, which loads the same day. Runs of a different cadence
@@ -189,8 +198,14 @@ dagu backfill cancel <backfill id> [--stop-running]
 - A date without a time means the start of that day for `--from` and the end
   of that day for `--to`. Forms without an offset follow the zone rules of
   `--scheduled-at` (RFC 007).
-- With `--by`, `--from` and `--to` are dates of that entry, compared as dates.
-  A DAG without that entry is rejected.
+- With `--by`, `--from` and `--to` are dates. A slot is selected when the
+  calendar date of the entry's instant, in the entry's zone, falls between
+  them, whatever the entry's format. On a list entry (`each`), a slot is
+  selected when any of its values falls between them. A DAG without that entry
+  is rejected.
+- `--params` gives every run the same value. A param whose `eval` reads
+  `${dates.*}` follows each slot unless `--params` names it. The plan warns
+  when it does, because every slot would then load the same date.
 - A `--to` in the future, including today's date, is clamped to now, and the
   plan prints the clamped end. Fires in the current minute or later are left to
   the live schedule. A `--from` in the future is rejected.
@@ -248,6 +263,7 @@ Start 28 runs? [y/N]
     cadence, how many live slots `overlap_policy: skip` drops.
   - The DAG is suspended, and its backfill runs will still run.
   - The `handler_on` steps that will run once per slot, by name.
+  - A `--params` value for a param that would otherwise follow the slot.
   - Slots with no record, and slots that run because the cadence changed.
 
 ### API and MCP
@@ -336,7 +352,8 @@ submit ─▶ plan ─▶ backfill record ─▶ scheduler ─▶ enqueue slot r
   in the queue, and start when the scheduler resumes. Nothing is discarded.
 - **A suspended DAG** can be backfilled. Suspension stops its schedule, not an
   operator's request. The dispatcher must tell a pause from a suspension, which
-  the existing check reports alike.
+  the existing check reports alike. Retries of backfill runs follow the same
+  rules.
 - **A DAG renamed or deleted** during a backfill ends the backfill with the
   remaining slots marked `cancelled`.
 - **Notifications.** `mail_on` and notification routes do not fire per backfill
@@ -368,8 +385,9 @@ rather than by run.
 - **Layout follows the cadence.** Daily or slower slots form a calendar. Hourly
   slots form one row per day, and finer cadences one row per hour.
 - **Labels.** When the DAG has `dates`, a cell is labeled with its first entry,
-  so choosing October means choosing the cells labeled October. Hover shows the
-  fire time, window, every date, the trigger, and a link to the run.
+  so choosing October means choosing the cells labeled October. A list entry
+  shows its first and last value. Hover shows the fire time, window, every
+  date, the trigger, and a link to the run.
 - **Selection.** Drag for a range, or click cells one at a time. On a phone,
   tap the first and the last. **Backfill** appears with the selection.
 
@@ -388,7 +406,8 @@ missed-slots notice open one panel:
 3. **Options,** collapsed: concurrency with the queue's limit beside it, params
    through the DAG's param form, profile, and failure behavior in plain words:
    stop for loads that build on the previous slot, continue for independent
-   slots.
+   slots. Unlike the run dialog, the form does not prefill params whose `eval`
+   reads `${dates.*}`, so each run evaluates its own slot.
 4. **Plan.** `Loads 2026-10-01 to 2026-10-31`, the totals, the estimate, and
    the warnings.
 5. **A button that names the effect:** `Start 28 runs`.
@@ -433,7 +452,8 @@ and queue pages filter by `backfill`.
   dismisses it.
 - **Run timeline and DAG history** hide backfill runs by default, on the
   server, with a toggle to show them. The timeline holds 30 runs at most, so a
-  long backfill would otherwise push out every live run.
+  long backfill would otherwise push out every live run. A DAG whose only runs
+  are backfill runs shows them, as the latest-run rule does.
 - **Run lists and the queue page** show a `backfill` badge and a filter.
 - **Run details** show `Slot Oct 2 02:00, loads Oct 1`, a link to the backfill,
   and `slot 1 of 28`.
@@ -457,7 +477,8 @@ and queue pages filter by `backfill`.
 | First | CLI, API, backfill record, slot index, scheduler dispatch, and the plan. Requires the first release of RFC 007. |
 | Second | The UI and the MCP actions. |
 
-- `backfill` is a new value of `context.trigger.type` in spec 017.
+- `backfill` is a new value of `context.trigger.type` in spec 017. Unlike
+  other trigger types, it survives a retry.
 - `--by` and the plan's dates need `dates`, from the second release of RFC 007.
   Until then the plan shows windows.
 - Catchup changes in one way: it skips a slot whose latest backfill run is
@@ -538,6 +559,18 @@ and queue pages filter by `backfill`.
     failed slots succeed, and `dagu status` returns it as `latestBackfill`.
 38. The plan names the `handler_on` steps that will run once per slot.
 39. A backfill run waiting in a full queue shows the reason in `status`.
+40. A backfill run retried by the DAG's retry policy keeps its backfill ID and
+    trigger type, stays behind live runs in the queue, and sends no per-run
+    mail.
+41. A retry of a backfill run queued during a scheduler pause is held, not
+    aborted, and on a suspended DAG it runs.
+42. `--by` on an entry formatted as `unix` selects the same slots as on a
+    `date` entry with the same shift.
+43. A DAG whose only runs are backfill runs shows them in its run timeline.
+44. On a weekday DAG, `--by window_days` with `{ each: 1d }` and a range of
+    one Saturday selects the following Monday's slot.
+45. A param with `eval: ${dates.target_day}` resolves to each slot's own date
+    in a backfill. Naming it in `--params` warns in the plan.
 
 ## Alternatives considered
 

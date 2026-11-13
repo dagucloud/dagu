@@ -168,7 +168,7 @@ steps:
 	require.NoError(t, th.QueueStore.Enqueue(
 		th.Context,
 		dag.ProcGroup(),
-		queue.QueuePriorityLow,
+		queue.QueuePriorityHigh,
 		ir.NewDAGRunRef(dag.Name, "stale-run"),
 	))
 

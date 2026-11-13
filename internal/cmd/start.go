@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -88,7 +89,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -310,18 +311,24 @@ func runStart(ctx *Context, args []string) error {
 		slot = historicSlot
 	}
 
+	recursiveOutput, err := ctx.Command.Flags().GetBool("recursive-output")
+	if err != nil {
+		return fmt.Errorf("failed to read recursive-output: %w", err)
+	}
+
 	opts := runOptions{
-		root:           root,
-		workerID:       workerID,
-		attemptID:      attemptID,
-		triggerType:    triggerType,
-		triggerActor:   triggerActor,
-		parallelItem:   parallelItemFromEnv(dag.Env),
-		scheduleTime:   slot.scheduleTime,
-		scheduleWindow: slot.window,
-		profileName:    profileName,
-		definitionID:   dagDefinitionIDFromEnv(),
-		noReuse:        noReuse,
+		root:            root,
+		workerID:        workerID,
+		attemptID:       attemptID,
+		triggerType:     triggerType,
+		triggerActor:    triggerActor,
+		parallelItem:    parallelItemFromEnv(dag.Env),
+		scheduleTime:    slot.scheduleTime,
+		scheduleWindow:  slot.window,
+		profileName:     profileName,
+		definitionID:    dagDefinitionIDFromEnv(),
+		noReuse:         noReuse,
+		recursiveOutput: recursiveOutput,
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
@@ -734,10 +741,60 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			ExpandSubRuns:            opts.recursiveOutput,
 		},
 	)
 
 	return ExecuteAgent(ctx, agentInstance, d, dagRunID, logFile)
+}
+
+// subRunStatusLookupTimeout bounds one recursive sub-run status lookup so an
+// unreachable coordinator cannot stall the deferred summary render.
+const subRunStatusLookupTimeout = 5 * time.Second
+
+// subRunStatusLookupBudget bounds the time one summary spends on sub-run
+// status lookups that go over the network.
+const subRunStatusLookupBudget = 30 * time.Second
+
+var errSubRunLookupBudgetSpent = errors.New("sub-run status lookup budget spent")
+
+// withSubRunLookupBudget returns a resolver that stops calling resolve once
+// budget has passed since its first lookup, so a slow or unreachable server
+// delays a summary by a bounded time however many sub-runs it has. The
+// returned resolver is not safe for concurrent use.
+func withSubRunLookupBudget(budget time.Duration, resolve output.SubRunResolver) output.SubRunResolver {
+	var deadline time.Time
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		now := time.Now()
+		if deadline.IsZero() {
+			deadline = now.Add(budget)
+		}
+		if now.After(deadline) {
+			return nil, errSubRunLookupBudgetSpent
+		}
+		return resolve(sub)
+	}
+}
+
+// remoteSubRunResolver resolves sub-run status through the coordinator so the
+// final summary can render child step trees inline.
+func remoteSubRunResolver(ctx *Context, cli coordinator.Client, dagName, dagRunID string) output.SubRunResolver {
+	root := ir.NewDAGRunRef(dagName, dagRunID)
+	return withSubRunLookupBudget(subRunStatusLookupBudget, func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		if sub.DAGName == "" {
+			return nil, nil
+		}
+		lookupCtx, cancel := context.WithTimeout(ctx, subRunStatusLookupTimeout)
+		defer cancel()
+		res, err := cli.GetDAGRunStatus(lookupCtx, sub.DAGName, sub.DAGRunID, &root)
+		if err != nil {
+			return nil, err
+		}
+		if res == nil || !res.Found {
+			return nil, nil
+		}
+		return res.Status, nil
+	})
 }
 
 // dispatchToCoordinatorAndWait dispatches a DAG to coordinator and waits for completion.
@@ -750,6 +807,9 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	var progress *RemoteProgressDisplay
 	if showProgress {
 		progress = NewRemoteProgressDisplay(d, dagRunID)
+		if opts.recursiveOutput {
+			progress.SetSubRunResolver(remoteSubRunResolver(ctx, coordinatorCli, d.Name, dagRunID))
+		}
 		progress.Start()
 	}
 

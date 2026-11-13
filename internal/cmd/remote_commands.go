@@ -12,6 +12,7 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/output"
 )
 
 func toCoreDAG(name string) *ir.DAG {
@@ -188,7 +189,7 @@ func mapAPIStepInputs(inputs *[]api.StepInputDeclaration) []ir.StepInputDeclarat
 }
 
 func validateRemoteStartLikeFlags(ctx *Context) error {
-	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor"}
+	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor", recursiveOutputFlag.name}
 	for _, flag := range disallowed {
 		if ctx.Command.Flags().Changed(flag) {
 			return fmt.Errorf("--%s is only supported in the local context", flag)
@@ -397,7 +398,7 @@ func printRemoteWarnings(ctx *Context, warnings *[]string) {
 	}
 }
 
-func remoteRunStatus(ctx *Context, args []string) error {
+func remoteRunStatus(ctx *Context, args []string, recursive bool) error {
 	subRunID, _ := ctx.StringParam("sub-run-id")
 	if subRunID != "" {
 		return fmt.Errorf("--sub-run-id is not supported for remote contexts")
@@ -419,7 +420,11 @@ func remoteRunStatus(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	displayTreeStatus(coreDAG, status)
+	var subRuns output.SubRunResolver
+	if recursive {
+		subRuns = subRunStatusResolver(ctx, status, dag.Dag.Name, runID)
+	}
+	displayTreeStatus(coreDAG, status, subRuns)
 	return nil
 }
 
