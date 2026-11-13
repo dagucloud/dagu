@@ -4,6 +4,7 @@
 package certproxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -386,8 +387,17 @@ func runChrome(t *testing.T, chrome string, ready Ready, url string) {
 			10*time.Second, 200*time.Millisecond, "remove the browser profile")
 	})
 	pac := fmt.Sprintf(`function FindProxyForURL() { return "PROXY 127.0.0.1:%d"; }`, ready.GuardPort)
+	// Chrome's own log says why a page did not load, which the test's
+	// assertions cannot see. It runs after Chrome closes, so it is complete.
+	var output syncBuffer
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("Chrome output:\n%s", output.String())
+		}
+	})
 	cmd := exec.Command(chrome,
 		"--headless",
+		"--enable-logging=stderr",
 		"--no-sandbox",
 		"--no-first-run",
 		"--no-default-browser-check",
@@ -400,8 +410,29 @@ func runChrome(t *testing.T, chrome string, ready Ready, url string) {
 		"--ignore-certificate-errors-spki-list="+ready.SPKI,
 		url,
 	)
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { closeChrome(cmd, profile) })
+}
+
+// syncBuffer is a buffer Chrome's output is copied into while a test reads
+// it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // closeChrome closes the Chrome cmd runs through its DevTools port, which
