@@ -37,6 +37,7 @@ schedule:
     params: {mode: z}
   - expression: "0 5,6 * * *"
     params: {mode: overlap}
+  - expression: "0 7 * * *"
 steps:
   - run: echo report
 `))
@@ -55,6 +56,7 @@ steps:
 		{runID: "first", hour: 5, want: "mode=y"},
 		{runID: "second", hour: 6, want: "mode=z"},
 		{runID: "explicit", hour: 6, explicit: "mode=manual", want: "mode=manual"},
+		{runID: "defaults", hour: 7, want: "mode=default"},
 	} {
 		record := &backfill.Record{DAGName: dag.Name, ID: "bf123456"}
 		record.Options.Params = tc.explicit
