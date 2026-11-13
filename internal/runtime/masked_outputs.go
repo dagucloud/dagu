@@ -34,12 +34,20 @@ type envField struct {
 	entry int
 }
 
-// stepReads returns what the fields of the node's step read.
+// ownEnvPath is the path of the env entries of the node's step in the DAG
+// that stepReads walks, which holds only that step.
+const ownEnvPath = "steps[0].env["
+
+// stepReads returns what the fields of the node's step read. A js or template
+// script is passed on as written, so it reads nothing.
 func (n *Node) stepReads() stepReads {
 	n.readsOnce.Do(func() {
 		for _, field := range reffield.ReferenceFields(&ir.DAG{Steps: []ir.Step{n.Step()}}) {
+			if field.Field.IsTemplateScript() {
+				continue
+			}
 			n.reads.text = append(n.reads.text, field.Field.StepTextReferences(field.Value)...)
-			if index, ok := strings.CutPrefix(field.Path, field.OwnerStepPath+".env["); ok {
+			if index, ok := strings.CutPrefix(field.Path, ownEnvPath); ok {
 				entry, _ := strconv.Atoi(strings.TrimSuffix(index, "]"))
 				n.reads.envFields = append(n.reads.envFields, envField{ReferenceField: field, entry: entry})
 			} else {
@@ -89,12 +97,13 @@ func (p *Plan) hasMaskedOutputs() bool {
 // is gone, so the step would run on starred text. A handler has no
 // ${steps...} lookup scope, so those references are no reads there.
 func checkMaskedOutputs(sources []*Node, node *Node, handler bool) error {
+	owners := variableOwners(sources)
 	for _, source := range sources {
 		masked := source.MaskedOutputs()
 		if masked == nil {
 			continue
 		}
-		name, ok := maskedRead(node.stepReads(), source, masked, handler)
+		name, ok := maskedRead(node.stepReads(), source, masked, handler, owners)
 		if !ok {
 			continue
 		}
@@ -106,8 +115,21 @@ func checkMaskedOutputs(sources []*Node, node *Node, handler bool) error {
 	return nil
 }
 
+// variableOwners returns the source whose value each output variable holds in
+// scope. Sources enter scope in order, so a later one shadows an earlier one.
+func variableOwners(sources []*Node) map[string]*Node {
+	owners := make(map[string]*Node)
+	for _, source := range sources {
+		for name := range source.OutputVariablesMap() {
+			owners[name] = source
+		}
+	}
+	return owners
+}
+
 // maskedRead returns the first masked output of source that reads names.
-func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler bool) (string, bool) {
+// owners maps each output variable to the source whose value is in scope.
+func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler bool, owners map[string]*Node) (string, bool) {
 	state := source.State()
 	step := source.Step()
 	// Step references resolve by step id only.
@@ -122,9 +144,8 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 			return ref.Expression, true
 		}
 	}
-	variables := source.OutputVariablesMap()
 	for _, name := range masked.Variables {
-		if _, ok := variables[name]; !ok {
+		if owners[name] != source {
 			continue
 		}
 		if reads.readsOutputVariable(name, handler) {

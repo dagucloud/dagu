@@ -95,13 +95,15 @@ that value resolution reads:
   step published any, and the captured output document otherwise.
 - `${<id>.output}` reads the captured output text, or the step's output
   variable when no captured text is stored.
-- `${NAME}` and `$NAME` read an output variable.
+- `${NAME}` and `$NAME` read an output variable. When several predecessors set
+  the same variable, they read the one whose value is in the step's scope.
 
 Each reference fails only when masking changed the output it reads. In a
 handler step, `${steps.<id>.outputs.<name>}` does not resolve, so it is not a
 read there; the other forms are.
 
-An escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
+A `js` or `template` script is passed on as written, so it holds no reads. An
+escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
 count as reads wherever they appear in such a field, even where a shell would
 not expand them, such as inside single quotes. A variable a step defines in its
 own `env:` is the step's own value in its other fields and in the `env:`

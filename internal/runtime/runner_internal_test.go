@@ -1342,11 +1342,14 @@ func TestCheckMaskedReads(t *testing.T) {
 		name        string
 		command     string
 		description string
-		env         []string // the reading step's own env
-		stdout      string   // the reading step's stdout path
-		noID        bool     // fetch has no id
-		published   string   // fetch's stored published outputs
-		captured    string   // fetch's stored captured text
+		env         []string  // the reading step's own env
+		stdout      string    // the reading step's stdout path
+		executor    string    // the reading step's executor type
+		script      string    // the reading step's script
+		foreach     []ir.Step // the reading step's foreach body
+		noID        bool      // fetch has no id
+		published   string    // fetch's stored published outputs
+		captured    string    // fetch's stored captured text
 		masked      *ir.MaskedOutputs
 		wantErr     string // the output named in the error; empty when the step runs
 	}{
@@ -1487,6 +1490,21 @@ func TestCheckMaskedReads(t *testing.T) {
 			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
+		// A foreach body step's env belongs to that step, not the reading one.
+		{
+			name:    "env of a foreach body step",
+			command: "deploy",
+			foreach: []ir.Step{{Name: "inner", Command: "echo", Env: []string{"A=one", "B=two"}}},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
+		},
+		// A js or template script is passed on as written, so it reads nothing.
+		{
+			name:     "verbatim script",
+			executor: "js",
+			script:   "const TOKEN = 1; console.log(`${TOKEN} ${fetch.output}`)",
+			captured: "***",
+			masked:   &ir.MaskedOutputs{Variables: []string{"TOKEN"}, Captured: true},
+		},
 		{
 			name:    "nothing masked",
 			command: "deploy ${steps.fetch.outputs.token} ${TOKEN}",
@@ -1501,10 +1519,14 @@ func TestCheckMaskedReads(t *testing.T) {
 			if tt.noID {
 				fetchID = ""
 			}
-			plan, err := NewPlan(
-				ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"},
-				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description, Env: tt.env, Stdout: tt.stdout},
-			)
+			use := ir.Step{
+				ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description,
+				Env: tt.env, Stdout: tt.stdout, Script: tt.script, ExecutorConfig: ir.ExecutorConfig{Type: tt.executor},
+			}
+			if tt.foreach != nil {
+				use.Foreach = &ir.ForeachConfig{Steps: tt.foreach}
+			}
+			plan, err := NewPlan(ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"}, use)
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")
 			fetch.setVariable("TOKEN", "***")
@@ -1523,6 +1545,45 @@ func TestCheckMaskedReads(t *testing.T) {
 			}
 			require.ErrorContains(t, err, `step "use" reads `+tt.wantErr)
 			require.ErrorContains(t, err, `step "fetch" has to run again`)
+		})
+	}
+}
+
+// Output variables enter scope nearest predecessor first, so of two
+// predecessors that set the same variable, a step reads the farther one.
+func TestCheckMaskedReadsShadowedVariable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		masked  string // the predecessor whose TOKEN is masked
+		wantErr bool
+	}{
+		{name: "nearer predecessor shadowed", masked: "near"},
+		{name: "farther predecessor read", masked: "far", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			plan, err := NewPlan(
+				ir.Step{ID: "far", Name: "far", Output: "TOKEN"},
+				ir.Step{ID: "near", Name: "near", Depends: []string{"far"}, Output: "TOKEN"},
+				ir.Step{ID: "use", Name: "use", Depends: []string{"near"}, Command: "deploy ${TOKEN}"},
+			)
+			require.NoError(t, err)
+			for _, name := range []string{"far", "near"} {
+				plan.GetNodeByName(name).setVariable("TOKEN", name)
+			}
+			plan.GetNodeByName(tt.masked).inner.State.MaskedOutputs = &ir.MaskedOutputs{Variables: []string{"TOKEN"}}
+
+			err = New(&Config{}).checkMaskedReads(plan, plan.GetNodeByName("use"))
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, `step "`+tt.masked+`" has to run again`)
 		})
 	}
 }
