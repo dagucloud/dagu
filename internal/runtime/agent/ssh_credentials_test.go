@@ -53,6 +53,7 @@ func (r *countingSecretResolver) callCount(ref string) int {
 
 // Two SSH steps share one password ref, and neither runs. The ref still
 // resolves once at run start, and its value is masked wherever it appears.
+// A step name containing "=" must not change what is masked.
 func TestAgent_SSHCredentialRefsResolveOnceAndMask(t *testing.T) {
 	t.Parallel()
 
@@ -65,7 +66,7 @@ steps:
   - name: local
     run: echo `+credential+`
     output: RESPONSE
-  - name: remote
+  - name: remote=prod
     action: ssh.run
     preconditions:
       - condition: "skip"

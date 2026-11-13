@@ -57,7 +57,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
-	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -607,7 +606,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	resolvedEnv, dotenvErr := startup.env, startup.envErr
 	secretEnvs, secretErr := startup.secrets, startup.secretErr
 	credentials := startup.credentials
-	masks := credentialMasks(a.dag.CredentialRefs, credentials)
+	masks := credentialMasks(credentials)
 	profileValues, profileErr := startup.profileValues, startup.profileErr
 	a.lock.Lock()
 	if a.stopRequest != nil || startupCtx.Err() != nil {
@@ -2272,15 +2271,17 @@ func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, e
 	return values, nil
 }
 
-// credentialMasks labels each resolved credential value with the field that
-// names it, for masking. Field paths contain dots, so they never collide with
-// variable names.
-func credentialMasks(refs []secretref.Ref, values map[string]string) map[string]string {
+// credentialMaskPrefix starts the label of each SSH credential value in the
+// masked set. Maskers parse NAME=value pairs, and a ref holds neither "=" nor
+// ":", so a label never splits a value and never collides with a variable.
+const credentialMaskPrefix = "ssh-credential:"
+
+// credentialMasks labels each resolved credential value by its ref, for
+// masking.
+func credentialMasks(values map[string]string) map[string]string {
 	masks := make(map[string]string, len(values))
-	for _, ref := range refs {
-		if value, ok := values[ref.Ref]; ok {
-			masks[ref.Name] = value
-		}
+	for ref, value := range values {
+		masks[credentialMaskPrefix+ref] = value
 	}
 	return masks
 }
