@@ -13891,9 +13891,26 @@ components:
           description: "Dates the run would get, in declaration order"
           items:
             $ref: "#/components/schemas/RunDateValue"
+        params:
+          type: array
+          description: "Values the run's params would take from the slot: one for each param whose eval is a single ${dates.NAME} reference. Other evals run when the run starts."
+          items:
+            $ref: "#/components/schemas/SlotParamValue"
       required:
         - defaultSlot
         - dates
+
+    SlotParamValue:
+      type: object
+      description: "A param and the value it would take from a slot"
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+      required:
+        - name
+        - value
 
     RunDateValue:
       type: object

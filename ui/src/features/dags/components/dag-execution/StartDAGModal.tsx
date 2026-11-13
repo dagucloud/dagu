@@ -55,6 +55,7 @@ import type { JSONSchema } from '../../../../lib/schema-utils';
 import {
   buildParamSchemaFormData,
   buildParamSchemaUiSchema,
+  type ParamSchemaUiSchema,
   stringifyParamSchemaFormData,
 } from './paramSchemaForm';
 import { ParamLabel } from './ParamLabel';
@@ -62,6 +63,7 @@ import { paramFormTemplates } from './paramFormTemplates';
 import { paramFormWidgets } from './paramFormWidgets';
 import { SlotDatesPreview } from './SlotDatesPreview';
 import { autoGrowTextarea } from './textareaAutoGrow';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
@@ -124,6 +126,27 @@ type RecentFire = components['schemas']['RecentFire'];
 // returns it, e.g. "2026-11-11 02:00 (Asia/Tokyo)".
 function formatRecentFire(fire: RecentFire): string {
   return `${fire.time.slice(0, 10)} ${fire.time.slice(11, 16)} (${fire.timezone})`;
+}
+
+const NO_PARAM_HINTS: Record<string, string> = {};
+
+// withSlotHints shows each hint in its param's field: as the placeholder,
+// and as help text, which also shows beside a widget without a placeholder,
+// such as a date.
+function withSlotHints(
+  uiSchema: ParamSchemaUiSchema,
+  hints: Record<string, string>,
+  help: (value: string) => string
+): ParamSchemaUiSchema {
+  const result = { ...uiSchema };
+  for (const [name, hint] of Object.entries(hints)) {
+    result[name] = {
+      ...result[name],
+      'ui:placeholder': hint,
+      'ui:help': help(hint),
+    };
+  }
+  return result;
 }
 
 function profileOverrideForSelection(
@@ -310,6 +333,7 @@ function StartDAGModal({
   defaultProfileLoading = false,
 }: Props) {
   const canUseProtectedProfiles = useIsAdmin();
+  const { ts } = useI18n();
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
   const paramSchema = React.useMemo(() => {
     const schema = dagDetails?.paramSchema as JSONSchema | undefined;
@@ -379,6 +403,11 @@ function StartDAGModal({
   // reported it. It holds the start only while the preview is shown.
   const [previewBlock, setPreviewBlock] = React.useState<string | null>(null);
   const datesBlocked = showDatesPreview ? previewBlock : null;
+  // The values params take from the slot, shown as their placeholders: the
+  // param's eval still decides its value when the run starts.
+  const [previewParams, setPreviewParams] =
+    React.useState<Record<string, string>>(NO_PARAM_HINTS);
+  const paramHints = showDatesPreview ? previewParams : NO_PARAM_HINTS;
   const previewSlot =
     slotSelection === OTHER_SLOT_VALUE
       ? customSlot.trim() || undefined
@@ -465,14 +494,19 @@ function StartDAGModal({
     () =>
       paramSchema
         ? ({
-            ...buildParamSchemaUiSchema(paramSchema),
+            ...withSlotHints(
+              buildParamSchemaUiSchema(paramSchema),
+              paramHints,
+              (value) =>
+                ts('Left empty, it takes {value} from the slot.', { value })
+            ),
             'ui:order': paramDefs
               .flatMap(({ name }) => (name ? [name] : []))
               .concat('*'),
             'ui:submitButtonOptions': { norender: true },
           } as UiSchema<SchemaFormData>)
         : undefined,
-    [paramDefs, paramSchema]
+    [paramDefs, paramSchema, paramHints, ts]
   );
   const schemaFormRef = React.useRef<RJSFForm<
     SchemaFormData,
@@ -865,6 +899,7 @@ function StartDAGModal({
                       hasDefaultProfile
                     )}
                     onBlocked={setPreviewBlock}
+                    onParams={setPreviewParams}
                   />
                 </div>
               )}
@@ -1132,6 +1167,9 @@ function StartDAGModal({
 
                             {renderTypedField({
                               field,
+                              hint: field.name
+                                ? paramHints[field.name]
+                                : undefined,
                               disabled: disableField,
                               describedBy,
                               invalid: !!error,
@@ -1249,12 +1287,15 @@ function StartDAGModal({
 
 function renderTypedField({
   field,
+  hint,
   disabled,
   describedBy,
   invalid,
   onChange,
 }: {
   field: ParamField;
+  /** The value the param takes when left unset, shown as its placeholder. */
+  hint?: string;
   disabled: boolean;
   describedBy?: string;
   invalid: boolean;
@@ -1318,7 +1359,7 @@ function renderTypedField({
             max={field.maximum}
             step={field.type === ParamDefType.integer ? 1 : 'any'}
             value={field.hasValue ? field.value : ''}
-            placeholder={field.hasValue ? undefined : 'Not set'}
+            placeholder={field.hasValue ? undefined : (hint ?? 'Not set')}
             disabled={disabled}
             onChange={(event) =>
               onChange({
@@ -1406,7 +1447,7 @@ function renderTypedField({
               }
             }}
             value={field.hasValue ? field.value : ''}
-            placeholder={field.hasValue ? undefined : 'Not set'}
+            placeholder={field.hasValue ? undefined : (hint ?? 'Not set')}
             disabled={disabled}
             onInput={(event) => autoGrowTextarea(event.currentTarget)}
             onChange={(event) =>

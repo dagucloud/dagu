@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -325,6 +326,22 @@ type ParamDef struct {
 	MinLength   *int     `json:"minLength,omitempty"`
 	MaxLength   *int     `json:"maxLength,omitempty"`
 	Pattern     *string  `json:"pattern,omitempty"`
+	// Eval computes the param when the caller gives no value. A fresh build
+	// sets it; it is not serialized.
+	Eval string `json:"-"`
+}
+
+// paramDateRef matches an eval that is one ${dates.NAME} reference.
+var paramDateRef = regexp.MustCompile(`^\$\{dates\.([A-Za-z][A-Za-z0-9_]*)\}$`)
+
+// DateName returns the date a param takes as its value: NAME when its eval
+// is one ${dates.NAME} reference.
+func (p ParamDef) DateName() (string, bool) {
+	match := paramDateRef.FindStringSubmatch(p.Eval)
+	if match == nil {
+		return "", false
+	}
+	return match[1], true
 }
 
 // WebhookConfig contains DAG-level webhook trigger behavior.

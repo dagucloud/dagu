@@ -5075,6 +5075,13 @@ export interface components {
             warning?: string;
             /** @description Dates the run would get, in declaration order */
             dates: components["schemas"]["RunDateValue"][];
+            /** @description Values the run's params would take from the slot: one for each param whose eval is a single ${dates.NAME} reference. Other evals run when the run starts. */
+            params?: components["schemas"]["SlotParamValue"][];
+        };
+        /** @description A param and the value it would take from a slot */
+        SlotParamValue: {
+            name: string;
+            value: string;
         };
         /** @description A resolved entry of a DAG's dates block */
         RunDateValue: {

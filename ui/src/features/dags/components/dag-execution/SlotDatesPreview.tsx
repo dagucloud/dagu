@@ -27,7 +27,8 @@ export function dateText(date: RunDateValue): string {
 /**
  * The slot a start would get, its window, and the dates its run would get,
  * read from the server as the start would resolve them. It reports the
- * reason when the dates cannot resolve, so the dialog can hold the start.
+ * reason when the dates cannot resolve, so the dialog can hold the start,
+ * and the values params take from the slot, so it can show them.
  * The preview is read when the slot or profile changes, a typed slot after
  * it rests.
  */
@@ -37,6 +38,7 @@ export function SlotDatesPreview({
   scheduledAt,
   profile,
   onBlocked,
+  onParams,
 }: {
   fileName: string;
   remoteNode: string;
@@ -46,6 +48,8 @@ export function SlotDatesPreview({
    * empty for no profile. */
   profile?: string;
   onBlocked: (reason: string | null) => void;
+  /** Receives the value each param takes from the slot, by name. */
+  onParams: (values: Record<string, string>) => void;
 }) {
   const { ts } = useI18n();
   const [settled, setSettled] = React.useState(scheduledAt);
@@ -73,6 +77,14 @@ export function SlotDatesPreview({
       : ts('The dates of this slot cannot be resolved.')
     : null;
   React.useEffect(() => onBlocked(reason), [reason, onBlocked]);
+  const params = reason ? undefined : data?.params;
+  React.useEffect(
+    () =>
+      onParams(
+        Object.fromEntries((params ?? []).map((p) => [p.name, p.value]))
+      ),
+    [params, onParams]
+  );
 
   if (reason) {
     return (

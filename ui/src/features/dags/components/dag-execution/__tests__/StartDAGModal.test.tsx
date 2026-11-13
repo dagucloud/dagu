@@ -17,16 +17,21 @@ import StartDAGModal from '../StartDAGModal';
 const renderedFormProps = vi.fn();
 const useIsAdminMock = vi.hoisted(() => vi.fn(() => true));
 
-const previewBlock = vi.hoisted(() => ({ reason: null as string | null }));
+const previewBlock = vi.hoisted(() => ({
+  reason: null as string | null,
+  params: {} as Record<string, string>,
+}));
 const previewProps = vi.hoisted(() => vi.fn());
 vi.mock('../SlotDatesPreview', () => ({
   SlotDatesPreview: (props: {
     profile?: string;
     onBlocked: (reason: string | null) => void;
+    onParams: (values: Record<string, string>) => void;
   }) => {
     previewProps(props);
-    const { onBlocked } = props;
+    const { onBlocked, onParams } = props;
     React.useEffect(() => onBlocked(previewBlock.reason), [onBlocked]);
+    React.useEffect(() => onParams(previewBlock.params), [onParams]);
     return <div data-testid="slot-dates-preview" />;
   },
 }));
@@ -111,7 +116,37 @@ describe('StartDAGModal', () => {
 
     afterEach(() => {
       previewBlock.reason = null;
+      previewBlock.params = {};
       previewProps.mockClear();
+    });
+
+    // A param whose eval is one date shows that date of the slot, as a
+    // placeholder: its eval still decides the value when the run starts.
+    it('shows the date a param takes from the slot', async () => {
+      previewBlock.params = { date: '2026-11-09' };
+      renderModal({
+        dag: {
+          name: 'etl',
+          dateNames: ['target_day'],
+          paramDefs: [{ name: 'date', type: 'string' }],
+          paramSchema: {
+            type: 'object',
+            properties: { date: { type: 'string' } },
+          },
+        } as never,
+      });
+
+      await waitFor(() =>
+        expect(renderedFormProps).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            uiSchema: expect.objectContaining({
+              date: expect.objectContaining({
+                'ui:placeholder': '2026-11-09',
+              }),
+            }),
+          })
+        )
+      );
     });
 
     it('previews the dates of a DAG without a schedule', () => {
