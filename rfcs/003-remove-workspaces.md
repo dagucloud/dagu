@@ -1,7 +1,7 @@
 # RFC 003: Replace Workspaces with Projects
 
 - **Status:** Proposed
-- **Date:** 2026-10-09, revised 2026-10-24 and 2026-11-13
+- **Date:** 2026-10-09, revised 2026-10-24 and 2026-11-14
 - **Affected areas:** `workspace`, `auth`, `spec` (base config), `runtime`
   (`dag.run` resolution), `secret`, `profile`, notification routes, incident
   policies, wiki, `audit`, `gitsync`, `persis`, `cmn/crypto`, `cloudreport`,
@@ -27,6 +27,11 @@ projects apart by an explicit binding, never by name.
 unmigrated workspace items remain, v3.0 runs no workflows and serves the
 migration plan instead of failing to start. Installs without workspaces
 run unchanged as the default project.
+
+v3.0 ships the core. Moving DAGs between projects, the All projects view,
+renames on disk that finish without an admin, Dagu Cloud bindings, and
+checkouts follow, as [Compatibility and rollout](#compatibility-and-rollout)
+lists.
 
 ## Problem statement
 
@@ -264,7 +269,8 @@ first discovered. The ID never changes; the name can.
 
 [Spec 001](../specs/001-project.md) calls a directory that holds
 `.dagu.json` a project and runs its workflows from the CLI. That is the same
-project seen from a checkout, not a second concept.
+project seen from a checkout, not a second concept. Checkouts ship with spec
+001, after v3.0.
 
 - A project's DAG directory may hold `.dagu.json`. The server then reads the
   project's DAG files where `.dagu.json` says, so one checkout runs on a
@@ -360,14 +366,15 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   Dagu, as it does when a git checkout renames it, is listed as missing. Its
   entry keeps its ID, grants, binding, and run history. When a new directory
   appears in the same discovery pass:
-  - If it holds the same DAG file names as one missing project, and no other
-    new directory does, the server finishes the rename itself and logs it,
-    so schedules keep running. Whoever can rename the directory in the
-    checkout can already change those DAGs, so this grants nothing new.
-  - Otherwise the projects page asks an admin whether the project was
-    renamed to it, and the new directory is not scheduled until the admin
-    answers. Confirming finishes the rename; declining registers a new
-    project, with no grants and no binding.
+  - After v3.0: if it holds the same DAG file names as one missing project,
+    and no other new directory does, the server finishes the rename itself
+    and logs it, so schedules keep running. Whoever can rename the
+    directory in the checkout can already change those DAGs, so this grants
+    nothing new.
+  - Otherwise, and for every rename in v3.0, the projects page asks an
+    admin whether the project was renamed to it, and the new directory is
+    not scheduled until the admin answers. Confirming finishes the rename;
+    declining registers a new project, with no grants and no binding.
   - Finishing a rename moves the runtime state to the new name in the same
     steps as a rename, and the project keeps everything else.
 
@@ -379,7 +386,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 ### Moving a DAG
 
 Teams reorganize, so DAGs move between projects. In v2 a label change moved
-a DAG and kept its history; a move between projects keeps it too.
+a DAG and kept its history; a move between projects keeps it too. The move
+ships after v3.0. Until then, a DAG file moved by hand starts over in its
+new project, and its runs stay in the old one.
 
 - An admin, or a user with the `manager` role in both projects, moves a DAG
   in the UI or API, or with `dagu move`. Its file, runs, logs, artifacts,
@@ -406,9 +415,10 @@ a DAG and kept its history; a move between projects keeps it too.
 - The workspace selector becomes a project selector. It lists the projects
   the user can see by display name, and appears only when the user can see
   more than one. A single-project install looks as it does today.
-- The selector also offers All projects for the run list, failures, and the
-  dashboard, so a person on call for several projects finds every failure
-  in one place. It shows only the projects the user can see.
+- After v3.0, the selector also offers All projects for the run list,
+  failures, and the dashboard, so a person on call for several projects
+  finds every failure in one place. It shows only the projects the user can
+  see.
 - Project IDs never appear in the UI. The name appears only where people
   type it: CLI hints, `project_mappings`, and links.
 - Creating a project asks for a display name and suggests a name from it,
@@ -587,12 +597,16 @@ item, not the first one found.
 | --- | --- |
 | v2.22 | Warnings and an admin notice that list workspace settings in use. |
 | Next v2 release | The warning and notice say that v3.0 moves workspaces into projects, and stop asking operators to move settings by hand. |
-| v3.0 | Projects, `dagu migrate workspaces`, and the migration-required mode. |
+| v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create, rename, and delete, with an admin confirming each rename made on disk; `dagu migrate workspaces`, the migration-required mode, and the fallback for existing clients; report protocol 3 (RFC 002). |
 | v3.1 | Drops the `workspace_mappings` and `default_workspace_access` aliases. |
+| After v3.0 | Moving DAGs between projects; the All projects view; renames made on disk that finish without an admin when the DAG files match; Dagu Cloud bindings (RFC 002); checkouts, with spec 001. |
 
 v2 gets no new workspace features.
 
 ## Verification and acceptance criteria
+
+Criteria 24, 25, 26, and 28, and the part of 17 that finishes a rename
+without an admin, apply from the release that ships the feature.
 
 1. A v2 data directory with no workspaces starts on v3.0 unchanged, as the
    default project.
