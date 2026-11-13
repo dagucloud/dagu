@@ -11,7 +11,8 @@ executor unit and integration tests.
 ## Scope
 
 This spec defines configuration for `sftp.upload` and `sftp.download`.
-It does not define SSH authentication or remote filesystem semantics.
+SSH credentials follow [Spec 042: SSH Run Action](042-ssh-run.md). This spec
+does not define remote filesystem semantics.
 
 ## Goal
 

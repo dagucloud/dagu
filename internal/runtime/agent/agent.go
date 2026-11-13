@@ -605,6 +605,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	resolvedEnv, dotenvErr := startup.env, startup.envErr
 	secretEnvs, secretErr := startup.secrets, startup.secretErr
+	credentials := startup.credentials
+	masks := credentialMasks(credentials)
 	profileValues, profileErr := startup.profileValues, startup.profileErr
 	a.lock.Lock()
 	if a.stopRequest != nil || startupCtx.Err() != nil {
@@ -616,7 +618,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	a.profileName = startup.profileName
 	a.profileResolvedAt = startup.profileResolvedAt
 	a.profileEntries = startup.profileEntries
-	a.secretMasker = newStatusSecretMasker(append(profileValues.allSecrets(), secretEnvs...))
+	statusSecrets := append(profileValues.allSecrets(), secretEnvs...)
+	for label, value := range masks {
+		statusSecrets = append(statusSecrets, label+"="+value)
+	}
+	a.secretMasker = newStatusSecretMasker(statusSecrets)
 	a.lock.Unlock()
 	for _, warning := range resolvedEnv.Warnings {
 		logger.Warn(ctx, warning)
@@ -778,6 +784,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			profileValues.selectedSecrets,
 		),
 		runtime.WithSecrets(secretEnvs),
+		runtime.WithMaskedSecrets(masks),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
@@ -825,6 +832,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	// Set even when empty, so an in-process child never reads its parent's.
+	ctx = ssh.WithSecretValues(ctx, credentials)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 	if a.workspaceSeed != nil {
 		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
@@ -1049,11 +1058,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		var bastionCfg *ssh.BastionConfig
 		if a.dag.SSH.Bastion != nil {
 			bastionCfg = &ssh.BastionConfig{
-				Host:     a.dag.SSH.Bastion.Host,
-				Port:     a.dag.SSH.Bastion.Port,
-				User:     a.dag.SSH.Bastion.User,
-				Key:      a.dag.SSH.Bastion.Key,
-				Password: a.dag.SSH.Bastion.Password,
+				Host:    a.dag.SSH.Bastion.Host,
+				Port:    a.dag.SSH.Bastion.Port,
+				User:    a.dag.SSH.Bastion.User,
+				SSHAuth: a.dag.SSH.Bastion.SSHAuth,
 			}
 		}
 
@@ -1061,8 +1069,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
-			Key:           a.dag.SSH.Key,
-			Password:      a.dag.SSH.Password,
+			SSHAuth:       a.dag.SSH.SSHAuth,
 			StrictHostKey: a.dag.SSH.StrictHostKey,
 			KnownHostFile: a.dag.SSH.KnownHostFile,
 			Shell:         a.dag.SSH.Shell,
@@ -1074,7 +1081,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
 		}
-		cli, err := ssh.NewClient(&sshConfig)
+		cli, err := ssh.NewClient(ctx, &sshConfig)
 		if err != nil {
 			initErr = fmt.Errorf("failed to create ssh client: %w", err)
 			return initErr
@@ -2239,6 +2246,44 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 
 	logger.Debug(ctx, "Secrets resolved successfully", tag.Count(len(resolvedSecrets)))
 	return resolvedSecrets, nil
+}
+
+// resolveCredentialRefs resolves the secret refs that SSH connections read
+// credentials from, once each, and returns the values keyed by ref.
+func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, error) {
+	if len(a.dag.CredentialRefs) == 0 {
+		return nil, nil
+	}
+	if a.secretReferenceResolver == nil {
+		ref := a.dag.CredentialRefs[0]
+		return nil, fmt.Errorf("failed to resolve %s from secret ref %q: secret store is not configured", ref.Name, ref.Ref)
+	}
+
+	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(a.dag.CredentialRefs)))
+	values := make(map[string]string, len(a.dag.CredentialRefs))
+	for _, ref := range a.dag.CredentialRefs {
+		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
+		}
+		values[ref.Ref] = value
+	}
+	return values, nil
+}
+
+// credentialMaskPrefix starts the label of each SSH credential value in the
+// masked set. Maskers parse NAME=value pairs, and a ref holds neither "=" nor
+// ":", so a label never splits a value and never collides with a variable.
+const credentialMaskPrefix = "ssh-credential:"
+
+// credentialMasks labels each resolved credential value by its ref, for
+// masking.
+func credentialMasks(values map[string]string) map[string]string {
+	masks := make(map[string]string, len(values))
+	for ref, value := range values {
+		masks[credentialMaskPrefix+ref] = value
+	}
+	return masks
 }
 
 // buildEnvScopeForSecrets creates the EnvScope secrets resolve against: DAG

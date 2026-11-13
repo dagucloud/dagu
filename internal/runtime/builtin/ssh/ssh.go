@@ -31,6 +31,33 @@ func WithSSHClient(ctx context.Context, cli *Client) context.Context {
 	return context.WithValue(ctx, sshClientCtxKey{}, cli)
 }
 
+type secretValuesCtxKey struct{}
+
+// WithSecretValues returns a context whose SSH connections read credentials
+// given as secret refs from values, keyed by ref.
+func WithSecretValues(ctx context.Context, values map[string]string) context.Context {
+	return context.WithValue(ctx, secretValuesCtxKey{}, values)
+}
+
+// secretValue returns the value of the secret ref that the credential at
+// field names.
+func secretValue(ctx context.Context, field, ref string) (string, error) {
+	values, _ := ctx.Value(secretValuesCtxKey{}).(map[string]string)
+	value, ok := values[ref]
+	if !ok {
+		return "", fmt.Errorf("%s: secret %q was not resolved at run start", field, ref)
+	}
+	return value, nil
+}
+
+// credentialValue returns a credential given as a literal or a secret ref.
+func credentialValue(ctx context.Context, field, literal, ref string) (string, error) {
+	if ref == "" {
+		return literal, nil
+	}
+	return secretValue(ctx, field, ref)
+}
+
 // getSSHClientFromContext retrieves the Client from the context.
 func getSSHClientFromContext(ctx context.Context) *Client {
 	if cli, ok := ctx.Value(sshClientCtxKey{}).(*Client); ok {

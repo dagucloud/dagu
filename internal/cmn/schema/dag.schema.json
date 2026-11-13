@@ -2615,7 +2615,7 @@
           "then": {
             "required": ["with"],
             "properties": {
-              "with": { "$ref": "#/definitions/commandActionConfig" }
+              "with": { "$ref": "#/definitions/sshRunActionConfig" }
             }
           }
         },
@@ -3766,6 +3766,94 @@
       },
       "description": "Container configuration object. Either 'exec' (to run in an existing container) or 'image' (to create a new container) must be specified, but not both."
     },
+    "sshKey": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Path to the private key file."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path to the private key file."
+            }
+          }
+        },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH private key: a file path, {file: <path>}, or {secret: <ref>}. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
+    },
+    "sshPassword": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH password: a string or {secret: <ref>}. Used only when no key is set."
+    },
+    "sshPassphrase": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "Passphrase of an encrypted private key, including a default key: a string or {secret: <ref>}. Ignored when the key is not encrypted."
+    },
+    "sshSecretCredential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret"],
+      "properties": {
+        "secret": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$",
+          "description": "Registry ref of a Dagu-managed secret, resolved once at run start in the DAG's workspace, then the global workspace. It is literal: ${...} is not resolved."
+        }
+      },
+      "description": "A credential read from the secret registry."
+    },
+    "sshBastionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Bastion host address."
+        },
+        "port": {
+          "oneOf": [{ "type": "string" }, { "type": "integer" }],
+          "description": "Bastion SSH port."
+        },
+        "user": {
+          "type": "string",
+          "description": "Bastion SSH username."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" }
+      },
+      "description": "Bastion/jump host configuration."
+    },
+    "sshRunActionConfig": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command to run on the remote host."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
+      },
+      "description": "ssh.run configuration: the remote command and the SSH connection fields, which replace the DAG-level ssh."
+    },
     "sshConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -3790,14 +3878,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to the SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication (not recommended; prefer key-based auth)."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -3823,7 +3906,12 @@
             }
           ],
           "description": "Shell for remote command execution. Commands are wrapped as: shell -c 'command'. Providing arguments (via string or array form) enables shell features like variable expansion, pipes, and command chaining on the remote server."
-        }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Connection timeout such as '30s' or '1m'. Defaults to 30s."
+        },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "required": ["user", "host"],
       "description": "SSH configuration for remote command execution. Can be specified at DAG level for reuse across steps, or at step level for specific overrides. Password authentication is supported but key-based auth is recommended."
@@ -4107,14 +4195,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -4166,14 +4249,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -4204,33 +4282,7 @@
           "minLength": 1,
           "description": "Destination path. For upload, this is a remote path; for download, this is a local path."
         },
-        "bastion": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Bastion host address."
-            },
-            "port": {
-              "oneOf": [{ "type": "string" }, { "type": "integer" }],
-              "description": "Bastion SSH port."
-            },
-            "user": {
-              "type": "string",
-              "description": "Bastion SSH username."
-            },
-            "key": {
-              "type": "string",
-              "description": "Path to bastion private key file."
-            },
-            "password": {
-              "type": "string",
-              "description": "Bastion SSH password."
-            }
-          },
-          "description": "Bastion/jump host configuration."
-        }
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "description": "SFTP executor configuration for file transfers over SSH."
     },
