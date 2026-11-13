@@ -6,6 +6,7 @@ package runtime
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -17,16 +18,20 @@ import (
 type stepReads struct {
 	// text holds the references that insert text a step produced.
 	text []cmnvalue.StepTextReference
-	// fields holds the fields, whose values read output variables by name.
-	fields []reffield.ReferenceField
-	// envFields holds the fields of the step's own env, which resolve while
-	// the predecessors' output variables are still in scope.
-	envFields []reffield.ReferenceField
+	// envFields holds the fields of the step's own env. Its entries resolve in
+	// order, with the predecessors' output variables in scope.
+	envFields []envField
 	// otherFields holds the fields outside the step's own env.
 	otherFields []reffield.ReferenceField
-	// ownEnv names the variables the step's own env defines. They shadow a
-	// predecessor's output variable of the same name in the other fields.
-	ownEnv map[string]struct{}
+	// envNames holds the names the step's own env defines, in entry order.
+	envNames []string
+}
+
+// envField is a field of the step's own env.
+type envField struct {
+	reffield.ReferenceField
+	// entry is the index of the env entry that holds the field.
+	entry int
 }
 
 // stepReads returns what the fields of the node's step read.
@@ -34,20 +39,16 @@ func (n *Node) stepReads() stepReads {
 	n.readsOnce.Do(func() {
 		for _, field := range reffield.ReferenceFields(&ir.DAG{Steps: []ir.Step{n.Step()}}) {
 			n.reads.text = append(n.reads.text, field.Field.StepTextReferences(field.Value)...)
-			n.reads.fields = append(n.reads.fields, field)
-			if strings.HasPrefix(field.Path, field.OwnerStepPath+".env[") {
-				n.reads.envFields = append(n.reads.envFields, field)
+			if index, ok := strings.CutPrefix(field.Path, field.OwnerStepPath+".env["); ok {
+				entry, _ := strconv.Atoi(strings.TrimSuffix(index, "]"))
+				n.reads.envFields = append(n.reads.envFields, envField{ReferenceField: field, entry: entry})
 			} else {
 				n.reads.otherFields = append(n.reads.otherFields, field)
 			}
 		}
 		for _, entry := range n.Step().Env {
-			if name, _, ok := strings.Cut(entry, "="); ok {
-				if n.reads.ownEnv == nil {
-					n.reads.ownEnv = map[string]struct{}{}
-				}
-				n.reads.ownEnv[name] = struct{}{}
-			}
+			name, _, _ := strings.Cut(entry, "=")
+			n.reads.envNames = append(n.reads.envNames, name)
 		}
 	})
 	return n.reads
@@ -126,24 +127,32 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 		if _, ok := variables[name]; !ok {
 			continue
 		}
-		fields := reads.fields
-		_, shadowed := reads.ownEnv[name]
-		switch {
-		case handler:
-			// A handler resolves its env before output variables enter
-			// scope, so only its other fields read them, and there they win.
-			fields = reads.otherFields
-		case shadowed:
-			// A step's own env shadows the variable in its other fields.
-			fields = reads.envFields
-		}
-		if slices.ContainsFunc(fields, func(field reffield.ReferenceField) bool {
-			return readsVariable(field.Value, name, field.Field.EscapesDollar())
-		}) {
+		if reads.readsOutputVariable(name, handler) {
 			return name, true
 		}
 	}
 	return "", false
+}
+
+// readsOutputVariable reports whether a field of the step reads a
+// predecessor's output variable. A handler resolves its env before output
+// variables enter scope, so only its other fields read them, and there they
+// win. A step resolves its env entries in order after output variables, so an
+// entry that defines the name shadows it in the later entries and in the
+// other fields.
+func (r stepReads) readsOutputVariable(name string, handler bool) bool {
+	reads := func(field reffield.ReferenceField) bool {
+		return readsVariable(field.Value, name, field.Field.EscapesDollar())
+	}
+	if handler {
+		return slices.ContainsFunc(r.otherFields, reads)
+	}
+	if !slices.Contains(r.envNames, name) && slices.ContainsFunc(r.otherFields, reads) {
+		return true
+	}
+	return slices.ContainsFunc(r.envFields, func(field envField) bool {
+		return !slices.Contains(r.envNames[:field.entry], name) && reads(field.ReferenceField)
+	})
 }
 
 // readsMaskedText reports whether ref reads a masked output of the step. It

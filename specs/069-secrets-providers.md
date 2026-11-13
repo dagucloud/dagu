@@ -104,8 +104,9 @@ read there; the other forms are.
 An escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
 count as reads wherever they appear in such a field, even where a shell would
 not expand them, such as inside single quotes. A variable a step defines in its
-own `env:` is the step's own value in its other fields, so only its `env:`
-values read the output variable there; a handler step resolves its `env:`
+own `env:` is the step's own value in its other fields and in the `env:`
+entries after the one that defines it, so only the entries up to that one read
+the output variable there; a handler step resolves its `env:`
 before output variables are in scope, so its `env:` values never read one and
 its other fields do. Only the step's fields are checked: a program the step
 runs that reads an output variable from its environment receives `*******`.

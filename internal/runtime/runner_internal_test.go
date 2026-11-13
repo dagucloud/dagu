@@ -1472,6 +1472,21 @@ func TestCheckMaskedReads(t *testing.T) {
 			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
+		// Env entries resolve in order, so an entry reads the step's own value
+		// only after the entry that defines it.
+		{
+			name:    "own env value after the entry that defines it",
+			command: "deploy",
+			env:     []string{"TOKEN=local", "BODY=${TOKEN}"},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
+		},
+		{
+			name:    "own env value before the entry that defines it",
+			command: "deploy",
+			env:     []string{"BODY=${TOKEN}", "TOKEN=local"},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
+			wantErr: `output "TOKEN" of step "fetch"`,
+		},
 		{
 			name:    "nothing masked",
 			command: "deploy ${steps.fetch.outputs.token} ${TOKEN}",
