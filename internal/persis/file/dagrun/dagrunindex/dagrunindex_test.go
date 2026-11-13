@@ -189,6 +189,39 @@ func TestTryLoadForDay_PreservesRetryMetadata(t *testing.T) {
 	assert.Equal(t, "retry-dag", found.DefinitionID)
 }
 
+// A run's dates survive the index, so a list read from it has them.
+func TestTryLoadForDay_KeepsDates(t *testing.T) {
+	dayDir := t.TempDir()
+	runDir := filepath.Join(dayDir, "dag-run_20240115_120000Z_dated-run")
+	attemptDir := filepath.Join(runDir, "attempt_20240115_120000_001Z_abc123")
+	require.NoError(t, os.MkdirAll(attemptDir, 0750))
+	dates := []ir.DateValue{
+		{Name: "target_day", Value: "2024-01-14"},
+		{Name: "window_days", List: true, Values: []string{"2024-01-13", "2024-01-14"}},
+	}
+	data, err := json.Marshal(ir.DAGRunStatus{
+		Name: "dated-dag", DAGRunID: "dated-run", AttemptID: "abc123", Status: ir.Succeeded,
+		StartedAt: "2024-01-15T12:00:00Z", FinishedAt: "2024-01-15T12:01:00Z", Dates: dates,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(attemptDir, "status.jsonl"), append(data, '\n'), 0600))
+	createDayDir(t, dayDir, 9, ir.Succeeded)
+
+	// The first load writes the index; the second reads it.
+	_, _, err = TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	require.True(t, fromIndex)
+	for _, entry := range entries {
+		if entry.DagRunID == "dated-run" {
+			assert.Equal(t, dates, entry.Dates)
+			return
+		}
+	}
+	t.Fatal("the dated run is not in the index")
+}
+
 func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {
 	dayDir := t.TempDir()
 	createDayDir(t, dayDir, 10, ir.Succeeded)

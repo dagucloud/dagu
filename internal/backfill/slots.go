@@ -37,6 +37,10 @@ type Slot struct {
 	RunID string
 	// Trigger is how that run started.
 	Trigger ir.TriggerType
+	// RunRecorded reports that the status of that run is still in history,
+	// so Dates are the dates it recorded.
+	RunRecorded bool
+	Dates       []ir.DateValue
 	// RecordedAt is when that run was first recorded in the slot index.
 	RecordedAt time.Time
 	// CoveredAt is the scheduled time of that run when it fired under an
@@ -146,6 +150,9 @@ func SlotStates(slots []time.Time, sched SlotSchedule, history History) []Slot {
 			state.Status = SlotSucceeded
 		} else {
 			state.OtherCadence = otherCadence[key]
+		}
+		if status := history.Runs[state.RunID]; state.RunID != "" && status != nil {
+			state.RunRecorded, state.Dates = true, status.Dates
 		}
 		states = append(states, state)
 	}

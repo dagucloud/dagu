@@ -74,4 +74,6 @@ message DAGRunIndexEntry {
   string trigger_actor = 29;
   string definition_id = 30;
   string backfill_id = 31;
+  // The run's dates as JSON, as DAGRunStatus.Dates records them.
+  string dates_json = 32;
 }

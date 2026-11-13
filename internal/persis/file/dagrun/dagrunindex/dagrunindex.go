@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,7 +36,7 @@ const (
 	// IndexFileName is the name of the DAG run index file.
 	IndexFileName = ".dagrun.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 9
+	IndexVersion = 10
 	// MinRunsForIndex is the minimum number of runs needed to create an index.
 	MinRunsForIndex = 10
 
@@ -86,6 +87,7 @@ type Entry struct {
 	DefinitionID         string
 	BackfillID           string
 	ArchiveDir           string
+	Dates                []ir.DateValue
 	latestStatusSize     int64
 	latestStatusModTime  int64
 	runDirModTime        int64
@@ -251,6 +253,7 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 			ProcGroup:            status.ProcGroup,
 			DefinitionID:         status.DAGDefinitionID(),
 			BackfillID:           status.BackfillID,
+			Dates:                status.Dates,
 			ArchiveDir:           status.ArchiveDir,
 			latestStatusSize:     statusInfo.Size(),
 			latestStatusModTime:  statusInfo.ModTime().UnixNano(),
@@ -601,6 +604,7 @@ func writeIndex(dayDir string, entries []Entry) error {
 			ProcGroup:            e.ProcGroup,
 			DefinitionId:         e.DefinitionID,
 			BackfillId:           e.BackfillID,
+			DatesJson:            encodeDates(e.Dates),
 			ArchiveDir:           e.ArchiveDir,
 		})
 	}
@@ -655,6 +659,7 @@ func protoToEntry(pe *indexv1.DAGRunIndexEntry) Entry {
 		ProcGroup:            pe.ProcGroup,
 		DefinitionID:         pe.DefinitionId,
 		BackfillID:           pe.BackfillId,
+		Dates:                decodeDates(pe.DatesJson),
 		ArchiveDir:           pe.ArchiveDir,
 		latestStatusSize:     pe.LatestStatusSize,
 		latestStatusModTime:  pe.LatestStatusModTime,
@@ -767,4 +772,30 @@ func parseStatusFile(filePath string) (*ir.DAGRunStatus, error) {
 		return nil, fmt.Errorf("no valid status found in %s", filePath)
 	}
 	return result, nil
+}
+
+// encodeDates writes a run's dates for the index, or nothing when it has
+// none.
+func encodeDates(dates []ir.DateValue) string {
+	if len(dates) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(dates)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// decodeDates reads a run's dates from the index; an entry that cannot be
+// read has none.
+func decodeDates(data string) []ir.DateValue {
+	if data == "" {
+		return nil
+	}
+	var dates []ir.DateValue
+	if err := json.Unmarshal([]byte(data), &dates); err != nil {
+		return nil
+	}
+	return dates
 }

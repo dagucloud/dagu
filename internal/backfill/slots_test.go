@@ -212,7 +212,7 @@ func TestSlotStates(t *testing.T) {
 			got := states[0]
 			assert.Equal(t, got.RunID != "", !got.RecordedAt.IsZero(), "a slot with a run knows when it was recorded")
 			assert.Equal(t, got.RunID != "", got.Trigger != ir.TriggerTypeUnknown, "a slot with a run knows how it started")
-			got.RecordedAt, got.Trigger = time.Time{}, ir.TriggerTypeUnknown
+			got.RecordedAt, got.Trigger, got.RunRecorded = time.Time{}, ir.TriggerTypeUnknown, false
 			assert.Equal(t, want, got)
 		})
 	}
@@ -261,4 +261,23 @@ func TestSlotStatesTellTheTrigger(t *testing.T) {
 	})
 	require.Len(t, states, 1)
 	assert.Equal(t, ir.TriggerTypeManual, states[0].Trigger)
+}
+
+// A slot whose run is still in history has the dates that run recorded,
+// whatever the DAG's dates block says now.
+func TestSlotStatesKeepRecordedDates(t *testing.T) {
+	t.Parallel()
+
+	slot := at(5, 2)
+	recorded := []ir.DateValue{{Name: "target_day", Value: "2025-10-04"}}
+	run := started("a", ir.Succeeded)
+	run.Dates = recorded
+	states := backfill.SlotStates([]time.Time{slot, at(6, 2)}, dailyAt(t, "0 2 * * *"), backfill.History{
+		Events: (&eventLog{}).run("a", slot, scheduler, "0 2 * * *").events,
+		Runs:   live(run),
+	})
+	require.Len(t, states, 2)
+	assert.True(t, states[0].RunRecorded)
+	assert.Equal(t, recorded, states[0].Dates)
+	assert.False(t, states[1].RunRecorded, "a slot without a run has no record")
 }

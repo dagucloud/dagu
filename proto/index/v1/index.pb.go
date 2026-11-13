@@ -331,8 +331,10 @@ type DAGRunIndexEntry struct {
 	TriggerActor    string `protobuf:"bytes,29,opt,name=trigger_actor,json=triggerActor,proto3" json:"trigger_actor,omitempty"`
 	DefinitionId    string `protobuf:"bytes,30,opt,name=definition_id,json=definitionId,proto3" json:"definition_id,omitempty"`
 	BackfillId      string `protobuf:"bytes,31,opt,name=backfill_id,json=backfillId,proto3" json:"backfill_id,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The run's dates as JSON, as DAGRunStatus.Dates records them.
+	DatesJson     string `protobuf:"bytes,32,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DAGRunIndexEntry) Reset() {
@@ -583,6 +585,13 @@ func (x *DAGRunIndexEntry) GetBackfillId() string {
 	return ""
 }
 
+func (x *DAGRunIndexEntry) GetDatesJson() string {
+	if x != nil {
+		return x.DatesJson
+	}
+	return ""
+}
+
 var File_proto_index_v1_index_proto protoreflect.FileDescriptor
 
 const file_proto_index_v1_index_proto_rawDesc = "" +
@@ -612,7 +621,7 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\vDAGRunIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x124\n" +
-	"\aentries\x18\x03 \x03(\v2\x1a.index.v1.DAGRunIndexEntryR\aentries\"\x84\t\n" +
+	"\aentries\x18\x03 \x03(\v2\x1a.index.v1.DAGRunIndexEntryR\aentries\"\xa3\t\n" +
 	"\x10DAGRunIndexEntry\x12\x1e\n" +
 	"\vdag_run_dir\x18\x01 \x01(\tR\tdagRunDir\x12\x1c\n" +
 	"\n" +
@@ -653,7 +662,9 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\rtrigger_actor\x18\x1d \x01(\tR\ftriggerActor\x12#\n" +
 	"\rdefinition_id\x18\x1e \x01(\tR\fdefinitionId\x12\x1f\n" +
 	"\vbackfill_id\x18\x1f \x01(\tR\n" +
-	"backfillIdB5Z3github.com/dagucloud/dagu/v2/proto/index/v1;indexv1b\x06proto3"
+	"backfillId\x12\x1d\n" +
+	"\n" +
+	"dates_json\x18  \x01(\tR\tdatesJsonB5Z3github.com/dagucloud/dagu/v2/proto/index/v1;indexv1b\x06proto3"
 
 var (
 	file_proto_index_v1_index_proto_rawDescOnce sync.Once
