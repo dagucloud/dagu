@@ -42,6 +42,11 @@ type Plan struct {
 	DependencyMap map[int][]int // node ID -> list of dependency node IDs (upstream)
 	DependantMap  map[int][]int // node ID -> list of dependent node IDs (downstream)
 
+	// maskedOutputs reports whether a node was restored with masked outputs.
+	// maskedOnce computes it at the first step start.
+	maskedOnce    sync.Once
+	maskedOutputs bool
+
 	mu sync.RWMutex
 }
 

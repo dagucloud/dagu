@@ -54,10 +54,21 @@ func (n *Node) stepReads() stepReads {
 // masked. It runs once the preconditions hold, since a skipped step reads
 // nothing. A run that restored no masked output skips the predecessor walk.
 func (r *Runner) checkMaskedReads(plan *Plan, node *Node) error {
-	if !slices.ContainsFunc(plan.Nodes(), func(n *Node) bool { return n.MaskedOutputs() != nil }) {
+	if !plan.hasMaskedOutputs() {
 		return nil
 	}
 	return checkMaskedOutputs(planPredecessorNodes(plan, node), node, false)
+}
+
+// hasMaskedOutputs reports whether a node of the plan was restored with
+// masked outputs. Only a restored status records them, and a step that runs
+// again drops its record, so a plan without one at the first step start
+// never gains one.
+func (p *Plan) hasMaskedOutputs() bool {
+	p.maskedOnce.Do(func() {
+		p.maskedOutputs = slices.ContainsFunc(p.Nodes(), func(n *Node) bool { return n.MaskedOutputs() != nil })
+	})
+	return p.maskedOutputs
 }
 
 // checkMaskedOutputs fails a step that reads an output of one of sources that
