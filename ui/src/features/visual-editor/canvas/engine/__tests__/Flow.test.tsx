@@ -551,6 +551,46 @@ describe('Flow', () => {
       expect(onNodeClick).not.toHaveBeenCalled();
     });
 
+    // The caller makes new node objects at each move: only the node that
+    // moved draws again.
+    it('draws only the node that moved', () => {
+      const drawn = { a: 0, b: 0 };
+      const Counted = (props: NodeProps<TestNode>) => {
+        drawn[props.id as 'a' | 'b'] += 1;
+        return <Box {...props} />;
+      };
+      const view = (list: TestNode[]) => (
+        <UserPreferencesProvider>
+          <FlowProvider>
+            <Flow<TestNode, TestEdge>
+              nodes={list}
+              edges={edges}
+              nodeTypes={{ box: Counted }}
+              edgeTypes={{ line: Line }}
+            />
+          </FlowProvider>
+        </UserPreferencesProvider>
+      );
+      const copy = (list: TestNode[]): TestNode[] =>
+        list.map((node) => ({
+          ...node,
+          position: { ...node.position },
+          data: { ...node.data },
+        }));
+      const { rerender } = render(view(nodes));
+      const before = { ...drawn };
+      rerender(
+        view(
+          copy(nodes).map((node) =>
+            node.id === 'a' ? { ...node, position: { x: 20, y: 10 } } : node
+          )
+        )
+      );
+      expect(nodeBox('a').style.transform).toBe('translate(20px, 10px)');
+      expect(drawn.a).toBeGreaterThan(before.a);
+      expect(drawn.b).toBe(before.b);
+    });
+
     it('does not move a node when dragging is off', () => {
       const onNodesMove = vi.fn();
       renderFlow({ onNodesMove, nodesDraggable: false });

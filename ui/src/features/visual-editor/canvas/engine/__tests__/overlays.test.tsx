@@ -257,6 +257,8 @@ describe('MiniMap', () => {
   const NODE = 'rgb(4, 5, 6)';
   const SELECTED = 'rgb(1, 2, 3)';
   const FILL = 'rgb(7, 8, 9)';
+  const AGENT = 'rgb(10, 11, 12)';
+  const SATELLITE = 'rgb(13, 14, 15)';
 
   beforeEach(() => {
     calls = [];
@@ -264,6 +266,8 @@ describe('MiniMap', () => {
       'text-muted-foreground/40': NODE,
       'text-primary': SELECTED,
       'text-primary/5': FILL,
+      'text-foreground/75': AGENT,
+      'text-muted-foreground/70': SATELLITE,
     };
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
       function (this: HTMLCanvasElement) {
@@ -462,6 +466,77 @@ describe('MiniMap', () => {
       </UserPreferencesProvider>
     );
     expect(screen.getByTestId('flow-minimap')).toBeInTheDocument();
+  });
+
+  // The overview drew every node the same grey: an agent step and the cards
+  // that hang from it were one blob, and the agent step was not to be found.
+  describe('with node kinds', () => {
+    const box = (id: string, type: string, x: number): FlowNode => ({
+      id,
+      type,
+      position: { x, y: 0 },
+      width: 100,
+      height: 40,
+      data: {},
+    });
+    const mixed = [
+      box('s', 'step', 0),
+      box('model', 'modelsat', 200),
+      box('agent', 'agent', 400),
+      box('add', 'addsat', 600),
+      box('card', 'slotcard', 800),
+    ];
+    const kind = (node: FlowNode) =>
+      node.type === 'agent'
+        ? ('agent' as const)
+        : node.type === 'addsat'
+          ? ('hidden' as const)
+          : node.type.endsWith('sat') || node.type === 'slotcard'
+            ? ('satellite' as const)
+            : undefined;
+
+    afterEach(() => {
+      shownNodes = nodes;
+    });
+
+    function renderKinds(nodeKind?: typeof kind) {
+      shownNodes = mixed;
+      return render(
+        <UserPreferencesProvider>
+          <FlowProvider>
+            <Harness />
+            <MiniMap persistent nodeKind={nodeKind} />
+          </FlowProvider>
+        </UserPreferencesProvider>
+      );
+    }
+
+    /** The node layer: the canvas that is not on the screen. */
+    const layer = (op: string) =>
+      drawn(op).filter((call) => !call.canvas.isConnected);
+
+    it('draws an agent step dark and its cards in a middle grey, over the plain nodes', () => {
+      renderKinds(kind);
+      const fills = layer('fill').map((call) => call.style);
+      // The add node is not drawn; the agent step comes last, over its cards.
+      expect(layer('roundRect')).toHaveLength(4);
+      expect(fills).toEqual([NODE, SATELLITE, SATELLITE, AGENT]);
+    });
+
+    it('draws every node plain without a kind of node', () => {
+      renderKinds();
+      expect(layer('roundRect')).toHaveLength(mixed.length);
+      expect(layer('fill').map((call) => call.style)).toEqual(
+        mixed.map(() => NODE)
+      );
+    });
+  });
+
+  // The Activity tab of the workspace lies over the foot of the canvas: the
+  // host gives the room of the tab with `--canvas-inset-bottom`.
+  it('lifts the overview by the room that the host keeps at the foot of the canvas', () => {
+    renderOverlays();
+    expect(panel().className).toContain('mb-[var(--canvas-inset-bottom,0px)]');
   });
 
   // A workflow of 100 steps in a column was a line of 2 px in a box of 200 x 150.

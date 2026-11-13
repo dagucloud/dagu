@@ -22,7 +22,13 @@ export {
   type Waypoint,
 } from './geometry';
 export { Handle } from './Handle';
-export { Background, Controls, MiniMap, Panel } from './overlays';
+export {
+  Background,
+  Controls,
+  MiniMap,
+  Panel,
+  type MinimapKind,
+} from './overlays';
 export { FlowProvider, useFlow } from './store';
 export type {
   Connection,
