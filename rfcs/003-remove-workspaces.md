@@ -314,13 +314,21 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - **Changed on disk.** A project whose DAG directory disappears outside
   Dagu, as it does when a git checkout renames it, is listed as missing. Its
   entry keeps its ID, grants, binding, and run history. When a new directory
-  appears in the same discovery pass, the projects page asks an admin
-  whether the project was renamed to it, and the new directory is not
-  scheduled until the admin answers. Confirming finishes the rename: the
-  runtime state moves to the new name, and the project keeps everything
-  else. Declining registers the new directory as a new project, with no
-  grants and no binding. An admin can also relink a missing project to any
-  unregistered directory, or delete it.
+  appears in the same discovery pass:
+  - If it holds the same DAG file names as one missing project, and no other
+    new directory does, the server finishes the rename itself and logs it,
+    so schedules keep running.
+    Whoever can rename the directory in the checkout can already change
+    those DAGs, so this grants nothing new.
+  - Otherwise the projects page asks an admin whether the project was
+    renamed to it, and the new directory is not scheduled until the admin
+    answers. Confirming finishes the rename; declining registers a new
+    project, with no grants and no binding.
+  - Finishing a rename moves the runtime state to the new name, and the
+    project keeps everything else.
+
+  An admin can also relink a missing project to any unregistered directory,
+  or delete it.
 
 ### Moving a DAG
 
@@ -586,10 +594,10 @@ v2 gets no new workspace features.
     history. Rename and
     delete are refused while the project has runs queued, running, or
     waiting.
-17. A project directory renamed outside Dagu is offered to an admin as a
-    rename and is not scheduled until the admin answers. Confirming keeps
-    the project's ID, grants, binding, and run history; declining registers
-    a new project without grants.
+17. A project directory renamed outside Dagu with its DAG files unchanged
+    keeps its ID, grants, binding, run history, and schedules without an
+    admin. Any other new directory that appears as a project goes missing
+    is offered to an admin and not scheduled until the admin answers.
 18. Every project's secrets decrypt with the server's key, and no project
     directory holds a key of its own.
 19. A connected server's reports carry each run's project, and two projects
@@ -643,9 +651,11 @@ v2 gets no new workspace features.
 - **An ID file in each project directory.** Survives renames made on disk,
   but every DAG checkout then carries a generated file, and a copied
   directory claims the same ID.
-- **Relink renamed directories without asking.** Smoother for git users,
-  but a wrong guess hands one project's grants, secrets, and history to
-  unrelated DAGs.
+- **Relink any new directory without asking.** A guess on the name alone
+  could hand one project's grants, secrets, and history to unrelated DAGs.
+  Matching DAG file names first removes that risk.
+- **Ask an admin about every rename.** Safe, but a rename merged in git
+  overnight pauses the project's schedules until someone answers.
 - **Directories named by project ID.** Makes a rename a registry update, but
   the layout and git checkouts become unreadable, and adding a directory no
   longer creates a project.
