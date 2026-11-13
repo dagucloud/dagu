@@ -468,6 +468,12 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 // without a run from a latest run that cannot be read: it returns the initial
 // status only for the first, and the read error for the second.
 func (m *Manager) ReadLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
+	return m.readLatestStatus(ctx, dag, false)
+}
+
+// readLatestStatus is ReadLatestStatus. With backfill, a backfill run whose
+// process is fresh stands for the DAG too, as no run it shows does.
+func (m *Manager) readLatestStatus(ctx context.Context, dag *ir.DAG, backfill bool) (ir.DAGRunStatus, error) {
 	if m.dagRunRepository == nil {
 		return ir.InitialStatus(dag), nil
 	}
@@ -486,7 +492,7 @@ func (m *Manager) ReadLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunS
 			if readErr != nil || st.AttemptID != entry.Meta.AttemptID {
 				break
 			}
-			if st.Ephemeral || st.BackfillID != "" {
+			if st.Ephemeral || (st.BackfillID != "" && !backfill) {
 				// An ephemeral run reaches no history, and a backfill run
 				// stands for its DAG only when the DAG has no other run,
 				// which the history tells. The next fresh run may stand for
@@ -533,7 +539,9 @@ func (m *Manager) CheckServiceRun(ctx context.Context, dag *ir.DAG, dagRunID str
 		return nil
 	}
 	allHistory := m.AllHistory()
-	status, err := allHistory.ReadLatestStatus(ctx, dag)
+	// A running backfill run is active too, though it is not the DAG's
+	// latest run.
+	status, err := allHistory.readLatestStatus(ctx, dag, true)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read the latest run of a service DAG", tag.DAG(dag.Name), tag.Error(err))
 		return nil
