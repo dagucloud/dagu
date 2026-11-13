@@ -1,0 +1,18 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: "Keep calling the tool forever."
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      dags:
+        - name: loop-tool
+      max_tool_iterations: 3
+---
+name: loop-tool
+steps:
+  - command: echo "ok"

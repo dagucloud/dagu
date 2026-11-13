@@ -1169,6 +1169,25 @@ func toToolDefinitions(defs []ir.ToolDefinition) *[]api.ToolDefinition {
 			Name:        def.Name,
 			Description: ptrOf(def.Description),
 			Parameters:  ptrOf(def.Parameters),
+			Source:      ptrOf(def.Source),
+		}
+	}
+
+	return &result
+}
+
+func toSkillDefinitions(defs []ir.SkillDefinition) *[]api.SkillDefinition {
+	if len(defs) == 0 {
+		return nil
+	}
+
+	result := make([]api.SkillDefinition, len(defs))
+	for i, def := range defs {
+		result[i] = api.SkillDefinition{
+			Name:        def.Name,
+			Description: ptrOf(def.Description),
+			Hash:        ptrIfNotEmpty(def.Hash),
+			Omitted:     ptrOf(def.Omitted),
 		}
 	}
 

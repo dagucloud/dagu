@@ -45,6 +45,8 @@ const (
 	CoordinatorService_GetDAG_FullMethodName                      = "/coordinator.v1.CoordinatorService/GetDAG"
 	CoordinatorService_ResolveSecretReference_FullMethodName      = "/coordinator.v1.CoordinatorService/ResolveSecretReference"
 	CoordinatorService_ResolveRuntimeProfile_FullMethodName       = "/coordinator.v1.CoordinatorService/ResolveRuntimeProfile"
+	CoordinatorService_CheckAIEndpoint_FullMethodName             = "/coordinator.v1.CoordinatorService/CheckAIEndpoint"
+	CoordinatorService_RelayAIRequest_FullMethodName              = "/coordinator.v1.CoordinatorService/RelayAIRequest"
 )
 
 // CoordinatorServiceClient is the client API for CoordinatorService service.
@@ -108,6 +110,12 @@ type CoordinatorServiceClient interface {
 	ResolveSecretReference(ctx context.Context, in *ResolveSecretReferenceRequest, opts ...grpc.CallOption) (*ResolveSecretReferenceResponse, error)
 	// ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
 	ResolveRuntimeProfile(ctx context.Context, in *ResolveRuntimeProfileRequest, opts ...grpc.CallOption) (*ResolveRuntimeProfileResponse, error)
+	// CheckAIEndpoint checks, with no value, that a step may use a target (Spec 094).
+	CheckAIEndpoint(ctx context.Context, in *CheckAIEndpointRequest, opts ...grpc.CallOption) (*CheckAIEndpointResponse, error)
+	// RelayAIRequest carries one HTTP request to a model API and its response
+	// (Spec 094). The coordinator adds the key of the endpoint. No message
+	// carries a key.
+	RelayAIRequest(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RelayClientMessage, RelayServerMessage], error)
 }
 
 type coordinatorServiceClient struct {
@@ -366,6 +374,29 @@ func (c *coordinatorServiceClient) ResolveRuntimeProfile(ctx context.Context, in
 	return out, nil
 }
 
+func (c *coordinatorServiceClient) CheckAIEndpoint(ctx context.Context, in *CheckAIEndpointRequest, opts ...grpc.CallOption) (*CheckAIEndpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckAIEndpointResponse)
+	err := c.cc.Invoke(ctx, CoordinatorService_CheckAIEndpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorServiceClient) RelayAIRequest(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RelayClientMessage, RelayServerMessage], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CoordinatorService_ServiceDesc.Streams[4], CoordinatorService_RelayAIRequest_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[RelayClientMessage, RelayServerMessage]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CoordinatorService_RelayAIRequestClient = grpc.BidiStreamingClient[RelayClientMessage, RelayServerMessage]
+
 // CoordinatorServiceServer is the server API for CoordinatorService service.
 // All implementations must embed UnimplementedCoordinatorServiceServer
 // for forward compatibility.
@@ -427,6 +458,12 @@ type CoordinatorServiceServer interface {
 	ResolveSecretReference(context.Context, *ResolveSecretReferenceRequest) (*ResolveSecretReferenceResponse, error)
 	// ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
 	ResolveRuntimeProfile(context.Context, *ResolveRuntimeProfileRequest) (*ResolveRuntimeProfileResponse, error)
+	// CheckAIEndpoint checks, with no value, that a step may use a target (Spec 094).
+	CheckAIEndpoint(context.Context, *CheckAIEndpointRequest) (*CheckAIEndpointResponse, error)
+	// RelayAIRequest carries one HTTP request to a model API and its response
+	// (Spec 094). The coordinator adds the key of the endpoint. No message
+	// carries a key.
+	RelayAIRequest(grpc.BidiStreamingServer[RelayClientMessage, RelayServerMessage]) error
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
 
@@ -505,6 +542,12 @@ func (UnimplementedCoordinatorServiceServer) ResolveSecretReference(context.Cont
 }
 func (UnimplementedCoordinatorServiceServer) ResolveRuntimeProfile(context.Context, *ResolveRuntimeProfileRequest) (*ResolveRuntimeProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveRuntimeProfile not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) CheckAIEndpoint(context.Context, *CheckAIEndpointRequest) (*CheckAIEndpointResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckAIEndpoint not implemented")
+}
+func (UnimplementedCoordinatorServiceServer) RelayAIRequest(grpc.BidiStreamingServer[RelayClientMessage, RelayServerMessage]) error {
+	return status.Errorf(codes.Unimplemented, "method RelayAIRequest not implemented")
 }
 func (UnimplementedCoordinatorServiceServer) mustEmbedUnimplementedCoordinatorServiceServer() {}
 func (UnimplementedCoordinatorServiceServer) testEmbeddedByValue()                            {}
@@ -901,6 +944,31 @@ func _CoordinatorService_ResolveRuntimeProfile_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoordinatorService_CheckAIEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckAIEndpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServiceServer).CheckAIEndpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinatorService_CheckAIEndpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServiceServer).CheckAIEndpoint(ctx, req.(*CheckAIEndpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinatorService_RelayAIRequest_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(CoordinatorServiceServer).RelayAIRequest(&grpc.GenericServerStream[RelayClientMessage, RelayServerMessage]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CoordinatorService_RelayAIRequestServer = grpc.BidiStreamingServer[RelayClientMessage, RelayServerMessage]
+
 // CoordinatorService_ServiceDesc is the grpc.ServiceDesc for CoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -984,6 +1052,10 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ResolveRuntimeProfile",
 			Handler:    _CoordinatorService_ResolveRuntimeProfile_Handler,
 		},
+		{
+			MethodName: "CheckAIEndpoint",
+			Handler:    _CoordinatorService_CheckAIEndpoint_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -1005,6 +1077,12 @@ var CoordinatorService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "GetWorkspaceBundle",
 			Handler:       _CoordinatorService_GetWorkspaceBundle_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "RelayAIRequest",
+			Handler:       _CoordinatorService_RelayAIRequest_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proto/coordinator/v1/coordinator.proto",

@@ -142,28 +142,30 @@ func TestStructuredOutputFallback(t *testing.T) {
 func TestStructuredOutputWithTools(t *testing.T) {
 	t.Parallel()
 
-	model := newScriptedModel(t, map[string][]string{"test-model": {
-		toolCallReply("get-weather", `{"CITY":"Paris"}`),
-		respondReply(`{"city":"Paris","celsius":22}`),
-	}})
-	dagu := harness.NewRunner(t)
-	result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + model.URL()}, "start", "structured_output_tools.yaml")
-	requests := model.Close()
-	result.ExpectExitCode(0)
+	toolForms(t, "structured_output_tools.yaml", func(t *testing.T, fixture string) {
+		model := newScriptedModel(t, map[string][]string{"test-model": {
+			toolCallReply("get-weather", `{"CITY":"Paris"}`),
+			respondReply(`{"city":"Paris","celsius":22}`),
+		}})
+		dagu := harness.NewRunner(t)
+		result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + model.URL()}, "start", fixture)
+		requests := model.Close()
+		result.ExpectExitCode(0)
 
-	dagu.ExpectFileContent("answer.out", `{"celsius":22,"city":"Paris"}`+"\n")
-	dagu.ExpectTextFileContent("result.out", "Paris 22\n")
+		dagu.ExpectFileContent("answer.out", `{"celsius":22,"city":"Paris"}`+"\n")
+		dagu.ExpectTextFileContent("result.out", "Paris 22\n")
 
-	require.Len(t, requests, 2)
-	var tools []string
-	for _, tool := range requests[0].Tools {
-		tools = append(tools, tool.Function.Name)
-	}
-	require.Equal(t, []string{"get-weather", "respond"}, tools)
-	require.Equal(t, "required", requests[0].ToolChoice)
-	toolResult := requests[1].Messages[len(requests[1].Messages)-1]
-	require.Equal(t, "tool", toolResult.Role)
-	require.Contains(t, toolResult.Content, "Paris")
+		require.Len(t, requests, 2)
+		var tools []string
+		for _, tool := range requests[0].Tools {
+			tools = append(tools, tool.Function.Name)
+		}
+		require.Equal(t, []string{"get-weather", "respond"}, tools)
+		require.Equal(t, "required", requests[0].ToolChoice)
+		toolResult := requests[1].Messages[len(requests[1].Messages)-1]
+		require.Equal(t, "tool", toolResult.Role)
+		require.Contains(t, toolResult.Content, "Paris")
+	})
 }
 
 // Without an answer through respond, a tool loop that reaches its limit
@@ -171,13 +173,15 @@ func TestStructuredOutputWithTools(t *testing.T) {
 func TestStructuredOutputToolLimit(t *testing.T) {
 	t.Parallel()
 
-	call := toolCallReply("loop-tool", `{}`)
-	model := newScriptedModel(t, map[string][]string{"test-model": {call, call, call}})
-	dagu := harness.NewRunner(t)
-	result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + model.URL()}, "start", "structured_output_tool_limit.yaml")
-	requests := model.Close()
-	result.ExpectNonZeroExitCode()
-	require.Len(t, requests, 2)
+	toolForms(t, "structured_output_tool_limit.yaml", func(t *testing.T, fixture string) {
+		call := toolCallReply("loop-tool", `{}`)
+		model := newScriptedModel(t, map[string][]string{"test-model": {call, call, call}})
+		dagu := harness.NewRunner(t)
+		result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + model.URL()}, "start", fixture)
+		requests := model.Close()
+		result.ExpectNonZeroExitCode()
+		require.Len(t, requests, 2)
+	})
 }
 
 // scriptedModel serves an OpenAI-compatible chat completions endpoint that

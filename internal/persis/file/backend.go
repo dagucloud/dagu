@@ -42,6 +42,9 @@ func NewBackend(paths config.PathsConfig) *Backend {
 	return &Backend{
 		dataDir: paths.DataDir,
 		specs: map[string]collectionSpec{
+			persis.CollectionAIEndpointModels:      {dir: filepath.Join(paths.DataDir, "ai-endpoint-models"), indented: true},
+			persis.CollectionAIEndpoints:           {dir: filepath.Join(paths.DataDir, "ai-endpoints"), indented: true},
+			persis.CollectionAIMCPServers:          {dir: filepath.Join(paths.DataDir, "ai-mcp-servers"), indented: true},
 			persis.CollectionAPIKeys:               {dir: paths.APIKeysDir, indented: true},
 			persis.CollectionActiveDistributedRuns: {dir: filepath.Join(distributedDir, "active-runs")},
 			persis.CollectionAgentSessionCleanups:  {dir: filepath.Join(paths.DataDir, "agent-session-cleanups")},

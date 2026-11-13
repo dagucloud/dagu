@@ -15,6 +15,8 @@ type Props = {
   onChange?: (value?: string) => void;
   readOnly?: boolean;
   className?: string;
+  /** The Monaco language. The default is markdown. */
+  language?: string;
   onEditorMount?: (editor: MarkdownEditorInstance) => void;
 };
 
@@ -23,6 +25,7 @@ function MarkdownEditor({
   onChange,
   readOnly = false,
   className,
+  language = 'markdown',
   onEditorMount,
 }: Props) {
   const editorRef = useRef<MarkdownEditorInstance | null>(null);
@@ -85,7 +88,7 @@ function MarkdownEditor({
     <div className={cn('h-full', className)}>
       <MonacoEditor
         height="100%"
-        language="markdown"
+        language={language}
         theme={isDarkMode ? KILN_DARK : KILN_LIGHT}
         value={value}
         onChange={readOnly ? undefined : onChange}

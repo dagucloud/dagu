@@ -34,6 +34,8 @@ var restoredFields = map[string]bool{
 	"Harnesses":          true,
 	"Kubernetes":         true,
 	"WorkingDirExplicit": true,
+	"SideFiles":          true,
+	"SkillRefs":          true,
 }
 
 // The classification guard above proves every field is assigned a side, but not

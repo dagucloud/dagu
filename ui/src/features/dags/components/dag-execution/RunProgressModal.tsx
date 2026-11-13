@@ -18,7 +18,10 @@ import {
 } from '@/components/ui/dialog';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
-import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
+import {
+  buildDAGRunPageURL,
+  rootRunFileName,
+} from '@/features/dag-runs/lib/dagRunUrls';
 import { useI18n } from '@/i18n/I18nProvider';
 import { DAGGraph } from '@/features/dags/components/visualization';
 import { toMermaidNodeId } from '@/lib/utils';
@@ -83,6 +86,7 @@ function RunProgressModal({
       buildDAGRunPageURL({
         rootDAGRunName: dagName,
         rootDAGRunId: dagRunId,
+        fileName: rootRunFileName(dagRun),
         remoteNode: activeRemoteNode,
         step,
       })
@@ -118,9 +122,9 @@ function RunProgressModal({
       buildDAGRunPageURL({
         rootDAGRunName: dagRun?.rootDAGRunName || dagRun?.name || dagName,
         rootDAGRunId: dagRun?.rootDAGRunId || dagRun?.dagRunId || dagRunId,
+        fileName: rootRunFileName(dagRun),
         remoteNode: activeRemoteNode,
         subDAGRunId: subRun.dagRunId,
-        step: node.step.name,
       })
     );
   }
@@ -131,6 +135,7 @@ function RunProgressModal({
       buildDAGRunPageURL({
         rootDAGRunName: dagRun?.rootDAGRunName || dagRun?.name || dagName,
         rootDAGRunId: dagRun?.rootDAGRunId || dagRun?.dagRunId || dagRunId,
+        fileName: rootRunFileName(dagRun),
         remoteNode: activeRemoteNode,
         subDAGRunId: entry.dagRunId,
       })

@@ -83,6 +83,39 @@ func TestDiscoverRecursive(t *testing.T) {
 	}, result.Dirs)
 }
 
+// The skills directory at the root holds no workflow. A directory named agents
+// or toolsets is a normal directory.
+func TestDiscoverRecursiveSkipsReservedDirs(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "toolsets"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "agents"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "team", "skills"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "team", "agents"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "team", "toolsets"), 0750))
+	for _, path := range []string{
+		filepath.Join(root, "root.yaml"),
+		filepath.Join(root, "toolsets", "support.yaml"),
+		filepath.Join(root, "agents", "support.yaml"),
+		filepath.Join(root, "skills", "notes.yaml"),
+		// Only the skills directory at the root is reserved.
+		filepath.Join(root, "team", "toolsets", "flow.yaml"),
+		filepath.Join(root, "team", "agents", "flow.yaml"),
+		filepath.Join(root, "team", "skills", "flow.yaml"),
+	} {
+		require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
+	}
+
+	result, err := Discover(root, DiscoveryOptions{Recursive: true})
+	require.NoError(t, err)
+
+	var files []string
+	for _, file := range result.Files {
+		files = append(files, file.RelPath)
+	}
+	assert.Equal(t, []string{"agents/support.yaml", "root.yaml", "team/agents/flow.yaml", "team/skills/flow.yaml", "team/toolsets/flow.yaml", "toolsets/support.yaml"}, files)
+}
+
 func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "nested"), 0750))
