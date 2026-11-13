@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -123,6 +124,12 @@ func (a *API) CreateSecret(ctx context.Context, request api.CreateSecretRequestO
 		return nil, err
 	}
 
+	if isAIManagedSecretRef(body.Ref) {
+		if err := a.requireAdmin(ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	providerType := secretpkg.ProviderType(body.ProviderType)
 	providerConnectionID := ""
 	providerRef := ""
@@ -201,6 +208,9 @@ func (a *API) UpdateSecret(ctx context.Context, request api.UpdateSecretRequestO
 		}
 		return nil, err
 	}
+	if err := a.requireSecretWritable(ctx, sec); err != nil {
+		return nil, err
+	}
 	if request.Body == nil {
 		return api.UpdateSecret400JSONResponse(secretBadRequestError("Request body is required")), nil
 	}
@@ -260,6 +270,9 @@ func (a *API) DeleteSecret(ctx context.Context, request api.DeleteSecretRequestO
 		}
 		return nil, err
 	}
+	if err := a.requireSecretWritable(ctx, sec); err != nil {
+		return nil, err
+	}
 
 	if err := a.secretStore.Delete(ctx, request.SecretId); err != nil {
 		if errors.Is(err, secretpkg.ErrNotFound) {
@@ -278,6 +291,9 @@ func (a *API) DisableSecret(ctx context.Context, request api.DisableSecretReques
 		if errors.Is(err, secretpkg.ErrNotFound) {
 			return api.DisableSecret404JSONResponse(secretNotFoundError()), nil
 		}
+		return nil, err
+	}
+	if err := a.requireSecretWritable(ctx, sec); err != nil {
 		return nil, err
 	}
 
@@ -308,6 +324,9 @@ func (a *API) EnableSecret(ctx context.Context, request api.EnableSecretRequestO
 		}
 		return nil, err
 	}
+	if err := a.requireSecretWritable(ctx, sec); err != nil {
+		return nil, err
+	}
 
 	if err := sec.SetStatus(secretpkg.StatusActive, currentActorID(ctx), time.Now().UTC()); err != nil {
 		return nil, err
@@ -336,6 +355,9 @@ func (a *API) WriteSecretVersion(ctx context.Context, request api.WriteSecretVer
 		}
 		return nil, err
 	}
+	if err := a.requireSecretWritable(ctx, sec); err != nil {
+		return nil, err
+	}
 	if sec.ProviderType != secretpkg.ProviderDaguManaged {
 		return api.WriteSecretVersion400JSONResponse(secretBadRequestError("only Dagu-managed secrets can store values")), nil
 	}
@@ -361,6 +383,22 @@ func (a *API) WriteSecretVersion(ctx context.Context, request api.WriteSecretVer
 	a.logAudit(ctx, audit.CategorySecret, "secret_value_write", secretAuditDetails(updated))
 
 	return api.WriteSecretVersion200JSONResponse(toSecretResponse(updated)), nil
+}
+
+// isAIManagedSecretRef reports whether a ref is under the prefix that the AI feature
+// reserves (Spec 093): the key of an endpoint or a credential of a MCP server entry.
+// The routes of those entries own these secrets.
+func isAIManagedSecretRef(ref string) bool {
+	return secretref.IsReserved(ref)
+}
+
+// requireSecretWritable lets only an administrator change a secret that holds the
+// key of an AI endpoint or a credential of a MCP server entry (Spec 093).
+func (a *API) requireSecretWritable(ctx context.Context, sec *secretpkg.Secret) error {
+	if isAIManagedSecretRef(sec.Ref) {
+		return a.requireAdmin(ctx)
+	}
+	return nil
 }
 
 func (a *API) getManagedSecret(ctx context.Context, id string) (*secretpkg.Secret, error) {

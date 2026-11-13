@@ -4373,6 +4373,280 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List AI endpoints
+         * @description Lists the AI endpoints of all scopes. Requires the admin role.
+         *     The response never holds a key. It holds the prefix and the fingerprint of the key.
+         *
+         */
+        get: operations["listAIEndpoints"];
+        put?: never;
+        /**
+         * Create AI endpoint
+         * @description Creates an AI endpoint with its key. Requires the admin role.
+         *     The key is in the request only. No response holds it.
+         *     The scope is fixed at creation.
+         *
+         */
+        post: operations["createAIEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/endpoints/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete AI endpoint
+         * @description Deletes an endpoint and its key. Requires the admin role.
+         *     A run that names the endpoint then fails with the reason endpoint_unknown.
+         *
+         */
+        delete: operations["deleteAIEndpoint"];
+        options?: never;
+        head?: never;
+        /**
+         * Update AI endpoint
+         * @description Changes the fields of an endpoint that are not the key, the name, the preset, the protocol and the scope.
+         *     Requires the admin role.
+         *
+         */
+        patch: operations["updateAIEndpoint"];
+        trace?: never;
+    };
+    "/ai/endpoints/{name}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or rotate the key of an AI endpoint
+         * @description Replaces the key of an endpoint. Requires the admin role.
+         *     The key is in the request only. No response holds it.
+         *     The old value stays in the store as an encrypted old version. No route reads it.
+         *
+         */
+        put: operations["setAIEndpointKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/endpoints/{name}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the models list of an AI endpoint
+         * @description Gives the models list of an endpoint with the date of its last good read and the error of its last read.
+         *     The route reads the list that the server keeps. It does not call the provider.
+         *     Requires the admin role. A step form reads the list of an endpoint that it may use from the route of choices.
+         *
+         */
+        get: operations["getAIEndpointModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/endpoints/{name}/models/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reload the models list of an AI endpoint
+         * @description Calls the models URL of the endpoint now, with its key, and keeps the result. Requires the admin role.
+         *     A failed read is not an error of this route: the response has the error, and the last good list stays.
+         *     The route waits for the provider, up to the timeout ai.models_timeout_sec.
+         *
+         */
+        post: operations["reloadAIEndpointModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/endpoint-choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the AI endpoints that a DAG may use
+         * @description Lists the endpoints that the DAG may use, for the form of a step.
+         *     The roles that edit DAGs can call it.
+         *     The response has no key data and no base URL.
+         *
+         */
+        get: operations["listAIEndpointChoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/endpoint-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the AI endpoint presets
+         * @description Lists the provider presets of the server (Spec 093, Provider presets). A preset gives the default
+         *     values of a new endpoint. Requires the admin role.
+         *
+         */
+        get: operations["listAIEndpointPresets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List MCP server entries
+         * @description Lists the MCP server entries of all scopes. Requires the admin role.
+         *     The response never holds a credential. It holds the prefix and the fingerprint of each value.
+         *
+         */
+        get: operations["listAIMCPServers"];
+        put?: never;
+        /**
+         * Create MCP server entry
+         * @description Creates a MCP server entry with its credentials. Requires the admin role.
+         *     The credentials are in the request only. No response holds them.
+         *     The scope is fixed at creation.
+         *
+         */
+        post: operations["createAIMCPServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/mcp-servers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete MCP server entry
+         * @description Deletes an entry and its credentials. Requires the admin role.
+         *     A run that names the entry then fails with the reason mcp_server_unknown.
+         *
+         */
+        delete: operations["deleteAIMCPServer"];
+        options?: never;
+        head?: never;
+        /**
+         * Update MCP server entry
+         * @description Changes the URL and the use rule of an entry. It does not change the credentials, the name and the scope.
+         *     Requires the admin role.
+         *
+         */
+        patch: operations["updateAIMCPServer"];
+        trace?: never;
+    };
+    "/ai/mcp-servers/{name}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or rotate the credentials of a MCP server entry
+         * @description Replaces the whole set of credentials of an entry: a token, or headers, or none. Requires the admin role.
+         *     The values are in the request only. No response holds them.
+         *     The old values stay in the store as encrypted old versions. No route reads them.
+         *
+         */
+        put: operations["setAIMCPServerCredentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/mcp-server-choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the MCP server entries that a DAG may use
+         * @description Lists the entries that the DAG may use, for the form of a step.
+         *     The roles that edit DAGs can call it.
+         *     The response has no credential data and no URL.
+         *
+         */
+        get: operations["listAIMCPServerChoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/views": {
         parameters: {
             query?: never;
@@ -8986,6 +9260,279 @@ export interface components {
             /** @description The setting, such as a workspace, a secret and its workspace, or a username */
             name: string;
         };
+        /** @description Name of an AI endpoint. It is unique in its scope. */
+        AIEndpointName: string;
+        /**
+         * @description Form of the HTTP API of the provider.
+         * @enum {string}
+         */
+        AIEndpointProtocol: AIEndpointProtocol;
+        /**
+         * @description Header form that the coordinator sets. The form anthropic-oauth is valid with the protocol anthropic only.
+         *
+         * @enum {string}
+         */
+        AIEndpointAuth: AIEndpointAuth;
+        /** @description The value global, or workspace: and the name of a workspace. */
+        AIEndpointScope: string;
+        /** @description Who may use the endpoint. A name is an exact name. The value * is the only pattern.
+         *     It must be the only item of its list.
+         *      */
+        AIEndpointAllow: {
+            /** @description Workspace names, or *. Required for the scope global. Not valid in a workspace scope.
+             *      */
+            workspaces?: string[];
+            /** @description DAG names, or *. */
+            dags: string[];
+        };
+        /** @description An AI endpoint. It never holds the key. */
+        AIEndpoint: {
+            name: components["schemas"]["AIEndpointName"];
+            description?: string;
+            /** @description Name of a preset of the server, or custom. */
+            preset: string;
+            protocol: components["schemas"]["AIEndpointProtocol"];
+            baseUrl: string;
+            auth: components["schemas"]["AIEndpointAuth"];
+            /** @description Models URL. Valid with the preset custom only. */
+            modelsUrl?: string;
+            scope: components["schemas"]["AIEndpointScope"];
+            allow: components["schemas"]["AIEndpointAllow"];
+            /** @description First characters of the key. The length is the smaller of 6 and 10 percent of the key length, rounded down.
+             *     Absent for a key of fewer than 10 characters and for an endpoint with no key.
+             *      */
+            keyPrefix?: string;
+            /** @description First 12 hexadecimal digits of the SHA-256 of the key. Absent for an endpoint with no key. */
+            keyFingerprint?: string;
+            /**
+             * Format: date-time
+             * @description Time of the last write of the key. Absent for an endpoint with no key.
+             */
+            keyUpdatedAt?: string;
+            models?: components["schemas"]["AIEndpointModelsStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description The state of the models list of an endpoint, without the names.
+         *     The error of a failed read comes with the last good list. The error never holds the key.
+         *      */
+        AIEndpointModelsStatus: {
+            /** @description False when the endpoint has no models URL. It then has no list. */
+            supported: boolean;
+            /** @description Number of models in the last good list. */
+            count: number;
+            /**
+             * Format: date-time
+             * @description Time of the last good read. Absent before the first good read.
+             */
+            refreshedAt?: string;
+            /** @description Text of the error of the last read. Absent when the last read was good. */
+            error?: string;
+            /**
+             * Format: date-time
+             * @description Time of the error. Present with error.
+             */
+            errorAt?: string;
+        };
+        /** @description The details of one model of the models list of an endpoint. */
+        AIModelInfo: {
+            /** @description The model name. */
+            id: string;
+            /** @description The name that a person reads, for example Claude Haiku 5.5. Absent when the provider gives none. */
+            displayName?: string;
+            /** @description The levels of effort that the model supports, from the lowest to the highest.
+             *     Absent when the provider gives none. A level is low, medium, high, xhigh or max.
+             *      */
+            efforts?: string[];
+        };
+        /** @description The models list of an endpoint, with its state. */
+        AIEndpointModels: components["schemas"]["AIEndpointModelsStatus"] & {
+            /** @description The model names of the last good read, in the order of the provider. */
+            models: string[];
+            /** @description The details of the models, one item for each name of models, in the same order.
+             *      */
+            modelInfo?: components["schemas"]["AIModelInfo"][];
+        };
+        AIEndpointListResponse: {
+            endpoints: components["schemas"]["AIEndpoint"][];
+        };
+        CreateAIEndpointRequest: {
+            name: components["schemas"]["AIEndpointName"];
+            description?: string;
+            /** @description Name of a preset of the server, or custom. */
+            preset: string;
+            protocol: components["schemas"]["AIEndpointProtocol"];
+            /** @description Base URL. The preset gives the default. It is required when the preset gives none.
+             *     The scheme is https. The presets of a local model and custom also accept http.
+             *      */
+            baseUrl?: string;
+            auth?: components["schemas"]["AIEndpointAuth"];
+            /** @description Models URL. Valid with the preset custom only. */
+            modelsUrl?: string;
+            scope: components["schemas"]["AIEndpointScope"];
+            allow: components["schemas"]["AIEndpointAllow"];
+            /** @description The key of the provider. It is not empty and has no control character.
+             *     Required, except for the presets of a local model, which accept no key.
+             *     The response never holds it.
+             *      */
+            key?: string;
+        };
+        /** @description Fields to change. An absent field keeps its value. A present allow replaces the whole allow. */
+        UpdateAIEndpointRequest: {
+            description?: string;
+            baseUrl?: string;
+            auth?: components["schemas"]["AIEndpointAuth"];
+            modelsUrl?: string;
+            allow?: components["schemas"]["AIEndpointAllow"];
+        };
+        SetAIEndpointKeyRequest: {
+            /** @description The new key. It has no control character. The response never holds it. */
+            key: string;
+        };
+        /** @description An endpoint that a DAG may use. It has no key data and no base URL. */
+        AIEndpointChoice: {
+            /** @description The model names of the last good read, as suggestions for the Model field of a step.
+             *     The list is empty when the endpoint has no list, or when no read worked yet.
+             *      */
+            models?: string[];
+            /** @description The details of the models, one item for each name of models, in the same order.
+             *      */
+            modelInfo?: components["schemas"]["AIModelInfo"][];
+            name: components["schemas"]["AIEndpointName"];
+            protocol: components["schemas"]["AIEndpointProtocol"];
+            preset: string;
+            scope: components["schemas"]["AIEndpointScope"];
+        };
+        AIEndpointChoicesResponse: {
+            choices: components["schemas"]["AIEndpointChoice"][];
+            /** @description The model names that the CLI claude accepts and the models list of an endpoint does not hold.
+             *     The model check of an agent.run step lets them pass. The suffix [1m] is valid on each name.
+             *      */
+            cliModelAliases?: string[];
+        };
+        /**
+         * @description A client that can use a row of a preset. The value codex is for later: agent.run does not run it yet.
+         * @enum {string}
+         */
+        AIEndpointConsumer: AIEndpointConsumer;
+        /** @description One protocol of a preset. It is one row of the table of presets. */
+        AIEndpointPresetProtocol: {
+            protocol: components["schemas"]["AIEndpointProtocol"];
+            /** @description Default base URL. Absent when the administrator must give one. */
+            baseUrl?: string;
+            auth?: components["schemas"]["AIEndpointAuth"];
+            /** @description URL of the models list. The text {base_url} stands for the base URL of the endpoint. Absent when the preset gives none. */
+            modelsUrl?: string;
+            /** @description Provider type that chat.completion uses for the row. */
+            chatType: string;
+            consumers: components["schemas"]["AIEndpointConsumer"][];
+        };
+        /** @description A provider preset. The row of a protocol gives the defaults of a new endpoint. */
+        AIEndpointPreset: {
+            /** @description Identifier of the preset, such as openrouter. The preset custom has the identifier custom. */
+            id: string;
+            label: string;
+            /** @description False for a local model: it accepts an endpoint with no key and the scheme http. */
+            needsKey: boolean;
+            protocols: components["schemas"]["AIEndpointPresetProtocol"][];
+        };
+        AIEndpointPresetListResponse: {
+            presets: components["schemas"]["AIEndpointPreset"][];
+        };
+        /** @description Name of a MCP server entry. It is unique in its scope. The name dagu is not valid. */
+        AIMCPServerName: string;
+        /** @description Who may use the entry. A name is an exact name. The value * is the only pattern.
+         *     It must be the only item of its list.
+         *      */
+        AIMCPServerAllow: {
+            /** @description Workspace names, or *. Required for the scope global. Not valid in a workspace scope.
+             *      */
+            workspaces?: string[];
+            /** @description DAG names, or *. */
+            dags: string[];
+        };
+        /** @description The display values of one credential. The value itself is never returned. */
+        AIMCPCredential: {
+            /** @description First characters of the value. The length is the smaller of 6 and 10 percent of the length of the value, rounded down.
+             *     Absent for a value of fewer than 10 characters.
+             *      */
+            keyPrefix?: string;
+            /** @description First 12 hexadecimal digits of the SHA-256 of the value. */
+            keyFingerprint: string;
+            /**
+             * Format: date-time
+             * @description Time of the last write of the value.
+             */
+            keyUpdatedAt: string;
+        };
+        /** @description A header of the entry, with the display values of its value. */
+        AIMCPHeaderCredential: {
+            /** @description Header name, in lower case. */
+            name: string;
+            keyPrefix?: string;
+            keyFingerprint: string;
+            /** Format: date-time */
+            keyUpdatedAt: string;
+        };
+        /** @description A MCP server entry. It never holds a credential value. */
+        AIMCPServer: {
+            name: components["schemas"]["AIMCPServerName"];
+            /** @description URL of the MCP server. */
+            url: string;
+            scope: components["schemas"]["AIEndpointScope"];
+            allow: components["schemas"]["AIMCPServerAllow"];
+            token?: components["schemas"]["AIMCPCredential"];
+            /** @description The headers that carry a credential, sorted by name. */
+            headers?: components["schemas"]["AIMCPHeaderCredential"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AIMCPServerListResponse: {
+            servers: components["schemas"]["AIMCPServer"][];
+        };
+        CreateAIMCPServerRequest: {
+            name: components["schemas"]["AIMCPServerName"];
+            /** @description URL of the MCP server. The scheme is https, or http. It has no user information and no fragment.
+             *      */
+            url: string;
+            scope: components["schemas"]["AIEndpointScope"];
+            allow: components["schemas"]["AIMCPServerAllow"];
+            /** @description A bearer token. The coordinator sends it as authorization: Bearer. It does not go with a header authorization.
+             *     The response never holds it.
+             *      */
+            token?: string;
+            /** @description Header names and values, at most 16. A value has at most 8192 bytes.
+             *     The response never holds a value.
+             *      */
+            headers?: {
+                [key: string]: string;
+            };
+        };
+        /** @description Fields to change. An absent field keeps its value. A present allow replaces the whole allow. */
+        UpdateAIMCPServerRequest: {
+            url?: string;
+            allow?: components["schemas"]["AIMCPServerAllow"];
+        };
+        /** @description The new set of credentials. It replaces the whole set. A request with no token and no headers removes the credentials.
+         *      */
+        SetAIMCPServerCredentialsRequest: {
+            token?: string;
+            headers?: {
+                [key: string]: string;
+            };
+        };
+        /** @description A MCP server entry that a DAG may use. It has no credential data and no URL. */
+        AIMCPServerChoice: {
+            name: components["schemas"]["AIMCPServerName"];
+            scope: components["schemas"]["AIEndpointScope"];
+        };
+        AIMCPServerChoicesResponse: {
+            choices: components["schemas"]["AIMCPServerChoice"][];
+        };
     };
     responses: never;
     parameters: {
@@ -9100,6 +9647,12 @@ export interface components {
         Stream: components["schemas"]["Stream"];
         /** @description The unique identifier of the remote node */
         RemoteNodeId: string;
+        /** @description Name of the AI endpoint */
+        AIEndpointName: components["schemas"]["AIEndpointName"];
+        /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+        AIEndpointWorkspace: string;
+        /** @description Name of the MCP server entry */
+        AIMCPServerName: components["schemas"]["AIMCPServerName"];
     };
     requestBodies: never;
     headers: never;
@@ -23414,6 +23967,1040 @@ export interface operations {
             };
         };
     };
+    listAIEndpoints: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI endpoints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpointListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAIEndpoint: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAIEndpointRequest"];
+            };
+        };
+        responses: {
+            /** @description AI endpoint created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpoint"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace of the scope not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An endpoint with this name exists in the scope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteAIEndpoint: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the AI endpoint */
+                name: components["parameters"]["AIEndpointName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI endpoint deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description AI endpoint not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateAIEndpoint: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the AI endpoint */
+                name: components["parameters"]["AIEndpointName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAIEndpointRequest"];
+            };
+        };
+        responses: {
+            /** @description AI endpoint updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpoint"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description AI endpoint not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setAIEndpointKey: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the AI endpoint */
+                name: components["parameters"]["AIEndpointName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAIEndpointKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpoint"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description AI endpoint not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAIEndpointModels: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the AI endpoint */
+                name: components["parameters"]["AIEndpointName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The models list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpointModels"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description AI endpoint not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reloadAIEndpointModels: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the AI endpoint */
+                name: components["parameters"]["AIEndpointName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The models list after the read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpointModels"];
+                };
+            };
+            /** @description The endpoint has no models URL */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description AI endpoint not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAIEndpointChoices: {
+        parameters: {
+            query: {
+                /** @description Name of the DAG. */
+                dag: string;
+                /** @description Workspace of the DAG, from its label workspace. Omit it for a DAG with no workspace. Then only the global endpoints can match. */
+                workspace?: components["schemas"]["WorkspaceName"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Endpoints that the DAG may use */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpointChoicesResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAIEndpointPresets: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI endpoint presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIEndpointPresetListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAIMCPServers: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP server entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIMCPServerListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAIMCPServer: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAIMCPServerRequest"];
+            };
+        };
+        responses: {
+            /** @description MCP server entry created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIMCPServer"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Workspace of the scope not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An entry with this name exists in the scope */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteAIMCPServer: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the MCP server entry */
+                name: components["parameters"]["AIMCPServerName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP server entry deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description MCP server entry not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateAIMCPServer: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the MCP server entry */
+                name: components["parameters"]["AIMCPServerName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAIMCPServerRequest"];
+            };
+        };
+        responses: {
+            /** @description MCP server entry updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIMCPServer"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description MCP server entry not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setAIMCPServerCredentials: {
+        parameters: {
+            query?: {
+                /** @description Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint. */
+                workspace?: components["parameters"]["AIEndpointWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Name of the MCP server entry */
+                name: components["parameters"]["AIMCPServerName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAIMCPServerCredentialsRequest"];
+            };
+        };
+        responses: {
+            /** @description Credentials replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIMCPServer"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description MCP server entry not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAIMCPServerChoices: {
+        parameters: {
+            query: {
+                /** @description Name of the DAG. */
+                dag: string;
+                /** @description Workspace of the DAG, from its label workspace. Omit it for a DAG with no workspace. Then only the global entries can match. */
+                workspace?: components["schemas"]["WorkspaceName"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP server entries that the DAG may use */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIMCPServerChoicesResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listViews: {
         parameters: {
             query?: {
@@ -25102,6 +26689,20 @@ export enum WorkspaceDeprecationItemKind {
     user = "user",
     apiKey = "apiKey",
     wikiDirectory = "wikiDirectory"
+}
+export enum AIEndpointProtocol {
+    anthropic = "anthropic",
+    openai = "openai"
+}
+export enum AIEndpointAuth {
+    x_api_key = "x-api-key",
+    bearer = "bearer",
+    anthropic_oauth = "anthropic-oauth"
+}
+export enum AIEndpointConsumer {
+    claude = "claude",
+    codex = "codex",
+    chat_completion = "chat.completion"
 }
 export enum ComponentsParametersEventLogPaginationMode {
     offset = "offset",
