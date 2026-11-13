@@ -78,7 +78,8 @@ steps:
 Live runs and catch-up use the selected entry's inputs. A backfill uses the
 matching recurring entry from its pinned DAG definition unless the backfill
 supplies explicit `--params`. Retries use the run's saved inputs. Manual starts
-continue to use their own inputs and DAG defaults.
+continue to use their own inputs and DAG defaults. A `restart_policy` restart
+starts from the DAG defaults, not from the entry's `params`.
 
 When multiple active entries fire at the same time, the live scheduler prefers
 a due one-off and otherwise selects the first matching recurring entry in YAML
