@@ -6827,6 +6827,8 @@ export interface components {
             triggerType?: components["schemas"]["TriggerType"];
             /** @description Authenticated actor that initiated the DAG-run, when attribution is available */
             triggerActor?: string;
+            /** @description Backfill that started the DAG-run. A retry keeps it. */
+            backfillId?: string;
             /** @description Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons. */
             conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */
@@ -11960,6 +11962,8 @@ export interface operations {
                  * @description Deprecated alias for `labels`; mutually exclusive with `labels`. Filter DAG-runs by DAG labels (comma-separated).
                  */
                 tags?: string;
+                /** @description List only the runs of this backfill */
+                backfillId?: string;
             };
             header?: never;
             path?: never;

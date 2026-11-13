@@ -408,6 +408,7 @@ func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 		Process:            toDAGRunProcess(s),
 		TriggerType:        toTriggerType(s.TriggerType),
 		TriggerActor:       ptrOf(s.TriggerActor),
+		BackfillId:         ptrOf(s.BackfillID),
 		Labels:             &s.Labels,
 		Tags:               &s.Labels,
 	}
@@ -529,6 +530,7 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		AttemptId:              ptrOf(s.AttemptID),
 		TriggerType:            toTriggerType(s.TriggerType),
 		TriggerActor:           ptrOf(s.TriggerActor),
+		BackfillId:             ptrOf(s.BackfillID),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
 		OnInit:                 ptrOf(toNode(s.OnInit)),

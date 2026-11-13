@@ -488,7 +488,8 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 		run = &whole
 	}
 	status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
-	if status == nil || (it.opts.ExcludeBackfill && status.BackfillID != "") {
+	if status == nil || (it.opts.ExcludeBackfill && status.BackfillID != "") ||
+		(it.opts.BackfillID != "" && status.BackfillID != it.opts.BackfillID) {
 		return dagRunListItem{}, false
 	}
 	if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {

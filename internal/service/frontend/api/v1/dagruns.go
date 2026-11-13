@@ -707,6 +707,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
 
+		backfillID:            request.Params.BackfillId,
 		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
@@ -805,6 +806,8 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
+	// backfillID keeps only the runs of a backfill.
+	backfillID *string
 	// excludeServiceDAGRuns drops the runs of the service DAGs.
 	excludeServiceDAGRuns bool
 }
@@ -838,6 +841,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if labels := parseCommaSeparatedLabels(input.labels); len(labels) > 0 {
 		opts.query.Labels = labels
 	}
+	opts.query.BackfillID = valueOf(input.backfillID)
 	if input.limit != nil {
 		limit = clampInt(*input.limit, 1, maxLimit)
 	}
@@ -5425,6 +5429,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels       *string
 		limit        *int
 		cursor       *string
+		backfillID   *string
 
 		excludeServiceDAGRuns bool
 	)
@@ -5486,6 +5491,9 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
+	if rawBackfillID := params.Get("backfillId"); rawBackfillID != "" {
+		backfillID = &rawBackfillID
+	}
 	if rawExclude := params.Get(excludeServiceDAGRunsParam); rawExclude != "" {
 		parsed, convErr := strconv.ParseBool(rawExclude)
 		if convErr != nil {
@@ -5504,6 +5512,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		limit:    limit,
 		cursor:   cursor,
 
+		backfillID:            backfillID,
 		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
 

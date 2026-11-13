@@ -2571,6 +2571,12 @@ paths:
             type: "string"
           deprecated: true
           description: "Deprecated alias for `labels`; mutually exclusive with `labels`. Filter DAG-runs by DAG labels (comma-separated)."
+        - name: "backfillId"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "List only the runs of this backfill"
       responses:
         "200":
           description: "A successful response"
@@ -17211,6 +17217,9 @@ components:
         triggerActor:
           type: string
           description: "Authenticated actor that initiated the DAG-run, when attribution is available"
+        backfillId:
+          type: string
+          description: "Backfill that started the DAG-run. A retry keeps it."
         conditions:
           type: array
           description: "Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons."
