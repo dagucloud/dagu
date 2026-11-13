@@ -63,6 +63,7 @@ import { paramFormTemplates } from './paramFormTemplates';
 import { paramFormWidgets } from './paramFormWidgets';
 import { SlotDatesPreview } from './SlotDatesPreview';
 import { autoGrowTextarea } from './textareaAutoGrow';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
@@ -129,14 +130,21 @@ function formatRecentFire(fire: RecentFire): string {
 
 const NO_PARAM_HINTS: Record<string, string> = {};
 
-// withPlaceholders shows each hint as the placeholder of its param's field.
-function withPlaceholders(
+// withSlotHints shows each hint in its param's field: as the placeholder,
+// and as help text, which also shows beside a widget without a placeholder,
+// such as a date.
+function withSlotHints(
   uiSchema: ParamSchemaUiSchema,
-  hints: Record<string, string>
+  hints: Record<string, string>,
+  help: (value: string) => string
 ): ParamSchemaUiSchema {
   const result = { ...uiSchema };
   for (const [name, hint] of Object.entries(hints)) {
-    result[name] = { ...result[name], 'ui:placeholder': hint };
+    result[name] = {
+      ...result[name],
+      'ui:placeholder': hint,
+      'ui:help': help(hint),
+    };
   }
   return result;
 }
@@ -325,6 +333,7 @@ function StartDAGModal({
   defaultProfileLoading = false,
 }: Props) {
   const canUseProtectedProfiles = useIsAdmin();
+  const { ts } = useI18n();
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
   const paramSchema = React.useMemo(() => {
     const schema = dagDetails?.paramSchema as JSONSchema | undefined;
@@ -485,9 +494,11 @@ function StartDAGModal({
     () =>
       paramSchema
         ? ({
-            ...withPlaceholders(
+            ...withSlotHints(
               buildParamSchemaUiSchema(paramSchema),
-              paramHints
+              paramHints,
+              (value) =>
+                ts('Left empty, it takes {value} from the slot.', { value })
             ),
             'ui:order': paramDefs
               .flatMap(({ name }) => (name ? [name] : []))
@@ -495,7 +506,7 @@ function StartDAGModal({
             'ui:submitButtonOptions': { norender: true },
           } as UiSchema<SchemaFormData>)
         : undefined,
-    [paramDefs, paramSchema, paramHints]
+    [paramDefs, paramSchema, paramHints, ts]
   );
   const schemaFormRef = React.useRef<RJSFForm<
     SchemaFormData,
