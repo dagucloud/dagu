@@ -775,23 +775,6 @@ function normalizeRunStatus(
 }
 
 /**
- * Shows a tab of the right column of the workflow page: the Workflow panel or
- * the YAML of the file. The column is beside the graph on a window that is
- * not a phone; it is open on a tab, or collapsed to a rail of its buttons.
- */
-export async function openColumnTab(
-  page: Page,
-  name: 'Workflow' | 'YAML'
-): Promise<void> {
-  const column = page.getByTestId('ww-right-column');
-  await expect(column).toBeVisible({ timeout: 30_000 });
-  await column
-    .getByRole('tab', { name, exact: true })
-    .or(column.getByRole('button', { name, exact: true }))
-    .click();
-}
-
-/**
  * Switches the open step view from its YAML to its form. A step that opens
  * with a double click, Enter or the Open command shows its YAML first; the
  * YAML | Form bar of the node view, or of the drawer on the classic page,
