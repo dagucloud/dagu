@@ -571,3 +571,34 @@ func TestDispatchWaitsForTheRetryPolicy(t *testing.T) {
 		})
 	}
 }
+
+// A retry of a run whose backfill is removed while the retry waits for its
+// lock goes on without the backfill.
+func TestRetryOfARemovedBackfill(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, f.queued[0]))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+
+	store := lockHook{Store: f.store, before: func() {
+		require.NoError(t, f.store.Delete(f.ctx, record.ID))
+	}}
+	require.NoError(t, backfill.FollowRetry(f.ctx, store, status, f.clock))
+}
+
+// lockHook runs before each time a backfill's lock is taken.
+type lockHook struct {
+	backfill.Store
+	before func()
+}
+
+func (h lockHook) LockRecord(ctx context.Context, id string) (func(), error) {
+	h.before()
+	return h.Store.LockRecord(ctx, id)
+}

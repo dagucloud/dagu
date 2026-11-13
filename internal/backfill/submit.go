@@ -138,11 +138,37 @@ func (s *Service) removeExpired(ctx context.Context, dag *ir.DAG, now time.Time)
 	}
 	var errs []error
 	for _, record := range records {
-		if !record.Open() && record.EndedAt.Before(cutoff) {
-			errs = append(errs, s.Store.Delete(ctx, record.ID))
+		if expired(record, cutoff) {
+			errs = append(errs, s.removeIfExpired(ctx, record.ID, cutoff))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// removeIfExpired removes a backfill that is still expired under its lock,
+// so a retry that opens it again keeps it.
+func (s *Service) removeIfExpired(ctx context.Context, id string, cutoff time.Time) error {
+	unlock, err := s.Store.LockRecord(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	record, err := s.Store.Get(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !expired(record, cutoff) {
+		return nil
+	}
+	return s.Store.Delete(ctx, id)
+}
+
+// expired reports whether a backfill ended before cutoff.
+func expired(record *Record, cutoff time.Time) bool {
+	return !record.Open() && record.EndedAt.Before(cutoff)
 }
 
 // plan makes the plan of a request. Runs named in ignore are left out of the

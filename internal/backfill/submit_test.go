@@ -172,3 +172,28 @@ func TestSubmitRemovesBackfillsPastRetention(t *testing.T) {
 		require.NoError(t, err, id)
 	}
 }
+
+// A backfill that a retry opens while a submit removes the expired ones is
+// kept.
+func TestSubmitKeepsABackfillARetryOpens(t *testing.T) {
+	t.Parallel()
+	f := newSubmitFixture(t)
+	ctx := context.Background()
+	req := f.request(at(1, 0), at(3, 23), backfill.RerunNone)
+	req.Plan.DAG.SlotRetentionDays = 30
+	record := &backfill.Record{
+		ID: "reopened", DAGName: "etl", DAGFile: "etl.yaml", CreatedAt: at(1, 0).AddDate(0, 0, -40),
+		Options: backfill.Options{Rerun: backfill.RerunNone, MaxConcurrency: 1, OnFailure: backfill.OnFailureStop},
+	}
+	require.NoError(t, f.store.Create(ctx, record))
+	require.NoError(t, f.store.End(ctx, record.ID, backfill.StatusFailed, at(20, 0).AddDate(0, 0, -31)))
+
+	f.service.Store = lockHook{Store: f.store, before: func() {
+		require.NoError(t, f.store.Update(ctx, record))
+	}}
+	_, err := f.service.Submit(ctx, req)
+	require.NoError(t, err)
+	kept, err := f.store.Get(ctx, record.ID)
+	require.NoError(t, err)
+	assert.True(t, kept.Open())
+}
