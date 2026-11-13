@@ -1,10 +1,10 @@
 # RFC 002: Dagu Cloud Connector
 
 - **Status:** Proposed
-- **Date:** 2026-10-09
+- **Date:** 2026-10-09, revised 2026-11-14
 - **Affected areas:** `license`, `eventstore`, `cloudrelay`, `cloudaccess`,
-  `serviceregistry`, `service/frontend` (auth, API, UI), `service/mcp`,
-  `audit`, `cmn/config`, and `cmd`
+  `cloudreport`, `serviceregistry`, `service/frontend` (auth, API, UI),
+  `service/mcp`, `audit`, `cmn/config`, and `cmd`
 
 ## Summary
 
@@ -153,7 +153,7 @@ were lost from.
 | Level | Fields | When |
 | --- | --- | --- |
 | `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and, on a paid plan or trial, the latest sample of the machine's resources, or its container's when that has limits: logical CPUs and the CPU limit, average and peak CPU use since the last accepted report, load averages, memory use, and the use of the disks that hold the data and log directories, with their inodes. Also, on a paid plan or trial, how many distributed workers send heartbeats | Every report |
-| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker. Also, on a paid plan or trial, each distributed worker: its ID, host, labels, pollers, last heartbeat, and the latest sample of its machine | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all. The workers with every report, by ID, at most 256 and 64 KiB of them and a count of all |
+| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker. Also, on a paid plan or trial, each distributed worker: its ID, host, labels, pollers, last heartbeat, and the latest sample of its machine. From protocol 3, each run, scheduled DAG, and queue not defined in `config.yaml` also names its [project](#projects): its ID, name, and display name, and its Dagu Cloud project's ID when bound | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all. The workers with every report, by ID, at most 256 and 64 KiB of them and a count of all |
 | `errors` | The `runs` fields, plus why each finished run failed: the error messages of its failed steps and handlers, at most 5, or the run's own error when no step has one. Each is sent without terminal escapes, at most 2048 bytes from its end. A command step's error ends with the last 1 KiB of its stderr; the values of workflow secrets are masked in it as in logs | With the finished run it belongs to |
 
 A run is reported unless its event has no valid status snapshot, or it names
@@ -570,6 +570,54 @@ up to 64 KiB of the body. The relay sends request bodies of at most 512 KiB,
 takes answers of at most 4 MiB, holds at most 16 calls in flight per server,
 and ends a call after 100 seconds.
 
+## Projects
+
+[RFC 003](003-remove-workspaces.md) groups a server's DAGs into projects,
+each with an ID that survives renames. Dagu Cloud tells a server's projects
+apart by that ID, and treats projects on two servers as one only through a
+binding.
+
+### Binding
+
+- An admin of a connected server binds one of its projects to a project of
+  the Dagu Cloud workspace the server is connected to, in the UI or with
+  `dagu project bind`. The server's project registry stores the Dagu Cloud
+  project's ID.
+- Dagu Cloud never matches projects by name. Two servers share a Dagu Cloud
+  project only when an admin of each has bound a local project to it, so
+  `weather` on two servers stays two projects until someone binds them.
+- A server binds a Dagu Cloud project to at most one of its projects.
+  Unbinding, or disconnecting the server, ends what the binding enables and
+  leaves the local project as it is.
+- In Dagu Cloud, a project belongs to a workspace and is what servers bind
+  to. A bundle of DAG files that Dagu Cloud deploys is a version of such a
+  project, not a second kind of project.
+
+### Protocol 3
+
+Protocol 3 extends the [wire contract](#wire-contract) for servers with
+projects:
+
+- Each run, scheduled DAG, and queue that is not defined in `config.yaml`
+  carries `project`: the local project's ID, name, and display name, and the
+  Dagu Cloud project's ID when bound. Like DAG names, these are sent at
+  `runs` and `errors` only.
+- Dagu Cloud keys a server's workflows by project ID and DAG name, so `etl`
+  in two projects is two workflows. A protocol 2 report belongs to the
+  server's default project.
+- The reporter reads every project's run events and keeps a cursor for each.
+  It sends Dagu Cloud one opaque `cursor` for the set, still at most 4096
+  bytes, and reports a gap when any project lost events.
+
+### What a binding enables
+
+- **Inventory sync** ([RFC 012](012-node-inventory.md#dagu-cloud-sync))
+  covers bound projects only. Servers bound to the same Dagu Cloud project
+  share its inventories.
+- **Deploys,** in a later RFC, write only into a bound project and never
+  create one. A deploy owns the project's DAG files and base config: the
+  server does not edit them, and a change on disk shows as drift.
+
 ## Failure behavior
 
 | Situation | Behavior |
@@ -600,6 +648,8 @@ and ends a call after 100 seconds.
 | v2.20 | The `dagucloud` tunnel provider, carrying webhook deliveries for public triggers only (RFC 004). |
 | v2.22 | Remote access for MCP calls over each server process's own connection: assertions, the Remote access section, remote approvals, the license audience check, and the remote access level in health reports. |
 | Later | A browser UI over the same connection, with `use = session` assertions and the UI bar. |
+| v3.0 | Protocol 3, which names each run's project (RFC 003). |
+| After v3.0 | Project bindings, and inventory sync for bound projects. |
 
 Older servers keep working as they do: they heartbeat and never report.
 
@@ -620,6 +670,10 @@ Older servers keep working as they do: they heartbeat and never report.
    wrong-audience, and license tokens are rejected.
 8. No inbound port is opened. Outbound traffic goes only to the console and
    relay hosts over 443.
+9. A connected v3.0 server's reports carry each run's project, and two
+   projects with the same DAG name are two workflows in Dagu Cloud.
+10. Two servers share a Dagu Cloud project only after an admin of each binds
+    a local project to it.
 
 ## Alternatives considered
 
