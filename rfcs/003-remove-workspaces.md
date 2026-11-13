@@ -15,9 +15,9 @@ same layout as `DAGU_HOME`. It holds its DAGs, runs, logs, base config,
 secrets, profiles, notification routes, incident policies, and wiki. Secrets,
 profiles, notification routes, and incident policies also have a server layer
 that every project inherits, as base config does. Users, API keys,
-authentication, and workers stay server-wide. One server process
-serves every project. Child DAGs that several projects call live in a library
-at `paths.alt_dags_dir` and run in the project that calls them.
+authentication, and workers stay server-wide. One server process serves every
+project. Child DAGs that several projects call live in a library at
+`paths.alt_dags_dir` and run in the project that calls them.
 
 Each project has an ID that survives renames. Grants, audit entries, and
 distributed tasks refer to the ID; people refer to the name. Dagu Cloud tells
@@ -147,6 +147,10 @@ Windows, and Linux.
   in case from another project's name. The server logs it, and the projects
   page lists it for admins.
 
+A project also has a display name: any text up to 200 characters, unique
+without regard to case. It is the name until an admin sets one. Pages show
+the display name; commands, API calls, and links use the name.
+
 ### Scope
 
 | Scope | Contents |
@@ -215,10 +219,10 @@ into each project.
 Each project has an ID, a random UUID assigned when the project is created or
 first discovered. The ID never changes; the name can.
 
-- A server-wide registry holds each project's ID, name, creation time, and
-  [Dagu Cloud binding](#binding). Every write to it holds one lock and
-  checks the name rules before it stores. Writes are rare, so one lock costs
-  nothing.
+- A server-wide registry holds each project's ID, name, display name,
+  creation time, and [Dagu Cloud binding](#binding). Every write to it holds
+  one lock and checks the name rules before it stores. Writes are rare, so
+  one lock costs nothing.
 - Records that outlive a request refer to a project by ID: grants, audit
   entries, dispatch tasks, leases, and status reports. Names are for people:
   `--project`, the API's `project` parameter, and `project_mappings` take a
@@ -255,8 +259,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
                      and uses that project's base config
 ```
 
-- Library DAGs are not listed or scheduled on their own. Validation warns when
-  one has a `schedule`.
+- Library DAGs are not listed among a project's DAGs or scheduled on their
+  own. Validation warns when one has a `schedule`.
 - A library DAG runs in the project that starts it: the caller's project for
   `dag.run`, or the project given to an explicit start. Its run is recorded
   there, and it uses that project's base config, secrets, and profiles.
@@ -266,6 +270,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   it. Library definitions are readable through every project.
 - Every project can call the library. A library call is not a cross-project
   call.
+- A Library page lists the library DAGs, and every user can read them. Only
+  admins change them, because a library DAG runs with the secrets of every
+  project that calls it.
 
 ### Access
 
@@ -286,6 +293,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   project create`, or adds a directory that discovery finds. Either way the
   registry assigns its ID, and the scheduler starts its unit without a
   restart.
+- **Display name.** An admin changes it in the UI or API at any time. Only
+  the registry changes.
 - **Rename.** An admin renames a project in the UI or API, or with `dagu
   project rename`. The rename holds the registry lock while it moves the
   project's directories and updates the registry. Discovery takes the same
@@ -313,8 +322,17 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 
 ### UI
 
-The workspace selector becomes a project selector that lists the projects the
-user can see. The access editor and the base config page work per project.
+- The workspace selector becomes a project selector. It lists the projects
+  the user can see by display name, and appears only when the user can see
+  more than one. A single-project install looks as it does today.
+- Project IDs never appear in the UI. The name appears only where people
+  type it: CLI hints, `project_mappings`, and links.
+- Creating a project asks for a display name and suggests a name from it,
+  which the admin can change. When the display name has no ASCII letters or
+  digits, such as `天気予報`, the admin types the name.
+- The access editor, the base config page, and the pages for secrets,
+  profiles, routes, and policies work per project.
+- The projects page shows admins missing projects and suggested renames.
 
 ## Scheduler
 
@@ -387,8 +405,8 @@ Report protocol 3 extends the
 [RFC 002 wire contract](002-dagu-cloud-connector.md#wire-contract):
 
 - Each run, scheduled DAG, and queue that is not defined in `config.yaml`
-  carries `project`: the local project's ID and name, and the Dagu Cloud
-  project's ID when bound.
+  carries `project`: the local project's ID, name, and display name, and the
+  Dagu Cloud project's ID when bound.
 - Dagu Cloud keys a server's workflows by project ID and DAG name, so `etl`
   in two projects is two workflows. A protocol 2 report belongs to the
   default project.
@@ -540,6 +558,11 @@ v2 gets no new workspace features.
 21. A project DAG uses the server layer's secrets, profile defaults,
     notification routes, and incident policies unless its project overrides
     them, as a v2 workspace DAG uses global entries.
+22. A display name takes any text up to 200 characters, and changing it
+    moves no directory.
+23. A user who can see one project sees no project selector.
+24. Every user can read library DAGs on the Library page, and only admins
+    change them.
 
 ## Alternatives considered
 
@@ -600,7 +623,8 @@ v2 gets no new workspace features.
   scheduling logic.
 - "Workspace" means only the Dagu Cloud account.
 - Each project has an ID, so a rename keeps its grants and history. Project
-  names are valid directory names on macOS, Windows, and Linux.
+  names are valid directory names on macOS, Windows, and Linux, and display
+  names can be any text.
 - Every store is either per project or server-wide, and stores added later
   follow the same rule.
 - Dagu Cloud tells projects apart by binding, and report protocol 3 names
