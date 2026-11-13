@@ -57,6 +57,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -605,6 +606,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	resolvedEnv, dotenvErr := startup.env, startup.envErr
 	secretEnvs, secretErr := startup.secrets, startup.secretErr
+	credentials := startup.credentials
+	masks := credentialMasks(a.dag.CredentialRefs, credentials)
 	profileValues, profileErr := startup.profileValues, startup.profileErr
 	a.lock.Lock()
 	if a.stopRequest != nil || startupCtx.Err() != nil {
@@ -616,7 +619,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	a.profileName = startup.profileName
 	a.profileResolvedAt = startup.profileResolvedAt
 	a.profileEntries = startup.profileEntries
-	a.secretMasker = newStatusSecretMasker(append(profileValues.allSecrets(), secretEnvs...))
+	statusSecrets := append(profileValues.allSecrets(), secretEnvs...)
+	for label, value := range masks {
+		statusSecrets = append(statusSecrets, label+"="+value)
+	}
+	a.secretMasker = newStatusSecretMasker(statusSecrets)
 	a.lock.Unlock()
 	for _, warning := range resolvedEnv.Warnings {
 		logger.Warn(ctx, warning)
@@ -778,6 +785,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			profileValues.selectedSecrets,
 		),
 		runtime.WithSecrets(secretEnvs),
+		runtime.WithMaskedSecrets(masks),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
@@ -825,6 +833,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	// Set even when empty, so an in-process child never reads its parent's.
+	ctx = ssh.WithSecretValues(ctx, credentials)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 	if a.workspaceSeed != nil {
 		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
@@ -2237,6 +2247,42 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 
 	logger.Debug(ctx, "Secrets resolved successfully", tag.Count(len(resolvedSecrets)))
 	return resolvedSecrets, nil
+}
+
+// resolveCredentialRefs resolves the secret refs that SSH connections read
+// credentials from, once each, and returns the values keyed by ref.
+func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, error) {
+	if len(a.dag.CredentialRefs) == 0 {
+		return nil, nil
+	}
+	if a.secretReferenceResolver == nil {
+		ref := a.dag.CredentialRefs[0]
+		return nil, fmt.Errorf("failed to resolve %s from secret ref %q: secret store is not configured", ref.Name, ref.Ref)
+	}
+
+	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(a.dag.CredentialRefs)))
+	values := make(map[string]string, len(a.dag.CredentialRefs))
+	for _, ref := range a.dag.CredentialRefs {
+		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
+		}
+		values[ref.Ref] = value
+	}
+	return values, nil
+}
+
+// credentialMasks labels each resolved credential value with the field that
+// names it, for masking. Field paths contain dots, so they never collide with
+// variable names.
+func credentialMasks(refs []secretref.Ref, values map[string]string) map[string]string {
+	masks := make(map[string]string, len(values))
+	for _, ref := range refs {
+		if value, ok := values[ref.Ref]; ok {
+			masks[ref.Name] = value
+		}
+	}
+	return masks
 }
 
 // buildEnvScopeForSecrets creates the EnvScope secrets resolve against: DAG

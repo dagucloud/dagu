@@ -76,6 +76,8 @@ var (
 	WithDefaultSecrets = runctx.WithDefaultSecrets
 	// WithSecrets sets secret environment variables.
 	WithSecrets = runctx.WithSecrets
+	// WithMaskedSecrets sets secret values that are masked but not exported.
+	WithMaskedSecrets = runctx.WithMaskedSecrets
 	// WithLogEncoding sets the log file character encoding.
 	WithLogEncoding = runctx.WithLogEncoding
 	// WithLogWriterFactory sets the log writer factory for remote log streaming.

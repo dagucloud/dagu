@@ -6,6 +6,7 @@ package value
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"runtime"
 	"sort"
@@ -55,7 +56,10 @@ type EnvEntry struct {
 type EnvScope struct {
 	mu      sync.RWMutex
 	entries map[string]EnvEntry
-	parent  *EnvScope
+	// masked holds secret values that are not environment variables, keyed
+	// by label. Only AllSecrets returns them.
+	masked map[string]string
+	parent *EnvScope
 }
 
 // NewEnvScope creates a new EnvScope, optionally inheriting from parent.
@@ -381,10 +385,37 @@ func (e *EnvScope) AllBySource(source EnvSource) map[string]string {
 	return e.collectAll(func(entry EnvEntry) bool { return entry.Source == source })
 }
 
-// AllSecrets returns all entries with EnvSourceSecret.
-// This is a convenience method for output masking.
+// WithMaskedSecrets returns a new EnvScope whose AllSecrets also returns
+// values, keyed by label. The values are masked as secrets are, but they are
+// not environment variables: lookups, expansion, and exported environments
+// never see them. Labels must not collide with variable names.
+func (e *EnvScope) WithMaskedSecrets(values map[string]string) *EnvScope {
+	if len(values) == 0 {
+		return e
+	}
+	return &EnvScope{
+		entries: make(map[string]EnvEntry),
+		masked:  maps.Clone(values),
+		parent:  e,
+	}
+}
+
+// AllSecrets returns all entries with EnvSourceSecret and every value added
+// with WithMaskedSecrets. It is meant for output masking.
 func (e *EnvScope) AllSecrets() map[string]string {
-	return e.AllBySource(EnvSourceSecret)
+	secrets := e.AllBySource(EnvSourceSecret)
+	e.collectMasked(secrets)
+	return secrets
+}
+
+func (e *EnvScope) collectMasked(result map[string]string) {
+	if e == nil {
+		return
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	e.parent.collectMasked(result)
+	maps.Copy(result, e.masked)
 }
 
 // AllUserEnvs returns all entries excluding OS environment.
