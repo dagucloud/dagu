@@ -12,9 +12,8 @@ import {
   writeLocalDAG,
 } from './helpers/e2e';
 
-// A row of the Workflows list opens the workflow page over the list, at the
-// page's own URL; Open workflow keeps it as the page. Ctrl or Cmd opens the
-// page in a new tab, and on a narrow window a row opens the page at once.
+// A row of the Workflows list opens the workflow page, in the same tab or, with
+// Ctrl or Cmd, in a new tab. No overlay opens over the list.
 test('opens a workflow from its row in the Workflows list', async ({
   page,
   request,
@@ -58,35 +57,14 @@ steps:
   await popup.close();
   expect(new URL(page.url()).pathname).toBe('/dags');
 
-  // A click away from the links and buttons of the row opens the overlay.
-  const rowBody = row.getByText('No schedule', { exact: true });
-  const overlay = page.getByRole('dialog', { name: 'Workflow' });
+  // A click away from the links and buttons of the row opens the page; Back
+  // returns to the list. No overlay opens over the list.
+  // The Last Run cell of a workflow that never ran holds only a dash.
+  const rowBody = row.getByRole('cell', { name: '-', exact: true }).first();
   const path = () => new URL(page.url()).pathname;
   await rowBody.click();
-  await expect(overlay).toBeVisible();
   await expect.poll(path).toBe(`/dags/${dagName}`);
-  await expect(overlay.getByTestId('ww-pane')).toBeVisible();
-
-  // Esc, Back, and Close return to the list.
-  await overlay.press('Escape');
-  await expect(overlay).toHaveCount(0);
-  expect(path()).toBe('/dags');
-  await rowBody.click();
-  await expect(overlay).toBeVisible();
-  await page.goBack();
-  await expect(overlay).toHaveCount(0);
-  expect(path()).toBe('/dags');
-  await rowBody.click();
-  await overlay.getByRole('button', { name: 'Close' }).click();
-  await expect(overlay).toHaveCount(0);
-  expect(path()).toBe('/dags');
-
-  // Open workflow keeps the page; Back returns to the list.
-  await rowBody.click();
-  await overlay.getByRole('button', { name: 'Open workflow' }).click();
-  await expect(overlay).toHaveCount(0);
   await expect(page.getByTestId('ww-pane')).toBeVisible();
-  expect(path()).toBe(`/dags/${dagName}`);
   await page.goBack();
   await expect.poll(path).toBe('/dags');
 
@@ -100,5 +78,4 @@ steps:
   // The corner of the card is clear of its checkbox and its links.
   await card.click({ position: { x: 4, y: 4 } });
   await expect.poll(path).toBe(`/dags/${dagName}`);
-  await expect(overlay).toHaveCount(0);
 });

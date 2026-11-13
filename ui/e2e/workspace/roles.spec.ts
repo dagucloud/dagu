@@ -196,19 +196,19 @@ steps:
           await expect(page.locator('#save-config')).toHaveCount(0);
         }
 
-        // Run controls. Start is on the bar. Stop is one of the flat run
-        // icons. Both are gated by the server permission run_dags, which
-        // this stack gives to every role; the viewer has them too, so they
-        // are checked from operator up.
+        // Run controls. The run is active: Stop is in the slot of Start, and
+        // there is no Retry, which is for a failed run. Stop is gated by the
+        // server permission run_dags, which this stack gives to every role;
+        // the viewer has it too, so it is checked from operator up.
         if (gates.canExecute) {
           await expect(
-            page.getByTestId('ww-run-split').locator('[data-ww-action="start"]')
-          ).toBeVisible();
-          await expect(
             page
-              .getByTestId('ww-run-actions')
+              .getByTestId('ww-run-start-slot')
               .getByRole('button', { name: 'Stop', exact: true })
           ).toBeVisible({ timeout: 30_000 });
+          await expect(
+            page.getByRole('button', { name: 'Retry', exact: true })
+          ).toHaveCount(0);
         }
         // Restoring the definition of a run writes the editor: it needs write access, and the
         // stale run gives it.
@@ -343,10 +343,9 @@ steps:
       const bar = page.getByTestId('ww-bar');
       await expect(page.getByTestId('ww-run-split')).toHaveCount(0);
       await expect(bar.locator('[data-ww-action="start"]')).toHaveCount(0);
-      const actions = page.getByTestId('ww-run-actions');
       for (const name of ['Stop', 'Retry', 'Reschedule']) {
         await expect(
-          actions.getByRole('button', { name, exact: true })
+          bar.getByRole('button', { name, exact: true })
         ).toHaveCount(0);
       }
       await expect(bar.getByRole('button', { name: 'Start' })).toHaveCount(0);
