@@ -1530,6 +1530,8 @@ func TestCheckMaskedOutputsInHandler(t *testing.T) {
 		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}, wantErr: true},
 		// A handler layers output variables over its own env, so they win.
 		{name: "output variable over the handler's env", command: "notify ${TOKEN}", env: []string{"TOKEN=literal"}, masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}, wantErr: true},
+		// A handler's env resolves before output variables are in scope.
+		{name: "handler env value", command: "notify", env: []string{"OTHER=${TOKEN}"}, masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}},
 		{name: "captured output", command: "notify ${fetch.output}", captured: "***", masked: &ir.MaskedOutputs{Captured: true}, wantErr: true},
 		{name: "published output through the step property", command: "notify ${fetch.outputs.token}", published: `{"token":"***"}`, masked: &ir.MaskedOutputs{Published: []string{"token"}}, wantErr: true},
 		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Published: []string{"token"}}},

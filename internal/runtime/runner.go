@@ -1673,7 +1673,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		node.SetStatus(ir.NodeFailed)
 		return err
 	}
-	if err := checkMaskedOutputs(plan.Nodes(), node, true); err != nil {
+	if err := r.checkMaskedHandlerReads(plan, node); err != nil {
 		node.SetStatus(ir.NodeFailed)
 		return err
 	}

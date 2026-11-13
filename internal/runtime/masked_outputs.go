@@ -22,6 +22,8 @@ type stepReads struct {
 	// envFields holds the fields of the step's own env, which resolve while
 	// the predecessors' output variables are still in scope.
 	envFields []reffield.ReferenceField
+	// otherFields holds the fields outside the step's own env.
+	otherFields []reffield.ReferenceField
 	// ownEnv names the variables the step's own env defines. They shadow a
 	// predecessor's output variable of the same name in the other fields.
 	ownEnv map[string]struct{}
@@ -35,6 +37,8 @@ func (n *Node) stepReads() stepReads {
 			n.reads.fields = append(n.reads.fields, field)
 			if strings.HasPrefix(field.Path, field.OwnerStepPath+".env[") {
 				n.reads.envFields = append(n.reads.envFields, field)
+			} else {
+				n.reads.otherFields = append(n.reads.otherFields, field)
 			}
 		}
 		for _, entry := range n.Step().Env {
@@ -57,6 +61,15 @@ func (r *Runner) checkMaskedReads(plan *Plan, node *Node) error {
 		return nil
 	}
 	return checkMaskedOutputs(planPredecessorNodes(plan, node), node, false)
+}
+
+// checkMaskedHandlerReads is checkMaskedReads for a handler, which sees the
+// outputs of every step.
+func (r *Runner) checkMaskedHandlerReads(plan *Plan, node *Node) error {
+	if !plan.hasMaskedOutputs() {
+		return nil
+	}
+	return checkMaskedOutputs(plan.Nodes(), node, true)
 }
 
 // hasMaskedOutputs reports whether a node of the plan was restored with
@@ -114,10 +127,14 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 			continue
 		}
 		fields := reads.fields
-		// A step's own env shadows the variable in its other fields. A handler
-		// resolves its env first and layers outputs over it, so there the
-		// output variable wins.
-		if _, shadowed := reads.ownEnv[name]; shadowed && !handler {
+		_, shadowed := reads.ownEnv[name]
+		switch {
+		case handler:
+			// A handler resolves its env before output variables enter
+			// scope, so only its other fields read them, and there they win.
+			fields = reads.otherFields
+		case shadowed:
+			// A step's own env shadows the variable in its other fields.
 			fields = reads.envFields
 		}
 		if slices.ContainsFunc(fields, func(field reffield.ReferenceField) bool {
