@@ -36,6 +36,10 @@ Workflow authors can query local data and import a small file without a server.
 Missing query or import configuration fails validation. A missing DSN fails
 before execution accesses a database. Diagnostics identify the missing field.
 
+A `with` field the action does not define fails `dagu validate`; the error
+names the field and, when a defined field is a likely misspelling of it,
+suggests that field.
+
 A relative plain DSN whose step working directory contains `?` fails step
 setup with `failed to resolve sqlite dsn`, before any database is opened.
 

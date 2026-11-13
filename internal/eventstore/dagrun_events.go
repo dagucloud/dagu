@@ -130,6 +130,7 @@ type DAGRunStatusSnapshot struct {
 	ProcGroup      string            `json:"proc_group,omitempty"`
 	Status         ir.Status         `json:"status"`
 	TriggerType    ir.TriggerType    `json:"trigger_type,omitempty"`
+	BackfillID     string            `json:"backfill_id,omitempty"`
 	Error          string            `json:"error,omitempty"`
 	Log            string            `json:"log,omitempty"`
 	QueuedAt       string            `json:"queued_at,omitempty"`
@@ -195,6 +196,7 @@ func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string) *DAGRunSta
 		ProcGroup:      status.ProcGroup,
 		Status:         status.Status,
 		TriggerType:    status.TriggerType,
+		BackfillID:     status.BackfillID,
 		Error:          status.Error,
 		Log:            status.Log,
 		QueuedAt:       status.QueuedAt,
@@ -232,6 +234,7 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *ir.DAGRunStatus {
 		AttemptID:      s.AttemptID,
 		Status:         s.Status,
 		TriggerType:    s.TriggerType,
+		BackfillID:     s.BackfillID,
 		ProcGroup:      s.ProcGroup,
 		Error:          s.Error,
 		Log:            s.Log,

@@ -7,10 +7,13 @@ package view
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Render types.
@@ -291,6 +294,11 @@ func (v *View) Validate() error {
 		return ErrTooManyLabels
 	case !ValidType(v.Type):
 		return ErrInvalidType
+	}
+	// Labels are filter terms, so a saved view must hold only terms that
+	// filter instead of failing every list it opens.
+	if _, err := ir.ParseLabelFilters(v.Labels); err != nil {
+		return fmt.Errorf("view: %w", err)
 	}
 	if v.Type == TypeKanban {
 		switch {

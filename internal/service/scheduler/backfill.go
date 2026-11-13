@@ -109,10 +109,11 @@ func (s *Scheduler) newBackfillDispatcher(store backfill.Store) *backfill.Dispat
 			}
 			return attempt.ReadStatus(ctx)
 		},
-		Target:    s.backfillTarget,
-		Enqueue:   s.enqueueBackfillRun,
-		DAGExists: s.backfillDAGExists,
-		Now:       s.clock,
+		Target:      s.backfillTarget,
+		Enqueue:     s.enqueueBackfillRun,
+		DAGExists:   s.backfillDAGExists,
+		RetryWindow: s.config.Scheduler.RetryFailureWindow,
+		Now:         s.clock,
 	}
 }
 

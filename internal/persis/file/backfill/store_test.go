@@ -58,30 +58,57 @@ func TestStoreCreateGetList(t *testing.T) {
 	assert.Len(t, all, 3)
 }
 
-// Holders of a DAG's lock in different stores run one at a time.
-func TestStoreLockDAGSerializes(t *testing.T) {
+// Listing a DAG's backfills reads that DAG's records only: another DAG's
+// record that does not decode leaves the list intact.
+func TestStoreListReadsOneDAG(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
-	var inside, overlaps atomic.Int32
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "other", now)))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bbbbbbbb.json"), []byte("{"), 0o600))
 
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			unlock, err := filebackfill.New(dir).LockDAG(ctx, "etl")
-			if !assert.NoError(t, err) {
-				return
+	records, err := store.List(ctx, "etl")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, "aaaaaaaa", records[0].ID)
+	_, err = store.List(ctx, "")
+	assert.Error(t, err, "listing every DAG reads the record that does not decode")
+}
+
+// Holders of a DAG's lock, or of a backfill's lock, in different stores
+// run one at a time.
+func TestStoreLocksSerialize(t *testing.T) {
+	t.Parallel()
+	for name, lock := range map[string]func(*filebackfill.Store) (func(), error){
+		"dag":    func(s *filebackfill.Store) (func(), error) { return s.LockDAG(context.Background(), "etl") },
+		"record": func(s *filebackfill.Store) (func(), error) { return s.LockRecord(context.Background(), "aaaaaaaa") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			var inside, overlaps atomic.Int32
+			var wg sync.WaitGroup
+			for range 4 {
+				wg.Go(func() {
+					unlock, err := lock(filebackfill.New(dir))
+					if !assert.NoError(t, err) {
+						return
+					}
+					if inside.Add(1) > 1 {
+						overlaps.Add(1)
+					}
+					time.Sleep(10 * time.Millisecond)
+					inside.Add(-1)
+					unlock()
+				})
 			}
-			if inside.Add(1) > 1 {
-				overlaps.Add(1)
-			}
-			time.Sleep(10 * time.Millisecond)
-			inside.Add(-1)
-			unlock()
+			wg.Wait()
+			assert.Zero(t, overlaps.Load())
 		})
 	}
-	wg.Wait()
-	assert.Zero(t, overlaps.Load())
 }
 
 func TestStoreProgressAndEnd(t *testing.T) {
@@ -120,6 +147,41 @@ func TestStoreProgressAndEnd(t *testing.T) {
 	records, err := store.List(ctx, "etl")
 	require.NoError(t, err)
 	assert.Len(t, records, 1, "progress files are not records")
+}
+
+// A deleted backfill is gone with its progress, and is no error to delete
+// again.
+func TestStoreDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "etl", now)))
+	require.NoError(t, store.Append(ctx, "aaaaaaaa", backfill.Progress{Kind: backfill.ProgressEnqueued, RunID: "r1", At: now}))
+
+	require.NoError(t, store.Delete(ctx, "aaaaaaaa"))
+	_, err := store.Get(ctx, "aaaaaaaa")
+	require.ErrorIs(t, err, backfill.ErrNotFound)
+	events, err := store.Progress(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	assert.Empty(t, events)
+	for _, dag := range []string{"etl", ""} {
+		records, err := store.List(ctx, dag)
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		assert.Equal(t, "bbbbbbbb", records[0].ID)
+	}
+	open, err := store.Open(ctx)
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	require.NoError(t, store.Delete(ctx, "aaaaaaaa"))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.NotContains(t, entry.Name(), "aaaaaaaa")
+	}
 }
 
 // Progress appended after a crash cut the last event short is read back.

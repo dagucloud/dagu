@@ -1303,6 +1303,39 @@ func TestTickPlanner_ShouldRunGuardRunning(t *testing.T) {
 	assert.Len(t, runs, 0, "should not plan run when DAG is already running")
 }
 
+// A running backfill run does not hold a live slot back, even as the latest
+// run of a DAG that has no other run.
+func TestTickPlanner_ShouldRunPastARunningBackfillRun(t *testing.T) {
+	t.Parallel()
+
+	tp := NewTickPlanner(TickPlannerConfig{
+		IsSuspended: func(_ context.Context, _ string) (bool, error) {
+			return false, nil
+		},
+		GetLatestStatus: func(_ context.Context, _ *ir.DAG) (ir.DAGRunStatus, error) {
+			return ir.DAGRunStatus{Status: ir.Running, BackfillID: "bf123456"}, nil
+		},
+		Dispatch: func(_ context.Context, _ DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
+			return nil
+		},
+		IsRunning: func(_ context.Context, _ *ir.DAG) (bool, error) {
+			return false, nil
+		},
+		Clock: func() time.Time {
+			return time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+		},
+		Events: make(chan DAGChangeEvent, 256),
+	})
+	dag := &ir.DAG{
+		Name:     "backfilled-dag",
+		Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
+	}
+	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
+
+	runs := tp.Plan(context.Background(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
+	assert.Len(t, runs, 1, "the live slot runs")
+}
+
 // A slot skipped because its DAG is busy is logged with the DAG and the slot,
 // so the missing run can be traced.
 func TestPlanLogsBusySkip(t *testing.T) {

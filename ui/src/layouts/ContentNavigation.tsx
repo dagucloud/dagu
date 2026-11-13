@@ -57,6 +57,7 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
 
 // Top-level routes that exist but have no static label above.
 const UNLABELED_ROUTE_ROOTS = new Set([
+  'backfills',
   'docs',
   'login',
   'profiles',
@@ -151,6 +152,18 @@ export function getBreadcrumbItems(
 
   if (segments[0] === 'dag-runs') {
     items.push({ label: t('navigation.executions'), to: '/dag-runs' });
+    return items;
+  }
+
+  // A backfill has no list page of its own: it sits with the runs it makes.
+  if (segments[0] === 'backfills') {
+    items.push({ label: t('navigation.executions'), to: '/dag-runs' });
+    if (segments[1]) {
+      items.push({
+        label: decodePathSegment(segments[1]),
+        to: `/backfills/${segments[1]}`,
+      });
+    }
     return items;
   }
 

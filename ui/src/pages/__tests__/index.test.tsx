@@ -292,7 +292,10 @@ describe('DashboardPage', () => {
     expect(items[1]).toHaveTextContent('Waiting for input');
     expect(
       within(items[1]!).getByRole('link', { name: /Review/ })
-    ).toHaveAttribute('href', '/dags/approve?remoteNode=local&run=a-1');
+    ).toHaveAttribute(
+      'href',
+      '/dags/approve?remoteNode=local&run=a-1&dock=actions'
+    );
   });
 
   // The Overview mounts a peek host above the dashboard. Review opens the

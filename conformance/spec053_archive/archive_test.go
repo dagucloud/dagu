@@ -42,6 +42,7 @@ func TestArchiveValidation(t *testing.T) {
 	for _, tc := range []struct{ command, file, message string }{
 		{"validate", "missing_source.yaml", "source"},
 		{"validate", "negative_strip_components.yaml", "minimum"},
+		{"validate", "unknown_field.yaml", `unexpected additional properties ["destinations"]; did you mean "destination" instead of "destinations"?`},
 		{"start", "missing_destination_for_create.yaml", "destination is required for create"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {

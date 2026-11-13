@@ -1754,6 +1754,17 @@ describe('cached time in the timeline', () => {
     expect(onShowCachedChange).toHaveBeenCalledWith(false);
   });
 
+  // A workflow with a schedule can have backfill runs, which the history
+  // leaves out until they are asked for.
+  it('toggles the backfill runs, off by default', async () => {
+    const onShowBackfillChange = vi.fn();
+    renderView({ runs: PAIR, onShowBackfillChange });
+    const toggle = await viewItem('ww-run-timeline-backfill');
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await userEvent.click(toggle);
+    expect(onShowBackfillChange).toHaveBeenCalledWith(true);
+  });
+
   it('keeps the choice in the browser, on by default', async () => {
     h.selection = 'latest';
     h.history = { runs: [...PAIR].reverse(), isLoading: false };

@@ -651,9 +651,9 @@ steps:
     with:
       method: GET
       url: http://example.com
-      key: value
-      map:
-        foo: bar
+      silent: true
+      headers:
+        X-Test: value
 `)
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
@@ -663,9 +663,9 @@ steps:
 		assert.Equal(t, map[string]any{
 			"method": "GET",
 			"url":    "http://example.com",
-			"key":    "value",
-			"map": map[string]any{
-				"foo": "bar",
+			"silent": true,
+			"headers": map[string]any{
+				"X-Test": "value",
 			},
 		}, th.Steps[0].ExecutorConfig.Config)
 	})
@@ -983,6 +983,7 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 		wantBackoff     float64
 		wantMaxInterval time.Duration
 		wantNoCondition bool
+		wantOnLimit     ir.RepeatOnLimit
 	}{
 		{
 			name: "RepeatPolicyBasic",
@@ -1201,6 +1202,44 @@ steps:
 			wantLimit:       3,
 			wantNoCondition: true,
 		},
+		{
+			name: "RepeatPolicyUntilOnLimitFail",
+			yaml: `
+steps:
+  - name: "until-on-limit-fail"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: fail
+`,
+			wantMode:      ir.RepeatModeUntil,
+			wantLimit:     2,
+			wantCondition: "pending",
+			wantExpected:  "done",
+			wantOnLimit:   ir.RepeatOnLimitFail,
+		},
+		{
+			name: "RepeatPolicyUntilOnLimitSucceed",
+			yaml: `
+steps:
+  - name: "until-on-limit-succeed"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: succeed
+`,
+			wantMode:      ir.RepeatModeUntil,
+			wantLimit:     2,
+			wantCondition: "pending",
+			wantExpected:  "done",
+			wantOnLimit:   "",
+		},
 	}
 
 	for _, tt := range repeatPolicyTests {
@@ -1230,6 +1269,7 @@ steps:
 			if tt.wantMaxInterval > 0 {
 				assert.Equal(t, tt.wantMaxInterval, rp.MaxInterval)
 			}
+			assert.Equal(t, tt.wantOnLimit, rp.OnLimit)
 		})
 	}
 	// RepeatPolicy error tests
@@ -1249,6 +1289,62 @@ steps:
       interval_sec: 10
 `,
 			errContains: "invalid value for repeat: 'invalid'",
+		},
+		{
+			name: "RepeatPolicyInvalidOnLimit",
+			yaml: `
+steps:
+  - name: "invalid-on-limit"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: abort
+`,
+			errContains: `repeat_policy.on_limit must be "fail" or "succeed"`,
+		},
+		{
+			name: "RepeatPolicyOnLimitFailRequiresUntilCondition",
+			yaml: `
+steps:
+  - name: "on-limit-fail-while"
+    run: "echo test"
+    repeat_policy:
+      repeat: while
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: fail
+`,
+			errContains: "repeat_policy.on_limit: fail requires repeat: until with a condition",
+		},
+		{
+			name: "RepeatPolicyOnLimitValidatedWithoutMode",
+			yaml: `
+steps:
+  - name: "no-mode-invalid-on-limit"
+    run: "echo test"
+    repeat_policy:
+      limit: 2
+      on_limit: abort
+`,
+			errContains: `repeat_policy.on_limit must be "fail" or "succeed"`,
+		},
+		{
+			name: "RepeatPolicyOnLimitFailRequiresLimit",
+			yaml: `
+steps:
+  - name: "on-limit-fail-no-limit"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      on_limit: fail
+`,
+			errContains: "repeat_policy.on_limit: fail requires a limit",
 		},
 		{
 			name: "RepeatPolicyInvalidType",

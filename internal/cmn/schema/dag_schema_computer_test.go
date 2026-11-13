@@ -78,7 +78,7 @@ steps:
                 number: {role: text, id: docNumber, enabled: true}
                 lines: {container: {role: list, name: 明細}, columns: {item: 品目}}
         - wait: 2s
-        - screenshot: posted
+        - screenshot: 投稿済み
         - outline: posted_window
 `
 	resolved := mustResolveDAGSchema(t)
@@ -86,7 +86,8 @@ steps:
 	for _, tc := range []struct{ name, from, to string }{
 		{"extract without schema", "      schema:\n        type: object\n        properties:\n          total: {type: number}\n", ""},
 		{"run without operations", "      do:\n", "      steps:\n"},
-		{"two operations in one item", "        - screenshot: posted", "        - {screenshot: posted, wait: 1s}"},
+		{"two operations in one item", "        - screenshot: 投稿済み", "        - {screenshot: 投稿済み, wait: 1s}"},
+		{"screenshot name with a path", "screenshot: 投稿済み", "screenshot: ../posted"},
 		{"browser operation", "        - wait: 2s", "        - goto: https://example.com"},
 		{"unknown mode", "mode: native", "mode: fast"},
 		{"unknown ai", "ai: on_miss", "ai: sometimes"},

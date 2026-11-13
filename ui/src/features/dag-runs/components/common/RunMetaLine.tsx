@@ -42,10 +42,27 @@ type RunFields = Pick<
   | 'intervalStart'
   | 'triggerType'
   | 'triggerActor'
+  | 'backfillId'
   | 'workerId'
   | 'profileName'
   | 'params'
 >;
+
+/** The trigger of a run; a backfill run's links to its backfill. */
+function TriggerLabel({ dagRun }: { dagRun: RunFields }) {
+  const { ts } = useI18n();
+  if (!dagRun.triggerType) return null;
+  const label = ts(triggerTypeLabels[dagRun.triggerType] ?? dagRun.triggerType);
+  if (!dagRun.backfillId) return <>{label}</>;
+  return (
+    <Link
+      to={`/backfills/${encodeURIComponent(dagRun.backfillId)}`}
+      className="text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+    >
+      {label}
+    </Link>
+  );
+}
 
 /** The facts of the row in the workflow bar, in the order that the bar drops them. */
 export type InlineFact = 'trigger' | 'started' | 'duration' | 'id';
@@ -368,9 +385,7 @@ export function RunMetaLine({
       >
         {!omitTrigger && shown.has('trigger') && (
           <MetaItem icon={Zap} label="Trigger" className="shrink-0">
-            {dagRun.triggerType
-              ? ts(triggerTypeLabels[dagRun.triggerType] ?? dagRun.triggerType)
-              : ''}
+            <TriggerLabel dagRun={dagRun} />
           </MetaItem>
         )}
         {shown.has('started') && (
@@ -433,7 +448,7 @@ export function RunMetaLine({
             label="Trigger"
             className={compact && !keepSecondary ? SECONDARY : undefined}
           >
-            {ts(triggerTypeLabels[dagRun.triggerType] ?? dagRun.triggerType)}
+            <TriggerLabel dagRun={dagRun} />
             {dagRun.triggerActor && (
               <span className="text-muted-foreground">
                 {' '}

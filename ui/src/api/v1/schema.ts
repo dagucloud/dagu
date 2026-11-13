@@ -5069,6 +5069,8 @@ export interface components {
         Backfill: {
             id: string;
             dag: string;
+            /** @description Name of the DAG's file without its extension, as the DAG API takes it */
+            fileName?: string;
             status: components["schemas"]["BackfillStatus"];
             /** Format: date-time */
             submittedAt: string;
@@ -6829,6 +6831,8 @@ export interface components {
             triggerType?: components["schemas"]["TriggerType"];
             /** @description Authenticated actor that initiated the DAG-run, when attribution is available */
             triggerActor?: string;
+            /** @description Backfill that started the DAG-run. A retry keeps it. */
+            backfillId?: string;
             /** @description Type-keyed current-state runtime conditions for the DAG-run. This list reports the latest condition for each type, not a history of queued reasons. */
             conditions?: components["schemas"]["DAGRunCondition"][];
             /** @description List of labels for categorizing and filtering DAG runs */
@@ -10136,7 +10140,7 @@ export interface operations {
                 workspace?: components["parameters"]["Workspace"];
                 /** @description Filter DAGs by name */
                 name?: string;
-                /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
+                /** @description Filter DAGs by labels (comma-separated). Returns DAGs that match ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
                 /** @description Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped. */
                 active?: boolean;
@@ -11536,7 +11540,7 @@ export interface operations {
                 workspace?: components["parameters"]["Workspace"];
                 /** @description A search query string */
                 q: string;
-                /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. */
+                /** @description Filter DAGs by labels (comma-separated). Returns DAGs that match ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. */
                 labels?: string;
                 /** @description Opaque cursor returned by the previous search response */
                 cursor?: components["parameters"]["SearchCursor"];
@@ -11638,7 +11642,7 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description A search query string */
                 q: string;
-                /** @description Filter DAG matches by labels (comma-separated). Returns matches only when the DAG has ALL specified labels. */
+                /** @description Filter DAG matches by labels (comma-separated). Returns matches only when the DAG matches ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. */
                 labels?: string;
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
@@ -11892,7 +11896,7 @@ export interface operations {
                 toDate?: components["parameters"]["DateTimeTo"];
                 /** @description Length of a window that ends now. Ignored when fromDate is set. */
                 hours?: number;
-                /** @description Only include runs of DAGs that have ALL these comma-separated labels */
+                /** @description Only include runs of DAGs that match ALL these comma-separated label terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. */
                 labels?: string;
                 /** @description Opaque cursor for loading the next page of older DAG-runs */
                 cursor?: components["parameters"]["DAGRunListCursor"];
@@ -11955,13 +11959,15 @@ export interface operations {
                 excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description Filter DAG-runs by name */
                 name?: string;
-                /** @description Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
+                /** @description Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that match ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
                 /**
                  * @deprecated
                  * @description Deprecated alias for `labels`; mutually exclusive with `labels`. Filter DAG-runs by DAG labels (comma-separated).
                  */
                 tags?: string;
+                /** @description List only the runs of this backfill */
+                backfillId?: string;
             };
             header?: never;
             path?: never;

@@ -148,6 +148,67 @@
       "$ref": "#/definitions/calendarName",
       "description": "Business calendar for the start schedules that name none: 'weekdays' or a calendar file in paths.calendars_dir. Entries opt out with calendar: none."
     },
+    "dates": {
+      "type": "object",
+      "description": "Dates derived from the run's schedule slot, read as ${dates.NAME}. An entry written as a string or a list is its shift, such as -1d or [-1d, month_start].",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "not": {
+          "enum": ["scheduled_at", "interval_start", "interval_end", "next_scheduled_at"]
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/dateShiftOperation"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/dateShiftOperation"
+            },
+            "description": "Shift operations applied left to right."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "The instant the date starts from: scheduled_at (default), interval_start, interval_end, next_scheduled_at, or the name of another entry."
+              },
+              "each": {
+                "type": "string",
+                "pattern": "^[0-9]+(min|h|d|w|mo|y|bd)$",
+                "description": "A step through the run's window, such as 1d or 1bd. The entry becomes a list from interval_start up to, but not including, interval_end."
+              },
+              "shift": {
+                "oneOf": [
+                  {
+                    "$ref": "#/definitions/dateShiftOperation"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/dateShiftOperation"
+                    }
+                  }
+                ],
+                "description": "One operation, or a list applied left to right."
+              },
+              "format": {
+                "type": "string",
+                "description": "date (default), date_compact, datetime, rfc3339, unix, or a strftime pattern such as %Y/%m/%d."
+              },
+              "timezone": {
+                "type": "string",
+                "description": "The zone used for shifting and formatting. Defaults to the zone of the entry it builds on, else context.run.timezone, else the server tz."
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
     "skip_if_successful": {
       "type": "boolean",
       "description": "When true, Dagu checks if this DAG has already succeeded since the last scheduled time. If it has, Dagu will skip the current scheduled run. This is useful for resource-intensive tasks or data processing jobs that shouldn't run twice. Note: Manual triggers always run regardless of this setting."
@@ -379,6 +440,11 @@
             },
             "interval_sec": { "type": "integer" },
             "limit": { "type": "integer", "minimum": 1 },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result"
+            },
             "backoff": {
               "oneOf": [
                 { "type": "boolean" },
@@ -992,6 +1058,11 @@
       },
       "additionalProperties": false,
       "description": "Cron start schedule entry, optionally scoped to a runtime profile and to the business days of a calendar."
+    },
+    "dateShiftOperation": {
+      "type": "string",
+      "pattern": "^([+-][0-9]+(min|h|d|w|mo|y|bd)|hour_start|day_start|week_start|month_start|year_start|bd_or_next|bd_or_prev)$",
+      "description": "+N or -N with min, h, d, w, mo, y, or bd; the start of an hour, day, week (Monday), month, or year; or bd_or_next and bd_or_prev, which move a date that is not a business day to the next or previous one."
     },
     "calendarName": {
       "type": "string",
@@ -2045,6 +2116,11 @@
               "minimum": 1,
               "description": "Maximum number of times this step will be executed. Once reached, the step stops repeating regardless of other conditions."
             },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result. fail requires repeat: until, a condition, and a limit."
+            },
             "backoff": {
               "oneOf": [
                 {
@@ -2613,7 +2689,7 @@
           "then": {
             "required": ["with"],
             "properties": {
-              "with": { "$ref": "#/definitions/commandActionConfig" }
+              "with": { "$ref": "#/definitions/sshRunActionConfig" }
             }
           }
         },
@@ -3764,6 +3840,94 @@
       },
       "description": "Container configuration object. Either 'exec' (to run in an existing container) or 'image' (to create a new container) must be specified, but not both."
     },
+    "sshKey": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Path to the private key file."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path to the private key file."
+            }
+          }
+        },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH private key: a file path, {file: <path>}, or {secret: <ref>}. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
+    },
+    "sshPassword": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH password: a string or {secret: <ref>}. Used only when no key is set."
+    },
+    "sshPassphrase": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "Passphrase of an encrypted private key, including a default key: a string or {secret: <ref>}. Ignored when the key is not encrypted."
+    },
+    "sshSecretCredential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret"],
+      "properties": {
+        "secret": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$",
+          "description": "Registry ref of a Dagu-managed secret, resolved once at run start in the DAG's workspace, then the global workspace. It is literal: ${...} is not resolved."
+        }
+      },
+      "description": "A credential read from the secret registry."
+    },
+    "sshBastionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Bastion host address."
+        },
+        "port": {
+          "oneOf": [{ "type": "string" }, { "type": "integer" }],
+          "description": "Bastion SSH port."
+        },
+        "user": {
+          "type": "string",
+          "description": "Bastion SSH username."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" }
+      },
+      "description": "Bastion/jump host configuration."
+    },
+    "sshRunActionConfig": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command to run on the remote host."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
+      },
+      "description": "ssh.run configuration: the remote command and the SSH connection fields, which replace the DAG-level ssh."
+    },
     "sshConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -3788,14 +3952,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to the SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication (not recommended; prefer key-based auth)."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -3821,7 +3980,12 @@
             }
           ],
           "description": "Shell for remote command execution. Commands are wrapped as: shell -c 'command'. Providing arguments (via string or array form) enables shell features like variable expansion, pipes, and command chaining on the remote server."
-        }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Connection timeout such as '30s' or '1m'. Defaults to 30s."
+        },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "required": ["user", "host"],
       "description": "SSH configuration for remote command execution. Can be specified at DAG level for reuse across steps, or at step level for specific overrides. Password authentication is supported but key-based auth is recommended."
@@ -4064,6 +4228,12 @@
           "type": "boolean",
           "description": "Skip TLS certificate verification. WARNING: Only use for testing with self-signed certificates."
         },
+        "status_exit_codes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[3-5]([0-9]{2}|xx)$" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "description": "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). An exact code wins over a class. A status mapped to 0 is a success; an unmapped one exits 1."
+        },
         "output": {
           "type": "string",
           "minLength": 1,
@@ -4105,14 +4275,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -4164,14 +4329,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -4202,33 +4362,7 @@
           "minLength": 1,
           "description": "Destination path. For upload, this is a remote path; for download, this is a local path."
         },
-        "bastion": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Bastion host address."
-            },
-            "port": {
-              "oneOf": [{ "type": "string" }, { "type": "integer" }],
-              "description": "Bastion SSH port."
-            },
-            "user": {
-              "type": "string",
-              "description": "Bastion SSH username."
-            },
-            "key": {
-              "type": "string",
-              "description": "Path to bastion private key file."
-            },
-            "password": {
-              "type": "string",
-              "description": "Bastion SSH password."
-            }
-          },
-          "description": "Bastion/jump host configuration."
-        }
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "description": "SFTP executor configuration for file transfers over SSH."
     },
@@ -4765,24 +4899,6 @@
           "type": "string",
           "description": "PostgreSQL connection string. Format: postgres://user:pass@host:port/dbname?sslmode=disable"
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
-        "conn_max_lifetime": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 300,
-          "description": "Maximum connection lifetime in seconds. 0 = no limit. Default: 300."
-        },
         "params": {
           "oneOf": [
             {
@@ -4866,18 +4982,6 @@
           "type": "string",
           "description": "SQLite connection string. Format: file:./path/to/db.sqlite or :memory: for in-memory database."
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5. Recommended: 1 for SQLite."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
         "params": {
           "oneOf": [
             {
@@ -4903,9 +5007,23 @@
           "type": "boolean",
           "description": "Wrap execution in a transaction."
         },
+        "isolation_level": {
+          "type": "string",
+          "enum": [
+            "default",
+            "read_committed",
+            "repeatable_read",
+            "serializable"
+          ],
+          "description": "Transaction isolation level."
+        },
         "file_lock": {
           "type": "boolean",
           "description": "Use file locking for exclusive database access. Creates a .lock file."
+        },
+        "shared_memory": {
+          "type": "boolean",
+          "description": "Enable shared cache for :memory: databases to share data across DAG steps."
         },
         "output_format": {
           "type": "string",
@@ -7427,7 +7545,7 @@
           "type": "string",
           "minLength": 1,
           "pattern": "\\S",
-          "description": "Instructions shown to the operator completing the task."
+          "description": "Instructions shown to the operator completing the task. The web UI renders them as Markdown."
         },
         "form": {
           "$ref": "#/definitions/humanTaskFormSchema",
@@ -8303,7 +8421,7 @@
         },
         "screenshot": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{M}\\p{N}._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
         },
         "ask": {
@@ -8839,7 +8957,7 @@
         },
         "screenshot": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{M}\\p{N}._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
         },
         "outline": {

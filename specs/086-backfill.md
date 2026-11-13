@@ -166,7 +166,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   runs: they are neither started nor aborted, and start when the scheduler
   resumes. A suspended DAG's backfill runs still run.
 - These rules follow a backfill run's retries, by hand or by the DAG's retry
-  policy.
+  policy. A retry of a run of a backfill that ended `succeeded` or `failed`
+  opens the backfill again until the retry ends; the slots a stopped
+  backfill did not reach stay `not run`. A cancelled backfill stays
+  cancelled.
 - A backfill whose DAG is renamed or deleted ends `cancelled`, with the slots
   it had not queued cancelled. A rename of the file, or of the DAG inside
   it, counts as a rename.
@@ -213,8 +216,13 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A slot whose run did not succeed stops a backfill with `--on-failure stop`:
   no further slot is queued, active runs finish, and the slots not reached
   are not run. With `--on-failure continue`, the backfill goes on.
+- The DAG's retry policy applies to a backfill run first: a failed run with
+  retries left, within `scheduler.retry_failure_window`, holds its slot as
+  active until the retries succeed or run out.
 - A backfill ends `succeeded` when every slot's run succeeded or the slot was
   skipped, and `failed` otherwise.
+- A backfill that ended more than `slot_retention_days` ago is removed when
+  its DAG next gets a backfill.
 
 ### Listing and following backfills
 
@@ -273,6 +281,7 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 | `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |
 | `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
 | `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
+| `GET /api/v1/dag-runs?backfillId={id}` | The runs of a backfill, from its submission on unless `fromDate` or `toDate` is set. Every run carries `backfillId`, which a retry keeps. |
 
 - A plan carries the number of slots each `rerun` value would run and a
   `revision`. A submit or resume that sends a `revision` the plan no longer
@@ -281,12 +290,16 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   recorded in the audit log.
 - A request with invalid times or options answers 400, an unknown DAG or
   backfill 404, and cancelling an ended backfill 409.
+- The event stream's `backfill` topic, identified by the backfill ID, sends
+  what `GET /api/v1/backfills/{id}` returns. A change to one of the
+  backfill's runs updates it within seconds, at most once every 2s; other
+  changes reach it within 30s.
 
 ## Configuration
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `slot_retention_days` | `730` | Days a slot stays in the slot history. A positive integer. |
+| `slot_retention_days` | `730` | Days a slot stays in the slot history, and an ended backfill stays listed. A positive integer. |
 | `scheduler.backfill_max_slots` | `10000` | Most slots one backfill may cover. |
 
 ## Errors

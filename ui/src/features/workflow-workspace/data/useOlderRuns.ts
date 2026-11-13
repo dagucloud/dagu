@@ -53,7 +53,8 @@ function pushedOut(
  */
 export function useOlderRuns(
   head: ApiDAGRunDetails[],
-  headCursor: string | null
+  headCursor: string | null,
+  includeBackfill = false
 ): OlderRuns {
   const { fileName, remoteNode } = useWorkspaceData('useOlderRuns');
   const client = useClient();
@@ -61,8 +62,9 @@ export function useOlderRuns(
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // Another workflow starts with no page read.
-  const scope = `${remoteNode}\n${fileName}`;
+  // Another workflow, or a history with or without the backfill runs, starts
+  // with no page read: a cursor belongs to the list it came from.
+  const scope = `${remoteNode}\n${fileName}\n${includeBackfill}`;
   const [seenScope, setSeenScope] = useState(scope);
   const [seenHead, setSeenHead] = useState(head);
   if (seenScope !== scope) {
@@ -119,7 +121,12 @@ export function useOlderRuns(
       .GET('/dags/{fileName}/dag-runs', {
         params: {
           path: { fileName },
-          query: { remoteNode, cursor: next, limit: HISTORY_LIMIT },
+          query: {
+            remoteNode,
+            cursor: next,
+            limit: HISTORY_LIMIT,
+            ...(includeBackfill ? { includeBackfill: true } : {}),
+          },
         },
         signal: controller.signal,
       })
@@ -129,7 +136,7 @@ export function useOlderRuns(
         )
       )
       .catch(() => settle(null));
-  }, [client, fileName, remoteNode]);
+  }, [client, fileName, remoteNode, includeBackfill]);
 
   return {
     runs: pages?.runs ?? NO_RUNS,

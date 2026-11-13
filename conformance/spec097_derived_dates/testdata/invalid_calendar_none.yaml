@@ -1,0 +1,9 @@
+calendar: weekdays
+schedule:
+  - "0 2 * * *"
+  - expression: "0 3 * * *"
+    calendar: none
+dates:
+  last_open_day: -1bd
+steps:
+  - run: echo load

@@ -227,3 +227,15 @@ func TestDefectAndRuntimeOnlyNoticeClassification(t *testing.T) {
 		result.ExpectStderrContains("${params.environment}")
 	})
 }
+
+// TestStepWorkingDirResolvesStepOutput proves that steps[].working_dir is
+// value-resolved at step start: a predecessor's published output selects the
+// directory the step runs in.
+func TestStepWorkingDirResolvesStepOutput(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "step_output_working_dir.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("worktree/marker.txt", "resolved\n")
+}

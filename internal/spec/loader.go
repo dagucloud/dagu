@@ -817,6 +817,10 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 			merged[key] = mergeMailAccountMaps(baseMap, overrideMap)
 			continue
 		}
+		if key == "ssh" && ok && baseIsMap && overrideIsMap {
+			merged[key] = mergeSSHMaps(baseMap, overrideMap)
+			continue
+		}
 		if ok && baseIsMap && overrideIsMap {
 			mergedNested, err := mergeDefinitionMaps(baseMap, overrideMap)
 			if err != nil {

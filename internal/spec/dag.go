@@ -74,6 +74,9 @@ type dag struct {
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
 	// Calendar is the calendar of start schedules that name none.
 	Calendar string `yaml:"calendar,omitempty"`
+	// Dates derives dates from the run's schedule slot. The loader passes
+	// the mapping as single-entry mappings in document order.
+	Dates any `yaml:"dates,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
 	SkipIfSuccessful *bool `yaml:"skip_if_successful,omitempty"`
@@ -389,10 +392,12 @@ type ssh struct {
 	Host string `yaml:"host,omitempty"`
 	// Port is the SSH port (can be string or number).
 	Port types.PortValue `yaml:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 	// StrictHostKey enables strict host key checking. Defaults to true if not specified.
 	StrictHostKey *bool `yaml:"strict_host_key,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -415,10 +420,12 @@ type bastion struct {
 	Port types.PortValue `yaml:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `yaml:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 }
 
 // s3Config defines the default S3 configuration for the DAG.
@@ -570,6 +577,7 @@ var metadataParamsEnvStage = transformStage{
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
 	dagField("calendar", buildCalendar, func(out *ir.DAG, v string) { out.Calendar = v }),
+	dagField("dates", buildDates, func(out *ir.DAG, v []ir.DateSpec) { out.Dates = v }),
 	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
@@ -705,6 +713,9 @@ type dagBuildState struct {
 	ownEnv int
 	// calendarWarnings reports calendars whose holidays run out soon.
 	calendarWarnings []string
+	// datesWarnings reports dates that no run of the DAG on its own can
+	// resolve.
+	datesWarnings []string
 }
 
 func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
@@ -1000,6 +1011,7 @@ func (s *dagBuildState) collectWarnings() {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
 	s.result.BuildWarnings = append(s.result.BuildWarnings, s.calendarWarnings...)
+	s.result.BuildWarnings = append(s.result.BuildWarnings, s.datesWarnings...)
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
@@ -1293,9 +1305,11 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.composeInheritedContext()
 	state.bindScheduleCalendars()
 	state.validateScheduleParams()
+	state.validateDates()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()
+	state.collectCredentialRefs()
 	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()
@@ -1315,6 +1329,7 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	inheritSSHAuth(effective, base, current)
 	effective.Params = mergeInheritedParams(base.Params, current.Params)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
@@ -3065,19 +3080,26 @@ func buildSSH(_ buildContext, d *dag) (*ir.SSHConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	auth, err := ir.ParseSSHAuth("ssh", d.SSH.Key, d.SSH.Password, d.SSH.Passphrase)
+	if err != nil {
+		return nil, err
+	}
+	bastion, err := buildBastionConfig(d.SSH.Bastion)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ir.SSHConfig{
 		User:          d.SSH.User,
 		Host:          d.SSH.Host,
 		Port:          defaultPort(d.SSH.Port.String(), "22"),
-		Key:           d.SSH.Key,
-		Password:      d.SSH.Password,
+		SSHAuth:       auth,
 		StrictHostKey: d.SSH.StrictHostKey == nil || *d.SSH.StrictHostKey,
 		KnownHostFile: d.SSH.KnownHostFile,
 		Shell:         shell,
 		ShellArgs:     shellArgs,
 		Timeout:       d.SSH.Timeout,
-		Bastion:       buildBastionConfig(d.SSH.Bastion),
+		Bastion:       bastion,
 	}, nil
 }
 
@@ -3104,17 +3126,20 @@ func parseSSHShell(shellVal types.ShellValue) (string, []string, error) {
 }
 
 // buildBastionConfig builds bastion configuration from spec.
-func buildBastionConfig(bastion *bastion) *ir.BastionConfig {
+func buildBastionConfig(bastion *bastion) (*ir.BastionConfig, error) {
 	if bastion == nil {
-		return nil
+		return nil, nil
+	}
+	auth, err := ir.ParseSSHAuth("ssh.bastion", bastion.Key, bastion.Password, bastion.Passphrase)
+	if err != nil {
+		return nil, err
 	}
 	return &ir.BastionConfig{
-		Host:     bastion.Host,
-		Port:     defaultPort(bastion.Port.String(), "22"),
-		User:     bastion.User,
-		Key:      bastion.Key,
-		Password: bastion.Password,
-	}
+		Host:    bastion.Host,
+		Port:    defaultPort(bastion.Port.String(), "22"),
+		User:    bastion.User,
+		SSHAuth: auth,
+	}, nil
 }
 
 // defaultPort returns the port if non-empty, otherwise returns the default value.

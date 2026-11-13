@@ -9,6 +9,7 @@ import {
   CUSTOM_RANGE_KEY,
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
+  SHOW_BACKFILL_KEY,
   SHOW_TESTS_KEY,
   useHistoryRuns,
   useRunViewSettings,
@@ -87,8 +88,18 @@ describe('useVisibleRuns', () => {
     expect(h.args[0]).toEqual({
       enabled: true,
       includeEphemeral: true,
+      includeBackfill: false,
       pollTestRuns: true,
     });
+  });
+
+  // The server leaves backfill runs out of the history unless asked for them.
+  it('asks for the backfill runs once they are shown, and keeps the choice', () => {
+    const { result } = renderHook(() => useRunViewSettings());
+    act(() => result.current[1].setShowBackfill(true));
+    renderHook(() => useVisibleRuns({ enabled: true }));
+    expect(h.args[h.args.length - 1]).toMatchObject({ includeBackfill: true });
+    expect(window.localStorage.getItem(SHOW_BACKFILL_KEY)).toBe('1');
   });
 
   it('lists the runs oldest first, the test runs merged by time', () => {

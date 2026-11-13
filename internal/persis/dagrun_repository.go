@@ -29,6 +29,7 @@ type DAGRunRepository struct {
 	ephemeral         DAGRunStore
 	slotIndex         SlotIndex
 	calendars         *spec.CalendarSource
+	onRetry           func(context.Context, *ir.DAGRunStatus) error
 }
 
 // NewDAGRunRepository creates a repository backed by store.
@@ -54,6 +55,7 @@ func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, option
 		ephemeral:         options.EphemeralStore,
 		slotIndex:         options.SlotIndex,
 		calendars:         calendarSource(options.CalendarsDir),
+		onRetry:           options.OnRetry,
 	}
 }
 
@@ -97,6 +99,9 @@ func (r *DAGRunRepository) CreateAttempt(
 	// Only a new top-level run is a run of its slot; a retry is the same run.
 	if r.slotIndex != nil && !ephemeral && !options.Retry && options.RootDAGRun.Zero() {
 		wrapped.(*eventingAttempt).slots = &slotRecorder{index: r.slotIndex, location: r.location, calendars: r.calendars}
+	}
+	if r.onRetry != nil && !ephemeral && options.Retry && options.RootDAGRun.Zero() {
+		wrapped.(*eventingAttempt).onRetry = r.onRetry
 	}
 	return wrapped, nil
 }
@@ -213,6 +218,7 @@ func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQu
 		FullStatus:      options.FullStatus,
 		ExcludeDAGNames: options.ExcludeDAGNames,
 		ExcludeBackfill: options.ExcludeBackfill,
+		BackfillID:      options.BackfillID,
 	}
 	if !options.AllHistory && query.From.IsZero() && query.To.IsZero() {
 		query.From = NewUTC(r.startOfDay())
@@ -269,6 +275,10 @@ func (r *DAGRunRepository) CompareAndSwapLatestAttemptStatus(
 				return err
 			}
 			ir.NormalizeDAGRunConditions(status)
+			if r.onRetry != nil && !isSubDAG && !ephemeral && !status.Ephemeral &&
+				expectedStatus.IsTerminal() && status.Status.IsActive() {
+				return r.onRetry(ctx, status)
+			}
 			return nil
 		},
 	})

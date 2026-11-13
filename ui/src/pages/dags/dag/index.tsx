@@ -141,7 +141,14 @@ function DAGDetails() {
     error: dagError,
     mutate: mutateDag,
   } = useDAGDetailsQuery(fileName, remoteNode, sseFallbackOptions(dagSSE));
-  useSSECacheSync(dagSSE, mutateDag);
+  // The live feed leaves out the latest backfill, which the details read
+  // gives: keep it, and let the backfill's own feed keep it current.
+  const latestBackfill = useRef(dagData?.latestBackfill);
+  latestBackfill.current = dagData?.latestBackfill;
+  useSSECacheSync(dagSSE, mutateDag, (live) => ({
+    ...live,
+    latestBackfill: latestBackfill.current,
+  }));
   // The editor waits for the spec of the file: asked for now, it comes with
   // the details instead of after them. The editor keeps it fresh. A log page
   // has no editor.

@@ -1,0 +1,14 @@
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+calendar: weekdays
+dates:
+  target_day: -1d
+  target_compact: { from: target_day, format: date_compact }
+  month_start: [-1d, month_start]
+  prev_month_end: [month_start, -1d]
+  last_open_day: -1bd
+  window_start: { from: interval_start, format: rfc3339 }
+  window_days: { each: 1d }
+  window_hours: { each: 1h, format: "%Y-%m-%dT%H" }
+  loaded_at: { format: "%Y/%m/%d %H:%M", timezone: UTC }
+steps:
+  - run: echo load
