@@ -36,6 +36,7 @@ steps:
         viewport: {width: 1280, height: 800}
         allowed_domains: [portal.example.com]
         screenshots: each
+        on_confirm: fail
         profile: vendor
         client_certificates:
           - hosts: [portal.example.com]
@@ -76,6 +77,7 @@ steps:
 		{"wait with both forms", `{selector: "#done"}`, `{selector: "#done", duration: 1s}`},
 		{"non-object extract schema", "{type: object, properties: {invoice_number: {type: string}}}", "{type: array}"},
 		{"unknown screenshot policy", "screenshots: each", "screenshots: sometimes"},
+		{"unknown confirm answer", "on_confirm: fail", "on_confirm: ignore"},
 		{"invalid variable name", "        user: alice", "        user-name: alice"},
 		{"unknown browser option", "headless: true", "stealth: true"},
 		{"client certificate without hosts", "hosts: [portal.example.com]", "ca_file: certs/ca.pem"},

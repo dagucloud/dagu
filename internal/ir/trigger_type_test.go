@@ -20,6 +20,7 @@ func TestTriggerTypeRoundTrip(t *testing.T) {
 		TriggerTypeRetry,
 		TriggerTypeCatchUp,
 		TriggerTypeRestart,
+		TriggerTypeBackfill,
 	} {
 		assert.Equal(t, triggerType, ParseTriggerType(triggerType.String()), triggerType.String())
 	}

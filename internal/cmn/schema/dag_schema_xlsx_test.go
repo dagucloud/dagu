@@ -134,6 +134,10 @@ steps:
 	require.Contains(t, source, literalSchema)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, strings.Replace(source, literalSchema, "schema: ${params.SCHEMA}", 1))),
 		"a schema still held in a value reference is accepted; the run resolves it")
+	for _, empty := range []string{"encoding: null", "encoding: \"\""} {
+		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, strings.Replace(source, "encoding: shift_jis", empty, 1))),
+			"an empty encoding is the same as none")
+	}
 	for _, tc := range []struct{ name, from, to string }{
 		{"unknown field", "trim: true", "strip: true"},
 		{"missing path", "path: orders.xlsx\n      sheet: Orders", "sheet: Orders"},

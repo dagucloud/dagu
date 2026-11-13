@@ -144,6 +144,13 @@ func WithTriggerType(triggerType TriggerType) StatusOption {
 	}
 }
 
+// WithBackfillID sets the backfill that started the run.
+func WithBackfillID(backfillID string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.BackfillID = backfillID
+	}
+}
+
 // WithTriggerActor sets the attributable trigger actor.
 func WithTriggerActor(actor string) StatusOption {
 	return func(status *DAGRunStatus) {

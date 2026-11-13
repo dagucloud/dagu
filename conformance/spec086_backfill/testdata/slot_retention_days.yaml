@@ -1,0 +1,5 @@
+schedule: "0 2 * * *"
+hist_retention_days: 30
+slot_retention_days: 730
+steps:
+  - run: echo load

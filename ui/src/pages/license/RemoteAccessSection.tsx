@@ -19,7 +19,8 @@ import { Switch } from '@/components/ui/switch';
 import { useQuery } from '@/hooks/api';
 import type { LicenseRemoteAccess } from '@/hooks/useLicenseRemoteAccess';
 import { useI18n } from '@/i18n/I18nProvider';
-import { remoteAccessLevelLabels } from '@/lib/license';
+import dayjs from '@/lib/dayjs';
+import { licenseLink, remoteAccessLevelLabels } from '@/lib/license';
 import { cn } from '@/lib/utils';
 import { LicenseCallout } from './LicenseAlerts';
 
@@ -105,6 +106,7 @@ export function RemoteAccessSection({
   remoteNode,
   consoleURL,
   plan,
+  trialEndsAt,
   trialURL,
   onOpenTrial,
   showActivity,
@@ -118,6 +120,8 @@ export function RemoteAccessSection({
   consoleURL: string;
   /** The server's plan; unknown for a license that lapsed. */
   plan?: RemoteAccessPlan;
+  /** When the trial ends, for a server on a trial. */
+  trialEndsAt?: string;
   /** The Dagu Console page where a trial starts. */
   trialURL: string;
   /** Called as the trial page opens, so the plan is read again on return. */
@@ -305,6 +309,11 @@ export function RemoteAccessSection({
                 </Row>
               )}
               {on && (
+                <Row label={ts('Last call')}>
+                  <LastCall remoteAccess={remoteAccess} />
+                </Row>
+              )}
+              {on && (
                 <Row label={ts('MCP URL')}>
                   <span className="flex min-w-0 items-center gap-1">
                     <code className="min-w-0 whitespace-normal break-words font-mono text-xs">
@@ -320,19 +329,21 @@ export function RemoteAccessSection({
                 </Row>
               )}
             </dl>
-            {on && (
+            {on && <ClientGuide mcpURL={mcpURL} consoleURL={consoleURL} />}
+            {on && plan === 'trial' && trialEndsAt && (
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 {ts(
-                  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.'
+                  'Included in your trial until {date}. Choose a plan to keep MCP clients working.',
+                  { date: dayjs(trialEndsAt).format('YYYY-MM-DD') }
                 )}
                 <a
-                  href={`${consoleURL}/mcp-access`}
+                  href={licenseLink('plans', 'remote-access')}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-foreground underline underline-offset-2"
                 >
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  {ts('Setup steps for Claude, ChatGPT, and more')}
+                  {ts('View plans')}
                 </a>
               </p>
             )}
@@ -396,6 +407,107 @@ function ConnectionState({
     );
   }
   return <span className="text-muted-foreground">{ts('Connecting…')}</span>;
+}
+
+/**
+ * Names the latest call that reached the server through Dagu Cloud: the app,
+ * the person, and when.
+ */
+function LastCall({ remoteAccess }: { remoteAccess: LicenseRemoteAccess }) {
+  const { ts } = useI18n();
+  const call = remoteAccess.lastCall;
+  if (!call) {
+    return <span className="text-muted-foreground">{ts('No calls yet')}</span>;
+  }
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+      {[call.client, call.user].filter(Boolean).map((part) => (
+        <span key={part} className="min-w-0 break-words">
+          {part} ·
+        </span>
+      ))}
+      <RelativeTime timestamp={call.at} />
+    </span>
+  );
+}
+
+/** The command that adds the Dagu Cloud MCP endpoint to Claude Code. */
+function claudeCodeCommand(mcpURL: string): string {
+  return `claude mcp add --transport http --scope user dagu ${mcpURL}`;
+}
+
+/**
+ * Tells how to add the Dagu Cloud MCP endpoint to Claude, ChatGPT, and
+ * Claude Code, as Dagu Cloud's MCP page does, which covers the other clients.
+ */
+function ClientGuide({
+  mcpURL,
+  consoleURL,
+}: {
+  mcpURL: string;
+  consoleURL: string;
+}) {
+  const { ts } = useI18n();
+  const command = claudeCodeCommand(mcpURL);
+  return (
+    <div className="space-y-1.5">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {ts('Connect a client')}
+      </h3>
+      <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+        <Row label="Claude">
+          <span className="block">
+            {ts(
+              'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.'
+            )}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {ts(
+              'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.'
+            )}
+          </span>
+        </Row>
+        <Row label="ChatGPT">
+          <a
+            href="https://chatgpt.com/plugins"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            chatgpt.com/plugins
+          </a>{' '}
+          {ts(
+            'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.'
+          )}
+        </Row>
+        <Row label="Claude Code">
+          <span className="flex min-w-0 items-center gap-1">
+            <code className="min-w-0 whitespace-normal break-all font-mono text-xs">
+              {command}
+            </code>
+            <CopyButton
+              size="sm"
+              text={command}
+              label={ts('Copy command')}
+              copiedLabel={ts('Command copied')}
+            />
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {ts('Then run /mcp in Claude Code to sign in.')}
+          </span>
+        </Row>
+      </dl>
+      <a
+        href={`${consoleURL}/mcp-access`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+      >
+        <ExternalLink className="h-3 w-3" aria-hidden="true" />
+        {ts('Other clients and connections in Dagu Cloud')}
+      </a>
+    </div>
+  );
 }
 
 /** Lists the latest calls from Dagu Cloud that audit logs recorded. */

@@ -7,6 +7,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
     paths:
       - Dockerfile
       - Dockerfile.alpine
@@ -39,6 +40,7 @@ jobs:
   scan-production-images:
     name: Scan ${{ matrix.name }}
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -80,6 +82,7 @@ jobs:
   scan-go-vulnerabilities:
     name: govulncheck
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     permissions:
       contents: read
     steps:

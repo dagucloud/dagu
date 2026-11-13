@@ -88,3 +88,39 @@ func TestChatCompletionFilesMissing(t *testing.T) {
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("receipt.png does not exist")
 }
+
+// with.max_file_chars bounds the files' text; more than that fails the step
+// before any request, naming both counts.
+func TestChatCompletionFilesLimit(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("note.txt", "Pay 9,800 yen by Friday.\n")
+
+	result := dagu.RunWithEnv([]string{"LLM_BASE_URL=http://127.0.0.1:9"}, "start", "files_limit.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("the files hold 57 characters of text; the step takes up to 10, so raise max_file_chars or give it fewer or smaller files")
+}
+
+// A provider that refuses the request for its length fails the step with
+// an error that says how much text the files held.
+func TestChatCompletionFilesTooLongForModel(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"code":"context_length_exceeded","message":"This model's maximum context length is 8 tokens."}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("note.txt", "Pay 9,800 yen by Friday.\n")
+	var picture bytes.Buffer
+	require.NoError(t, png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 4, 4))))
+	require.NoError(t, os.WriteFile(dagu.ProjectPath("receipt.png"), picture.Bytes(), 0o600))
+
+	result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + srv.URL}, "start", "files.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("maximum context length is 8 tokens", "; the files held 84 characters of text")
+}

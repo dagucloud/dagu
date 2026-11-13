@@ -93,7 +93,9 @@ func capturedOutputsOf(step *ir.Step) capturedOutputContract {
 			return capturedOutputContract{dynamic: true}
 		}
 		return capturedOutputContract{declarations: capturedNames(sortedKeys(values))}
-	case step.ExecutorConfig.Type == ir.ExecutorTypeBrowser, step.ExecutorConfig.Type == ir.ExecutorTypeComputer:
+	case step.ExecutorConfig.Type == ir.ExecutorTypeBrowser:
+		return browserOutputs(step.ExecutorConfig.Config["do"])
+	case step.ExecutorConfig.Type == ir.ExecutorTypeComputer:
 		return extractOperationOutputs(step.ExecutorConfig.Config["do"])
 	case isXlsxExtractStep(step):
 		return xlsxExtractOutputs(step.ExecutorConfig.Config["schema"])
@@ -129,6 +131,17 @@ func xlsxExtractOutputs(schema any) capturedOutputContract {
 		return contract
 	}
 	contract.declarations = append(outputSchemaDeclarations(properties), contract.declarations...)
+	return contract
+}
+
+// browserOutputs lists what a browser step publishes: the fields its
+// operations extract, and `downloads`, the files it saved, which every
+// browser step publishes.
+func browserOutputs(operations any) capturedOutputContract {
+	contract := extractOperationOutputs(operations)
+	contract.declarations = append([]ir.StepOutputDeclaration{
+		{Name: ir.BrowserOutputDownloads, Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+	}, contract.declarations...)
 	return contract
 }
 

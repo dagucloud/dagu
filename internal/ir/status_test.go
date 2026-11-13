@@ -122,3 +122,27 @@ func TestNodeStatus_IsDone(t *testing.T) {
 		})
 	}
 }
+
+func TestStatus_IsTerminal(t *testing.T) {
+	tests := []struct {
+		status   Status
+		expected bool
+	}{
+		{NotStarted, false},
+		{Running, false},
+		{Queued, false},
+		{Waiting, false},
+		{Failed, true},
+		{Aborted, true},
+		{Succeeded, true},
+		{PartiallySucceeded, true},
+		{Rejected, true},
+		{Status(99), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status.String(), func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.status.IsTerminal())
+		})
+	}
+}

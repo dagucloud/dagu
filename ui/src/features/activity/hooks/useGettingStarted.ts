@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useContext, useEffect } from 'react';
-import {
-  APIKeyAllowedSurfaces,
-  LicenseRemoteAccessLevel,
-} from '@/api/v1/schema';
+import { APIKeyAllowedSurfaces } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   useCanManageNotifications,
@@ -41,6 +38,9 @@ export type GettingStarted =
   | { status: 'visible'; steps: GettingStartedStep[]; dismiss: () => void };
 
 const queryOptions = { revalidateOnFocus: false };
+
+/** How often remote access is read again while no call has arrived. */
+const FIRST_CALL_REFRESH_MS = 10_000;
 
 /**
  * Tracks the first steps on a new server for users who can write workflows.
@@ -111,10 +111,16 @@ export function useGettingStarted(): GettingStarted {
       : null,
     queryOptions
   );
+  // Read again until a call from Dagu Cloud arrives, so the AI app step
+  // completes while the list is open.
   const { data: remoteAccess, error: remoteAccessError } = useQuery(
     '/license/remote-access',
     active && isAdmin && online ? { params: { query: { remoteNode } } } : null,
-    queryOptions
+    {
+      ...queryOptions,
+      refreshInterval: (latest?: { lastCall?: unknown }) =>
+        latest?.lastCall ? 0 : FIRST_CALL_REFRESH_MS,
+    }
   );
   const { data: keyList, error: keysError } = useQuery(
     '/api-keys',
@@ -131,8 +137,10 @@ export function useGettingStarted(): GettingStarted {
     progress?.scheduled ??
     (scheduledList ? scheduledList.pagination.totalRecords > 0 : undefined);
   const alerted = !community || !!channelList?.channels?.length;
+  // An app counts once a call of its reached the server, or once there is a
+  // key it may use.
   const connectedAI =
-    (!!remoteAccess && remoteAccess.level !== LicenseRemoteAccessLevel.off) ||
+    !!remoteAccess?.lastCall ||
     !!keyList?.apiKeys.some(
       // A key without surfaces, from an older server, is accepted on all.
       (key) =>

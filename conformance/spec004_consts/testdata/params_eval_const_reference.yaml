@@ -1,0 +1,10 @@
+working_dir: .
+consts:
+  - region: tokyo
+params:
+  - name: bucket
+    eval: $(printf '%s-logs' '${consts.region}')
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.bucket}' > params-eval-const.txt
