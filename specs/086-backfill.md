@@ -215,6 +215,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A slot whose run did not succeed stops a backfill with `--on-failure stop`:
   no further slot is queued, active runs finish, and the slots not reached
   are not run. With `--on-failure continue`, the backfill goes on.
+- The DAG's retry policy applies to a backfill run first: a failed run with
+  retries left, within `scheduler.retry_failure_window`, holds its slot as
+  active until the retries succeed or run out.
 - A backfill ends `succeeded` when every slot's run succeeded or the slot was
   skipped, and `failed` otherwise.
 

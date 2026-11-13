@@ -58,7 +58,10 @@ type Dispatcher struct {
 	// A backfill whose DAG was renamed or deleted is cancelled. Nil assumes
 	// it has.
 	DAGExists func(ctx context.Context, record *Record) (bool, error)
-	Now       func() time.Time
+	// RetryWindow is how long after a run's creation the scheduler retries
+	// it under its DAG's retry policy. Zero retries no run.
+	RetryWindow time.Duration
+	Now         func() time.Time
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer
@@ -244,6 +247,16 @@ func (d *Dispatcher) appendUnchanged(ctx context.Context, record *Record, seen i
 // have failed to start.
 const retryStartGrace = time.Minute
 
+// awaitsAutoRetry reports whether the DAG's retry policy will retry a failed
+// run: it has retries left, and the scheduler still scans it. The DAG's
+// retry policy applies to a backfill run before the backfill counts it.
+func awaitsAutoRetry(status *ir.DAGRunStatus, now time.Time, window time.Duration) bool {
+	if window <= 0 || status.Status != ir.Failed || status.AutoRetryCount >= status.AutoRetryLimit {
+		return false
+	}
+	return status.CreatedAt > 0 && now.Sub(time.UnixMilli(status.CreatedAt)) < window
+}
+
 // awaitsRetry reports whether a retry queued the slot's ended run again and
 // has not made it active yet. A retry queues the slot just before it does.
 func awaitsRetry(event Progress, status *ir.DAGRunStatus, now time.Time) bool {
@@ -277,7 +290,8 @@ func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress
 		return slotPending, err
 	}
 	switch {
-	case status.Status.IsActive(), awaitsRetry(event, status, now):
+	case status.Status.IsActive(), awaitsRetry(event, status, now),
+		awaitsAutoRetry(status, now, d.RetryWindow):
 		return slotActive, nil
 	case status.Status.IsSuccess():
 		return slotSucceeded, nil
