@@ -714,8 +714,8 @@ func (o operation) validate() error {
 			return err
 		}
 	case o.Screenshot != "":
-		if !agentstep.FileNamePattern.MatchString(o.Screenshot) {
-			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.FileNamePattern)
+		if !agentstep.ScreenshotNamePattern.MatchString(o.Screenshot) {
+			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.ScreenshotNamePattern)
 		}
 	case o.Outline != "":
 		if !outlineNamePattern.MatchString(o.Outline) {
