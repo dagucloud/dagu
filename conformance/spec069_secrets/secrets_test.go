@@ -76,11 +76,11 @@ func TestFileProviderMissingFile(t *testing.T) {
 // A later step of the same run reads a published output with the secret
 // intact. A retry restores the succeeded step with that output stored masked,
 // so the step reading it fails instead of running on the mask, including for a
-// secret that JSON escapes.
+// secret that JSON escapes and for the ${<id>.outputs.<name>} form.
 func TestStepOutputMaskedOnRetry(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"step_output_retry.yaml", "step_output_retry_escaped.yaml"} {
+	for _, fixture := range []string{"step_output_retry.yaml", "step_output_retry_escaped.yaml", "step_output_retry_property.yaml"} {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 

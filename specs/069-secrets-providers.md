@@ -90,13 +90,15 @@ fails before it runs, with an error that names the step and the output and
 says the producing step has to run again. A read is one of these in a field
 that value resolution reads:
 
-- A published output, as `${steps.<id>.outputs.<name>}`.
-- The captured output, as `${<id>.output}`, or `${<id>.outputs}` and any path
-  under it.
-- An output variable, as `${NAME}` or `$NAME`. A handler step has no
+- `${steps.<id>.outputs.<name>}` reads a published output.
+- `${<id>.outputs}` and any path under it read the published outputs when the
+  step published any, and the captured output document otherwise.
+- `${<id>.output}` reads the captured output text, or the step's output
+  variable when no captured text is stored.
+- `${NAME}` and `$NAME` read an output variable. A handler step has no
   step-output scope, so only this form is a read there.
 
-Each form fails only on a change masking made to its own kind of output.
+Each reference fails only when masking changed the output it reads.
 
 An escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
 count as reads wherever they appear in such a field, even where a shell would
@@ -104,8 +106,10 @@ not expand them, such as inside single quotes. When masking changed the name of
 a published output, or masked the published outputs as text, every published
 output of that step counts as masked. Outputs that masking did not change are
 reused unchanged, and a value supplied for an output of a carried step replaces
-the recorded one. A step that needs a secret after an approval or a human task
-reads the secret itself instead of through an output.
+the recorded one. The check runs once the step's preconditions hold, so a step
+whose preconditions are not met is skipped as before; a precondition that reads
+a recorded output reads `*******`. A step that needs a secret after an approval
+or a human task reads the secret itself instead of through an output.
 
 Provider-specific behavior covered here:
 
