@@ -30,6 +30,22 @@ export const backfillMessages = defineMessages({
     'Not run': 'Not run',
     Cancelled: 'Cancelled',
     Slots: 'Slots',
+    'Run past slots of the schedule': 'Run past slots of the schedule',
+    'Could not read the last success: {message}':
+      'Could not read the last success: {message}',
+    'Since the last success': 'Since the last success',
+    'Since the last success, {time}': 'Since the last success, {time}',
+    'Fire times': 'Fire times',
+    'No slot succeeded in the last {days} days.':
+      'No slot succeeded in the last {days} days.',
+    'First fire time': 'First fire time',
+    'Last fire time': 'Last fire time',
+    Options: 'Options',
+    '{count} at a time, stop after a failed slot':
+      '{count} at a time, stop after a failed slot',
+    '{count} at a time, continue after a failed slot':
+      '{count} at a time, continue after a failed slot',
+    "The DAG's default profile": "The DAG's default profile",
     'No slots in this state.': 'No slots in this state.',
     'Slot {time}': 'Slot {time}',
     'Page {page} of {pages}': 'Page {page} of {pages}',
@@ -151,6 +167,21 @@ export const backfillMessages = defineMessages({
     'Not run': '未运行',
     Cancelled: '已取消',
     Slots: '时段',
+    'Run past slots of the schedule': '运行计划中过去的时段',
+    'Could not read the last success: {message}': '无法读取上次成功：{message}',
+    'Since the last success': '自上次成功以来',
+    'Since the last success, {time}': '自上次成功以来（{time}）',
+    'Fire times': '触发时间',
+    'No slot succeeded in the last {days} days.':
+      '最近 {days} 天内没有成功的时段。',
+    'First fire time': '起始触发时间',
+    'Last fire time': '结束触发时间',
+    Options: '选项',
+    '{count} at a time, stop after a failed slot':
+      '每次 {count} 个，时段失败后停止',
+    '{count} at a time, continue after a failed slot':
+      '每次 {count} 个，时段失败后继续',
+    "The DAG's default profile": 'DAG 的默认配置',
     'No slots in this state.': '没有处于此状态的时段。',
     'Slot {time}': '时段 {time}',
     'Page {page} of {pages}': '第 {page} 页，共 {pages} 页',
@@ -270,6 +301,22 @@ export const backfillMessages = defineMessages({
     'Not run': '未実行',
     Cancelled: 'キャンセル済み',
     Slots: 'スロット',
+    'Run past slots of the schedule': 'スケジュールの過去のスロットを実行',
+    'Could not read the last success: {message}':
+      '最後の成功を読み込めませんでした: {message}',
+    'Since the last success': '最後の成功以降',
+    'Since the last success, {time}': '最後の成功以降（{time}）',
+    'Fire times': '実行時刻',
+    'No slot succeeded in the last {days} days.':
+      '過去 {days} 日間に成功したスロットはありません。',
+    'First fire time': '最初の実行時刻',
+    'Last fire time': '最後の実行時刻',
+    Options: 'オプション',
+    '{count} at a time, stop after a failed slot':
+      '同時に {count} 件、スロットが失敗したら停止',
+    '{count} at a time, continue after a failed slot':
+      '同時に {count} 件、スロットが失敗しても続行',
+    "The DAG's default profile": 'DAG の既定のプロファイル',
     'No slots in this state.': 'この状態のスロットはありません。',
     'Slot {time}': 'スロット {time}',
     'Page {page} of {pages}': '{pages} ページ中 {page} ページ',
