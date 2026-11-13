@@ -15,11 +15,13 @@ import { BackfillProgress } from './BackfillProgress';
 import { BackfillStatusChip } from './BackfillStatusChip';
 import { DAGSlotsView } from './DAGSlotsView';
 
-// Read again each time the tab opens: a backfill started from it opens its
-// own page, and the list on return must have it.
+// Read again each time the tab opens, however soon after the last read: a
+// backfill started from it opens its own page, and the list on return must
+// have it.
 const READ_ON_OPEN = {
   revalidateOnFocus: false,
   revalidateIfStale: true,
+  dedupingInterval: 0,
   refreshInterval: 0,
 } as const;
 

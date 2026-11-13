@@ -65,14 +65,26 @@ describe('DAGBackfillsTab', () => {
   });
 
   // A backfill started from the tab opens its own page; back on the tab, the
-  // list has it.
+  // list has it, however soon the user returns.
   it('reads the list again each time the tab opens', async () => {
     const cache = new Map();
-    const first = renderTab(true, cache);
+    const provider = () => cache;
+    const host = (open: boolean) => (
+      <SWRConfig value={{ provider }}>
+        <MemoryRouter>
+          {open && <DAGBackfillsTab dagName="etl" fileName="etl" canExecute />}
+        </MemoryRouter>
+      </SWRConfig>
+    );
+    const view = render(host(true));
     await screen.findByText('No backfills yet.');
-    first.unmount();
+    view.rerender(host(false));
 
-    renderTab(true, cache);
+    view.rerender(host(true));
+    await screen.findByText('No backfills yet.');
+    // Once per opening.
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(h.GET).toHaveBeenCalledTimes(2);
   });
 });
