@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, type ReactNode } from 'react';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { DAGBackfillsTab } from '@/features/backfills/components/DAGBackfillsTab';
 import DAGWikiTab from '@/features/dags/components/dag-details/DAGWikiTab';
 import IncidentsTab from '@/features/dags/components/dag-details/IncidentsTab';
@@ -116,6 +117,7 @@ export function WorkflowTabsPanel({
   };
 
   const workspace = workspaceName ?? undefined;
+  const canExecute = useCanExecuteForWorkspace(workspaceName);
 
   return (
     <div
@@ -169,7 +171,13 @@ export function WorkflowTabsPanel({
             onDirtyChange={(dirty) => setDirty('notifications', dirty)}
           />
         )}
-        {tab === 'backfills' && <DAGBackfillsTab dagName={dag.name} />}
+        {tab === 'backfills' && (
+          <DAGBackfillsTab
+            dagName={dag.name}
+            fileName={fileName}
+            canExecute={canExecute}
+          />
+        )}
       </div>
     </div>
   );

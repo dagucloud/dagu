@@ -224,10 +224,10 @@ export function canResume(backfill: Backfill): boolean {
   return backfill.status !== BackfillStatus.succeeded;
 }
 
-/** A row of the slot grid: the slots of one day, or of one month for slower cadences. */
-export interface SlotGroup {
+/** A row of a slot grid: the slots of one day, or of one month for slower cadences. */
+export interface SlotGroup<T extends { slot: string } = BackfillSlot> {
   key: string;
-  slots: BackfillSlot[];
+  slots: T[];
 }
 
 /**
@@ -235,13 +235,13 @@ export interface SlotGroup {
  * holds more than one slot, else by month. `keyOf` gives the day or month
  * of a slot in the zone the page shows times in.
  */
-export function groupSlots(
-  slots: readonly BackfillSlot[],
-  keyOf: (slot: BackfillSlot, unit: 'day' | 'month') => string
-): SlotGroup[] {
+export function groupSlots<T extends { slot: string }>(
+  slots: readonly T[],
+  keyOf: (slot: T, unit: 'day' | 'month') => string
+): SlotGroup<T>[] {
   const days = new Set(slots.map((slot) => keyOf(slot, 'day')));
   const unit = days.size < slots.length ? 'day' : 'month';
-  const groups: SlotGroup[] = [];
+  const groups: SlotGroup<T>[] = [];
   for (const slot of slots) {
     const key = keyOf(slot, unit);
     const last = groups[groups.length - 1];

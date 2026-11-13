@@ -87,6 +87,36 @@ export const backfillMessages = defineMessages({
     'Failed to load the backfills': 'Failed to load the backfills',
     'Slot states': 'Slot states',
     'Failed to load the slots': 'Failed to load the slots',
+    'Last 24 hours': 'Last 24 hours',
+    'Last 90 days': 'Last 90 days',
+    Range: 'Range',
+    'The schedule fires no slot in this range.':
+      'The schedule fires no slot in this range.',
+    'Showing the newest {shown} of {total} slots. Pick a shorter range to see the rest.':
+      'Showing the newest {shown} of {total} slots. Pick a shorter range to see the rest.',
+    'Pick missing': 'Pick missing',
+    'Pick missing and failed': 'Pick missing and failed',
+    'Backfill 1 slot': 'Backfill 1 slot',
+    'Backfill {count} slots': 'Backfill {count} slots',
+    'Backfill this range': 'Backfill this range',
+    'Runs the {count} slots you picked, oldest first.':
+      'Runs the {count} slots you picked, oldest first.',
+    'Runs the past slots of the range, oldest first.':
+      'Runs the past slots of the range, oldest first.',
+    'What to run': 'What to run',
+    "The DAG's defaults": "The DAG's defaults",
+    'Nothing to run: every slot is done or held.':
+      'Nothing to run: every slot is done or held.',
+    'Slots {from} to {to}': 'Slots {from} to {to}',
+    'Run 1 slot that succeeded again': 'Run 1 slot that succeeded again',
+    'Run {count} slots that succeeded again':
+      'Run {count} slots that succeeded again',
+    'The plan changed. Review it and start again.':
+      'The plan changed. Review it and start again.',
+    'Failed to plan the backfill': 'Failed to plan the backfill',
+    'Failed to start the backfill': 'Failed to start the backfill',
+    'Start 1 run': 'Start 1 run',
+    'Start {count} runs': 'Start {count} runs',
     'Show backfill runs': 'Show backfill runs',
     'Runs of backfill {id}': 'Runs of backfill {id}',
     'Show all runs': 'Show all runs',
@@ -177,6 +207,34 @@ export const backfillMessages = defineMessages({
     'Failed to load the backfills': '加载回填列表失败',
     'Slot states': '时段状态',
     'Failed to load the slots': '加载时段失败',
+    'Last 24 hours': '过去 24 小时',
+    'Last 90 days': '过去 90 天',
+    Range: '范围',
+    'The schedule fires no slot in this range.': '该计划在此范围内没有时段。',
+    'Showing the newest {shown} of {total} slots. Pick a shorter range to see the rest.':
+      '显示 {total} 个时段中最新的 {shown} 个。选择更短的范围以查看其余时段。',
+    'Pick missing': '选择缺失的',
+    'Pick missing and failed': '选择缺失和失败的',
+    'Backfill 1 slot': '回填 1 个时段',
+    'Backfill {count} slots': '回填 {count} 个时段',
+    'Backfill this range': '回填此范围',
+    'Runs the {count} slots you picked, oldest first.':
+      '从最早的开始，运行你选择的 {count} 个时段。',
+    'Runs the past slots of the range, oldest first.':
+      '从最早的开始，运行该范围内过去的时段。',
+    'What to run': '运行内容',
+    "The DAG's defaults": 'DAG 的默认值',
+    'Nothing to run: every slot is done or held.':
+      '没有要运行的内容：所有时段均已完成或被占用。',
+    'Slots {from} to {to}': '时段 {from} 至 {to}',
+    'Run 1 slot that succeeded again': '重新运行 1 个已成功的时段',
+    'Run {count} slots that succeeded again': '重新运行 {count} 个已成功的时段',
+    'The plan changed. Review it and start again.':
+      '计划已更改。请检查后再次开始。',
+    'Failed to plan the backfill': '规划回填失败',
+    'Failed to start the backfill': '启动回填失败',
+    'Start 1 run': '启动 1 个运行',
+    'Start {count} runs': '启动 {count} 个运行',
     'Show backfill runs': '显示回填运行',
     'Runs of backfill {id}': '回填 {id} 的运行',
     'Show all runs': '显示全部运行',
@@ -267,6 +325,37 @@ export const backfillMessages = defineMessages({
     'Failed to load the backfills': 'バックフィルの一覧を読み込めませんでした',
     'Slot states': 'スロットの状態',
     'Failed to load the slots': 'スロットを読み込めませんでした',
+    'Last 24 hours': '過去 24 時間',
+    'Last 90 days': '過去 90 日間',
+    Range: '範囲',
+    'The schedule fires no slot in this range.':
+      'この範囲にスケジュールのスロットはありません。',
+    'Showing the newest {shown} of {total} slots. Pick a shorter range to see the rest.':
+      '{total} 件のスロットのうち新しい {shown} 件を表示しています。残りを見るには範囲を短くしてください。',
+    'Pick missing': '欠けているものを選択',
+    'Pick missing and failed': '欠けているものと失敗を選択',
+    'Backfill 1 slot': '1 件のスロットをバックフィル',
+    'Backfill {count} slots': '{count} 件のスロットをバックフィル',
+    'Backfill this range': 'この範囲をバックフィル',
+    'Runs the {count} slots you picked, oldest first.':
+      '選んだ {count} 件のスロットを古い順に実行します。',
+    'Runs the past slots of the range, oldest first.':
+      '範囲内の過去のスロットを古い順に実行します。',
+    'What to run': '実行するもの',
+    "The DAG's defaults": 'DAG の既定値',
+    'Nothing to run: every slot is done or held.':
+      '実行するものはありません: すべてのスロットが完了済みか保留中です。',
+    'Slots {from} to {to}': 'スロット {from} から {to}',
+    'Run 1 slot that succeeded again':
+      '成功した 1 件のスロットをもう一度実行する',
+    'Run {count} slots that succeeded again':
+      '成功した {count} 件のスロットをもう一度実行する',
+    'The plan changed. Review it and start again.':
+      '計画が変わりました。確認してからもう一度開始してください。',
+    'Failed to plan the backfill': 'バックフィルを計画できませんでした',
+    'Failed to start the backfill': 'バックフィルを開始できませんでした',
+    'Start 1 run': '1 件の実行を開始',
+    'Start {count} runs': '{count} 件の実行を開始',
     'Show backfill runs': 'バックフィルの実行を表示',
     'Runs of backfill {id}': 'バックフィル {id} の実行',
     'Show all runs': 'すべての実行を表示',

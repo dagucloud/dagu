@@ -13,6 +13,7 @@ import { backfillPath } from '../lib/backfillLinks';
 import { type Backfill, slotsDone } from '../lib/backfillState';
 import { BackfillProgress } from './BackfillProgress';
 import { BackfillStatusChip } from './BackfillStatusChip';
+import { DAGSlotsView } from './DAGSlotsView';
 
 const READ_ONCE = {
   revalidateOnFocus: false,
@@ -21,10 +22,20 @@ const READ_ONCE = {
 } as const;
 
 /**
- * The backfills of a DAG, newest first. The list is read when the tab opens
- * and on refresh; an open backfill in it follows its own live feed.
+ * A DAG's slots, to backfill from, and its backfills, newest first. The list
+ * is read when the tab opens and on refresh; an open backfill in it follows
+ * its own live feed.
  */
-export function DAGBackfillsTab({ dagName }: { dagName: string }) {
+export function DAGBackfillsTab({
+  dagName,
+  fileName,
+  canExecute,
+}: {
+  dagName: string;
+  fileName: string;
+  /** Whether the user may run the DAG in its workspace. */
+  canExecute: boolean;
+}) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const { data, error, mutate } = useQuery(
@@ -46,39 +57,42 @@ export function DAGBackfillsTab({ dagName }: { dagName: string }) {
   }
   const backfills = [...data.backfills].reverse();
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
-          {ts('Backfills')}
-        </span>
-        <RefreshButton
-          onRefresh={async () => {
-            await mutate();
-          }}
-        />
-      </div>
-      {backfills.length === 0 ? (
-        <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">
-            {ts('No backfills yet.')}
-          </p>
-          <p>
-            {ts(
-              'A backfill runs the past slots of this schedule. Start one with dagu backfill start.'
-            )}
-          </p>
+    <div className="flex flex-col gap-6">
+      <DAGSlotsView fileName={fileName} canExecute={canExecute} />
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">
+            {ts('Backfills')}
+          </span>
+          <RefreshButton
+            onRefresh={async () => {
+              await mutate();
+            }}
+          />
         </div>
-      ) : (
-        <ul className="flex flex-col divide-y rounded-md border">
-          {backfills.map((backfill) => (
-            <BackfillRow
-              key={backfill.id}
-              backfill={backfill}
-              remoteNode={remoteNode}
-            />
-          ))}
-        </ul>
-      )}
+        {backfills.length === 0 ? (
+          <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">
+              {ts('No backfills yet.')}
+            </p>
+            <p>
+              {ts(
+                'A backfill runs the past slots of this schedule. Start one with dagu backfill start.'
+              )}
+            </p>
+          </div>
+        ) : (
+          <ul className="flex flex-col divide-y rounded-md border">
+            {backfills.map((backfill) => (
+              <BackfillRow
+                key={backfill.id}
+                backfill={backfill}
+                remoteNode={remoteNode}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
