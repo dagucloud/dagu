@@ -215,6 +215,9 @@ into each project.
 
 - Editing the server layer needs a server-wide role, as editing global
   entries does in v2.
+- Every project's DAG authors can read server-layer secrets, since a DAG
+  can print what it receives, as in v2. The server layer holds only
+  credentials that every project may use.
 - Project pages list inherited entries read-only, marked as coming from the
   server. Secret values are never shown either way.
 - The server layer is stored in `paths.data_dir`, apart from the default
@@ -262,7 +265,9 @@ project seen from a checkout, not a second concept.
 
 - A project's DAG directory may hold `.dagu.json`. The server then reads the
   project's DAG files where `.dagu.json` says, so one checkout runs on a
-  laptop and as a server project.
+  laptop and as a server project. A path in `.dagu.json` that leads out of
+  the project's DAG directory, such as `../billing`, is a load error, so one
+  project never reads another's DAGs.
 - A `dagu` command run inside a project's DAG directory without `--project`
   addresses that project.
 - Spec 001 adopts these rules before either ships.
@@ -292,8 +297,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - Every project can call the library. A library call is not a cross-project
   call.
 - A Library page lists the library DAGs, and every user can read them. Only
-  admins change them, because a library DAG runs with the secrets of every
-  project that calls it.
+  admins change them through Dagu, because a library DAG runs with the
+  secrets of every project that calls it. On disk, [Access](#access)
+  applies.
 
 ### Access
 
@@ -304,6 +310,13 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - A user with neither gets `404` for the project's DAGs, runs, logs, and wiki
   pages. The project does not appear in lists or search.
 - `admin` is server-wide only.
+- Projects separate people who work through the UI, API, MCP, and CLI. They
+  do not separate people who can write DAG files. Whoever can change a
+  project's DAG directory can run code with that project's secrets, and
+  whoever can change the library can run code with the secrets of every
+  project that calls it. A multi-team install therefore gives each project
+  its own repository, or limits each project's directory to its team with
+  code owners, and limits `paths.alt_dags_dir` to admins.
 - OIDC and proxy `project_mappings` and `default_project_access` replace
   `workspace_mappings` and `default_workspace_access` with the same shape.
   v3.0 reads the old keys with a warning. v3.1 drops them.
@@ -644,6 +657,8 @@ v2 gets no new workspace features.
     `--project` addresses that project.
 29. After migration, a rename, or a move, the logs, step output, and
     artifacts of every moved run open as before.
+30. A `.dagu.json` path that leads out of its project's DAG directory is a
+    load error.
 
 ## Alternatives considered
 
@@ -723,8 +738,9 @@ v2 gets no new workspace features.
 
 1. **Git sync per project.** With `paths.projects_dags_dir`, one repository
    holds every project as `<name>/` directories. That keeps a v2 install's
-   setup and shows the migration as a single change to publish. Open: whether
-   git sync also supports one repository per project.
+   setup and shows the migration as a single change to publish. A multi-team
+   install that cannot limit paths with code owners needs one repository per
+   project ([Access](#access)). Open: whether git sync supports that in v3.0.
 2. **A server-wide cap on concurrent runs** across projects, beyond queues
    defined in `config.yaml`.
 3. **An index for reads across projects.** Search and the All projects view
