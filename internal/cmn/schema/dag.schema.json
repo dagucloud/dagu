@@ -4767,24 +4767,6 @@
           "type": "string",
           "description": "PostgreSQL connection string. Format: postgres://user:pass@host:port/dbname?sslmode=disable"
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
-        "conn_max_lifetime": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 300,
-          "description": "Maximum connection lifetime in seconds. 0 = no limit. Default: 300."
-        },
         "params": {
           "oneOf": [
             {
@@ -4868,18 +4850,6 @@
           "type": "string",
           "description": "SQLite connection string. Format: file:./path/to/db.sqlite or :memory: for in-memory database."
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5. Recommended: 1 for SQLite."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
         "params": {
           "oneOf": [
             {
@@ -4905,9 +4875,23 @@
           "type": "boolean",
           "description": "Wrap execution in a transaction."
         },
+        "isolation_level": {
+          "type": "string",
+          "enum": [
+            "default",
+            "read_committed",
+            "repeatable_read",
+            "serializable"
+          ],
+          "description": "Transaction isolation level."
+        },
         "file_lock": {
           "type": "boolean",
           "description": "Use file locking for exclusive database access. Creates a .lock file."
+        },
+        "shared_memory": {
+          "type": "boolean",
+          "description": "Enable shared cache for :memory: databases to share data across DAG steps."
         },
         "output_format": {
           "type": "string",
