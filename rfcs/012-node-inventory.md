@@ -37,9 +37,9 @@ workers ─────┘        │
 ## Problem statement
 
 Rundeck users keep their fleet in a resource model: every host, how it is
-grouped, its SSH user, and the Key Storage path of its key. Jobs select hosts with a node
-filter, and nothing in a job names a host. Ansible users keep the same data in
-an inventory.
+grouped, its SSH user, and the Key Storage path of its key. Jobs select hosts
+with a node filter, and nothing in a job names a host. Ansible users keep the
+same data in an inventory.
 
 Dagu has no such list:
 
@@ -211,15 +211,13 @@ A node comes from one place: the `nodes` block, one source, or one worker.
 
 - A name that two places declare is a problem on the node, naming both.
 - A `nodes` entry that sets only `labels`, `description`, or `disabled`
-  does not declare a node. It adds to the node of that name from a source or
-  a worker, and its labels win over theirs. This is how an operator labels a
-  discovered host or a worker. An entry that matches no node is a problem.
+  does not declare a node. It adds to the node of that name from a source,
+  and its labels win over the source's. This is how an operator labels a
+  discovered host. For a worker, such an entry may set only `disabled`. A
+  worker's labels come from its own configuration, so `worker_selector` and
+  filters see the same labels. An entry that matches no node is a problem.
 - A source's `defaults` fill fields its nodes did not set, then the file's
   `defaults` fill the rest. Defaults do not apply to workers.
-
-Labels from the `nodes` block are assigned by the operator. The labels a
-worker sends are its own claim. The Nodes page and the API show which is
-which.
 
 ### Sources
 
@@ -290,9 +288,10 @@ that map to one ref are a problem on each node that uses them.
 | `ansible_connection` unset, `ssh`, `smart`, or `paramiko` | `transport: ssh` |
 | Any other `ansible_connection`, such as `local` or `winrm` | The node is listed with a problem |
 | Every group containing the host, except `all` and `ungrouped` | Labels with no value |
-| Other scalar host variables | Labels, `key=value` |
-| Non-scalar variables | Dropped, with a warning |
-| `ansible_password`, `ansible_ssh_pass`, `ansible_become_password` | Not read, with a warning. Use a secret |
+
+No other host variable is read. Ansible inventories carry many variables that
+mean nothing to Dagu, and some hold passwords. A label that filters need is
+added with a label-only `nodes` entry.
 
 ### Workers
 
@@ -348,7 +347,10 @@ Rules:
   such as lookaround, is a filter error with its position. Comparing it for
   equality instead could make an exclusion exclude nothing.
 - An include clause on a label a node lacks does not match that node. An
-  exclude clause on it does not exclude it.
+  exclude clause on it does not exclude it. An exclude clause whose key is
+  neither a field nor a label key that any node in the inventory has is a
+  filter error, since it would exclude nothing. A misspelled or foreign
+  keyword fails instead of widening the selection.
 - Label keys and values match without case. Other fields match with case.
 - An empty filter is an error. Every node is selected only by `.*`.
 - The matched list is sorted by name.
@@ -547,8 +549,8 @@ The inventory is in the free tier.
   their environment.
 - Labels from scripts and Ansible are untrusted text. RFC 013 inserts them
   into commands only where the author writes `${node.*}`.
-- The labels a worker sends are its own claim. Labels set in `nodes.yaml`
-  are the operator's.
+- A worker's labels come from its configuration. Whoever configures a
+  worker decides which filters select it.
 - With strict checking on, no credential is sent to a host whose key is
   unknown or has changed, even by Test connection. Only a user with the trust
   role adds a key, and only the key whose fingerprint that user saw.
@@ -568,7 +570,7 @@ The inventory is in the free tier.
 | A source with `required: false` fails with nothing earlier to use | Its nodes are left out, with a warning |
 | A node breaks a rule, or two places declare its name | It is listed and matched, with a problem |
 | A worker with a set ID is offline | It is listed as `offline`, and RFC 013 fails an item that targets it |
-| A filter does not parse | The API, CLI, and UI report the position and the error |
+| A filter does not parse, or excludes by a key no node has | The API, CLI, and UI report the position and the error. A step with that filter fails before any node starts |
 | The coordinator is unreachable from a worker | Resolution fails, as secret resolution does |
 | Dagu Cloud is unreachable with sync on | Runs and local edits are unaffected. The change is sent later, and the Nodes page shows the delay |
 | A pulled version does not validate | It is not applied. The local files stay, and the Nodes page shows the error |
@@ -610,8 +612,9 @@ checked with RFC 013's first rollout phase.
 2. A Rundeck resource document in each of its four forms, and
    `ansible-inventory --list` output, load into the nodes the mapping tables
    give.
-3. A label-only `nodes` entry adds to a discovered node or a worker, and a
-   name declared in two places is a problem.
+3. A label-only `nodes` entry adds to a discovered node, a worker keeps the
+   labels its configuration gives it, and a name declared in two places is a
+   problem.
 4. Every case in [Failure behavior](#failure-behavior) ends as stated.
 5. No secret value appears in any API response, snapshot, log, or audit
    entry, and a literal credential fails validation.
