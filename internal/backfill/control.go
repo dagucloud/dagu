@@ -118,6 +118,11 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 	if err != nil {
 		return SubmitResult{}, err
 	}
+	// A carried run holds its slot, also while its history still shows how
+	// it ended before a retry that is about to start it.
+	for _, slot := range carried {
+		pending[slot.At.UTC()] = true
+	}
 	result := SubmitResult{}
 	if len(remaining) > 0 {
 		if result.Plan, err = s.plan(ctx, plan, pending, withdrawn); err != nil {

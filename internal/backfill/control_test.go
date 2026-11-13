@@ -247,3 +247,30 @@ func (h historyHook) SlotEvents(ctx context.Context, dag *ir.DAG, from, to time.
 	}
 	return h.HistoryReader.SlotEvents(ctx, dag, from, to)
 }
+
+// A resume between a retry's queueing of the slot and the retry's start
+// carries the retried run instead of planning a new run for its slot.
+func TestResumeCarriesARunARetryIsAboutToStart(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	runID := f.queued[0]
+	f.finish(runID, ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	// The retry has queued the slot again and not yet made the run active.
+	require.NoError(t, backfill.FollowRetry(f.ctx, f.store, status, time.Now()))
+
+	var stopped []string
+	resumed, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	require.NotNil(t, resumed.Record)
+	assert.Equal(t, runID, resumed.Record.Slots[0].RunID, "the resumed backfill follows the retried run")
+	assert.Equal(t, backfill.ActionSkipActive, actions(resumed.Plan)[0], "its slot gets no new run")
+}

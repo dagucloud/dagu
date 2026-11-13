@@ -52,13 +52,15 @@ type Report struct {
 
 // Describe reports each slot of a backfill from its progress and runs.
 // readRun returns a run's latest status, or an error wrapping
-// dagrun.ErrDAGRunIDNotFound when the run is gone.
+// dagrun.ErrDAGRunIDNotFound when the run is gone. A run that a retry has
+// queued again but not yet started reads as running.
 func Describe(ctx context.Context, store Store, readRun func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error), record *Record) (Report, error) {
 	progress, err := store.Progress(ctx, record.ID)
 	if err != nil {
 		return Report{}, err
 	}
 	byslot := currentProgress(record, progress)
+	now := time.Now()
 	report := Report{Record: record, Counts: make(map[SlotState]int)}
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
@@ -76,7 +78,7 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 			item.State = SlotStateFailed
 		case ProgressEnqueued:
 			var queue string
-			if item.State, queue, err = runState(ctx, readRun, record.DAGName, event.RunID); err != nil {
+			if item.State, queue, err = runState(ctx, readRun, record.DAGName, event, now); err != nil {
 				return Report{}, err
 			}
 			if item.State == SlotStateQueued && report.queue == "" {
@@ -89,9 +91,10 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 	return report, nil
 }
 
-// runState returns the state of a backfill run and the queue it runs on.
-func runState(ctx context.Context, readRun func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error), dagName, runID string) (SlotState, string, error) {
-	status, err := readRun(ctx, ir.NewDAGRunRef(dagName, runID))
+// runState returns the state of the run that event queued and the queue it
+// runs on.
+func runState(ctx context.Context, readRun func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error), dagName string, event Progress, now time.Time) (SlotState, string, error) {
+	status, err := readRun(ctx, ir.NewDAGRunRef(dagName, event.RunID))
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 		return SlotStateFailed, "", nil
 	}
@@ -104,7 +107,7 @@ func runState(ctx context.Context, readRun func(context.Context, ir.DAGRunRef) (
 		return SlotStateQueued, queue, nil
 	case status.Status.IsWaiting():
 		return SlotStateWaiting, queue, nil
-	case status.Status == ir.Running:
+	case status.Status == ir.Running, awaitsRetry(event, status, now):
 		return SlotStateRunning, queue, nil
 	case status.Status.IsSuccess():
 		return SlotStateSucceeded, queue, nil
