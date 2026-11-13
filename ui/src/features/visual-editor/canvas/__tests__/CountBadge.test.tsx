@@ -46,7 +46,7 @@ describe('CountBadge', () => {
     expect(getByTestId('flow')).not.toHaveClass('absolute');
   });
 
-  it('uses the destructive token for an error, as the trash button does', () => {
+  it('uses the destructive token for an error, as the trash button does on hover', () => {
     const { getByTestId, getByRole } = render(
       <>
         <CountBadge data-testid="error" count={1} tone="error" />
@@ -58,8 +58,8 @@ describe('CountBadge', () => {
       'text-destructive-foreground'
     );
     expect(getByRole('button', { name: 'trash' })).toHaveClass(
-      'hover:bg-destructive',
-      'hover:text-destructive-foreground'
+      'hover:border-destructive',
+      'hover:text-destructive'
     );
   });
 
