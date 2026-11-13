@@ -287,9 +287,11 @@ export function ResumeBackfillDialog({
             disabled={!plan || runs === 0 || !validConcurrency || submitting}
             onClick={() => void resume()}
           >
-            {runs === 1
-              ? ts('Resume 1 run')
-              : ts('Resume {count} runs', { count: runs })}
+            {!plan
+              ? ts('Resume')
+              : runs === 1
+                ? ts('Resume 1 run')
+                : ts('Resume {count} runs', { count: runs })}
           </Button>
         </DialogFooter>
       </DialogContent>
