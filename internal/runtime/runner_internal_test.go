@@ -1343,6 +1343,7 @@ func TestCheckMaskedReads(t *testing.T) {
 		command     string
 		description string
 		env         []string // the reading step's own env
+		dir         string   // the reading step's working_dir
 		noID        bool     // fetch has no id
 		published   string   // fetch's stored published outputs
 		captured    string   // fetch's stored captured text
@@ -1431,6 +1432,15 @@ func TestCheckMaskedReads(t *testing.T) {
 			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
+		// A path field keeps a backslash before $ as text, as in a Windows
+		// path, so the variable still resolves there.
+		{
+			name:    "output variable after a backslash in a path field",
+			command: "deploy",
+			dir:     `C:\${TOKEN}`,
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
+			wantErr: `output "TOKEN" of step "fetch"`,
+		},
 		{
 			name:        "mention in the description",
 			command:     "deploy",
@@ -1478,7 +1488,7 @@ func TestCheckMaskedReads(t *testing.T) {
 			}
 			plan, err := NewPlan(
 				ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"},
-				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description, Env: tt.env},
+				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description, Env: tt.env, Dir: tt.dir},
 			)
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")

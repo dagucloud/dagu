@@ -213,7 +213,7 @@ func ReportUnresolvedEnvExpansionNotices(input string, field Field, scope *EnvSc
 	matches := reVarSubstitution.FindAllStringSubmatchIndex(input, -1)
 	for _, loc := range matches {
 		match := input[loc[0]:loc[1]]
-		if isSingleQuotedVar(input, loc[0], loc[1]) || (field.escapesDollar() && isEscapedDollar(input, loc[0])) {
+		if isSingleQuotedVar(input, loc[0], loc[1]) || (field.EscapesDollar() && isEscapedDollar(input, loc[0])) {
 			continue
 		}
 

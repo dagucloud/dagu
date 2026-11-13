@@ -193,7 +193,7 @@ func (r Resolver) unqualifiedItemFieldError(ctx context.Context, raw string, fie
 	if !ok {
 		return nil
 	}
-	tokens := unqualifiedItemFieldReferences(raw, alias, field.escapesDollar())
+	tokens := unqualifiedItemFieldReferences(raw, alias, field.EscapesDollar())
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -443,7 +443,7 @@ func StepOutputReferences(raw string) []StepOutputReference {
 // StepOutputReferences returns the braced step output references the field
 // resolves in raw.
 func (f Field) StepOutputReferences(raw string) []StepOutputReference {
-	refs := scanReferences(raw, f.escapesDollar())
+	refs := scanReferences(raw, f.EscapesDollar())
 	out := make([]StepOutputReference, 0, len(refs))
 	for _, ref := range refs {
 		if ref.StepOutput == nil {

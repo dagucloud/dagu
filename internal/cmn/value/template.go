@@ -133,7 +133,7 @@ func resolveBindings(
 		return itemPath(path) || supportedStrictBinding(segments) || reservedBuiltinContextReference(segments)
 	}
 	// A leading non-identifier rune keeps an adjacent $NAME from absorbing a placeholder.
-	resolved, err := walkBindings(input, field.escapesDollar(), owned, func(token string, path string, escaped bool) (string, error) {
+	resolved, err := walkBindings(input, field.EscapesDollar(), owned, func(token string, path string, escaped bool) (string, error) {
 		item := itemPath(path)
 		switch {
 		case escaped && item:

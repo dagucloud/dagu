@@ -105,8 +105,8 @@ func (f Field) Key(key string) Field {
 	return child
 }
 
-// escapesDollar reports whether a backslash before $ is a Dagu escape marker.
-func (f Field) escapesDollar() bool {
+// EscapesDollar reports whether a backslash before $ is a Dagu escape marker.
+func (f Field) EscapesDollar() bool {
 	return !f.isPath
 }
 

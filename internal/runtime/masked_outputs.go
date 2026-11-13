@@ -18,11 +18,11 @@ import (
 type stepReads struct {
 	// text holds the references that insert text a step produced.
 	text []cmnvalue.StepTextReference
-	// values holds the field values, where output variables are read by name.
-	values []string
-	// envValues holds the values of the step's own env, which resolve while
+	// fields holds the fields, whose values read output variables by name.
+	fields []reffield.ReferenceField
+	// envFields holds the fields of the step's own env, which resolve while
 	// the predecessors' output variables are still in scope.
-	envValues []string
+	envFields []reffield.ReferenceField
 	// ownEnv names the variables the step's own env defines. They shadow a
 	// predecessor's output variable of the same name in the other fields.
 	ownEnv map[string]struct{}
@@ -33,9 +33,9 @@ func (n *Node) stepReads() stepReads {
 	n.readsOnce.Do(func() {
 		for _, field := range reffield.ReferenceFields(&ir.DAG{Steps: []ir.Step{n.Step()}}) {
 			n.reads.text = append(n.reads.text, field.Field.StepTextReferences(field.Value)...)
-			n.reads.values = append(n.reads.values, field.Value)
+			n.reads.fields = append(n.reads.fields, field)
 			if strings.HasPrefix(field.Path, field.OwnerStepPath+".env[") {
-				n.reads.envValues = append(n.reads.envValues, field.Value)
+				n.reads.envFields = append(n.reads.envFields, field)
 			}
 		}
 		for _, entry := range n.Step().Env {
@@ -114,11 +114,13 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 		if !masked.HasVariable(name) {
 			continue
 		}
-		values := reads.values
+		fields := reads.fields
 		if _, shadowed := reads.ownEnv[name]; shadowed {
-			values = reads.envValues
+			fields = reads.envFields
 		}
-		if slices.ContainsFunc(values, func(value string) bool { return readsVariable(value, name) }) {
+		if slices.ContainsFunc(fields, func(field reffield.ReferenceField) bool {
+			return readsVariable(field.Value, name, field.Field.EscapesDollar())
+		}) {
 			return name, true
 		}
 	}
@@ -163,10 +165,11 @@ func referencePath(ref cmnvalue.StepTextReference) string {
 }
 
 // readsVariable reports whether value reads the variable as $NAME or ${NAME}.
-// A dollar after an odd number of backslashes is escaped, so it is text.
-func readsVariable(value, name string) bool {
+// When escapes is set, a dollar after an odd number of backslashes is escaped,
+// so it is text.
+func readsVariable(value, name string, escapes bool) bool {
 	for i := 0; i < len(value); i++ {
-		if value[i] != '$' || escapedDollar(value, i) {
+		if value[i] != '$' || (escapes && escapedDollar(value, i)) {
 			continue
 		}
 		rest := value[i+1:]
