@@ -236,7 +236,9 @@ first discovered. The ID never changes; the name can.
 - CLI commands take `--project` (`DAGU_PROJECT`). The default is `default`.
 - API paths and MCP tools that address DAGs, runs, secrets, profiles, routes,
   policies, or wiki pages take `project`. The default is `default`, so
-  existing clients keep working against the default project.
+  existing clients keep working against the default project. Clients that
+  name a DAG which migration moved keep working too, as
+  [Existing clients](#existing-clients) describes.
 - `/projects` lists and creates projects. The `/workspaces*`,
   `/settings/workspaces/*`, `/notification-routes/workspaces/*`,
   `/incident-policies/workspaces/*`, and `/profiles/_workspaces/*` paths and
@@ -473,6 +475,26 @@ The plan also lists these items without refusing:
   time, a target found in neither the caller's project nor the library fails
   the step with a load error that names both.
 
+### Existing clients
+
+v2 DAG names are unique on a server, so API clients, CLI scripts, MCP
+clients, and webhook URLs name a DAG without its workspace. Migration must
+not break them.
+
+- A request without `project` that names a DAG the default project lacks
+  resolves to the project that has a DAG of that name, when exactly one
+  project the caller can see has one. The response carries a deprecation
+  warning.
+- With no such project, or several, the request fails, and the error names
+  the projects the caller can see that have the DAG. Projects the caller
+  cannot see are never named or matched.
+- CLI commands without `--project` and MCP tools without `project` resolve
+  the same way and print the warning.
+- Per-DAG webhook URLs keep their paths and tokens, and reach the DAG in its
+  new project.
+- The admin page lists the users and API keys that still rely on this
+  fallback. A later major release removes it.
+
 ### Before migration
 
 While anything the migration would move remains, v3.0 starts in a
@@ -563,6 +585,9 @@ v2 gets no new workspace features.
 23. A user who can see one project sees no project selector.
 24. Every user can read library DAGs on the Library page, and only admins
     change them.
+25. After migration, an API call, CLI command, MCP call, or webhook URL that
+    named a v2 DAG without its workspace still reaches the DAG, with a
+    deprecation warning, unless the caller cannot see its project.
 
 ## Alternatives considered
 
@@ -616,7 +641,8 @@ v2 gets no new workspace features.
 - Settings every project shares stay in one place, in the server layer.
 - Upgrading an install with workspaces takes one reviewed command.
 - Project-scoped API paths, MCP tools, and CLI commands gain a project
-  parameter. Clients that omit it address the default project.
+  parameter. Clients that omit it address the default project, or, until a
+  later major release, the one project that has the DAG they name.
 - `dag.run` cannot cross projects. Shared child DAGs live in the library and
   run in the caller's project.
 - The scheduler gains a supervisor, and project units reuse the current
