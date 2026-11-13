@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React, { useState } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -71,6 +71,47 @@ describe('SecretValueInput', () => {
       screen.getByText(`id_ed25519 loaded (${pemKey.length} bytes)`)
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('b3BlbnNzaC1rZXk=');
+  });
+
+  it('shows an error and keeps no value when a file cannot be read', async () => {
+    const user = userEvent.setup();
+    const { latest } = renderInput();
+
+    await user.click(screen.getByLabelText('Multi-line or file'));
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    const file = new File([pemKey], 'id_ed25519');
+    file.text = () => Promise.reject(new Error('unreadable'));
+    await user.upload(
+      document.getElementById('secret-value') as HTMLElement,
+      file
+    );
+
+    expect(
+      await screen.findByText('Failed to read the selected file')
+    ).toBeInTheDocument();
+    expect(latest()).toBe('');
+  });
+
+  // A read that finishes after the user switched to text entry must not
+  // overwrite the text value.
+  it('ignores a file read that finishes after the mode changes', async () => {
+    const user = userEvent.setup();
+    const { latest } = renderInput();
+
+    await user.click(screen.getByLabelText('Multi-line or file'));
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    let finishRead: (text: string) => void = () => undefined;
+    const file = new File([pemKey], 'id_ed25519');
+    file.text = () => new Promise((resolve) => (finishRead = resolve));
+    await user.upload(
+      document.getElementById('secret-value') as HTMLElement,
+      file
+    );
+    await user.click(screen.getByRole('button', { name: 'Text' }));
+    await act(async () => finishRead(pemKey));
+
+    expect(latest()).toBe('');
+    expect(document.getElementById('secret-value')).toHaveValue('');
   });
 
   it('clears the value when the input mode changes', async () => {

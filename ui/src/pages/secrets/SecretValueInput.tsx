@@ -9,7 +9,7 @@ import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 type ValueMode = 'single' | 'text' | 'file';
 
@@ -30,25 +30,44 @@ export function SecretValueInput({
 }): React.ReactElement {
   const [mode, setMode] = useState<ValueMode>('single');
   const [loadedFile, setLoadedFile] = useState<LoadedFile | null>(null);
+  const [readFailed, setReadFailed] = useState(false);
+  // Counts file reads, so a read that finishes after a newer selection, a
+  // mode change, or unmount is ignored.
+  const readGeneration = useRef(0);
+
+  useEffect(
+    () => () => {
+      readGeneration.current++;
+    },
+    []
+  );
 
   function switchMode(next: ValueMode): void {
     if (next === mode) return;
+    readGeneration.current++;
     setMode(next);
     setLoadedFile(null);
+    setReadFailed(false);
     onChange('');
   }
 
   async function handleFile(
     event: React.ChangeEvent<HTMLInputElement>
   ): Promise<void> {
+    const generation = ++readGeneration.current;
+    setLoadedFile(null);
+    setReadFailed(false);
+    onChange('');
     const file = event.target.files?.[0];
-    if (!file) {
-      setLoadedFile(null);
-      onChange('');
-      return;
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (generation !== readGeneration.current) return;
+      onChange(text);
+      setLoadedFile({ name: file.name, size: file.size });
+    } catch {
+      if (generation === readGeneration.current) setReadFailed(true);
     }
-    onChange(await file.text());
-    setLoadedFile({ name: file.name, size: file.size });
   }
 
   return (
@@ -119,6 +138,11 @@ export function SecretValueInput({
                     text={'{name} loaded ({size} bytes)'}
                     values={{ name: loadedFile.name, size: loadedFile.size }}
                   />
+                </p>
+              ) : null}
+              {readFailed ? (
+                <p className="text-xs text-destructive">
+                  <I18nText text={'Failed to read the selected file'} />
                 </p>
               ) : null}
             </>
