@@ -11,7 +11,6 @@ import {
   FileCog,
   Gauge,
   GitBranch,
-  History,
   KeyRound,
   Layers,
   Network,
@@ -22,6 +21,7 @@ import {
   SquareTerminal,
   Users,
   Webhook,
+  Wrench,
 } from 'lucide-react';
 import * as React from 'react';
 import { UserRole } from '@/api/v1/schema';
@@ -93,11 +93,8 @@ export function useNavigationSections(): {
       to: '/dags',
       text: t('navigation.workflows'),
       icon: <Network size={16} />,
-    },
-    {
-      to: '/dag-runs',
-      text: t('navigation.executions'),
-      icon: <History size={16} />,
+      // The runs of all the workflows are the Runs mode of this page.
+      activePaths: ['/dags', '/dag-runs'],
     },
     {
       to: '/queues',
@@ -157,6 +154,11 @@ export function useNavigationSections(): {
           to: '/base-config',
           text: t('navigation.baseConfig'),
           icon: <FileCog size={16} />,
+        },
+        {
+          to: '/ai',
+          text: t('navigation.ai'),
+          icon: <Wrench size={16} />,
         },
         {
           to: '/calendars',

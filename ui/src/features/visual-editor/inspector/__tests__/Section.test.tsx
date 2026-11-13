@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Section } from '../Section';
 
 describe('Section', () => {
@@ -41,5 +41,27 @@ describe('Section', () => {
     expect(screen.getByRole('button', { name: 'General' }).className).toContain(
       'focus-visible:ring-2'
     );
+  });
+
+  it('opens and comes into view when its reveal key changes, not before', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const view = (revealKey?: number) => (
+      <Section title="Tools" defaultOpen={false} revealKey={revealKey}>
+        <p>body</p>
+      </Section>
+    );
+    const { rerender } = render(view());
+    expect(scroll).not.toHaveBeenCalled();
+    expect(screen.queryByText('body')).toBeNull();
+    rerender(view(1));
+    expect(screen.getByText('body')).toBeInTheDocument();
+    expect(scroll).toHaveBeenCalledTimes(1);
+    // A second request opens it again after the user closed it.
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    expect(screen.queryByText('body')).toBeNull();
+    rerender(view(2));
+    expect(screen.getByText('body')).toBeInTheDocument();
+    expect(scroll).toHaveBeenCalledTimes(2);
   });
 });

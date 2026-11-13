@@ -87,7 +87,8 @@ function historyIndex(): number | null {
  * runs at its own URL, with all its links and keys; the page below keeps
  * the location it had. The overlay ends when the URL leaves the workflow
  * pages: Back to the page below, a link to another page, or close. A reload
- * shows the workflow page alone.
+ * shows the workflow page alone. The app does not mount it: see
+ * OVERLAY_MOUNTED.
  */
 export function WorkflowOverlayProvider({
   children,

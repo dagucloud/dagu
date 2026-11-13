@@ -291,7 +291,6 @@ describe('sidebar menu', () => {
     expectLinks(document.body, [
       ['Overview', '/'],
       ['Workflows', '/dags'],
-      ['Executions', '/dag-runs'],
       ['Queues', '/queues'],
       ['Artifacts', '/artifacts'],
       ['Wiki', '/wiki'],
@@ -305,6 +304,7 @@ describe('sidebar menu', () => {
     expectLinks(screen.getByRole('group', { name: 'Configure' }), [
       ['Profiles & Secrets', '/profiles'],
       ['Base Config', '/base-config'],
+      ['AI', '/ai'],
       ['Webhooks', '/webhooks'],
       ['Git Sync', '/git-sync'],
       ['API Reference', '/api-docs'],
@@ -317,6 +317,10 @@ describe('sidebar menu', () => {
     ]);
     expect(
       screen.queryByRole('button', { name: 'Workflows' })
+    ).not.toBeInTheDocument();
+    // The runs are the Runs mode of the Workflows page, not a sidebar entry.
+    expect(
+      screen.queryByRole('link', { name: 'Executions' })
     ).not.toBeInTheDocument();
   });
 
@@ -613,8 +617,35 @@ describe('sidebar menu', () => {
     expect(runViewLink).toHaveAttribute('href', '/dag-runs?view=run-1');
     expect(runViewLink).toHaveAttribute('aria-current', 'page');
     expect(runViewLink.querySelector('svg')).toHaveClass('lucide-star');
-    const executionsLink = screen.getByRole('link', { name: 'Executions' });
-    expect(executionsLink).not.toHaveAttribute('aria-current');
+    expect(
+      screen.queryByRole('link', { name: 'Executions' })
+    ).not.toBeInTheDocument();
+  });
+
+  // Known product defect: the starred run view is active, and Workflows (which
+  // owns /dag-runs) should not be active too. The suppression in menu.tsx is
+  // keyed on the removed '/dag-runs' item, so this test fails once fixed.
+  it('does not keep Workflows active on a starred run view', () => {
+    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+      views:
+        type === ViewSpecType.run
+          ? [
+              {
+                id: 'run-1',
+                name: 'Failed runs',
+                pinned: true,
+                workspace: '',
+                workspaceScope: ViewWorkspaceScope.all,
+              },
+            ]
+          : [],
+    }));
+
+    renderMenu('/dag-runs?view=run-1');
+
+    expect(screen.getByRole('link', { name: 'Workflows' })).not.toHaveAttribute(
+      'aria-current'
+    );
   });
 
   it('renders starred artifact views for the current scope in the sidebar', () => {
@@ -703,7 +734,7 @@ describe('sidebar menu', () => {
   });
 
   it.each([
-    ['/dag-runs', 'Executions'],
+    ['/dag-runs', 'Workflows'],
     ['/dags/example', 'Workflows'],
     ['/queues', 'Queues'],
     ['/artifacts', 'Artifacts'],

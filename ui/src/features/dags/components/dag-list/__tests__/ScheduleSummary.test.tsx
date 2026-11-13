@@ -88,7 +88,7 @@ describe('ScheduleLine', () => {
       })
     );
     const line = screen.getByTestId('schedule-line');
-    expect(line.textContent).toBe('in 8 minutes · every 15 min');
+    expect(line.textContent).toBe('in 8m · every 15 min');
     expect(line.querySelector('[title="*/15 * * * *"]')).not.toBeNull();
     expect(screen.queryByText(/^\+\d/)).toBeNull();
     expect(line.className).toContain('h-6');

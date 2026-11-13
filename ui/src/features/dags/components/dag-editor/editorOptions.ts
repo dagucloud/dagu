@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { editor } from 'monaco-editor';
+import {
+  EDITOR_FONT_FAMILY,
+  EDITOR_UNICODE_HIGHLIGHT,
+  EDITOR_WRAP,
+} from '@/lib/monaco-look';
 
 /** The options of the Monaco YAML editor of the DAG. */
 export function buildEditorOptions(opts: {
@@ -31,9 +36,11 @@ export function buildEditorOptions(opts: {
     lineNumbers: lineNumbers ? 'on' : 'off',
     // No decoration uses the glyph margin: it would stay an empty column.
     glyphMargin: false,
-    fontFamily:
-      "'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+    fontFamily: EDITOR_FONT_FAMILY,
     fontSize: 13,
+    // A prompt is long text: a long line wraps.
+    ...EDITOR_WRAP,
+    unicodeHighlight: EDITOR_UNICODE_HIGHLIGHT,
     padding: {
       top: 8,
       bottom: 8,

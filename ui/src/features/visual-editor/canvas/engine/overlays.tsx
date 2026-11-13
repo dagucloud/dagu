@@ -37,6 +37,7 @@ import {
   useViewportStore,
   useViewportValue,
 } from './store';
+import type { FlowNode } from './types';
 
 const PANEL_POSITION = {
   'top-left': 'left-2 top-2',
@@ -223,6 +224,9 @@ export function Controls({
   );
 }
 
+/** No node has a kind: the same empty list for every draw, so that it compares equal. */
+const NO_KINDS: readonly (MinimapKind | undefined)[] = [];
+
 const MINIMAP_WIDTH = 200;
 const MINIMAP_HEIGHT = 150;
 /** A tall graph gets a tall overview, up to this height, and at least this width. */
@@ -333,11 +337,21 @@ export function minimapLayout(
   };
 }
 
+/**
+ * What a node is in the overview: an agent step is drawn dark, the cards around
+ * it (its model, prompt, skills, tools and DAGs) in a middle grey, and a node
+ * that is `hidden` is not drawn. Any other node is plain, in a light grey. The
+ * accent colour stays for the selection and the view.
+ */
+export type MinimapKind = 'agent' | 'satellite' | 'hidden';
+
 /** Colours of the overview, read from the theme. */
 interface MinimapColors {
   node: string;
   selected: string;
   viewFill: string;
+  agent: string;
+  satellite: string;
 }
 
 /** Flow to canvas px: `px = flow * scale + offset`. The box is centred. */
@@ -361,20 +375,42 @@ function minimapPlace(
   };
 }
 
-/** Draws the node boxes. A node that is selected keeps the selection colour. */
+/**
+ * Draws the node boxes. A node that is selected keeps the selection colour. The
+ * kind of a node (`kinds`, at the place of its rectangle) sets its colour: the
+ * satellites first, the agent steps over them, so that an agent step is not
+ * hidden by the cards that hang from it.
+ */
 export function drawMinimapNodes(
   ctx: CanvasRenderingContext2D,
   rects: readonly Rect[],
   selected: ReadonlySet<number>,
   layout: MinimapLayout,
   place: MinimapPlace,
-  colors: MinimapColors
+  colors: MinimapColors,
+  kinds?: readonly (MinimapKind | undefined)[]
 ): void {
   const minNode = MINIMAP_MIN_NODE * layout.unit;
   ctx.lineWidth = place.scale;
-  rects.forEach((r, index) => {
+  const order = (kind: MinimapKind | undefined) =>
+    kind === 'agent' ? 2 : kind === 'satellite' ? 1 : 0;
+  const indexes = rects
+    .map((_, index) => index)
+    .filter((index) => kinds?.[index] !== 'hidden');
+  if (kinds) {
+    indexes.sort((a, b) => order(kinds[a]) - order(kinds[b]) || a - b);
+  }
+  for (const index of indexes) {
+    const r = rects[index]!;
     const isSelected = selected.has(index);
-    ctx.fillStyle = isSelected ? colors.selected : colors.node;
+    const kind = kinds?.[index];
+    ctx.fillStyle = isSelected
+      ? colors.selected
+      : kind === 'agent'
+        ? colors.agent
+        : kind === 'satellite'
+          ? colors.satellite
+          : colors.node;
     ctx.beginPath();
     const x = r.x * place.scale + place.x;
     const y = r.y * place.scale + place.y;
@@ -390,7 +426,7 @@ export function drawMinimapNodes(
       ctx.strokeStyle = colors.selected;
       ctx.stroke();
     }
-  });
+  }
 }
 
 /** Draws the part that the view shows. */
@@ -431,6 +467,7 @@ function sameSet(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
 /** What the node layer of the overview shows. */
 interface MinimapStatic {
   rects: readonly Rect[];
+  kinds: readonly (MinimapKind | undefined)[];
   selected: ReadonlySet<number>;
   box: Rect;
   width: number;
@@ -451,6 +488,8 @@ function sameStatic(a: MinimapStatic | null, b: MinimapStatic): boolean {
     a.box.width === b.box.width &&
     a.box.height === b.box.height &&
     sameSet(a.selected, b.selected) &&
+    a.kinds.length === b.kinds.length &&
+    a.kinds.every((kind, index) => kind === b.kinds[index]) &&
     sameRects(a.rects, b.rects)
   );
 }
@@ -463,6 +502,7 @@ function sameStatic(a: MinimapStatic | null, b: MinimapStatic): boolean {
  */
 function MiniMapCanvas({
   rects,
+  kinds,
   selected,
   layout,
   held,
@@ -470,6 +510,7 @@ function MiniMapCanvas({
   visible,
 }: {
   rects: readonly Rect[];
+  kinds: readonly (MinimapKind | undefined)[];
   selected: ReadonlySet<number>;
   layout: MinimapLayout;
   /** The layout of a drag in progress, which every frame of the drag keeps. */
@@ -484,8 +525,8 @@ function MiniMapCanvas({
   const drawn = useRef<MinimapStatic | null>(null);
   // Read again when the theme changes.
   const colors = useRef<MinimapColors | null>(null);
-  const live = useRef({ rects, selected, layout, size, visible });
-  live.current = { rects, selected, layout, size, visible };
+  const live = useRef({ rects, kinds, selected, layout, size, visible });
+  live.current = { rects, kinds, selected, layout, size, visible };
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -499,13 +540,15 @@ function MiniMapCanvas({
       return;
     }
     if (!colors.current) {
-      const [node, selectedColor, viewFill] = Array.from(probes.children).map(
-        (probe) => getComputedStyle(probe).color
-      );
+      const [node, selectedColor, viewFill, agent, satellite] = Array.from(
+        probes.children
+      ).map((probe) => getComputedStyle(probe).color);
       colors.current = {
         node: node ?? '',
         selected: selectedColor ?? '',
         viewFill: viewFill ?? '',
+        agent: agent ?? '',
+        satellite: satellite ?? '',
       };
     }
     // The box follows the view when the view leaves the graph, at each frame:
@@ -525,6 +568,7 @@ function MiniMapCanvas({
     }
     const wanted: MinimapStatic = {
       rects: current.rects,
+      kinds: current.kinds,
       selected: current.selected,
       box: layout.box,
       width,
@@ -548,7 +592,8 @@ function MiniMapCanvas({
           current.selected,
           layout,
           place,
-          colors.current
+          colors.current,
+          current.kinds
         );
       }
     }
@@ -609,6 +654,8 @@ function MiniMapCanvas({
         <i className="text-muted-foreground/40" />
         <i className="text-primary" />
         <i className="text-primary/5" />
+        <i className="text-foreground/75" />
+        <i className="text-muted-foreground/70" />
       </span>
     </>
   );
@@ -626,8 +673,18 @@ export function MiniMap({
   hidden = false,
   hideWhenFitted = false,
   persistent = false,
+  nodeKind,
+  nodeRect,
 }: {
   onUserMove?(): void;
+  /** What each node is in the overview. A node with no kind is plain. */
+  nodeKind?(node: FlowNode): MinimapKind | undefined;
+  /**
+   * The part of the box of a node that the overview draws, in flow units. A
+   * step with sub-nodes draws its card, not the box that holds the sub-nodes.
+   * A node that gives none is drawn at its whole box.
+   */
+  nodeRect?(node: FlowNode, box: Rect): Rect | undefined;
   /** No overview, for a canvas too small for it. */
   hidden?: boolean;
   /** No overview while every node is in view: there is nowhere to go. */
@@ -745,11 +802,16 @@ export function MiniMap({
     return () => clearTimeout(timer);
   }, [x, y, zoom]);
 
-  const rects = store.nodeRects();
+  const nodes = store.nodes();
+  const boxes = store.nodeRects();
+  const rects = nodeRect
+    ? boxes.map((box, index) => nodeRect(nodes[index]!, box) ?? box)
+    : boxes;
   // The selected nodes keep the colour of the selection in the overview.
   const selectedRects = new Set(
-    store.nodes().flatMap((node, index) => (node.selected ? [index] : []))
+    nodes.flatMap((node, index) => (node.selected ? [index] : []))
   );
+  const kinds = nodeKind ? nodes.map((node) => nodeKind(node)) : NO_KINDS;
   const view = visibleRect(viewport, size);
   const layout = dragLayout.current ?? minimapLayout(rects, view);
   if (hidden || !layout || size.width === 0) {
@@ -793,7 +855,9 @@ export function MiniMap({
     <Panel
       position="bottom-left"
       className={cn(
-        'hidden motion-safe:transition-opacity motion-safe:duration-300 md:block',
+        // The host can keep the foot of the canvas free (a tab that lies over
+        // it): it sets `--canvas-inset-bottom` on an element above the canvas.
+        'mb-[var(--canvas-inset-bottom,0px)] hidden motion-safe:transition-opacity motion-safe:duration-300 md:block',
         visible ? 'opacity-100' : 'pointer-events-none opacity-0',
         resting && !moving && !hovered && 'opacity-60'
       )}
@@ -831,6 +895,7 @@ export function MiniMap({
       >
         <MiniMapCanvas
           rects={rects}
+          kinds={kinds}
           selected={selectedRects}
           layout={layout}
           held={dragLayout}

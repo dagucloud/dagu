@@ -2,14 +2,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useId, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 export interface SectionProps {
   title: ReactNode;
   defaultOpen?: boolean;
   /** Number of issues in the section; a badge shows it when it is not 0. */
   count?: number;
-  /** A new value opens the section, so that a field in it can take focus. */
+  /**
+   * A new value opens the section, so that a field in it can take focus, and
+   * brings the section into view.
+   */
   revealKey?: number;
   children: ReactNode;
 }
@@ -33,11 +43,17 @@ export function Section({
     }
   }
   const bodyId = useId();
+  const box = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (revealKey !== undefined) {
+      box.current?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [revealKey]);
   return (
-    <section className="border-b border-border">
+    <section ref={box} className="border-b border-border">
       <button
         type="button"
-        className="flex h-7 w-full items-center gap-1 px-2 text-left text-xs font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex h-8 w-full items-center gap-1 px-3 text-left text-xs font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={() => setOpen((value) => !value)}
@@ -54,7 +70,7 @@ export function Section({
           </span>
         )}
       </button>
-      <div id={bodyId} hidden={!open} className="space-y-2 px-2 pb-2 pt-1">
+      <div id={bodyId} hidden={!open} className="space-y-3 px-3 pb-3 pt-1">
         {open ? children : null}
       </div>
     </section>

@@ -143,7 +143,8 @@ function tokenEnd(text: string, start: number): number {
 }
 
 /**
- * The unclosed, unescaped "${" that the caret is inside, or a lone '$' just before the caret.
+ * The unescaped "${" that the caret is inside, or a lone '$' just before the caret.
+ * The "${" can have its '}' after the caret.
  * from = index of '$'; query = text between "${" (or "$") and the caret. null otherwise.
  */
 export function findOpenReference(
