@@ -4,7 +4,7 @@
 - **Date:** 2026-10-09, revised 2026-10-24 and 2026-11-13
 - **Affected areas:** `workspace`, `auth`, `spec` (base config), `runtime`
   (`dag.run` resolution), `secret`, `profile`, notification routes, incident
-  policies, wiki, `audit`, `gitsync`, `persis`, `cmn/crypto`,
+  policies, wiki, `audit`, `gitsync`, `persis`, `cmn/crypto`, `cloudreport`,
   `service/scheduler`, `service/coordinator`, `service/mcp`, `api/v1`,
   `proto`, `ui`, and `cmn/config`
 
@@ -18,7 +18,8 @@ serves every project. Child DAGs that several projects call live in a library
 at `paths.alt_dags_dir` and run in the project that calls them.
 
 Each project has an ID that survives renames. Grants, audit entries, and
-distributed tasks refer to the ID; people refer to the name.
+distributed tasks refer to the ID; people refer to the name. Dagu Cloud tells
+projects apart by an explicit binding, never by name.
 
 `dagu migrate workspaces` moves each v2 workspace into a project. v3.0 refuses
 to start while unmigrated workspace items remain. Installs without workspaces
@@ -59,7 +60,8 @@ workspaces without a replacement would keep those installs on v2.
 5. Migrate workspaces with one reviewed command, and never change silently
    which settings or secrets a workflow runs with.
 6. Leave "workspace" to mean only the Dagu Cloud account.
-7. Give each project an identity that survives renames.
+7. Give each project an identity that survives renames and that Dagu Cloud
+   can tell apart across servers, without putting Dagu Cloud in the run path.
 
 ## Non-goals
 
@@ -189,9 +191,10 @@ the caller's file, in its own file, or in the library.
 Each project has an ID, a random UUID assigned when the project is created or
 first discovered. The ID never changes; the name can.
 
-- A server-wide registry holds each project's ID, name, and creation time.
-  Every write to it holds one lock and checks the name rules before it
-  stores. Writes are rare, so one lock costs nothing.
+- A server-wide registry holds each project's ID, name, creation time, and
+  [Dagu Cloud binding](#binding). Every write to it holds one lock and
+  checks the name rules before it stores. Writes are rare, so one lock costs
+  nothing.
 - Records that outlive a request refer to a project by ID: grants, audit
   entries, dispatch tasks, leases, and status reports. Names are for people:
   `--project`, the API's `project` parameter, and `project_mappings` take a
@@ -263,20 +266,21 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   project rename`. The rename holds the registry lock while it moves the
   project's directories and updates the registry. Discovery takes the same
   lock, so no process sees the moved directory as a new project. The ID,
-  grants, and run history stay. Clients that address the project by name use
-  the new name. With `paths.projects_dags_dir` set, a git checkout shows the
-  moved DAG directory as a change to commit.
+  grants, Dagu Cloud binding, and run history stay. Clients that address the
+  project by name use the new name. With `paths.projects_dags_dir` set, a git
+  checkout shows the moved DAG directory as a change to commit.
 - **Delete.** An admin deletes a project in the UI or API, or with `dagu
-  project delete`. It removes the project's directories, registry entry, and
-  grants. With `paths.projects_dags_dir` set, it is refused while the
-  project's DAG directory exists: the checkout owns that directory, so it is
-  removed there first.
+  project delete`. It removes the project's directories, registry entry,
+  grants, and Dagu Cloud binding. With `paths.projects_dags_dir` set, it is
+  refused while the project's DAG directory exists: the checkout owns that
+  directory, so it is removed there first.
 - Rename and delete are refused while the project has runs queued, running,
   or waiting.
 - **Changed on disk.** A directory renamed or removed outside Dagu is not a
-  rename. The old registry entry keeps its ID and grants, and the projects
-  page lists it as missing until its directory returns or an admin deletes
-  it. A renamed directory registers as a new project, with no grants.
+  rename. The old registry entry keeps its ID, grants, and binding, and the
+  projects page lists it as missing until its directory returns or an admin
+  deletes it. A renamed directory registers as a new project, with no grants
+  and no binding.
 
 ### UI
 
@@ -325,6 +329,52 @@ scheduler process   HA lock, health server, service registry, signals, license
 - A worker's own `dags_dir` and `alt_dags_dir` serve only default-project
   tasks, so a project run never picks up a default-project DAG with the same
   name.
+
+## Dagu Cloud
+
+Workflows never depend on Dagu Cloud
+([RFC 002](002-dagu-cloud-connector.md)), and projects keep it that way.
+Everything below is metadata about a project. Losing the connection changes
+no run.
+
+### Binding
+
+- An admin of a connected server binds a project to a project of the Dagu
+  Cloud workspace the server is connected to, in the UI or with `dagu project
+  bind`. The registry stores the Dagu Cloud project's ID.
+- Dagu Cloud never matches projects by name. Two servers share a Dagu Cloud
+  project only when an admin of each has bound a local project to it, so
+  `weather` on two servers stays two projects until someone binds them.
+- A server binds a Dagu Cloud project to at most one of its projects.
+  Unbinding, or disconnecting the server, ends what the binding enables and
+  leaves the local project as it is.
+- In Dagu Cloud, a project belongs to a workspace and is what servers bind
+  to. A bundle of DAG files that Dagu Cloud deploys is a version of such a
+  project, not a second kind of project.
+
+### Reports
+
+Report protocol 3 extends the
+[RFC 002 wire contract](002-dagu-cloud-connector.md#wire-contract):
+
+- Each run, scheduled DAG, and queue that is not defined in `config.yaml`
+  carries `project`: the local project's ID and name, and the Dagu Cloud
+  project's ID when bound.
+- Dagu Cloud keys a server's workflows by project ID and DAG name, so `etl`
+  in two projects is two workflows. A protocol 2 report belongs to the
+  default project.
+- The reporter reads every project's run events and keeps a cursor for each.
+  It sends Dagu Cloud one opaque `cursor` for the set, still at most 4096
+  bytes, and reports a gap when any project lost events.
+
+### What a binding enables
+
+- **Inventory sync** ([RFC 012](012-node-inventory.md#dagu-cloud-sync))
+  covers bound projects only. Servers bound to the same Dagu Cloud project
+  share its inventories.
+- **Deploys,** in a later RFC, write only into a bound project and never
+  create one. A deploy owns the project's DAG files and base config: the
+  server does not edit them, and a change on disk shows as drift.
 
 ## Migration
 
@@ -430,13 +480,18 @@ v2 gets no new workspace features.
     moves their runs and state.
 15. A project name that breaks the name rules is refused at creation and
     skipped at discovery, and the server logs it.
-16. Renaming a project keeps its ID, grants, and run history. Rename and
+16. Renaming a project keeps its ID, grants, Dagu Cloud binding, and run
+    history. Rename and
     delete are refused while the project has runs queued, running, or
     waiting.
 17. A directory renamed outside Dagu registers as a new project without
     grants, and the old entry is listed as missing.
 18. Every project's secrets decrypt with the server's key, and no project
     directory holds a key of its own.
+19. A connected server's reports carry each run's project, and two projects
+    with the same DAG name are two workflows in Dagu Cloud.
+20. Two servers share a Dagu Cloud project only after an admin of each binds
+    a local project to it.
 
 ## Alternatives considered
 
@@ -468,6 +523,9 @@ v2 gets no new workspace features.
 - **Directories named by project ID.** Makes a rename a registry update, but
   the layout and git checkouts become unreadable, and adding a directory no
   longer creates a project.
+- **Matching projects across servers by name.** A guess: two servers may
+  use one name for unrelated work, and macOS and Windows ignore the case
+  that Linux keeps.
 - **An encryption key per project.** Keeps a copied directory's secrets
   unreadable elsewhere, but migration must re-encrypt every secret, and each
   key is one more file to back up.
@@ -488,6 +546,8 @@ v2 gets no new workspace features.
   names are valid directory names on macOS, Windows, and Linux.
 - Every store is either per project or server-wide, and stores added later
   follow the same rule.
+- Dagu Cloud tells projects apart by binding, and report protocol 3 names
+  each run's project.
 
 ## Open questions
 
