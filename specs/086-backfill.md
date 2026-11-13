@@ -220,6 +220,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   active until the retries succeed or run out.
 - A backfill ends `succeeded` when every slot's run succeeded or the slot was
   skipped, and `failed` otherwise.
+- A backfill that ended more than `slot_retention_days` ago is removed when
+  its DAG next gets a backfill.
 
 ### Listing and following backfills
 
@@ -296,7 +298,7 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `slot_retention_days` | `730` | Days a slot stays in the slot history. A positive integer. |
+| `slot_retention_days` | `730` | Days a slot stays in the slot history, and an ended backfill stays listed. A positive integer. |
 | `scheduler.backfill_max_slots` | `10000` | Most slots one backfill may cover. |
 
 ## Errors

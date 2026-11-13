@@ -31,6 +31,9 @@ func FollowRetry(ctx context.Context, store Store, status *ir.DAGRunStatus, now 
 	}
 	defer unlock()
 	record, err := store.Get(ctx, status.BackfillID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

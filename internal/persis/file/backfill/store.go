@@ -267,6 +267,32 @@ func (s *Store) Update(ctx context.Context, record *backfill.Record) error {
 	return nil
 }
 
+// Delete removes a backfill. The record goes first: a crash after it leaves
+// marks and progress that name no record, which every read passes over. The
+// backfill's lock directory stays, since the caller holds it and a process
+// waiting on it fails if it goes.
+func (s *Store) Delete(ctx context.Context, id string) error {
+	record, err := s.Get(ctx, id)
+	if errors.Is(err, backfill.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	paths := []string{
+		s.recordPath(id),
+		s.progressPath(id),
+		s.openPath(id),
+		filepath.Join(s.dagDir(record.DAGName), id),
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("backfill store: delete %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
 // recordPaths returns the paths of the records of a DAG, or of every DAG
 // when dagName is empty.
 func (s *Store) recordPaths(dagName string) ([]string, error) {
