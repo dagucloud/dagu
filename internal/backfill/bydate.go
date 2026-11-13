@@ -103,21 +103,26 @@ func slotsByDate(req PlanRequest, liveFrom time.Time) ([]time.Time, error) {
 	sched := req.Schedule
 	fromStart := time.Date(req.FromDate.Year, req.FromDate.Month, req.FromDate.Day, 0, 0, 0, 0, sched.Location)
 	first, err := req.firstSlotFrom(fromStart)
-	if err != nil || first.IsZero() || !first.Before(liveFrom) {
+	if err != nil || first.IsZero() {
 		return nil, err
 	}
 	last := liveFrom.Add(-time.Nanosecond)
 	if !req.ToDate.IsZero() {
 		toEnd := time.Date(req.ToDate.Year, req.ToDate.Month, req.ToDate.Day+1, 0, 0, 0, 0, sched.Location)
-		if last, err = req.lastSlotUntil(toEnd, last); err != nil || last.IsZero() || last.Before(first) {
+		if last, err = req.lastSlotUntil(toEnd, last); err != nil || last.IsZero() {
 			return nil, err
 		}
 	}
+	// The ends are widened before they are compared, since a clamp can leave
+	// the walked ends crossed while fires between the widened ends match.
 	first = first.Add(-boundarySlack)
 	if widened := last.Add(boundarySlack); widened.Before(liveFrom) {
 		last = widened
 	} else {
 		last = liveFrom.Add(-time.Nanosecond)
+	}
+	if !first.Before(liveFrom) || last.Before(first) {
+		return nil, nil
 	}
 	fires, more := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, first, last, maxSlotsOf(req.MaxSlots)+maxBoundaryFires)
 	if more {

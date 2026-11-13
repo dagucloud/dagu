@@ -150,3 +150,26 @@ func TestSlotsByDateAcrossMonthClamp(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 1, 27, 22, 0, 0, 0, time.UTC), rng.Slots[0])
 	assert.Equal(t, time.Date(2026, 1, 31, 21, 0, 0, 0, time.UTC), rng.Slots[len(rng.Slots)-1])
 }
+
+// A range of one clamped date can leave the walked ends crossed; the
+// widened ends still find its fires.
+func TestSlotsByDateCrossedEnds(t *testing.T) {
+	t.Parallel()
+
+	hourly := dailyAt(t, "0 * * * *")
+	dag := datedDAG(hourly, ir.DateSpec{Name: "due", Shift: []string{"+1mo", "+2h"}})
+	_, rng := resolveBy(t, dag, hourly, backfill.Request{By: "due", From: "2026-03-01", To: "2026-03-01"})
+
+	// 22:00 and 23:00 of January 28 to 31 load March 1, since January 29 to
+	// 31 clamp to February 28; so do February 1 00:00 to 21:00.
+	var want []time.Time
+	for day := 28; day <= 31; day++ {
+		want = append(want,
+			time.Date(2026, 1, day, 22, 0, 0, 0, time.UTC),
+			time.Date(2026, 1, day, 23, 0, 0, 0, time.UTC))
+	}
+	for hour := 0; hour <= 21; hour++ {
+		want = append(want, time.Date(2026, 2, 1, hour, 0, 0, 0, time.UTC))
+	}
+	assert.Equal(t, want, rng.Slots)
+}
