@@ -180,7 +180,7 @@ dates:
 params:
   - name: date
     eval: "${dates.target_day}"
-  - name: path
+  - name: target_dir
     eval: "/data/${dates.target_day}"
 steps:
   - name: noop
