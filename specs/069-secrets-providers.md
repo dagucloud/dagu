@@ -103,8 +103,9 @@ that runs the step's command or script expands it from its environment:
 Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, a name
 a shell leaves in a comment, in single quotes, or in a quoted heredoc, a name
-a script expands after it sets its own value, and a `js` or `template` script,
-which is passed on as written. A variable the step's own `env:` defines takes the place
+a script expands after it sets or unsets its own value, and a `js` or
+`template` script, which is passed on as written. A value a script sets in a
+subshell, in code that may not run, or as a function's local holds only there. A variable the step's own `env:` defines takes the place
 of the output variable in its other fields and in the `env:` entries after the
 one that defines it, and of two predecessors that set the same variable, the
 one later in scope order does. A handler step resolves its `env:` before output

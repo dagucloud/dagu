@@ -149,22 +149,25 @@ func noteShellReads(ctx context.Context, text string) {
 
 // shellEnvReads returns the variables a POSIX shell reads from its
 // environment when it runs text: each one the script expands before it sets
-// or unsets a value of its own. A function body counts where the function is
-// first called. Text the parser rejects counts every name outside single
-// quotes.
+// or unsets a value of its own. A value set in a subshell, in code that may
+// not run, or as a function's local holds only there, and a function body
+// counts where the function is first called. Text the parser rejects counts
+// every name outside single quotes.
 func shellEnvReads(text string) []string {
 	file, err := syntax.NewParser().Parse(strings.NewReader(text), "")
 	if err != nil {
 		return unparsedShellReads(text)
 	}
-	scan := shellScan{calls: firstCalls(file), set: make(map[string]shellPos)}
-	scan.walk(file, nil)
+	scan := shellScan{calls: firstCalls(file)}
+	root := scan.newScope(-1, scopeScript)
+	for _, stmt := range file.Stmts {
+		scan.walk(stmt, root, nil)
+	}
 	var names []string
 	for _, r := range scan.reads {
-		if at, ok := scan.set[r.name]; ok && !r.at.before(at) {
-			continue
+		if !scan.setBefore(r) {
+			names = append(names, r.name)
 		}
-		names = append(names, r.name)
 	}
 	return names
 }
@@ -179,22 +182,87 @@ func (p shellPos) before(q shellPos) bool {
 	return p.call < q.call || (p.call == q.call && p.offset < q.offset)
 }
 
+type scopeKind int
+
+const (
+	scopeScript scopeKind = iota
+	// scopeContained is a subshell or code that may not run: values set in
+	// it hold only there.
+	scopeContained
+	// scopeFunction is a function body: only its local values hold only
+	// there.
+	scopeFunction
+)
+
+type shellScope struct {
+	parent int
+	kind   scopeKind
+}
+
+// shellVar is a variable read or set at a point of a scope.
+type shellVar struct {
+	name  string
+	at    shellPos
+	scope int
+}
+
 type shellScan struct {
 	// calls holds the offset where each function is first called.
-	calls map[string]uint
-	reads []shellRead
-	// set holds, for each variable the script sets, the earliest point
-	// where its own value takes effect.
-	set map[string]shellPos
+	calls  map[string]uint
+	scopes []shellScope
+	reads  []shellVar
+	sets   []shellVar
 }
 
-type shellRead struct {
-	name string
-	at   shellPos
+func (s *shellScan) newScope(parent int, kind scopeKind) int {
+	s.scopes = append(s.scopes, shellScope{parent: parent, kind: kind})
+	return len(s.scopes) - 1
 }
 
-// walk scans node; call is the offset of the call that runs it, or nil.
-func (s *shellScan) walk(node syntax.Node, call *uint) {
+// setBefore reports whether the script sets r's variable, where r's scope
+// sees it, before r reads it.
+func (s *shellScan) setBefore(r shellVar) bool {
+	for _, set := range s.sets {
+		if set.name == r.name && !r.at.before(set.at) && s.encloses(set.scope, r.scope) {
+			return true
+		}
+	}
+	return false
+}
+
+// encloses reports whether scope outer is inner or one of its parents.
+func (s *shellScan) encloses(outer, inner int) bool {
+	for scope := inner; scope >= 0; scope = s.scopes[scope].parent {
+		if scope == outer {
+			return true
+		}
+	}
+	return false
+}
+
+// globalScope returns the scope a plain assignment in scope sets: functions
+// share the variables of the code that calls them.
+func (s *shellScan) globalScope(scope int) int {
+	for s.scopes[scope].kind == scopeFunction {
+		scope = s.scopes[scope].parent
+	}
+	return scope
+}
+
+// localScope returns the scope a local declaration in scope sets: the
+// enclosing function body, or the scope itself outside a function.
+func (s *shellScan) localScope(scope int) int {
+	for at := scope; at >= 0; at = s.scopes[at].parent {
+		if s.scopes[at].kind == scopeFunction {
+			return at
+		}
+	}
+	return scope
+}
+
+// walk scans node, which runs in scope; call is the offset of the call that
+// runs it, or nil.
+func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 	at := func(pos syntax.Pos) shellPos {
 		if call != nil {
 			return shellPos{call: *call, offset: pos.Offset()}
@@ -202,19 +270,70 @@ func (s *shellScan) walk(node syntax.Node, call *uint) {
 		return shellPos{call: pos.Offset(), offset: pos.Offset()}
 	}
 	read := func(name string, pos syntax.Pos) {
-		s.reads = append(s.reads, shellRead{name: name, at: at(pos)})
+		s.reads = append(s.reads, shellVar{name: name, at: at(pos), scope: scope})
 	}
-	assign := func(name string, pos syntax.Pos) {
-		if prev, ok := s.set[name]; !ok || at(pos).before(prev) {
-			s.set[name] = at(pos)
+	set := func(name string, pos syntax.Pos, target int) {
+		s.sets = append(s.sets, shellVar{name: name, at: at(pos), scope: target})
+	}
+	nested := func(stmts []*syntax.Stmt, kind scopeKind) {
+		inner := s.newScope(scope, kind)
+		for _, stmt := range stmts {
+			s.walk(stmt, inner, call)
 		}
 	}
 	syntax.Walk(node, func(node syntax.Node) bool {
 		switch n := node.(type) {
 		case *syntax.FuncDecl:
 			if first, ok := s.calls[n.Name.Value]; ok {
-				s.walk(n.Body, &first)
+				s.walk(n.Body, s.newScope(scope, scopeFunction), &first)
 			}
+			return false
+		case *syntax.Subshell:
+			nested(n.Stmts, scopeContained)
+			return false
+		case *syntax.CmdSubst:
+			nested(n.Stmts, scopeContained)
+			return false
+		case *syntax.ProcSubst:
+			nested(n.Stmts, scopeContained)
+			return false
+		case *syntax.IfClause:
+			for _, stmt := range n.Cond {
+				s.walk(stmt, scope, call)
+			}
+			nested(n.Then, scopeContained)
+			if n.Else != nil {
+				s.walk(n.Else, s.newScope(scope, scopeContained), call)
+			}
+			return false
+		case *syntax.WhileClause:
+			for _, stmt := range n.Cond {
+				s.walk(stmt, scope, call)
+			}
+			nested(n.Do, scopeContained)
+			return false
+		case *syntax.ForClause:
+			s.walk(n.Loop, scope, call)
+			nested(n.Do, scopeContained)
+			return false
+		case *syntax.CaseClause:
+			s.walk(n.Word, scope, call)
+			for _, item := range n.Items {
+				for _, pattern := range item.Patterns {
+					s.walk(pattern, scope, call)
+				}
+				nested(item.Stmts, scopeContained)
+			}
+			return false
+		case *syntax.BinaryCmd:
+			// Each side of a pipeline runs in a subshell; the right side of
+			// && and || may not run.
+			if n.Op == syntax.Pipe || n.Op == syntax.PipeAll {
+				nested([]*syntax.Stmt{n.X}, scopeContained)
+			} else {
+				s.walk(n.X, scope, call)
+			}
+			nested([]*syntax.Stmt{n.Y}, scopeContained)
 			return false
 		case *syntax.ParamExp:
 			if n.Param != nil {
@@ -229,15 +348,20 @@ func (s *shellScan) walk(node syntax.Node, call *uint) {
 						if a.Append {
 							read(a.Name.Value, a.Pos())
 						}
-						assign(a.Name.Value, a.End())
+						set(a.Name.Value, a.End(), s.globalScope(scope))
 					}
 				}
 				break
 			}
 			for _, name := range assignedNames(n.Args) {
-				assign(name, n.End())
+				set(name, n.End(), s.globalScope(scope))
 			}
 		case *syntax.DeclClause:
+			target := s.globalScope(scope)
+			switch n.Variant.Value {
+			case "local", "declare", "typeset":
+				target = s.localScope(scope)
+			}
 			for _, a := range n.Args {
 				if a.Name == nil || (a.Naked && (n.Variant.Value == "export" || n.Variant.Value == "readonly")) {
 					continue
@@ -245,10 +369,10 @@ func (s *shellScan) walk(node syntax.Node, call *uint) {
 				if a.Append {
 					read(a.Name.Value, a.Pos())
 				}
-				assign(a.Name.Value, a.End())
+				set(a.Name.Value, a.End(), target)
 			}
 		case *syntax.WordIter:
-			assign(n.Name.Value, n.End())
+			set(n.Name.Value, n.End(), s.globalScope(scope))
 		case *syntax.ArithmExp:
 			arithmReads(n.X, read)
 		case *syntax.ArithmCmd:
