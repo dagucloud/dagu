@@ -300,11 +300,16 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   directory, so it is removed there first.
 - Rename and delete are refused while the project has runs queued, running,
   or waiting.
-- **Changed on disk.** A directory renamed or removed outside Dagu is not a
-  rename. The old registry entry keeps its ID, grants, and binding, and the
-  projects page lists it as missing until its directory returns or an admin
-  deletes it. A renamed directory registers as a new project, with no grants
-  and no binding.
+- **Changed on disk.** A project whose DAG directory disappears outside
+  Dagu, as it does when a git checkout renames it, is listed as missing. Its
+  entry keeps its ID, grants, binding, and run history. When a new directory
+  appears in the same discovery pass, the projects page asks an admin
+  whether the project was renamed to it, and the new directory is not
+  scheduled until the admin answers. Confirming finishes the rename: the
+  runtime state moves to the new name, and the project keeps everything
+  else. Declining registers the new directory as a new project, with no
+  grants and no binding. An admin can also relink a missing project to any
+  unregistered directory, or delete it.
 
 ### UI
 
@@ -522,8 +527,10 @@ v2 gets no new workspace features.
     history. Rename and
     delete are refused while the project has runs queued, running, or
     waiting.
-17. A directory renamed outside Dagu registers as a new project without
-    grants, and the old entry is listed as missing.
+17. A project directory renamed outside Dagu is offered to an admin as a
+    rename and is not scheduled until the admin answers. Confirming keeps
+    the project's ID, grants, binding, and run history; declining registers
+    a new project without grants.
 18. Every project's secrets decrypt with the server's key, and no project
     directory holds a key of its own.
 19. A connected server's reports carry each run's project, and two projects
@@ -566,6 +573,9 @@ v2 gets no new workspace features.
 - **An ID file in each project directory.** Survives renames made on disk,
   but every DAG checkout then carries a generated file, and a copied
   directory claims the same ID.
+- **Relink renamed directories without asking.** Smoother for git users,
+  but a wrong guess hands one project's grants, secrets, and history to
+  unrelated DAGs.
 - **Directories named by project ID.** Makes a rename a registry update, but
   the layout and git checkouts become unreadable, and adding a directory no
   longer creates a project.
