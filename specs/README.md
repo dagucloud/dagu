@@ -86,6 +86,7 @@ It must not be treated as product behavior until implementation catches up.
 | [084: Business Calendars](084-business-calendars.md) | Implemented |
 | [085: Scheduler High Availability](085-scheduler-ha.md) | Partially implemented |
 | [086: Backfill](086-backfill.md) | Partially implemented |
+| [087: Label Filters](087-label-filters.md) | Implemented |
 
 **Writing guidelines:**
 
