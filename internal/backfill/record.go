@@ -192,6 +192,11 @@ type Store interface {
 	// LockDAG holds a lock that serializes submits for a DAG across
 	// processes until unlock is called.
 	LockDAG(ctx context.Context, dagName string) (unlock func(), err error)
+	// LockRecord holds a lock on one backfill across processes until unlock
+	// is called. A retry that queues a slot again and the end of the
+	// backfill take it, so neither misses the other. Its holder takes no
+	// other lock.
+	LockRecord(ctx context.Context, id string) (unlock func(), err error)
 	// Append adds progress events to a backfill.
 	Append(ctx context.Context, id string, events ...Progress) error
 	// Progress returns a backfill's progress events in the order appended.

@@ -8,7 +8,9 @@
 //	├── <backfill id>.progress.jsonl   its slots' progress, appended
 //	├── <backfill id>.open             present while the backfill is open
 //	├── .dags/<hex DAG name>/<id>      names each backfill of a DAG
-//	└── .locks/<hex DAG name>/         the submit lock of a DAG
+//	└── .locks/
+//	    ├── <hex DAG name>/            the submit lock of a DAG
+//	    └── record-<backfill id>/      the lock of one backfill
 package backfill
 
 import (
@@ -34,8 +36,11 @@ const (
 	openSuffix     = ".open"
 	dagsDirName    = ".dags"
 	locksDirName   = ".locks"
-	dirPermissions = 0o750
-	filePerms      = 0o600
+	// recordLockPrefix keeps the lock of a backfill apart from the hex
+	// names of the DAG locks.
+	recordLockPrefix = "record-"
+	dirPermissions   = 0o750
+	filePerms        = 0o600
 	// lockStaleThreshold frees the lock of a process that died holding it.
 	lockStaleThreshold = 30 * time.Second
 	lockRetryInterval  = 50 * time.Millisecond
@@ -153,7 +158,18 @@ func (s *Store) Open(_ context.Context) ([]*backfill.Record, error) {
 
 // LockDAG holds the submit lock of a DAG.
 func (s *Store) LockDAG(ctx context.Context, dagName string) (func(), error) {
-	dir := filepath.Join(s.dir, locksDirName, hex.EncodeToString([]byte(dagName)))
+	return s.lock(ctx, filepath.Join(s.dir, locksDirName, hex.EncodeToString([]byte(dagName))), dagName)
+}
+
+// LockRecord holds the lock of one backfill.
+func (s *Store) LockRecord(ctx context.Context, id string) (func(), error) {
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		return nil, backfill.ErrNotFound
+	}
+	return s.lock(ctx, filepath.Join(s.dir, locksDirName, recordLockPrefix+id), id)
+}
+
+func (s *Store) lock(ctx context.Context, dir, name string) (func(), error) {
 	if err := os.MkdirAll(dir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("backfill store: create %s: %w", dir, err)
 	}
@@ -162,7 +178,7 @@ func (s *Store) LockDAG(ctx context.Context, dagName string) (func(), error) {
 		RetryInterval:  lockRetryInterval,
 	})
 	if err := lock.Lock(ctx); err != nil {
-		return nil, fmt.Errorf("backfill store: lock %s: %w", dagName, err)
+		return nil, fmt.Errorf("backfill store: lock %s: %w", name, err)
 	}
 	return func() { _ = lock.Unlock() }, nil
 }

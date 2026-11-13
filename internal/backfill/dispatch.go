@@ -168,10 +168,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		if active > 0 {
 			return nil
 		}
-		if unchanged, err := d.progressUnchanged(ctx, record, seen); err != nil || !unchanged {
-			return err
-		}
-		return d.stop(ctx, record, pending)
+		return d.finish(ctx, record, seen, StatusFailed, pending)
 	}
 	if len(pending) > 0 && active < record.Options.MaxConcurrency {
 		target, err := d.Target(ctx, record)
@@ -191,26 +188,42 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		}
 	}
 	if len(pending) == 0 && active == 0 {
-		if unchanged, err := d.progressUnchanged(ctx, record, seen); err != nil || !unchanged {
-			return err
-		}
 		status := StatusSucceeded
 		if failed {
 			status = StatusFailed
 		}
-		return d.Store.End(ctx, record.ID, status, d.now())
+		return d.finish(ctx, record, seen, status, nil)
 	}
 	return nil
 }
 
-// progressUnchanged reports whether the backfill's progress still holds the
-// seen events only.
-func (d *Dispatcher) progressUnchanged(ctx context.Context, record *Record, seen int) (bool, error) {
+// finish ends the backfill with status, after marking the slots it did not
+// reach as not run. A retry that queued a slot again after the tick read
+// the progress keeps it open; the record lock orders the two.
+func (d *Dispatcher) finish(ctx context.Context, record *Record, seen int, status Status, notRun []RecordSlot) error {
+	unlock, err := d.Store.LockRecord(ctx, record.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	progress, err := d.Store.Progress(ctx, record.ID)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return len(progress) == seen, nil
+	if len(progress) != seen {
+		return nil
+	}
+	now := d.now()
+	if len(notRun) > 0 {
+		events := make([]Progress, len(notRun))
+		for i, slot := range notRun {
+			events[i] = Progress{Slot: slot.At, Kind: ProgressNotRun, Generation: record.Generation, At: now}
+		}
+		if err := d.Store.Append(ctx, record.ID, events...); err != nil {
+			return err
+		}
+	}
+	return d.Store.End(ctx, record.ID, status, now)
 }
 
 // retryStartGrace bounds how long a run that a retry queued again may stay
@@ -229,8 +242,12 @@ func awaitsRetry(event Progress, status *ir.DAGRunStatus, now time.Time) bool {
 // its run has not been seen to end, from its run.
 func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress, now time.Time) (slotOutcome, error) {
 	switch event.Kind {
-	case ProgressSkipped, ProgressNotRun, ProgressCancelled:
+	case ProgressSkipped, ProgressCancelled:
 		return slotSettled, nil
+	case ProgressNotRun:
+		// A slot that a stopped backfill did not reach did not succeed,
+		// also once a retry opens the backfill again.
+		return slotFailed, nil
 	case ProgressSucceeded:
 		return slotSucceeded, nil
 	case ProgressFailed:
@@ -329,21 +346,6 @@ func (d *Dispatcher) cancelRemaining(ctx context.Context, record *Record, pendin
 		return err
 	}
 	return d.Store.End(ctx, record.ID, StatusCancelled, now)
-}
-
-// stop marks the slots a stopped backfill did not reach and ends it failed.
-func (d *Dispatcher) stop(ctx context.Context, record *Record, pending []RecordSlot) error {
-	if len(pending) > 0 {
-		now := d.now()
-		events := make([]Progress, len(pending))
-		for i, slot := range pending {
-			events[i] = Progress{Slot: slot.At, Kind: ProgressNotRun, Generation: record.Generation, At: now}
-		}
-		if err := d.Store.Append(ctx, record.ID, events...); err != nil {
-			return err
-		}
-	}
-	return d.Store.End(ctx, record.ID, StatusFailed, d.now())
 }
 
 func (d *Dispatcher) now() time.Time {

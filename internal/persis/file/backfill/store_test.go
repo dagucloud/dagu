@@ -78,30 +78,37 @@ func TestStoreListReadsOneDAG(t *testing.T) {
 	assert.Error(t, err, "listing every DAG reads the record that does not decode")
 }
 
-// Holders of a DAG's lock in different stores run one at a time.
-func TestStoreLockDAGSerializes(t *testing.T) {
+// Holders of a DAG's lock, or of a backfill's lock, in different stores
+// run one at a time.
+func TestStoreLocksSerialize(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	dir := t.TempDir()
-	var inside, overlaps atomic.Int32
-
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			unlock, err := filebackfill.New(dir).LockDAG(ctx, "etl")
-			if !assert.NoError(t, err) {
-				return
+	for name, lock := range map[string]func(*filebackfill.Store) (func(), error){
+		"dag":    func(s *filebackfill.Store) (func(), error) { return s.LockDAG(context.Background(), "etl") },
+		"record": func(s *filebackfill.Store) (func(), error) { return s.LockRecord(context.Background(), "aaaaaaaa") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			var inside, overlaps atomic.Int32
+			var wg sync.WaitGroup
+			for range 4 {
+				wg.Go(func() {
+					unlock, err := lock(filebackfill.New(dir))
+					if !assert.NoError(t, err) {
+						return
+					}
+					if inside.Add(1) > 1 {
+						overlaps.Add(1)
+					}
+					time.Sleep(10 * time.Millisecond)
+					inside.Add(-1)
+					unlock()
+				})
 			}
-			if inside.Add(1) > 1 {
-				overlaps.Add(1)
-			}
-			time.Sleep(10 * time.Millisecond)
-			inside.Add(-1)
-			unlock()
+			wg.Wait()
+			assert.Zero(t, overlaps.Load())
 		})
 	}
-	wg.Wait()
-	assert.Zero(t, overlaps.Load())
 }
 
 func TestStoreProgressAndEnd(t *testing.T) {

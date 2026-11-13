@@ -452,3 +452,60 @@ func TestDispatchStaysOpenForARetryDuringATick(t *testing.T) {
 	f.tick()
 	assert.Equal(t, backfill.StatusSucceeded, f.record(record.ID).Status)
 }
+
+// A retry of a run of a backfill that ended opens the backfill again: it
+// ends as the slots end then. A cancelled backfill stays cancelled, and a
+// stopped one still has the slots it did not reach.
+func TestRetryReopensAnEndedBackfill(t *testing.T) {
+	t.Parallel()
+	t.Run("failed", func(t *testing.T) {
+		t.Parallel()
+		f := newDispatchFixture(t)
+		record := f.submit(backfill.Options{OnFailure: backfill.OnFailureContinue})
+		for i, status := range []ir.Status{ir.Failed, ir.Succeeded, ir.Succeeded} {
+			f.tick()
+			f.finish(f.queued[i], status)
+		}
+		f.tick()
+		require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+		f.retry(f.queued[0])
+		assert.True(t, f.record(record.ID).Open(), "the retry opens the backfill")
+		f.tick()
+		assert.True(t, f.record(record.ID).Open())
+		f.finish(f.queued[0], ir.Succeeded)
+		f.tick()
+		assert.Equal(t, backfill.StatusSucceeded, f.record(record.ID).Status, "every slot succeeded")
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		t.Parallel()
+		f := newDispatchFixture(t)
+		record := f.submit(backfill.Options{})
+		f.tick()
+		f.finish(f.queued[0], ir.Failed)
+		require.NoError(t, f.store.End(f.ctx, record.ID, backfill.StatusCancelled, f.clock))
+
+		f.retry(f.queued[0])
+		assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+		report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+		require.NoError(t, err)
+		assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State, "the slot follows its run")
+	})
+	t.Run("stopped", func(t *testing.T) {
+		t.Parallel()
+		f := newDispatchFixture(t)
+		record := f.submit(backfill.Options{})
+		f.tick()
+		f.finish(f.queued[0], ir.Failed)
+		f.tick()
+		require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+		f.retry(f.queued[0])
+		f.tick()
+		assert.True(t, f.record(record.ID).Open())
+		f.finish(f.queued[0], ir.Succeeded)
+		f.tick()
+		assert.Equal(t, backfill.StatusFailed, f.record(record.ID).Status, "two slots were not run")
+		assert.Len(t, f.queued, 1, "the stopped backfill queues nothing more")
+	})
+}
