@@ -79,7 +79,7 @@ func TestValidateStepReferences(t *testing.T) {
 			stderrParts: []string{"${steps.build.outputs.artifact}", "reason=namespace_unavailable", "handler_on.success.run"},
 		},
 		{
-			file:        "notice_handler_working_dir_output_reference.yaml",
+			file:        "notice_handler_working_dir_reference.yaml",
 			stderrParts: []string{"${steps.build.outputs.dir}", "reason=namespace_unavailable", "handler_on.success.working_dir"},
 		},
 	}
@@ -145,7 +145,7 @@ func TestRuntimeStepReferenceExecution(t *testing.T) {
 		{
 			// The handler runs in a directory named by the literal reference.
 			name:    "handler working_dir step output reference stays literal",
-			file:    "notice_handler_working_dir_output_reference.yaml",
+			file:    "notice_handler_working_dir_reference.yaml",
 			output:  "${steps.build.outputs.dir}/handler-working-dir.txt",
 			content: "handler\n",
 		},
