@@ -13900,6 +13900,20 @@ components:
         - defaultSlot
         - dates
 
+    BackfillRunSlot:
+      type: object
+      description: "Which of its backfill's slots a run ran"
+      properties:
+        index:
+          type: integer
+          description: "The slot's place among the backfill's slots, from 1"
+        count:
+          type: integer
+          description: "How many slots the backfill has"
+      required:
+        - index
+        - count
+
     SlotParamValue:
       type: object
       description: "A param and the value it would take from a slot"
@@ -17478,6 +17492,8 @@ components:
             defaultSlot:
               type: boolean
               description: "The run named no slot and took the default slot, the latest fire at or before its creation"
+            backfillSlot:
+              $ref: "#/components/schemas/BackfillRunSlot"
             nodes:
               type: array
               description: "Status of individual steps within the DAG-run"

@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
@@ -121,8 +122,13 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 	// Run directories name their creation to the second.
 	submitted := now.Add(-48 * time.Hour).Truncate(time.Second).Add(500 * time.Millisecond)
 	store := filebackfill.New(filebackfill.Dir(server.Config.Paths.DataDir))
+	slots := []backfill.RecordSlot{
+		{At: time.Date(2025, 10, 1, 2, 0, 0, 0, time.UTC)},
+		{At: time.Date(2025, 10, 2, 2, 0, 0, 0, time.UTC)},
+		{At: time.Date(2025, 10, 3, 2, 0, 0, 0, time.UTC)},
+	}
 	require.NoError(t, store.Create(ctx, &backfill.Record{
-		ID: "bf123456", DAGName: dag.Name, DAGFile: dag.Location, CreatedAt: submitted,
+		ID: "bf123456", DAGName: dag.Name, DAGFile: dag.Location, CreatedAt: submitted, Slots: slots,
 		Options: backfill.Options{Rerun: backfill.RerunNone, MaxConcurrency: 1, OnFailure: backfill.OnFailureStop},
 	}))
 	for runID, run := range map[string]struct {
@@ -140,6 +146,7 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 		require.NoError(t, attempt.Open(ctx))
 		require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
 			Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: ir.Succeeded, BackfillID: backfillID,
+			ScheduleTime: stringutil.FormatTime(slots[1].At),
 		}))
 		require.NoError(t, attempt.Close(ctx))
 	}
@@ -160,6 +167,8 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 	var details api.GetDAGRunDetails200JSONResponse
 	server.Client().Get("/api/v1/dag-runs/"+dag.Name+"/bf-run").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
 	assert.Equal(t, new("bf123456"), details.DagRunDetails.BackfillId)
+	// The run tells which of its backfill's slots it ran.
+	assert.Equal(t, &api.BackfillRunSlot{Index: 2, Count: 3}, details.DagRunDetails.BackfillSlot)
 }
 
 func TestBackfillAPIRejects(t *testing.T) {

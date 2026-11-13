@@ -5078,6 +5078,13 @@ export interface components {
             /** @description Values the run's params would take from the slot: one for each param whose eval is a single ${dates.NAME} reference. Other evals run when the run starts. */
             params?: components["schemas"]["SlotParamValue"][];
         };
+        /** @description Which of its backfill's slots a run ran */
+        BackfillRunSlot: {
+            /** @description The slot's place among the backfill's slots, from 1 */
+            index: number;
+            /** @description How many slots the backfill has */
+            count: number;
+        };
         /** @description A param and the value it would take from a slot */
         SlotParamValue: {
             name: string;
@@ -6958,6 +6965,7 @@ export interface components {
             dates?: components["schemas"]["RunDateValue"][];
             /** @description The run named no slot and took the default slot, the latest fire at or before its creation */
             defaultSlot?: boolean;
+            backfillSlot?: components["schemas"]["BackfillRunSlot"];
             /** @description Status of individual steps within the DAG-run */
             nodes: components["schemas"]["Node"][];
             onInit?: components["schemas"]["Node"];

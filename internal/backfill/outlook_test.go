@@ -97,3 +97,16 @@ func TestPlanWarnsOfParamsGivenOverDates(t *testing.T) {
 	assert.Empty(t, warnings("region"))
 	assert.Empty(t, warnings())
 }
+
+func TestRecordSlotPosition(t *testing.T) {
+	t.Parallel()
+
+	first, second := time.Date(2025, 10, 1, 2, 0, 0, 0, time.UTC), time.Date(2025, 10, 2, 2, 0, 0, 0, time.UTC)
+	record := &backfill.Record{Slots: []backfill.RecordSlot{{At: first}, {At: second}}}
+
+	position, ok := record.SlotPosition(second.In(time.FixedZone("JST", 9*3600)))
+	assert.True(t, ok)
+	assert.Equal(t, 2, position)
+	_, ok = record.SlotPosition(second.Add(time.Hour))
+	assert.False(t, ok)
+}

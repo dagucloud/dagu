@@ -193,6 +193,14 @@ function QueueRunsTable({
                 )}
                 <td className="py-1.5 px-2 text-xs font-medium">
                   {dagRun.name}
+                  {dagRun.backfillId && (
+                    <span
+                      className="ml-1.5 rounded border px-1 py-px text-[10px] font-normal text-muted-foreground"
+                      title={ts('Backfill {id}', { id: dagRun.backfillId })}
+                    >
+                      {ts('Backfill')}
+                    </span>
+                  )}
                 </td>
                 <td className="py-1.5 px-2">
                   <StatusChip status={dagRun.status} size="xs">

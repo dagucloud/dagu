@@ -2522,7 +2522,29 @@ func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.
 	if sourceFileName != "" {
 		details.SourceFileName = ptrOf(sourceFileName)
 	}
+	details.BackfillSlot = a.backfillRunSlot(ctx, status)
 	return details
+}
+
+// backfillRunSlot tells which of its backfill's slots a backfill run ran,
+// or nil for another run or when the backfill's record cannot be read.
+func (a *API) backfillRunSlot(ctx context.Context, status ir.DAGRunStatus) *api.BackfillRunSlot {
+	if status.BackfillID == "" || a.backfillStore == nil {
+		return nil
+	}
+	at, err := stringutil.ParseTime(status.ScheduleTime)
+	if err != nil {
+		return nil
+	}
+	record, err := a.backfillStore.Get(ctx, status.BackfillID)
+	if err != nil {
+		return nil
+	}
+	position, ok := record.SlotPosition(at)
+	if !ok {
+		return nil
+	}
+	return &api.BackfillRunSlot{Index: position, Count: len(record.Slots)}
 }
 
 // GetDAGRunSpec returns the YAML spec used for a specific DAG-run.
