@@ -75,10 +75,20 @@ func (a *API) runDates(dag *ir.DAG, profile, scheduleTime string, window ir.Sche
 	})
 }
 
-// checkDates refuses a run whose dates cannot resolve for slot, so that it
-// is never created. The run resolves them again when it is created.
+// checkDates refuses a run whose dates cannot resolve for slot, or for the
+// default slot when it names none, so that it is never created. The run
+// resolves them again when it is created.
 func (a *API) checkDates(dag *ir.DAG, profile string, slot *requestedSlot) error {
-	if _, err := a.runDates(dag, profile, slot.scheduleTimeOrEmpty(), slot.windowOrZero()); err != nil {
+	if len(dag.Dates) == 0 {
+		return nil
+	}
+	scheduleTime, window := slot.scheduleTimeOrEmpty(), slot.windowOrZero()
+	if slot == nil {
+		if def, ok := rundates.DefaultSlot(dag, profile, a.serverLocation(), a.calendarSource(), time.Now()); ok {
+			scheduleTime, window = def.ScheduleTime, def.Window
+		}
+	}
+	if _, err := a.runDates(dag, profile, scheduleTime, window); err != nil {
 		return &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,

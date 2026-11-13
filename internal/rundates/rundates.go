@@ -94,3 +94,38 @@ func calendar(req Request, slot time.Time) (*ir.Calendar, error) {
 	}
 	return cal, nil
 }
+
+// Slot is a run's schedule slot: its time in RFC 3339 and its window.
+type Slot struct {
+	ScheduleTime string
+	Window       ir.ScheduleWindow
+}
+
+// DefaultSlot returns the slot a run gets when it names none: the latest fire
+// of the DAG's recurring start schedules for the profile at or before
+// createdAt. Only a DAG with dates gets one, so that its dates follow the
+// schedule. ok is false when there is no such fire.
+func DefaultSlot(dag *ir.DAG, profile string, loc *time.Location, calendars *spec.CalendarSource, createdAt time.Time) (Slot, bool) {
+	if dag == nil || len(dag.Dates) == 0 || !ir.HasRecurringSchedule(dag.Schedule, profile) {
+		return Slot{}, false
+	}
+	if loc == nil {
+		loc = time.Local
+	}
+	if calendars == nil {
+		calendars = spec.NewCalendarSource("")
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, calendars)
+	slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
+		Value:     ir.ScheduleSlotLatest,
+		Schedules: schedules,
+		Profile:   profile,
+		Location:  loc,
+		Now:       createdAt,
+	})
+	if err != nil {
+		return Slot{}, false
+	}
+	return Slot{ScheduleTime: stringutil.FormatTime(slot.At.In(loc)), Window: slot.Window}, true
+}

@@ -218,7 +218,14 @@ Rules:
   fires is accepted with a warning that names the nearest fire times.
 - A sub-DAG run, started by `dag.run` or `dag.enqueue`, takes the schedule
   time, window, and timezone of a parent run that has a slot. A sub-DAG of a
-  parent with no slot has none.
+  parent with no slot has none, unless it gets the default slot below.
+- A run of a DAG with `dates` ([Spec 097](097-derived-dates.md)) and a
+  recurring start schedule for its profile that names no slot, whether
+  manual, from a webhook, from a watched file, or a sub-DAG of a parent with
+  no slot, gets the default slot: the latest fire at or before the time the
+  run was created. It is recorded as if named, so it counts as that slot's
+  run, and the run records that the slot was the default. A DAG without
+  `dates` keeps such a run without a slot.
 - `dagu restart`, `dagu start --from-run-id`, and the reschedule action start
   the new run for the historic run's slot, with its recorded window, unless
   a slot is named. A reschedule from the current DAG file keeps the slot and

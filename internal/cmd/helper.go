@@ -92,6 +92,21 @@ type runSlot struct {
 	// operatorChosen reports a slot named with --scheduled-at, not by the
 	// scheduler.
 	operatorChosen bool
+	// isDefault reports the default slot of a run that named none.
+	isDefault bool
+}
+
+// withDefaultSlot gives a run that names no slot the default slot, which a
+// DAG with dates gets so that its dates follow its schedule.
+func withDefaultSlot(ctx *Context, dag *ir.DAG, profile string, slot runSlot) runSlot {
+	if slot.scheduleTime != "" {
+		return slot
+	}
+	def, ok := rundates.DefaultSlot(dag, profile, ctx.Config.Core.Location, spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir), time.Now())
+	if !ok {
+		return slot
+	}
+	return runSlot{scheduleTime: def.ScheduleTime, window: def.Window, isDefault: true}
 }
 
 // runSlotParams reads the slot a run is started for: --schedule-time, which
