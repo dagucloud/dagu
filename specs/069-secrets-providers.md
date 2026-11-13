@@ -99,20 +99,24 @@ that runs the step's command or script expands it from its environment:
   of a JSON object.
 - `${NAME}`, `$NAME`, and `${env.NAME}` read an output variable when the value
   under that name in the step's scope is the output variable. `${NAME.path}`
-  reads the part of it the path selects.
+  reads the part of it the path selects, and a path that no longer resolves
+  because masking left the text no longer JSON counts as reading the variable.
 
 Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, a name
 a shell leaves in a comment, in single quotes, or in a quoted heredoc, a name
 a script expands after it sets or unsets its own value, and a `js` or
 `template` script, which is passed on as written. A value a script sets in a
-subshell, in code that may not run, or as a function's local holds only there. A variable the step's own `env:` defines takes the place
-of the output variable in its other fields and in the `env:` entries after the
-one that defines it, and of two predecessors that set the same variable, the
-one later in scope order does. A handler step resolves its `env:` before output
-variables are in scope, and `${steps.<id>.outputs.<name>}` does not resolve in
-it. A foreach body step reads outputs in its own scope, which holds the foreach
-step's output variables under its own `env:`.
+subshell, in code that may not run, or as a function's local holds only
+there, and a value every branch of an `if` sets holds after it.
+
+A variable the step's own `env:` defines takes the place of the output variable
+in its other fields and in the `env:` entries after the one that defines it,
+and of two predecessors that set the same variable, the one later in scope
+order does. A handler step resolves its `env:` before output variables are in
+scope, and `${steps.<id>.outputs.<name>}` does not resolve in it. A foreach
+body step reads outputs in its own scope, which holds the foreach step's output
+variables under its own `env:`.
 
 A program the step runs that reads an output variable from its environment,
 and an executor that takes a variable by name, such as through `pass_env`,
@@ -120,16 +124,18 @@ receive `*******`; only the reads above are checked. When masking changed the
 name of a published output, or masked the published outputs as text, every
 published output of that step counts as masked. Outputs that masking did not
 change are reused unchanged, and a value supplied for an output of a carried
-step replaces the recorded one. The check runs once the step's preconditions
-hold, so a step whose preconditions are not met is skipped as before; a
-precondition that reads a recorded output reads `*******`, and when it holds
-the step fails, since the precondition is one of its reads. A field that an
-executor resolves while the step runs, such as foreach items, fails the step at
-the read, before the executor uses the value. The failure
-is the same on every attempt, so it is not retried, repeated, or marked
-successful. A step that
-needs a secret after an approval or a human task reads the secret itself
-instead of through an output.
+step replaces the recorded one.
+
+A step whose preconditions are not met is skipped as before, unless a
+precondition reads a recorded output: a precondition decides on what it reads,
+so the step then fails whatever the precondition decides. A field that an
+executor resolves while the step runs, such as foreach items, fails the step
+at the read, before the executor uses the value. A repeat condition runs after
+each execution, so one that reads a recorded output fails the step after the
+execution that evaluates it. The failure is the same on every attempt, so it is
+not retried, repeated, or marked successful. A step that needs a secret after
+an approval or a human task reads the secret itself instead of through an
+output.
 
 Provider-specific behavior covered here:
 
