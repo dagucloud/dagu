@@ -2026,6 +2026,11 @@ func maskedReadError(ctx context.Context, node *Node) error {
 	return nil
 }
 
+func isMaskedRead(err error) bool {
+	_, ok := errors.AsType[*cmnvalue.MaskedReadError](err)
+	return ok
+}
+
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
 	err := node.evalPreconditions(ctx)
@@ -2099,6 +2104,10 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 
 	case r.isCanceled():
 		node.SetStatus(ir.NodeAborted)
+
+	case isMaskedRead(execErr):
+		// A masked read fails the same way on every attempt.
+		r.finalizeFailedNode(ctx, node, execErr)
 
 	case node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {

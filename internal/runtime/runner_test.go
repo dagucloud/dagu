@@ -5356,6 +5356,13 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			use:      []stepOption{withCommand(`echo "$TOKEN"`), withPrecondition(&ir.Condition{Condition: "run", Expected: "skip"})},
 			wantNode: ir.NodeSkipped,
 		},
+		// The same read fails every attempt, so it is not retried.
+		{
+			name:     "RetryPolicy",
+			use:      []stepOption{withCommand(`echo "$TOKEN"`), withRetryPolicy(3, time.Hour)},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		{
 			name:     "PreconditionRead",
 			use:      []stepOption{withCommand("true"), withPrecondition(&ir.Condition{Condition: "${TOKEN}", Expected: "*******"})},
