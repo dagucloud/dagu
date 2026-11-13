@@ -458,20 +458,27 @@ func (windowsBackend) Button(button Button, down bool, _ int) error {
 	return sendInput(mouseEvent(flags, 0))
 }
 
+// Wheel sends nothing for a scroll of zero notches, so none is refused.
 func (windowsBackend) Wheel(dx, dy int) error {
+	events := wheelInputs(dx, dy)
+	if len(events) == 0 {
+		return nil
+	}
 	if err := checkPointer(); err != nil {
 		return err
 	}
-	return sendInput(wheelInputs(dx, dy)...)
+	return sendInput(events...)
 }
 
-// checkPointer refuses pointer input to the window under the cursor, where it lands.
+// checkPointer refuses pointer input to the window under the cursor, where it
+// lands: the innermost one, which may belong to another process than the
+// top-level window around it.
 func checkPointer() error {
 	x, y, err := windowsBackend{}.Position()
 	if err != nil {
 		return err
 	}
-	return checkWindow(windowsBackend{}.WindowAt(x, y))
+	return checkWindow(inputWindowAt(x, y))
 }
 
 // processIntegrity returns the integrity level of a process as the RID of its

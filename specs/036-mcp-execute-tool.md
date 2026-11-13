@@ -44,7 +44,7 @@ Tool input is a JSON object. Fields outside this table fail with
 
 | Field | Type | Required rule | Meaning |
 | --- | --- | --- | --- |
-| `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`, `approve`, `reject`, `push_back`. | Execution action. |
+| `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`, `approve`, `reject`, `push_back`, `backfill`, `backfill_resume`, `backfill_cancel`. | Execution action. |
 | `targetType` | string | Optional. One of `dag`, `inline_spec`, `run`. | Target type. Defaults to `run` for `retry`, `stop`, `approve`, `reject`, and `push_back`, `inline_spec` when `spec` is present, otherwise `dag`. |
 | `name` | string | Required. | DAG name, including the identity used for inline runs. |
 | `spec` | string | Required for `targetType=inline_spec`; otherwise forbidden. | Inline DAG YAML document for `start` and `enqueue`. |
@@ -55,12 +55,18 @@ Tool input is a JSON object. Fields outside this table fail with
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
 | `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. |
 | `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
+| `scheduleTime` | string | Optional for `start` and `enqueue` with `targetType=dag`. | Schedule slot the run is for: `latest`, a date, a time without an offset in the schedule's zone, or an RFC 3339 time with an offset. A slot later than now fails. A time that is not a fire time adds a warning. |
 | `stepName` | string | Optional for `retry`; required for `approve`, `reject`, and `push_back`. | Step to retry, or the waiting step to decide. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
 | `subDAGRunId` | string | Optional for `approve`, `reject`, and `push_back`. | Sub-DAG run of `dagRunId` that owns the waiting step. |
 | `inputs` | object | Optional for `approve` and `push_back`. | Values for the waiting step. |
 | `reason` | string | Optional for `reject`. | Reason recorded with the rejection. |
 | `attemptId` | string | Optional for `approve`, `reject`, and `push_back`. | Attempt the decision is based on. |
+| `backfillId` | string | Required for `backfill_resume` and `backfill_cancel`. | Backfill identifier. |
+| `from`, `to`, `slots`, `rerun` | string, string, array of strings, string | Optional for `backfill`. | The slots to backfill, as for `dagu backfill start` ([Spec 086](086-backfill.md)). |
+| `maxConcurrency`, `onFailure` | integer, string | Optional for `backfill` and `backfill_resume`. | Runs of the backfill at once, and `stop` or `continue` after a slot fails. |
+| `dryRun`, `revision` | boolean, string | Optional for `backfill` and `backfill_resume`. | Return the plan only; refuse a plan that changed since `revision`. |
+| `stopRunning` | boolean | Optional for `backfill_cancel`. | Also stop the backfill's running and waiting runs. |
 | `wait` | boolean | Optional. | Wait for the identified run to reach a terminal state. |
 | `waitTimeoutSeconds` | integer | Optional. Requires `wait`. From `1` through `300`; defaults to `60`. | Maximum wait duration. |
 
@@ -73,12 +79,17 @@ Rules:
   whitespace; a string that is empty after trimming is treated as absent.
 - `targetType=run` is valid only for `retry`, `stop`, `approve`, `reject`, and
   `push_back`, and those actions require it.
-- `params`, `singleton`, `noReuse`, `profile`, and `labels` are valid only for
-  `start` and `enqueue`; `queue` is valid only for `enqueue`; `includeDownstream` is
+- `params`, `singleton`, `noReuse`, `profile`, `labels`, and `scheduleTime` are
+  valid only for `start` and `enqueue`; `scheduleTime` is valid only with
+  `targetType=dag`; `queue` is valid only for `enqueue`; `includeDownstream` is
   valid only for `retry`; `stepName` is valid only for `retry`, `approve`,
   `reject`, and `push_back`; `subDAGRunId` and `attemptId` are valid only for
   `approve`, `reject`, and `push_back`; `inputs` is valid only for `approve`
   and `push_back`; and `reason` is valid only for `reject`.
+- The backfill actions take only `action`, `name`, and their own fields above;
+  `backfill` also takes `params` and `profile`. Any other field fails with
+  `invalid_tool_input`, and a backfill field fails with `invalid_tool_input`
+  for any other action.
 - `inputs` that is not a JSON object fails with `invalid_tool_input`.
 - Supplying a field for an action that does not support it fails with
   `invalid_tool_input`, even when a boolean is `false` or an array is empty.
@@ -94,6 +105,23 @@ Rules:
 | `approve` | Approves a waiting approval gate, or completes a waiting human task. |
 | `reject` | Rejects a waiting approval gate. |
 | `push_back` | Pushes a waiting approval gate or human task back for re-execution. |
+| `backfill` | Plans a backfill of the DAG named by `name` and, unless `dryRun`, submits it. |
+| `backfill_resume` | Runs again the slots of a backfill that have neither succeeded nor been skipped. |
+| `backfill_cancel` | Cancels an open backfill. |
+
+### Backfill actions
+
+- The output of `backfill` and `backfill_resume` holds the `plan`, and, when a
+  backfill was submitted or was already open with the same options,
+  `backfill` and `backfillId`; `existing` is `true` for one already open.
+  The output of `backfill_cancel` holds the cancelled `backfill`.
+- A `revision` the plan no longer has fails with `conflict`, starts nothing,
+  and returns the new plan as `details.plan`.
+- Cancelling an ended backfill fails with `conflict`.
+- `backfill_resume` and `backfill_cancel` fail with `invalid_tool_input` on
+  `backfillId` when the backfill belongs to another DAG than `name`. Their
+  `dagName` is the backfill's DAG.
+- A backfill action's `targetType` is `dag` and its `dagRunId` is empty.
 
 ### Step decisions
 
@@ -175,6 +203,8 @@ Structured output rules:
 - When a run is identified, output has `runUri` and `logsUri` with canonical
   `dagu://runs/...` URIs.
 - Without `wait`, output for an identified run has `subscribe` guidance text.
+- `start` and `enqueue` output has `warnings`, an array of strings, when the
+  request drew any, such as a `scheduleTime` that is not a fire time.
 - Step decision output also has `stepName`, and `subDAGRunId` when given.
 - Without `wait`, step decision output has the `status` and `statusLabel` of
   the run that `name` and `dagRunId` identify, observed after the decision
@@ -182,7 +212,8 @@ Structured output rules:
 - With `wait`, output has `completed` boolean plus the last observed `status`
   and `statusLabel` when at least one poll succeeded.
 - With `wait`, a completed run's output has `run` holding the Spec 021 run
-  detail model, including per-step statuses and errors.
+  detail model, including per-step statuses and errors, and the run's outputs
+  under the same `outputs`, `outputsOmitted`, and `outputsError` rules.
 - With `wait`, a run stopped at a waiting checkpoint has `run` holding the same
   model, including each waiting step's human-task or approval prompt and, when
   the step declares one, its normalized form.

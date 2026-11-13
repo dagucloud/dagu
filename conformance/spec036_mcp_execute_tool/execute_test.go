@@ -44,6 +44,7 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	server.CreateDAG(t, "mcp_execute_wait", `steps:
   - name: main
     run: "echo done"
+    output: RESULT
 `)
 	session := server.Connect(t, "")
 
@@ -66,6 +67,7 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "mcp_execute_wait", run["name"])
 	require.NotEmpty(t, run["statusLabel"])
+	require.Equal(t, map[string]any{"result": "done"}, run["outputs"])
 
 	steps, ok := run["steps"].([]any)
 	require.True(t, ok)
@@ -145,6 +147,39 @@ steps:
 	require.Equal(t, true, output["completed"])
 }
 
+// A run started for a slot gets that slot's window; a time no schedule fires
+// is accepted with a warning.
+func TestExecuteStartForScheduleSlot(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateDAG(t, "mcp_execute_slot", `schedule: "0 * * * *"
+steps:
+  - name: main
+    run: "echo done"
+`)
+	session := server.Connect(t, "")
+
+	result := callExecute(t, session, map[string]any{
+		"action":       "start",
+		"name":         "mcp_execute_slot",
+		"scheduleTime": "2026-03-13T12:10:00Z",
+		"wait":         true,
+	})
+	require.False(t, result.IsError)
+	output := mcptest.StructuredMap(t, result)
+	require.Equal(t, true, output["completed"])
+	warnings, ok := output["warnings"].([]any)
+	require.True(t, ok)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "is not a fire time of the schedule")
+
+	future := callExecute(t, session, map[string]any{
+		"action":       "start",
+		"name":         "mcp_execute_slot",
+		"scheduleTime": "2999-01-01T00:00:00Z",
+	})
+	require.True(t, future.IsError)
+}
+
 func TestExecuteInputErrorsAreStructured(t *testing.T) {
 	server := mcptest.NewServer(t)
 	session := server.Connect(t, "")
@@ -183,6 +218,16 @@ func TestExecuteInputErrorsAreStructured(t *testing.T) {
 			name:      "start rejects enqueue-only field",
 			arguments: map[string]any{"action": "start", "name": "etl", "queue": "batch"},
 			field:     "queue",
+		},
+		{
+			name:      "retry rejects scheduleTime",
+			arguments: map[string]any{"action": "retry", "name": "etl", "dagRunId": "run-1", "scheduleTime": "latest"},
+			field:     "scheduleTime",
+		},
+		{
+			name:      "inline spec rejects scheduleTime",
+			arguments: map[string]any{"action": "start", "name": "etl", "spec": "steps: []", "scheduleTime": "latest"},
+			field:     "scheduleTime",
 		},
 	}
 
@@ -512,4 +557,99 @@ func TestExecuteDecisionErrors(t *testing.T) {
 		"stepName": "deploy_gate",
 	})
 	requireExecuteError(t, result, "resource_not_found", "")
+}
+
+// The backfill actions plan, submit, and cancel a backfill of past slots.
+func TestExecuteBackfill(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateDAG(t, "mcp_backfill", `schedule: "0 2 * * *"
+steps:
+  - name: main
+    run: "echo done"
+`)
+	session := server.Connect(t, "")
+
+	dry := callExecute(t, session, map[string]any{
+		"action": "backfill",
+		"name":   "mcp_backfill",
+		"from":   "2025-10-01T00:00:00Z",
+		"to":     "2025-10-03T23:00:00Z",
+		"dryRun": true,
+	})
+	require.False(t, dry.IsError)
+	plan, ok := mcptest.StructuredMap(t, dry)["plan"].(map[string]any)
+	require.True(t, ok)
+	slots, ok := plan["slots"].([]any)
+	require.True(t, ok)
+	require.Len(t, slots, 3)
+	revision, ok := plan["revision"].(string)
+	require.True(t, ok)
+
+	submitted := callExecute(t, session, map[string]any{
+		"action":   "backfill",
+		"name":     "mcp_backfill",
+		"from":     "2025-10-01T00:00:00Z",
+		"to":       "2025-10-03T23:00:00Z",
+		"revision": revision,
+	})
+	require.False(t, submitted.IsError)
+	output := mcptest.StructuredMap(t, submitted)
+	backfillID, ok := output["backfillId"].(string)
+	require.True(t, ok)
+	require.Len(t, backfillID, 8)
+	assert.Equal(t, "dag", output["targetType"])
+	assert.Equal(t, "", output["dagRunId"])
+	assert.NotEmpty(t, output["references"])
+
+	// A backfill is changed only through the DAG it belongs to.
+	server.CreateDAG(t, "mcp_other", `schedule: "0 2 * * *"
+steps:
+  - name: main
+    run: "echo done"
+`)
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action":     "backfill_cancel",
+		"name":       "mcp_other",
+		"backfillId": backfillID,
+	}), "invalid_tool_input", "backfillId")
+
+	stale := callExecute(t, session, map[string]any{
+		"action":   "backfill",
+		"name":     "mcp_backfill",
+		"from":     "2025-10-01T00:00:00Z",
+		"rerun":    "all",
+		"revision": "stale",
+	})
+	requireExecuteError(t, stale, "conflict", "")
+
+	cancelled := callExecute(t, session, map[string]any{
+		"action":     "backfill_cancel",
+		"name":       "mcp_backfill",
+		"backfillId": backfillID,
+	})
+	require.False(t, cancelled.IsError)
+	backfill, ok := mcptest.StructuredMap(t, cancelled)["backfill"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "cancelled", backfill["status"])
+}
+
+func TestExecuteBackfillInputErrors(t *testing.T) {
+	server := mcptest.NewServer(t)
+	session := server.Connect(t, "")
+
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action": "backfill_cancel",
+		"name":   "mcp_backfill",
+	}), "invalid_tool_input", "backfillId")
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action": "start",
+		"name":   "mcp_backfill",
+		"from":   "2025-10-01",
+	}), "invalid_tool_input", "from")
+	requireExecuteError(t, callExecute(t, session, map[string]any{
+		"action":   "backfill",
+		"name":     "mcp_backfill",
+		"from":     "2025-10-01",
+		"dagRunId": "run-1",
+	}), "invalid_tool_input", "dagRunId")
 }

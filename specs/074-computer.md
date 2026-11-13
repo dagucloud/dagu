@@ -75,6 +75,15 @@ action, naming the missing condition. A screen that locks, another user's
 session taking the display, or a Remote Desktop session whose client
 disconnects while a step runs fails the operation that next reads the screen.
 
+On macOS typed text goes through an ASCII-capable keyboard input source.
+While the keyboard is on an input method, such as Japanese, that would turn
+typed keys into other text, a step selects the current ASCII-capable input
+source before it types, text and line breaks alike, pauses briefly so
+applications learn of the switch before the keys reach them, and selects
+the previous one again once the typing ends, also when it fails. A keyboard
+on an ASCII-capable input source stays as it is. With no ASCII-capable input
+source enabled, typing fails, naming the input source the keyboard is on.
+
 A step that starts while only a person can make the desktop usable, because
 the screen is locked, nobody is logged in, or another user's session has
 the display, waits before it takes the desktop instead of failing, as when
@@ -138,6 +147,18 @@ go, waits for the application, and takes the desktop again, unless a button
 it pressed is still down. An `act` the model drives holds the desktop
 across its turns, so an application its actions move into is taken at the
 step's next operation.
+
+On Windows, a step cannot operate an application whose process runs at a
+higher integrity level than Dagu, such as one run as administrator when Dagu
+is not: Windows drops the input yet reports it sent. A click or scroll over
+one of its windows, a drag that starts on one, keys or typing while one has
+the focus, and an element of one performing a pattern or taking the focus
+fail before anything is sent, with a result that names the application and
+says it runs elevated, and the model is told. So does input to an
+application whose level Dagu cannot read, which may run elevated or as
+another user. The screen and the window still read. Running the application
+without administrator rights, or Dagu at the same level, lets the step
+operate it.
 
 ### Conditions
 
@@ -211,7 +232,9 @@ performs the pointer and keyboard actions it answers with, in order, mapping
 positions back to display pixels. After each round of actions the step waits
 for the screen to stop changing and sends the new screenshot with the results.
 In generic mode a round may instead go with the window's elements alone (see
-Elements). An action that fails skips the rest of the round and is reported
+Elements), and the model is told to decline a dialog that asks whether to
+save only when the task does not say to save, so a task that says to save
+decides. An action that fails skips the rest of the round and is reported
 to the model.
 
 The act ends when the model reports the task done. A report made in the

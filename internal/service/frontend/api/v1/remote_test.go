@@ -38,6 +38,130 @@ func (s remoteSyncAuthService) HasAPIKeyStore() bool {
 	return false
 }
 
+// serveRemoteNodeRequest sends a request for the "edge" remote node through
+// the API routes as user. It returns the local response status and whether the
+// remote node received the request.
+func serveRemoteNodeRequest(t *testing.T, server config.Server, user *auth.User, method, path string) (int, bool) {
+	t.Helper()
+
+	var remoteCalled atomic.Bool
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		remoteCalled.Store(true)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(remoteServer.Close)
+
+	server.APIBasePath = "/api/v1"
+	server.Auth = config.Auth{Mode: config.AuthModeBuiltin}
+	a := &API{
+		config:      &config.Config{Server: server},
+		authService: remoteSyncAuthService{user: user},
+		remoteNodeResolver: remotenode.NewResolver([]config.RemoteNode{{
+			Name:       "edge",
+			APIBaseURL: remoteServer.URL + "/api/v1",
+		}}, nil),
+	}
+	router := chi.NewRouter()
+	require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
+
+	request := httptest.NewRequest(method, path+"?remoteNode=edge", nil)
+	request.Header.Set("Authorization", "Bearer caller-token")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	return recorder.Code, remoteCalled.Load()
+}
+
+// A remote node runs proxied requests with its stored credential, so the
+// caller needs the permission the matching local handler would require.
+func TestRemoteNodeAuthorization(t *testing.T) {
+	all := auth.AllWorkspaceAccess()
+	viewer := &auth.User{Role: auth.RoleViewer, WorkspaceAccess: all}
+	operator := &auth.User{Role: auth.RoleOperator, WorkspaceAccess: all}
+	developer := &auth.User{Role: auth.RoleDeveloper, WorkspaceAccess: all}
+	manager := &auth.User{Role: auth.RoleManager, WorkspaceAccess: all}
+	admin := &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: all}
+	scoped := &auth.User{Role: auth.RoleViewer, WorkspaceAccess: &auth.WorkspaceAccess{
+		Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleAdmin}},
+	}}
+	writeAndRun := map[config.Permission]bool{config.PermissionWriteDAGs: true, config.PermissionRunDAGs: true}
+	writeOnly := map[config.Permission]bool{config.PermissionWriteDAGs: true}
+
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		user        *auth.User
+		permissions map[config.Permission]bool
+		wantCall    bool
+	}{
+		{name: "viewer lists DAGs", method: http.MethodGet, path: "/api/v1/dags", user: viewer, wantCall: true},
+		{name: "viewer reads a step log", method: http.MethodGet, path: "/api/v1/dag-runs/deploy/run-1/steps/build/log", user: viewer, wantCall: true},
+		{name: "viewer cannot start a run", method: http.MethodPost, path: "/api/v1/dags/deploy/start", user: viewer, permissions: writeAndRun},
+		{name: "operator starts a run", method: http.MethodPost, path: "/api/v1/dags/deploy/start", user: operator, permissions: writeAndRun, wantCall: true},
+		{name: "run permission applies to admins", method: http.MethodPost, path: "/api/v1/dags/deploy/start", user: admin, permissions: writeOnly},
+		{name: "operator cannot edit a spec", method: http.MethodPut, path: "/api/v1/dags/deploy/spec", user: operator, permissions: writeAndRun},
+		{name: "developer edits a spec", method: http.MethodPut, path: "/api/v1/dags/deploy/spec", user: developer, permissions: writeAndRun, wantCall: true},
+		{name: "inline spec needs run permission", method: http.MethodPost, path: "/api/v1/dag-runs", user: developer, permissions: writeOnly},
+		{name: "developer reads workers", method: http.MethodGet, path: "/api/v1/workers", user: developer, wantCall: true},
+		{name: "manager reads audit logs", method: http.MethodGet, path: "/api/v1/audit", user: manager, wantCall: true},
+		{name: "developer cannot create an API key", method: http.MethodPost, path: "/api/v1/api-keys", user: developer, permissions: writeAndRun},
+		{name: "admin creates an API key", method: http.MethodPost, path: "/api/v1/api-keys", user: admin, wantCall: true},
+		{name: "unknown endpoints need an admin", method: http.MethodGet, path: "/api/v1/not-an-endpoint", user: developer},
+		{name: "scoped user cannot read", method: http.MethodGet, path: "/api/v1/dags", user: scoped},
+		{name: "webhooks are never forwarded", method: http.MethodPost, path: "/api/v1/webhooks/deploy", user: admin},
+		{name: "password changes are never forwarded", method: http.MethodPost, path: "/api/v1/auth/change-password", user: admin},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			status, called := serveRemoteNodeRequest(t, config.Server{Permissions: test.permissions}, test.user, test.method, test.path)
+
+			assert.Equal(t, test.wantCall, called)
+			if !test.wantCall {
+				assert.Equal(t, http.StatusForbidden, status)
+			}
+		})
+	}
+}
+
+func TestRemoteNodeStreamAuthorization(t *testing.T) {
+	viewer := &auth.User{Role: auth.RoleViewer, WorkspaceAccess: auth.AllWorkspaceAccess()}
+	scoped := &auth.User{Role: auth.RoleViewer, WorkspaceAccess: &auth.WorkspaceAccess{
+		Grants: []auth.WorkspaceGrant{{Workspace: "ops", Role: auth.RoleAdmin}},
+	}}
+	tests := []struct {
+		name     string
+		query    string
+		user     *auth.User
+		wantNext bool
+	}{
+		{name: "local stream", query: "", user: scoped, wantNext: true},
+		{name: "viewer opens a remote stream", query: "?remoteNode=edge", user: viewer, wantNext: true},
+		{name: "scoped user cannot open a remote stream", query: "?remoteNode=edge", user: scoped},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			a := &API{config: &config.Config{}, authService: remoteSyncAuthService{}}
+			var nextCalled bool
+			handler := a.RemoteNodeStreamAuthorization(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				nextCalled = true
+			}))
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/events/stream"+test.query, nil)
+			request = request.WithContext(auth.WithUser(request.Context(), test.user))
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, request)
+
+			assert.Equal(t, test.wantNext, nextCalled)
+			if !test.wantNext {
+				assert.Equal(t, http.StatusForbidden, recorder.Code)
+			}
+		})
+	}
+}
+
 func TestRemoteSyncAuthorization(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -101,45 +225,16 @@ func TestRemoteSyncAuthorization(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var remoteCalled atomic.Bool
-			remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				remoteCalled.Store(true)
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"success":true}`))
-			}))
-			t.Cleanup(remoteServer.Close)
-
-			resolver := remotenode.NewResolver([]config.RemoteNode{{
-				Name:       "edge",
-				APIBaseURL: remoteServer.URL + "/api/v1",
-			}}, nil)
-			cfg := &config.Config{
-				Server: config.Server{
-					APIBasePath:      "/api/v1",
-					StrictValidation: true,
-					Auth: config.Auth{
-						Mode: config.AuthModeBuiltin,
-					},
-					Permissions: map[config.Permission]bool{
-						config.PermissionWriteDAGs: true,
-					},
+			server := config.Server{
+				StrictValidation: true,
+				Permissions: map[config.Permission]bool{
+					config.PermissionWriteDAGs: true,
 				},
 			}
-			a := &API{
-				config:             cfg,
-				authService:        remoteSyncAuthService{user: test.user},
-				remoteNodeResolver: resolver,
-			}
-			router := chi.NewRouter()
-			require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
+			status, called := serveRemoteNodeRequest(t, server, test.user, test.method, test.path)
 
-			request := httptest.NewRequest(test.method, test.path+"?remoteNode=edge", nil)
-			request.Header.Set("Authorization", "Bearer caller-token")
-			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, request)
-
-			assert.Equal(t, test.wantStatus, recorder.Code)
-			assert.Equal(t, test.wantCall, remoteCalled.Load())
+			assert.Equal(t, test.wantStatus, status)
+			assert.Equal(t, test.wantCall, called)
 		})
 	}
 }
@@ -160,50 +255,26 @@ func TestRemoteLicenseAuthorization(t *testing.T) {
 		{name: "viewer cannot start a connection", method: http.MethodPost, path: "/api/v1/license/connect", user: viewer},
 		{name: "viewer cannot read a connection", method: http.MethodGet, path: "/api/v1/license/connect", user: viewer},
 		{name: "admin can start a connection", method: http.MethodPost, path: "/api/v1/license/connect", user: admin, wantCall: true},
-		// The proxy forwards paths in clean form, so these would otherwise reach
-		// the remote node's license endpoints without the local check.
-		{name: "doubled slash", method: http.MethodPost, path: "/api/v1//license/deactivate", user: viewer, wantStatus: http.StatusBadRequest},
-		{name: "dot segment", method: http.MethodPost, path: "/api/v1/x/../license/deactivate", user: viewer, wantStatus: http.StatusBadRequest},
-		{name: "encoded slash", method: http.MethodPost, path: "/api/v1/%2Flicense/deactivate", user: viewer, wantStatus: http.StatusBadRequest},
-		{name: "doubled slash to sync", method: http.MethodPost, path: "/api/v1//sync/push", user: viewer, wantStatus: http.StatusBadRequest},
+		// Paths that match no operation need an admin, and the proxy refuses
+		// to forward a path that differs from its clean form.
+		{name: "doubled slash", method: http.MethodPost, path: "/api/v1//license/deactivate", user: viewer},
+		{name: "dot segment", method: http.MethodPost, path: "/api/v1/x/../license/deactivate", user: viewer},
+		{name: "encoded slash", method: http.MethodPost, path: "/api/v1/%2Flicense/deactivate", user: viewer},
+		{name: "doubled slash to sync", method: http.MethodPost, path: "/api/v1//sync/push", user: viewer},
+		{name: "admin doubled slash", method: http.MethodPost, path: "/api/v1//license/deactivate", user: admin, wantStatus: http.StatusBadRequest},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var remoteCalled atomic.Bool
-			remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				remoteCalled.Store(true)
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{}`))
-			}))
-			t.Cleanup(remoteServer.Close)
+			status, called := serveRemoteNodeRequest(t, config.Server{}, test.user, test.method, test.path)
 
-			a := &API{
-				config: &config.Config{Server: config.Server{
-					APIBasePath: "/api/v1",
-					Auth:        config.Auth{Mode: config.AuthModeBuiltin},
-				}},
-				authService: remoteSyncAuthService{user: test.user},
-				remoteNodeResolver: remotenode.NewResolver([]config.RemoteNode{{
-					Name:       "edge",
-					APIBaseURL: remoteServer.URL + "/api/v1",
-				}}, nil),
-			}
-			router := chi.NewRouter()
-			require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
-
-			request := httptest.NewRequest(test.method, test.path+"?remoteNode=edge", nil)
-			request.Header.Set("Authorization", "Bearer caller-token")
-			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, request)
-
-			assert.Equal(t, test.wantCall, remoteCalled.Load())
+			assert.Equal(t, test.wantCall, called)
 			if !test.wantCall {
 				want := test.wantStatus
 				if want == 0 {
 					want = http.StatusForbidden
 				}
-				assert.Equal(t, want, recorder.Code)
+				assert.Equal(t, want, status)
 			}
 		})
 	}

@@ -16,16 +16,37 @@ import (
 
 // dispatchDirect sends the fixture's DAG straight to the coordinator, the
 // way a start, a retry, or a sub-DAG reaches it without the scheduler's queue.
-func (f *testFixture) dispatchDirect() (string, error) {
+func (f *testFixture) dispatchDirect(opts ...executor.TaskOption) (string, error) {
 	f.t.Helper()
 	runID, err := ir.NewDAGRunID()
 	if err != nil {
 		return "", err
 	}
 	dag := f.dagWrapper.DAG
-	task := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationStart, runID,
-		executor.WithWorkerSelector(dag.WorkerSelector))
+	opts = append(opts, executor.WithWorkerSelector(dag.WorkerSelector))
+	task := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationStart, runID, opts...)
 	return runID, f.coordinatorClient.Dispatch(f.coord.Context, dispatch.DispatchRequest{Task: task})
+}
+
+// The worker records how a directly dispatched run was started.
+func TestDispatch_RecordsTriggerType(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, `
+worker_selector:
+  zone: a
+steps:
+  - name: echo
+    run: echo started
+`, withWorkerCount(0))
+	f.workers = append(f.workers, f.setupWorker("worker-a", map[string]string{"zone": "a"}, ""))
+
+	_, err := f.dispatchDirect(executor.WithTriggerType(ir.TriggerTypeManual))
+	require.NoError(t, err)
+
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	f.assertWorkerID(status, "worker-a")
+	assert.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 }
 
 // A direct dispatch whose selector matches no worker is held by the

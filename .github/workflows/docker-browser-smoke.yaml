@@ -9,6 +9,8 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
+      - labeled # the full-ci label runs these jobs
     paths:
       - Dockerfile.dev
       - entrypoint.sh
@@ -44,13 +46,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: dev-image-browser-${{ github.event.pull_request.number || github.ref }}
+  # A run started by any label but full-ci skips every job, and its own
+  # group keeps it from cancelling the run in progress.
+  group: dev-image-browser-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   browser-step:
     name: Browser step on ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
+    # A pull request runs these jobs only with the full-ci label.
+    if: >-
+      github.event_name != 'pull_request' || (
+      !github.event.pull_request.draft &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     strategy:
       fail-fast: false
       matrix:

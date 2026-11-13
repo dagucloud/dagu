@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/sysproxy"
@@ -63,6 +64,10 @@ const (
 	// exit, so one that stops answering DevTools is ended by the runtime
 	// instead of holding up the close.
 	exitRequestTimeout = 2 * time.Second
+	// runtimeStartAttempts bounds the starts of a runtime whose socket to the
+	// browser does not open, and runtimeStartRetryWait spaces them.
+	runtimeStartAttempts  = 3
+	runtimeStartRetryWait = time.Second
 	// settleQuiet is how long a page goes without a request in flight or a
 	// change to its document before what an action started counts as done;
 	// settleTimeout bounds the wait, and settlePoll spaces its checks.
@@ -185,9 +190,16 @@ const selectorVisibleExpression = `(() => {
 // that is the network error code and the host of the page that did not
 // load, which Chrome uses as the error page's title, with the status of an
 // HTTP error answer without a body, which the page shows as "HTTP ERROR
-// 403" in every language; on a page, its host, HTTP status, title, and the
-// start of its text.
-var pageOutcomeExpression = fmt.Sprintf(`(() => {
+// 403" in every language; on a page, its host, HTTP status, title, the
+// start of its text, and the bot check it shows in a frame, if any: a frame
+// of challengeFrames that is shown. A check's widget that shows nothing
+// until it must, as an invisible reCAPTCHA's badge, is not a check shown.
+var pageOutcomeExpression = func() string {
+	frames, err := json.Marshal(challengeFrames)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`(() => {
 	const text = ((document.body && document.body.innerText) || "").slice(0, 500);
 	if (location.protocol === "chrome-error:") {
 		const code = document.querySelector(".error-code");
@@ -197,9 +209,25 @@ var pageOutcomeExpression = fmt.Sprintf(`(() => {
 		const match = shown.match(/ERR_[A-Z0-9_]+/);
 		return {code: match ? match[0] : "ERR_FAILED", host: document.title, status: 0, title: "", text: ""};
 	}
+	`+shownDocumentsFunction+`
+	const checks = %s;
+	const shownCheck = () => {
+		for (const {doc} of shownDocuments(document)) {
+			for (const frame of doc.querySelectorAll("frame, iframe")) {
+				let url;
+				try { url = new URL(frame.src, doc.baseURI); } catch { continue; }
+				const check = checks.find(({host, path}) => (url.hostname === host || url.hostname.endsWith("." + host)) && url.pathname.startsWith(path));
+				if (!check || (url.search + url.hash).includes("size=invisible")) continue;
+				const box = frame.getBoundingClientRect();
+				if (box.width > 0 && box.height > 0 && frame.checkVisibility({visibilityProperty: true})) return check.kind;
+			}
+		}
+		return "";
+	};
 	const entry = performance.getEntriesByType("navigation")[0];
-	return {code: "", host: location.hostname, status: (entry && entry.responseStatus) || 0, title: document.title, text};
-})()`, httpErrorCode)
+	return {code: "", host: location.hostname, status: (entry && entry.responseStatus) || 0, title: document.title, text, botCheck: shownCheck()};
+})()`, httpErrorCode, frames)
+}()
 
 var errImageInput = errors.New("browser: image input to the model is not supported")
 
@@ -520,7 +548,7 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 	// call it waits on answers, so one left running would keep a kept
 	// browser's runtime busy after the engine is gone.
 	calls, endCalls := context.WithCancel(context.Background())
-	client, err := stagehand.Create(ctx, stagehand.CreateOptions{
+	client, err := createClient(ctx, stagehand.CreateOptions{
 		Browser:  browser,
 		Generate: stagehandGenerate(endingWith(calls, opts.Generate)),
 		Cache:    new(stagehand.CacheEnabled(false)),
@@ -548,7 +576,7 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 	}
 	// An unanswered dialog blocks its page, and the runtime does not answer
 	// dialogs itself.
-	if eng.dialogs, err = browserhost.WatchDialogs(ctx, cdpURL); err != nil {
+	if eng.dialogs, err = browserhost.WatchDialogs(ctx, cdpURL, browserhost.DialogOptions{DismissConfirm: opts.DismissConfirm}); err != nil {
 		return nil, errors.Join(fmt.Errorf("watch dialogs: %w", err), eng.release(context.WithoutCancel(ctx)))
 	}
 	// A site that refuses the browser answers with a status or a bot check
@@ -576,6 +604,29 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 		}
 	}
 	return eng, nil
+}
+
+// runtimeSocketFailure is the runtime's message when its socket to the browser
+// does not open. Only the message identifies this failure: its RPC code and data
+// are those of any runtime error.
+const runtimeSocketFailure = "CDP websocket failed to open"
+
+// createClient starts the runtime. The runtime tries its socket to the browser
+// once, and a host can refuse that try, so the start is repeated. The SDK lets a
+// later Create use the same browser after an RPCError.
+func createClient(ctx context.Context, options stagehand.CreateOptions) (*stagehand.Stagehand, error) {
+	for attempt := 1; ; attempt++ {
+		client, err := stagehand.Create(ctx, options)
+		var refused *stagehand.RPCError
+		if err == nil || attempt == runtimeStartAttempts || !errors.As(err, &refused) || refused.Message != runtimeSocketFailure {
+			return client, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(runtimeStartRetryWait):
+		}
+	}
 }
 
 // stagehandEngine is an engine backed by one Stagehand client.
@@ -1389,10 +1440,10 @@ func (e *stagehandEngine) TakeDialogs() []dialog {
 	if e.dialogs == nil {
 		return nil
 	}
-	accepted := e.dialogs.Take()
-	dialogs := make([]dialog, 0, len(accepted))
-	for _, d := range accepted {
-		dialogs = append(dialogs, dialog{Type: d.Type, Message: d.Message})
+	answered := e.dialogs.Take()
+	dialogs := make([]dialog, 0, len(answered))
+	for _, d := range answered {
+		dialogs = append(dialogs, dialog{Type: d.Type, Message: d.Message, Dismissed: d.Dismissed})
 	}
 	return dialogs
 }
@@ -1431,10 +1482,11 @@ func (e *stagehandEngine) PageOutcome(ctx context.Context) (pageOutcome, error) 
 	if hostpattern.Validate(outcome.Host) != nil || strings.Contains(outcome.Host, "*") {
 		outcome.Host = ""
 	}
-	// The answer the host gave the page tells whether it was a bot check.
-	// An answer of another status was to an earlier page.
+	// The answer the host gave the page tells whether it was a bot check,
+	// over a check the page shows in a frame. An answer of another status
+	// was to an earlier page.
 	if e.responses != nil && outcome.Host != "" {
-		if response, ok := e.responses.Response(outcome.Host); ok && response.Status == outcome.Status {
+		if response, ok := e.responses.Response(outcome.Host); ok && response.Status == outcome.Status && response.BotCheck != "" {
 			outcome.BotCheck = response.BotCheck
 		}
 	}
@@ -1516,15 +1568,22 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 	defer e.slot.Release()
 	releaseErr := e.release(ctx)
 	// The runtime asks a browser it reattached to exit itself.
-	if e.browser.Origin() == stagehand.BrowserOriginLaunched {
+	launched := e.browser.Origin() == stagehand.BrowserOriginLaunched
+	if launched {
 		exitLaunchedBrowser(ctx, e.handle)
 	}
-	return errors.Join(
+	errs := []error{
 		releaseErr,
 		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close),
 		killCertProxy(e.handle.CertProxy),
 		killWriteGate(e.handle.WriteGate),
-	)
+	}
+	// The runtime unpacks its extension for each browser it launches and
+	// leaves it behind, so the extension goes with the browser.
+	if launched && e.handle.ExtensionDir != "" {
+		errs = append(errs, fileutil.RemoveAll(e.handle.ExtensionDir))
+	}
+	return errors.Join(errs...)
 }
 
 // exitLaunchedBrowser asks a browser it launched to exit over DevTools and

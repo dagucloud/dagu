@@ -63,9 +63,6 @@ func TestTickPlanner_ProfileScopedSchedulesUseDAGFileName(t *testing.T) {
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
-		GenRunID: func(context.Context) (string, error) {
-			return "run-1", nil
-		},
 		Clock: func() time.Time {
 			return scheduledAt
 		},
@@ -98,9 +95,6 @@ func TestTickPlanner_ProfileScopedSchedulesUseWorkspaceDefaultProfile(t *testing
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
-		},
-		GenRunID: func(context.Context) (string, error) {
-			return "run-1", nil
 		},
 		Clock: func() time.Time {
 			return scheduledAt
@@ -136,9 +130,6 @@ func TestTickPlanner_ProfileScopedSchedulesRejectInvalidWorkspaceLabel(t *testin
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
-		GenRunID: func(context.Context) (string, error) {
-			return "run-1", nil
-		},
 		Clock: func() time.Time {
 			return scheduledAt
 		},
@@ -173,9 +164,6 @@ func TestTickPlanner_UnprofiledSchedulesSkipProfileResolver(t *testing.T) {
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
 		},
-		GenRunID: func(context.Context) (string, error) {
-			return "run-1", nil
-		},
 		Clock: func() time.Time {
 			return scheduledAt
 		},
@@ -209,9 +197,6 @@ func TestTickPlanner_InactiveProfileSchedulePersistsNoNextRunProjection(t *testi
 		},
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) {
 			return false, nil
-		},
-		GenRunID: func(context.Context) (string, error) {
-			return "run-1", nil
 		},
 		Clock: func() time.Time {
 			return scheduledAt

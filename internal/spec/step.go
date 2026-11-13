@@ -248,6 +248,7 @@ type repeatPolicy struct {
 	ExitCode       []int              `yaml:"exit_code,omitempty"`        // List of exit codes to consider for repeating the step
 	Backoff        types.BackoffValue `yaml:"backoff,omitempty"`          // Accepts bool or float
 	MaxIntervalSec types.IntOrDynamic `yaml:"max_interval_sec,omitempty"` // Maximum interval in seconds
+	OnLimit        string             `yaml:"on_limit,omitempty"`         // What happens when the limit is reached with the until condition unmet: "fail" or "succeed"
 }
 
 // retryPolicy defines the retry policy for a step.
@@ -342,6 +343,9 @@ type llmConfig struct {
 	// Files names the files the model reads with the prompt: paths, glob
 	// patterns, or a list an earlier step published.
 	Files types.StringOrArray `yaml:"files,omitempty"`
+	// MaxFileChars bounds the text of all the Files together, in characters
+	// (default: 1,000,000).
+	MaxFileChars *int `yaml:"max_file_chars,omitempty"`
 }
 
 // llmMessage defines a message in the LLM session.
@@ -1044,6 +1048,21 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 		}
 	}
 
+	// Validate on_limit before the mode gate so a typo cannot hide behind a
+	// repeat_policy block that has no resolvable repeat mode.
+	switch ir.RepeatOnLimit(rp.OnLimit) {
+	case "", ir.RepeatOnLimitSucceed:
+	case ir.RepeatOnLimitFail:
+		if mode != ir.RepeatModeUntil || rp.Condition == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires repeat: until with a condition")
+		}
+		if rp.Limit.Int() <= 0 && rp.Limit.Str() == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires a limit")
+		}
+	default:
+		return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit must be \"fail\" or \"succeed\", got %q", rp.OnLimit)
+	}
+
 	// No repeat if mode is not determined
 	if mode == "" {
 		return ir.RepeatPolicy{}, nil
@@ -1081,6 +1100,10 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 		result.MaxInterval = time.Second * time.Duration(maxIntervalSec)
 	}
 	result.MaxIntervalStr = rp.MaxIntervalSec.Str()
+
+	if ir.RepeatOnLimit(rp.OnLimit) == ir.RepeatOnLimitFail {
+		result.OnLimit = ir.RepeatOnLimitFail
+	}
 
 	return result, nil
 }
@@ -2737,6 +2760,10 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 		return nil, ir.NewValidationError("llm.max_tool_iterations", *cfg.MaxToolIterations,
 			fmt.Errorf("max_tool_iterations must be at least 1"))
 	}
+	if cfg.MaxFileChars != nil && *cfg.MaxFileChars < 1 {
+		return nil, ir.NewValidationError("llm.max_file_chars", *cfg.MaxFileChars,
+			fmt.Errorf("max_file_chars must be at least 1"))
+	}
 	if err := validateAgentLLMLimits(cfg, false); err != nil {
 		return nil, err
 	}
@@ -2774,6 +2801,7 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 		MaxToolIterations: cfg.MaxToolIterations,
 		WebSearch:         buildWebSearchConfig(cfg.WebSearch),
 		Files:             cfg.Files.Values(),
+		MaxFileChars:      cfg.MaxFileChars,
 	}, nil
 }
 

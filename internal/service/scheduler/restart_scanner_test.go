@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
 func TestDecideRestart(t *testing.T) {
@@ -309,6 +310,25 @@ func (h *restartHarness) logged(msg string) int {
 	return strings.Count(h.logs.String(), msg)
 }
 
+type fakeBackoffStore struct {
+	saved map[string]schedulerstate.RestartBackoff
+	saves int
+	err   error
+}
+
+func (f *fakeBackoffStore) Load(context.Context) (map[string]schedulerstate.RestartBackoff, error) {
+	return f.saved, nil
+}
+
+func (f *fakeBackoffStore) Save(_ context.Context, backoff map[string]schedulerstate.RestartBackoff) error {
+	f.saves++
+	if f.err != nil {
+		return f.err
+	}
+	f.saved = backoff
+	return nil
+}
+
 func serviceDAG(name string, policy ir.RestartPolicy) *ir.DAG {
 	return &ir.DAG{Name: name, RestartPolicy: policy, RestartWait: 10 * time.Second}
 }
@@ -399,6 +419,82 @@ func TestRestartScanner(t *testing.T) {
 		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-5", ir.Failed, 2*time.Second))
 		assert.Equal(t, 21*time.Second, h.waitBeforeRestart("run-6", ir.Failed, 2*time.Second))
 		assert.Equal(t, 11*time.Second, h.waitBeforeRestart("run-7", ir.Failed, time.Minute), "a long run resets the wait")
+	})
+
+	// The count lives only in the scheduler, and a run history can be too short
+	// to rebuild it. What the scheduler shares must predict its own wait.
+	t.Run("SharedBackoffPredictsTheRestart", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		store := &fakeBackoffStore{}
+		h.scanner.cfg.BackoffStore = store
+
+		for i, status := range []ir.Status{ir.Failed, ir.Failed, ir.Failed, ir.Succeeded, ir.Failed} {
+			end := h.now
+			runID := fmt.Sprintf("run-%d", i)
+			ran := 2 * time.Second
+			predicted, ok := NextRestart(10*time.Second, &ir.DAGRunStatus{
+				DAGRunID:   runID,
+				Status:     status,
+				StartedAt:  end.Add(-ran).Format(time.RFC3339),
+				FinishedAt: end.Format(time.RFC3339),
+			}, store.saved["svc"])
+			require.True(t, ok)
+
+			waited := h.waitBeforeRestart(runID, status, ran)
+			assert.Equal(t, waited, predicted.Sub(end), "run %d", i)
+		}
+	})
+
+	t.Run("SharesOnlyFailuresAndOnlyWhenTheyChange", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		store := &fakeBackoffStore{}
+		h.scanner.cfg.BackoffStore = store
+
+		h.waitBeforeRestart("run-1", ir.Succeeded, time.Second)
+		h.waitBeforeRestart("run-2", ir.Succeeded, time.Second)
+		assert.Equal(t, 1, store.saves, "only the first scan writes while no run fails")
+		assert.Empty(t, store.saved)
+
+		h.waitBeforeRestart("run-3", ir.Failed, time.Second)
+		assert.Equal(t, schedulerstate.RestartBackoff{RunID: "run-3", Failures: 1}, store.saved["svc"])
+		assert.Equal(t, 2, store.saves)
+
+		h.waitBeforeRestart("run-4", ir.Succeeded, time.Second)
+		assert.NotContains(t, store.saved, "svc", "a success clears the backoff")
+		assert.Equal(t, 3, store.saves)
+	})
+
+	// The count of a previous scheduler no longer holds: this one counts anew.
+	t.Run("ReplacesTheBackoffOfAPreviousScheduler", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		store := &fakeBackoffStore{saved: map[string]schedulerstate.RestartBackoff{
+			"svc": {RunID: "old", Failures: 5},
+		}}
+		h.scanner.cfg.BackoffStore = store
+
+		h.scan()
+
+		assert.Empty(t, store.saved)
+	})
+
+	t.Run("RetriesAFailedShare", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		store := &fakeBackoffStore{err: errors.New("disk full")}
+		h.scanner.cfg.BackoffStore = store
+
+		h.scan()
+		assert.Equal(t, 1, store.saves)
+		assert.Equal(t, 1, h.logged("failed to share the restart backoff"))
+
+		store.err = nil
+		h.scan()
+		assert.Equal(t, 2, store.saves)
+		h.scan()
+		assert.Equal(t, 2, store.saves, "a saved backoff is not written again")
 	})
 
 	t.Run("BackoffLimit", func(t *testing.T) {
@@ -753,6 +849,7 @@ func TestRestartScanner(t *testing.T) {
 		h.scan()
 		assert.Empty(t, h.enqueued)
 		assert.Equal(t, 1, h.logged("Restart scanner failed to process DAG"), "errors are throttled")
+		assert.Zero(t, h.logged("Restarting DAG"), "a restart that failed is not logged as one")
 
 		h.now = h.now.Add(restartErrorLogInterval)
 		h.scan()
@@ -761,6 +858,7 @@ func TestRestartScanner(t *testing.T) {
 		h.failWith = nil
 		h.scan()
 		assert.Len(t, h.enqueued, 1, "the next scan tries again")
+		assert.Equal(t, 1, h.logged("Restarting DAG"))
 	})
 
 	// Restarts go through queues, so with queues disabled the DAG never runs:

@@ -183,6 +183,9 @@ type CloudCredentials struct {
 	HeartbeatSecret string
 	// Free is set while the license is on free monitoring.
 	Free bool
+	// Plan is the plan the license names, which changes as a trial starts or
+	// a plan replaces it.
+	Plan string
 }
 
 // CloudCredentials returns the credentials of the current activation. It
@@ -200,6 +203,7 @@ func (m *Manager) CloudCredentials() (CloudCredentials, bool) {
 		ServerID:        ad.ServerID,
 		HeartbeatSecret: ad.HeartbeatSecret,
 		Free:            claims.IsFree(),
+		Plan:            claims.Plan,
 	}, true
 }
 
@@ -226,6 +230,7 @@ func StoredCloudCredentials(store ActivationStore, pubKey ed25519.PublicKey, clo
 			ServerID:        ad.ServerID,
 			HeartbeatSecret: ad.HeartbeatSecret,
 			Free:            claims.IsFree(),
+			Plan:            claims.Plan,
 		}, true
 	}
 }
@@ -534,6 +539,9 @@ func (m *Manager) heartbeatLoop(ctx context.Context, ad *ActivationData) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if current := m.currentActivation(); current != nil {
+				ad = current
+			}
 			m.doHeartbeat(ctx, ad)
 		}
 	}
@@ -549,6 +557,12 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 // error only when the console could not be reached or answered with a token
 // that does not verify; rejections are applied to the license state instead.
 func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
+	return m.sendHeartbeat(ctx, ad, true)
+}
+
+// sendHeartbeat performs one check-in. mayRetry allows one more attempt with
+// credentials that another instance saved in the shared store.
+func (m *Manager) sendHeartbeat(ctx context.Context, ad *ActivationData, mayRetry bool) error {
 	claims := m.state.Claims()
 	if claims == nil {
 		return nil
@@ -570,6 +584,14 @@ func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 				m.setFailure(licenseRevokedFailure)
 				return nil
 			case 401: // Unauthorized - deactivated or credentials invalid
+				if rotated := m.rotatedActivation(ad); rotated != nil {
+					if !mayRetry {
+						// Credentials still changing say nothing about the license.
+						return fmt.Errorf("license credentials kept changing during heartbeat: %w", err)
+					}
+					m.logger.Info("License heartbeat secret changed in the shared store, retrying with it")
+					return m.sendHeartbeat(ctx, rotated, false)
+				}
 				m.logger.Error("License heartbeat unauthorized, license may have been deactivated",
 					slog.String("error", cloudErr.Message))
 				m.state.Update(nil, "")
@@ -598,6 +620,17 @@ func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 	m.logger.Debug("License heartbeat successful",
 		slog.String("plan", newClaims.Plan))
 	return nil
+}
+
+// rotatedActivation returns the stored activation when it holds credentials
+// other than ad's. Instances sharing a store each activate, and every activation
+// replaces the credentials the console accepts for the others.
+func (m *Manager) rotatedActivation(ad *ActivationData) *ActivationData {
+	stored := m.loadCachedActivation(ad.LicenseKey)
+	if stored == nil || (stored.HeartbeatSecret == ad.HeartbeatSecret && stored.ServerID == ad.ServerID) {
+		return nil
+	}
+	return stored
 }
 
 // applyToken verifies a token Dagu Console issued for the activation ad,

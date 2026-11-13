@@ -57,7 +57,8 @@ func dagRunEventuallyTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
 		return base * 24
 	}
-	return base
+	// A loaded CI host can stall a single command for over ten seconds.
+	return max(base, 30*time.Second)
 }
 
 func dagRunSyncTimeoutSeconds() int {

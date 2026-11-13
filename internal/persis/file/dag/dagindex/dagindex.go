@@ -24,7 +24,7 @@ const (
 	// IndexFileName is the name of the DAG definition index file.
 	IndexFileName = ".dag.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 6
+	IndexVersion = 8
 )
 
 // YAMLFileMeta holds stat metadata for a single YAML file.
@@ -41,27 +41,18 @@ type SuspendFlags map[string]struct{}
 // Load reads and validates the index against the current filesystem state.
 // Returns nil if the index is missing, corrupt, version-mismatched, or stale.
 func Load(indexPath string, yamlFiles []YAMLFileMeta, flags SuspendFlags) []*indexv1.DAGIndexEntry {
-	data, err := fileutil.ReadFile(indexPath)
-	if err != nil {
+	entries, ok := ReadEntries(indexPath)
+	if !ok {
 		return nil
 	}
 
-	var idx indexv1.DAGIndex
-	if err := proto.Unmarshal(data, &idx); err != nil {
-		return nil
-	}
-
-	if idx.Version != IndexVersion {
-		return nil
-	}
-
-	if len(idx.Entries) != len(yamlFiles) {
+	if len(entries) != len(yamlFiles) {
 		return nil
 	}
 
 	// Build lookup by file_path for O(n) comparison.
-	entryMap := make(map[string]*indexv1.DAGIndexEntry, len(idx.Entries))
-	for _, e := range idx.Entries {
+	entryMap := make(map[string]*indexv1.DAGIndexEntry, len(entries))
+	for _, e := range entries {
 		entryMap[e.FilePath] = e
 	}
 
@@ -76,14 +67,34 @@ func Load(indexPath string, yamlFiles []YAMLFileMeta, flags SuspendFlags) []*ind
 	}
 
 	// Validate suspend flags.
-	for _, e := range idx.Entries {
+	for _, e := range entries {
 		_, flagged := flags[SuspendFlagName(entryFileName(e.FilePath))]
 		if e.Suspended != flagged {
 			return nil
 		}
 	}
 
-	return idx.Entries
+	return entries
+}
+
+// ReadEntries returns the entries of the index without checking them against
+// the DAG files. It reports false if the index is missing, corrupt, or of
+// another version.
+func ReadEntries(indexPath string) ([]*indexv1.DAGIndexEntry, bool) {
+	data, err := fileutil.ReadFile(indexPath)
+	if err != nil {
+		return nil, false
+	}
+
+	var idx indexv1.DAGIndex
+	if err := proto.Unmarshal(data, &idx); err != nil {
+		return nil, false
+	}
+
+	if idx.Version != IndexVersion {
+		return nil, false
+	}
+	return idx.Entries, true
 }
 
 // Build constructs a fresh index by loading every YAML file with metadata-only semantics.
@@ -150,6 +161,7 @@ func buildEntry(
 	entry.Description = dag.Description
 	entry.Labels = labelsToStrings(dag.Labels)
 	entry.Schedule = scheduleToString(dag.Schedule)
+	entry.Queue = dag.Queue
 	if dag.RestartPolicy.Enabled() {
 		entry.RestartPolicy = string(dag.RestartPolicy)
 		entry.RestartWaitSec = int64(dag.RestartWait / time.Second)
@@ -248,6 +260,7 @@ func DAGFromEntry(entry *indexv1.DAGIndexEntry, baseDir string) *ir.DAG {
 		Group:       entry.Group,
 		Description: entry.Description,
 		Labels:      ir.NewLabels(entry.Labels),
+		Queue:       entry.Queue,
 	}
 
 	if entry.LoadError != "" {

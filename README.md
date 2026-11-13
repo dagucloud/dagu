@@ -118,6 +118,10 @@ brew install dagu
 npm install -g --ignore-scripts=false @dagucloud/dagu
 ```
 
+**Windows (installer):**
+
+Download and run [dagu-windows-amd64-setup.exe](https://github.com/dagucloud/dagu/releases/latest/download/dagu-windows-amd64-setup.exe).
+
 **Windows (PowerShell):**
 
 ```powershell
@@ -152,7 +156,7 @@ helm install dagu dagu/dagu --set persistence.storageClass=<your-rwx-storage-cla
 
 > Replace `<your-rwx-storage-class>` with a StorageClass that supports `ReadWriteMany`. See [charts/dagu/README.md](./charts/dagu/README.md) for chart configuration.
 
-The script installers run a guided wizard that can add Dagu to your PATH, set it up as a background service, and create the initial admin account. Homebrew, npm, Docker, and Helm install without the wizard. See the [Installation documentation](https://docs.dagu.sh/getting-started/installation/) for all options.
+The script installers run a guided wizard that can add Dagu to your PATH, set it up as a background service, and create the initial admin account. The Windows installer can add Dagu to your PATH and run it as a Windows service. Homebrew, npm, Scoop, Docker, and Helm install without a wizard. See the [Installation documentation](https://docs.dagu.sh/getting-started/installation/) for all options.
 
 ### Create and run a workflow
 
@@ -178,9 +182,9 @@ From that folder, run:
 dagu start-all --dags .
 ```
 
-Open http://localhost:8080. On first launch, create the admin account unless the installer wizard already created one.
+Open http://localhost:8080. On first launch, create the admin account unless a script installer already created one.
 
-If a script installer set Dagu up as a background service, it is already running on port 8080, so add workflows from the UI or put `hello.yaml` in the DAGs directory the installer printed.
+If an installer set Dagu up as a background service, it is already running (on port 8080 by default), so add workflows from the UI or put `hello.yaml` in its DAGs directory: the one the script installer printed, or `C:\ProgramData\Dagu\dags` for the Windows installer.
 
 ## How You Run Dagu
 
@@ -912,6 +916,8 @@ ip_access:
 Forwarded addresses are used only when the direct peer matches
 `trusted_proxies`. The proxy must remove client-supplied forwarding headers and
 set or append the verified client address. Keep trusted proxy ranges narrow.
+Proxy authentication (`auth.proxy`) accepts identity headers only from
+`trusted_proxies`, or only from loopback peers when the list is empty.
 
 ### Paths
 

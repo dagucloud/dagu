@@ -1323,3 +1323,73 @@ func TestSelectBastionAuthMethod_NoAuth(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no authentication method available for bastion")
 }
+
+// Unknown keys fail validation for both executors, at the top level of the
+// config and inside the bastion block.
+func TestSSHRejectsUnknownKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []string
+	}{
+		{
+			name:   "suggests closest key",
+			config: map[string]any{"host": "example.com", "stricht_host_key": true},
+			want:   []string{`did you mean "strict_host_key" instead of "stricht_host_key"?`},
+		},
+		{
+			name:   "reports every unknown key",
+			config: map[string]any{"stricht_host_key": true, "prot": 22},
+			want:   []string{"stricht_host_key", "prot"},
+		},
+		{
+			name: "bastion",
+			config: map[string]any{
+				"host":    "example.com",
+				"bastion": map[string]any{"host": "jump.example.com", "prot": 2222},
+			},
+			want: []string{"prot"},
+		},
+	}
+
+	for _, executorType := range []string{"ssh", "sftp"} {
+		for _, tt := range tests {
+			t.Run(executorType+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				err := registry.ValidateExecutorConfig(executorType, tt.config)
+				require.Error(t, err)
+				for _, want := range tt.want {
+					require.Contains(t, err.Error(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestSSHAcceptsDeclaredKeys(t *testing.T) {
+	t.Parallel()
+
+	config := map[string]any{
+		"host": "example.com",
+		"user": "me",
+		"port": 22,
+		"bastion": map[string]any{
+			"host":     "jump.example.com",
+			"port":     22,
+			"user":     "ops",
+			"key":      "/path/to/key",
+			"password": "secret",
+		},
+	}
+
+	for _, executorType := range []string{"ssh", "sftp"} {
+		t.Run(executorType, func(t *testing.T) {
+			t.Parallel()
+
+			require.NoError(t, registry.ValidateExecutorConfig(executorType, config))
+		})
+	}
+}

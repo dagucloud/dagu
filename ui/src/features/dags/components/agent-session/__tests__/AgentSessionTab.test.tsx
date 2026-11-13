@@ -5,11 +5,16 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSessionState, NodeStatus } from '@/api/v1/schema';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useClient } from '@/hooks/api';
 import { AgentSessionTab } from '../AgentSessionTab';
 
 vi.mock('@/hooks/api', () => ({
   useClient: vi.fn(),
+}));
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecuteForWorkspace: vi.fn(),
 }));
 
 vi.mock('@/contexts/RemoteNodeContext', () => ({
@@ -79,6 +84,7 @@ function renderAgentSessions(nodes: ReturnType<typeof agentNode>[]) {
 describe('AgentSessionTab', () => {
   beforeEach(() => {
     useClientMock.mockReturnValue({ POST: vi.fn() } as never);
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(true);
   });
 
   it('shows the provider error when the session failed', () => {
@@ -376,5 +382,36 @@ describe('AgentSessionTab', () => {
     expect(
       screen.queryByRole('button', { name: /Start clean session/ })
     ).not.toBeInTheDocument();
+  });
+
+  it('disables agent actions without execute permission', () => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
+    const node = agentNode(
+      'implement',
+      AgentSessionState.waiting,
+      NodeStatus.Waiting
+    );
+    Object.assign(node.agentSession, {
+      interactions: [
+        {
+          id: 'perm-1',
+          kind: 'permission',
+          status: 'pending',
+          permission: 'bash',
+        },
+      ],
+    });
+    renderAgentSessions([node]);
+
+    expect(screen.getByRole('button', { name: /Allow once/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Reject/ })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: /Start clean session/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Execute permission is required to answer or restart this session.'
+      )
+    ).toBeInTheDocument();
   });
 });

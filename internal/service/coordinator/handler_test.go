@@ -1234,10 +1234,14 @@ func TestHandler_Poll(t *testing.T) {
 			context.Background(),
 			attempt,
 			&coordinatorv1.Task{
-				DagRunId:     "run-123",
-				AttemptKey:   "attempt-key",
-				TriggerActor: "alice",
-				ScheduleTime: "2026-03-13T10:00:00Z",
+				DagRunId:         "run-123",
+				AttemptKey:       "attempt-key",
+				TriggerActor:     "alice",
+				TriggerType:      "manual",
+				ScheduleTime:     "2026-03-13T10:00:00Z",
+				IntervalStart:    "2026-03-13T09:00:00Z",
+				NextScheduledAt:  "2026-03-13T11:00:00Z",
+				ScheduleTimezone: "Asia/Tokyo",
 			},
 			"test-dag",
 			ir.DAGRunRef{},
@@ -1248,7 +1252,11 @@ func TestHandler_Poll(t *testing.T) {
 		status, err := attempt.ReadStatus(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, "2026-03-13T10:00:00Z", status.ScheduleTime)
+		require.Equal(t, "2026-03-13T09:00:00Z", status.IntervalStart)
+		require.Equal(t, "2026-03-13T11:00:00Z", status.NextScheduledAt)
+		require.Equal(t, "Asia/Tokyo", status.ScheduleTimezone)
 		require.Equal(t, "alice", status.TriggerActor)
+		require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	})
 
 	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {

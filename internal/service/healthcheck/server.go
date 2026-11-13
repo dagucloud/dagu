@@ -28,11 +28,15 @@ type Server struct {
 	listenAddr string
 	boundAddr  string
 	service    string
+	roleFunc   func() string
 }
 
 // Response represents the health check response.
 type Response struct {
 	Status string `json:"status"`
+	// Role names the instance's part in a group, such as "active" or "standby".
+	// It is empty for a service without roles.
+	Role string `json:"role,omitempty"`
 }
 
 // NewServer creates a new health check server for the given service and port.
@@ -51,6 +55,14 @@ func NewServerWithAddr(service, addr string) *Server {
 		listenAddr: addr,
 		service:    service,
 	}
+}
+
+// SetRoleFunc makes the server report the instance's role and answer
+// /health?role=<role> with 503 when the instance holds a different role.
+func (h *Server) SetRoleFunc(fn func() string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.roleFunc = fn
 }
 
 // URL returns the currently bound HTTP base URL for the health server.
@@ -167,17 +179,32 @@ func (h *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (h *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
-	response := Response{Status: "healthy"}
+func (h *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	response := Response{Status: "healthy", Role: h.role()}
+
+	code := http.StatusOK
+	if want := r.URL.Query().Get("role"); want != "" && want != response.Role {
+		code = http.StatusServiceUnavailable
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error(context.Background(), "Failed to encode health response",
 			slog.String("service", h.serviceName()),
 			tag.Error(err),
 		)
 	}
+}
+
+func (h *Server) role() string {
+	h.mu.Lock()
+	fn := h.roleFunc
+	h.mu.Unlock()
+	if fn == nil {
+		return ""
+	}
+	return fn()
 }
 
 func (h *Server) serviceName() string {

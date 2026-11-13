@@ -52,9 +52,6 @@ type PlannedRun struct {
 // DispatchFunc dispatches a catch-up or scheduled run for the given DAG.
 type DispatchFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error
 
-// RunIDFunc generates a unique run ID.
-type RunIDFunc func(ctx context.Context) (string, error)
-
 // IsRunningFunc checks if a DAG has any active run.
 type IsRunningFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
 
@@ -82,18 +79,27 @@ type HasGlobalQueueFunc func(dag *ir.DAG) bool
 // RunExistsFunc checks whether a durable dag-run record already exists.
 type RunExistsFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
 
+// BackfillGuardFunc runs enqueue for a catchup slot unless a backfill holds
+// the slot: its latest backfill run is active or succeeded. The check and
+// enqueue are serialized with the backfill's own dispatch, so the two never
+// both run a slot. It reports whether a backfill holds the slot.
+type BackfillGuardFunc func(ctx context.Context, entry DAGEntry, slot time.Time, enqueue func() error) (bool, error)
+
+// RecordSkippedSlotFunc records that a schedule slot was not run, and why.
+type RecordSkippedSlotFunc func(ctx context.Context, dagName string, slot time.Time, schedule, reason string) error
+
 // TickPlannerConfig holds the dependencies for creating a TickPlanner.
 type TickPlannerConfig struct {
 	StateStore      schedulerstate.Store
 	IsSuspended     IsSuspendedFunc
 	GetLatestStatus GetLatestStatusFunc
 	IsRunning       IsRunningFunc
-	GenRunID        RunIDFunc
 	Dispatch        DispatchFunc
 	Stop            StopFunc
 	Restart         RestartFunc
 	Clock           Clock
 	Location        *time.Location // timezone for cron schedule evaluation
+	DataDir         string         // data directory, part of each slot's run ID
 	Events          <-chan DAGChangeEvent
 	ProfileResolver DAGProfileResolver
 
@@ -109,6 +115,15 @@ type TickPlannerConfig struct {
 	HasGlobalQueue HasGlobalQueueFunc
 	// RunExists checks whether a durable dag-run record already exists.
 	RunExists RunExistsFunc
+	// RecordSkippedSlot records a slot the planner declined to run. Nil
+	// records nothing.
+	RecordSkippedSlot RecordSkippedSlotFunc
+	// BackfillGuard keeps catchup off a slot a backfill holds. Nil holds
+	// none.
+	BackfillGuard BackfillGuardFunc
+	// RecoveryWindow returns how far back startup replays slots missed while
+	// the lock passed from a failed scheduler, or 0 after a normal start.
+	RecoveryWindow func() time.Duration
 }
 
 // TickPlanner is the unified scheduling decision module.
@@ -122,7 +137,7 @@ type TickPlannerConfig struct {
 //   - flushMu spans a flush's snapshot and save, so a later snapshot is never
 //     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
 //   - Plan() holds entryMu during I/O calls (IsSuspended, IsRunning,
-//     GetLatestStatus, GenRunID). This is intentional: the lock prevents
+//     GetLatestStatus). This is intentional: the lock prevents
 //     event processing during planning, ensuring a consistent snapshot of
 //     entries for the entire plan cycle.
 //   - Plan() resolves DAG profiles before the main planning lock, then
@@ -222,10 +237,8 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 	if cfg.Location == nil {
 		cfg.Location = time.Local
 	}
-	if cfg.GenRunID == nil {
-		cfg.GenRunID = func(context.Context) (string, error) {
-			return "", fmt.Errorf("genRunID not configured")
-		}
+	if cfg.RecoveryWindow == nil {
+		cfg.RecoveryWindow = func() time.Duration { return 0 }
 	}
 	if cfg.Dispatch == nil {
 		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
@@ -389,14 +402,22 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	)
 
 	tp.settlePlannedSlots(ctx, entries)
-	// The first tick takes the current minute's slots.
-	firstTick := tp.cfg.Clock().Truncate(time.Minute)
+	var recovery time.Duration
+	if tp.cfg.QueuesEnabled {
+		recovery = tp.cfg.RecoveryWindow()
+	}
+	// The first tick takes the current minute's slots, and recovery replays
+	// the slots inside its window.
+	missedBefore := tp.cfg.Clock().Truncate(time.Minute)
+	if recovery > 0 {
+		missedBefore = tp.cfg.Clock().Add(-recovery)
+	}
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
-			tp.recordMissedSlot(ctx, entry, active, state.LastTick, firstTick)
+			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
 		}
 	}
-	tp.initBuffers(ctx, entries, activeByDAG)
+	tp.initBuffers(ctx, entries, activeByDAG, recovery)
 	tp.Flush(ctx)
 	return nil
 }
@@ -418,8 +439,8 @@ func (tp *TickPlanner) settlePlannedSlots(ctx context.Context, entries []DAGEntr
 				tag.DAG(entry.DAG.Name), tag.Error(err))
 			continue
 		}
-		scheduledAt, err := stringutil.ParseTime(status.ScheduleTime)
-		if err == nil && scheduledAt.Truncate(time.Minute).Equal(slot.At.Truncate(time.Minute)) {
+		scheduledAt, ok := scheduledSlotOf(status)
+		if ok && scheduledAt.Equal(slot.At.Truncate(time.Minute)) {
 			tp.recordSlot(entry.DAG.Name, slot.At, schedulerstate.SlotDispatched)
 		}
 	}
@@ -443,38 +464,54 @@ func (tp *TickPlanner) recordMissedSlot(ctx context.Context, entry DAGEntry, act
 	tp.recordSlot(entry.DAG.Name, slot, schedulerstate.SlotMissed)
 }
 
-// missedSlotLookback bounds how far back the latest missed slot is looked
-// for.
-const missedSlotLookback = 32 * 24 * time.Hour
-
 // latestCronSlot returns the latest fire time of the cron schedules after
 // from and before to.
 func latestCronSlot(schedules []ir.Schedule, from, to time.Time) (time.Time, bool) {
-	if earliest := to.Add(-missedSlotLookback); from.Before(earliest) {
-		from = earliest
-	}
-	var latest time.Time
+	var parsed []ir.Schedule
 	for _, schedule := range schedules {
-		if !schedule.IsCron() || schedule.Parsed == nil {
-			continue
-		}
-		for t := schedule.Parsed.Next(from); !t.IsZero() && t.Before(to); {
-			if t.After(latest) {
-				latest = t
-			}
-			next := schedule.Parsed.Next(t)
-			if !next.After(t) {
-				break
-			}
-			t = next
+		if schedule.IsCron() && schedule.Parsed != nil {
+			parsed = append(parsed, schedule)
 		}
 	}
-	return latest, !latest.IsZero()
+	latest := ir.PreviousFire(parsed, to)
+	if latest.IsZero() || !latest.After(from) {
+		return time.Time{}, false
+	}
+	return latest, true
 }
 
 // recordSlot keeps what came of a start slot as the DAG's latest, unless a
 // later slot is kept, the same slot was dispatched, or it is only planned
 // again. It reports whether the state changed.
+// declinedSlot is a due cron slot a guard held back.
+type declinedSlot struct {
+	at       time.Time
+	schedule ir.Schedule
+	outcome  schedulerstate.SlotOutcome
+}
+
+// recordSkippedSlot adds a slot the planner declined to run to the slot
+// index. A failed check is not a decision, and a slot that already has a run
+// is recorded by that run.
+func (tp *TickPlanner) recordSkippedSlot(ctx context.Context, dagName string, slot time.Time, schedule ir.Schedule, outcome schedulerstate.SlotOutcome) {
+	if tp.cfg.RecordSkippedSlot == nil {
+		return
+	}
+	switch outcome {
+	case schedulerstate.SlotSucceeded, schedulerstate.SlotRunning, schedulerstate.SlotQueued, schedulerstate.SlotOverlap:
+	case schedulerstate.SlotFailed, schedulerstate.SlotDone, schedulerstate.SlotDispatched,
+		schedulerstate.SlotPlanned, schedulerstate.SlotMissed:
+		return
+	}
+	if err := tp.cfg.RecordSkippedSlot(ctx, dagName, slot, schedule.Expression, string(outcome)); err != nil {
+		logger.Warn(ctx, "Failed to record a skipped schedule slot",
+			tag.DAG(dagName),
+			tag.ScheduledTime(slot),
+			tag.Error(err),
+		)
+	}
+}
+
 func (tp *TickPlanner) recordSlot(dagName string, at time.Time, outcome schedulerstate.SlotOutcome) bool {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -495,10 +532,19 @@ func (tp *TickPlanner) recordSlot(dagName string, at time.Time, outcome schedule
 	return true
 }
 
+// includeUnstartedSlot moves replayFrom back to cover a slot that a failed
+// scheduler planned but never started, unless the slot is older than earliest.
+func includeUnstartedSlot(replayFrom time.Time, slot *schedulerstate.ScheduleSlot, earliest time.Time) time.Time {
+	if slot == nil || slot.Outcome != schedulerstate.SlotPlanned || slot.At.Before(earliest) || slot.At.After(replayFrom) {
+		return replayFrom
+	}
+	return slot.At.Add(-time.Second)
+}
+
 // initBuffers creates per-DAG queues for DAGs with CatchupWindow > 0
 // and enqueues catch-up items. Requires QueuesEnabled; when disabled,
 // catchup buffers are not populated and a warning is logged per DAG.
-func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules) {
+func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules, recovery time.Duration) {
 	if !tp.cfg.QueuesEnabled {
 		for _, entry := range entries {
 			dag := entry.DAG
@@ -525,7 +571,8 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 
 	for _, entry := range entries {
 		dag := entry.DAG
-		if dag.CatchupWindow <= 0 {
+		window := max(dag.CatchupWindow, recovery)
+		if window <= 0 {
 			continue
 		}
 		active, ok := activeByDAG[dag.Name]
@@ -536,13 +583,17 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 			continue
 		}
 
-		var lastScheduledTime time.Time
-		if wm, ok := dagWatermarks[dag.Name]; ok {
-			lastScheduledTime = wm.LastScheduledTime
+		wm := dagWatermarks[dag.Name]
+		replayFrom := ComputeReplayFrom(window, lastTick, wm.LastScheduledTime, now)
+		if recovery > 0 {
+			replayFrom = includeUnstartedSlot(replayFrom, wm.LastSlot, now.Add(-recovery))
 		}
-
-		replayFrom := ComputeReplayFrom(dag.CatchupWindow, lastTick, lastScheduledTime, now)
-		missed := computeMissedScheduleIntervals(active.start, replayFrom.In(tp.cfg.Location), now)
+		replayTo := now
+		if dag.CatchupWindow <= 0 {
+			// The first tick runs the current minute's slots as usual.
+			replayTo = now.Truncate(time.Minute).Add(-time.Second)
+		}
+		missed := computeMissedScheduleIntervals(active.start, replayFrom.In(tp.cfg.Location), replayTo)
 
 		if len(missed) == 0 {
 			continue
@@ -686,11 +737,8 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 							item, _ = buf.Peek()
 						}
 						buf.Pop()
-						run, ok := tp.createPlannedRun(ctx, item.DAGEntry, item.Schedule, item.ScheduledTime, item.TriggerType)
-						if ok {
-							candidates = append(candidates, run)
-							catchupProduced = true
-						}
+						candidates = append(candidates, tp.createPlannedRun(item.DAGEntry, item.Schedule, item.ScheduledTime, item.TriggerType))
+						catchupProduced = true
 					} else {
 						switch buf.overlapPolicy {
 						case ir.OverlapPolicySkip:
@@ -700,6 +748,7 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 							)
 							tp.advanceDAGWatermark(dagName, popped.ScheduledTime)
 							tp.recordSlot(dagName, popped.ScheduledTime, schedulerstate.SlotOverlap)
+							tp.recordSkippedSlot(ctx, dagName, popped.ScheduledTime, popped.Schedule, schedulerstate.SlotOverlap)
 						case ir.OverlapPolicyAll:
 							// leave in buffer, retry next tick
 						case ir.OverlapPolicyLatest:
@@ -761,14 +810,17 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 				continue
 			}
 
-			run, ok := tp.createPlannedRun(ctx, entry.DAGEntry, schedule, oneOffState.ScheduledTime, ir.TriggerTypeScheduler)
-			if ok && shouldPreferStartCandidate(run, startCandidate, hasStartCandidate) {
+			run := tp.createPlannedRun(entry.DAGEntry, schedule, oneOffState.ScheduledTime, ir.TriggerTypeScheduler)
+			if shouldPreferStartCandidate(run, startCandidate, hasStartCandidate) {
 				startCandidate = run
 				hasStartCandidate = true
 			}
 		}
 
-		// Evaluate cron schedules for live start runs.
+		// Evaluate cron schedules for live start runs. A declined slot is
+		// recorded as skipped once the candidate is chosen, since another
+		// schedule firing at the same time may still run it.
+		var declined []declinedSlot
 		for _, schedule := range active.start {
 			if !schedule.IsCron() {
 				continue
@@ -779,13 +831,10 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 			if ok, skipped := tp.shouldRun(ctx, entry.DAG, next, schedule); !ok {
 				tp.recordSlot(dagName, next, skipped)
+				declined = append(declined, declinedSlot{at: next, schedule: schedule, outcome: skipped})
 				continue
 			}
-			run, ok := tp.createPlannedRun(ctx, entry.DAGEntry, schedule, next, ir.TriggerTypeScheduler)
-			if !ok {
-				tp.recordSlot(dagName, next, schedulerstate.SlotFailed)
-				continue
-			}
+			run := tp.createPlannedRun(entry.DAGEntry, schedule, next, ir.TriggerTypeScheduler)
 			if shouldPreferStartCandidate(run, startCandidate, hasStartCandidate) {
 				startCandidate = run
 				hasStartCandidate = true
@@ -799,6 +848,12 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 				tp.recordSlot(dagName, startCandidate.ScheduledTime, schedulerstate.SlotPlanned)
 			}
 			candidates = append(candidates, startCandidate)
+		}
+		for _, slot := range declined {
+			if hasStartCandidate && slot.at.Equal(startCandidate.ScheduledTime) {
+				continue
+			}
+			tp.recordSkippedSlot(ctx, dagName, slot.at, slot.schedule, slot.outcome)
 		}
 
 		// Evaluate stop schedules.
@@ -999,17 +1054,26 @@ func latestSuccessReferenceTime(status ir.DAGRunStatus) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func latestScheduledSlot(status ir.DAGRunStatus, schedule ir.Schedule) (time.Time, latestScheduledSlotState) {
-	if status.ScheduleTime == "" {
-		return time.Time{}, latestScheduledSlotUnknown
+// scheduledSlotOf returns the slot the scheduler ran a run for. A manual run
+// started for a slot is not the scheduler's run of it and is read by when it
+// ran, so it cannot suppress or settle a scheduled fire.
+func scheduledSlotOf(status ir.DAGRunStatus) (time.Time, bool) {
+	if status.ScheduleTime == "" || status.TriggerType == ir.TriggerTypeManual {
+		return time.Time{}, false
 	}
-
 	scheduledAt, err := stringutil.ParseTime(status.ScheduleTime)
 	if err != nil {
+		return time.Time{}, false
+	}
+	return scheduledAt.Truncate(time.Minute), true
+}
+
+func latestScheduledSlot(status ir.DAGRunStatus, schedule ir.Schedule) (time.Time, latestScheduledSlotState) {
+	scheduledAt, ok := scheduledSlotOf(status)
+	if !ok {
 		return time.Time{}, latestScheduledSlotUnknown
 	}
 
-	scheduledAt = scheduledAt.Truncate(time.Minute)
 	if !scheduleMatchesFireTime(schedule, scheduledAt) {
 		return scheduledAt, latestScheduledSlotStale
 	}
@@ -1094,29 +1158,18 @@ func (tp *TickPlanner) pendingOneOffState(dagName, fingerprint string) (schedule
 	return oneOff, true
 }
 
-// computePrevExecTime calculates the previous schedule fire time before next.
-// It walks forward from (next - 32 days) to find the last fire time before next.
-// 32 days covers monthly schedules, the most common sparse cron interval.
-// This correctly handles non-uniform cron schedules (e.g., "0 9,17 * * *").
+// computePrevExecTime returns the schedule's latest fire before next. When the
+// schedule has not fired within the lookback of ir.PreviousFire, it assumes
+// the interval between next and the fire after it.
 func computePrevExecTime(next time.Time, schedule ir.Schedule) time.Time {
 	if schedule.Parsed == nil {
 		return next
 	}
-	// Walk forward from 32 days before next to find the last fire time before next.
-	seed := next.Add(-32 * 24 * time.Hour)
-	var prev time.Time
-	t := schedule.Parsed.Next(seed)
-	for !t.IsZero() && t.Before(next) {
-		prev = t
-		t = schedule.Parsed.Next(t)
+	if prev := ir.PreviousFire([]ir.Schedule{schedule}, next); !prev.IsZero() {
+		return prev
 	}
-	if prev.IsZero() {
-		// Fallback: no previous fire time found within the 7-day window.
-		// Use interval heuristic as last resort.
-		nextNext := schedule.Parsed.Next(next.Add(time.Second))
-		return next.Add(-(nextNext.Sub(next)))
-	}
-	return prev
+	nextNext := schedule.Parsed.Next(next.Add(time.Second))
+	return next.Add(-(nextNext.Sub(next)))
 }
 
 // scheduleDueAt returns the next fire time if the schedule is due at the given
@@ -1134,26 +1187,13 @@ func scheduleDueAt(schedule ir.Schedule, now time.Time) (time.Time, bool) {
 	return next, true
 }
 
-// createPlannedRun generates a run ID and constructs a PlannedRun.
-// For catchup runs, a deterministic ID is generated from the DAG name and
-// scheduled time. For all other runs, a random UUID v7 is used.
-func (tp *TickPlanner) createPlannedRun(ctx context.Context, entry DAGEntry, schedule ir.Schedule, scheduledTime time.Time, triggerType ir.TriggerType) (PlannedRun, bool) {
+// createPlannedRun generates a run ID and constructs a PlannedRun. Every ID is
+// deterministic, so a slot planned twice, as around a failover, names one run.
+func (tp *TickPlanner) createPlannedRun(entry DAGEntry, schedule ir.Schedule, scheduledTime time.Time, triggerType ir.TriggerType) PlannedRun {
 	dag := entry.DAG
-	var runID string
-	if triggerType == ir.TriggerTypeCatchUp {
-		runID = GenerateCatchupRunID(dag.Name, scheduledTime)
-	} else if schedule.IsOneOff() {
+	runID := GenerateSlotRunID(tp.cfg.DataDir, dag.Name, scheduledTime)
+	if triggerType != ir.TriggerTypeCatchUp && schedule.IsOneOff() {
 		runID = GenerateOneOffRunID(dag.Name, schedule.Fingerprint(), scheduledTime)
-	} else {
-		var err error
-		runID, err = tp.cfg.GenRunID(ctx)
-		if err != nil {
-			logger.Error(ctx, "Failed to generate run ID",
-				tag.DAG(dag.Name),
-				tag.Error(err),
-			)
-			return PlannedRun{}, false
-		}
 	}
 
 	return PlannedRun{
@@ -1164,7 +1204,7 @@ func (tp *TickPlanner) createPlannedRun(ctx context.Context, entry DAGEntry, sch
 		ScheduleType:  ScheduleTypeStart,
 		Schedule:      schedule,
 		Fingerprint:   schedule.Fingerprint(),
-	}, true
+	}
 }
 
 // Advance records that this tick was processed. Updates global and per-DAG watermarks.
@@ -1871,23 +1911,51 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				)
 				return
 			}
-			legacyRunID := generateLegacyCatchupRunID(run.DAG.Name, run.ScheduledTime)
-			exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, legacyRunID)
-			if existsErr != nil {
-				logger.Error(ctx, "Failed to check for existing catchup dag-run",
-					tag.DAG(run.DAG.Name),
-					tag.RunID(legacyRunID),
-					tag.Error(existsErr),
-				)
-				tp.reinsertCatchupItem(ctx, run)
-				return
+			// A slot replayed by an earlier release has one of these IDs.
+			for _, earlierRunID := range []string{
+				generateLegacyCatchupRunID(run.DAG.Name, run.ScheduledTime),
+				GenerateCatchupRunID(run.DAG.Name, run.ScheduledTime),
+			} {
+				exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, earlierRunID)
+				if existsErr != nil {
+					logger.Error(ctx, "Failed to check for existing catchup dag-run",
+						tag.DAG(run.DAG.Name),
+						tag.RunID(earlierRunID),
+						tag.Error(existsErr),
+					)
+					tp.reinsertCatchupItem(ctx, run)
+					return
+				}
+				if exists {
+					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+					tp.recordStartSlot(run, schedulerstate.SlotDone)
+					return
+				}
 			}
-			if exists {
-				tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
-				tp.recordStartSlot(run, schedulerstate.SlotDone)
-				return
+			enqueue := func() error {
+				err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+				// An enqueue error is handled below as for any dispatch.
+				return nil
 			}
-			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+			if tp.cfg.BackfillGuard == nil {
+				_ = enqueue()
+			} else {
+				held, guardErr := tp.cfg.BackfillGuard(ctx, run.DAGEntry, run.ScheduledTime, enqueue)
+				if guardErr != nil {
+					logger.Error(ctx, "Failed to check whether a backfill holds the catchup slot",
+						tag.DAG(run.DAG.Name),
+						tag.ScheduledTime(run.ScheduledTime),
+						tag.Error(guardErr),
+					)
+					tp.reinsertCatchupItem(ctx, run)
+					return
+				}
+				if held {
+					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+					tp.recordStartSlot(run, schedulerstate.SlotDone)
+					return
+				}
+			}
 		} else if tp.queuesRun(run.DAG) {
 			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
 		} else {
@@ -1927,6 +1995,28 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 					tp.recomputeDAGProjection(ctx, run.DAG)
 					tp.Flush(ctx)
 				}
+				return
+			}
+		}
+		if run.ScheduleType == ScheduleTypeStart && !run.Schedule.IsOneOff() {
+			exists, existsErr := tp.cfg.RunExists(ctx, run.DAG, run.RunID)
+			if existsErr != nil {
+				logger.Error(ctx, "Failed to re-check dag-run after dispatch error",
+					tag.DAG(run.DAG.Name),
+					tag.RunID(run.RunID),
+					tag.Error(existsErr),
+				)
+				// The slot may have started, so its outcome stays unsettled.
+				if run.TriggerType == ir.TriggerTypeCatchUp {
+					tp.reinsertCatchupItem(ctx, run)
+				}
+				return
+			}
+			if exists {
+				if run.TriggerType == ir.TriggerTypeCatchUp {
+					tp.advanceDAGWatermark(run.DAG.Name, run.ScheduledTime)
+				}
+				tp.recordStartSlot(run, schedulerstate.SlotDispatched)
 				return
 			}
 		}

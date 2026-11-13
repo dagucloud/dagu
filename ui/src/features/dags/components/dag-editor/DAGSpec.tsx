@@ -317,7 +317,7 @@ function DAGSpec({
   const { schema: baseSchema } = useSchema();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
-  const { setHasUnsavedChanges } = useUnsavedChanges();
+  const { setHasUnsavedChanges, registerSave } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = React.useState('parent');
   // The Workflow panel stays open across the documents of the file: each
@@ -1118,17 +1118,17 @@ function DAGSpec({
     };
   }, [setHasUnsavedChanges]);
 
-  // Save handler function
-  const handleSave = React.useCallback(async () => {
+  // Sends the text to the server. Resolves true only when it was saved.
+  const handleSave = React.useCallback(async (): Promise<boolean> => {
     if (isSaving) {
-      return;
+      return false;
     }
     if (currentValue == null) {
       showError(ts('No changes to save'), ts('Make some edits before saving.'));
-      return;
+      return false;
     }
     if (conflict.hasConflict) {
-      return;
+      return false;
     }
 
     beginSave(currentValue);
@@ -1163,7 +1163,7 @@ function DAGSpec({
         );
         // The newer version comes in as an external change.
         void mutateSpec();
-        return;
+        return false;
       }
 
       if (error) {
@@ -1172,7 +1172,7 @@ function DAGSpec({
           error.message || ts('Failed to save spec'),
           ts('Please check the YAML syntax and try again.')
         );
-        return;
+        return false;
       }
 
       if (responseData?.errors?.length) {
@@ -1192,7 +1192,7 @@ function DAGSpec({
           ts('Validation errors'),
           responseData.errors.map(plainIssueMessage)
         );
-        return;
+        return false;
       }
 
       // Mark as saved to prevent false conflict detection on our own save
@@ -1203,9 +1203,11 @@ function DAGSpec({
 
       // Revalidate SWR cache from server as safety net
       mutateSpec();
+      return true;
     } catch {
       cancelSave();
       showError(ts('Failed to save spec'), ts('Please try again.'));
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -1292,29 +1294,53 @@ function DAGSpec({
       revertChild();
     }
   }, [childChanged, childText, revertChild, savedChildText]);
-  const requestSave = React.useCallback(async () => {
+  // Tells why the text cannot be saved now. False when nothing blocks it.
+  const showSaveBlocker = React.useCallback((): boolean => {
     if (savingBlocked) {
       setIssuesRequest((count) => count + 1);
-      return;
-    }
-    if (!localHasUnsavedChanges || isSaving) {
-      return;
+      return true;
     }
     if (syntaxError) {
       showToast(ts('Fix the YAML syntax error before you save'), {
         variant: 'error',
       });
+      return true;
+    }
+    return false;
+  }, [savingBlocked, showToast, syntaxError, ts]);
+  const requestSave = React.useCallback(async () => {
+    if (showSaveBlocker()) {
+      return;
+    }
+    if (!localHasUnsavedChanges || isSaving) {
       return;
     }
     setReviewOpen(true);
-  }, [
-    isSaving,
-    localHasUnsavedChanges,
-    savingBlocked,
-    showToast,
-    syntaxError,
-    ts,
-  ]);
+  }, [isSaving, localHasUnsavedChanges, showSaveBlocker]);
+
+  // A caller that saves in order to run has confirmed the save: the text is
+  // sent without the review of the diff.
+  const saveNow = React.useCallback(async (): Promise<boolean> => {
+    if (showSaveBlocker()) {
+      return false;
+    }
+    if (!localHasUnsavedChanges) {
+      return true;
+    }
+    const saved = await handleSave();
+    if (saved) {
+      refreshCallbackRef.current?.();
+    }
+    return saved;
+  }, [handleSave, localHasUnsavedChanges, showSaveBlocker]);
+  const saveNowRef = React.useRef(saveNow);
+  saveNowRef.current = saveNow;
+  useEffect(() => {
+    if (!editable) {
+      return;
+    }
+    return registerSave(() => saveNowRef.current());
+  }, [editable, registerSave]);
 
   // Update save handler ref when handleSave changes
   useEffect(() => {

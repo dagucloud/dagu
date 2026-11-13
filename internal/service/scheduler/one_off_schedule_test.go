@@ -241,8 +241,7 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 	}
 	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
-	require.True(t, ok)
+	run := tp.createPlannedRun(DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
 	tp.DispatchRun(context.Background(), run)
 
 	state := store.lastSaved()
@@ -289,8 +288,7 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 	}
 	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, scheduledTime, ir.TriggerTypeScheduler)
-	require.True(t, ok)
+	run := tp.createPlannedRun(DAGEntry{DAG: dag}, schedule, scheduledTime, ir.TriggerTypeScheduler)
 	tp.DispatchRun(context.Background(), run)
 
 	assert.Equal(t, []string{run.RunID, legacyRunID}, checkedRunIDs)
@@ -332,8 +330,7 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 	}
 	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
-	require.True(t, ok)
+	run := tp.createPlannedRun(DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
 	tp.DispatchRun(context.Background(), run)
 
 	tp.mu.RLock()
@@ -410,8 +407,7 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 
 	require.NoError(t, tp.Init(context.Background(), testDAGEntries(dag)))
 
-	run, ok := tp.createPlannedRun(context.Background(), DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
-	require.True(t, ok)
+	run := tp.createPlannedRun(DAGEntry{DAG: dag}, schedule, time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler)
 	tp.DispatchRun(context.Background(), run)
 
 	assert.False(t, dispatched)

@@ -409,6 +409,143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/backfills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan and submit a backfill
+         * @description Plans a backfill over a range of past slots, or named slots, and records it unless dryRun is set. The scheduler then queues one run per slot that needs one, oldest first. Submitting the same backfill while it is open returns it.
+         */
+        post: operations["submitBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a DAG's schedule slots and their state
+         * @description Lists the fire times of the DAG's schedules in a range, each with the state its history gives it.
+         */
+        get: operations["listDAGSlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List backfills
+         * @description Lists backfills, oldest first, of every DAG or of one.
+         */
+        get: operations["listBackfills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a backfill */
+        get: operations["getBackfill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the slots of a backfill
+         * @description Lists a backfill's slots, oldest first, with their state and run, a page at a time.
+         */
+        get: operations["listBackfillSlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a backfill
+         * @description Ends an open backfill. Its queued runs are withdrawn and the slots it has not reached are cancelled. Running runs finish unless stopRunning is set.
+         */
+        post: operations["cancelBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/backfills/{backfillId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume a backfill
+         * @description Plans again the slots of a backfill that have not succeeded, with the DAG's current definition, and runs them with new runs. On an open backfill the queued runs are withdrawn first.
+         */
+        post: operations["resumeBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/dag-runs": {
         parameters: {
             query?: never;
@@ -1999,6 +2136,26 @@ export interface paths {
         put?: never;
         /** Restart a managed-agent session cleanly in a sub DAG-run */
         post: operations["restartSubDAGRunStepAgentSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-dags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the service DAGs
+         * @description Returns the DAGs that set a restart policy, each with a compact state. A service DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds.
+         */
+        get: operations["listServiceDAGs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4812,6 +4969,144 @@ export interface components {
             /** @description Whether this request durably queued the DAG-run retry */
             queued: boolean;
         };
+        /**
+         * @description Which slots that already have a run a backfill runs again
+         * @enum {string}
+         */
+        BackfillRerun: BackfillRerun;
+        /**
+         * @description What a backfill does after a slot fails
+         * @enum {string}
+         */
+        BackfillOnFailure: BackfillOnFailure;
+        /** @description A backfill over a range of slots, or over named slots */
+        BackfillRequest: {
+            /** @description First slot, inclusive: a date, a time without an offset, or an RFC 3339 time. Required without slots. */
+            from?: string;
+            /** @description Last slot, inclusive. Defaults to now. */
+            to?: string;
+            /** @description Slots to run instead of a range. Excludes from, to, and rerun. */
+            slots?: string[];
+            rerun?: components["schemas"]["BackfillRerun"];
+            /** @description Runs of the backfill allowed at once. Defaults to 1. */
+            maxConcurrency?: number;
+            onFailure?: components["schemas"]["BackfillOnFailure"];
+            /** @description Params for every run */
+            params?: string;
+            /** @description Runtime profile for every run */
+            profile?: string;
+            /**
+             * @description Return the plan without submitting
+             * @default false
+             */
+            dryRun: boolean;
+            /** @description Revision of the plan the caller saw; a changed plan submits nothing */
+            revision?: string;
+        };
+        BackfillPlanSlot: {
+            /** Format: date-time */
+            slot: string;
+            /**
+             * Format: date-time
+             * @description Start of the window the slot owns
+             */
+            windowStart?: string;
+            /**
+             * Format: date-time
+             * @description End of the window the slot owns, its scheduled time
+             */
+            windowEnd: string;
+            /** @enum {string} */
+            action: BackfillPlanSlotAction;
+            /** @description Run a skip relies on */
+            runId?: string;
+            /**
+             * Format: date-time
+             * @description Scheduled time of the run under an earlier schedule that a skip relies on
+             */
+            coveredBy?: string;
+        };
+        BackfillPlan: {
+            dag: string;
+            /** Format: date-time */
+            from?: string;
+            /**
+             * Format: date-time
+             * @description End of the range after clamping to now
+             */
+            to?: string;
+            /** @description The range ended later than now */
+            clamped?: boolean;
+            rerun: components["schemas"]["BackfillRerun"];
+            /** @description Slots each rerun value would run */
+            runCounts: {
+                none: number;
+                failed: number;
+                all: number;
+            };
+            /** @description Slots that run because their nearest run fired under a schedule of another cadence */
+            otherCadence?: number;
+            /** @description Runs of the backfill at once: the lower of its max concurrency and the queue's limit */
+            concurrency: number;
+            /** @description Runs of the DAG's queue at once */
+            queueLimit: number;
+            /** @description How long the plan's runs take, from the median duration of the DAG's recent successful runs. Absent without such runs. */
+            estimateSeconds?: number;
+            revision: string;
+            slots: components["schemas"]["BackfillPlanSlot"][];
+            warnings?: string[];
+        };
+        /** @enum {string} */
+        BackfillStatus: BackfillStatus;
+        /** @enum {string} */
+        BackfillSlotState: BackfillSlotState;
+        BackfillSlot: {
+            /** Format: date-time */
+            slot: string;
+            state: components["schemas"]["BackfillSlotState"];
+            runId?: string;
+        };
+        Backfill: {
+            id: string;
+            dag: string;
+            status: components["schemas"]["BackfillStatus"];
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: date-time */
+            endedAt?: string;
+            actor?: string;
+            /** @description Number of resumes */
+            generation?: number;
+            rerun: components["schemas"]["BackfillRerun"];
+            maxConcurrency: number;
+            onFailure: components["schemas"]["BackfillOnFailure"];
+            slotCount: number;
+            /** @description Slots in each state */
+            counts: {
+                [key: string]: number;
+            };
+            /** @description Why an open backfill makes no progress: a run waits for a person, or its next run waits in the queue. Set only when one backfill is read. */
+            waiting?: string;
+        };
+        /** @description The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since */
+        LatestBackfill: components["schemas"]["Backfill"];
+        BackfillSubmitResponse: {
+            plan: components["schemas"]["BackfillPlan"];
+            backfill?: components["schemas"]["Backfill"];
+            /** @description The backfill was already open with the same options */
+            existing?: boolean;
+        };
+        DAGSlot: {
+            /** Format: date-time */
+            slot: string;
+            /** Format: date-time */
+            windowStart?: string;
+            /** @enum {string} */
+            status: DAGSlotStatus;
+            runId?: string;
+            /** Format: date-time */
+            coveredBy?: string;
+        };
         /** @description Generic error response object */
         Error: {
             code: components["schemas"]["ErrorCode"];
@@ -5978,6 +6273,16 @@ export interface components {
          * @enum {string}
          */
         UpcomingRunsHold: UpcomingRunsHold;
+        /** @description A past time at which a start schedule fired */
+        RecentFire: {
+            /**
+             * Format: date-time
+             * @description Fire time, with the offset of the zone the schedule is evaluated in
+             */
+            time: string;
+            /** @description Name of the zone the schedule is evaluated in */
+            timezone: string;
+        };
         /** @description A time at which a start schedule fires */
         UpcomingRun: {
             /**
@@ -6022,7 +6327,7 @@ export interface components {
          */
         TriggerType: TriggerType;
         /**
-         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
+         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and queues the next run restartWaitSec seconds after the previous one ends, longer while runs fail soon after they start; a busy queue can start it later. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
          * @enum {string}
          */
         RestartPolicy: RestartPolicy;
@@ -6153,6 +6458,8 @@ export interface components {
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
             upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
+            /** @description Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime. */
+            recentFires?: components["schemas"]["RecentFire"][];
             /** @description Logical grouping of related DAGs for organizational purposes */
             group?: string;
             /** @description Unique identifier for the DAG within its group */
@@ -6236,7 +6543,7 @@ export interface components {
              */
             severity: ValidationIssueSeverity;
             /**
-             * @description Stage that produced the issue.
+             * @description Stage that produced the issue. A host issue depends on the server host, not only on the spec.
              * @enum {string}
              */
             source: ValidationIssueSource;
@@ -6473,6 +6780,11 @@ export interface components {
              */
             startedAtMs: number;
         };
+        /**
+         * @description Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning.
+         * @example 2026-11-09
+         */
+        ScheduleSlotValue: string;
         /** @description Current status of a DAG-run */
         DAGRunSummary: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -6489,6 +6801,12 @@ export interface components {
             autoRetryLimit?: number | null;
             /** @description RFC 3339 timestamp of when the DAG-run was scheduled to run */
             scheduleTime?: string;
+            /** @description RFC 3339 instant of the previous fire of the DAG's schedule before scheduleTime; the run's window is [intervalStart, scheduleTime) */
+            intervalStart?: string;
+            /** @description RFC 3339 instant of the next fire of the DAG's schedule after scheduleTime */
+            nextScheduledAt?: string;
+            /** @description Zone the run's schedule slot is evaluated in, such as Asia/Tokyo */
+            scheduleTimezone?: string;
             /** @description RFC 3339 timestamp with millisecond precision when the DAG-run started. A run that an older version stored has second precision. */
             startedAt: string;
             /** @description RFC 3339 timestamp with millisecond precision when the DAG-run finished. A run that an older version stored has second precision. */
@@ -7589,6 +7907,75 @@ export interface components {
             parentDagRunName?: components["schemas"]["DAGName"];
             parentDagRunId?: components["schemas"]["DAGRunId"];
         };
+        /**
+         * @description What a service DAG does, as its latest run shows it:
+         *     - pending: no run is alive yet, or the latest run waits in the queue.
+         *     - running: a run is alive.
+         *     - waiting: a run is alive but waits for a person, such as an approval.
+         *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
+         *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
+         *     - suspended: the DAG gets no new run.
+         *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
+         *
+         * @enum {string}
+         */
+        ServiceDAGState: ServiceDAGState;
+        /**
+         * @description Why the next run of a service DAG does not start, set with the states restarting and failing in place of nextRestartAt:
+         *     - paused: an operator paused the scheduler.
+         *     - noScheduler: no scheduler is running.
+         *
+         * @enum {string}
+         */
+        ServiceDAGRestartHold: ServiceDAGRestartHold;
+        /** @description The latest run of a service DAG */
+        ServiceDAGRun: {
+            dagRunId: components["schemas"]["DAGRunId"];
+            status: components["schemas"]["Status"];
+            /**
+             * Format: date-time
+             * @description When the run started. Omitted until it starts.
+             */
+            startedAt?: string;
+            /**
+             * Format: date-time
+             * @description When the run ended. Omitted while it is alive.
+             */
+            finishedAt?: string;
+            /** @description Why the run did not succeed: the first failed step and its error, or the error of the run. Set only for a run that ended without success. */
+            error?: string;
+        };
+        /** @description A DAG that sets a restart policy, with its state */
+        ServiceDAG: {
+            /** @description File ID of the DAG file */
+            fileName: string;
+            name: components["schemas"]["DAGName"];
+            restartPolicy: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. */
+            restartWaitSec: number;
+            /** @description Queue that the runs of the DAG enter: the queue the DAG sets, or its name when it sets none. */
+            queue: string;
+            /**
+             * Format: date-time
+             * @description When the next run is due: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. The scheduler then queues the run, so a busy queue can start it later. Set only with the states restarting and failing, and not with restartHold.
+             */
+            nextRestartAt?: string;
+            restartHold?: components["schemas"]["ServiceDAGRestartHold"];
+            state: components["schemas"]["ServiceDAGState"];
+            /** @description Whether the DAG is suspended */
+            suspended: boolean;
+            latestRun?: components["schemas"]["ServiceDAGRun"];
+            /** @description Why the state could not be read. Set only with the state failing. */
+            readError?: string;
+            /** @description How many of the newest ended runs in a row did not succeed, up to 10. A run that an operator stopped ends the count. A count above zero while the DAG is running means that it keeps failing. */
+            consecutiveFailures: number;
+        };
+        /** @description The service DAGs */
+        ServiceDAGsResponse: {
+            dags: components["schemas"]["ServiceDAG"][];
+            /** @description Errors met while the DAGs were listed, such as DAG files that cannot be read. An error about one DAG's state is in its readError. */
+            errors: string[];
+        };
         /** @description Response containing all queues with their active DAG-runs */
         QueuesResponse: {
             /** @description List of all queues with their running and queued DAG-runs */
@@ -7826,6 +8213,19 @@ export interface components {
             connected: boolean;
             /** @description Why the last connection failed or Dagu Cloud refused it, such as a workspace without a plan or a trial */
             error?: string;
+            lastCall?: components["schemas"]["LicenseRemoteAccessLastCall"];
+        };
+        /** @description The latest call from Dagu Cloud the server served, absent before the first */
+        LicenseRemoteAccessLastCall: {
+            /**
+             * Format: date-time
+             * @description When the call reached the server, to the minute
+             */
+            at: string;
+            /** @description The MCP client that made the call, such as Claude */
+            client?: string;
+            /** @description The Dagu Cloud user the call ran as */
+            user?: string;
         };
         /** @description Request body for changing password */
         ChangePasswordRequest: {
@@ -8509,7 +8909,7 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
-            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            /** @description Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended. */
             activeOnly?: boolean;
             /** @description Whether this is the default workflow view for its workspace scope. */
             isDefault?: boolean;
@@ -8530,7 +8930,7 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
-            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            /** @description Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended. */
             activeOnly?: boolean;
             /** @description DAG run ID filter. Empty matches any. */
             dagRunId?: string;
@@ -8603,6 +9003,8 @@ export interface components {
         WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
+        /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+        ExcludeServiceDAGRuns: boolean;
         /** @description Optional Wiki page path prefix within the selected workspace */
         WikiPagePrefix: components["schemas"]["WikiPagePath"];
         /** @description Filter by DAG names containing this value */
@@ -8621,6 +9023,8 @@ export interface components {
         SearchMatchLimit: number;
         /** @description the name of the DAG file */
         DAGFileName: components["schemas"]["DAGFileName"];
+        /** @description the ID of the backfill */
+        BackfillId: string;
         /** @description name of the calendar */
         CalendarName: components["schemas"]["CalendarName"];
         /** @description name of the DAG */
@@ -9362,7 +9766,10 @@ export interface operations {
     };
     listAPIKeys: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9914,6 +10321,7 @@ export interface operations {
                         /** @description List of local DAGs that are part of this DAG */
                         localDags: components["schemas"]["LocalDag"][];
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
+                        latestBackfill?: components["schemas"]["LatestBackfill"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;
                         /** @description Whether the DAG is pinned to the top of the DAG list */
@@ -10015,6 +10423,7 @@ export interface operations {
                      * @default false
                      */
                     noReuse?: boolean;
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
@@ -10056,6 +10465,13 @@ export interface operations {
                 content: {
                     "application/json": {
                         dagRunId: components["schemas"]["DAGRunId"];
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the schedule slot the run was started for, when the request named one
+                         */
+                        scheduleTime?: string;
+                        /** @description Warnings about the request, such as a scheduleTime that is not a fire time of the schedule */
+                        warnings?: string[];
                     };
                 };
             };
@@ -10220,6 +10636,7 @@ export interface operations {
                      * @default false
                      */
                     noReuse?: boolean;
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
                     /** @description Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                     labels?: components["schemas"]["Labels"];
                     /**
@@ -10239,6 +10656,13 @@ export interface operations {
                 content: {
                     "application/json": {
                         dagRunId: components["schemas"]["DAGRunId"];
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the schedule slot the run was started for, when the request named one
+                         */
+                        scheduleTime?: string;
+                        /** @description Warnings about the request, such as a scheduleTime that is not a fire time of the schedule */
+                        warnings?: string[];
                     };
                 };
             };
@@ -10271,6 +10695,394 @@ export interface operations {
             };
         };
     };
+    submitBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan, and the backfill when one was recorded or was already open */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The plan changed since the revision the request sent; nothing was submitted and the new plan is returned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDAGSlots: {
+        parameters: {
+            query: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description First slot, inclusive: a date, a time without an offset, or an RFC 3339 time */
+                from: string;
+                /** @description Last slot, inclusive. Defaults to now. */
+                to?: string;
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The slots of the range */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        slots: components["schemas"]["DAGSlot"][];
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listBackfills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Name of the DAG whose backfills to list */
+                dag?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backfills */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        backfills: components["schemas"]["Backfill"][];
+                    };
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backfill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backfill"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listBackfillSlots: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description List only slots in this state */
+                state?: components["schemas"]["BackfillSlotState"];
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the backfill's slots */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        slots: components["schemas"]["BackfillSlot"][];
+                        /** @description Number of slots that match, over every page */
+                        total: number;
+                    };
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    cancelBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Also stop the backfill's running and waiting runs
+                     * @default false
+                     */
+                    stopRunning?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The cancelled backfill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backfill"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The backfill has already ended */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resumeBackfill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the ID of the backfill */
+                backfillId: components["parameters"]["BackfillId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Replaces the backfill's concurrency */
+                    maxConcurrency?: number;
+                    onFailure?: components["schemas"]["BackfillOnFailure"];
+                    /**
+                     * @description Return the plan without resuming
+                     * @default false
+                     */
+                    dryRun?: boolean;
+                    /** @description Revision of the plan the caller saw; a changed plan resumes nothing */
+                    revision?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The plan, and the backfill when it was resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The plan changed since the revision the request sent; the new plan is returned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getDAGDAGRunHistory: {
         parameters: {
             query?: {
@@ -10278,6 +11090,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description If true, the first page also contains the ephemeral runs of this DAG that are not older than its oldest run, merged by start time. Each carries ephemeral true. Pages read with a cursor and other lists never return them. */
                 includeEphemeral?: boolean;
+                /** @description If true, include backfill runs. By default they are left out, so a long backfill does not push the live runs out of the page, unless the DAG has no other runs. */
+                includeBackfill?: boolean;
                 /** @description Maximum number of DAG-runs per page, not counting ephemeral runs */
                 limit?: number;
                 /** @description Opaque cursor for loading the next page of older DAG-runs */
@@ -11068,6 +11882,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+                excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description start of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
                 fromDate?: components["parameters"]["DateTimeFrom"];
                 /** @description end of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
@@ -11133,6 +11949,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Leave out every run of the service DAGs, the DAGs that set a restart policy, whoever started it. Their state is read from the service DAG list instead. The service DAGs come from the DAG index, so a DAG file edited outside Dagu counts after the next DAG listing. */
+                excludeServiceDAGRuns?: components["parameters"]["ExcludeServiceDAGRuns"];
                 /** @description Filter DAG-runs by name */
                 name?: string;
                 /** @description Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
@@ -11601,6 +12419,13 @@ export interface operations {
                     dagName?: string;
                     /** @description When true, reschedule from the current contents of the original DAG file instead of the stored historical YAML snapshot. */
                     useCurrentDagFile?: boolean;
+                    /** @description Schedule slot for the new run. Omit to keep the slot of the historic run. */
+                    scheduleTime?: components["schemas"]["ScheduleSlotValue"];
+                    /**
+                     * @description Check the request, including scheduleTime, and return the new run's ID and slot without creating the run.
+                     * @default false
+                     */
+                    dryRun?: boolean;
                 };
             };
         };
@@ -11615,6 +12440,11 @@ export interface operations {
                         dagRunId: components["schemas"]["DAGRunId"];
                         /** @description Indicates whether the run was queued instead of starting immediately. */
                         queued: boolean;
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant of the new run's schedule slot, when it has one
+                         */
+                        scheduleTime?: string;
                     };
                 };
             };
@@ -14955,6 +15785,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listServiceDAGs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceDAGsResponse"];
                 };
             };
             /** @description Generic error response */
@@ -23623,6 +24487,45 @@ export enum AgentInteractionResponseRequestDecision {
     reject = "reject",
     skip = "skip"
 }
+export enum BackfillRerun {
+    none = "none",
+    failed = "failed",
+    all = "all"
+}
+export enum BackfillOnFailure {
+    stop = "stop",
+    continue = "continue"
+}
+export enum BackfillPlanSlotAction {
+    run = "run",
+    skip_succeeded = "skip: succeeded",
+    skip_failed = "skip: failed",
+    skip_active = "skip: active"
+}
+export enum BackfillStatus {
+    running = "running",
+    waiting_for_scheduler = "waiting for scheduler",
+    succeeded = "succeeded",
+    failed = "failed",
+    cancelled = "cancelled"
+}
+export enum BackfillSlotState {
+    pending = "pending",
+    queued = "queued",
+    running = "running",
+    waiting = "waiting",
+    succeeded = "succeeded",
+    failed = "failed",
+    skipped = "skipped",
+    not_run = "not run",
+    cancelled = "cancelled"
+}
+export enum DAGSlotStatus {
+    missing = "missing",
+    succeeded = "succeeded",
+    failed = "failed",
+    active = "active"
+}
 export enum ErrorCode {
     forbidden = "forbidden",
     bad_request = "bad_request",
@@ -23791,7 +24694,8 @@ export enum TriggerType {
     retry = "retry",
     catchup = "catchup",
     file = "file",
-    restart = "restart"
+    restart = "restart",
+    backfill = "backfill"
 }
 export enum RestartPolicy {
     always = "always",
@@ -23874,7 +24778,8 @@ export enum ValidationIssueSource {
     load = "load",
     build = "build",
     warning = "warning",
-    valueReference = "valueReference"
+    valueReference = "valueReference",
+    host = "host"
 }
 export enum ReferenceScopeStepOutputsKnown {
     static = "static",
@@ -23988,6 +24893,19 @@ export enum AvailabilityWindowWindow {
 export enum RepeatMode {
     While = "while",
     Until = "until"
+}
+export enum ServiceDAGState {
+    pending = "pending",
+    running = "running",
+    waiting = "waiting",
+    restarting = "restarting",
+    failing = "failing",
+    suspended = "suspended",
+    stopped = "stopped"
+}
+export enum ServiceDAGRestartHold {
+    paused = "paused",
+    noScheduler = "noScheduler"
 }
 export enum QueueType {
     global = "global",

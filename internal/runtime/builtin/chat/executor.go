@@ -6,6 +6,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -84,6 +85,9 @@ type Executor struct {
 	savedMessages     []ir.LLMMessage
 	pushBackInputs    map[string]string
 	pushBackIteration int
+	// filesChars is how many characters of text with.files gave the
+	// conversation, named when a provider refuses the request's length.
+	filesChars int
 
 	// Tool calling support
 	toolRegistry *ToolRegistry
@@ -272,9 +276,11 @@ func (e *Executor) executionMessages(ctx context.Context) ([]ir.LLMMessage, erro
 		// A push-back resends the feedback alone: the files' text is already
 		// in the conversation, and their images went with the first request.
 		if e.step.LLM != nil {
-			if err := attachFiles(ctx, e.step.LLM.Files, evaluatedMessages); err != nil {
+			n, err := attachFiles(ctx, e.step.LLM.Files, e.step.LLM.GetMaxFileChars(), evaluatedMessages)
+			if err != nil {
 				return nil, err
 			}
+			e.filesChars = n
 		}
 		return buildMessageList(evaluatedMessages, e.contextMessages), nil
 	}
@@ -423,7 +429,7 @@ func (e *Executor) Run(ctx context.Context) error {
 
 	// If only one model, use simple path (no fallback)
 	if len(models) == 1 {
-		return e.runWithModel(ctx, models[0], allMessages)
+		return e.nameFilesText(e.runWithModel(ctx, models[0], allMessages))
 	}
 
 	// Multiple models: implement fallback
@@ -456,7 +462,16 @@ func (e *Executor) Run(ctx context.Context) error {
 		}
 	}
 
-	return fmt.Errorf("all %d models exhausted: %w", len(models), lastErr)
+	return e.nameFilesText(fmt.Errorf("all %d models exhausted: %w", len(models), lastErr))
+}
+
+// nameFilesText adds to a refusal of the request's length how much text
+// the files held, so the work can be split.
+func (e *Executor) nameFilesText(err error) error {
+	if err != nil && e.filesChars > 0 && errors.Is(err, llmpkg.ErrContextTooLong) {
+		return fmt.Errorf("%w; the files held %d characters of text", err, e.filesChars)
+	}
+	return err
 }
 
 // runWithModel executes a chat request with a specific model.

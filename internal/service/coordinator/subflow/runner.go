@@ -310,7 +310,7 @@ func (r *Runner) dispatchRetryWithStatus(
 }
 
 func (r *Runner) buildStartTask(req executor.SubWorkflowRequest) (*dispatch.DispatchTask, error) {
-	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params))
+	opts, err := r.taskOptions(req, executor.WithTaskParams(req.Params), executor.WithTriggerType(ir.TriggerTypeSubDAG))
 	if err != nil {
 		return nil, err
 	}
@@ -405,6 +405,12 @@ func (r *Runner) taskOptions(
 	}
 	if req.TriggerActor != "" {
 		options = append(options, executor.WithTriggerActor(req.TriggerActor))
+	}
+	if req.ScheduleTime != "" {
+		options = append(options,
+			executor.WithScheduleTime(req.ScheduleTime),
+			executor.WithScheduleWindow(req.ScheduleWindow),
+		)
 	}
 
 	if req.Workspace != nil {

@@ -560,7 +560,7 @@ func TestApprovalResumeFailure(t *testing.T) {
 			cfg := &config.Config{Queues: config.Queues{Enabled: true, Config: []config.QueueConfig{{Name: status.Name, MaxActiveRuns: 1}}}}
 			cfg.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true}
 			queueStore := &testutil.MockQueueStore{}
-			queueStore.On("Enqueue", mock.Anything, status.Name, queue.QueuePriorityLow, status.DAGRun()).Return(errors.New("temporary queue failure")).Twice()
+			queueStore.On("Enqueue", mock.Anything, status.Name, queue.QueuePriorityHigh, status.DAGRun()).Return(errors.New("temporary queue failure")).Twice()
 			a := &API{config: cfg, dagRunRepository: repository, procRepository: &manualStepProcRepository{},
 				dagRunMgr: runtimepkg.NewManager(repository, nil, cfg), queueStore: queueStore}
 			ctx := auth.WithUser(t.Context(), &auth.User{ID: "reviewer-id", Username: "reviewer"})
@@ -774,7 +774,7 @@ func TestResumeQueueFailure(t *testing.T) {
 			}
 			if !missing {
 				queueStore := &testutil.MockQueueStore{}
-				queueStore.On("Enqueue", mock.Anything, approved.Name, queue.QueuePriorityLow, approved.DAGRun()).Return(queueErr).Once()
+				queueStore.On("Enqueue", mock.Anything, approved.Name, queue.QueuePriorityHigh, approved.DAGRun()).Return(queueErr).Once()
 				t.Cleanup(func() { queueStore.AssertExpectations(t) })
 				a.queueStore = queueStore
 			}
@@ -1873,6 +1873,64 @@ func TestAgentActionWhileRunning(t *testing.T) {
 			assert.Equal(t, ir.AgentInteractionPending, f.status.Nodes[0].AgentSession.Interactions[0].Status)
 			assert.Empty(t, f.recorder.dispatched)
 		})
+	}
+}
+
+// Answering an agent interaction or restarting an agent session changes run
+// state and can queue execution, so a viewer who can read the run is refused
+// while an operator succeeds.
+func TestAgentActionRequiresExecute(t *testing.T) {
+	answers := [][]string{{"yes"}}
+	body := &openapiv1.AgentInteractionResponseRequest{Answers: &answers}
+	actions := []struct {
+		name  string
+		child bool
+		ok    any
+		call  func(context.Context, *agentResumeFixture) (any, error)
+	}{
+		{name: "Respond", ok: &openapiv1.RespondDAGRunStepAgentInteraction200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RespondDAGRunStepAgentInteraction(ctx, openapiv1.RespondDAGRunStepAgentInteractionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, StepName: "agent", InteractionId: "ask-1", Body: body,
+			})
+		}},
+		{name: "RespondSub", child: true, ok: &openapiv1.RespondSubDAGRunStepAgentInteraction200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RespondSubDAGRunStepAgentInteraction(ctx, openapiv1.RespondSubDAGRunStepAgentInteractionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, SubDAGRunId: f.subRunID, StepName: "agent", InteractionId: "ask-1", Body: body,
+			})
+		}},
+		{name: "Restart", ok: &openapiv1.RestartDAGRunStepAgentSession200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RestartDAGRunStepAgentSession(ctx, openapiv1.RestartDAGRunStepAgentSessionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, StepName: "agent",
+			})
+		}},
+		{name: "RestartSub", child: true, ok: &openapiv1.RestartSubDAGRunStepAgentSession200JSONResponse{}, call: func(ctx context.Context, f *agentResumeFixture) (any, error) {
+			return f.api.RestartSubDAGRunStepAgentSession(ctx, openapiv1.RestartSubDAGRunStepAgentSessionRequestObject{
+				Name: f.root.Name, DagRunId: f.root.ID, SubDAGRunId: f.subRunID, StepName: "agent",
+			})
+		}},
+	}
+	for _, action := range actions {
+		for _, role := range []auth.Role{auth.RoleViewer, auth.RoleOperator} {
+			t.Run(action.name+"/"+role.String(), func(t *testing.T) {
+				f := newAgentResumeFixture(t, action.child, false)
+				f.api.config.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true}
+				f.api.authService = struct{ AuthService }{}
+				ctx := auth.WithUser(t.Context(), &auth.User{Role: role})
+				before, err := cloneManualStatus(f.status)
+				require.NoError(t, err)
+
+				response, err := action.call(ctx, f)
+
+				if role == auth.RoleViewer {
+					require.ErrorIs(t, err, errInsufficientPermissions)
+					assert.Equal(t, before, f.status)
+					assert.Empty(t, f.recorder.dispatched)
+					return
+				}
+				require.NoError(t, err)
+				require.IsType(t, action.ok, response)
+			})
+		}
 	}
 }
 

@@ -9,8 +9,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetupDoesNotMutatePerTestProcessEnv(t *testing.T) {
@@ -60,4 +62,31 @@ func assertExecutableEnvValue(t *testing.T, expectedInput, actual string) {
 	}
 
 	assert.Equal(t, filepath.FromSlash(expectedInput), actual)
+}
+
+// Directories that ended test processes left behind are removed; recent ones,
+// which a running process may still use, and other files are kept.
+func TestRemoveStaleDirs(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	old := time.Now().Add(-staleDirAge - time.Hour)
+	dir := func(name string, modified time.Time) string {
+		path := filepath.Join(tmp, name)
+		require.NoError(t, os.MkdirAll(filepath.Join(path, "logs"), 0o750))
+		require.NoError(t, os.Chtimes(path, modified, modified))
+		return path
+	}
+	staleBin := dir("dagu-test-bin-123", old)
+	staleHome := dir("dagu-test-4a555b30-ea32-4b6b-adf6-a9640f9a4150954405819", old)
+	freshBin := dir("dagu-test-bin-456", time.Now())
+	other := dir("dagu-test-cache", old)
+
+	removeStaleDirs()
+
+	assert.NoDirExists(t, staleBin)
+	assert.NoDirExists(t, staleHome)
+	assert.DirExists(t, freshBin)
+	assert.DirExists(t, other)
 }

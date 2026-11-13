@@ -706,6 +706,8 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		labels:   labelsParam,
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
+
+		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
@@ -724,7 +726,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		endpoint: "/dag-runs",
 		dagName:  dagName,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -765,7 +767,7 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 		endpoint: "/dag-runs/{name}",
 		dagName:  request.Name,
 		dagRunID: dagRunID,
-	}, opts.query)
+	}, opts)
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
 			return nil, apiErr
@@ -782,8 +784,15 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 	return api.ListDAGRunsByName200JSONResponse(toDAGRunsPageResponse(page)), nil
 }
 
+// excludeServiceDAGRunsParam names the query parameter that leaves out the
+// runs of the service DAGs.
+const excludeServiceDAGRunsParam = "excludeServiceDAGRuns"
+
 type dagRunListOptions struct {
 	query persis.DAGRunListOptions
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs, which a
+	// read resolves into query.ExcludeDAGNames.
+	excludeServiceDAGRuns bool
 }
 
 type dagRunListFilterInput struct {
@@ -796,6 +805,8 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
+	// excludeServiceDAGRuns drops the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 }
 
 func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
@@ -833,6 +844,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.cursor != nil && *input.cursor != "" {
 		opts.query.Cursor = *input.cursor
 	}
+	opts.excludeServiceDAGRuns = input.excludeServiceDAGRuns
 	opts.query.Limit = limit
 	return opts
 }
@@ -840,10 +852,13 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 func (a *API) readDAGRunsPage(
 	ctx context.Context,
 	info dagRunReadRequestInfo,
-	opts persis.DAGRunListOptions,
+	opts dagRunListOptions,
 ) (persis.DAGRunStatusPage, error) {
 	page, err := withDAGRunReadTimeout(ctx, info, func(readCtx context.Context) (persis.DAGRunStatusPage, error) {
-		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, opts)
+		query := opts.query
+		// The names can take a DAG listing to resolve, so the timeout covers it.
+		query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
+		page, listErr := a.dagRunRepository.ListStatusesPage(readCtx, query)
 		if listErr != nil {
 			return persis.DAGRunStatusPage{}, fmt.Errorf("error listing dag-runs: %w", listErr)
 		}
@@ -1141,6 +1156,68 @@ func (a *API) GetDAGRunOutputs(ctx context.Context, request api.GetDAGRunOutputs
 		},
 		Outputs: outputs.Outputs,
 	}, nil
+}
+
+// DAGRunDetailsWithOutputs is a run details response together with the
+// outputs read from the attempt the details came from.
+type DAGRunDetailsWithOutputs struct {
+	// Details is the same value GetDAGRunDetailsData or
+	// GetSubDAGRunDetailsData returns.
+	Details any
+	// Outputs is nil when the run has no outputs or has not finished yet.
+	Outputs *ir.DAGRunOutputs
+	// OutputsErr is set when the outputs could not be read. Details are still
+	// valid then.
+	OutputsErr error
+}
+
+// GetDAGRunDetailsWithOutputsData returns the details of a DAG run, or of the
+// sub DAG run subDAGRunID under that root, together with its outputs. Details
+// and outputs are loaded in one pass under the same read timeout and
+// visibility checks as GetDAGRunDetailsData and GetSubDAGRunDetailsData.
+// Outputs are only read for a finished run, since the outputs file is
+// written when the run finishes.
+func (a *API) GetDAGRunDetailsWithOutputsData(ctx context.Context, name, dagRunID, subDAGRunID string) (DAGRunDetailsWithOutputs, error) {
+	if subDAGRunID != "" {
+		return a.getSubDAGRunDetails(ctx, name, dagRunID, subDAGRunID, true)
+	}
+	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
+		endpoint: "/dag-runs/{name}/{dagRunId}",
+		dagName:  name,
+		dagRunID: dagRunID,
+	}, func(readCtx context.Context) (DAGRunDetailsWithOutputs, error) {
+		details, err := a.getDAGRunDetailsData(readCtx, name, dagRunID)
+		if err != nil {
+			return DAGRunDetailsWithOutputs{}, err
+		}
+		result := DAGRunDetailsWithOutputs{Details: details.response}
+		// The outputs file is written before the final status, so a run
+		// with a terminal status has its outputs on disk.
+		if details.status.Status.IsTerminal() {
+			result.Outputs, result.OutputsErr = readAttemptOutputs(readCtx, details.attempt,
+				tag.DAG(name),
+				tag.RunID(details.status.DAGRunID),
+			)
+		}
+		return result, nil
+	})
+}
+
+// readAttemptOutputs reads the outputs of attempt and logs a read error with
+// the given run identity attributes.
+func readAttemptOutputs(ctx context.Context, attempt dagrun.Attempt, runAttrs ...slog.Attr) (*ir.DAGRunOutputs, error) {
+	outputs, err := attempt.ReadOutputs(ctx)
+	if err != nil {
+		logOutputsError(ctx, "Failed to read outputs", err, runAttrs...)
+		return nil, fmt.Errorf("error reading outputs: %w", err)
+	}
+	return outputs, nil
+}
+
+// logOutputsError logs why a run's outputs could not be loaded. MCP clients
+// only see a fixed message, so this log is the only place the cause shows up.
+func logOutputsError(ctx context.Context, msg string, err error, runAttrs ...slog.Attr) {
+	logger.Error(ctx, msg, append([]slog.Attr{tag.Error(err)}, runAttrs...)...)
 }
 
 func (a *API) GetDAGRunStepLog(ctx context.Context, request api.GetDAGRunStepLogRequestObject) (api.GetDAGRunStepLogResponseObject, error) {
@@ -2191,7 +2268,8 @@ func (a *API) GetDAGRunDetails(ctx context.Context, request api.GetDAGRunDetails
 		dagName:  request.Name,
 		dagRunID: request.DagRunId,
 	}, func(readCtx context.Context) (api.GetDAGRunDetails200JSONResponse, error) {
-		return a.getDAGRunDetailsData(readCtx, request.Name, request.DagRunId)
+		details, err := a.getDAGRunDetailsData(readCtx, request.Name, request.DagRunId)
+		return details.response, err
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -2272,14 +2350,28 @@ func isDAGRunLookupNotFound(err error) bool {
 	return errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrNoStatusData)
 }
 
-// getDAGRunDetailsData returns DAG run details data. Used by both HTTP handler and SSE fetcher.
-func (a *API) getDAGRunDetailsData(ctx context.Context, dagName, dagRunId string) (api.GetDAGRunDetails200JSONResponse, error) {
+// rootDAGRunDetails is a root run details response together with the attempt
+// and status it was built from.
+type rootDAGRunDetails struct {
+	response api.GetDAGRunDetails200JSONResponse
+	attempt  dagrun.Attempt
+	status   *ir.DAGRunStatus
+}
+
+// getDAGRunDetailsData returns DAG run details data, along with the attempt
+// and status it was built from. Used by the HTTP handler, the SSE fetcher and
+// the MCP run reads, so all of them build the response the same way.
+func (a *API) getDAGRunDetailsData(ctx context.Context, dagName, dagRunId string) (rootDAGRunDetails, error) {
 	attempt, dagStatus, err := a.loadRootDAGRunDetailsAttemptAndStatus(ctx, dagName, dagRunId)
 	if err != nil {
-		return api.GetDAGRunDetails200JSONResponse{}, err
+		return rootDAGRunDetails{}, err
 	}
-	return api.GetDAGRunDetails200JSONResponse{
-		DagRunDetails: a.toDAGRunDetailsWithSpecSource(ctx, attempt, *dagStatus),
+	return rootDAGRunDetails{
+		response: api.GetDAGRunDetails200JSONResponse{
+			DagRunDetails: a.toDAGRunDetailsWithSpecSource(ctx, attempt, *dagStatus),
+		},
+		attempt: attempt,
+		status:  dagStatus,
 	}, nil
 }
 
@@ -3545,6 +3637,8 @@ func (a *API) RescheduleDAGRun(ctx context.Context, request api.RescheduleDAGRun
 		if body.UseCurrentDagFile != nil {
 			opts.useCurrentDAGFile = *body.UseCurrentDagFile
 		}
+		opts.scheduleTime = body.ScheduleTime
+		opts.dryRun = valueOf(body.DryRun)
 	}
 
 	result, err := a.rescheduleDAGRun(ctx, request.Name, request.DagRunId, opts)
@@ -3553,8 +3647,9 @@ func (a *API) RescheduleDAGRun(ctx context.Context, request api.RescheduleDAGRun
 	}
 
 	return api.RescheduleDAGRun200JSONResponse{
-		DagRunId: result.newDagRunID,
-		Queued:   result.queued,
+		DagRunId:     result.newDagRunID,
+		Queued:       result.queued,
+		ScheduleTime: result.scheduleTime,
 	}, nil
 }
 
@@ -3562,11 +3657,17 @@ type rescheduleDAGRunOptions struct {
 	nameOverride      string
 	newDagRunID       string
 	useCurrentDAGFile bool
+	// scheduleTime names the slot of the new run; nil keeps the historic
+	// run's slot.
+	scheduleTime *api.ScheduleSlotValue
+	// dryRun checks the request and creates no run.
+	dryRun bool
 }
 
 type rescheduleDAGRunResult struct {
-	newDagRunID string
-	queued      bool
+	newDagRunID  string
+	queued       bool
+	scheduleTime *time.Time
 }
 
 func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, opts rescheduleDAGRunOptions) (rescheduleDAGRunResult, error) {
@@ -3694,6 +3795,15 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		return rescheduleDAGRunResult{}, err
 	}
 
+	slot, err := a.rescheduleSlot(dag, profileName, status, opts.scheduleTime)
+	if err != nil {
+		return rescheduleDAGRunResult{}, err
+	}
+	scheduleTime, _ := slot.slotResponse()
+	if opts.dryRun {
+		return rescheduleDAGRunResult{newDagRunID: newDagRunID, scheduleTime: scheduleTime}, nil
+	}
+
 	logger.Info(ctx, "Rescheduling dag-run",
 		tag.DAG(dag.Name),
 		slog.String("from-dag-run-id", sourceDagRunID),
@@ -3713,9 +3823,10 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			profileName:  profileName,
 			noReuse:      status.NoReuse,
 			definitionID: status.DAGDefinitionID(),
+			scheduleTime: slot.scheduleTimeOrEmpty(),
 		})
 	} else {
-		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector)
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector, slot)
 	}
 	if enqueueErr != nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
@@ -3735,8 +3846,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	a.logAudit(ctx, audit.CategoryDAG, "dag_reschedule", detailsMap)
 
 	return rescheduleDAGRunResult{
-		newDagRunID: newDagRunID,
-		queued:      queued,
+		newDagRunID:  newDagRunID,
+		queued:       queued,
+		scheduleTime: scheduleTime,
 	}, nil
 }
 
@@ -3749,6 +3861,7 @@ func (a *API) enqueuePreparedDAGRun(
 	profileName string,
 	noReuse bool,
 	workerSelector map[string]string,
+	slot *requestedSlot,
 ) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
@@ -3796,6 +3909,8 @@ func (a *API) enqueuePreparedDAGRun(
 		ProceedOnStatusCloseErr: true,
 		ProfileName:             profileName,
 		NoReuse:                 noReuse,
+		ScheduleTime:            slot.scheduleTimeOrEmpty(),
+		ScheduleWindow:          slot.windowOrZero(),
 	})
 	if err != nil {
 		return err
@@ -4648,7 +4763,8 @@ func (a *API) GetDAGRunDetailsData(ctx context.Context, identifier string) (any,
 		dagName:  dagName,
 		dagRunID: dagRunId,
 	}, func(readCtx context.Context) (api.GetDAGRunDetails200JSONResponse, error) {
-		return a.getDAGRunDetailsData(readCtx, dagName, dagRunId)
+		details, err := a.getDAGRunDetailsData(readCtx, dagName, dagRunId)
+		return details.response, err
 	})
 }
 
@@ -4662,36 +4778,89 @@ func (a *API) GetSubDAGRunDetailsData(ctx context.Context, identifier string) (a
 			identifier,
 		)
 	}
-
-	root := ir.NewDAGRunRef(parts[0], parts[1])
-	if err := a.requireDAGRunVisible(ctx, root); err != nil {
+	result, err := a.getSubDAGRunDetails(ctx, parts[0], parts[1], parts[2], false)
+	if err != nil {
 		return nil, err
 	}
-	dagStatus, err := withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
+	return result.Details, nil
+}
+
+// getSubDAGRunDetails loads the details of a sub DAG run and, when
+// withOutputs is set, its outputs, under one read timeout.
+func (a *API) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRunID string, withOutputs bool) (DAGRunDetailsWithOutputs, error) {
+	root := ir.NewDAGRunRef(name, dagRunID)
+	if err := a.requireDAGRunVisible(ctx, root); err != nil {
+		return DAGRunDetailsWithOutputs{}, err
+	}
+	type subRead struct {
+		status     *ir.DAGRunStatus
+		outputs    *ir.DAGRunOutputs
+		outputsErr error
+		// visibleErr is kept out of the closure's error so it isn't wrapped
+		// as not found below.
+		visibleErr error
+	}
+	read, err := withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint:    "/dag-runs/{name}/{dagRunId}/sub/{subDAGRunId}",
-		dagName:     parts[0],
-		dagRunID:    parts[1],
-		subDAGRunID: parts[2],
-	}, func(readCtx context.Context) (*ir.DAGRunStatus, error) {
-		return a.getReferencedDAGRunStatus(readCtx, root, parts[2], "")
+		dagName:     name,
+		dagRunID:    dagRunID,
+		subDAGRunID: subDAGRunID,
+	}, func(readCtx context.Context) (subRead, error) {
+		ref, dagStatus, err := a.getReferencedDAGRunStatusWithRef(readCtx, root, subDAGRunID, "")
+		if err != nil {
+			return subRead{status: dagStatus}, err
+		}
+		// Check the child's visibility before reading its outputs, so a
+		// rejected read does no outputs I/O and logs nothing about the child.
+		if visibleErr := a.requireDAGRunStatusVisible(readCtx, dagStatus); visibleErr != nil {
+			return subRead{visibleErr: visibleErr}, nil
+		}
+		if !withOutputs || !dagStatus.Status.IsTerminal() {
+			return subRead{status: dagStatus}, nil
+		}
+		runAttrs := []slog.Attr{
+			tag.DAG(name),
+			tag.RunID(dagRunID),
+			tag.SubDAG(dagStatus.Name),
+			tag.SubRunID(subDAGRunID),
+		}
+		// The status lookup does not return its attempt, so find the
+		// attempt the same way it did: under the root, or by the DAG name
+		// it fell back to.
+		var attempt dagrun.Attempt
+		if ref == root {
+			attempt, err = a.dagRunRepository.FindSubAttempt(readCtx, root, subDAGRunID)
+		} else {
+			attempt, err = a.dagRunRepository.FindAttempt(readCtx, ref)
+		}
+		if err != nil {
+			logOutputsError(readCtx, "Failed to find sub DAG run attempt for outputs", err, runAttrs...)
+			return subRead{status: dagStatus, outputsErr: err}, nil
+		}
+		outputs, outputsErr := readAttemptOutputs(readCtx, attempt, runAttrs...)
+		return subRead{status: dagStatus, outputs: outputs, outputsErr: outputsErr}, nil
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return nil, err
+			return DAGRunDetailsWithOutputs{}, err
 		}
-		return nil, fmt.Errorf(
+		return DAGRunDetailsWithOutputs{}, fmt.Errorf(
 			"sub dag-run ID %s not found for DAG %s: %w",
-			parts[2],
-			parts[0],
+			subDAGRunID,
+			name,
 			err,
 		)
 	}
-	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
-		return nil, err
+	if read.visibleErr != nil {
+		return DAGRunDetailsWithOutputs{}, read.visibleErr
 	}
 
-	return api.GetSubDAGRunDetails200JSONResponse{
-		DagRunDetails: ToDAGRunDetails(*dagStatus),
+	return DAGRunDetailsWithOutputs{
+		Details: api.GetSubDAGRunDetails200JSONResponse{
+			DagRunDetails: ToDAGRunDetails(*read.status),
+		},
+		Outputs:    read.outputs,
+		OutputsErr: read.outputsErr,
 	}, nil
 }
 
@@ -5212,6 +5381,7 @@ func (a *API) GetDAGRunsListData(ctx context.Context, queryString string) (any, 
 		if err != nil {
 			return nil, err
 		}
+		opts.query.ExcludeDAGNames = a.excludedDAGNames(readCtx, opts.excludeServiceDAGRuns)
 
 		page, err := a.dagRunRepository.ListStatusesPage(readCtx, opts.query)
 		if err != nil {
@@ -5255,6 +5425,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels       *string
 		limit        *int
 		cursor       *string
+
+		excludeServiceDAGRuns bool
 	)
 
 	if rawStatuses, hasStatus := params["status"]; hasStatus {
@@ -5314,6 +5486,13 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
+	if rawExclude := params.Get(excludeServiceDAGRunsParam); rawExclude != "" {
+		parsed, convErr := strconv.ParseBool(rawExclude)
+		if convErr != nil {
+			return dagRunListOptions{}, invalidDAGRunListParam(ctx, excludeServiceDAGRunsParam, rawExclude, convErr)
+		}
+		excludeServiceDAGRuns = parsed
+	}
 
 	opts := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: statusValues,
@@ -5324,6 +5503,8 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels:   labels,
 		limit:    limit,
 		cursor:   cursor,
+
+		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
 
 	workspaceParam := workspaceParamFromValues(params)

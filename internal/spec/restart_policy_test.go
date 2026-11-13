@@ -152,7 +152,7 @@ func TestRestartPolicyInTheBaseConfiguration(t *testing.T) {
 	})
 }
 
-// An always-on DAG adds a run at each restart, so without a retention of its
+// A service DAG adds a run at each restart, so without a retention of its
 // own it keeps a number of runs rather than the days of other DAGs.
 func TestRestartPolicyHistoryRetention(t *testing.T) {
 	t.Parallel()

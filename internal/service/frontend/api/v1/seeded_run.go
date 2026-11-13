@@ -34,6 +34,10 @@ type seededRun struct {
 	triggerType  ir.TriggerType
 	// enqueue sends the run to the DAG's queue when one is configured.
 	enqueue bool
+	// slot is the schedule slot the run is for, or nil.
+	slot *requestedSlot
+	// backfillID names the backfill the run belongs to.
+	backfillID string
 }
 
 // launchSeededDAGRun persists run as a queued attempt and hands it to the
@@ -59,6 +63,9 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		ProfileName:      run.profileName,
 		NoReuse:          run.noReuse,
 		Ephemeral:        run.ephemeral,
+		ScheduleTime:     run.slot.scheduleTimeOrEmpty(),
+		ScheduleWindow:   run.slot.windowOrZero(),
+		BackfillID:       run.backfillID,
 		LogBaseDir:       a.config.Paths.LogDir,
 		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
 	})
@@ -75,7 +82,7 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		if a.queueStore == nil {
 			return false, fmt.Errorf("queue store is not configured")
 		}
-		if err := a.queueStore.Enqueue(ctx, run.dag.ProcGroup(), queue.QueuePriorityLow, seedStatus.DAGRun()); err != nil {
+		if err := a.queueStore.Enqueue(ctx, run.dag.ProcGroup(), queue.PriorityOf(seedStatus), seedStatus.DAGRun()); err != nil {
 			return false, fmt.Errorf("failed to enqueue seeded dag-run: %w", err)
 		}
 		return true, nil

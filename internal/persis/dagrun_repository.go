@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // DAGRunRepository provides application-level access to persisted DAG runs.
@@ -26,6 +27,8 @@ type DAGRunRepository struct {
 	now               func() time.Time
 	removalEnqueuer   DAGRunRemovalEnqueuer
 	ephemeral         DAGRunStore
+	slotIndex         SlotIndex
+	calendars         *spec.CalendarSource
 }
 
 // NewDAGRunRepository creates a repository backed by store.
@@ -49,7 +52,16 @@ func NewDAGRunRepository(store DAGRunStore, workDirs dagrun.WorkDirStore, option
 		now:               now,
 		removalEnqueuer:   options.RemovalEnqueuer,
 		ephemeral:         options.EphemeralStore,
+		slotIndex:         options.SlotIndex,
+		calendars:         calendarSource(options.CalendarsDir),
 	}
+}
+
+func calendarSource(dir string) *spec.CalendarSource {
+	if dir == "" {
+		return nil
+	}
+	return spec.NewCalendarSource(dir)
 }
 
 // CreateAttempt creates an attempt within a DAG run.
@@ -81,7 +93,12 @@ func (r *DAGRunRepository) CreateAttempt(
 	if err != nil {
 		return nil, err
 	}
-	return newEventingAttempt(attempt, dag, ephemeral), nil
+	wrapped := newEventingAttempt(attempt, dag, ephemeral)
+	// Only a new top-level run is a run of its slot; a retry is the same run.
+	if r.slotIndex != nil && !ephemeral && !options.Retry && options.RootDAGRun.Zero() {
+		wrapped.(*eventingAttempt).slots = &slotRecorder{index: r.slotIndex, location: r.location, calendars: r.calendars}
+	}
+	return wrapped, nil
 }
 
 // RecentStatuses returns the newest readable status for recent DAG runs.
@@ -112,13 +129,59 @@ func (r *DAGRunRepository) LatestAttempt(
 	if err != nil {
 		return nil, err
 	}
+	if status, err := attempt.ReadStatus(ctx); err == nil && status.BackfillID != "" {
+		if live, err := r.latestLiveStatus(ctx, DAGRunListOptions{ExactName: name, From: query.NotBefore}); err != nil {
+			return nil, err
+		} else if live != nil {
+			if attempt, err = r.store.FindAttempt(ctx, live.DAGRun()); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return newEventingAttempt(attempt, nil, false), nil
 }
 
 // LatestStatuses returns the status of each DAG's newest run when that run
 // was created at or after query.NotBefore and matches the query's filters.
+// As for LatestAttempt, a DAG's newest run is its newest run that is not a
+// backfill run, unless it has none.
 func (r *DAGRunRepository) LatestStatuses(ctx context.Context, query DAGRunLatestStatusesQuery) ([]*ir.DAGRunStatus, error) {
-	return r.store.LatestStatuses(ctx, query)
+	statuses, err := r.store.LatestStatuses(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	for i, status := range statuses {
+		if status.BackfillID == "" {
+			continue
+		}
+		live, err := r.latestLiveStatus(ctx, DAGRunListOptions{
+			ExactName:       status.Name,
+			From:            query.NotBefore,
+			Labels:          query.Labels,
+			WorkspaceFilter: query.WorkspaceFilter,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if live != nil {
+			statuses[i] = live
+		}
+	}
+	return statuses, nil
+}
+
+// latestLiveStatus returns the newest top-level run matching options that is
+// not a backfill run, or nil when there is none. A backfill of old slots must
+// not decide how a DAG's live state reads.
+func (r *DAGRunRepository) latestLiveStatus(ctx context.Context, options DAGRunListOptions) (*ir.DAGRunStatus, error) {
+	options.AllHistory = options.From.IsZero()
+	options.ExcludeBackfill = true
+	options.Limit = 1
+	page, err := r.ListStatusesPage(ctx, options)
+	if err != nil || len(page.Items) == 0 {
+		return nil, err
+	}
+	return page.Items[0], nil
 }
 
 // ListStatuses returns statuses in canonical list order.
@@ -148,6 +211,8 @@ func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQu
 		Labels:          options.Labels,
 		WorkspaceFilter: options.WorkspaceFilter,
 		FullStatus:      options.FullStatus,
+		ExcludeDAGNames: options.ExcludeDAGNames,
+		ExcludeBackfill: options.ExcludeBackfill,
 	}
 	if !options.AllHistory && query.From.IsZero() && query.To.IsZero() {
 		query.From = NewUTC(r.startOfDay())
@@ -273,11 +338,11 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 			return nil, nil
 		}
 		request.KeepRuns = *options.RetentionRuns
-		return r.removeOldDAGRuns(ctx, request)
+		return r.removeOldDAGRuns(ctx, request, options.DropSlots)
 	}
 	if options.OlderThan != nil {
 		request.OlderThan = NewUTC(*options.OlderThan)
-		return r.removeOldDAGRuns(ctx, request)
+		return r.removeOldDAGRuns(ctx, request, options.DropSlots)
 	}
 	if retentionDays < 0 {
 		logger.Warn(ctx, "Negative retentionDays, no DAG runs will be removed",
@@ -285,23 +350,31 @@ func (r *DAGRunRepository) RemoveOldDAGRuns(
 		return nil, nil
 	}
 	request.OlderThan = NewUTC(r.now().AddDate(0, 0, -retentionDays))
-	return r.removeOldDAGRuns(ctx, request)
+	return r.removeOldDAGRuns(ctx, request, options.DropSlots)
 }
 
-func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunRetentionRequest) ([]string, error) {
-	if !request.DryRun && r.removalEnqueuer != nil {
+func (r *DAGRunRepository) removeOldDAGRuns(ctx context.Context, request DAGRunRetentionRequest, dropSlots bool) ([]string, error) {
+	// Each run is removed on its own when something must be done for it
+	// first: its agent sessions queued for cleanup, or its slot recorded.
+	if !request.DryRun && (r.removalEnqueuer != nil || r.slotIndex != nil) {
 		preview := request
 		preview.DryRun = true
 		refs, err := r.store.RemoveOldDAGRuns(ctx, preview)
 		if err != nil {
 			return nil, err
 		}
-		if err := r.enqueueDAGRunRemovals(ctx, refs); err != nil {
-			return nil, err
+		if r.removalEnqueuer != nil {
+			if err := r.enqueueDAGRunRemovals(ctx, refs); err != nil {
+				return nil, err
+			}
 		}
 		removed := make([]ir.DAGRunRef, 0, len(refs))
 		var removeErrs []error
 		for _, ref := range refs {
+			if err := r.recordSlotRemoval(ctx, ref, dropSlots, true); err != nil {
+				removeErrs = append(removeErrs, err)
+				continue
+			}
 			err := r.store.RemoveDAGRun(ctx, DAGRunRemoveRequest{DAGRun: ref, RejectActive: true})
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) || errors.Is(err, dagrun.ErrDAGRunActive) {
 				continue
@@ -354,6 +427,11 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 		}
 	}
 	store, _ := r.storeHolding(ctx, ref)
+	// Every caller deletes the run outright, so it stops counting for its
+	// slot: an operator's delete, a rollback, or a dequeue before it ran.
+	if err := r.recordSlotRemoval(ctx, ref, true, options.RejectActive); err != nil {
+		return err
+	}
 	err := store.RemoveDAGRun(ctx, DAGRunRemoveRequest{
 		DAGRun:            ref,
 		RejectActive:      options.RejectActive,

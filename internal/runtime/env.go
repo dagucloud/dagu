@@ -50,6 +50,11 @@ type Env struct {
 	// ForeachItem identifies, within the DAG run, the foreach item whose
 	// body the step runs in, nested items included; empty outside a body.
 	ForeachItem string
+	// ForeachParentEntries holds the values a foreach body step reads from
+	// its foreach step: that step's env and the output variables visible to
+	// it. They are kept apart from the DAG context scope because a child run
+	// inherits that scope, and these values belong to the foreach step.
+	ForeachParentEntries []cmnvalue.EnvEntry
 
 	// Inputs contains final materialization paths scoped to the current step.
 	Inputs cmnvalue.Values
@@ -132,24 +137,28 @@ func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string, 
 	scope := rCtx.EnvScope
 	var foreach cmnvalue.Values
 	var foreachItem string
+	var foreachParentEntries []cmnvalue.EnvEntry
 	if inherited, ok := LookupEnv(ctx); ok {
 		foreach = inherited.Foreach
 		foreachItem = inherited.ForeachItem
+		foreachParentEntries = inherited.ForeachParentEntries
 	}
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
 	}
+	scope = scope.WithEnvEntries(foreachParentEntries)
 	scope = scope.WithEntries(stepEnvs, cmnvalue.EnvSourceStepEnv)
 
 	env := Env{
-		Context:      rCtx,
-		Scope:        scope,
-		Step:         step,
-		StepMap:      make(map[string]cmnvalue.StepInfo, len(steps)),
-		Foreach:      foreach,
-		ForeachItem:  foreachItem,
-		WorkingDir:   workingDir,
-		reportedRefs: make(map[string]struct{}),
+		Context:              rCtx,
+		Scope:                scope,
+		Step:                 step,
+		StepMap:              make(map[string]cmnvalue.StepInfo, len(steps)),
+		Foreach:              foreach,
+		ForeachItem:          foreachItem,
+		ForeachParentEntries: foreachParentEntries,
+		WorkingDir:           workingDir,
+		reportedRefs:         make(map[string]struct{}),
 	}
 	maps.Copy(env.StepMap, steps)
 	return env

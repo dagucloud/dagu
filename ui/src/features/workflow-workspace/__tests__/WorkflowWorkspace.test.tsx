@@ -48,6 +48,10 @@ vi.mock('@/hooks/api', async () => {
     useClient: () => ({ GET: h.GET, POST: h.POST }),
   };
 });
+const showToast = vi.hoisted(() => vi.fn());
+vi.mock('@/components/ui/simple-toast', () => ({
+  useSimpleToast: () => ({ showToast }),
+}));
 vi.mock('@/hooks/useDAGRunSSE', () => ({
   useDAGRunSSE: () => ({
     data: null,
@@ -422,10 +426,12 @@ describe('WorkflowWorkspace start', () => {
   it('selects the started run through the page enqueue', async () => {
     renderAt('/dags/x?step=extract');
     await clickStart('start now');
+    // The page enqueue gets every field of the dialog, a slot included.
     expect(onEnqueue).toHaveBeenCalledWith(
       'p=1',
       'chosen-id',
       true,
+      undefined,
       undefined,
       undefined
     );
@@ -477,6 +483,20 @@ describe('WorkflowWorkspace start', () => {
       });
     }
   );
+
+  it('shows the warnings the start request returns', async () => {
+    pageEnqueue = undefined;
+    h.POST.mockResolvedValue({
+      data: { dagRunId: 'srv-1', warnings: ['not a fire time'] },
+    });
+    renderAt('/dags/x');
+    await clickStart('start now');
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith('not a fire time', {
+        variant: 'info',
+      })
+    );
+  });
 
   it('stays on the editor when the start request fails', async () => {
     pageEnqueue = undefined;

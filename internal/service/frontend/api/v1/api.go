@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cloudaccess"
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -117,6 +118,7 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
+	backfillStore        backfill.Store
 	schedulerPauseStore  schedulerstate.PauseStore
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
@@ -124,6 +126,8 @@ type API struct {
 	oidcRoleMapping      func() config.OIDCRoleMapping
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
+	serviceDAGFailures   failureStreaks
+	restartBackoffStore  schedulerstate.RestartBackoffStore
 }
 
 type processRepository interface {
@@ -184,6 +188,7 @@ type CloudAccessService interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
 	Set(ctx context.Context, level *config.RemoteAccessLevel, approvals *bool) error
 	State() cloudaccess.State
+	LastCall(ctx context.Context) (cloudaccess.LastCall, bool, error)
 }
 
 // AuthService defines the interface for authentication operations.
@@ -420,6 +425,13 @@ func WithOIDCRoleMapping(load func() config.OIDCRoleMapping) APIOption {
 }
 
 // WithSchedulerStateStore sets the scheduler state store used for next-run projections.
+// WithBackfillStore sets the store of backfill records.
+func WithBackfillStore(store backfill.Store) APIOption {
+	return func(a *API) {
+		a.backfillStore = store
+	}
+}
+
 func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 	return func(a *API) {
 		a.schedulerStateStore = store
@@ -431,6 +443,14 @@ func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 func WithSchedulerPauseStore(store schedulerstate.PauseStore) APIOption {
 	return func(a *API) {
 		a.schedulerPauseStore = store
+	}
+}
+
+// WithRestartBackoffStore sets the store through which the scheduler shares its
+// restart backoff.
+func WithRestartBackoffStore(store schedulerstate.RestartBackoffStore) APIOption {
+	return func(a *API) {
+		a.restartBackoffStore = store
 	}
 }
 
@@ -569,6 +589,11 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 
 	loginPath := pathutil.BuildPublicEndpointPath(mountedAPIPath, "auth/login")
 
+	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger)
+	if err != nil {
+		return err
+	}
+
 	r.Group(func(r chi.Router) {
 		r.Use(a.restAuditSeedMiddleware())
 		r.Use(frontendauth.ClientIPMiddleware())
@@ -576,8 +601,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(stepLogDownloadFormAuth(mountedAPIPath))
 		r.Use(frontendauth.Middleware(authOptions))
 		r.Use(a.restAuditSubjectMiddleware())
-		r.Use(a.syncProxyAuthorization(mountedAPIPath))
-		r.Use(a.licenseProxyAuthorization(mountedAPIPath))
+		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
@@ -1046,6 +1070,15 @@ func (a *API) requireDAGWrite(ctx context.Context) error {
 		return errDAGWritesDisabled
 	}
 	return nil
+}
+
+// RequireDAGAuthoring returns an error unless the caller may author DAGs on
+// this server.
+func (a *API) RequireDAGAuthoring(ctx context.Context) error {
+	if err := a.isAllowed(config.PermissionWriteDAGs); err != nil {
+		return err
+	}
+	return a.requireDeveloperOrAbove(ctx)
 }
 
 // requireUserManagement checks if user management is enabled.

@@ -49,6 +49,7 @@ jobs:
   validate:
     name: Validate Helm chart
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -177,6 +178,18 @@ jobs:
           grep -Fq 'name: dagu-worker-general' /tmp/dagu-distributed-render.yaml
           grep -Fq -- '- ReadWriteMany' /tmp/dagu-distributed-render.yaml
           test "$(grep -Fc 'serviceAccountName: dagu' /tmp/dagu-distributed-render.yaml)" -eq 4
+
+          helm template dagu ./charts/dagu \
+            --namespace dagu \
+            --kube-version 1.35.0 \
+            --set deploymentMode=distributed \
+            --set persistence.accessMode=ReadWriteMany \
+            --set persistence.storageClass=nfs-client \
+            --set scheduler.replicas=2 \
+            --show-only templates/scheduler-deployment.yaml \
+            >/tmp/dagu-scheduler-standby-render.yaml
+
+          grep -Fq 'replicas: 2' /tmp/dagu-scheduler-standby-render.yaml
 
           helm template dagu ./charts/dagu \
             --namespace dagu \

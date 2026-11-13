@@ -68,6 +68,13 @@ async function serveFreshInstall(page: Page) {
         ? route.fulfill({ json: { channels: [] } })
         : route.fallback()
   );
+  await page.route(
+    (url) => url.pathname === '/api/v1/api-keys',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ json: { apiKeys: [] } })
+        : route.fallback()
+  );
 }
 
 test('guides a fresh install through its first steps', async ({
@@ -80,13 +87,16 @@ test('guides a fresh install through its first steps', async ({
   await page.goto('/');
 
   const checklist = page.getByRole('region', { name: 'Getting started' });
-  await expect(checklist).toContainText('0 of 4 done');
+  await expect(checklist).toContainText('0 of 5 done');
   await expect(
     checklist.getByRole('link', { name: 'Open the retry example' })
   ).toHaveAttribute('href', '/dags/example-06-retry-on-failure');
   await expect(
     checklist.getByRole('link', { name: 'Connect for free' })
   ).toHaveAttribute('href', '/settings#monitoring');
+  await expect(
+    checklist.getByRole('link', { name: 'Use from Claude or ChatGPT' })
+  ).toHaveAttribute('href', '/settings#remote-access');
   await page.screenshot({
     path: testInfo.outputPath('getting-started-desktop.png'),
     fullPage: true,

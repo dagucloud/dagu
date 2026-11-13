@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
 // Only the scheduler that holds the scheduler lock runs the scanner. A DAG gets
@@ -134,6 +135,8 @@ type RestartScannerConfig struct {
 	// Enqueue queues a run, unless a run with the ID already exists. It is nil
 	// when queues are disabled.
 	Enqueue EnqueueFunc
+	// BackoffStore shares the backoff with other processes. It may be nil.
+	BackoffStore schedulerstate.RestartBackoffStore
 	// Clock returns the current time.
 	Clock Clock
 }
@@ -146,7 +149,8 @@ type RestartScannerConfig struct {
 // Whether a run is due follows from the DAG's stored runs, so a scheduler restart
 // or failover resumes where the previous scheduler stopped. The scanner only
 // remembers what saves logs and store reads, and the runs in a row that failed
-// soon after they started; a scheduler that takes over counts them anew.
+// soon after they started; a scheduler that takes over counts them anew. It
+// shares that count, which no stored run holds, through BackoffStore.
 type RestartScanner struct {
 	cfg RestartScannerConfig
 	// events is nil when the event store is disabled.
@@ -157,10 +161,15 @@ type RestartScanner struct {
 
 	lastErrorLog      map[string]time.Time
 	lastEventErrorLog time.Time
+	// lastBackoffErrorLog is when a failure to share the backoff was logged.
+	lastBackoffErrorLog time.Time
 	// stoppedRuns maps a DAG name to the attempt of its latest run, once an
 	// operator is known to have stopped that attempt.
 	stoppedRuns map[string]string
-	backoff     map[string]restartBackoff
+	backoff     map[string]schedulerstate.RestartBackoff
+	// backoffChanged is set while BackoffStore does not hold the backoff. It
+	// starts set, so a scheduler that takes over replaces what the last one saved.
+	backoffChanged bool
 	// nextCheck maps a DAG name to when it is checked again, unless an event
 	// says its run ended first.
 	nextCheck map[string]restartCheck
@@ -172,14 +181,6 @@ type restartCheck struct {
 	// restartWait is the restart_wait_sec the time follows from; an edited
 	// DAG is checked at once.
 	restartWait time.Duration
-}
-
-// restartBackoff counts the runs of a DAG in a row that failed soon after they
-// started.
-type restartBackoff struct {
-	// runID is the latest run counted, so each run is counted once.
-	runID    string
-	failures int
 }
 
 // NewRestartScanner creates a RestartScanner.
@@ -194,8 +195,10 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		cfg:          cfg,
 		lastErrorLog: make(map[string]time.Time),
 		stoppedRuns:  make(map[string]string),
-		backoff:      make(map[string]restartBackoff),
+		backoff:      make(map[string]schedulerstate.RestartBackoff),
 		nextCheck:    make(map[string]restartCheck),
+
+		backoffChanged: true,
 	}
 }
 
@@ -236,6 +239,29 @@ func (s *RestartScanner) scan(ctx context.Context) {
 		}
 	}
 	s.forgetOthers(services)
+	s.shareBackoff(ctx, now)
+}
+
+// shareBackoff saves the backoff of the DAGs whose runs fail, when it changed.
+// A save that fails is tried again at the next scan.
+func (s *RestartScanner) shareBackoff(ctx context.Context, now time.Time) {
+	if s.cfg.BackoffStore == nil || !s.backoffChanged {
+		return
+	}
+	failing := make(map[string]schedulerstate.RestartBackoff, len(s.backoff))
+	for name, backoff := range s.backoff {
+		if backoff.Failures > 0 {
+			failing[name] = backoff
+		}
+	}
+	if err := s.cfg.BackoffStore.Save(ctx, failing); err != nil {
+		if s.lastBackoffErrorLog.IsZero() || now.Sub(s.lastBackoffErrorLog) >= restartErrorLogInterval {
+			s.lastBackoffErrorLog = now
+			logger.Warn(ctx, "Restart scanner failed to share the restart backoff", tag.Error(err))
+		}
+		return
+	}
+	s.backoffChanged = false
 }
 
 // readEvents makes the DAGs whose run ended due for a check. The first read
@@ -359,6 +385,11 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	}
 
 	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
+	// Logged after the enqueue, so a DAG that cannot be queued adds one rate
+	// limited error to the log instead of a line at every scan.
+	if err := s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now); err != nil {
+		return err
+	}
 	logger.Info(ctx, "Restarting DAG",
 		tag.DAG(dag.Name),
 		tag.RunID(runID),
@@ -366,9 +397,6 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		slog.String("previous_run_id", status.DAGRunID),
 		slog.String("previous_status", status.Status.String()),
 	)
-	if err := s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now); err != nil {
-		return err
-	}
 	s.checkLater(dag, now)
 	return nil
 }
@@ -472,28 +500,45 @@ func (s *RestartScanner) restartWait(ctx context.Context, dag *ir.DAG, latest *i
 	if latest.DAGRunID == "" || latest.Status == ir.NotStarted || latest.Status.IsActive() {
 		return dag.RestartWait
 	}
-	b := s.backoff[dag.Name]
-	if b.runID == latest.DAGRunID {
-		return backoffWait(dag.RestartWait, b.failures)
-	}
-
-	b.runID = latest.DAGRunID
-	if failedSoonAfterStart(latest) {
-		b.failures++
-	} else {
-		b.failures = 0
+	previous := s.backoff[dag.Name]
+	b := countRun(previous, latest)
+	if b == previous {
+		return backoffWait(dag.RestartWait, b.Failures)
 	}
 	s.backoff[dag.Name] = b
-	wait := backoffWait(dag.RestartWait, b.failures)
-	if b.failures > 1 {
+	if b.Failures > 0 || previous.Failures > 0 {
+		s.backoffChanged = true
+	}
+	wait := backoffWait(dag.RestartWait, b.Failures)
+	if b.Failures > 1 {
 		logger.Warn(ctx, "DAG keeps failing soon after it starts; its next run waits longer",
 			tag.DAG(dag.Name),
 			tag.RunID(latest.DAGRunID),
-			slog.Int("failures", b.failures),
+			slog.Int("failures", b.Failures),
 			slog.Duration("wait", wait),
 		)
 	}
 	return wait
+}
+
+// countRun returns the backoff after a run that ended. A run is counted once.
+func countRun(backoff schedulerstate.RestartBackoff, run *ir.DAGRunStatus) schedulerstate.RestartBackoff {
+	if backoff.RunID == run.DAGRunID {
+		return backoff
+	}
+	backoff.RunID = run.DAGRunID
+	if failedSoonAfterStart(run) {
+		backoff.Failures++
+	} else {
+		backoff.Failures = 0
+	}
+	return backoff
+}
+
+// restartDue is when the next run follows a run that ended. The end is stored to
+// the second, so the run may have ended up to a second after it.
+func restartDue(endedAt time.Time, wait time.Duration) time.Time {
+	return endedAt.Add(time.Second + wait)
 }
 
 // backoffWait doubles wait for each failure after the first, up to
@@ -533,9 +578,10 @@ func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 			delete(s.stoppedRuns, name)
 		}
 	}
-	for name := range s.backoff {
+	for name, backoff := range s.backoff {
 		if _, ok := services[name]; !ok {
 			delete(s.backoff, name)
+			s.backoffChanged = s.backoffChanged || backoff.Failures > 0
 		}
 	}
 	for name := range s.nextCheck {
@@ -609,9 +655,7 @@ func decideRestart(wait time.Duration, latest *ir.DAGRunStatus, now time.Time) r
 	if !ok {
 		return restartDecision{start: true, reason: "previous_run_end_unknown"}
 	}
-	// The end is stored to the second, so the run may have ended up to a second
-	// after it.
-	if due := endedAt.Add(time.Second + wait); now.Before(due) {
+	if due := restartDue(endedAt, wait); now.Before(due) {
 		return restartDecision{reason: "waiting", due: due}
 	}
 	return restartDecision{start: true, reason: "previous_run_ended", previousEnd: endedAt}

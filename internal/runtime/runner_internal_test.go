@@ -652,6 +652,86 @@ func TestPrepareBuildPlanChecksPlainRedirectWhenArtifactRedirectIsSet(t *testing
 	require.ErrorContains(t, err, "stdout path aliases build output")
 }
 
+// Creating the parents of a redirect beneath a declared path would turn that
+// file into a directory and break later runs, so the plan must reject it first.
+func TestBuildRedirectUnderDeclaredPath(t *testing.T) {
+	t.Parallel()
+
+	const inputName, outputName = "source.txt", "result.txt"
+	tests := []struct {
+		name       string
+		parent     string
+		targetKind string
+	}{
+		{name: "Input", parent: inputName, targetKind: "input"},
+		{name: "Output", parent: outputName, targetKind: "output"},
+		{name: "DeepOutput", parent: filepath.Join(outputName, "logs", "deep"), targetKind: "output"},
+	}
+	declarations := func(step ir.Step) ir.Step {
+		step.Inputs = []ir.StepInputDeclaration{{Name: "source", Path: inputName}}
+		step.Outputs = []ir.StepOutputDeclaration{{Name: "result", Path: outputName}}
+		return step
+	}
+	newContext := func(workingDir string) context.Context {
+		return NewContext(context.Background(), &ir.DAG{
+			Name:               "build-test",
+			Type:               ir.TypeBuild,
+			WorkingDir:         workingDir,
+			WorkingDirExplicit: true,
+		}, "run-1", filepath.Join(workingDir, "dag.log"))
+	}
+	newWorkingDir := func(t *testing.T) string {
+		t.Helper()
+		workingDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workingDir, inputName), []byte("source"), 0o600))
+		return workingDir
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+"Static", func(t *testing.T) {
+			t.Parallel()
+
+			workingDir := newWorkingDir(t)
+			plan, err := NewPlan(declarations(ir.Step{
+				ID:     "build",
+				Name:   "build",
+				Stdout: filepath.Join(tt.parent, "build.log"),
+			}))
+			require.NoError(t, err)
+
+			err = prepareBuildPlan(newContext(workingDir), plan)
+			require.ErrorContains(t, err, "stdout path is inside build "+tt.targetKind)
+			assert.NoDirExists(t, filepath.Join(workingDir, outputName))
+		})
+
+		t.Run(tt.name+"LateResolved", func(t *testing.T) {
+			t.Parallel()
+
+			workingDir := newWorkingDir(t)
+			plan, err := NewPlan(
+				ir.Step{ID: "producer", Name: "producer", Output: "TARGET"},
+				declarations(ir.Step{
+					ID:      "consumer",
+					Name:    "consumer",
+					Depends: []string{"producer"},
+					Stdout:  "${producer.output}",
+				}),
+			)
+			require.NoError(t, err)
+			ctx := newContext(workingDir)
+			require.NoError(t, prepareBuildPlan(ctx, plan))
+
+			plan.GetNodeByName("producer").setOutputValue(filepath.Join(workingDir, tt.parent, "build.log"))
+			consumer := plan.GetNodeByName("consumer")
+			ctx, err = New(&Config{}).setupVariables(ctx, plan, consumer)
+			require.NoError(t, err)
+
+			err = validateBuildRuntimeRedirectAliases(ctx, plan, consumer)
+			require.ErrorContains(t, err, "stdout path is inside build "+tt.targetKind)
+		})
+	}
+}
+
 func TestValidateBuildRuntimeRedirectAliases(t *testing.T) {
 	t.Parallel()
 
@@ -1205,4 +1285,50 @@ func TestRunner_ClampDependentStarts(t *testing.T) {
 	keptState := plan.GetNodeByName("kept").State()
 	assert.True(t, keptState.StartedAt.Equal(base.Add(-time.Hour)), "start %s", keptState.StartedAt)
 	assert.True(t, keptState.FinishedAt.Equal(base.Add(-59*time.Minute)), "finish %s", keptState.FinishedAt)
+}
+
+// An abort or timeout that interrupts the final condition evaluation owns the
+// outcome; on_limit: fail must not turn that interrupted check into a failed
+// step.
+func TestFailRepeatLimitInterruptedCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = WithEnv(ctx, NewEnv(ctx, ir.Step{}))
+	cancel()
+
+	node := NewNode(ir.Step{Name: "poll"}, NodeState{Status: ir.NodeSucceeded})
+	rp := ir.RepeatPolicy{
+		RepeatMode: ir.RepeatModeUntil,
+		Limit:      2,
+		OnLimit:    ir.RepeatOnLimitFail,
+		Condition:  &ir.Condition{Condition: "not-a-number", Expected: "num:>=1"},
+	}
+
+	r := &Runner{}
+	r.failRepeatLimit(ctx, node, rp, nil)
+
+	require.NotNil(t, ctx.Err())
+	assert.Equal(t, ir.NodeSucceeded, node.State().Status,
+		"an interrupted check must be left to the abort/timeout outcome")
+}
+
+// A graceful `dagu stop` sets the runner's canceled flag without canceling
+// ctx. The final condition evaluation must then leave the outcome to the
+// stop, not mark the step as failed by on_limit: fail.
+func TestFailRepeatLimitGracefulStop(t *testing.T) {
+	ctx := WithEnv(context.Background(), NewEnv(context.Background(), ir.Step{}))
+
+	node := NewNode(ir.Step{Name: "poll"}, NodeState{Status: ir.NodeSucceeded})
+	rp := ir.RepeatPolicy{
+		RepeatMode: ir.RepeatModeUntil,
+		Limit:      2,
+		OnLimit:    ir.RepeatOnLimitFail,
+		Condition:  &ir.Condition{Condition: "0", Expected: "num:>=1"},
+	}
+
+	r := &Runner{canceled: 1}
+	r.failRepeatLimit(ctx, node, rp, nil)
+
+	require.Nil(t, ctx.Err())
+	assert.Equal(t, ir.NodeSucceeded, node.State().Status,
+		"a graceful stop must be left to the abort outcome")
 }

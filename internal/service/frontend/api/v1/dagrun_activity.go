@@ -76,6 +76,8 @@ func (a *API) GetDAGRunActivity(ctx context.Context, request api.GetDAGRunActivi
 		labels:    params.Labels,
 		workspace: params.Workspace,
 		cursor:    params.Cursor,
+
+		excludeServiceDAGRuns: params.ExcludeServiceDAGRuns != nil && *params.ExcludeServiceDAGRuns,
 	}, time.Now())
 	if err != nil {
 		return nil, err
@@ -124,6 +126,13 @@ func (a *API) activityQueryFromString(ctx context.Context, queryString string) (
 	if raw := values.Get("labels"); raw != "" {
 		params.labels = &raw
 	}
+	if raw := values.Get(excludeServiceDAGRunsParam); raw != "" {
+		exclude, convErr := strconv.ParseBool(raw)
+		if convErr != nil {
+			return activityQuery{}, activityBadRequest(fmt.Sprintf("invalid %s: %q", excludeServiceDAGRunsParam, raw))
+		}
+		params.excludeServiceDAGRuns = exclude
+	}
 	params.workspace = workspaceParamFromValues(values)
 	return a.newActivityQuery(ctx, params, time.Now())
 }
@@ -135,6 +144,8 @@ type activityParams struct {
 	labels    *string
 	workspace *api.Workspace
 	cursor    *string
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs.
+	excludeServiceDAGRuns bool
 }
 
 // activityQuery is a validated activity window, its filters, and the page
@@ -145,6 +156,16 @@ type activityQuery struct {
 	labels          []string
 	workspaceFilter *workspace.WorkspaceFilter
 	cursor          string
+	// excludeServiceDAGRuns leaves out the runs of the service DAGs.
+	excludeServiceDAGRuns bool
+	// excludedDAGs holds the DAGs whose runs a read leaves out.
+	excludedDAGs map[string]struct{}
+}
+
+// skips reports whether the query leaves out the runs of a DAG.
+func (q activityQuery) skips(name string) bool {
+	_, ok := q.excludedDAGs[name]
+	return ok
 }
 
 func (a *API) newActivityQuery(ctx context.Context, params activityParams, now time.Time) (activityQuery, error) {
@@ -183,6 +204,7 @@ func (a *API) newActivityQuery(ctx context.Context, params activityParams, now t
 		return activityQuery{}, err
 	}
 	query.workspaceFilter = filter
+	query.excludeServiceDAGRuns = params.excludeServiceDAGRuns
 	return query, nil
 }
 
@@ -203,6 +225,11 @@ func (a *API) dagRunActivity(ctx context.Context, query activityQuery) (api.DAGR
 }
 
 func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.DAGRunActivity, error) {
+	excluded := a.excludedDAGNames(ctx, query.excludeServiceDAGRuns)
+	query.excludedDAGs = make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		query.excludedDAGs[name] = struct{}{}
+	}
 	page, err := a.dagRunRepository.ListStatusesPage(ctx, persis.DAGRunListOptions{
 		From:            persis.NewUTC(query.from),
 		To:              persis.NewUTC(query.to),
@@ -210,6 +237,7 @@ func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.
 		WorkspaceFilter: query.workspaceFilter,
 		Limit:           activityPageSize,
 		Cursor:          query.cursor,
+		ExcludeDAGNames: excluded,
 	})
 	if err != nil {
 		if badRequest := dagRunListBadRequest(err); badRequest != nil {
@@ -241,6 +269,7 @@ func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.
 		NotBefore:       persis.NewUTC(query.from),
 		Labels:          query.labels,
 		WorkspaceFilter: query.workspaceFilter,
+		ExcludeDAGNames: excluded,
 	})
 	if err != nil {
 		return api.DAGRunActivity{}, fmt.Errorf("error reading latest dag-runs: %w", err)
@@ -261,6 +290,11 @@ func (a *API) activityQueues(ctx context.Context, query activityQuery) []api.DAG
 	scan := activityQueueScan
 	labelFilters := parseLabelFilters(query.labels)
 	scan.matches = func(summary api.DAGRunSummary) bool {
+		// A service DAG restarts all the time, so its queue would flip
+		// between a run and a wait. Its lane shows it instead.
+		if query.skips(summary.Name) {
+			return false
+		}
 		labels := ir.NewLabels(valueOf(summary.Labels))
 		return query.workspaceFilter.MatchesLabels(labels) && labels.MatchesFilters(labelFilters)
 	}
@@ -445,7 +479,8 @@ func (a *API) activeRuns(ctx context.Context, query activityQuery, pageRuns, lat
 		groups:
 			for _, group := range slices.Sorted(maps.Keys(alive)) {
 				for _, ref := range alive[group] {
-					if _, ok := seen[ref]; ok {
+					// A left-out DAG costs no read of the bounded budget.
+					if _, ok := seen[ref]; ok || query.skips(ref.Name) {
 						continue
 					}
 					if reads == activityLiveRunReads {

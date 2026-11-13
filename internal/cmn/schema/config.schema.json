@@ -278,7 +278,7 @@
         },
         "trusted_proxies": {
           "type": "array",
-          "description": "Proxy addresses and CIDR ranges permitted to supply forwarded client IP headers.",
+          "description": "Proxy addresses and CIDR ranges permitted to supply forwarded client IP headers and proxy authentication identity headers. Empty limits proxy authentication to loopback peers.",
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -1227,7 +1227,7 @@
         },
         "write_policy": {
           "type": "string",
-          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save, and noise_hosts whose writes do not count."
+          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save and name the hosts on another site than the page's that the work writes to, and noise_hosts whose writes do not count. A write a page sends without loading a document to a site other than the open pages' does not count either, unless a rule names its host."
         },
         "trusted_cas": {
           "type": "array",
@@ -1396,6 +1396,10 @@
           "type": "string",
           "description": "Interval between lock retry attempts. Default: '5s'."
         },
+        "failover_recovery_window": {
+          "type": "string",
+          "description": "How far back a scheduler that takes over from a failed one replays missed schedule slots. Requires queues. '0s' disables it. Default: '2m'."
+        },
         "zombie_detection_interval": {
           "type": "string",
           "description": "Interval for detecting zombie processes. Default: '45s'. Set to '0' to disable."
@@ -1407,6 +1411,11 @@
         "failure_threshold": {
           "type": "integer",
           "description": "Consecutive stale checks before declaring a zombie. Default: 3.",
+          "minimum": 1
+        },
+        "backfill_max_slots": {
+          "type": "integer",
+          "description": "Most slots one backfill may cover; a larger backfill is rejected. Default: 10000.",
           "minimum": 1
         },
         "heartbeat_interval": {

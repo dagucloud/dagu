@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -122,7 +123,8 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		SchedulerPauseStore: store.NewSchedulerPauseStore(
 			srv.Backend.Collection(persis.CollectionSchedulerState),
 		),
-		Stores: stores,
+		BackfillStore: filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
+		Stores:        stores,
 	}, serverOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server: %w", err)
