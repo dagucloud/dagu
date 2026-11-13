@@ -39,6 +39,17 @@ export const WORKFLOW_TABS: readonly WorkflowTabInfo[] = [
   { id: 'backfills', label: 'Backfills', icon: History },
 ];
 
+/**
+ * The tabs of a workflow's Workflow panel. Backfills shows only for a
+ * workflow with a schedule, which alone has slots to backfill.
+ */
+export function workflowTabsOf(
+  dag: Pick<ApiDAGDetails, 'schedule'>
+): readonly WorkflowTabInfo[] {
+  const scheduled = (dag.schedule?.length ?? 0) > 0;
+  return WORKFLOW_TABS.filter(({ id }) => id !== 'backfills' || scheduled);
+}
+
 const TAB_ID_PREFIX = 'ww-wtab';
 const tabId = (t: WorkflowPanelTab) => tabStripTabId(TAB_ID_PREFIX, t);
 const panelId = (t: WorkflowPanelTab) => `ww-wtab-panel-${t}`;
@@ -70,19 +81,15 @@ export function WorkflowTabsPanel({
   const [url, setUrl] = useWorkspaceUrl();
   const { guard, setDirty } = useSettingsLeaveGuard();
   const tab: WorkflowPanelTab = url.wtab ?? 'overview';
-  // Only a DAG with a schedule has slots to backfill.
-  const scheduled = (dag.schedule?.length ?? 0) > 0;
   const stripTabs = useMemo(
     () =>
-      WORKFLOW_TABS.filter(({ id }) => id !== 'backfills' || scheduled).map(
-        ({ id, label, icon }) => ({
-          id,
-          label: ts(label),
-          icon,
-          controls: panelId(id),
-        })
-      ),
-    [ts, scheduled]
+      workflowTabsOf(dag).map(({ id, label, icon }) => ({
+        id,
+        label: ts(label),
+        icon,
+        controls: panelId(id),
+      })),
+    [ts, dag]
   );
 
   // A tab that goes away takes its draft with it.
