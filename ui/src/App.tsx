@@ -117,6 +117,7 @@ const ViewPage = React.lazy(() => import('./pages/views'));
 const ProfilesPage = React.lazy(() => import('./pages/profiles'));
 const Queues = React.lazy(() => import('./pages/queues'));
 const QueueDetailsPage = React.lazy(() => import('./pages/queues/queue'));
+const BackfillPage = React.lazy(() => import('./pages/backfills/backfill'));
 const Search = React.lazy(() => import('./pages/search'));
 const SettingsPage = React.lazy(() => import('./pages/settings'));
 const SystemStatus = React.lazy(() => import('./pages/system-status'));
@@ -1081,6 +1082,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/queues/:name"
                                           element={<QueueDetailsPage />}
+                                        />
+                                        <Route
+                                          path="/backfills/:backfillId"
+                                          element={<BackfillPage />}
                                         />
                                         <Route
                                           path="/dag-runs"

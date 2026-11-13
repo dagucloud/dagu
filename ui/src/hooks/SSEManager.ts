@@ -174,6 +174,9 @@ export function endpointToTopic(endpoint: string): string {
   ) {
     return buildTopic('queueitems', segments[2]);
   }
+  if (segments.length === 3 && segments[1] === 'backfills') {
+    return buildTopic('backfill', segments[2]);
+  }
   if (segments.length === 2 && segments[1] === 'wiki-tree') {
     return buildTopic('wikitree', query);
   }

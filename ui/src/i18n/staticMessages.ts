@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Locale } from '@/contexts/UserPreference';
+import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -3229,7 +3230,11 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 
 // Base entries are listed last: an existing translation always wins over a
 // workspace module entry with the same key.
-const english = { ...workspaceMessages.en, ...baseEnglish } as const;
+const english = {
+  ...workspaceMessages.en,
+  ...backfillMessages.en,
+  ...baseEnglish,
+} as const;
 
 export type StaticMessage = keyof typeof english;
 
@@ -9620,11 +9625,13 @@ const baseJapanese = {
 
 const chinese = {
   ...workspaceMessages['zh-CN'],
+  ...backfillMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
+  ...backfillMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 
