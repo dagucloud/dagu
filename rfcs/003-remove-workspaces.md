@@ -242,7 +242,9 @@ first discovered. The ID never changes; the name can.
 - `dag.run` resolves its target in the caller's project, then in the
   library. A path target must lie inside the caller's project DAG directory
   or the library. A target in another project is a load error.
-- CLI commands take `--project` (`DAGU_PROJECT`). The default is `default`.
+- A CLI command addresses the project named by `--project`, else by
+  `DAGU_PROJECT`, else the project whose DAG directory holds the current
+  directory once [checkouts](#checkouts) ship, else `default`.
 - API paths and MCP tools that address DAGs, runs, secrets, profiles, routes,
   policies, or wiki pages take `project`. The default is `default`, so
   existing clients keep working against the default project. Clients that
@@ -268,8 +270,8 @@ project seen from a checkout, not a second concept.
   laptop and as a server project. A path in `.dagu.json` that leads out of
   the project's DAG directory, such as `../billing`, is a load error, so one
   project never reads another's DAGs.
-- A `dagu` command run inside a project's DAG directory without `--project`
-  addresses that project.
+- A `dagu` command run inside a project's DAG directory without
+  `--project` or `DAGU_PROJECT` addresses that project.
 - Spec 001 adopts these rules before either ships.
 
 ### Library
@@ -330,17 +332,27 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - **Display name.** An admin changes it in the UI or API at any time. Only
   the registry changes.
 - **Rename.** An admin renames a project in the UI or API, or with `dagu
-  project rename`. The rename holds the registry lock while it moves the
-  project's directories and updates the registry. Discovery takes the same
-  lock, so no process sees the moved directory as a new project. The ID,
-  grants, Dagu Cloud binding, and run history stay. Clients that address the
-  project by name use the new name. With `paths.projects_dags_dir` set, a git
-  checkout shows the moved DAG directory as a change to commit.
+  project rename`. The rename runs in three steps:
+  1. The registry marks the project as moving. The scheduler unit, the
+     coordinator, and the server stop using its stores and confirm in the
+     registry. A process that does not confirm in time abandons the rename,
+     and the project resumes. Windows cannot move a directory with open
+     files, so no move starts before every process lets go.
+  2. Under the registry lock, which discovery also takes, the rename moves
+     the project's directories and updates the registry. No process sees
+     the moved directory as a new project.
+  3. The processes open the project's stores at the new paths.
+
+  The ID, grants, Dagu Cloud binding, and run history stay. Clients that
+  address the project by name use the new name. With
+  `paths.projects_dags_dir` set, a git checkout shows the moved DAG
+  directory as a change to commit.
 - **Delete.** An admin deletes a project in the UI or API, or with `dagu
-  project delete`. It removes the project's directories, registry entry,
-  grants, and Dagu Cloud binding. With `paths.projects_dags_dir` set, it is
-  refused while the project's DAG directory exists: the checkout owns that
-  directory, so it is removed there first.
+  project delete`. After the same first step as a rename, it removes the
+  project's directories, registry entry, grants, and Dagu Cloud binding.
+  With `paths.projects_dags_dir` set, it is refused while the project's DAG
+  directory exists: the checkout owns that directory, so it is removed
+  there first.
 - Rename and delete are refused while the project has runs queued, running,
   or waiting.
 - **Changed on disk.** A project whose DAG directory disappears outside
@@ -355,11 +367,13 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     renamed to it, and the new directory is not scheduled until the admin
     answers. Confirming finishes the rename; declining registers a new
     project, with no grants and no binding.
-  - Finishing a rename moves the runtime state to the new name, and the
-    project keeps everything else.
+  - Finishing a rename moves the runtime state to the new name in the same
+    steps as a rename, and the project keeps everything else.
 
   An admin can also relink a missing project to any unregistered directory,
   or delete it.
+- **The default project** cannot be renamed or deleted. Its display name
+  can change.
 
 ### Moving a DAG
 
@@ -377,6 +391,8 @@ a DAG and kept its history; a move between projects keeps it too.
 - Before anything moves, the move lists the secrets, profiles, and
   notification routes the DAG uses that the target project lacks, so what
   the DAG runs with never changes silently.
+- The source project's scheduler unit stops scheduling the DAG before its
+  files move, and the target's unit picks it up after.
 - The move is refused while a DAG in the source project calls it with
   `dag.run`, since that call would become a load error. It is also refused
   while the DAG has runs queued, running, or waiting, and when the target
@@ -443,6 +459,11 @@ scheduler process   HA lock, health server, service registry, signals, license
 - A worker's own `dags_dir` and `alt_dags_dir` serve only default-project
   tasks, so a project run never picks up a default-project DAG with the same
   name.
+- Coordinators and workers older than v3.0 cannot place a task in a
+  project. A v3.0 coordinator gives them no tasks, and a v3.0 worker does
+  not connect to an older coordinator; each says why in its log and on the
+  workers page. Upgrade the coordinator and server first, then the workers.
+  Runs wait in their queues until an upgraded worker connects.
 
 ## Dagu Cloud
 
@@ -632,7 +653,8 @@ v2 gets no new workspace features.
     skipped at discovery, and the server logs it.
 16. Renaming a project keeps its ID, grants, Dagu Cloud binding, and run
     history. Rename and delete are refused while the project has runs
-    queued, running, or waiting.
+    queued, running, or waiting, start no move until every process has let
+    go of the project, and are refused for the default project.
 17. A project directory renamed outside Dagu with its DAG files unchanged
     keeps its ID, grants, binding, run history, and schedules without an
     admin. Any other new directory that appears as a project goes missing
@@ -661,11 +683,12 @@ v2 gets no new workspace features.
 27. All projects shows the runs and failures of every project the user can
     see, and of no other.
 28. A `dagu` command run inside a project's DAG directory without
-    `--project` addresses that project.
+    `--project` or `DAGU_PROJECT` addresses that project.
 29. After migration, a rename, or a move, the logs, step output, and
     artifacts of every moved run open as before.
 30. A `.dagu.json` path that leads out of its project's DAG directory is a
     load error.
+31. A v3.0 coordinator gives no task to an older worker, and both say why.
 
 ## Alternatives considered
 
