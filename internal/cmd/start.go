@@ -310,9 +310,13 @@ func runStart(ctx *Context, args []string) error {
 	if slot.scheduleTime == "" {
 		slot = historicSlot
 	}
-	dates, err := slotDates(ctx, dag, profileName, slot, isSubDAGRun)
-	if err != nil {
-		return err
+	// A sub-DAG run may continue a run that recorded its dates, so the run
+	// resolves its own when it starts.
+	var dates []ir.DateValue
+	if !isSubDAGRun {
+		if dates, err = slotDates(ctx, dag, profileName, slot); err != nil {
+			return err
+		}
 	}
 
 	recursiveOutput, err := ctx.Command.Flags().GetBool("recursive-output")

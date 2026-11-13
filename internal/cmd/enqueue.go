@@ -97,7 +97,7 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	dates, err := slotDates(ctx, dag, profileName, slot, false)
+	dates, err := slotDates(ctx, dag, profileName, slot)
 	if err != nil {
 		return err
 	}

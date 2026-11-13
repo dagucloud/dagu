@@ -143,15 +143,14 @@ func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) 
 	}, nil
 }
 
-// slotDates resolves the dates of a run being created for slot. A sub-DAG
-// run's slot is its parent's. An error refuses the run before it exists.
-func slotDates(ctx *Context, dag *ir.DAG, profile string, slot runSlot, subDAGRun bool) ([]ir.DateValue, error) {
+// slotDates resolves the dates of a run being created for slot. An error
+// refuses the run before it exists.
+func slotDates(ctx *Context, dag *ir.DAG, profile string, slot runSlot) ([]ir.DateValue, error) {
 	return rundates.Resolve(rundates.Request{
 		DAG:          dag,
 		Profile:      profile,
 		ScheduleTime: slot.scheduleTime,
 		Window:       slot.window,
-		Inherited:    subDAGRun,
 		CreatedAt:    time.Now(),
 		Location:     ctx.Config.Core.Location,
 		Calendars:    spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir),
