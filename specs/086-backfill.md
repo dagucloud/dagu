@@ -309,6 +309,8 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   what `GET /api/v1/backfills/{id}` returns. A change to one of the
   backfill's runs updates it within seconds, at most once every 2s; other
   changes reach it within 30s.
+- A backfill run's details give `backfillSlot`: the place of its slot among
+  the backfill's slots, from 1, and how many slots the backfill has.
 
 ## Configuration
 

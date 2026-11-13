@@ -155,6 +155,7 @@ describe('RunMetaLine', () => {
             triggerType: TriggerType.backfill,
             triggerActor: undefined,
             backfillId: 'bf123456',
+            backfillSlot: { index: 2, count: 28 },
           }}
         />
       </MemoryRouter>
@@ -165,6 +166,10 @@ describe('RunMetaLine', () => {
         name: 'Backfill',
       })
     ).toHaveAttribute('href', '/backfills/bf123456');
+    // Beside the link, the run tells which of the backfill's slots it ran.
+    expect(screen.getByTitle('Trigger')).toHaveTextContent(
+      'Backfill · slot 2 of 28'
+    );
   });
 
   it('omits start and duration until a queued run starts', () => {

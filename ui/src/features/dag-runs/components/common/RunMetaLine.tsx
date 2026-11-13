@@ -53,21 +53,37 @@ type RunFields = Pick<
   | 'params'
   | 'dates'
   | 'defaultSlot'
+  | 'backfillSlot'
 >;
 
-/** The trigger of a run; a backfill run's links to its backfill. */
+/**
+ * The trigger of a run; a backfill run's links to its backfill and tells
+ * which of its slots the run ran.
+ */
 function TriggerLabel({ dagRun }: { dagRun: RunFields }) {
   const { ts } = useI18n();
   if (!dagRun.triggerType) return null;
   const label = ts(triggerTypeLabels[dagRun.triggerType] ?? dagRun.triggerType);
   if (!dagRun.backfillId) return <>{label}</>;
+  const slot = dagRun.backfillSlot;
   return (
-    <Link
-      to={`/backfills/${encodeURIComponent(dagRun.backfillId)}`}
-      className="text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
-    >
-      {label}
-    </Link>
+    <>
+      <Link
+        to={`/backfills/${encodeURIComponent(dagRun.backfillId)}`}
+        className="text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+      >
+        {label}
+      </Link>
+      {slot && (
+        <span className="text-muted-foreground">
+          {' · '}
+          {ts('slot {index} of {count}', {
+            index: slot.index,
+            count: slot.count,
+          })}
+        </span>
+      )}
+    </>
   );
 }
 

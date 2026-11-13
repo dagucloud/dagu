@@ -176,6 +176,13 @@ func (r *Record) Open() bool {
 	return r.EndedAt.IsZero()
 }
 
+// SlotPosition returns the place of the slot at among the backfill's slots,
+// from 1, or false when the backfill has no such slot.
+func (r *Record) SlotPosition(at time.Time) (int, bool) {
+	i := slices.IndexFunc(r.Slots, func(slot RecordSlot) bool { return slot.At.Equal(at) })
+	return i + 1, i >= 0
+}
+
 // Store persists backfill records.
 type Store interface {
 	// Create stores a new record. It fails with ErrExists when the ID is
