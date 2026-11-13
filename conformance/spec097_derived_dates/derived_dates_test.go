@@ -225,6 +225,14 @@ func TestDatePreviews(t *testing.T) {
 		}
 	}
 
+	// A profile's schedule fires runs of that profile, so their dates come
+	// from that profile's window.
+	profiled := dagu.RunWithEnv(utcServer, "calendar", "fires", "profile_dates.yaml", "--from", "2026-11-08T00:00:00Z", "--count", "1")
+	profiled.ExpectExitCode(0)
+	if want := "since=2026-11-07"; !strings.Contains(profiled.Stdout(), want) {
+		t.Fatalf("calendar fires output does not contain %q:\n%s", want, profiled.Stdout())
+	}
+
 	start := dagu.RunWithEnv(utcServer, "start", "--scheduled-at=2026-11-09", "run_dates.yaml")
 	start.ExpectExitCode(0)
 	start.ExpectStderrContains("Dates for slot 2026-11-09T02:00:00+09:00: target_day=2026-11-08")

@@ -198,15 +198,19 @@ func runCalendarFires(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var datesOf func(time.Time) string
+	var datesOf func(ir.ScheduleFire) string
 	if len(dag.Dates) > 0 {
 		calendars := spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir)
-		datesOf = func(fire time.Time) string {
+		datesOf = func(fire ir.ScheduleFire) string {
+			// A profile's schedule starts runs of that profile, whose window
+			// and calendar come from that profile's schedules.
+			profile := dag.Schedule[fire.ScheduleIndex].Profile
 			dates, err := rundates.Resolve(rundates.Request{
 				DAG:          dag,
-				ScheduleTime: fire.Format(time.RFC3339),
-				Window:       ir.ScheduleWindowAt(dag.Schedule, "", ctx.Config.Core.Location, fire),
-				CreatedAt:    fire,
+				Profile:      profile,
+				ScheduleTime: fire.Time.Format(time.RFC3339),
+				Window:       ir.ScheduleWindowAt(dag.Schedule, profile, ctx.Config.Core.Location, fire.Time),
+				CreatedAt:    fire.Time,
 				Location:     ctx.Config.Core.Location,
 				Calendars:    calendars,
 			})
@@ -221,7 +225,7 @@ func runCalendarFires(ctx *Context, args []string) error {
 
 // renderCalendarFires lists fires with their schedule and note, and, when
 // datesOf is set, the dates each fire's run gets.
-func renderCalendarFires(out io.Writer, dag *ir.DAG, fires []ir.ScheduleFire, datesOf func(time.Time) string) error {
+func renderCalendarFires(out io.Writer, dag *ir.DAG, fires []ir.ScheduleFire, datesOf func(ir.ScheduleFire) string) error {
 	if len(fires) == 0 {
 		_, err := fmt.Fprintf(out, "%s has no upcoming runs\n", dag.Name)
 		return err
@@ -240,7 +244,7 @@ func renderCalendarFires(out io.Writer, dag *ir.DAG, fires []ir.ScheduleFire, da
 			dag.Schedule[fire.ScheduleIndex].DisplayValue(),
 			calendarFireNote(fire))
 		if datesOf != nil {
-			row += "\t" + datesOf(fire.Time)
+			row += "\t" + datesOf(fire)
 		}
 		if _, err := fmt.Fprintln(w, row); err != nil {
 			return err
