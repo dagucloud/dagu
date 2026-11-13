@@ -103,6 +103,41 @@ describe('DAGSlotsView', () => {
     expect(new Date(from()).getTime()).toBeLessThan(new Date(week).getTime());
   });
 
+  // The view draws the newest 2000 slots: a refresh that adds a newer one
+  // drops the oldest, and a pick of it with it.
+  it('drops a picked slot that a refresh moves out of view', () => {
+    const hourly = (count: number): DAGSlot[] =>
+      Array.from({ length: count }, (_, i) => ({
+        slot: new Date(Date.UTC(2026, 6, 1) + i * 3_600_000).toISOString(),
+        status: DAGSlotStatus.missing,
+      }));
+    useQueryMock.mockReturnValue({
+      data: { slots: hourly(2000) },
+      mutate: vi.fn(),
+    });
+    const view = render(
+      <MemoryRouter>
+        <DAGSlotsView fileName="etl" canExecute />
+      </MemoryRouter>
+    );
+    // Queried without roles: computing them for 2000 cells is slow.
+    fireEvent.click(
+      view.container.querySelector('button[aria-label^="Slot "]')!
+    );
+    expect(screen.getByText('Backfill 1 slot')).toBeInTheDocument();
+
+    useQueryMock.mockReturnValue({
+      data: { slots: hourly(2001) },
+      mutate: vi.fn(),
+    });
+    view.rerender(
+      <MemoryRouter>
+        <DAGSlotsView fileName="etl" canExecute />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Backfill this range')).toBeInTheDocument();
+  });
+
   it('links slots to their runs for a user who may not run the DAG', () => {
     h.canExecute = false;
     renderView();

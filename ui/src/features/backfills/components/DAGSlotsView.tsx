@@ -79,7 +79,8 @@ export function DAGSlotsView({
     READ_ONCE
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [anchor, setAnchor] = useState<number | null>(null);
+  // The slot a Shift-pick extends from.
+  const [anchor, setAnchor] = useState<string | null>(null);
   const [target, setTarget] = useState<BackfillTarget | null>(null);
 
   const slots = useMemo(() => data?.slots ?? [], [data]);
@@ -88,6 +89,12 @@ export function DAGSlotsView({
   const index = useMemo(
     () => new Map(shown.map((slot, i) => [slot.slot, i])),
     [shown]
+  );
+  // A refresh can move slots out of the window drawn: they are picked no
+  // more.
+  const picked = useMemo(
+    () => new Set([...selected].filter((slot) => index.has(slot))),
+    [selected, index]
   );
   const counts = useMemo(() => {
     const result = new Map<DAGSlotStatus, number>();
@@ -103,10 +110,11 @@ export function DAGSlotsView({
     setAnchor(null);
   };
   const pick = (slot: DAGSlot, extend: boolean) => {
-    const at = index.get(slot.slot) ?? null;
-    if (at === null) return;
-    setSelected(selectSlots(shown, selected, at, anchor, extend));
-    setAnchor(at);
+    const at = index.get(slot.slot);
+    if (at === undefined) return;
+    const from = anchor === null ? null : (index.get(anchor) ?? null);
+    setSelected(selectSlots(shown, picked, at, from, extend));
+    setAnchor(slot.slot);
   };
   const pickStates = (states: readonly DAGSlotStatus[]) => {
     setSelected(slotsInStates(shown, states));
@@ -204,7 +212,7 @@ export function DAGSlotsView({
                       slot={slot}
                       fileName={fileName}
                       remoteNode={remoteNode}
-                      selected={selected.has(slot.slot)}
+                      selected={picked.has(slot.slot)}
                       onPick={canExecute ? pick : undefined}
                     />
                   ))}
@@ -243,7 +251,7 @@ export function DAGSlotsView({
                   {ts('Pick missing and failed')}
                 </Button>
               ) : null}
-              {selected.size > 0 && (
+              {picked.size > 0 && (
                 <Button
                   variant="ghost"
                   size="xs"
@@ -258,11 +266,11 @@ export function DAGSlotsView({
                 size="sm"
                 onClick={() =>
                   setTarget(
-                    selected.size > 0
+                    picked.size > 0
                       ? {
                           kind: 'slots',
                           slots: shown
-                            .filter((slot) => selected.has(slot.slot))
+                            .filter((slot) => picked.has(slot.slot))
                             .map((slot) => slot.slot),
                         }
                       : { kind: 'range', from }
@@ -270,10 +278,10 @@ export function DAGSlotsView({
                 }
               >
                 <History />
-                {selected.size > 0
-                  ? selected.size === 1
+                {picked.size > 0
+                  ? picked.size === 1
                     ? ts('Backfill 1 slot')
-                    : ts('Backfill {count} slots', { count: selected.size })
+                    : ts('Backfill {count} slots', { count: picked.size })
                   : ts('Backfill this range')}
               </Button>
             </div>
