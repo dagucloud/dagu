@@ -83,6 +83,8 @@ type DAGLoadOptions struct {
 type DAGRepositoryOptions struct {
 	BaseConfigPath         string
 	WorkspaceBaseConfigDir string
+	// DAGsDir lets a definition that has no file find the agents and skills directories.
+	DAGsDir string
 	// Calendars loads the calendar files that schedules name.
 	Calendars *spec.CalendarSource
 }

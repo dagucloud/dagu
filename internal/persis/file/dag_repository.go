@@ -101,6 +101,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 	return persis.NewDAGRepository(dagStore, persis.DAGRepositoryOptions{
 		BaseConfigPath:         cfg.Paths.BaseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
+		DAGsDir:                cfg.Paths.DAGsDir,
 		Calendars:              calendars,
 	}), nil
 }

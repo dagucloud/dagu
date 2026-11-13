@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Locale } from '@/contexts/UserPreference';
+import aiEndpointMessages from '@/features/ai-endpoints/messages';
+import mcpMessages from '@/features/ai-endpoints/mcpMessages';
+import skillMessages from '@/features/skills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -3229,7 +3232,13 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 
 // Base entries are listed last: an existing translation always wins over a
 // workspace module entry with the same key.
-const english = { ...workspaceMessages.en, ...baseEnglish } as const;
+const english = {
+  ...workspaceMessages.en,
+  ...aiEndpointMessages.en,
+  ...mcpMessages.en,
+  ...skillMessages.en,
+  ...baseEnglish,
+} as const;
 
 export type StaticMessage = keyof typeof english;
 
@@ -9620,11 +9629,17 @@ const baseJapanese = {
 
 const chinese = {
   ...workspaceMessages['zh-CN'],
+  ...aiEndpointMessages['zh-CN'],
+  ...mcpMessages['zh-CN'],
+  ...skillMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
+  ...aiEndpointMessages.ja,
+  ...mcpMessages.ja,
+  ...skillMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -107,7 +108,9 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 
 		if entry.IsDir() {
 			if path != walkRoot &&
-				(strings.HasPrefix(entry.Name(), ".") || relPath == workspace.BaseConfigDirName) {
+				(strings.HasPrefix(entry.Name(), ".") ||
+					relPath == workspace.BaseConfigDirName ||
+					relPath == spec.SkillsDirName) {
 				return filepath.SkipDir
 			}
 			dir := root
