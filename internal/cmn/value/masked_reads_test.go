@@ -100,6 +100,8 @@ func TestMaskedRead(t *testing.T) {
 		{name: "inside the branch that sets it", raw: `if true; then TOKEN=x; deploy "$TOKEN"; fi`, field: shell},
 		{name: "after an && sets it", raw: `false && TOKEN=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "after a pipeline reads it", raw: `echo x | read TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
+		{name: "after mapfile sets it", raw: `mapfile -t TOKEN < file; deploy "${TOKEN[0]}"`, field: shell},
+		{name: "after getopts sets it", raw: `getopts t TOKEN; deploy "$TOKEN"`, field: shell},
 		{name: "single-quoted braced shell variable", raw: `deploy '${TOKEN}'`, field: shell},
 		// Dagu inserts a quoted reference in a single-quoted span itself.
 		{name: "quoted reference in single quotes", raw: `curl -d '{"token":"${TOKEN}"}'`, field: shell, want: "TOKEN"},

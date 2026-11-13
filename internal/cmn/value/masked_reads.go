@@ -387,15 +387,19 @@ func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 }
 
 // assignedNames returns the variables a builtin call sets or unsets: read,
-// printf -v, and unset.
+// mapfile, readarray, getopts, printf -v, and unset.
 func assignedNames(args []*syntax.Word) []string {
 	var names []string
 	switch args[0].Lit() {
-	case "read", "unset":
+	case "read", "unset", "mapfile", "readarray":
 		for _, arg := range args[1:] {
 			if name := arg.Lit(); ValidEnvName(name) {
 				names = append(names, name)
 			}
+		}
+	case "getopts":
+		if len(args) > 2 && ValidEnvName(args[2].Lit()) {
+			names = append(names, args[2].Lit())
 		}
 	case "printf":
 		for i := 1; i+1 < len(args); i++ {
