@@ -125,6 +125,7 @@ export const backfillMessages = defineMessages({
     'Nothing to run: every slot is done or held.':
       'Nothing to run: every slot is done or held.',
     'Slots {from} to {to}': 'Slots {from} to {to}',
+    'Loads {from} to {to} ({entry})': 'Loads {from} to {to} ({entry})',
     'Run 1 slot that succeeded again': 'Run 1 slot that succeeded again',
     'Run {count} slots that succeeded again':
       'Run {count} slots that succeeded again',
@@ -260,6 +261,7 @@ export const backfillMessages = defineMessages({
     'Nothing to run: every slot is done or held.':
       '没有要运行的内容：所有时段均已完成或被占用。',
     'Slots {from} to {to}': '时段 {from} 至 {to}',
+    'Loads {from} to {to} ({entry})': '加载 {from} 至 {to}（{entry}）',
     'Run 1 slot that succeeded again': '重新运行 1 个已成功的时段',
     'Run {count} slots that succeeded again': '重新运行 {count} 个已成功的时段',
     'The plan changed. Review it and start again.':
@@ -396,6 +398,7 @@ export const backfillMessages = defineMessages({
     'Nothing to run: every slot is done or held.':
       '実行するものはありません: すべてのスロットが完了済みか保留中です。',
     'Slots {from} to {to}': 'スロット {from} から {to}',
+    'Loads {from} to {to} ({entry})': '{from} から {to} を読み込み（{entry}）',
     'Run 1 slot that succeeded again':
       '成功した 1 件のスロットをもう一度実行する',
     'Run {count} slots that succeeded again':

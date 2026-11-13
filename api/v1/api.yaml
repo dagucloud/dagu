@@ -13745,11 +13745,14 @@ components:
         to:
           type: string
           description: "Last slot, inclusive. Defaults to now."
+        by:
+          type: string
+          description: "A dates entry of the DAG. from and to are then dates (YYYY-MM-DD) of that entry, and the range holds the slots whose entry falls between them."
         slots:
           type: array
           items:
             type: string
-          description: "Slots to run instead of a range. Excludes from, to, and rerun."
+          description: "Slots to run instead of a range. Excludes from, to, by, and rerun."
         rerun:
           $ref: "#/components/schemas/BackfillRerun"
         maxConcurrency:
@@ -13800,10 +13803,34 @@ components:
           type: string
           format: date-time
           description: "Scheduled time of the run under an earlier schedule that a skip relies on"
+        dates:
+          type: array
+          description: "Dates the slot's run gets, in the order the DAG declares them"
+          items:
+            $ref: "#/components/schemas/RunDateValue"
       required:
         - slot
         - windowEnd
         - action
+
+    RunDateValue:
+      type: object
+      description: "A resolved entry of a DAG's dates block"
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+          description: "The formatted date of a single entry"
+        list:
+          type: boolean
+          description: "The entry steps through the window; values holds its dates"
+        values:
+          type: array
+          items:
+            type: string
+      required:
+        - name
 
     BackfillPlan:
       type: object
@@ -13820,6 +13847,15 @@ components:
         clamped:
           type: boolean
           description: "The range ended later than now"
+        by:
+          type: string
+          description: "The dates entry the range selects by"
+        fromDate:
+          type: string
+          description: "First date of the by entry, YYYY-MM-DD"
+        toDate:
+          type: string
+          description: "Last date of the by entry, YYYY-MM-DD; empty when the range runs to now"
         rerun:
           $ref: "#/components/schemas/BackfillRerun"
         runCounts:
