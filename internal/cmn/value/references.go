@@ -177,7 +177,7 @@ func parseExactRef(token string) (reference, bool) {
 	}
 
 	switch ref.Namespace {
-	case "consts", "env", "steps", "foreach", "inputs", "outputs", "context":
+	case "consts", "env", "steps", "foreach", "inputs", "outputs", "context", "dates":
 		return ref, true
 	case "params":
 		// The aggregate ${params} form is JSON data, not a named value reference.
