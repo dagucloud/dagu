@@ -162,8 +162,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   when the queue's limit lowers the concurrency, when the backfill can fill
   the queue so live runs may wait behind an executing backfill run (with the
   median duration when known), which `handler_on` steps will run once per
-  slot, and how many slots run because the schedule's cadence changed since
-  their runs.
+  slot, how many slots run because the schedule's cadence changed since
+  their runs, and which `--params` name a param whose `eval` reads the run's
+  dates, since the value given holds for every slot.
 
 ### Running a backfill
 
@@ -217,6 +218,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   its explicit params or the first matching recurring schedule's overrides.
   It has its slot's scheduled time and window. Its
   `context.trigger.type` is `backfill`.
+- Each run evaluates its params' `eval` when it starts, from its own slot's
+  dates, so a param with `eval: ${dates.target_day}` takes each slot's date.
+  A value given with `--params` replaces that `eval`, so the param holds that
+  value in every slot.
 - A backfill run's ID is `backfill-<backfill id>-<generation>-<slot>`, with
   the slot in UTC as `20060102T150405Z`. A scheduler that restarts finds the
   runs it queued before and queues none of them again.
@@ -356,6 +361,8 @@ rejections under Errors fail with status 1; and that submitting the same
 backfill while it is open starts nothing while an overlapping one leaves the
 open backfill's slots active. With a scheduler running, it asserts that a
 backfill's slots each end with a succeeded run of the backfill, that the
-backfill ends `succeeded`, and that `ls` lists it. It asserts that `cancel`
+backfill ends `succeeded`, and that `ls` lists it; that a param whose
+`eval` reads a date takes each slot's own date, and that the plan warns when
+`--params` gives it one value. It asserts that `cancel`
 cancels an open backfill's slots and fails on an ended one, and that
 `resume` makes the slots pending again.

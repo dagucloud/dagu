@@ -308,6 +308,43 @@ func TestSchedulerRunsBackfill(t *testing.T) {
 	}
 }
 
+// A param whose eval reads a date takes each slot's own date (criterion 45),
+// and the plan warns when the backfill's params give it one value instead.
+func TestBackfillParamFollowsEachSlot(t *testing.T) {
+	t.Parallel()
+	p := newProject(t)
+
+	warned := p.run("backfill", "start", "--dry-run", "slot_param.yaml", "--from", "2025-10-01", "--to", "2025-10-02", "--params", "day=2025-01-01")
+	warned.ExpectExitCode(0)
+	if !strings.Contains(warned.Stdout(), "The params give day one value for every slot") {
+		t.Fatalf("the plan does not warn of the given day:\n%s", warned.Stdout())
+	}
+
+	env := append(slices.Clone(p.env), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(t)))
+	scheduler := p.StartWithEnv(env, "scheduler", "--dags="+p.ProjectPath("."))
+	t.Cleanup(func() {
+		scheduler.Stop()
+		if t.Failed() {
+			t.Logf("scheduler output:\n%s", scheduler.FailureOutput())
+		}
+	})
+	submitted := p.run("backfill", "start", "slot_param.yaml", "--from", "2025-10-01", "--to", "2025-10-02", "--yes", "--format", "json")
+	submitted.ExpectExitCode(0)
+	var submit struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(submitted.Stdout()), &submit); err != nil || submit.ID == "" {
+		t.Fatalf("decoding submit: %v\n%s", err, submitted.Stdout())
+	}
+	p.WithCommandTimeout(2 * harness.WaitTimeout(t))
+	watched := p.run("backfill", "status", submit.ID, "--watch", "--format", "json")
+	watched.ExpectExitCode(0)
+
+	// The slots of Oct 1 and Oct 2 load the day before each.
+	p.ExpectFileContent("day-2025-09-30.txt", "2025-09-30\n")
+	p.ExpectFileContent("day-2025-10-01.txt", "2025-10-01\n")
+}
+
 // Cancelling an open backfill cancels its slots, and resuming it runs them
 // again with new runs.
 func TestCancelAndResume(t *testing.T) {

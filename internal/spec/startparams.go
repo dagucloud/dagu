@@ -40,6 +40,22 @@ func ValidateStartArgs(hasDash bool, args []string) error {
 	)
 }
 
+// ParamNames returns the names a params string gives values to, such as day
+// in `day=2026-11-01`. A positional value has no name and is left out.
+func ParamNames(raw string) ([]string, error) {
+	pairs, err := parseOverridePairs(raw, nil)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, pair := range pairs {
+		if pair.Name != "" {
+			names = append(names, pair.Name)
+		}
+	}
+	return names, nil
+}
+
 // ValidateStartParams validates positional params against declared defaults.
 // Rule: allow 0..expected positional params; reject only when positional params exceed expected.
 func ValidateStartParams(defaultParams string, input StartParamInput) error {
