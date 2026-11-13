@@ -25,7 +25,10 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 )
 
-var _ executor.Executor = (*http)(nil)
+var (
+	_ executor.Executor  = (*http)(nil)
+	_ executor.ExitCoder = (*http)(nil)
+)
 
 type http struct {
 	stdout    io.Writer
@@ -166,6 +169,8 @@ func newHTTP(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		method:    method,
 		url:       url,
 		cfg:       &reqCfg,
+		// A failure exits 1 unless status_exit_codes maps the response status.
+		exitCode: 1,
 	}, nil
 }
 
@@ -314,25 +319,12 @@ func (e *http) Run(_ context.Context) error {
 
 	resCode := rsp.StatusCode()
 
-	// Map the response status to a configured exit code when one applies. An
-	// exact code wins over a class (4xx, 5xx, ...). With no mapping the step
-	// keeps today's behaviour: a non-2xx response is exit 1.
-	if !rsp.IsSuccess() {
-		if mapped, ok := resolveStatusExitCode(e.cfg.StatusExitCodes, resCode); ok {
-			e.exitCode = mapped
-			if mapped == 0 {
-				return nil
-			}
-			return fmt.Errorf("%w: %d", errHTTPStatusCode, resCode)
-		}
-	}
-
 	if e.hasFileOutput() {
 		if err = e.writeFileOutputResult(rsp); err != nil {
 			return err
 		}
 		if !rsp.IsSuccess() {
-			return fmt.Errorf("%w: %d", errHTTPStatusCode, resCode)
+			return e.statusError(resCode)
 		}
 		return nil
 	}
@@ -348,13 +340,25 @@ func (e *http) Run(_ context.Context) error {
 	}
 
 	if !rsp.IsSuccess() {
-		return fmt.Errorf("%w: %d", errHTTPStatusCode, resCode)
+		return e.statusError(resCode)
 	}
 	return nil
 }
 
-// ExitCode implements executor.ExitCoder. It reports the status-derived exit
-// code when status_exit_codes mapped a non-2xx response, and 0 otherwise.
+// statusError returns the error for a non-2xx response and records its exit
+// code. A status that status_exit_codes maps to 0 succeeds.
+func (e *http) statusError(status int) error {
+	if code, ok := resolveStatusExitCode(e.cfg.StatusExitCodes, status); ok {
+		e.exitCode = code
+		if code == 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %d", errHTTPStatusCode, status)
+}
+
+// ExitCode implements executor.ExitCoder. It reports the exit code of a failed
+// run: the status_exit_codes mapping of the response status, or 1.
 func (e *http) ExitCode() int {
 	return e.exitCode
 }

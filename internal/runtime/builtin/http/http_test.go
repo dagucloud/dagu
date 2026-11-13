@@ -854,8 +854,8 @@ func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
 		{"ExactCodeMapsToNonZero", 404, map[string]any{"status_exit_codes": map[string]any{"404": 23}}, true, 23},
 		{"ClassMapsToRetryable", 503, map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, true, 75},
 		{"ExactWinsOverClass", 404, map[string]any{"status_exit_codes": map[string]any{"404": 0, "4xx": 66}}, false, 0},
-		{"UnmappedKeepsDefault", 400, map[string]any{"status_exit_codes": map[string]any{"404": 0, "5xx": 75}}, true, 0},
-		{"NoMapKeepsDefault", 500, nil, true, 0},
+		{"UnmappedKeepsDefault", 400, map[string]any{"status_exit_codes": map[string]any{"404": 0, "5xx": 75}}, true, 1},
+		{"NoMapKeepsDefault", 500, nil, true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -888,6 +888,61 @@ func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Equal(t, tc.wantExit, httpExec.ExitCode())
+		})
+	}
+}
+
+// A mapped status changes only the exit code, so the response is written as
+// for any other non-2xx response.
+func TestHTTPExecutor_StatusExitCodesKeepOutput(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		format     string
+		outputFile bool
+	}{
+		{name: "Text"},
+		{name: "JSON", format: "json"},
+		{name: "OutputFile", outputFile: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.WriteHeader(nethttp.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"not here"}`))
+			}))
+			defer server.Close()
+
+			output := filepath.Join(t.TempDir(), "response.out")
+			cfg := map[string]any{
+				"url":               server.URL,
+				"format":            tc.format,
+				"status_exit_codes": map[string]any{"404": 0},
+			}
+			if tc.outputFile {
+				require.NoError(t, os.WriteFile(output, []byte("previous"), 0o600))
+				cfg["output"] = output
+			}
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: "GET"}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: cfg},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+			out := &testWriter{}
+			executor.SetStdout(out)
+			executor.SetStderr(&testWriter{})
+
+			require.NoError(t, executor.Run(context.Background()))
+			assert.Contains(t, out.String(), "not here")
+			if tc.outputFile {
+				data, err := os.ReadFile(output)
+				require.NoError(t, err)
+				assert.Equal(t, "previous", string(data))
+			}
 		})
 	}
 }
