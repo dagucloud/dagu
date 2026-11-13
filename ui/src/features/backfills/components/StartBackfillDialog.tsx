@@ -111,6 +111,9 @@ export function StartBackfillDialog({
   const [params, setParams] = useState('');
   const [redoConfirmed, setRedoConfirmed] = useState(false);
   const [plan, setPlan] = useState<BackfillPlan | null>(null);
+  // The options the plan shown was made with: a start sends only those,
+  // not options changed since.
+  const [plannedWith, setPlannedWith] = useState('');
   const [stale, setStale] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +122,13 @@ export function StartBackfillDialog({
   // The target as text, so that a new object with the same slots plans
   // nothing again.
   const targetKey = JSON.stringify(target);
+  const optionsKey = JSON.stringify([
+    targetKey,
+    rerun,
+    concurrency,
+    onFailure,
+    params,
+  ]);
 
   useEffect(() => {
     if (!open || !validConcurrency) return;
@@ -143,6 +153,7 @@ export function StartBackfillDialog({
         if (!current) return;
         if (data) {
           setPlan(data.plan);
+          setPlannedWith(optionsKey);
           setStale(false);
           setError(null);
         } else {
@@ -165,6 +176,7 @@ export function StartBackfillDialog({
     rerun,
     params,
     targetKey,
+    optionsKey,
     fileName,
     remoteNode,
     client,
@@ -184,6 +196,7 @@ export function StartBackfillDialog({
   const runs =
     plan?.slots.filter((slot) => slot.action === BackfillPlanSlotAction.run)
       .length ?? 0;
+  const planned = plannedWith === optionsKey;
   const redone =
     !named && rerun === BackfillRerun.all && plan
       ? plan.runCounts.all - plan.runCounts.failed
@@ -213,6 +226,7 @@ export function StartBackfillDialog({
         changeOpen(false);
       } else if (response.status === 409 && apiError && 'plan' in apiError) {
         setPlan((apiError as SubmitResponse).plan);
+        setPlannedWith(optionsKey);
         setStale(true);
       } else {
         setError(messageOf(apiError, ts('Failed to start the backfill')));
@@ -389,6 +403,11 @@ export function StartBackfillDialog({
                   })}
             </label>
           )}
+          {plan && !planned && !error && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {ts('Planning…')}
+            </p>
+          )}
           {stale && (
             <p
               role="status"
@@ -414,6 +433,7 @@ export function StartBackfillDialog({
             size="sm"
             disabled={
               !plan ||
+              !planned ||
               runs === 0 ||
               !validConcurrency ||
               submitting ||

@@ -126,4 +126,26 @@ describe('StartBackfillDialog', () => {
     });
     expect(lastBody()).not.toHaveProperty('rerun');
   });
+
+  it('starts only with the options its plan was made with', async () => {
+    let answer: (value: unknown) => void = () => {};
+    post
+      .mockResolvedValueOnce({ data: { plan: plan('r1', 2) } })
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (answer = resolve))
+      );
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+    await screen.findByText('Runs 2 slots');
+
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Fill gaps and redo failed/ })
+    );
+    expect(screen.getByRole('button', { name: 'Start 2 runs' })).toBeDisabled();
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    answer({ data: { plan: plan('r2', 3) } });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Start 3 runs' })).toBeEnabled()
+    );
+  });
 });

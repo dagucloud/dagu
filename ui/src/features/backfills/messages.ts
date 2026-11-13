@@ -87,7 +87,6 @@ export const backfillMessages = defineMessages({
     'Failed to load the backfills': 'Failed to load the backfills',
     'Slot states': 'Slot states',
     'Failed to load the slots': 'Failed to load the slots',
-    'Last 24 hours': 'Last 24 hours',
     'Last 90 days': 'Last 90 days',
     Range: 'Range',
     'The schedule fires no slot in this range.':
@@ -207,7 +206,6 @@ export const backfillMessages = defineMessages({
     'Failed to load the backfills': '加载回填列表失败',
     'Slot states': '时段状态',
     'Failed to load the slots': '加载时段失败',
-    'Last 24 hours': '过去 24 小时',
     'Last 90 days': '过去 90 天',
     Range: '范围',
     'The schedule fires no slot in this range.': '该计划在此范围内没有时段。',
@@ -325,7 +323,6 @@ export const backfillMessages = defineMessages({
     'Failed to load the backfills': 'バックフィルの一覧を読み込めませんでした',
     'Slot states': 'スロットの状態',
     'Failed to load the slots': 'スロットを読み込めませんでした',
-    'Last 24 hours': '過去 24 時間',
     'Last 90 days': '過去 90 日間',
     Range: '範囲',
     'The schedule fires no slot in this range.':
