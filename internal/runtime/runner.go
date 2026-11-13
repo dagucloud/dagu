@@ -463,7 +463,6 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 			go func(n *Node) {
 				// Set step context for all logs in this goroutine
 				ctx := logger.WithValues(ctx, tag.Step(n.Name()))
-				ctx = cmnvalue.TrackMaskedReads(ctx)
 
 				// Finish the node and clamp its dependents before the runner loop
 				// queues them and before the wait group lets the run end, so that
@@ -1126,6 +1125,8 @@ func stepSupportsChatMessages(step ir.Step) bool {
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {
+	// Each execution records the masked outputs its fields read.
+	ctx = cmnvalue.TrackMaskedReads(ctx)
 	env, err := NewPlanEnvForNodeWithError(ctx, node, plan)
 	if err != nil {
 		return ctx, err
@@ -2106,8 +2107,12 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 		node.SetStatus(ir.NodeAborted)
 
 	case isMaskedRead(execErr):
-		// A masked read fails the same way on every attempt.
-		r.finalizeFailedNode(ctx, node, execErr)
+		// A masked read fails the same way on every attempt, and the step
+		// did not run on its value, so it is neither retried nor marked
+		// successful.
+		node.SetStatus(ir.NodeFailed)
+		node.MarkError(execErr)
+		r.setLastError(execErr)
 
 	case node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {
@@ -2137,7 +2142,7 @@ func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr err
 
 // shouldRepeatNode determines if a node should be repeated based on its repeat policy
 func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error) bool {
-	if r.isCanceled() || node.State().Status == ir.NodeAborted || errors.Is(execErr, context.DeadlineExceeded) {
+	if r.isCanceled() || node.State().Status == ir.NodeAborted || errors.Is(execErr, context.DeadlineExceeded) || isMaskedRead(execErr) {
 		return false
 	}
 
