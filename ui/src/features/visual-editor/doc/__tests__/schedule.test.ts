@@ -125,6 +125,27 @@ steps:
     }
   });
 
+  // A removedIndex from a stale render can point past the list.
+  it('writes no null entry for a stale removed index', () => {
+    const text = `schedule:
+  - "0 5 * * *"
+  - expression: "0 6 * * *"
+    params:
+      mode: z
+  - "0 7 * * *"
+`;
+    const result = applyEdit(text, {
+      kind: 'setSchedule',
+      expressions: ['0 5 * * *'],
+      removedIndex: 5,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.text).not.toContain('null');
+      expect(readSchedule(result.text).expressions).toEqual(['0 5 * * *']);
+    }
+  });
+
   it('changes only start in the map form', () => {
     const text = 'schedule:\n  start: "0 8 * * *"\n  stop: "0 18 * * *"\n';
     const next = set(text, ['0 9 * * *']);

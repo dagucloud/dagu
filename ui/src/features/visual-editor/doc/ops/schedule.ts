@@ -129,6 +129,8 @@ function startNode(
     const removalStart = removedIndex ?? firstChange;
     if (index >= removalStart && index < removalStart + removed) continue;
     const expression = expressions[nextIndex++];
+    // A stale removedIndex leaves more old strings than new expressions.
+    if (expression === undefined) continue;
     seq.items.push(
       item.value.trim() === expression ? item : new Scalar(expression)
     );
