@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/goccy/go-yaml"
@@ -129,13 +130,16 @@ func patchOrderedDates(root ast.Node, parsed map[string]any) error {
 		if key != "dates" {
 			continue
 		}
-		if dates, ok := item.Value.(*ast.MappingNode); ok {
-			entries, err := orderedEnvMappingRaw(dates)
-			if err != nil {
-				return err
-			}
-			parsed[key] = entries
+		dates, isMapping := item.Value.(*ast.MappingNode)
+		values, decoded := parsed[key].(map[string]any)
+		if !isMapping || !decoded {
+			return nil
 		}
+		entries, err := orderedMapping(dates, values)
+		if err != nil {
+			return err
+		}
+		parsed[key] = entries
 		return nil
 	}
 	return nil
@@ -154,9 +158,10 @@ func patchOrderedEnvValues(node ast.Node, target any) error {
 				return err
 			}
 			if key == "env" {
-				envMap, ok := item.Value.(*ast.MappingNode)
-				if ok {
-					env, err := orderedEnvMappingRaw(envMap)
+				envMap, isMapping := item.Value.(*ast.MappingNode)
+				values, decoded := targetMap[key].(map[string]any)
+				if isMapping && decoded {
+					env, err := orderedMapping(envMap, values)
 					if err != nil {
 						return err
 					}
@@ -185,18 +190,32 @@ func patchOrderedEnvValues(node ast.Node, target any) error {
 	return nil
 }
 
-func orderedEnvMappingRaw(node *ast.MappingNode) ([]any, error) {
-	entries := make([]any, 0, len(node.Values))
+// orderedMapping lists a mapping's entries as single-entry mappings in
+// document order, with the values the document's decode gave them, so that
+// aliases and merge keys resolve as anywhere else. Entries a merge key adds
+// follow by name.
+func orderedMapping(node *ast.MappingNode, values map[string]any) ([]any, error) {
+	entries := make([]any, 0, len(values))
+	listed := make(map[string]bool, len(values))
 	for _, item := range node.Values {
 		key, err := manifestNodeString(item.Key)
 		if err != nil {
 			return nil, err
 		}
-		value, err := manifestNodeRaw(item.Value)
-		if err != nil {
-			return nil, err
+		if value, ok := values[key]; ok && !listed[key] {
+			listed[key] = true
+			entries = append(entries, map[string]any{key: value})
 		}
-		entries = append(entries, map[string]any{key: value})
+	}
+	merged := make([]string, 0, len(values)-len(listed))
+	for key := range values {
+		if !listed[key] {
+			merged = append(merged, key)
+		}
+	}
+	slices.Sort(merged)
+	for _, key := range merged {
+		entries = append(entries, map[string]any{key: values[key]})
 	}
 	return entries, nil
 }
