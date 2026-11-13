@@ -380,23 +380,34 @@ func TestDispatchFollowsARetry(t *testing.T) {
 	}
 }
 
-// An outcome read before a retry queued the run again, but recorded after,
-// does not end the slot the retry reopened.
-func TestDescribeKeepsARetryOverAnOlderOutcome(t *testing.T) {
+// A retry that queues a run again after the dispatcher read the run's old
+// status keeps the dispatcher from recording that status as the slot's
+// outcome.
+func TestDispatchDropsAnOutcomeARetryOvertook(t *testing.T) {
 	t.Parallel()
 	f := newDispatchFixture(t)
 	record := f.submit(backfill.Options{})
 	f.tick()
 	runID := f.queued[0]
 	f.finish(runID, ir.Failed)
-	f.retry(runID)
-	require.NoError(t, f.store.Append(f.ctx, record.ID, backfill.Progress{
-		Slot: at(1, 2), Kind: backfill.ProgressFailed, RunID: runID, At: at(19, 0),
-	}))
+	read := f.dispatcher.ReadRun
+	f.dispatcher.ReadRun = func(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+		status, err := read(ctx, ref)
+		if ref.ID == runID {
+			f.retry(runID)
+		}
+		return status, err
+	}
+	f.tick()
+	f.dispatcher.ReadRun = read
 
-	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	report, err := backfill.Describe(f.ctx, f.store, read, f.record(record.ID))
 	require.NoError(t, err)
-	assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State)
+	assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State, "the slot follows the retry")
+	f.tick()
+	f.finish(runID, ir.Succeeded)
+	f.tick()
+	assert.Len(t, f.queued, 2, "the backfill goes on once the retry succeeds")
 }
 
 // A run that a retry queued again but has not made active yet counts as

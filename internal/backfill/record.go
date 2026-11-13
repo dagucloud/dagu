@@ -129,7 +129,7 @@ type Progress struct {
 	// Generation is the resume the event belongs to.
 	Generation int `json:"generation,omitempty"`
 	// At is when the event happened. For an outcome, it is when the run's
-	// status was read.
+	// status was read; for a retry, when the retry queued the slot.
 	At time.Time `json:"at"`
 }
 
@@ -151,13 +151,7 @@ func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
 		if event.Generation != record.Generation {
 			continue
 		}
-		slot := event.Slot.UTC()
-		// An outcome read before a retry queued the run again is stale.
-		if last := byslot[slot]; event.ended() && last.Kind == ProgressEnqueued &&
-			last.RunID == event.RunID && last.At.After(event.At) {
-			continue
-		}
-		byslot[slot] = event
+		byslot[event.Slot.UTC()] = event
 	}
 	return byslot
 }
