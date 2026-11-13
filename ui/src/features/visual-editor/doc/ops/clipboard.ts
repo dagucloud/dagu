@@ -475,7 +475,10 @@ function filePosition(step: IndexedStep): number {
   return -1;
 }
 
-/** Adds a copy of each step after the last of them in the file. */
+/**
+ * Adds a copy of each step after the last of them in the file. A handler is
+ * refused.
+ */
 export function duplicateStepsOp(doc: DagDoc, steps: StepKey[]): EditResult {
   if (steps.length === 0) return fail('noop', 'No step to duplicate.');
   const source = firstDocument(doc.text);
@@ -484,14 +487,13 @@ export function duplicateStepsOp(doc: DagDoc, steps: StepKey[]): EditResult {
   for (const key of steps) {
     const step = findStep(source, key);
     if (!step) return fail('unknownStep', `No step has the key ${key}.`);
-    // A copy of a handler would be pasted as a step that runs on every run.
-    if (step.loc.form === 'handler') {
-      return fail('noop', 'A handler cannot be duplicated.');
+    // A copy would be a root step that runs on every run.
+    if (filePosition(step) < 0) {
+      return fail('handlerStep', 'A handler cannot be duplicated.');
     }
     if (!last || filePosition(step) >= filePosition(last)) last = step;
   }
   const yaml = copyStepsYaml(doc, steps);
   if (yaml === '') return fail('noop', 'The steps have no entry to copy.');
-  const after = last && filePosition(last) >= 0 ? last.key : null;
-  return pasteStepsOp(doc, yaml, after);
+  return pasteStepsOp(doc, yaml, last ? last.key : null);
 }

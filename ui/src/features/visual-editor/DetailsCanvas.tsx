@@ -141,8 +141,14 @@ export function DetailsCanvas({
         onSelect={select}
         onEdit={() => {}}
         onCommand={(command) => {
+          if (
+            command.kind === 'openInspector' ||
+            command.kind === 'openForm' ||
+            command.kind === 'openSlotPanel'
+          ) {
+            select(command.step);
+          }
           if (command.kind !== 'openInspector') return;
-          select(command.step);
           const node = graph.nodes.find((item) => item.key === command.step);
           if (node) onOpenStep?.(node.label);
         }}

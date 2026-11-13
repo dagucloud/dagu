@@ -12,7 +12,7 @@ import { TextField } from '../TextField';
 import type { SectionProps } from '../types';
 
 // The look of the text inputs of the form: one height, radius and inset.
-const SELECT_CLASS =
+export const SELECT_CLASS =
   'h-7 w-full min-w-0 rounded-md border border-input bg-card px-2 text-xs font-normal text-foreground shadow-sm transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-50';
 
 const SHELLS = ['bash', 'sh', 'zsh', 'pwsh', 'python3'];
