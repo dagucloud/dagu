@@ -2,13 +2,12 @@
 
 ## Status
 
-Partially implemented. Loading, validation, resolution for runs,
+Implemented. Loading, validation, resolution for runs,
 `${dates.NAME}`, `params[].eval` that reads dates, and the default slot are
 implemented; conformance covers them through `dagu validate`, `dagu start`,
 sub-DAG runs, `parallel`, and `dagu retry`, and the previews through
 `dagu dry`, `dagu calendar fires`, and `dagu start`; the API previews and the
-run dialog's preview are covered by API and UI tests. Not yet implemented:
-the dates in the editor and on the run details page.
+UI's previews are covered by API and UI tests.
 
 ## Scope
 
@@ -203,6 +202,9 @@ A slot's dates can be read before a run exists, and after it records them:
 - The run dialog shows the slot, its window, and its dates, holds the start
   while a date cannot resolve, and shows a param's value from the slot as
   its field's placeholder.
+- The editor's upcoming runs give the first date each run loads.
+- A run's page gives its slot and the first date it loads, marks a default
+  slot and dates that came from the clock, and lists every date on hover.
 - A run's details, and the MCP `run` read, include the dates it recorded and
   whether its slot was the default.
 
