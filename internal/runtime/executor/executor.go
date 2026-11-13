@@ -174,6 +174,20 @@ type ToolDefinitionProvider interface {
 	GetToolDefinitions() []ir.ToolDefinition
 }
 
+// SkillDefinitionProvider is implemented by executors that report the skills
+// that the effective catalog offered to the LLM or left out.
+type SkillDefinitionProvider interface {
+	GetSkillDefinitions() []ir.SkillDefinition
+}
+
+// UntrustedRunner is implemented by executors that can run an untrusted step
+// (Spec 092). Such an executor starts each process of the step through
+// untrusted.StartManagedProcess, which applies the rules of an untrusted step.
+// The runtime refuses an untrusted step whose executor does not implement it.
+type UntrustedRunner interface {
+	RunsUntrusted()
+}
+
 // OutputsProvider is implemented by executors that publish DAG/action outputs.
 type OutputsProvider interface {
 	GetOutputs() map[string]any

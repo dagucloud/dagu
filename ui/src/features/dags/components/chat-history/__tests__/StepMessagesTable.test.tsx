@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useQuery } from '@/hooks/api';
@@ -22,9 +23,7 @@ const appBarValue = {
 };
 
 const useQueryMock = useQuery as unknown as {
-  mockImplementation: (
-    fn: (path: string, init?: unknown) => unknown
-  ) => void;
+  mockImplementation: (fn: (path: string, init?: unknown) => unknown) => void;
 };
 
 function renderTable(
@@ -62,11 +61,18 @@ describe('StepMessagesTable', () => {
     renderTable();
 
     expect(
-      queryCalls.find((call) => call.path === '/dag-runs/{name}/{dagRunId}/steps/{stepName}/messages')?.init
+      queryCalls.find(
+        (call) =>
+          call.path === '/dag-runs/{name}/{dagRunId}/steps/{stepName}/messages'
+      )?.init
     ).toEqual(
       expect.objectContaining({
         params: expect.objectContaining({
-          path: { name: 'child-dag', dagRunId: 'child-run', stepName: 'step-a' },
+          path: {
+            name: 'child-dag',
+            dagRunId: 'child-run',
+            stepName: 'step-a',
+          },
         }),
       })
     );
@@ -115,8 +121,57 @@ describe('StepMessagesTable', () => {
       })
     );
     expect(
-      queryCalls.find((call) => call.path === '/dag-runs/{name}/{dagRunId}/steps/{stepName}/messages')?.init
+      queryCalls.find(
+        (call) =>
+          call.path === '/dag-runs/{name}/{dagRunId}/steps/{stepName}/messages'
+      )?.init
     ).toBeNull();
     expect(screen.getByText('No messages recorded')).toBeInTheDocument();
+  });
+
+  it('lists the skills of the step with their descriptions', async () => {
+    useQueryMock.mockImplementation(() => ({
+      data: {
+        messages: [{ role: 'user', content: 'Hi' }],
+        toolDefinitions: [
+          { name: 'load_skill', source: 'skills', parameters: {} },
+        ],
+        skillDefinitions: [
+          { name: 'triage', description: 'Sort the tickets' },
+          { name: 'style', description: 'House style' },
+          { name: 'refund', description: 'Pay back' },
+        ],
+      },
+      isLoading: false,
+    }));
+
+    renderTable();
+
+    await userEvent.click(screen.getByRole('button', { name: /Skills \(3\)/ }));
+    const items = screen.getAllByTestId('skill-definition');
+    expect(items).toHaveLength(3);
+    expect(within(items[0]!).getByText('Sort the tickets')).toBeVisible();
+    expect(within(items[1]!).getByText('House style')).toBeVisible();
+    expect(within(items[2]!).getByText('Pay back')).toBeVisible();
+
+    // The tool load_skill shows its source with the other tools.
+    await userEvent.click(
+      screen.getByRole('button', { name: /Available Tools/ })
+    );
+    expect(screen.getByTestId('tool-source')).toHaveTextContent('skills');
+  });
+
+  it('has no skills group when the step has no skill', () => {
+    useQueryMock.mockImplementation(() => ({
+      data: {
+        messages: [{ role: 'user', content: 'Hi' }],
+        toolDefinitions: [],
+      },
+      isLoading: false,
+    }));
+
+    renderTable();
+
+    expect(screen.queryByTestId('skill-definitions')).toBeNull();
   });
 });

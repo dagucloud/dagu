@@ -4,6 +4,7 @@
 package frontend
 
 import (
+	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/dagpin"
@@ -34,6 +35,8 @@ type Stores struct {
 	AuthSetupRequired    bool
 	RemoteNode           remotenode.Store
 	Secret               secret.Store
+	AIEndpoint           *aiendpoint.Service
+	AIMCPServer          *aiendpoint.MCPService
 	Profile              profile.Store
 	DAGSettings          dagsettings.Store
 	DAGPins              dagpin.Store

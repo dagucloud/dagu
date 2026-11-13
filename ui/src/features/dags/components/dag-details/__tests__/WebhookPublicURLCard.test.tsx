@@ -89,6 +89,7 @@ function renderCard(
 ) {
   const onWebhookChange = vi.fn();
   const onSecretCreated = vi.fn();
+  const onSecretVisibleChange = vi.fn();
   render(
     <MemoryRouter>
       <WebhookPublicURLCard
@@ -99,10 +100,11 @@ function renderCard(
         webhook={current}
         onWebhookChange={onWebhookChange}
         onSecretCreated={onSecretCreated}
+        onSecretVisibleChange={onSecretVisibleChange}
       />
     </MemoryRouter>
   );
-  return { onWebhookChange, onSecretCreated };
+  return { onWebhookChange, onSecretCreated, onSecretVisibleChange };
 }
 
 const params = {
@@ -190,7 +192,9 @@ describe('WebhookPublicURLCard', () => {
       data: { webhook: saved, secret: 'a'.repeat(64) },
     });
     const user = userEvent.setup();
-    const { onWebhookChange, onSecretCreated } = renderCard(publicWebhook);
+    const { onWebhookChange, onSecretCreated, onSecretVisibleChange } =
+      renderCard(publicWebhook);
+    expect(onSecretVisibleChange).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('combobox', { name: 'Sender' }));
     await user.click(await screen.findByRole('option', { name: 'GitHub' }));
@@ -219,6 +223,8 @@ describe('WebhookPublicURLCard', () => {
       }
     );
     expect(onWebhookChange).toHaveBeenCalledWith(saved);
+    expect(onSecretVisibleChange).toHaveBeenCalledTimes(1);
+    expect(onSecretVisibleChange).toHaveBeenCalledWith(true);
   });
 
   // parity:webhook-public-new-url

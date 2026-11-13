@@ -68,6 +68,12 @@ const XLSX = 'file.xlsx';
  * fields that the schema marks as required.
  */
 const STARTER: Record<string, Record<string, unknown>> = {
+  'agent.run': {
+    prompt: 'TODO',
+    provider: 'claude',
+    // Placeholders that pass the schema: the Model node asks for a real endpoint.
+    endpoint: { name: 'my-endpoint', model: 'my-model' },
+  },
   'artifact.read': { path: 'file.txt' },
   'artifact.write': { path: 'file.txt', content: 'TODO' },
   'browser.extract': {
