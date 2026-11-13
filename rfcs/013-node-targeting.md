@@ -10,7 +10,7 @@
 ## Summary
 
 Run a workflow, or one step, on every node a selector matches in the
-inventory of [RFC 012](012-node-inventory.md):
+inventories of [RFC 012](012-node-inventory.md):
 
 ```yaml
 steps:
@@ -171,7 +171,7 @@ An operator who needs fewer nodes narrows the run.
 - The object form has an unknown field, a missing `labels`, or an
   out-of-range value.
 
-Validation does not read the inventory, so it works offline and in CI. A
+Validation does not read inventories, so it works offline and in CI. A
 `dag.run` step with `nodes` whose child DAG does not declare `node: required`
 fails when it starts, before any child starts.
 
@@ -254,8 +254,8 @@ name exactly one node.
 | MCP `dagu_execute` start and enqueue | `targetNodes` |
 | UI run dialog | A node picker, for a `node: required` DAG only |
 
-- Admission rejects a name that no inventory node has, so a mistyped `web1`
-  never starts a run. It also rejects a list on a DAG that is not
+- Admission rejects a name that is not a node of the project, so a mistyped
+  `web1` never starts a run. It also rejects a list on a DAG that is not
   `node: required` and has no `nodes` step and no `dag.run` step.
 - A step that matches nodes, but none in the list, is skipped, and the skip
   does not block the steps after it. Narrowing a run to two web hosts neither
@@ -277,11 +277,11 @@ reach a node the DAG would not reach.
   `dagu retry` retries a run, and starts the nodes that never started.
   Children that succeeded keep their results.
 - The retry uses the node list recorded by the first attempt. A node added to
-  the inventory since then is not added. A node removed since then is not
+  an inventory since then is not added. A node removed since then is not
   run. It is `removed`, and does not fail the step. Hosts often leave the
   inventory because they failed, so the retry still finishes the others.
-- Connection settings are read again from the current inventory, so a rotated
-  key works on retry.
+- Connection settings are read again from the current inventories, so a
+  rotated key works on retry.
 - A parent run killed during a node step reads the recorded children on
   retry, so a node that already succeeded does not run again.
 
@@ -350,7 +350,7 @@ The migration guide and the import tool of RFC 012 use these mappings.
 
 ## Security
 
-- A step can match only its project's inventory and the server's workers.
+- A step can match only its project's inventories and the server's workers.
 - A reference in a selector resolves to one label key or value, so a run-time
   value cannot add terms, negate them, or widen a match.
 - A node list can only remove nodes. It is recorded and audited.
@@ -368,7 +368,7 @@ The migration guide and the import tool of RFC 012 use these mappings.
 
 | Event | Behavior |
 | --- | --- |
-| The inventory cannot be read, or the selector is invalid | The step fails before any node starts, with the error |
+| An inventory cannot be read, or the selector is invalid | The step fails before any node starts, with the error |
 | A reference in a selector is not a valid label key or value | The step fails before any node starts |
 | The child DAG of a `dag.run` step with `nodes` is not `node: required` | The step fails before any child starts |
 | A `node: required` DAG is started without exactly one node | The run is rejected at admission |
@@ -376,10 +376,10 @@ The migration guide and the import tool of RFC 012 use these mappings.
 | The host key is unknown or has changed | That node fails, with the fingerprint. The Nodes page can trust a new key |
 | A node's credential ref does not resolve | That node fails, naming the field and ref. Other nodes follow `keep_going` |
 | A matched worker is offline, or disconnects during its run | That node fails, as a worker loss fails a run today |
-| A node is gone from the inventory at retry | That node is `removed` and not run |
+| A node is gone from its inventory at retry | That node is `removed` and not run |
 | The parent run is killed during a node step | The run fails. A retry reads the recorded children and reruns only nodes that did not succeed |
 | `${node.labels.<key>}` names a label the node lacks | That node fails, with the node name and the label key |
-| A node list names a node not in the inventory, or is given for a DAG with no node steps | The run is rejected at admission |
+| A node list names a node the project does not have, or is given for a DAG with no node steps | The run is rejected at admission |
 | A node list emptied every node step that matched nodes | The run fails with "no listed node was selected" |
 
 ## Compatibility and rollout
