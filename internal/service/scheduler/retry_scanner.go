@@ -39,8 +39,11 @@ type RetryScanner struct {
 	queueStore       queuedomain.QueueStore
 	processes        queuedomain.RunProcesses
 	isSuspended      IsSuspendedFunc
-	retryWindow      time.Duration
-	clock            Clock
+	// isPaused alone holds the retries of a backfill run, which a
+	// suspension does not stop.
+	isPaused    IsPausedFunc
+	retryWindow time.Duration
+	clock       Clock
 }
 
 func NewRetryScanner(
@@ -63,6 +66,19 @@ func NewRetryScanner(
 		retryWindow:      retryWindow,
 		clock:            clock,
 	}, nil
+}
+
+// held reports whether a run's retry must wait: a backfill run's while the
+// scheduler is paused, any other run's while its DAG is suspended or the
+// scheduler is paused.
+func (s *RetryScanner) held(ctx context.Context, status *ir.DAGRunStatus, dag *ir.DAG) (bool, error) {
+	if status.BackfillID != "" {
+		if s.isPaused == nil {
+			return false, nil
+		}
+		return s.isPaused(ctx)
+	}
+	return isSuspendedDAG(ctx, s.isSuspended, status, dag, "")
 }
 
 func (s *RetryScanner) Start(ctx context.Context) {
@@ -140,7 +156,7 @@ func (s *RetryScanner) processFailedRunFromSummary(
 	if !listed.Parent.Zero() {
 		return nil
 	}
-	suspended, err := isSuspendedDAG(ctx, s.isSuspended, listed, nil, "")
+	suspended, err := s.held(ctx, listed, nil)
 	if err != nil {
 		return err
 	}
@@ -219,7 +235,7 @@ func (s *RetryScanner) processFailedRunLegacy(
 	if err != nil {
 		return err
 	}
-	suspended, err := isSuspendedDAG(ctx, s.isSuspended, latestStatus, dagSnapshot, "")
+	suspended, err := s.held(ctx, latestStatus, dagSnapshot)
 	if err != nil {
 		return err
 	}

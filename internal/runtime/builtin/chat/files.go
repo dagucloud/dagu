@@ -18,16 +18,15 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/filerefs"
 )
 
-// maxFilesRunes bounds the text of all the files a step gives the model.
-const maxFilesRunes = 1_000_000
-
 // attachFiles reads the files with.files names and gives them to the
 // step's last user message: their text ahead of the prompt, and their
 // images with it. Images go with that one request and are not kept with
 // the run; the text is, so a later step of the session still reads it.
-func attachFiles(ctx context.Context, files []string, messages []ir.LLMMessage) error {
+// The text may hold up to maxChars characters; it returns how many it
+// holds, so a provider's refusal of the request can name them.
+func attachFiles(ctx context.Context, files []string, maxChars int, messages []ir.LLMMessage) (int, error) {
 	if len(files) == 0 {
-		return nil
+		return 0, nil
 	}
 	prompt := -1
 	for i := range messages {
@@ -36,26 +35,26 @@ func attachFiles(ctx context.Context, files []string, messages []ir.LLMMessage) 
 		}
 	}
 	if prompt < 0 {
-		return fmt.Errorf("files needs a user prompt to go with")
+		return 0, fmt.Errorf("files needs a user prompt to go with")
 	}
 	entries := make([]string, 0, len(files))
 	for _, entry := range files {
 		resolved, err := runtime.ResolveString(ctx, entry, cmnvalue.WorkflowField("llm.files"))
 		if err != nil {
-			return fmt.Errorf("files: %w", err)
+			return 0, fmt.Errorf("files: %w", err)
 		}
 		entries = append(entries, resolved)
 	}
 	paths, err := filerefs.Paths(entries, runtime.GetEnv(ctx).WorkingDir)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var text strings.Builder
 	var images []ir.LLMImage
 	for _, path := range paths {
 		file, err := document.Read(ctx, path)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		images = describeFile(&text, file, images)
 		logger.Info(ctx, "Read a file for the model",
@@ -63,15 +62,16 @@ func attachFiles(ctx context.Context, files []string, messages []ir.LLMMessage) 
 			slog.Int("pages", len(file.Pages)),
 			slog.Int("images", len(file.Images())))
 	}
-	if n := utf8.RuneCountInString(text.String()); n > maxFilesRunes {
-		return fmt.Errorf("the files hold %d characters of text; a model step takes up to %d, so give it fewer or smaller files", n, maxFilesRunes)
+	n := utf8.RuneCountInString(text.String())
+	if n > maxChars {
+		return 0, fmt.Errorf("the files hold %d characters of text; the step takes up to %d, so raise max_file_chars or give it fewer or smaller files", n, maxChars)
 	}
 	if len(images) > document.MaxImages {
-		return fmt.Errorf("the files hold %d images, image files and scanned pages together; a model step takes up to %d", len(images), document.MaxImages)
+		return 0, fmt.Errorf("the files hold %d images, image files and scanned pages together; a model step takes up to %d", len(images), document.MaxImages)
 	}
 	messages[prompt].Content = text.String() + messages[prompt].Content
 	messages[prompt].Images = images
-	return nil
+	return n, nil
 }
 
 // describeFile writes a file's text, naming its images by their place

@@ -153,6 +153,7 @@ func (store *Store) resolveStatus(
 			ProcGroup:            s.ProcGroup,
 			DefinitionID:         s.DefinitionID,
 			ArchiveDir:           s.ArchiveDir,
+			BackfillID:           s.BackfillID,
 		}
 	}
 

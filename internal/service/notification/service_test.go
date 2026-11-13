@@ -1508,6 +1508,10 @@ func TestService_WorkspaceInheritUsesGlobalRoutesOnly(t *testing.T) {
 	assert.ElementsMatch(t, []string{
 		routeDestinationID(notificationmodel.RouteScopeGlobal, "", "global-route"),
 	}, defaultDestinations)
+	assert.Empty(t, svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
+		Type:   eventstore.TypeDAGRunFailed,
+		Status: &ir.DAGRunStatus{Name: "daily-report", Status: ir.Failed, BackfillID: "bf123456"},
+	}), "a backfill run sends no notice of its own")
 
 	invalidWorkspace := svc.NotificationDestinationsForEvent(chatbridge.NotificationEvent{
 		Type: eventstore.TypeDAGRunFailed,

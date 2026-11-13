@@ -14,6 +14,20 @@ func IsQueuedCatchup(status *ir.DAGRunStatus) bool {
 		status.TriggerType == ir.TriggerTypeCatchUp
 }
 
+// ExecutionTriggerType returns the trigger type a run records when an attempt
+// of it executes from status: the trigger of a queued run, or, for a retry,
+// retry. A retried backfill run stays a backfill run, so the rules that set
+// backfill runs apart keep applying.
+func ExecutionTriggerType(status *ir.DAGRunStatus) ir.TriggerType {
+	if triggerType := PreservedQueueTriggerType(status); triggerType != ir.TriggerTypeUnknown {
+		return triggerType
+	}
+	if status != nil && status.BackfillID != "" {
+		return ir.TriggerTypeBackfill
+	}
+	return ir.TriggerTypeRetry
+}
+
 // PreservedQueueTriggerType returns the trigger type that must be preserved
 // when consuming a queued item. Queued retry records still execute as retries;
 // initial queued runs keep the trigger that originally enqueued them.

@@ -6,11 +6,13 @@ package scheduler
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
 func TestDescribeServiceDAG(t *testing.T) {
@@ -34,7 +36,7 @@ func TestDescribeServiceDAG(t *testing.T) {
 		{name: "NoRunSuspended", latest: &ir.DAGRunStatus{}, suspended: true, want: ServiceDAGStateSuspended},
 		{name: "Running", latest: run(ir.Running), want: ServiceDAGStateRunning},
 		{name: "RunningWhileSuspended", latest: run(ir.Running), suspended: true, want: ServiceDAGStateRunning},
-		{name: "WaitingApproval", latest: run(ir.Waiting), want: ServiceDAGStateRunning},
+		{name: "WaitingApproval", latest: run(ir.Waiting), want: ServiceDAGStateWaiting},
 		{name: "Queued", latest: run(ir.Queued), want: ServiceDAGStatePending},
 		{name: "Succeeded", latest: run(ir.Succeeded), want: ServiceDAGStateRestarting},
 		{name: "PartiallySucceeded", latest: run(ir.PartiallySucceeded), want: ServiceDAGStateRestarting},
@@ -112,4 +114,45 @@ func TestDescribeServiceDAG(t *testing.T) {
 		}
 		assert.Zero(t, calls)
 	})
+}
+
+func TestNextRestart(t *testing.T) {
+	t.Parallel()
+
+	end := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	run := func(id string, status ir.Status, ranFor time.Duration) *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{
+			DAGRunID:   id,
+			Status:     status,
+			StartedAt:  end.Add(-ranFor).Format(time.RFC3339),
+			FinishedAt: end.Format(time.RFC3339),
+		}
+	}
+	crash := run("run-3", ir.Failed, time.Second)
+
+	tests := []struct {
+		name    string
+		latest  *ir.DAGRunStatus
+		backoff schedulerstate.RestartBackoff
+		wait    time.Duration
+	}{
+		{name: "Succeeded", latest: run("run-3", ir.Succeeded, time.Second), wait: 5 * time.Second},
+		{name: "FailedAfterAWhile", latest: run("run-3", ir.Failed, time.Minute), backoff: schedulerstate.RestartBackoff{RunID: "run-2", Failures: 4}, wait: 5 * time.Second},
+		{name: "FirstCrash", latest: crash, wait: 5 * time.Second},
+		{name: "CrashTheSchedulerHasCounted", latest: crash, backoff: schedulerstate.RestartBackoff{RunID: "run-3", Failures: 3}, wait: 20 * time.Second},
+		{name: "CrashTheSchedulerHasNotCounted", latest: crash, backoff: schedulerstate.RestartBackoff{RunID: "run-2", Failures: 2}, wait: 20 * time.Second},
+		{name: "ManyCrashes", latest: crash, backoff: schedulerstate.RestartBackoff{RunID: "run-3", Failures: 20}, wait: restartBackoffMaxWait},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := NextRestart(5*time.Second, tt.latest, tt.backoff)
+			require.True(t, ok)
+			// The end is stored to the second, so a second more is waited.
+			assert.Equal(t, end.Add(time.Second+tt.wait), got)
+		})
+	}
+
+	_, ok := NextRestart(5*time.Second, &ir.DAGRunStatus{DAGRunID: "run-1"}, schedulerstate.RestartBackoff{})
+	assert.False(t, ok, "a run whose end is unknown has no restart time")
 }

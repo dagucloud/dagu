@@ -124,6 +124,12 @@ A condition is either:
 - an object with exactly one of `text` (the page's visible text contains it),
   `selector` (a CSS selector matches a visible element), or `url` (the current
   URL contains it). These fixed checks read the page and make no model request.
+  A `text` check compares the page text and its text after folding
+  full-width characters to half-width and collapsing whitespace, as a
+  computer check does, so a check written in ASCII finds a number a page
+  shows in full-width; a `url` check compares the URL as written. A
+  `text` with no character other than whitespace would match every page, so
+  it fails validation.
 
 A fixed check may set `within`, a duration during which it keeps reading the
 page until it holds. A fixed `when` reads the page once unless `within` is set;
@@ -184,8 +190,20 @@ The top-level properties each `extract` schema lists become step outputs,
 readable as `${steps.<id>.outputs.<name>}` and known when the DAG loads. Two
 extract operations in one step that list the same property fail validation.
 Only listed properties are published; extracted fields a schema does not list
-are dropped. When the step succeeds with outputs, stdout is one JSON object of
-those outputs. Operation progress is written to stderr.
+are dropped.
+
+Every browser step also publishes `downloads`: a JSON array of the absolute
+paths of the files it saved ([Downloads](#downloads)), in the order they
+finished, and empty when it saved none. A step in a `foreach` body publishes
+only the files its own item saved, and the files saved before an `ask`
+pauses the step are published when the resumed step ends. The name is
+reserved: an `extract` schema that lists a `downloads` property fails
+validation. A later step can pass `${steps.<id>.outputs.downloads}` to a
+command, to an `upload` operation's `files`, or to `chat.completion`
+`files`.
+
+When the step succeeds, stdout is one JSON object of its outputs. Operation
+progress is written to stderr.
 
 ### Browser options
 
@@ -382,25 +400,62 @@ connection closes, the step log warns once.
 ### Refused pages
 
 A page counts as refused when its site answered with a bot check in place of
-it, which for Cloudflare is any answer with the header `cf-mitigated:
-challenge`, or answered `403` or `429`, with a body or without one, which
-Chrome shows as its own error page. A page a client certificate kept from
-opening is not counted; Client certificates explains it.
+it, when the page shows a bot check in a frame, or when the site answered
+`403` or `429`, with a body or without one, which Chrome shows as its own
+error page. A site answered with a bot check when the answer carries the
+header `cf-mitigated: challenge`, which is Cloudflare's check, or the header
+`x-amzn-waf-action: challenge` or `x-amzn-waf-action: captcha`, which are
+AWS WAF's challenge, answered with `202`, and CAPTCHA, answered with `405`.
+A page shows a bot check when a frame it shows loads a known challenge:
+`www.google.com/recaptcha/` or `recaptcha.net/recaptcha/` is a reCAPTCHA, a
+subdomain of `hcaptcha.com` an hCaptcha, and `challenges.cloudflare.com` a
+Cloudflare Turnstile. The frames looked at are those of the page's own
+document and of the documents of the frames it shows from its own origin,
+nested as deep as they stay on it; a frame from another origin is looked at
+by its address alone, so a challenge nested inside one is not seen. A frame
+that is not rendered or is hidden, or whose address says `size=invisible`,
+as an invisible reCAPTCHA's badge does, shows no check.
+
+A page a client certificate kept from opening is not counted; Client
+certificates explains it. A page that cannot be read keeps the refusal seen
+on it, since the read says nothing about the page, and shows none that was
+not seen.
 
 After the start URL and after every operation, a refused page adds a line to
-the timeline and the step log, such as `page refused shop.example.com
-answered with a Cloudflare bot check (HTTP 403) in place of the page` or
-`page refused portal.example.com refused the page (HTTP 403 Forbidden)`, once
-while the browser keeps showing it. A step that fails while the browser
-shows a refused page ends its error with the same sentence, since a refusal
-usually fails a later operation, and keeps the recordings it replayed, since
-the refusal says nothing about them.
+the timeline and the step log that names the check or the refusal, such as
+`page refused: shop.example.com answered with a Cloudflare bot check (HTTP
+403) in place of the page`, `page refused: shop.example.com answered with an
+AWS WAF CAPTCHA (HTTP 405) in place of the page`, `page refused:
+portal.example.com shows a reCAPTCHA challenge (HTTP 200)`, or `page
+refused: portal.example.com refused the page (HTTP 403 Forbidden)`, once
+while the browser keeps showing it. The sentence names an AWS WAF challenge,
+an hCaptcha challenge, and a Cloudflare Turnstile challenge the same way.
 
-An action that leaves the browser on a bot check, such as `goto` or an `act`
-that loads a page, waits up to 10 seconds for the check to pass, as a check
-that needs no person does by loading the page it stood in for, and then
-lets the page settle as any new page does. A check still shown after the
-wait is left to the operations that follow and reported as above.
+A refused page is not one to work on. An `act`, an `upload`, an `expect`, or
+an `extract` that would run on it fails before it runs, with the same
+sentence as its error, such as `do[1] extract failed: shop.example.com
+answered with a Cloudflare bot check (HTTP 403) in place of the page`, so an
+extract never reads a refused page as one without data. A guarded operation
+decides on a refused page as on any other: one whose `when` does not hold is
+skipped, and one whose `when` holds runs, since the step chose to go on
+there, except an `extract`, which never runs on a refused page. A `goto`, a
+`wait`, a `screenshot`, and an `ask` run, since they do not work on the
+page: a goto leaves it, a wait can outlast a rate limit, a screenshot keeps
+what the page shows, and an ask lets a person pass the check.
+
+A step whose last operation leaves the browser on a refused page, or whose
+`url` opens one with no operation that fails there, fails at its end with
+the sentence. A step that fails for another reason while the browser shows
+a refused page ends its error with the same sentence, since the refusal
+usually explains the failure. A step that fails on a refused page keeps the
+recordings it replayed, since the refusal says nothing about them.
+
+An action that leaves the browser on a bot check of any of these kinds, such
+as `goto` or an `act` that loads a page, waits up to 10 seconds for the
+check to pass, as a check that needs no person does by loading the page it
+stood in for, and then lets the page settle as any new page does. A check
+still shown after the wait is reported as above and fails the operations
+that follow as above.
 
 ### Artifacts
 
@@ -430,12 +485,26 @@ also waits a few seconds for a download to begin. A download may run for the
 longest timeout of the acts and gotos run so far. A canceled download, or one
 still running at that timeout, fails the step.
 
+The step publishes the absolute path of every file it saved in its
+`downloads` output ([Outputs](#outputs)).
+
 ### Dialogs
 
-The step accepts every JavaScript dialog a page opens, so a dialog never
-blocks the page: `alert`, `confirm`, and `beforeunload` are accepted, and a
-`prompt` is answered with its default text. Each accepted dialog appears in
-the timeline and the step log after the operation that opened it.
+The step answers every JavaScript dialog a page opens, so a dialog never
+blocks the page: `alert` and `beforeunload` are accepted, a `prompt` is
+answered with its default text, and a `confirm` is answered as
+`browser.on_confirm` says:
+
+- `accept` (the default) accepts it.
+- `dismiss` cancels it, and the step goes on.
+- `fail` cancels it and fails the operation that opened it with the dialog's
+  message, as `confirm dialog "Delete this record permanently?" was not
+  expected`, so a confirm the workflow did not expect stops the step instead
+  of being agreed to.
+
+Each answered dialog appears in the timeline and the step log after the
+operation that opened it, as `accepted confirm` or `dismissed confirm`, and
+under `fail` the entry is `failed`.
 
 ### How much AI decides
 
@@ -542,14 +611,21 @@ step. The pending question carries that deadline as `expiresAt`.
 
 Answers are stored in the run's history like other human input.
 
-On Windows, a step with an `ask` operation fails before starting a browser,
-because the browser cannot outlive the step process there.
+On Windows, where the browser cannot outlive the step process, an `ask`
+cannot run. A step with an `ask` that has no `when` fails before starting a
+browser. An `ask` guarded by `when` fails at that operation when its `when`
+holds, and is skipped as on other hosts when it does not, so a step whose
+profile is already signed in runs on every host. Both errors name the
+alternative: signing the profile in once in a headed browser session (Spec
+079), `dagu browser session open <url> --headed --profile <name>`.
 
 ## Errors
 
 A missing `with.do`, `with.url` for `browser.extract`, `with.instruction`, or
 `with.schema` fails validation with a diagnostic naming the field. An operation
-or condition that sets zero or several keys fails validation. A step fails when
+or condition that sets zero or several keys fails validation. A reserved
+`downloads` output ([Outputs](#outputs)) fails validation with
+`output "downloads" is reserved for the files the step downloads`. A step fails when
 an `act` does not complete, an `expect` does not hold, a selector does not
 appear before the timeout, a download does not finish, the page leaves the
 allowed domains, the browser stops responding, or the browser cannot be
@@ -565,9 +641,10 @@ length, is named without its value.
 An `upload` fails when a file cannot be uploaded, the model finds no
 element for `into`, or the element leads to no single file input, as
 described under Uploads. A page that does not load because of a client certificate fails the
-operation that opened it, as described under Client certificates. A failure
-on a page the site refused names the refusal, as described under Refused
-pages.
+operation that opened it, as described under Client certificates. A page
+the site refused fails the operation that would work on it, or the step at
+its end, and a failure for another reason there names the refusal, as
+described under Refused pages.
 
 Loading a DAG warns, without failing, about each `extract` string field whose
 name ends in `url`, `uri`, `link`, or `href`, singular or plural, and that has

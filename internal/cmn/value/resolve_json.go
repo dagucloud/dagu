@@ -83,9 +83,6 @@ func NormalizeJSONNumbers(v any) any {
 }
 
 func stringifyResolvedValue(value any) string {
-	if value == nil {
-		return fmt.Sprintf("%v", value)
-	}
 	switch value.(type) {
 	case map[string]any, []any:
 		if data, err := jsonutil.MarshalUnescaped(value); err == nil {
@@ -93,12 +90,12 @@ func stringifyResolvedValue(value any) string {
 		}
 	}
 	rv := reflect.ValueOf(value)
-	//nolint:exhaustive // Only collection kinds need JSON stringification; primitives fall through to fmt.
+	//nolint:exhaustive // Only collection kinds need JSON stringification; scalars format as binding values.
 	switch rv.Kind() {
 	case reflect.Map, reflect.Slice, reflect.Array:
 		if data, err := jsonutil.MarshalUnescaped(value); err == nil {
 			return string(data)
 		}
 	}
-	return fmt.Sprintf("%v", value)
+	return FormatScalar(value)
 }

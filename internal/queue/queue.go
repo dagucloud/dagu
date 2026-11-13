@@ -77,6 +77,16 @@ const (
 	QueuePriorityLow
 )
 
+// PriorityOf returns the queue priority of a run. A backfill run waits
+// behind every other run of its queue; the others keep their order among
+// themselves.
+func PriorityOf(status *ir.DAGRunStatus) QueuePriority {
+	if status != nil && status.BackfillID != "" {
+		return QueuePriorityLow
+	}
+	return QueuePriorityHigh
+}
+
 // QueuedItemData represents a dag-run reference that is queued for execution.
 type QueuedItemData interface {
 	// ID returns the ID of the queued item

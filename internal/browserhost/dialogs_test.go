@@ -37,7 +37,7 @@ func TestDialogWatcherAcceptsDialogs(t *testing.T) {
 	t.Parallel()
 
 	fake := newScriptedBrowser(t, dialogScript)
-	watcher, err := browserhost.WatchDialogs(context.Background(), fake.server.URL)
+	watcher, err := browserhost.WatchDialogs(context.Background(), fake.server.URL, browserhost.DialogOptions{})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = watcher.Close() })
 
@@ -56,4 +56,28 @@ func TestDialogWatcherAcceptsDialogs(t *testing.T) {
 		{Type: "prompt", Message: "Your name?"},
 	}, watcher.Take())
 	assert.Empty(t, watcher.Take())
+}
+
+// With DismissConfirm, a confirm is dismissed and reported as such, while
+// the other dialogs are still accepted.
+func TestDialogWatcherDismissesConfirm(t *testing.T) {
+	t.Parallel()
+
+	fake := newScriptedBrowser(t, dialogScript)
+	watcher, err := browserhost.WatchDialogs(context.Background(), fake.server.URL, browserhost.DialogOptions{DismissConfirm: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = watcher.Close() })
+
+	require.Eventually(t, func() bool {
+		return len(fake.received("Page.handleJavaScriptDialog")) == 2
+	}, 5*time.Second, 20*time.Millisecond)
+
+	assert.Equal(t, []cdpCommand{
+		{Method: "Page.handleJavaScriptDialog", SessionID: "page-1", Params: map[string]any{"accept": false}},
+		{Method: "Page.handleJavaScriptDialog", SessionID: "page-1", Params: map[string]any{"accept": true, "promptText": "guest"}},
+	}, fake.received("Page.handleJavaScriptDialog"))
+	assert.Equal(t, []browserhost.Dialog{
+		{Type: "confirm", Message: "Delete the row?", Dismissed: true},
+		{Type: "prompt", Message: "Your name?"},
+	}, watcher.Take())
 }
