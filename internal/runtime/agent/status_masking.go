@@ -16,20 +16,35 @@ import (
 )
 
 func (a *Agent) maskStatusSecrets(status *ir.DAGRunStatus) {
-	if a.secretMasker == nil {
+	masker := a.statusSecretMasker()
+	if masker == nil {
 		return
 	}
 
 	for _, node := range status.Nodes {
-		maskNodeSecrets(a.secretMasker, node)
+		maskNodeSecrets(masker, node)
 	}
-	maskNodeSecrets(a.secretMasker, status.OnInit)
-	maskNodeSecrets(a.secretMasker, status.OnExit)
-	maskNodeSecrets(a.secretMasker, status.OnSuccess)
-	maskNodeSecrets(a.secretMasker, status.OnFailure)
-	maskNodeSecrets(a.secretMasker, status.OnAbort)
-	maskNodeSecrets(a.secretMasker, status.OnWait)
-	status.Error = a.secretMasker.MaskString(status.Error)
+	maskNodeSecrets(masker, status.OnInit)
+	maskNodeSecrets(masker, status.OnExit)
+	maskNodeSecrets(masker, status.OnSuccess)
+	maskNodeSecrets(masker, status.OnFailure)
+	maskNodeSecrets(masker, status.OnAbort)
+	maskNodeSecrets(masker, status.OnWait)
+	status.Error = masker.MaskString(status.Error)
+}
+
+// statusSecretMasker returns the masker of the status. It covers the
+// registry secrets that steps fetched after the start of the run (Spec 092).
+func (a *Agent) statusSecretMasker() *masking.Masker {
+	a.secretMaskerMu.Lock()
+	defer a.secretMaskerMu.Unlock()
+	if a.runSecrets != nil {
+		if version := a.runSecrets.Version(); version != a.secretMaskerVersion {
+			a.secretMasker = newStatusSecretMasker(a.runSecrets.Pairs())
+			a.secretMaskerVersion = version
+		}
+	}
+	return a.secretMasker
 }
 
 // newStatusSecretMasker returns a masker for run status. Stored outputs are

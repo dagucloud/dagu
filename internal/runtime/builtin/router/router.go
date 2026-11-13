@@ -82,12 +82,7 @@ func checkNumericRoutes(ctx context.Context, routes []ir.RouteEntry, value strin
 }
 
 func secretMasker(ctx context.Context) *masking.Masker {
-	secrets := runtime.GetDAGContext(ctx).EnvScope.AllSecrets()
-	envs := make([]string, 0, len(secrets))
-	for name, value := range secrets {
-		envs = append(envs, name+"="+value)
-	}
-
+	envs := runtime.GetDAGContext(ctx).SecretsForMasking()
 	return masking.NewMasker(masking.SourcedEnvVars{Secrets: envs})
 }
 

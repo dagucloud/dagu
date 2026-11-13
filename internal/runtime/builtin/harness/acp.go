@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 )
 
 const (
@@ -122,7 +123,7 @@ func (e *harnessExecutor) runACP(parent context.Context, cfg providerConfig) (st
 	// Bound cleanup when agent descendants keep the stderr pipe open.
 	cmd.WaitDelay = time.Second
 	e.mu.Lock()
-	process, err := cmdutil.StartManagedProcess(cmd)
+	process, err := untrusted.StartManagedProcess(ctx, cmd)
 	if err != nil {
 		e.mu.Unlock()
 		return nil, fmt.Errorf("harness: start ACP agent: %w", err)

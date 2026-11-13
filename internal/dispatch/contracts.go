@@ -73,10 +73,15 @@ type DispatchTask struct {
 	SourceWorkDir  string
 
 	WorkerSelector map[string]string
+	// RequiredCapabilities lists the capabilities that a worker must announce to
+	// take the task (Spec 094, "Version check").
+	RequiredCapabilities []string `json:"requiredCapabilities,omitempty"`
 
-	// HoldUntil is set when the task was accepted with no healthy worker
-	// matching it. Until then the task waits for one to register; after it
-	// the coordinator fails the run instead.
+	// HoldUntil is the deadline of a task that the coordinator accepted
+	// without the scheduler's queue. Until then the task waits for a matching
+	// worker to take it, also when no such worker is registered yet; after it
+	// the coordinator fails the run instead. It is zero for a task of the
+	// queue.
 	HoldUntil time.Time
 
 	ExternalStepRetry   bool

@@ -28,6 +28,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/dagucloud/dagu/v2/internal/samples"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"go.opentelemetry.io/otel"
@@ -656,7 +658,16 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	if buildSession != nil {
 		preconditionProgress = nil
 	}
+	leaveGate, err := enterTrustedGate(ctx, node)
+	if err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		reportPreparedNode()
+		return
+	}
 	met, err := r.meetsPreconditions(ctx, node, preconditionProgress)
+	leaveGate()
 	if err != nil {
 		r.markBuildPrecondition(ctx, buildSession, node, ir.BuildReasonPreconditionError, "", progressCh)
 		r.handlePreconditionError(plan, err)
@@ -692,6 +703,10 @@ ExecRepeat: // repeat execution
 		}
 		cont.beforeExecution(node)
 		execErr := r.execNode(attemptCtx, node, progressCh)
+		if errors.Is(execErr, untrusted.ErrRunAborted) {
+			// Dagu cannot give a safe work directory to a later step.
+			r.abortRun(ctx, plan, execErr)
+		}
 		stoppedDuringAttempt = r.isCanceled()
 		if execErr == nil {
 			committed, commitErr := commitBuildAttempt(attemptCtx, node, buildSession, stagingPath)
@@ -900,6 +915,16 @@ func hasStepLocalEntry(scope *cmnvalue.EnvScope, key string) bool {
 	return ok && (entry.Source == cmnvalue.EnvSourceStepEnv || entry.Source == cmnvalue.EnvSourceOutput)
 }
 
+// abortRun stops the run after an untrusted step that Dagu could not end
+// safely (Spec 092, "End"): a process of the restricted user survives, or a
+// git folder changed. The steps that run get a forced stop, and no other step
+// starts.
+func (r *Runner) abortRun(ctx context.Context, plan *Plan, err error) {
+	logger.Error(ctx, "Stopping the run after an untrusted step", tag.Error(err))
+	r.setLastError(err)
+	r.Stop(ctx, plan, cmdutil.ForceTermination(), nil, false)
+}
+
 func (r *Runner) setLastError(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -929,7 +954,15 @@ func (r *Runner) prepareNode(ctx context.Context, node *Node) error {
 
 func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progressCh chan ProgressUpdate) {
 	ctx = r.setupNodeExecutionEnv(ctx, node)
+	leaveGate, err := enterTrustedGate(ctx, node)
+	if err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		return
+	}
 	met, err := r.meetsPreconditions(ctx, node, progressCh)
+	leaveGate()
 	if err != nil {
 		r.handlePreconditionError(plan, err)
 		return
@@ -1108,6 +1141,10 @@ func stepSupportsChatMessages(step ir.Step) bool {
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {
+	ctx, err := withStepSecretContext(ctx, node.Step())
+	if err != nil {
+		return ctx, err
+	}
 	env, err := NewPlanEnvForNodeWithError(ctx, node, plan)
 	if err != nil {
 		return ctx, err
@@ -1250,6 +1287,10 @@ func (r *Runner) setupEnvironEventHandler(
 	// Preserve any extra env vars from the incoming context (e.g., DAG_WAITING_STEPS)
 	existingEnv := GetEnv(ctx)
 
+	ctx, err := withStepSecretContext(ctx, node.Step())
+	if err != nil {
+		return ctx, err
+	}
 	env, err := NewPlanEnvWithError(ctx, node.Step(), plan)
 	if err != nil {
 		return ctx, err
@@ -1651,7 +1692,14 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 	defer func() { _ = node.Teardown() }()
 
-	if err := node.evalPreconditions(ctx); err != nil {
+	leaveGate, err := enterTrustedGate(ctx, node)
+	if err != nil {
+		node.SetStatus(ir.NodeFailed)
+		return err
+	}
+	err = node.evalPreconditions(ctx)
+	leaveGate()
+	if err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
 			return nil
@@ -1859,6 +1907,11 @@ func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error)
 	}
 
 	shouldRetry = node.retryPolicy.ShouldRetry(exitCode)
+	// An agent attempt that ended auth_required is never retried: a new run with
+	// the same credential cannot succeed.
+	if agentErr, ok := executor.AsAgentError(execErr); ok && agentErr.Kind == ir.AgentKindAuthRequired {
+		shouldRetry = false
+	}
 	logger.Debug(ctx, "Checking retry policy",
 		tag.ExitCode(exitCode),
 		slog.Any("allowed-codes", node.retryPolicy.ExitCodes),
@@ -2114,15 +2167,22 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 	shell := GetEnv(ctx).Shell(ctx)
 
 	var repeat bool
-	var err error
+	leaveGate, err := enterTrustedGate(ctx, node)
+	if err != nil {
+		node.MarkError(err)
+		r.setLastError(err)
+		return false
+	}
 	switch rp.RepeatMode {
 	case ir.RepeatModeWhile:
 		repeat, err = r.evalWhileCondition(ctx, shell, node, rp, execErr)
 	case ir.RepeatModeUntil:
 		repeat, err = r.evalUntilCondition(ctx, shell, node, rp, execErr)
 	default:
+		leaveGate()
 		return false
 	}
+	leaveGate()
 	// Abort and timeout take precedence over a repeat condition result.
 	if r.isCanceled() || node.State().Status == ir.NodeAborted {
 		return false

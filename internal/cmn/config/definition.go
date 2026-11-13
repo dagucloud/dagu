@@ -414,7 +414,8 @@ type CoordinatorDef struct {
 	Port       int    `mapstructure:"port"`
 	HealthPort int    `mapstructure:"health_port"`
 	// WorkerWaitTimeout is a duration string such as "2m". Default: 2m; "0"
-	// refuses a dispatch with no healthy matching worker at once.
+	// refuses a dispatch with no healthy matching worker at once, and a
+	// dispatch that a healthy worker matched then waits 90 seconds.
 	WorkerWaitTimeout string `mapstructure:"worker_wait_timeout"`
 }
 

@@ -351,6 +351,9 @@ func NewConfigLoader(v *viper.Viper, options ...ConfigLoaderOption) *ConfigLoade
 // Load reads configuration files, applies defaults and environment overrides,
 // and returns a validated Config instance.
 func (l *ConfigLoader) Load() (*Config, error) {
+	if err := checkFileOnlyBlocks(); err != nil {
+		return nil, err
+	}
 	homeDir, err := getHomeDir()
 	if err != nil {
 		return nil, err
@@ -529,6 +532,20 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	}
 	l.loadLegacyEnv(&cfg)
 	if err := l.finalizePaths(&cfg); err != nil {
+		return nil, err
+	}
+	if err := l.loadUntrustedConfig(&cfg); err != nil {
+		return nil, err
+	}
+	if l.requires(SectionCoordinator) {
+		if err := l.loadWorkerPoolsConfig(&cfg); err != nil {
+			return nil, err
+		}
+	}
+	if err := l.loadAgentToolsConfig(&cfg); err != nil {
+		return nil, err
+	}
+	if err := l.loadAIConfig(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -1582,6 +1599,7 @@ func (l *ConfigLoader) resolveCoordinatorEnabled(def Definition) bool {
 }
 
 func (l *ConfigLoader) loadWorkerConfig(cfg *Config, def Definition) {
+	cfg.Worker.MaxActiveRunsSource = l.explicitSource("worker.max_active_runs")
 	if def.Worker != nil {
 		cfg.Worker.ID = def.Worker.ID
 		cfg.Worker.MaxActiveRuns = def.Worker.MaxActiveRuns
@@ -2660,6 +2678,26 @@ var envBindings = []envBinding{
 	{key: "git_sync.auto_sync.interval", env: "GITSYNC_AUTOSYNC_INTERVAL"},
 	{key: "git_sync.commit.author_name", env: "GITSYNC_COMMIT_AUTHOR_NAME"},
 	{key: "git_sync.commit.author_email", env: "GITSYNC_COMMIT_AUTHOR_EMAIL"},
+}
+
+// explicitSource tells where the value of key came from when a source other
+// than a default sets it: "env:<variable>" for a bound variable, "file" for a
+// configuration file. It returns an empty string for a default.
+func (l *ConfigLoader) explicitSource(key string) string {
+	prefix := strings.ToUpper(AppSlug) + "_"
+	for _, b := range envBindings {
+		if b.key != key {
+			continue
+		}
+		// Viper reads a bound variable only when it is not empty.
+		if os.Getenv(prefix+b.env) != "" {
+			return "env:" + prefix + b.env
+		}
+	}
+	if l.v.InConfig(key) {
+		return "file"
+	}
+	return ""
 }
 
 func (l *ConfigLoader) bindEnvironmentVariables() {

@@ -120,6 +120,7 @@ func TestChatConfig(t *testing.T) {
 		{"structured_output_required_unlisted.yaml", "must be listed in properties"},
 		{"structured_output_web_search.yaml", "web search cannot be combined with output_schema"},
 		{"structured_output_respond_tool.yaml", `"respond" is reserved`},
+		{"structured_output_respond_tool_dags.yaml", `"respond" is reserved`},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()
@@ -130,4 +131,17 @@ func TestChatConfig(t *testing.T) {
 			result.ExpectStderrContains(tc.message)
 		})
 	}
+}
+
+// The old provider method stays valid and is deprecated: dagu validate exits 0 and
+// prints a warning that names the keys of the old method.
+func TestValidateWarnsAboutTheOldProviderMethod(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("validate", "basic_prompt.yaml")
+	result.ExpectExitCode(0)
+	out := result.Stdout() + result.Stderr()
+	require.Contains(t, out, "Deprecated DAG syntax: steps[0].with.provider, steps[0].with.base_url")
+	require.Contains(t, out, "use with.endpoint, an endpoint of the AI page")
 }

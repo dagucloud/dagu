@@ -121,10 +121,11 @@ func (x WorkerHealthStatus) Number() protoreflect.EnumNumber {
 type LogStreamType int32
 
 const (
-	LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED LogStreamType = 0
-	LogStreamType_LOG_STREAM_TYPE_STDOUT      LogStreamType = 1
-	LogStreamType_LOG_STREAM_TYPE_STDERR      LogStreamType = 2
-	LogStreamType_LOG_STREAM_TYPE_SCHEDULER   LogStreamType = 3 // Scheduler/DAG run log
+	LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED  LogStreamType = 0
+	LogStreamType_LOG_STREAM_TYPE_STDOUT       LogStreamType = 1
+	LogStreamType_LOG_STREAM_TYPE_STDERR       LogStreamType = 2
+	LogStreamType_LOG_STREAM_TYPE_SCHEDULER    LogStreamType = 3 // Scheduler/DAG run log
+	LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM LogStreamType = 4 // Raw stream of a CLI agent, stored next to the stdout log
 )
 
 // Enum value maps for LogStreamType.
@@ -134,12 +135,14 @@ var (
 		1: "LOG_STREAM_TYPE_STDOUT",
 		2: "LOG_STREAM_TYPE_STDERR",
 		3: "LOG_STREAM_TYPE_SCHEDULER",
+		4: "LOG_STREAM_TYPE_AGENT_STREAM",
 	}
 	LogStreamType_value = map[string]int32{
-		"LOG_STREAM_TYPE_UNSPECIFIED": 0,
-		"LOG_STREAM_TYPE_STDOUT":      1,
-		"LOG_STREAM_TYPE_STDERR":      2,
-		"LOG_STREAM_TYPE_SCHEDULER":   3,
+		"LOG_STREAM_TYPE_UNSPECIFIED":  0,
+		"LOG_STREAM_TYPE_STDOUT":       1,
+		"LOG_STREAM_TYPE_STDERR":       2,
+		"LOG_STREAM_TYPE_SCHEDULER":    3,
+		"LOG_STREAM_TYPE_AGENT_STREAM": 4,
 	}
 )
 
@@ -167,10 +170,13 @@ func (x LogStreamType) Number() protoreflect.EnumNumber {
 
 // Request message for polling a task.
 type PollRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
-	PollerId      string                 `protobuf:"bytes,2,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`                                                       // Unique ID for this poll request
-	Labels        map[string]string      `protobuf:"bytes,3,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Worker labels for task matching
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	PollerId string                 `protobuf:"bytes,2,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`                                                       // Unique ID for this poll request
+	Labels   map[string]string      `protobuf:"bytes,3,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Worker labels for task matching
+	// Capabilities of the worker, such as "ai_relay.v1" (Spec 094). A task that
+	// lists a required capability goes only to a worker that announces it.
+	Capabilities  []string `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -221,6 +227,13 @@ func (x *PollRequest) GetLabels() map[string]string {
 	return nil
 }
 
+func (x *PollRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
 func (x *PollRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -233,12 +246,19 @@ func (x *PollRequest) SetLabels(v map[string]string) {
 	x.Labels = v
 }
 
+func (x *PollRequest) SetCapabilities(v []string) {
+	x.Capabilities = v
+}
+
 type PollRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	WorkerId string
 	PollerId string
 	Labels   map[string]string
+	// Capabilities of the worker, such as "ai_relay.v1" (Spec 094). A task that
+	// lists a required capability goes only to a worker that announces it.
+	Capabilities []string
 }
 
 func (b0 PollRequest_builder) Build() *PollRequest {
@@ -248,6 +268,7 @@ func (b0 PollRequest_builder) Build() *PollRequest {
 	x.WorkerId = b.WorkerId
 	x.PollerId = b.PollerId
 	x.Labels = b.Labels
+	x.Capabilities = b.Capabilities
 	return m0
 }
 
@@ -521,8 +542,11 @@ type Task struct {
 	IntervalStart    string `protobuf:"bytes,43,opt,name=interval_start,json=intervalStart,proto3" json:"interval_start,omitempty"`
 	NextScheduledAt  string `protobuf:"bytes,44,opt,name=next_scheduled_at,json=nextScheduledAt,proto3" json:"next_scheduled_at,omitempty"`
 	ScheduleTimezone string `protobuf:"bytes,45,opt,name=schedule_timezone,json=scheduleTimezone,proto3" json:"schedule_timezone,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Capabilities that the worker must announce, such as "ai_relay.v1" (Spec 094).
+	// A worker before this field ignores it.
+	RequiredCapabilities []string `protobuf:"bytes,46,rep,name=required_capabilities,json=requiredCapabilities,proto3" json:"required_capabilities,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -858,6 +882,13 @@ func (x *Task) GetScheduleTimezone() string {
 	return ""
 }
 
+func (x *Task) GetRequiredCapabilities() []string {
+	if x != nil {
+		return x.RequiredCapabilities
+	}
+	return nil
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.Operation = v
 }
@@ -1034,6 +1065,10 @@ func (x *Task) SetScheduleTimezone(v string) {
 	x.ScheduleTimezone = v
 }
 
+func (x *Task) SetRequiredCapabilities(v []string) {
+	x.RequiredCapabilities = v
+}
+
 func (x *Task) HasPreviousStatus() bool {
 	if x == nil {
 		return false
@@ -1130,6 +1165,9 @@ type Task_builder struct {
 	IntervalStart    string
 	NextScheduledAt  string
 	ScheduleTimezone string
+	// Capabilities that the worker must announce, such as "ai_relay.v1" (Spec 094).
+	// A worker before this field ignores it.
+	RequiredCapabilities []string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1180,6 +1218,7 @@ func (b0 Task_builder) Build() *Task {
 	x.IntervalStart = b.IntervalStart
 	x.NextScheduledAt = b.NextScheduledAt
 	x.ScheduleTimezone = b.ScheduleTimezone
+	x.RequiredCapabilities = b.RequiredCapabilities
 	return m0
 }
 
@@ -1459,12 +1498,18 @@ func (b0 WorkerInfo_builder) Build() *WorkerInfo {
 
 // Request message for heartbeat.
 type HeartbeatRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
-	Labels        map[string]string      `protobuf:"bytes,2,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Stats         *WorkerStats           `protobuf:"bytes,3,opt,name=stats,proto3" json:"stats,omitempty"`
-	Host          string                 `protobuf:"bytes,4,opt,name=host,proto3" json:"host,omitempty"`       // Name of the machine the worker runs on
-	Machine       *MachineSample         `protobuf:"bytes,5,opt,name=machine,proto3" json:"machine,omitempty"` // Unset until the worker samples its machine
+	state    protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Labels   map[string]string      `protobuf:"bytes,2,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Stats    *WorkerStats           `protobuf:"bytes,3,opt,name=stats,proto3" json:"stats,omitempty"`
+	Host     string                 `protobuf:"bytes,4,opt,name=host,proto3" json:"host,omitempty"`       // Name of the machine the worker runs on
+	Machine  *MachineSample         `protobuf:"bytes,5,opt,name=machine,proto3" json:"machine,omitempty"` // Unset until the worker samples its machine
+	// offline is the last heartbeat of a worker that stops. The coordinator
+	// removes the worker at once, so no dispatch counts on it. The checks of a
+	// heartbeat apply: only the pool of the worker ID can remove the worker.
+	Offline bool `protobuf:"varint,6,opt,name=offline,proto3" json:"offline,omitempty"`
+	// Capabilities of the worker, as in PollRequest.
+	Capabilities  []string `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1529,6 +1574,20 @@ func (x *HeartbeatRequest) GetMachine() *MachineSample {
 	return nil
 }
 
+func (x *HeartbeatRequest) GetOffline() bool {
+	if x != nil {
+		return x.Offline
+	}
+	return false
+}
+
+func (x *HeartbeatRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
 func (x *HeartbeatRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -1547,6 +1606,14 @@ func (x *HeartbeatRequest) SetHost(v string) {
 
 func (x *HeartbeatRequest) SetMachine(v *MachineSample) {
 	x.Machine = v
+}
+
+func (x *HeartbeatRequest) SetOffline(v bool) {
+	x.Offline = v
+}
+
+func (x *HeartbeatRequest) SetCapabilities(v []string) {
+	x.Capabilities = v
 }
 
 func (x *HeartbeatRequest) HasStats() bool {
@@ -1579,6 +1646,12 @@ type HeartbeatRequest_builder struct {
 	Stats    *WorkerStats
 	Host     string
 	Machine  *MachineSample
+	// offline is the last heartbeat of a worker that stops. The coordinator
+	// removes the worker at once, so no dispatch counts on it. The checks of a
+	// heartbeat apply: only the pool of the worker ID can remove the worker.
+	Offline bool
+	// Capabilities of the worker, as in PollRequest.
+	Capabilities []string
 }
 
 func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
@@ -1590,6 +1663,8 @@ func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
 	x.Stats = b.Stats
 	x.Host = b.Host
 	x.Machine = b.Machine
+	x.Offline = b.Offline
+	x.Capabilities = b.Capabilities
 	return m0
 }
 
@@ -5966,6 +6041,7 @@ type ResolveSecretReferenceRequest struct {
 	AttemptKey    string                 `protobuf:"bytes,6,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"` // Active distributed attempt lease key
 	AttemptId     string                 `protobuf:"bytes,7,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`    // Attempt ID created by the coordinator
 	DagName       string                 `protobuf:"bytes,8,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`          // Current DAG definition; empty keeps legacy root behavior
+	StepName      string                 `protobuf:"bytes,9,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`       // Step that lists the secret; required for a value in a DAG with step scope
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6051,6 +6127,13 @@ func (x *ResolveSecretReferenceRequest) GetDagName() string {
 	return ""
 }
 
+func (x *ResolveSecretReferenceRequest) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
+}
+
 func (x *ResolveSecretReferenceRequest) SetName(v string) {
 	x.Name = v
 }
@@ -6083,6 +6166,10 @@ func (x *ResolveSecretReferenceRequest) SetDagName(v string) {
 	x.DagName = v
 }
 
+func (x *ResolveSecretReferenceRequest) SetStepName(v string) {
+	x.StepName = v
+}
+
 type ResolveSecretReferenceRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6094,6 +6181,7 @@ type ResolveSecretReferenceRequest_builder struct {
 	AttemptKey string
 	AttemptId  string
 	DagName    string
+	StepName   string
 }
 
 func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceRequest {
@@ -6108,6 +6196,7 @@ func (b0 ResolveSecretReferenceRequest_builder) Build() *ResolveSecretReferenceR
 	x.AttemptKey = b.AttemptKey
 	x.AttemptId = b.AttemptId
 	x.DagName = b.DagName
+	x.StepName = b.StepName
 	return m0
 }
 
@@ -6544,15 +6633,1549 @@ func (b0 ResolveRuntimeProfileResponse_builder) Build() *ResolveRuntimeProfileRe
 	return m0
 }
 
+// RelayTarget names what a relay request uses. The kind is "endpoint" or "mcp".
+type RelayTarget struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayTarget) Reset() {
+	*x = RelayTarget{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayTarget) ProtoMessage() {}
+
+func (x *RelayTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayTarget) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *RelayTarget) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RelayTarget) SetKind(v string) {
+	x.Kind = v
+}
+
+func (x *RelayTarget) SetName(v string) {
+	x.Name = v
+}
+
+type RelayTarget_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Kind string
+	Name string
+}
+
+func (b0 RelayTarget_builder) Build() *RelayTarget {
+	m0 := &RelayTarget{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Kind = b.Kind
+	x.Name = b.Name
+	return m0
+}
+
+type CheckAIEndpointRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	AttemptKey    string                 `protobuf:"bytes,2,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
+	AttemptId     string                 `protobuf:"bytes,3,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	DagName       string                 `protobuf:"bytes,4,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`
+	StepName      string                 `protobuf:"bytes,5,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
+	Target        *RelayTarget           `protobuf:"bytes,6,opt,name=target,proto3" json:"target,omitempty"`
+	Provider      string                 `protobuf:"bytes,7,opt,name=provider,proto3" json:"provider,omitempty"` // The CLI provider or the chat type that will use the target
+	Model         string                 `protobuf:"bytes,8,opt,name=model,proto3" json:"model,omitempty"`       // The model of the step after resolution. Empty means no model check.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckAIEndpointRequest) Reset() {
+	*x = CheckAIEndpointRequest{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckAIEndpointRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckAIEndpointRequest) ProtoMessage() {}
+
+func (x *CheckAIEndpointRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CheckAIEndpointRequest) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) GetAttemptKey() string {
+	if x != nil {
+		return x.AttemptKey
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) GetDagName() string {
+	if x != nil {
+		return x.DagName
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) GetTarget() *RelayTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *CheckAIEndpointRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointRequest) SetWorkerId(v string) {
+	x.WorkerId = v
+}
+
+func (x *CheckAIEndpointRequest) SetAttemptKey(v string) {
+	x.AttemptKey = v
+}
+
+func (x *CheckAIEndpointRequest) SetAttemptId(v string) {
+	x.AttemptId = v
+}
+
+func (x *CheckAIEndpointRequest) SetDagName(v string) {
+	x.DagName = v
+}
+
+func (x *CheckAIEndpointRequest) SetStepName(v string) {
+	x.StepName = v
+}
+
+func (x *CheckAIEndpointRequest) SetTarget(v *RelayTarget) {
+	x.Target = v
+}
+
+func (x *CheckAIEndpointRequest) SetProvider(v string) {
+	x.Provider = v
+}
+
+func (x *CheckAIEndpointRequest) SetModel(v string) {
+	x.Model = v
+}
+
+func (x *CheckAIEndpointRequest) HasTarget() bool {
+	if x == nil {
+		return false
+	}
+	return x.Target != nil
+}
+
+func (x *CheckAIEndpointRequest) ClearTarget() {
+	x.Target = nil
+}
+
+type CheckAIEndpointRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	WorkerId   string
+	AttemptKey string
+	AttemptId  string
+	DagName    string
+	StepName   string
+	Target     *RelayTarget
+	Provider   string
+	Model      string
+}
+
+func (b0 CheckAIEndpointRequest_builder) Build() *CheckAIEndpointRequest {
+	m0 := &CheckAIEndpointRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.WorkerId = b.WorkerId
+	x.AttemptKey = b.AttemptKey
+	x.AttemptId = b.AttemptId
+	x.DagName = b.DagName
+	x.StepName = b.StepName
+	x.Target = b.Target
+	x.Provider = b.Provider
+	x.Model = b.Model
+	return m0
+}
+
+type CheckAIEndpointResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Protocol      string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	ChatType      string                 `protobuf:"bytes,2,opt,name=chat_type,json=chatType,proto3" json:"chat_type,omitempty"` // The provider type of chat.completion
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckAIEndpointResponse) Reset() {
+	*x = CheckAIEndpointResponse{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckAIEndpointResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckAIEndpointResponse) ProtoMessage() {}
+
+func (x *CheckAIEndpointResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CheckAIEndpointResponse) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointResponse) GetChatType() string {
+	if x != nil {
+		return x.ChatType
+	}
+	return ""
+}
+
+func (x *CheckAIEndpointResponse) SetProtocol(v string) {
+	x.Protocol = v
+}
+
+func (x *CheckAIEndpointResponse) SetChatType(v string) {
+	x.ChatType = v
+}
+
+type CheckAIEndpointResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Protocol string
+	ChatType string
+}
+
+func (b0 CheckAIEndpointResponse_builder) Build() *CheckAIEndpointResponse {
+	m0 := &CheckAIEndpointResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Protocol = b.Protocol
+	x.ChatType = b.ChatType
+	return m0
+}
+
+type RelayClientMessage struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*RelayClientMessage_Open
+	//	*RelayClientMessage_Body
+	//	*RelayClientMessage_Cancel
+	Kind          isRelayClientMessage_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayClientMessage) Reset() {
+	*x = RelayClientMessage{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayClientMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayClientMessage) ProtoMessage() {}
+
+func (x *RelayClientMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayClientMessage) GetKind() isRelayClientMessage_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *RelayClientMessage) GetOpen() *RelayOpen {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayClientMessage_Open); ok {
+			return x.Open
+		}
+	}
+	return nil
+}
+
+func (x *RelayClientMessage) GetBody() *RelayBody {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayClientMessage_Body); ok {
+			return x.Body
+		}
+	}
+	return nil
+}
+
+func (x *RelayClientMessage) GetCancel() *RelayCancel {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayClientMessage_Cancel); ok {
+			return x.Cancel
+		}
+	}
+	return nil
+}
+
+func (x *RelayClientMessage) SetOpen(v *RelayOpen) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayClientMessage_Open{v}
+}
+
+func (x *RelayClientMessage) SetBody(v *RelayBody) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayClientMessage_Body{v}
+}
+
+func (x *RelayClientMessage) SetCancel(v *RelayCancel) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayClientMessage_Cancel{v}
+}
+
+func (x *RelayClientMessage) HasKind() bool {
+	if x == nil {
+		return false
+	}
+	return x.Kind != nil
+}
+
+func (x *RelayClientMessage) HasOpen() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayClientMessage_Open)
+	return ok
+}
+
+func (x *RelayClientMessage) HasBody() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayClientMessage_Body)
+	return ok
+}
+
+func (x *RelayClientMessage) HasCancel() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayClientMessage_Cancel)
+	return ok
+}
+
+func (x *RelayClientMessage) ClearKind() {
+	x.Kind = nil
+}
+
+func (x *RelayClientMessage) ClearOpen() {
+	if _, ok := x.Kind.(*RelayClientMessage_Open); ok {
+		x.Kind = nil
+	}
+}
+
+func (x *RelayClientMessage) ClearBody() {
+	if _, ok := x.Kind.(*RelayClientMessage_Body); ok {
+		x.Kind = nil
+	}
+}
+
+func (x *RelayClientMessage) ClearCancel() {
+	if _, ok := x.Kind.(*RelayClientMessage_Cancel); ok {
+		x.Kind = nil
+	}
+}
+
+const RelayClientMessage_Kind_not_set_case case_RelayClientMessage_Kind = 0
+const RelayClientMessage_Open_case case_RelayClientMessage_Kind = 1
+const RelayClientMessage_Body_case case_RelayClientMessage_Kind = 2
+const RelayClientMessage_Cancel_case case_RelayClientMessage_Kind = 3
+
+func (x *RelayClientMessage) WhichKind() case_RelayClientMessage_Kind {
+	if x == nil {
+		return RelayClientMessage_Kind_not_set_case
+	}
+	switch x.Kind.(type) {
+	case *RelayClientMessage_Open:
+		return RelayClientMessage_Open_case
+	case *RelayClientMessage_Body:
+		return RelayClientMessage_Body_case
+	case *RelayClientMessage_Cancel:
+		return RelayClientMessage_Cancel_case
+	default:
+		return RelayClientMessage_Kind_not_set_case
+	}
+}
+
+type RelayClientMessage_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fields of oneof Kind:
+	Open   *RelayOpen
+	Body   *RelayBody
+	Cancel *RelayCancel
+	// -- end of Kind
+}
+
+func (b0 RelayClientMessage_builder) Build() *RelayClientMessage {
+	m0 := &RelayClientMessage{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Open != nil {
+		x.Kind = &RelayClientMessage_Open{b.Open}
+	}
+	if b.Body != nil {
+		x.Kind = &RelayClientMessage_Body{b.Body}
+	}
+	if b.Cancel != nil {
+		x.Kind = &RelayClientMessage_Cancel{b.Cancel}
+	}
+	return m0
+}
+
+type case_RelayClientMessage_Kind protoreflect.FieldNumber
+
+func (x case_RelayClientMessage_Kind) String() string {
+	md := file_proto_coordinator_v1_coordinator_proto_msgTypes[63].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isRelayClientMessage_Kind interface {
+	isRelayClientMessage_Kind()
+}
+
+type RelayClientMessage_Open struct {
+	Open *RelayOpen `protobuf:"bytes,1,opt,name=open,proto3,oneof"` // The first message
+}
+
+type RelayClientMessage_Body struct {
+	Body *RelayBody `protobuf:"bytes,2,opt,name=body,proto3,oneof"` // Chunks of the request body
+}
+
+type RelayClientMessage_Cancel struct {
+	Cancel *RelayCancel `protobuf:"bytes,3,opt,name=cancel,proto3,oneof"` // The client went away
+}
+
+func (*RelayClientMessage_Open) isRelayClientMessage_Kind() {}
+
+func (*RelayClientMessage_Body) isRelayClientMessage_Kind() {}
+
+func (*RelayClientMessage_Cancel) isRelayClientMessage_Kind() {}
+
+type RelayOpen struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	AttemptKey    string                 `protobuf:"bytes,2,opt,name=attempt_key,json=attemptKey,proto3" json:"attempt_key,omitempty"`
+	AttemptId     string                 `protobuf:"bytes,3,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	DagName       string                 `protobuf:"bytes,4,opt,name=dag_name,json=dagName,proto3" json:"dag_name,omitempty"`
+	StepName      string                 `protobuf:"bytes,5,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
+	Target        *RelayTarget           `protobuf:"bytes,6,opt,name=target,proto3" json:"target,omitempty"`
+	Method        string                 `protobuf:"bytes,7,opt,name=method,proto3" json:"method,omitempty"`
+	Path          string                 `protobuf:"bytes,8,opt,name=path,proto3" json:"path,omitempty"`
+	Query         string                 `protobuf:"bytes,9,opt,name=query,proto3" json:"query,omitempty"`
+	Headers       []*RelayHeader         `protobuf:"bytes,10,rep,name=headers,proto3" json:"headers,omitempty"`
+	ContentLength int64                  `protobuf:"varint,11,opt,name=content_length,json=contentLength,proto3" json:"content_length,omitempty"` // -1 when unknown
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayOpen) Reset() {
+	*x = RelayOpen{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayOpen) ProtoMessage() {}
+
+func (x *RelayOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayOpen) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetAttemptKey() string {
+	if x != nil {
+		return x.AttemptKey
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetDagName() string {
+	if x != nil {
+		return x.DagName
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetTarget() *RelayTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *RelayOpen) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *RelayOpen) GetHeaders() []*RelayHeader {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *RelayOpen) GetContentLength() int64 {
+	if x != nil {
+		return x.ContentLength
+	}
+	return 0
+}
+
+func (x *RelayOpen) SetWorkerId(v string) {
+	x.WorkerId = v
+}
+
+func (x *RelayOpen) SetAttemptKey(v string) {
+	x.AttemptKey = v
+}
+
+func (x *RelayOpen) SetAttemptId(v string) {
+	x.AttemptId = v
+}
+
+func (x *RelayOpen) SetDagName(v string) {
+	x.DagName = v
+}
+
+func (x *RelayOpen) SetStepName(v string) {
+	x.StepName = v
+}
+
+func (x *RelayOpen) SetTarget(v *RelayTarget) {
+	x.Target = v
+}
+
+func (x *RelayOpen) SetMethod(v string) {
+	x.Method = v
+}
+
+func (x *RelayOpen) SetPath(v string) {
+	x.Path = v
+}
+
+func (x *RelayOpen) SetQuery(v string) {
+	x.Query = v
+}
+
+func (x *RelayOpen) SetHeaders(v []*RelayHeader) {
+	x.Headers = v
+}
+
+func (x *RelayOpen) SetContentLength(v int64) {
+	x.ContentLength = v
+}
+
+func (x *RelayOpen) HasTarget() bool {
+	if x == nil {
+		return false
+	}
+	return x.Target != nil
+}
+
+func (x *RelayOpen) ClearTarget() {
+	x.Target = nil
+}
+
+type RelayOpen_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	WorkerId      string
+	AttemptKey    string
+	AttemptId     string
+	DagName       string
+	StepName      string
+	Target        *RelayTarget
+	Method        string
+	Path          string
+	Query         string
+	Headers       []*RelayHeader
+	ContentLength int64
+}
+
+func (b0 RelayOpen_builder) Build() *RelayOpen {
+	m0 := &RelayOpen{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.WorkerId = b.WorkerId
+	x.AttemptKey = b.AttemptKey
+	x.AttemptId = b.AttemptId
+	x.DagName = b.DagName
+	x.StepName = b.StepName
+	x.Target = b.Target
+	x.Method = b.Method
+	x.Path = b.Path
+	x.Query = b.Query
+	x.Headers = b.Headers
+	x.ContentLength = b.ContentLength
+	return m0
+}
+
+type RelayHeader struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayHeader) Reset() {
+	*x = RelayHeader{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayHeader) ProtoMessage() {}
+
+func (x *RelayHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayHeader) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RelayHeader) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *RelayHeader) SetName(v string) {
+	x.Name = v
+}
+
+func (x *RelayHeader) SetValue(v string) {
+	x.Value = v
+}
+
+type RelayHeader_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Name  string
+	Value string
+}
+
+func (b0 RelayHeader_builder) Build() *RelayHeader {
+	m0 := &RelayHeader{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Name = b.Name
+	x.Value = b.Value
+	return m0
+}
+
+type RelayBody struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // At most 65536 bytes
+	End           bool                   `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayBody) Reset() {
+	*x = RelayBody{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayBody) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayBody) ProtoMessage() {}
+
+func (x *RelayBody) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayBody) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *RelayBody) GetEnd() bool {
+	if x != nil {
+		return x.End
+	}
+	return false
+}
+
+func (x *RelayBody) SetData(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.Data = v
+}
+
+func (x *RelayBody) SetEnd(v bool) {
+	x.End = v
+}
+
+type RelayBody_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Data []byte
+	End  bool
+}
+
+func (b0 RelayBody_builder) Build() *RelayBody {
+	m0 := &RelayBody{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Data = b.Data
+	x.End = b.End
+	return m0
+}
+
+type RelayCancel struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayCancel) Reset() {
+	*x = RelayCancel{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayCancel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayCancel) ProtoMessage() {}
+
+func (x *RelayCancel) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type RelayCancel_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 RelayCancel_builder) Build() *RelayCancel {
+	m0 := &RelayCancel{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type RelayServerMessage struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*RelayServerMessage_Accepted
+	//	*RelayServerMessage_Head
+	//	*RelayServerMessage_Body
+	//	*RelayServerMessage_Error
+	//	*RelayServerMessage_End
+	Kind          isRelayServerMessage_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayServerMessage) Reset() {
+	*x = RelayServerMessage{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayServerMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayServerMessage) ProtoMessage() {}
+
+func (x *RelayServerMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayServerMessage) GetKind() isRelayServerMessage_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *RelayServerMessage) GetAccepted() *RelayAccepted {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayServerMessage_Accepted); ok {
+			return x.Accepted
+		}
+	}
+	return nil
+}
+
+func (x *RelayServerMessage) GetHead() *RelayResponseHead {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayServerMessage_Head); ok {
+			return x.Head
+		}
+	}
+	return nil
+}
+
+func (x *RelayServerMessage) GetBody() *RelayBody {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayServerMessage_Body); ok {
+			return x.Body
+		}
+	}
+	return nil
+}
+
+func (x *RelayServerMessage) GetError() *RelayError {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayServerMessage_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+func (x *RelayServerMessage) GetEnd() *RelayEnd {
+	if x != nil {
+		if x, ok := x.Kind.(*RelayServerMessage_End); ok {
+			return x.End
+		}
+	}
+	return nil
+}
+
+func (x *RelayServerMessage) SetAccepted(v *RelayAccepted) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayServerMessage_Accepted{v}
+}
+
+func (x *RelayServerMessage) SetHead(v *RelayResponseHead) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayServerMessage_Head{v}
+}
+
+func (x *RelayServerMessage) SetBody(v *RelayBody) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayServerMessage_Body{v}
+}
+
+func (x *RelayServerMessage) SetError(v *RelayError) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayServerMessage_Error{v}
+}
+
+func (x *RelayServerMessage) SetEnd(v *RelayEnd) {
+	if v == nil {
+		x.Kind = nil
+		return
+	}
+	x.Kind = &RelayServerMessage_End{v}
+}
+
+func (x *RelayServerMessage) HasKind() bool {
+	if x == nil {
+		return false
+	}
+	return x.Kind != nil
+}
+
+func (x *RelayServerMessage) HasAccepted() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayServerMessage_Accepted)
+	return ok
+}
+
+func (x *RelayServerMessage) HasHead() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayServerMessage_Head)
+	return ok
+}
+
+func (x *RelayServerMessage) HasBody() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayServerMessage_Body)
+	return ok
+}
+
+func (x *RelayServerMessage) HasError() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayServerMessage_Error)
+	return ok
+}
+
+func (x *RelayServerMessage) HasEnd() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Kind.(*RelayServerMessage_End)
+	return ok
+}
+
+func (x *RelayServerMessage) ClearKind() {
+	x.Kind = nil
+}
+
+func (x *RelayServerMessage) ClearAccepted() {
+	if _, ok := x.Kind.(*RelayServerMessage_Accepted); ok {
+		x.Kind = nil
+	}
+}
+
+func (x *RelayServerMessage) ClearHead() {
+	if _, ok := x.Kind.(*RelayServerMessage_Head); ok {
+		x.Kind = nil
+	}
+}
+
+func (x *RelayServerMessage) ClearBody() {
+	if _, ok := x.Kind.(*RelayServerMessage_Body); ok {
+		x.Kind = nil
+	}
+}
+
+func (x *RelayServerMessage) ClearError() {
+	if _, ok := x.Kind.(*RelayServerMessage_Error); ok {
+		x.Kind = nil
+	}
+}
+
+func (x *RelayServerMessage) ClearEnd() {
+	if _, ok := x.Kind.(*RelayServerMessage_End); ok {
+		x.Kind = nil
+	}
+}
+
+const RelayServerMessage_Kind_not_set_case case_RelayServerMessage_Kind = 0
+const RelayServerMessage_Accepted_case case_RelayServerMessage_Kind = 1
+const RelayServerMessage_Head_case case_RelayServerMessage_Kind = 2
+const RelayServerMessage_Body_case case_RelayServerMessage_Kind = 3
+const RelayServerMessage_Error_case case_RelayServerMessage_Kind = 4
+const RelayServerMessage_End_case case_RelayServerMessage_Kind = 5
+
+func (x *RelayServerMessage) WhichKind() case_RelayServerMessage_Kind {
+	if x == nil {
+		return RelayServerMessage_Kind_not_set_case
+	}
+	switch x.Kind.(type) {
+	case *RelayServerMessage_Accepted:
+		return RelayServerMessage_Accepted_case
+	case *RelayServerMessage_Head:
+		return RelayServerMessage_Head_case
+	case *RelayServerMessage_Body:
+		return RelayServerMessage_Body_case
+	case *RelayServerMessage_Error:
+		return RelayServerMessage_Error_case
+	case *RelayServerMessage_End:
+		return RelayServerMessage_End_case
+	default:
+		return RelayServerMessage_Kind_not_set_case
+	}
+}
+
+type RelayServerMessage_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Fields of oneof Kind:
+	Accepted *RelayAccepted
+	Head     *RelayResponseHead
+	Body     *RelayBody
+	Error    *RelayError
+	End      *RelayEnd
+	// -- end of Kind
+}
+
+func (b0 RelayServerMessage_builder) Build() *RelayServerMessage {
+	m0 := &RelayServerMessage{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Accepted != nil {
+		x.Kind = &RelayServerMessage_Accepted{b.Accepted}
+	}
+	if b.Head != nil {
+		x.Kind = &RelayServerMessage_Head{b.Head}
+	}
+	if b.Body != nil {
+		x.Kind = &RelayServerMessage_Body{b.Body}
+	}
+	if b.Error != nil {
+		x.Kind = &RelayServerMessage_Error{b.Error}
+	}
+	if b.End != nil {
+		x.Kind = &RelayServerMessage_End{b.End}
+	}
+	return m0
+}
+
+type case_RelayServerMessage_Kind protoreflect.FieldNumber
+
+func (x case_RelayServerMessage_Kind) String() string {
+	md := file_proto_coordinator_v1_coordinator_proto_msgTypes[68].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isRelayServerMessage_Kind interface {
+	isRelayServerMessage_Kind()
+}
+
+type RelayServerMessage_Accepted struct {
+	Accepted *RelayAccepted `protobuf:"bytes,1,opt,name=accepted,proto3,oneof"` // The checks passed. It holds the limits.
+}
+
+type RelayServerMessage_Head struct {
+	Head *RelayResponseHead `protobuf:"bytes,2,opt,name=head,proto3,oneof"`
+}
+
+type RelayServerMessage_Body struct {
+	Body *RelayBody `protobuf:"bytes,3,opt,name=body,proto3,oneof"`
+}
+
+type RelayServerMessage_Error struct {
+	Error *RelayError `protobuf:"bytes,4,opt,name=error,proto3,oneof"` // The coordinator refused or the call failed
+}
+
+type RelayServerMessage_End struct {
+	End *RelayEnd `protobuf:"bytes,5,opt,name=end,proto3,oneof"` // The last message of a good response
+}
+
+func (*RelayServerMessage_Accepted) isRelayServerMessage_Kind() {}
+
+func (*RelayServerMessage_Head) isRelayServerMessage_Kind() {}
+
+func (*RelayServerMessage_Body) isRelayServerMessage_Kind() {}
+
+func (*RelayServerMessage_Error) isRelayServerMessage_Kind() {}
+
+func (*RelayServerMessage_End) isRelayServerMessage_Kind() {}
+
+type RelayAccepted struct {
+	state            protoimpl.MessageState `protogen:"hybrid.v1"`
+	MaxRequestBytes  int64                  `protobuf:"varint,1,opt,name=max_request_bytes,json=maxRequestBytes,proto3" json:"max_request_bytes,omitempty"`
+	MaxResponseBytes int64                  `protobuf:"varint,2,opt,name=max_response_bytes,json=maxResponseBytes,proto3" json:"max_response_bytes,omitempty"`
+	IdleTimeoutSec   int32                  `protobuf:"varint,3,opt,name=idle_timeout_sec,json=idleTimeoutSec,proto3" json:"idle_timeout_sec,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *RelayAccepted) Reset() {
+	*x = RelayAccepted{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayAccepted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayAccepted) ProtoMessage() {}
+
+func (x *RelayAccepted) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayAccepted) GetMaxRequestBytes() int64 {
+	if x != nil {
+		return x.MaxRequestBytes
+	}
+	return 0
+}
+
+func (x *RelayAccepted) GetMaxResponseBytes() int64 {
+	if x != nil {
+		return x.MaxResponseBytes
+	}
+	return 0
+}
+
+func (x *RelayAccepted) GetIdleTimeoutSec() int32 {
+	if x != nil {
+		return x.IdleTimeoutSec
+	}
+	return 0
+}
+
+func (x *RelayAccepted) SetMaxRequestBytes(v int64) {
+	x.MaxRequestBytes = v
+}
+
+func (x *RelayAccepted) SetMaxResponseBytes(v int64) {
+	x.MaxResponseBytes = v
+}
+
+func (x *RelayAccepted) SetIdleTimeoutSec(v int32) {
+	x.IdleTimeoutSec = v
+}
+
+type RelayAccepted_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	MaxRequestBytes  int64
+	MaxResponseBytes int64
+	IdleTimeoutSec   int32
+}
+
+func (b0 RelayAccepted_builder) Build() *RelayAccepted {
+	m0 := &RelayAccepted{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.MaxRequestBytes = b.MaxRequestBytes
+	x.MaxResponseBytes = b.MaxResponseBytes
+	x.IdleTimeoutSec = b.IdleTimeoutSec
+	return m0
+}
+
+type RelayResponseHead struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Status        int32                  `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	Headers       []*RelayHeader         `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayResponseHead) Reset() {
+	*x = RelayResponseHead{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayResponseHead) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayResponseHead) ProtoMessage() {}
+
+func (x *RelayResponseHead) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayResponseHead) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *RelayResponseHead) GetHeaders() []*RelayHeader {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *RelayResponseHead) SetStatus(v int32) {
+	x.Status = v
+}
+
+func (x *RelayResponseHead) SetHeaders(v []*RelayHeader) {
+	x.Headers = v
+}
+
+type RelayResponseHead_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Status  int32
+	Headers []*RelayHeader
+}
+
+func (b0 RelayResponseHead_builder) Build() *RelayResponseHead {
+	m0 := &RelayResponseHead{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Status = b.Status
+	x.Headers = b.Headers
+	return m0
+}
+
+type RelayError struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`   // A name of the table of failure kinds
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"` // No key, no header value
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayError) Reset() {
+	*x = RelayError{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayError) ProtoMessage() {}
+
+func (x *RelayError) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayError) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *RelayError) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RelayError) SetReason(v string) {
+	x.Reason = v
+}
+
+func (x *RelayError) SetMessage(v string) {
+	x.Message = v
+}
+
+type RelayError_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Reason  string
+	Message string
+}
+
+func (b0 RelayError_builder) Build() *RelayError {
+	m0 := &RelayError{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Reason = b.Reason
+	x.Message = b.Message
+	return m0
+}
+
+type RelayEnd struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	ResponseBytes int64                  `protobuf:"varint,1,opt,name=response_bytes,json=responseBytes,proto3" json:"response_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayEnd) Reset() {
+	*x = RelayEnd{}
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayEnd) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayEnd) ProtoMessage() {}
+
+func (x *RelayEnd) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_coordinator_v1_coordinator_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RelayEnd) GetResponseBytes() int64 {
+	if x != nil {
+		return x.ResponseBytes
+	}
+	return 0
+}
+
+func (x *RelayEnd) SetResponseBytes(v int64) {
+	x.ResponseBytes = v
+}
+
+type RelayEnd_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ResponseBytes int64
+}
+
+func (b0 RelayEnd_builder) Build() *RelayEnd {
+	m0 := &RelayEnd{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.ResponseBytes = b.ResponseBytes
+	return m0
+}
+
 var File_proto_coordinator_v1_coordinator_proto protoreflect.FileDescriptor
 
 const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\n" +
-	"&proto/coordinator/v1/coordinator.proto\x12\x0ecoordinator.v1\"\xc3\x01\n" +
+	"&proto/coordinator/v1/coordinator.proto\x12\x0ecoordinator.v1\"\xe7\x01\n" +
 	"\vPollRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1b\n" +
 	"\tpoller_id\x18\x02 \x01(\tR\bpollerId\x12?\n" +
-	"\x06labels\x18\x03 \x03(\v2'.coordinator.v1.PollRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\x03 \x03(\v2'.coordinator.v1.PollRequest.LabelsEntryR\x06labels\x12\"\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"8\n" +
@@ -6561,7 +8184,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xba\x0f\n" +
+	"\x10DispatchResponse\"\xef\x0f\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -6618,7 +8241,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x12%\n" +
 	"\x0einterval_start\x18+ \x01(\tR\rintervalStart\x12*\n" +
 	"\x11next_scheduled_at\x18, \x01(\tR\x0fnextScheduledAt\x12+\n" +
-	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x1aA\n" +
+	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x123\n" +
+	"\x15required_capabilities\x18. \x03(\tR\x14requiredCapabilities\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
@@ -6639,13 +8263,15 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\rhealth_status\x18\t \x01(\x0e2\".coordinator.v1.WorkerHealthStatusR\fhealthStatus\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xee\x02\n" +
 	"\x10HeartbeatRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12D\n" +
 	"\x06labels\x18\x02 \x03(\v2,.coordinator.v1.HeartbeatRequest.LabelsEntryR\x06labels\x121\n" +
 	"\x05stats\x18\x03 \x01(\v2\x1b.coordinator.v1.WorkerStatsR\x05stats\x12\x12\n" +
 	"\x04host\x18\x04 \x01(\tR\x04host\x127\n" +
-	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x1a9\n" +
+	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x12\x18\n" +
+	"\aoffline\x18\x06 \x01(\bR\aoffline\x12\"\n" +
+	"\fcapabilities\x18\a \x03(\tR\fcapabilities\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8c\x03\n" +
@@ -6884,7 +8510,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xfa\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x97\x02\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +
@@ -6896,7 +8522,8 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"attemptKey\x12\x1d\n" +
 	"\n" +
 	"attempt_id\x18\a \x01(\tR\tattemptId\x12\x19\n" +
-	"\bdag_name\x18\b \x01(\tR\adagName\"6\n" +
+	"\bdag_name\x18\b \x01(\tR\adagName\x12\x1b\n" +
+	"\tstep_name\x18\t \x01(\tR\bstepName\"6\n" +
 	"\x1eResolveSecretReferenceResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\"\xd7\x01\n" +
 	"\x1cResolveRuntimeProfileRequest\x12\x1b\n" +
@@ -6917,7 +8544,71 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\aentries\x18\x02 \x03(\v2#.coordinator.v1.RuntimeProfileEntryR\aentries\"\xa1\x01\n" +
 	"\x1dResolveRuntimeProfileResponse\x12?\n" +
 	"\bdefaults\x18\x01 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bdefaults\x12?\n" +
-	"\bselected\x18\x02 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bselected*P\n" +
+	"\bselected\x18\x02 \x01(\v2#.coordinator.v1.RuntimeProfileLayerR\bselected\"5\n" +
+	"\vRelayTarget\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x94\x02\n" +
+	"\x16CheckAIEndpointRequest\x12\x1b\n" +
+	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
+	"\vattempt_key\x18\x02 \x01(\tR\n" +
+	"attemptKey\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\x03 \x01(\tR\tattemptId\x12\x19\n" +
+	"\bdag_name\x18\x04 \x01(\tR\adagName\x12\x1b\n" +
+	"\tstep_name\x18\x05 \x01(\tR\bstepName\x123\n" +
+	"\x06target\x18\x06 \x01(\v2\x1b.coordinator.v1.RelayTargetR\x06target\x12\x1a\n" +
+	"\bprovider\x18\a \x01(\tR\bprovider\x12\x14\n" +
+	"\x05model\x18\b \x01(\tR\x05model\"R\n" +
+	"\x17CheckAIEndpointResponse\x12\x1a\n" +
+	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12\x1b\n" +
+	"\tchat_type\x18\x02 \x01(\tR\bchatType\"\xb5\x01\n" +
+	"\x12RelayClientMessage\x12/\n" +
+	"\x04open\x18\x01 \x01(\v2\x19.coordinator.v1.RelayOpenH\x00R\x04open\x12/\n" +
+	"\x04body\x18\x02 \x01(\v2\x19.coordinator.v1.RelayBodyH\x00R\x04body\x125\n" +
+	"\x06cancel\x18\x03 \x01(\v2\x1b.coordinator.v1.RelayCancelH\x00R\x06cancelB\x06\n" +
+	"\x04kind\"\xf5\x02\n" +
+	"\tRelayOpen\x12\x1b\n" +
+	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1f\n" +
+	"\vattempt_key\x18\x02 \x01(\tR\n" +
+	"attemptKey\x12\x1d\n" +
+	"\n" +
+	"attempt_id\x18\x03 \x01(\tR\tattemptId\x12\x19\n" +
+	"\bdag_name\x18\x04 \x01(\tR\adagName\x12\x1b\n" +
+	"\tstep_name\x18\x05 \x01(\tR\bstepName\x123\n" +
+	"\x06target\x18\x06 \x01(\v2\x1b.coordinator.v1.RelayTargetR\x06target\x12\x16\n" +
+	"\x06method\x18\a \x01(\tR\x06method\x12\x12\n" +
+	"\x04path\x18\b \x01(\tR\x04path\x12\x14\n" +
+	"\x05query\x18\t \x01(\tR\x05query\x125\n" +
+	"\aheaders\x18\n" +
+	" \x03(\v2\x1b.coordinator.v1.RelayHeaderR\aheaders\x12%\n" +
+	"\x0econtent_length\x18\v \x01(\x03R\rcontentLength\"7\n" +
+	"\vRelayHeader\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"1\n" +
+	"\tRelayBody\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\bR\x03end\"\r\n" +
+	"\vRelayCancel\"\xa5\x02\n" +
+	"\x12RelayServerMessage\x12;\n" +
+	"\baccepted\x18\x01 \x01(\v2\x1d.coordinator.v1.RelayAcceptedH\x00R\baccepted\x127\n" +
+	"\x04head\x18\x02 \x01(\v2!.coordinator.v1.RelayResponseHeadH\x00R\x04head\x12/\n" +
+	"\x04body\x18\x03 \x01(\v2\x19.coordinator.v1.RelayBodyH\x00R\x04body\x122\n" +
+	"\x05error\x18\x04 \x01(\v2\x1a.coordinator.v1.RelayErrorH\x00R\x05error\x12,\n" +
+	"\x03end\x18\x05 \x01(\v2\x18.coordinator.v1.RelayEndH\x00R\x03endB\x06\n" +
+	"\x04kind\"\x93\x01\n" +
+	"\rRelayAccepted\x12*\n" +
+	"\x11max_request_bytes\x18\x01 \x01(\x03R\x0fmaxRequestBytes\x12,\n" +
+	"\x12max_response_bytes\x18\x02 \x01(\x03R\x10maxResponseBytes\x12(\n" +
+	"\x10idle_timeout_sec\x18\x03 \x01(\x05R\x0eidleTimeoutSec\"b\n" +
+	"\x11RelayResponseHead\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\x125\n" +
+	"\aheaders\x18\x02 \x03(\v2\x1b.coordinator.v1.RelayHeaderR\aheaders\">\n" +
+	"\n" +
+	"RelayError\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"1\n" +
+	"\bRelayEnd\x12%\n" +
+	"\x0eresponse_bytes\x18\x01 \x01(\x03R\rresponseBytes*P\n" +
 	"\tOperation\x12\x19\n" +
 	"\x15OPERATION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fOPERATION_START\x10\x01\x12\x13\n" +
@@ -6926,12 +8617,13 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	" WORKER_HEALTH_STATUS_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cWORKER_HEALTH_STATUS_HEALTHY\x10\x01\x12 \n" +
 	"\x1cWORKER_HEALTH_STATUS_WARNING\x10\x02\x12\"\n" +
-	"\x1eWORKER_HEALTH_STATUS_UNHEALTHY\x10\x03*\x87\x01\n" +
+	"\x1eWORKER_HEALTH_STATUS_UNHEALTHY\x10\x03*\xa9\x01\n" +
 	"\rLogStreamType\x12\x1f\n" +
 	"\x1bLOG_STREAM_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDOUT\x10\x01\x12\x1a\n" +
 	"\x16LOG_STREAM_TYPE_STDERR\x10\x02\x12\x1d\n" +
-	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x032\x93\x11\n" +
+	"\x19LOG_STREAM_TYPE_SCHEDULER\x10\x03\x12 \n" +
+	"\x1cLOG_STREAM_TYPE_AGENT_STREAM\x10\x042\xd5\x12\n" +
 	"\x12CoordinatorService\x12A\n" +
 	"\x04Poll\x12\x1b.coordinator.v1.PollRequest\x1a\x1c.coordinator.v1.PollResponse\x12M\n" +
 	"\bDispatch\x12\x1f.coordinator.v1.DispatchRequest\x1a .coordinator.v1.DispatchResponse\x12S\n" +
@@ -6957,10 +8649,12 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\tListState\x12 .coordinator.v1.ListStateRequest\x1a!.coordinator.v1.ListStateResponse\x12G\n" +
 	"\x06GetDAG\x12\x1d.coordinator.v1.GetDAGRequest\x1a\x1e.coordinator.v1.GetDAGResponse\x12w\n" +
 	"\x16ResolveSecretReference\x12-.coordinator.v1.ResolveSecretReferenceRequest\x1a..coordinator.v1.ResolveSecretReferenceResponse\x12t\n" +
-	"\x15ResolveRuntimeProfile\x12,.coordinator.v1.ResolveRuntimeProfileRequest\x1a-.coordinator.v1.ResolveRuntimeProfileResponseBAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
+	"\x15ResolveRuntimeProfile\x12,.coordinator.v1.ResolveRuntimeProfileRequest\x1a-.coordinator.v1.ResolveRuntimeProfileResponse\x12b\n" +
+	"\x0fCheckAIEndpoint\x12&.coordinator.v1.CheckAIEndpointRequest\x1a'.coordinator.v1.CheckAIEndpointResponse\x12\\\n" +
+	"\x0eRelayAIRequest\x12\".coordinator.v1.RelayClientMessage\x1a\".coordinator.v1.RelayServerMessage(\x010\x01BAZ?github.com/dagucloud/dagu/v2/proto/coordinator/v1;coordinatorv1b\x06proto3"
 
 var file_proto_coordinator_v1_coordinator_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
+var file_proto_coordinator_v1_coordinator_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(Operation)(0),                              // 0: coordinator.v1.Operation
 	(WorkerHealthStatus)(0),                     // 1: coordinator.v1.WorkerHealthStatus
@@ -7025,23 +8719,36 @@ var file_proto_coordinator_v1_coordinator_proto_goTypes = []any{
 	(*RuntimeProfileEntry)(nil),                 // 60: coordinator.v1.RuntimeProfileEntry
 	(*RuntimeProfileLayer)(nil),                 // 61: coordinator.v1.RuntimeProfileLayer
 	(*ResolveRuntimeProfileResponse)(nil),       // 62: coordinator.v1.ResolveRuntimeProfileResponse
-	nil,                                         // 63: coordinator.v1.PollRequest.LabelsEntry
-	nil,                                         // 64: coordinator.v1.Task.WorkerSelectorEntry
-	nil,                                         // 65: coordinator.v1.WorkerInfo.LabelsEntry
-	nil,                                         // 66: coordinator.v1.HeartbeatRequest.LabelsEntry
+	(*RelayTarget)(nil),                         // 63: coordinator.v1.RelayTarget
+	(*CheckAIEndpointRequest)(nil),              // 64: coordinator.v1.CheckAIEndpointRequest
+	(*CheckAIEndpointResponse)(nil),             // 65: coordinator.v1.CheckAIEndpointResponse
+	(*RelayClientMessage)(nil),                  // 66: coordinator.v1.RelayClientMessage
+	(*RelayOpen)(nil),                           // 67: coordinator.v1.RelayOpen
+	(*RelayHeader)(nil),                         // 68: coordinator.v1.RelayHeader
+	(*RelayBody)(nil),                           // 69: coordinator.v1.RelayBody
+	(*RelayCancel)(nil),                         // 70: coordinator.v1.RelayCancel
+	(*RelayServerMessage)(nil),                  // 71: coordinator.v1.RelayServerMessage
+	(*RelayAccepted)(nil),                       // 72: coordinator.v1.RelayAccepted
+	(*RelayResponseHead)(nil),                   // 73: coordinator.v1.RelayResponseHead
+	(*RelayError)(nil),                          // 74: coordinator.v1.RelayError
+	(*RelayEnd)(nil),                            // 75: coordinator.v1.RelayEnd
+	nil,                                         // 76: coordinator.v1.PollRequest.LabelsEntry
+	nil,                                         // 77: coordinator.v1.Task.WorkerSelectorEntry
+	nil,                                         // 78: coordinator.v1.WorkerInfo.LabelsEntry
+	nil,                                         // 79: coordinator.v1.HeartbeatRequest.LabelsEntry
 }
 var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
-	63, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
+	76, // 0: coordinator.v1.PollRequest.labels:type_name -> coordinator.v1.PollRequest.LabelsEntry
 	7,  // 1: coordinator.v1.PollResponse.task:type_name -> coordinator.v1.Task
 	7,  // 2: coordinator.v1.DispatchRequest.task:type_name -> coordinator.v1.Task
 	0,  // 3: coordinator.v1.Task.operation:type_name -> coordinator.v1.Operation
-	64, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
+	77, // 4: coordinator.v1.Task.worker_selector:type_name -> coordinator.v1.Task.WorkerSelectorEntry
 	29, // 5: coordinator.v1.Task.previous_status:type_name -> coordinator.v1.DAGRunStatusProto
 	10, // 6: coordinator.v1.GetWorkersResponse.workers:type_name -> coordinator.v1.WorkerInfo
-	65, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
+	78, // 7: coordinator.v1.WorkerInfo.labels:type_name -> coordinator.v1.WorkerInfo.LabelsEntry
 	26, // 8: coordinator.v1.WorkerInfo.running_tasks:type_name -> coordinator.v1.RunningTask
 	1,  // 9: coordinator.v1.WorkerInfo.health_status:type_name -> coordinator.v1.WorkerHealthStatus
-	66, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
+	79, // 10: coordinator.v1.HeartbeatRequest.labels:type_name -> coordinator.v1.HeartbeatRequest.LabelsEntry
 	25, // 11: coordinator.v1.HeartbeatRequest.stats:type_name -> coordinator.v1.WorkerStats
 	12, // 12: coordinator.v1.HeartbeatRequest.machine:type_name -> coordinator.v1.MachineSample
 	13, // 13: coordinator.v1.MachineSample.memory:type_name -> coordinator.v1.MachineUsage
@@ -7068,57 +8775,73 @@ var file_proto_coordinator_v1_coordinator_proto_depIdxs = []int32{
 	60, // 34: coordinator.v1.RuntimeProfileLayer.entries:type_name -> coordinator.v1.RuntimeProfileEntry
 	61, // 35: coordinator.v1.ResolveRuntimeProfileResponse.defaults:type_name -> coordinator.v1.RuntimeProfileLayer
 	61, // 36: coordinator.v1.ResolveRuntimeProfileResponse.selected:type_name -> coordinator.v1.RuntimeProfileLayer
-	3,  // 37: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
-	5,  // 38: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
-	8,  // 39: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
-	11, // 40: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
-	16, // 41: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
-	18, // 42: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
-	20, // 43: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
-	22, // 44: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
-	27, // 45: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
-	30, // 46: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
-	32, // 47: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
-	35, // 48: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
-	37, // 49: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
-	39, // 50: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
-	40, // 51: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
-	42, // 52: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
-	47, // 53: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
-	49, // 54: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
-	51, // 55: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
-	53, // 56: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
-	55, // 57: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
-	57, // 58: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
-	59, // 59: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
-	4,  // 60: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
-	6,  // 61: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
-	9,  // 62: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
-	15, // 63: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
-	17, // 64: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
-	19, // 65: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
-	21, // 66: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
-	23, // 67: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
-	28, // 68: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
-	31, // 69: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
-	33, // 70: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
-	36, // 71: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
-	38, // 72: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
-	35, // 73: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
-	41, // 74: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
-	43, // 75: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
-	48, // 76: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
-	50, // 77: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
-	52, // 78: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
-	54, // 79: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
-	56, // 80: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
-	58, // 81: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
-	62, // 82: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
-	60, // [60:83] is the sub-list for method output_type
-	37, // [37:60] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	63, // 37: coordinator.v1.CheckAIEndpointRequest.target:type_name -> coordinator.v1.RelayTarget
+	67, // 38: coordinator.v1.RelayClientMessage.open:type_name -> coordinator.v1.RelayOpen
+	69, // 39: coordinator.v1.RelayClientMessage.body:type_name -> coordinator.v1.RelayBody
+	70, // 40: coordinator.v1.RelayClientMessage.cancel:type_name -> coordinator.v1.RelayCancel
+	63, // 41: coordinator.v1.RelayOpen.target:type_name -> coordinator.v1.RelayTarget
+	68, // 42: coordinator.v1.RelayOpen.headers:type_name -> coordinator.v1.RelayHeader
+	72, // 43: coordinator.v1.RelayServerMessage.accepted:type_name -> coordinator.v1.RelayAccepted
+	73, // 44: coordinator.v1.RelayServerMessage.head:type_name -> coordinator.v1.RelayResponseHead
+	69, // 45: coordinator.v1.RelayServerMessage.body:type_name -> coordinator.v1.RelayBody
+	74, // 46: coordinator.v1.RelayServerMessage.error:type_name -> coordinator.v1.RelayError
+	75, // 47: coordinator.v1.RelayServerMessage.end:type_name -> coordinator.v1.RelayEnd
+	68, // 48: coordinator.v1.RelayResponseHead.headers:type_name -> coordinator.v1.RelayHeader
+	3,  // 49: coordinator.v1.CoordinatorService.Poll:input_type -> coordinator.v1.PollRequest
+	5,  // 50: coordinator.v1.CoordinatorService.Dispatch:input_type -> coordinator.v1.DispatchRequest
+	8,  // 51: coordinator.v1.CoordinatorService.GetWorkers:input_type -> coordinator.v1.GetWorkersRequest
+	11, // 52: coordinator.v1.CoordinatorService.Heartbeat:input_type -> coordinator.v1.HeartbeatRequest
+	16, // 53: coordinator.v1.CoordinatorService.AckTaskClaim:input_type -> coordinator.v1.AckTaskClaimRequest
+	18, // 54: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:input_type -> coordinator.v1.ClaimAgentSessionCleanupRequest
+	20, // 55: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:input_type -> coordinator.v1.CompleteAgentSessionCleanupRequest
+	22, // 56: coordinator.v1.CoordinatorService.RunHeartbeat:input_type -> coordinator.v1.RunHeartbeatRequest
+	27, // 57: coordinator.v1.CoordinatorService.ReportStatus:input_type -> coordinator.v1.ReportStatusRequest
+	30, // 58: coordinator.v1.CoordinatorService.StreamLogs:input_type -> coordinator.v1.LogChunk
+	32, // 59: coordinator.v1.CoordinatorService.StreamArtifacts:input_type -> coordinator.v1.ArtifactChunk
+	35, // 60: coordinator.v1.CoordinatorService.PutWorkspaceBundle:input_type -> coordinator.v1.WorkspaceBundleChunk
+	37, // 61: coordinator.v1.CoordinatorService.HasWorkspaceBundle:input_type -> coordinator.v1.HasWorkspaceBundleRequest
+	39, // 62: coordinator.v1.CoordinatorService.GetWorkspaceBundle:input_type -> coordinator.v1.GetWorkspaceBundleRequest
+	40, // 63: coordinator.v1.CoordinatorService.GetDAGRunStatus:input_type -> coordinator.v1.GetDAGRunStatusRequest
+	42, // 64: coordinator.v1.CoordinatorService.RequestCancel:input_type -> coordinator.v1.RequestCancelRequest
+	47, // 65: coordinator.v1.CoordinatorService.GetState:input_type -> coordinator.v1.GetStateRequest
+	49, // 66: coordinator.v1.CoordinatorService.PutState:input_type -> coordinator.v1.PutStateRequest
+	51, // 67: coordinator.v1.CoordinatorService.DeleteState:input_type -> coordinator.v1.DeleteStateRequest
+	53, // 68: coordinator.v1.CoordinatorService.ListState:input_type -> coordinator.v1.ListStateRequest
+	55, // 69: coordinator.v1.CoordinatorService.GetDAG:input_type -> coordinator.v1.GetDAGRequest
+	57, // 70: coordinator.v1.CoordinatorService.ResolveSecretReference:input_type -> coordinator.v1.ResolveSecretReferenceRequest
+	59, // 71: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:input_type -> coordinator.v1.ResolveRuntimeProfileRequest
+	64, // 72: coordinator.v1.CoordinatorService.CheckAIEndpoint:input_type -> coordinator.v1.CheckAIEndpointRequest
+	66, // 73: coordinator.v1.CoordinatorService.RelayAIRequest:input_type -> coordinator.v1.RelayClientMessage
+	4,  // 74: coordinator.v1.CoordinatorService.Poll:output_type -> coordinator.v1.PollResponse
+	6,  // 75: coordinator.v1.CoordinatorService.Dispatch:output_type -> coordinator.v1.DispatchResponse
+	9,  // 76: coordinator.v1.CoordinatorService.GetWorkers:output_type -> coordinator.v1.GetWorkersResponse
+	15, // 77: coordinator.v1.CoordinatorService.Heartbeat:output_type -> coordinator.v1.HeartbeatResponse
+	17, // 78: coordinator.v1.CoordinatorService.AckTaskClaim:output_type -> coordinator.v1.AckTaskClaimResponse
+	19, // 79: coordinator.v1.CoordinatorService.ClaimAgentSessionCleanup:output_type -> coordinator.v1.ClaimAgentSessionCleanupResponse
+	21, // 80: coordinator.v1.CoordinatorService.CompleteAgentSessionCleanup:output_type -> coordinator.v1.CompleteAgentSessionCleanupResponse
+	23, // 81: coordinator.v1.CoordinatorService.RunHeartbeat:output_type -> coordinator.v1.RunHeartbeatResponse
+	28, // 82: coordinator.v1.CoordinatorService.ReportStatus:output_type -> coordinator.v1.ReportStatusResponse
+	31, // 83: coordinator.v1.CoordinatorService.StreamLogs:output_type -> coordinator.v1.StreamLogsResponse
+	33, // 84: coordinator.v1.CoordinatorService.StreamArtifacts:output_type -> coordinator.v1.StreamArtifactsResponse
+	36, // 85: coordinator.v1.CoordinatorService.PutWorkspaceBundle:output_type -> coordinator.v1.PutWorkspaceBundleResponse
+	38, // 86: coordinator.v1.CoordinatorService.HasWorkspaceBundle:output_type -> coordinator.v1.HasWorkspaceBundleResponse
+	35, // 87: coordinator.v1.CoordinatorService.GetWorkspaceBundle:output_type -> coordinator.v1.WorkspaceBundleChunk
+	41, // 88: coordinator.v1.CoordinatorService.GetDAGRunStatus:output_type -> coordinator.v1.GetDAGRunStatusResponse
+	43, // 89: coordinator.v1.CoordinatorService.RequestCancel:output_type -> coordinator.v1.RequestCancelResponse
+	48, // 90: coordinator.v1.CoordinatorService.GetState:output_type -> coordinator.v1.GetStateResponse
+	50, // 91: coordinator.v1.CoordinatorService.PutState:output_type -> coordinator.v1.PutStateResponse
+	52, // 92: coordinator.v1.CoordinatorService.DeleteState:output_type -> coordinator.v1.DeleteStateResponse
+	54, // 93: coordinator.v1.CoordinatorService.ListState:output_type -> coordinator.v1.ListStateResponse
+	56, // 94: coordinator.v1.CoordinatorService.GetDAG:output_type -> coordinator.v1.GetDAGResponse
+	58, // 95: coordinator.v1.CoordinatorService.ResolveSecretReference:output_type -> coordinator.v1.ResolveSecretReferenceResponse
+	62, // 96: coordinator.v1.CoordinatorService.ResolveRuntimeProfile:output_type -> coordinator.v1.ResolveRuntimeProfileResponse
+	65, // 97: coordinator.v1.CoordinatorService.CheckAIEndpoint:output_type -> coordinator.v1.CheckAIEndpointResponse
+	71, // 98: coordinator.v1.CoordinatorService.RelayAIRequest:output_type -> coordinator.v1.RelayServerMessage
+	74, // [74:99] is the sub-list for method output_type
+	49, // [49:74] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_proto_coordinator_v1_coordinator_proto_init() }
@@ -7130,13 +8853,25 @@ func file_proto_coordinator_v1_coordinator_proto_init() {
 	file_proto_coordinator_v1_coordinator_proto_msgTypes[9].OneofWrappers = []any{}
 	file_proto_coordinator_v1_coordinator_proto_msgTypes[10].OneofWrappers = []any{}
 	file_proto_coordinator_v1_coordinator_proto_msgTypes[27].OneofWrappers = []any{}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[63].OneofWrappers = []any{
+		(*RelayClientMessage_Open)(nil),
+		(*RelayClientMessage_Body)(nil),
+		(*RelayClientMessage_Cancel)(nil),
+	}
+	file_proto_coordinator_v1_coordinator_proto_msgTypes[68].OneofWrappers = []any{
+		(*RelayServerMessage_Accepted)(nil),
+		(*RelayServerMessage_Head)(nil),
+		(*RelayServerMessage_Body)(nil),
+		(*RelayServerMessage_Error)(nil),
+		(*RelayServerMessage_End)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_coordinator_v1_coordinator_proto_rawDesc), len(file_proto_coordinator_v1_coordinator_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   64,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

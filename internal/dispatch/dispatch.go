@@ -18,12 +18,16 @@ import (
 var ErrBuildRequiresLocal = errors.New("build workflows require local execution; distributed fencing is not implemented")
 
 // ShouldDispatchToCoordinator decides whether a DAG should be dispatched
-// to the coordinator for distributed execution.
+// to the coordinator for distributed execution. A DAG that needs a CLI provider
+// always goes to the coordinator when the process has one (Spec 092, "Dispatch").
 func ShouldDispatchToCoordinator(dag *ir.DAG, hasCoordinator bool, defaultMode config.ExecutionMode) bool {
-	if dag.ForceLocal {
+	if !hasCoordinator {
 		return false
 	}
-	if !hasCoordinator {
+	if len(dag.AgentProviders()) > 0 {
+		return true
+	}
+	if dag.ForceLocal {
 		return false
 	}
 	if len(dag.WorkerSelector) > 0 {

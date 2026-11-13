@@ -81,6 +81,14 @@ service CoordinatorService {
 
   // ResolveRuntimeProfile resolves inherited and selected runtime profile layers.
   rpc ResolveRuntimeProfile (ResolveRuntimeProfileRequest) returns (ResolveRuntimeProfileResponse);
+
+  // CheckAIEndpoint checks, with no value, that a step may use a target (Spec 094).
+  rpc CheckAIEndpoint (CheckAIEndpointRequest) returns (CheckAIEndpointResponse);
+
+  // RelayAIRequest carries one HTTP request to a model API and its response
+  // (Spec 094). The coordinator adds the key of the endpoint. No message
+  // carries a key.
+  rpc RelayAIRequest (stream RelayClientMessage) returns (stream RelayServerMessage);
 }
 
 // Request message for polling a task.
@@ -88,6 +96,9 @@ message PollRequest {
   string worker_id = 1;
   string poller_id = 2; // Unique ID for this poll request
   map<string, string> labels = 3; // Worker labels for task matching
+  // Capabilities of the worker, such as "ai_relay.v1" (Spec 094). A task that
+  // lists a required capability goes only to a worker that announces it.
+  repeated string capabilities = 4;
 }
 
 // Response message for polling a task.
@@ -179,6 +190,9 @@ message Task {
   string interval_start = 43;
   string next_scheduled_at = 44;
   string schedule_timezone = 45;
+  // Capabilities that the worker must announce, such as "ai_relay.v1" (Spec 094).
+  // A worker before this field ignores it.
+  repeated string required_capabilities = 46;
 }
 
 enum Operation {
@@ -226,6 +240,12 @@ message HeartbeatRequest {
   WorkerStats stats = 3;
   string host = 4;            // Name of the machine the worker runs on
   MachineSample machine = 5;  // Unset until the worker samples its machine
+  // offline is the last heartbeat of a worker that stops. The coordinator
+  // removes the worker at once, so no dispatch counts on it. The checks of a
+  // heartbeat apply: only the pool of the worker ID can remove the worker.
+  bool offline = 6;
+  // Capabilities of the worker, as in PollRequest.
+  repeated string capabilities = 7;
 }
 
 // A reading of the resources of the machine a worker runs on, or of its
@@ -389,6 +409,7 @@ enum LogStreamType {
   LOG_STREAM_TYPE_STDOUT = 1;
   LOG_STREAM_TYPE_STDERR = 2;
   LOG_STREAM_TYPE_SCHEDULER = 3;  // Scheduler/DAG run log
+  LOG_STREAM_TYPE_AGENT_STREAM = 4;  // Raw stream of a CLI agent, stored next to the stdout log
 }
 
 // Response message for log streaming.
@@ -584,6 +605,7 @@ message ResolveSecretReferenceRequest {
   string attempt_key = 6; // Active distributed attempt lease key
   string attempt_id = 7;  // Attempt ID created by the coordinator
   string dag_name = 8;    // Current DAG definition; empty keeps legacy root behavior
+  string step_name = 9;   // Step that lists the secret; required for a value in a DAG with step scope
 }
 
 message ResolveSecretReferenceResponse {
@@ -613,4 +635,92 @@ message RuntimeProfileLayer {
 message ResolveRuntimeProfileResponse {
   RuntimeProfileLayer defaults = 1;
   RuntimeProfileLayer selected = 2;
+}
+
+// RelayTarget names what a relay request uses. The kind is "endpoint" or "mcp".
+message RelayTarget {
+  string kind = 1;
+  string name = 2;
+}
+
+message CheckAIEndpointRequest {
+  string worker_id = 1;
+  string attempt_key = 2;
+  string attempt_id = 3;
+  string dag_name = 4;
+  string step_name = 5;
+  RelayTarget target = 6;
+  string provider = 7; // The CLI provider or the chat type that will use the target
+  string model = 8; // The model of the step after resolution. Empty means no model check.
+}
+
+message CheckAIEndpointResponse {
+  string protocol = 1;
+  string chat_type = 2; // The provider type of chat.completion
+}
+
+message RelayClientMessage {
+  oneof kind {
+    RelayOpen open = 1;     // The first message
+    RelayBody body = 2;     // Chunks of the request body
+    RelayCancel cancel = 3; // The client went away
+  }
+}
+
+message RelayOpen {
+  string worker_id = 1;
+  string attempt_key = 2;
+  string attempt_id = 3;
+  string dag_name = 4;
+  string step_name = 5;
+  RelayTarget target = 6;
+  string method = 7;
+  string path = 8;
+  string query = 9;
+  repeated RelayHeader headers = 10;
+  int64 content_length = 11; // -1 when unknown
+}
+
+message RelayHeader {
+  string name = 1;
+  string value = 2;
+}
+
+message RelayBody {
+  bytes data = 1; // At most 65536 bytes
+  bool end = 2;
+}
+
+message RelayCancel {
+  // No field
+}
+
+message RelayServerMessage {
+  oneof kind {
+    RelayAccepted accepted = 1; // The checks passed. It holds the limits.
+    RelayResponseHead head = 2;
+    RelayBody body = 3;
+    RelayError error = 4; // The coordinator refused or the call failed
+    RelayEnd end = 5;     // The last message of a good response
+  }
+}
+
+message RelayAccepted {
+  int64 max_request_bytes = 1;
+  int64 max_response_bytes = 2;
+  int32 idle_timeout_sec = 3;
+}
+
+message RelayResponseHead {
+  int32 status = 1;
+  repeated RelayHeader headers = 2;
+}
+
+message RelayError {
+  string reason = 1;  // A name of the table of failure kinds
+  string message = 2; // No key, no header value
+}
+
+message RelayEnd {
+  int64 response_bytes = 1;
 }
