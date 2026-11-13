@@ -120,11 +120,14 @@ Review generated diffs with the source change that caused them.
 
 ## Pull request CI
 
-- Every push to a pull request runs the light checks: Go lint, Linux unit
-  and integration tests, the frontend build, and the chart and image scans.
+- Each workflow runs only for changes to the paths it covers. A pull request
+  or push that changes only `rfcs/` runs no checks.
+- Every push to a pull request runs the light checks its changes cover: Go
+  lint, Linux unit and integration tests, the frontend build, and the chart
+  and image scans.
 - The heavy checks run only on a pull request with the `full-ci` label:
   Windows tests, the conformance suite, browser and desktop E2E, and the dev
-  image browser test. Pushes to `main` run every check.
+  image browser test. Pushes to `main` run every check their changes cover.
 - The Windows tests also run on a pull request that changes Go code built
   only for Windows, a `*_windows.go` file or one whose build constraint names
   windows, and on one with the `windows-ci` label, which runs them without
