@@ -2662,10 +2662,19 @@ func (a *Agent) retryNodes() ([]*runtime.Node, error) {
 		steps[step.Name] = step
 	}
 
+	// A checkpoint resume cannot run a step before its approval or human
+	// task again, so a masked output it restores is reused as it is; only a
+	// retry checks reads of one.
+	resume := a.resumingCheckpoint()
 	nodes := make([]*runtime.Node, 0, len(a.retryTarget.Nodes))
 	for _, node := range a.retryTarget.Nodes {
 		if node == nil {
 			continue
+		}
+		if resume && node.MaskedOutputs != nil {
+			unchecked := *node
+			unchecked.MaskedOutputs = nil
+			node = &unchecked
 		}
 		step, ok := steps[node.Step.Name]
 		if !ok {
@@ -2700,12 +2709,18 @@ func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) (*runtime.Plan, error)
 // setupDefaultRetryPlan sets up the plan for the default retry behavior (all failed/canceled nodes and downstreams).
 func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node) (*runtime.Plan, error) {
 	plan, err := runtime.CreateRetryPlanWithOptions(ctx, a.dag, runtime.RetryPlanOptions{
-		Resume: a.retryTarget != nil && a.retryTarget.Status == ir.Queued && a.retryTarget.Resume,
+		Resume: a.resumingCheckpoint(),
 	}, nodes...)
 	if err != nil {
 		return nil, err
 	}
 	return plan, nil
+}
+
+// resumingCheckpoint reports whether the run resumes a queued checkpoint, such
+// as after an approval or a human task, rather than retrying.
+func (a *Agent) resumingCheckpoint() bool {
+	return a.retryTarget != nil && a.retryTarget.Status == ir.Queued && a.retryTarget.Resume
 }
 
 func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {

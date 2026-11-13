@@ -81,15 +81,15 @@ a newline, is masked too. The mask replaces the literal value with `*******`.
 Masking does not change the values steps exchange within a run. A later step
 of the same run reads a published output with the secret intact.
 
-A run can instead restore a step's stored result without executing the step
-again: a retry of the run or of a step, a retry with an edited DAG, resume
-after an approval or a human task, and a run that carries another run's
-outputs. Stored outputs stay masked, and stored status records which outputs
-masking changed. A step that reads a recorded output after such a restore
-fails before it runs, with an error that names the step and the output and
-says the producing step has to run again. A step reads an output where value
-resolution inserts it into one of the step's fields, or where a POSIX shell
-that runs the step's command or script expands it from its environment:
+A retry can instead restore a step's stored result without executing the step
+again: a retry of the run or of a step, a retry with an edited DAG, and a run
+that carries another run's outputs. Stored outputs stay masked, and stored
+status records which outputs masking changed. A step that reads a recorded
+output after such a restore fails before it runs, with an error that names the
+step and the output and says the producing step has to run again, together
+with the steps after it. A step reads an output where value resolution inserts
+it into one of the step's fields, or where a POSIX shell that runs the step's
+command or script expands it from its environment:
 
 - `${steps.<id>.outputs.<name>}` reads a published output.
 - `${<id>.outputs}` and any path under it read the published outputs when the
@@ -133,9 +133,13 @@ executor resolves while the step runs, such as foreach items, fails the step
 at the read, before the executor uses the value. A repeat condition runs after
 each execution, so one that reads a recorded output fails the step after the
 execution that evaluates it. The failure is the same on every attempt, so it is
-not retried, repeated, or marked successful. A step that needs a secret after
-an approval or a human task reads the secret itself instead of through an
-output.
+not retried, repeated, or marked successful.
+
+Resume after an approval or a human task restores outputs too, but cannot run
+a step before the gate again without reopening it, so it reuses outputs stored
+masked as they are and a step after the gate reads `*******`. A step that
+needs a secret after an approval or a human task reads the secret itself
+instead of through an output.
 
 Provider-specific behavior covered here:
 
