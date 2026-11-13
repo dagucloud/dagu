@@ -44,6 +44,12 @@ type SeedRequest struct {
 	ProfileName  string
 	DefinitionID string
 	NoReuse      bool
+	// ScheduleTime and ScheduleWindow name the schedule slot the run is for.
+	ScheduleTime   string
+	ScheduleWindow ir.ScheduleWindow
+	// BackfillID names the backfill the run belongs to, as a retry of a
+	// backfill run does.
+	BackfillID string
 	// Ephemeral stores the run apart from the history and marks it so that it
 	// leaves no trace.
 	Ephemeral bool
@@ -98,6 +104,7 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 		ir.WithPreconditions(dag.Preconditions),
 		ir.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, req.DAGRunID), ir.DAGRunRef{}),
 		ir.WithTriggerType(req.TriggerType),
+		ir.WithBackfillID(req.BackfillID),
 		ir.WithTriggerActor(req.TriggerActor),
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 		ir.WithDAGDefinitionID(req.DefinitionID),
@@ -105,6 +112,8 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 		ir.WithEphemeral(req.Ephemeral),
 		ir.WithReusedInputs(req.ReusedInputs),
 		ir.WithSkipHandlers(req.SkipHandlers),
+		ir.WithScheduleTime(req.ScheduleTime),
+		ir.WithScheduleWindow(req.ScheduleWindow),
 	)
 	status.Params = req.Params
 	status.ParamsList = dag.Params

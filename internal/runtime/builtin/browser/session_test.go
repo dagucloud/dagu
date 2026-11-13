@@ -114,6 +114,11 @@ func (ts *testSessions) open(opts SessionOptions) OpenResult {
 	ts.t.Helper()
 	opened, err := ts.sessions.Open(ts.context(), opts)
 	require.NoError(ts.t, err)
+	// A session the test leaves open keeps its profile directory, which is
+	// outside the test's own temporary directory.
+	if record := ts.record(opened.ID); record.OwnsUserDataDir {
+		ts.t.Cleanup(func() { _ = os.RemoveAll(record.UserDataDir) })
+	}
 	return opened
 }
 

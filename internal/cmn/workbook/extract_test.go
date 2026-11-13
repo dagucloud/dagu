@@ -56,6 +56,22 @@ func TestReadCellsEmptyAndAbsent(t *testing.T) {
 	assert.Equal(t, "", result.Cells["absent"])
 }
 
+// A field read from a formula cell whose cached value is out of date gets
+// the same stale warning a read does; a cell not asked for is not checked.
+func TestReadCellsStaleFormulaWarns(t *testing.T) {
+	t.Parallel()
+	path := staleBook(t, 1)
+	result, err := ReadCells(context.Background(), path, ReadCellsOptions{Cells: map[string]string{"amount": "C2", "ok": "D2", "unsupported": "E2"}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(93000), result.Values["amount"])
+	assert.Equal(t, []string{"Raw!C2: cached formula value is stale; set formulas: calculate to read current values"}, result.Warnings)
+
+	fresh, err := ReadCells(context.Background(), path, ReadCellsOptions{Cells: map[string]string{"amount": "C2"}, Formulas: FormulaCalculate})
+	require.NoError(t, err)
+	assert.Equal(t, int64(124000), fresh.Values["amount"])
+	assert.Empty(t, fresh.Warnings)
+}
+
 func TestReadCellsPinnedTypes(t *testing.T) {
 	t.Parallel()
 	result, err := ReadCells(context.Background(), formBook(t), ReadCellsOptions{

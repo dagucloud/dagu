@@ -29,6 +29,8 @@ on:
       - reopened # new commits are pushed to the branch that the PR is based on
       - synchronize # new commits are pushed to the branch that the PR is based on
       - ready_for_review # PR is ready for review
+      - converted_to_draft # cancels the run in progress
+      - labeled # full-ci runs the heavy jobs; windows-ci the Windows tests
     paths:
       - "api/**"
       - "*.go"
@@ -57,7 +59,9 @@ concurrency:
   # replaces. Runs for a branch share one group and always finish: one runs
   # at a time, and a newer commit replaces the run still waiting, so a burst
   # of merges to main tests only the latest commit.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A run started by any label but full-ci or windows-ci skips every job,
+  # and its own group keeps it from cancelling the run in progress.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'windows-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -68,8 +72,14 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.draft != true &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci' ||
+      github.event.label.name == 'windows-ci')
     outputs:
       go: ${{ steps.filter.outputs.go }}
+      windows: ${{ steps.filter.outputs.windows }}
+      windows_specific: ${{ steps.filter.outputs.windows_specific }}
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - name: Check out code
@@ -83,6 +93,8 @@ jobs:
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "windows=true" >> "${GITHUB_OUTPUT}"
+            echo "windows_specific=true" >> "${GITHUB_OUTPUT}"
             echo "e2e=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -99,6 +111,8 @@ jobs:
 
           if [[ -z "${base_sha}" || "${base_sha}" == "0000000000000000000000000000000000000000" ]]; then
             echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "windows=true" >> "${GITHUB_OUTPUT}"
+            echo "windows_specific=true" >> "${GITHUB_OUTPUT}"
             echo "e2e=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -106,6 +120,8 @@ jobs:
           if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
             echo "Base commit ${base_sha} is not available locally; running CI conservatively."
             echo "go=true" >> "${GITHUB_OUTPUT}"
+            echo "windows=true" >> "${GITHUB_OUTPUT}"
+            echo "windows_specific=true" >> "${GITHUB_OUTPUT}"
             echo "e2e=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -114,6 +130,8 @@ jobs:
           printf '%s\n' "${changed_files}"
 
           go_changed=false
+          windows_changed=false
+          windows_specific=false
           e2e_changed=false
           while IFS= read -r file; do
             case "${file}" in
@@ -122,8 +140,28 @@ jobs:
                 ;;
             esac
 
+            # The Windows jobs test Go code alone, not docs or skills.
             case "${file}" in
-              ui/*)
+              *.go|go.mod|go.sum|scripts/ci/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
+                windows_changed=true
+                ;;
+            esac
+
+            # Go code that builds only for Windows, by file name or build
+            # constraint, runs the Windows tests on a pull request without a label.
+            case "${file}" in
+              *_windows.go|*_windows_*.go)
+                windows_specific=true
+                ;;
+              *.go)
+                if [[ -f "${file}" ]] && grep -qE '^//go:build( |.*[^!])windows' "${file}"; then
+                  windows_specific=true
+                fi
+                ;;
+            esac
+
+            case "${file}" in
+              ui/*|.github/workflows/ci.yaml)
                 e2e_changed=true
                 ;;
             esac
@@ -131,6 +169,8 @@ jobs:
           done <<< "${changed_files}"
 
           echo "go=${go_changed}" >> "${GITHUB_OUTPUT}"
+          echo "windows=${windows_changed}" >> "${GITHUB_OUTPUT}"
+          echo "windows_specific=${windows_specific}" >> "${GITHUB_OUTPUT}"
           echo "e2e=${e2e_changed}" >> "${GITHUB_OUTPUT}"
 
   # Lint Go code
@@ -368,7 +408,8 @@ jobs:
   e2e:
     name: E2E (${{ matrix.shard }}/${{ matrix.shard_total }})
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    # A pull request runs this job only with the full-ci label.
+    if: needs.changes.outputs.e2e == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     # Playwright does not support Chromium on the ubuntu-26.04 image yet.
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -410,9 +451,11 @@ jobs:
         working-directory: ui
         run: pnpm install --frozen-lockfile
 
+      # The runner image has Chromium's libraries. Installing nothing through
+      # apt keeps the job independent of the Ubuntu package mirrors.
       - name: Install Playwright Chromium
         working-directory: ui
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Run browser E2E tests
         env:
@@ -427,7 +470,14 @@ jobs:
   test-windows:
     name: Test on windows-latest (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    # A pull request runs this job when it changes Go code that builds only
+    # for Windows, or with the full-ci or windows-ci label.
+    if: >-
+      needs.changes.outputs.windows == 'true' && (
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.windows_specific == 'true' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+      contains(github.event.pull_request.labels.*.name, 'windows-ci'))
     runs-on: windows-latest
     timeout-minutes: 30
     strategy:

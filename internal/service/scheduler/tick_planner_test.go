@@ -2007,6 +2007,19 @@ func TestLatestScheduledSlotMarksRemovedScheduleSlotStale(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 2, 7, 12, 34, 0, 0, time.UTC), scheduledAt)
 }
 
+// A manual run started for a slot is read by when it ran, as a manual run
+// without a slot is.
+func TestLatestScheduledSlotIgnoresManualRunSlot(t *testing.T) {
+	t.Parallel()
+
+	_, state := latestScheduledSlot(ir.DAGRunStatus{
+		ScheduleTime: "2026-02-07T12:00:00Z",
+		TriggerType:  ir.TriggerTypeManual,
+	}, mustParseSchedule(t, "0 * * * *"))
+
+	assert.Equal(t, latestScheduledSlotUnknown, state)
+}
+
 func TestTickPlanner_ProfileScopedStartSchedules(t *testing.T) {
 	t.Parallel()
 
@@ -2748,6 +2761,13 @@ func TestComputePrevExecTime(t *testing.T) {
 			next:     time.Date(2020, 1, 13, 9, 0, 0, 0, time.UTC), // Monday
 			want:     time.Date(2020, 1, 6, 9, 0, 0, 0, time.UTC),  // Previous Monday
 		},
+		{
+			// The previous fire is half a year back, beyond a month of lookback.
+			name:     "UnevenTwiceYearly",
+			schedule: "0 0 1 1,7 *",
+			next:     time.Date(2020, 7, 1, 0, 0, 0, 0, time.UTC),
+			want:     time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
 	}
 
 	for _, tt := range tests {
@@ -2757,6 +2777,24 @@ func TestComputePrevExecTime(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// A scheduler down for longer than a month still finds the slot of a sparse
+// schedule that it missed.
+func TestLatestCronSlotFindsSparseSlot(t *testing.T) {
+	t.Parallel()
+
+	quarterly := mustParseSchedule(t, "0 0 1 */3 *")
+	from := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+
+	slot, ok := latestCronSlot([]ir.Schedule{quarterly}, from, to)
+
+	require.True(t, ok)
+	assert.Equal(t, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), slot)
+
+	_, ok = latestCronSlot([]ir.Schedule{quarterly}, time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC), to)
+	assert.False(t, ok, "a slot at or before from is not missed")
 }
 
 func TestInheritedScheduling(t *testing.T) {
@@ -2895,42 +2933,52 @@ func lastSlot(tp *TickPlanner, dagName string) *schedulerstate.ScheduleSlot {
 }
 
 // Each due cron slot keeps what came of it: why a guard held it back, or
-// that it was planned to run.
+// that it was planned to run. A slot a guard declined also reaches the slot
+// index with its reason; a failed check or a slot that already ran does not.
 func TestTickPlanner_SlotOutcomes(t *testing.T) {
 	t.Parallel()
 
 	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
 	errCheck := errors.New("check failed")
 	for _, tc := range []struct {
-		name string
-		set  func(*TickPlanner, *ir.DAG)
-		want schedulerstate.SlotOutcome
+		name    string
+		set     func(*TickPlanner, *ir.DAG)
+		want    schedulerstate.SlotOutcome
+		skipped string
 	}{
-		{"planned", func(*TickPlanner, *ir.DAG) {}, schedulerstate.SlotPlanned},
+		{"planned", func(*TickPlanner, *ir.DAG) {}, schedulerstate.SlotPlanned, ""},
 		{"running", func(tp *TickPlanner, _ *ir.DAG) {
 			tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
-		}, schedulerstate.SlotRunning},
+		}, schedulerstate.SlotRunning, "running"},
 		{"queued", func(tp *TickPlanner, _ *ir.DAG) {
 			tp.cfg.IsQueued = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
-		}, schedulerstate.SlotQueued},
+		}, schedulerstate.SlotQueued, "queued"},
 		{"check error", func(tp *TickPlanner, _ *ir.DAG) {
 			tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return false, errCheck }
-		}, schedulerstate.SlotFailed},
+		}, schedulerstate.SlotFailed, ""},
 		{"done", func(tp *TickPlanner, _ *ir.DAG) {
 			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
 				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: "2026-02-07T12:00:00Z"}, nil
 			}
-		}, schedulerstate.SlotDone},
+		}, schedulerstate.SlotDone, ""},
 		{"succeeded", func(tp *TickPlanner, dag *ir.DAG) {
 			dag.SkipIfSuccessful = true
 			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
 				return ir.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2026-02-07T11:30:00Z"}, nil
 			}
-		}, schedulerstate.SlotSucceeded},
+		}, schedulerstate.SlotSucceeded, "succeeded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tp, _ := newTestTickPlanner(&mockStateStore{})
+			var skipped []string
+			tp.cfg.RecordSkippedSlot = func(_ context.Context, dagName string, at time.Time, schedule, reason string) error {
+				assert.Equal(t, "hourly", dagName)
+				assert.Equal(t, slot, at)
+				assert.Equal(t, "0 * * * *", schedule)
+				skipped = append(skipped, reason)
+				return nil
+			}
 			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 			tc.set(tp, dag)
 			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
@@ -2938,8 +2986,43 @@ func TestTickPlanner_SlotOutcomes(t *testing.T) {
 			tp.Plan(t.Context(), slot)
 
 			assert.Equal(t, &schedulerstate.ScheduleSlot{At: slot, Outcome: tc.want}, lastSlot(tp, "hourly"))
+			if tc.skipped == "" {
+				assert.Empty(t, skipped)
+			} else {
+				assert.Equal(t, []string{tc.skipped}, skipped)
+			}
 		})
 	}
+}
+
+// A slot one schedule declines but another schedule firing at the same time
+// runs is not recorded as skipped: its run records it.
+func TestTickPlanner_SlotRunByAnotherScheduleIsNotSkipped(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	var skipped []string
+	tp.cfg.RecordSkippedSlot = func(_ context.Context, _ string, _ time.Time, schedule, reason string) error {
+		skipped = append(skipped, schedule+" "+reason)
+		return nil
+	}
+	// The 11:15 success holds back the hourly slot, whose previous fire is
+	// 11:00, but not the half-hourly one, whose previous fire is 11:30.
+	tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
+		return ir.DAGRunStatus{Status: ir.Succeeded, StartedAt: "2026-02-07T11:15:00Z"}, nil
+	}
+	dag := &ir.DAG{Name: "twice", SkipIfSuccessful: true, Schedule: []ir.Schedule{
+		mustParseSchedule(t, "0 * * * *"),
+		mustParseSchedule(t, "*/30 * * * *"),
+	}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	runs := tp.Plan(t.Context(), slot)
+
+	require.Len(t, runs, 1)
+	assert.Equal(t, slot, runs[0].ScheduledTime)
+	assert.Empty(t, skipped)
 }
 
 // A planned slot settles as dispatched or failed by its dispatch, even when
@@ -3003,12 +3086,17 @@ func TestTickPlanner_DispatchedSlotStays(t *testing.T) {
 }
 
 // A catch-up slot records its dispatch, and one its overlap policy drops
-// records the overlap.
+// records the overlap, in the scheduler state and in the slot index.
 func TestTickPlanner_CatchupSlots(t *testing.T) {
 	t.Parallel()
 
 	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(time.Date(2026, 2, 7, 10, 0, 0, 0, time.UTC))})
 	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error { return nil }
+	var skipped []string
+	tp.cfg.RecordSkippedSlot = func(_ context.Context, _ string, _ time.Time, _, reason string) error {
+		skipped = append(skipped, reason)
+		return nil
+	}
 	dag := newHourlyCatchupDAG(t, "catchup")
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -3024,6 +3112,29 @@ func TestTickPlanner_CatchupSlots(t *testing.T) {
 	tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
 	tp.Plan(t.Context(), now.Add(time.Minute))
 	assert.Equal(t, schedulerstate.SlotOverlap, lastSlot(tp, "catchup").Outcome)
+	assert.Equal(t, []string{"overlap"}, skipped)
+}
+
+// Catchup leaves a slot a backfill holds and records it done.
+func TestTickPlanner_CatchupSkipsSlotABackfillHolds(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(time.Date(2026, 2, 7, 10, 0, 0, 0, time.UTC))})
+	var enqueued int
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		enqueued++
+		return nil
+	}
+	tp.cfg.BackfillGuard = func(context.Context, DAGEntry, time.Time, func() error) (bool, error) { return true, nil }
+	dag := newHourlyCatchupDAG(t, "catchup")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	runs := tp.Plan(t.Context(), time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC))
+	require.Len(t, runs, 1)
+	tp.DispatchRun(t.Context(), runs[0])
+
+	assert.Zero(t, enqueued)
+	assert.Equal(t, &schedulerstate.ScheduleSlot{At: runs[0].ScheduledTime, Outcome: schedulerstate.SlotDone}, lastSlot(tp, "catchup"))
 }
 
 // A scheduler that starts after its last tick records, for each DAG it does
@@ -3048,7 +3159,8 @@ func TestTickPlanner_InitRecordsMissedSlot(t *testing.T) {
 }
 
 // A slot left planned when the scheduler stopped is dispatched once the
-// DAG's latest run is of that slot; otherwise it stays planned.
+// DAG's latest run is of that slot; otherwise it stays planned. A manual run
+// started for the slot is not the scheduler's run of it.
 func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
 	t.Parallel()
 
@@ -3056,10 +3168,12 @@ func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		scheduleTime string
+		triggerType  ir.TriggerType
 		want         schedulerstate.SlotOutcome
 	}{
-		{"ran", "2026-02-07T11:00:00Z", schedulerstate.SlotDispatched},
-		{"never ran", "2026-02-07T10:00:00Z", schedulerstate.SlotPlanned},
+		{"ran", "2026-02-07T11:00:00Z", ir.TriggerTypeScheduler, schedulerstate.SlotDispatched},
+		{"never ran", "2026-02-07T10:00:00Z", ir.TriggerTypeScheduler, schedulerstate.SlotPlanned},
+		{"manual run of the slot", "2026-02-07T11:00:00Z", ir.TriggerTypeManual, schedulerstate.SlotPlanned},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -3069,7 +3183,7 @@ func TestTickPlanner_InitSettlesPlannedSlot(t *testing.T) {
 			}
 			tp, _ := newTestTickPlanner(&mockStateStore{state: state})
 			tp.cfg.GetLatestStatus = func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
-				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: tc.scheduleTime}, nil
+				return ir.DAGRunStatus{Status: ir.Succeeded, ScheduleTime: tc.scheduleTime, TriggerType: tc.triggerType}, nil
 			}
 			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 

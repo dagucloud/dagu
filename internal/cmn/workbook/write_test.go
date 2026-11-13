@@ -4,7 +4,9 @@
 package workbook
 
 import (
+	"archive/zip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -48,6 +50,69 @@ func TestWriteNestedPath(t *testing.T) {
 			assert.Equal(t, int64(10), back.Rows[0]["Amount"])
 		})
 	}
+}
+
+// A workbook path longer than excelize.MaxFilePathLength, which SaveAs
+// refuses, is saved through a file this package opens, in place and
+// atomically, so only the filesystem limits the path.
+func TestWriteLongPath(t *testing.T) {
+	t.Parallel()
+	for _, inPlace := range []bool{false, true} {
+		name := "atomic"
+		if inPlace {
+			name = "in-place"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := longPath(t, "book.xlsx")
+			require.Greater(t, len(path), excelize.MaxFilePathLength)
+			_, err := Write(context.Background(), path, orders(), WriteOptions{Sheet: "Orders", Header: true, InPlace: inPlace})
+			require.NoError(t, err)
+			// A second save replaces the workbook that now exists.
+			_, err = Write(context.Background(), path, orders(), WriteOptions{Sheet: "Orders", Header: true, InPlace: inPlace, Mode: WriteAppend})
+			require.NoError(t, err)
+			back, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, 4, back.Count)
+		})
+	}
+}
+
+// A new .xlsm workbook is saved as a macro-enabled package: excelize takes
+// the container format from the path the save gives it.
+func TestWriteNewMacroWorkbook(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "book.xlsm")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+	zr, err := zip.OpenReader(path)
+	require.NoError(t, err)
+	defer func() { _ = zr.Close() }()
+	for _, zf := range zr.File {
+		if zf.Name != "[Content_Types].xml" {
+			continue
+		}
+		rc, err := zf.Open()
+		require.NoError(t, err)
+		types, err := io.ReadAll(rc)
+		_ = rc.Close()
+		require.NoError(t, err)
+		assert.Contains(t, string(types), "sheet.macroEnabled.main+xml")
+		return
+	}
+	t.Fatal("[Content_Types].xml missing")
+}
+
+// longPath returns a path for name under a fresh temporary directory whose
+// length passes excelize.MaxFilePathLength but stays near 220 characters,
+// within what Windows allows without long path support.
+func longPath(t *testing.T, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	pad := max(220-len(filepath.Join(dir, "x", name)), 1)
+	dir = filepath.Join(dir, strings.Repeat("d", pad))
+	require.NoError(t, os.Mkdir(dir, 0o750))
+	return filepath.Join(dir, name)
 }
 
 func TestWriteNoDirectoriesWithoutSave(t *testing.T) {

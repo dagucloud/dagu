@@ -29,6 +29,11 @@ func TestSeedRun(t *testing.T) {
 	ctx := context.Background()
 	repo, logDir := newSeedRepository(t)
 	dag := seedTestDAG()
+	window := ir.ScheduleWindow{
+		Start:    time.Date(2026, 3, 13, 11, 0, 0, 0, time.UTC),
+		Next:     time.Date(2026, 3, 13, 13, 0, 0, 0, time.UTC),
+		Timezone: "UTC",
+	}
 
 	_, seeded, err := intake.SeedRun(ctx, intake.SeedRequest{
 		DAGRunRepository: repo,
@@ -40,12 +45,16 @@ func TestSeedRun(t *testing.T) {
 		TriggerActor:     "alice",
 		ProfileName:      "dev",
 		NoReuse:          true,
+		ScheduleTime:     "2026-03-13T12:00:00Z",
+		ScheduleWindow:   window,
 		LogBaseDir:       logDir,
 	})
 	require.NoError(t, err)
 
 	status := readLatestStatus(t, repo, dag.Name, "run-1")
 	require.Equal(t, seeded.AttemptID, status.AttemptID)
+	require.Equal(t, "2026-03-13T12:00:00Z", status.ScheduleTime)
+	require.Equal(t, window, status.ScheduleWindow())
 	require.Equal(t, ir.Queued, status.Status)
 	require.Equal(t, ir.TriggerTypeManual, status.TriggerType)
 	require.Equal(t, "alice", status.TriggerActor)

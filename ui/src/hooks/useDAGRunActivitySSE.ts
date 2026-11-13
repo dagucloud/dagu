@@ -10,6 +10,8 @@ type DAGRunActivitySSEParams = {
   hours?: number;
   labels?: string;
   workspace?: components['parameters']['Workspace'];
+  /** Leave out the runs that a restart policy started. */
+  excludeServiceDAGRuns?: boolean;
 };
 
 /** Streams the activity of a window that ends now. */

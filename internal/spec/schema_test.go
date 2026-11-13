@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -193,11 +194,10 @@ func TestLoadSchemaFromURL(t *testing.T) {
 		assert.Equal(t, `{"type":"object"}`, string(data))
 	})
 
-	t.Run("ConnectionRefused", func(t *testing.T) {
+	t.Run("ConnectionError", func(t *testing.T) {
 		t.Parallel()
 
-		// Use a port that's unlikely to be in use
-		_, err := loadSchemaFromURL("http://127.0.0.1:59999/schema.json")
+		_, err := loadSchemaFromURL("http://" + droppingAddr(t) + "/schema.json")
 		require.Error(t, err)
 		assert.True(t, IsSourceUnavailable(err))
 	})
@@ -517,7 +517,7 @@ func TestGetSchemaFromRef(t *testing.T) {
 			},
 			{
 				name:   "ConnectionError",
-				ref:    "http://ghp_token@127.0.0.1:59999/schema.json",
+				ref:    "http://ghp_token@" + droppingAddr(t) + "/schema.json",
 				secret: "ghp_token",
 			},
 			{
@@ -1204,4 +1204,25 @@ params:
 		require.Contains(t, dag.Params, "debug=false")
 		require.Contains(t, dag.Params, "timeout=600")
 	})
+}
+
+// droppingAddr returns the address of a local listener that closes every
+// connection it accepts, so a request to it fails with a connection error.
+// The listener holds the port until the test ends, so no other server can
+// take it.
+func droppingAddr(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	return listener.Addr().String()
 }

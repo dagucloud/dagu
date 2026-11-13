@@ -62,6 +62,15 @@ func WithScheduleTime(formattedTime string) StatusOption {
 	}
 }
 
+// WithScheduleWindow sets the window the run's schedule slot owns.
+func WithScheduleWindow(window ScheduleWindow) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.IntervalStart = formatWindowInstant(window.Start)
+		status.NextScheduledAt = formatWindowInstant(window.Next)
+		status.ScheduleTimezone = window.Timezone
+	}
+}
+
 // WithFinishedAt sets the completion time.
 func WithFinishedAt(finishedAt time.Time) StatusOption {
 	return func(status *DAGRunStatus) {
@@ -132,6 +141,13 @@ func WithPIDStartedAt(startedAt int64) StatusOption {
 func WithTriggerType(triggerType TriggerType) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.TriggerType = triggerType
+	}
+}
+
+// WithBackfillID sets the backfill that started the run.
+func WithBackfillID(backfillID string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.BackfillID = backfillID
 	}
 }
 

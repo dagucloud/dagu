@@ -46,6 +46,7 @@ func EnqueueCatchupRun(
 	runID string,
 	triggerType ir.TriggerType,
 	scheduleTime time.Time,
+	scheduleWindow ir.ScheduleWindow,
 	profileName string,
 ) error {
 	dagRun := ir.NewDAGRunRef(dag.Name, runID)
@@ -98,6 +99,7 @@ func EnqueueCatchupRun(
 		ArtifactBaseDir:  baseArtifactDir,
 		TriggerType:      triggerType,
 		ScheduleTime:     stringutil.FormatTime(scheduleTime),
+		ScheduleWindow:   scheduleWindow,
 		ProfileName:      profileName,
 		DefinitionID:     definitionID,
 	})

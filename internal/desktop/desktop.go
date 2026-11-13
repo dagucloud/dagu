@@ -47,6 +47,16 @@ func ParseButton(name string) (Button, error) {
 	}
 }
 
+// ASCIITyper is a Backend whose keyboard can be on an input method, as a
+// Japanese one on macOS, that would turn typed text into something else.
+type ASCIITyper interface {
+	// ASCIITyping puts the keyboard on an input source typed text goes
+	// through as it is, when it is not on one, and returns what puts the
+	// previous input source back, called once the typing ends. A context
+	// done while the switch settles puts the previous input source back.
+	ASCIITyping(ctx context.Context) (restore func() error, err error)
+}
+
 // Backend is the operating system's side of a Driver.
 type Backend interface {
 	// Capture returns the primary display in physical pixels.
@@ -201,6 +211,8 @@ func (w WindowID) Known() bool { return w.Handle != 0 }
 // Driver performs desktop actions on a Backend.
 type Driver struct {
 	backend Backend
+	// typer is the backend where it switches input sources for typing.
+	typer ASCIITyper
 	// lastInput is when the driver last sent input.
 	lastInput time.Time
 	// owned are the processes whose windows the driver never operates: its
@@ -230,6 +242,7 @@ type Driver struct {
 func New(backend Backend) *Driver {
 	d := &Driver{}
 	d.backend = inputClock{Backend: backend, last: &d.lastInput}
+	d.typer, _ = backend.(ASCIITyper)
 	return d
 }
 
@@ -570,9 +583,18 @@ func (d *Driver) HoldKeys(ctx context.Context, keys []Key, duration time.Duratio
 }
 
 // Type types text. Line breaks are sent as the Enter key, which
-// applications treat more consistently than a typed newline.
-func (d *Driver) Type(ctx context.Context, text string) error {
+// applications treat more consistently than a typed newline. On a backend
+// that switches input sources, the text and its line breaks go through an
+// ASCII-capable one, and the previous one comes back after them.
+func (d *Driver) Type(ctx context.Context, text string) (err error) {
 	d.markKeys("type", !strings.ContainsAny(text, "\r\n"))
+	if d.typer != nil {
+		restore, switchErr := d.typer.ASCIITyping(ctx)
+		if switchErr != nil {
+			return switchErr
+		}
+		defer func() { err = errors.Join(err, restore()) }()
+	}
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	for i, line := range lines {
 		if i > 0 {

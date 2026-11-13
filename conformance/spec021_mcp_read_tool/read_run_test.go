@@ -4,6 +4,7 @@
 package spec021_mcp_read_tool_test
 
 import (
+	"encoding/json"
 	"regexp"
 	"testing"
 	"time"
@@ -159,11 +160,7 @@ steps:
 	parent := requireData(t, mcptest.StructuredMap(t, result))
 	parentStep := requireItem(t, parent["steps"].([]any), "name", "call-child")
 	require.NotEmpty(t, parentStep["error"])
-	subRuns, ok := parentStep["subRuns"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, subRuns)
-	subRun, ok := subRuns[0].(map[string]any)
-	require.True(t, ok)
+	subRun := requireFirstSubRun(t, parentStep)
 	subRunID := requireString(t, subRun, "dagRunId")
 	subURI := runURI("mcp_sub_parent", dagRunID) + "/sub/" + subRunID
 	requireURIEqual(t, subURI, requireString(t, subRun, "uri"))
@@ -266,6 +263,17 @@ func TestReadRunURIUsesCanonicalNameSegment(t *testing.T) {
 	require.Equal(t, "dagu://runs/mcp.read-contract/"+fixture.dagRunID, runURI(fixture.dagName, fixture.dagRunID))
 }
 
+// requireFirstSubRun returns the first entry of a step's subRuns.
+func requireFirstSubRun(t *testing.T, step map[string]any) map[string]any {
+	t.Helper()
+	subRuns, ok := step["subRuns"].([]any)
+	require.Truef(t, ok, "step has no subRuns: %v", step)
+	require.NotEmpty(t, subRuns)
+	subRun, ok := subRuns[0].(map[string]any)
+	require.Truef(t, ok, "subRuns[0] is not an object: %v", subRuns[0])
+	return subRun
+}
+
 func requireRunListItem(t *testing.T, item map[string]any, dagName, dagRunID string) {
 	t.Helper()
 
@@ -364,4 +372,78 @@ func requireRunLogsData(t *testing.T, data map[string]any) {
 		requireBool(t, step, "hasStdout")
 		requireBool(t, step, "hasStderr")
 	}
+}
+
+// Spec 021: a run's collected outputs come back with the run, for the root run
+// and a sub DAG run, through the read tool and the run resources.
+func TestReadRunOutputs(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateDAG(t, "mcp_outputs_parent", `steps:
+  - name: main
+    run: "echo hello"
+    output: GREETING
+  - name: call-child
+    action: dag.run
+    with:
+      dag: outputs_child
+
+---
+name: outputs_child
+steps:
+  - name: emit
+    run: "echo from-child"
+    output: CHILD_VALUE
+`)
+	dagRunID := server.StartDAG(t, "mcp_outputs_parent")
+	server.WaitForDAGRunStatus(t, "mcp_outputs_parent", dagRunID, api.StatusSuccess)
+	session := server.Connect(t, "")
+	ctx := mcptest.Context(t)
+
+	parent := requireData(t, mcptest.StructuredMap(t, callRead(t, session, map[string]any{
+		"target":   "run",
+		"name":     "mcp_outputs_parent",
+		"dagRunId": dagRunID,
+	})))
+	outputs, ok := parent["outputs"].(map[string]any)
+	require.Truef(t, ok, "run has no outputs: %v", parent)
+	require.Equal(t, "hello", outputs["greeting"])
+	require.NotContains(t, parent, "outputsOmitted")
+	require.NotContains(t, parent, "outputsError")
+
+	steps, ok := parent["steps"].([]any)
+	require.Truef(t, ok, "run has no steps: %v", parent)
+	subRunID := requireString(t, requireFirstSubRun(t, requireItem(t, steps, "name", "call-child")), "dagRunId")
+	child := requireData(t, mcptest.StructuredMap(t, callRead(t, session, map[string]any{
+		"target":   "run",
+		"name":     "mcp_outputs_parent",
+		"dagRunId": dagRunID,
+		"subRunId": subRunID,
+	})))
+	require.Equal(t, map[string]any{"childValue": "from-child"}, child["outputs"])
+
+	for uri, want := range map[string]any{
+		runURI("mcp_outputs_parent", dagRunID):                      outputs,
+		runURI("mcp_outputs_parent", dagRunID) + "/sub/" + subRunID: child["outputs"],
+	} {
+		read, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: uri})
+		require.NoError(t, err)
+		require.Len(t, read.Contents, 1)
+		var resource map[string]any
+		require.NoError(t, json.Unmarshal([]byte(read.Contents[0].Text), &resource))
+		require.Contains(t, resource, "dagRunDetails")
+		require.Equal(t, want, resource["outputs"], uri)
+	}
+}
+
+// Spec 021: a run without outputs keeps the run detail shape it had before.
+func TestReadRunWithoutOutputs(t *testing.T) {
+	fixture := newReadFixture(t)
+	data := requireData(t, mcptest.StructuredMap(t, callRead(t, fixture.session, map[string]any{
+		"target":   "run",
+		"name":     fixture.dagName,
+		"dagRunId": fixture.dagRunID,
+	})))
+	require.NotContains(t, data, "outputs")
+	require.NotContains(t, data, "outputsOmitted")
+	require.NotContains(t, data, "outputsError")
 }

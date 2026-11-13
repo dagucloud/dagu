@@ -107,6 +107,9 @@ type Record struct {
 	Cursor int `json:"cursor"`
 	// Outputs holds values extracted before the step detached.
 	Outputs map[string]any `json:"outputs,omitempty"`
+	// Downloads holds the absolute paths of the files saved before the step
+	// detached, in the order they finished.
+	Downloads []string `json:"downloads,omitempty"`
 	// ReplayPending and ReplayUsed carry the step's replay cache changes
 	// across the wait: the act operations it recorded or dropped, applied
 	// only if the step succeeds, and the recordings it replayed, as they

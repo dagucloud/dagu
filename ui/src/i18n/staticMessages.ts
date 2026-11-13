@@ -533,6 +533,15 @@ const baseEnglish = {
   'Secret refs': 'Secret refs',
   'DAG Tabs': 'DAG Tabs',
   'Run ID (optional)': 'Run ID (optional)',
+  'Scheduled at (optional)': 'Scheduled at (optional)',
+  'None (run now)': 'None (run now)',
+  'Other time': 'Other time',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    "The listed times follow the DAG's default profile. The run's window follows the selected profile.",
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'The run gets the schedule time and window of this slot.',
   'DAG:': 'DAG:',
   'Run error': 'Run error',
   'Run precondition not met': 'Run precondition not met',
@@ -751,6 +760,7 @@ const baseEnglish = {
   'Failed to load data': 'Failed to load data',
   'Failed to load queue details': 'Failed to load queue details',
   'Failed to load queue information': 'Failed to load queue information',
+  'Failed to load service DAGs': 'Failed to load service DAGs',
   'Failed to load runs': 'Failed to load runs',
   'Failed to load step details': 'Failed to load step details',
   'Failed to load Wiki pages': 'Failed to load Wiki pages',
@@ -1759,6 +1769,7 @@ const baseEnglish = {
   'Scanning...': 'Scanning...',
   Schedule: 'Schedule',
   Scheduled: 'Scheduled',
+  'Window start': 'Window start',
   'Scheduled At': 'Scheduled At',
   'Scheduled:': 'Scheduled:',
   'Scheduler Service': 'Scheduler Service',
@@ -2836,8 +2847,8 @@ const baseEnglish = {
   'Connect and start trial': 'Connect and start trial',
   'Also try paid features free for 14 days':
     'Also try paid features free for 14 days',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console stops monitoring this server, and its free slot becomes available to another server.',
   'The Free plan supports up to 2 API keys.':
@@ -2961,6 +2972,7 @@ const baseEnglish = {
   'Sub-DAG': 'Sub-DAG',
   'Catch-up': 'Catch-up',
   Restart: 'Restart',
+  Backfill: 'Backfill',
   'Run log': 'Run log',
   Stream: 'Stream',
   'Lines shown': 'Lines shown',
@@ -3007,6 +3019,11 @@ const baseEnglish = {
   'Open Workflows': 'Open Workflows',
   'Scheduling guide': 'Scheduling guide',
   'Add a notification channel': 'Add a notification channel',
+  'Connect an AI app': 'Connect an AI app',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.',
+  'Use from Claude or ChatGPT': 'Use from Claude or ChatGPT',
+  'Set up a coding agent': 'Set up a coding agent',
   'Could not change remote access.': 'Could not change remote access.',
   'Remote access': 'Remote access',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -3033,9 +3050,37 @@ const baseEnglish = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'Copy MCP URL',
   'MCP URL copied': 'MCP URL copied',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.',
-  'Manage MCP clients': 'Manage MCP clients',
+  'Last call': 'Last call',
+  'No calls yet': 'No calls yet',
+  'Connect a client': 'Connect a client',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.',
+  'Copy command': 'Copy command',
+  'Command copied': 'Command copied',
+  'Then run /mcp in Claude Code to sign in.':
+    'Then run /mcp in Claude Code to sign in.',
+  'Other clients and connections in Dagu Cloud':
+    'Other clients and connections in Dagu Cloud',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'Included in your trial until {date}. Choose a plan to keep MCP clients working.',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Use this server from Claude, ChatGPT, and other MCP clients',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your trial. Turn on remote access, then add the MCP URL to your client.',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your plan. Turn on remote access, then add the MCP URL to your client.',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'Turn on remote access, then add the MCP URL to your client.',
+  'MCP calls need a paid plan or a trial':
+    'MCP calls need a paid plan or a trial',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.',
   'Choose remote access': 'Choose remote access',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
@@ -3152,6 +3197,32 @@ const baseEnglish = {
   "Couldn't preview the calendar.": "Couldn't preview the calendar.",
   'Loading {year}...': 'Loading {year}...',
   "Couldn't check": "Couldn't check",
+  'Service DAG': 'Service DAG',
+  'Service DAGs': 'Service DAGs',
+  'DAGs that Dagu restarts when their run ends.': 'DAGs that Dagu restarts when their run ends.',
+  'Pending': 'Pending',
+  'Restarting': 'Restarting',
+  'Failing': 'Failing',
+  'Up for {duration}': 'Up for {duration}',
+  'Restarting…': 'Restarting…',
+  'Restart in {duration}': 'Restart in {duration}',
+  'Next restart unknown': 'Next restart unknown',
+  'Only service DAGs are running.': 'Only service DAGs are running.',
+  'Restart on hold: the scheduler is paused':
+    'Restart on hold: the scheduler is paused',
+  'Restart on hold: no scheduler is running':
+    'Restart on hold: no scheduler is running',
+  'Stopped by an operator': 'Stopped by an operator',
+  'No new run': 'No new run',
+  'Waiting for a run': 'Waiting for a run',
+  'Restarts {seconds}s after a run ends': 'Restarts {seconds}s after a run ends',
+  'Show runs of {name}': 'Show runs of {name}',
+  'Hide runs of {name}': 'Hide runs of {name}',
+  'Last {count} runs': 'Last {count} runs',
+  '{count} succeeded': '{count} succeeded',
+  'No run in the last {days} days': 'No run in the last {days} days',
+  'Last run failed': 'Last run failed',
+  '{count} failures in a row': '{count} failures in a row',
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
@@ -3684,6 +3755,15 @@ const baseChinese = {
   'Secret refs': '密钥引用',
   'DAG Tabs': 'DAG 标签页',
   'Run ID (optional)': '运行 ID（可选）',
+  'Scheduled at (optional)': '计划时间（可选）',
+  'None (run now)': '无（立即运行）',
+  'Other time': '其他时间',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '列出的时间来自 DAG 的默认配置文件。本次运行的时间窗口按所选配置文件计算。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00 或 RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    '本次运行使用该时间槽的计划时间和时间窗口。',
   'DAG:': 'DAG：',
   'Run error': '运行错误',
   'Run precondition not met': '运行前置条件未满足',
@@ -3892,6 +3972,7 @@ const baseChinese = {
   'Failed to load data': '加载数据失败',
   'Failed to load queue details': '加载队列详情失败',
   'Failed to load queue information': '加载队列信息失败',
+  'Failed to load service DAGs': '加载服务 DAG 失败',
   'Failed to load runs': '加载运行记录失败',
   'Failed to load step details': '加载步骤详情失败',
   'Failed to load Wiki pages': '加载 Wiki 页面失败',
@@ -4875,6 +4956,7 @@ const baseChinese = {
   'Scanning...': '扫描中...',
   Schedule: '调度',
   Scheduled: '已计划',
+  'Window start': '窗口开始',
   'Scheduled At': '计划时间',
   'Scheduled:': '计划:',
   'Scheduler Service': '调度服务',
@@ -5917,8 +5999,8 @@ const baseChinese = {
   'Connect for free': '免费连接',
   'Connect and start trial': '连接并开始试用',
   'Also try paid features free for 14 days': '同时免费试用付费功能 14 天',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    '审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    '通过 Claude 和 ChatGPT 进行 MCP 访问、审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console 将停止监控此服务器，其免费名额可供其他服务器使用。',
   'The Free plan supports up to 2 API keys.':
@@ -6040,6 +6122,7 @@ const baseChinese = {
   'Sub-DAG': '子工作流',
   'Catch-up': '补跑',
   Restart: '重启',
+  Backfill: '回填',
   'Run log': '运行日志',
   Stream: '输出流',
   'Lines shown': '显示的行',
@@ -6083,6 +6166,11 @@ const baseChinese = {
   'Open Workflows': '打开工作流',
   'Scheduling guide': '计划指南',
   'Add a notification channel': '添加通知频道',
+  'Connect an AI app': '连接 AI 应用',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    '让 Claude、ChatGPT 或编码智能体通过 MCP 在此运行和编辑工作流。',
+  'Use from Claude or ChatGPT': '在 Claude 或 ChatGPT 中使用',
+  'Set up a coding agent': '设置编码智能体',
   'Could not change remote access.': '无法更改远程访问。',
   'Remote access': '远程访问',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -6108,9 +6196,36 @@ const baseChinese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': '复制 MCP URL',
   'MCP URL copied': '已复制 MCP URL',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    '将此 URL 作为远程 MCP 服务器添加到你的 MCP 客户端，然后登录 Dagu Cloud。工作区所有者决定每个客户端可以执行的操作。',
-  'Manage MCP clients': '管理 MCP 客户端',
+  'Last call': '最近调用',
+  'No calls yet': '尚无调用',
+  'Connect a client': '连接客户端',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    '在 Claude 中打开 Customize，然后选择 Connectors。选择 + Add，然后选择 Add custom connector。粘贴 URL，选择 Continue，然后登录。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    '在 Team 和 Enterprise 方案中，需由所有者先在 Organization settings 的 Connectors 中添加。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '选择 +，然后选择 Add custom MCP server。在 Server URL 中粘贴 URL，选择 OAuth 并确认，然后选择 Create as a plugin。安装插件，然后登录。',
+  'Copy command': '复制命令',
+  'Command copied': '命令已复制',
+  'Then run /mcp in Claude Code to sign in.':
+    '然后在 Claude Code 中运行 /mcp 登录。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud 中的其他客户端和连接',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    '试用期内包含此功能，截至 {date}。选择套餐以继续使用 MCP 客户端。',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    '在 Claude、ChatGPT 和其他 MCP 客户端中使用此服务器',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的试用中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的套餐中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '需要付费套餐或试用。14 天试用免费，无需银行卡。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    '开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'MCP calls need a paid plan or a trial': 'MCP 调用需要付费套餐或试用',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    '在此服务器的工作区拥有付费套餐或试用之前，Dagu Cloud 会拒绝对它的调用。14 天试用免费，无需银行卡。',
   'Choose remote access': '选择远程访问',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
@@ -6223,6 +6338,30 @@ const baseChinese = {
   "Couldn't preview the calendar.": '无法预览日历。',
   'Loading {year}...': '正在加载 {year}...',
   "Couldn't check": '无法检查',
+  'Service DAG': '服务 DAG',
+  'Service DAGs': '服务 DAG',
+  'DAGs that Dagu restarts when their run ends.': '运行结束后由 Dagu 重新启动的 DAG。',
+  'Pending': '等待中',
+  'Restarting': '重启中',
+  'Failing': '持续失败',
+  'Up for {duration}': '已运行 {duration}',
+  'Restarting…': '正在重启…',
+  'Restart in {duration}': '{duration}后重启',
+  'Next restart unknown': '下次重启时间未知',
+  'Only service DAGs are running.': '只有服务 DAG 在运行。',
+  'Restart on hold: the scheduler is paused': '重启已暂停：调度器已暂停',
+  'Restart on hold: no scheduler is running': '重启已暂停：没有正在运行的调度器',
+  'Stopped by an operator': '已被操作员停止',
+  'No new run': '不再启动新的运行',
+  'Waiting for a run': '等待运行',
+  'Restarts {seconds}s after a run ends': '运行结束 {seconds} 秒后重启',
+  'Show runs of {name}': '显示 {name} 的运行',
+  'Hide runs of {name}': '隐藏 {name} 的运行',
+  'Last {count} runs': '最近 {count} 次运行',
+  '{count} succeeded': '{count} 次成功',
+  'No run in the last {days} days': '最近 {days} 天没有运行',
+  'Last run failed': '上次运行失败',
+  '{count} failures in a row': '连续 {count} 次失败',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -6762,6 +6901,15 @@ const baseJapanese = {
   'Secret refs': 'シークレット参照',
   'DAG Tabs': 'DAG タブ',
   'Run ID (optional)': '実行 ID（任意）',
+  'Scheduled at (optional)': 'スケジュール時刻（任意）',
+  'None (run now)': 'なし（今すぐ実行）',
+  'Other time': 'その他の時刻',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '一覧の時刻は DAG のデフォルトプロファイルに基づきます。実行のウィンドウは選択したプロファイルに従います。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00、または RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'この実行はこのスロットのスケジュール時刻とウィンドウを使います。',
   'DAG:': 'DAG：',
   'Run error': '実行エラー',
   'Run precondition not met': '実行の前提条件が満たされていません',
@@ -6980,6 +7128,7 @@ const baseJapanese = {
   'Failed to load data': 'データの読み込みに失敗しました',
   'Failed to load queue details': 'キュー詳細の読み込みに失敗しました',
   'Failed to load queue information': 'キュー情報の読み込みに失敗しました',
+  'Failed to load service DAGs': 'サービス DAG の読み込みに失敗しました',
   'Failed to load runs': '実行の読み込みに失敗しました',
   'Failed to load step details': 'ステップの詳細を読み込めませんでした',
   'Failed to load Wiki pages': 'Wiki ページの読み込みに失敗しました',
@@ -8003,6 +8152,7 @@ const baseJapanese = {
   'Scanning...': 'スキャン中...',
   Schedule: 'スケジュール',
   Scheduled: 'スケジュール済み',
+  'Window start': 'ウィンドウ開始',
   'Scheduled At': 'スケジュール時刻',
   'Scheduled:': 'スケジュール:',
   'Scheduler Service': 'スケジューラーサービス',
@@ -9087,8 +9237,8 @@ const baseJapanese = {
   'Connect for free': '無料で接続',
   'Connect and start trial': '接続してトライアルを開始',
   'Also try paid features free for 14 days': '有料機能も 14 日間無料で試す',
-  'Audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
-    '監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'Claude や ChatGPT からの MCP アクセス、監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
   'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
     'Dagu Console はこのサーバーの監視を停止し、無料枠は他のサーバーで使えるようになります。',
   'The Free plan supports up to 2 API keys.':
@@ -9215,6 +9365,7 @@ const baseJapanese = {
   'Sub-DAG': 'サブワークフロー',
   'Catch-up': 'キャッチアップ',
   Restart: '再起動',
+  Backfill: 'バックフィル',
   'Run log': '実行ログ',
   Stream: '出力ストリーム',
   'Lines shown': '表示する行',
@@ -9261,6 +9412,11 @@ const baseJapanese = {
   'Open Workflows': 'ワークフローを開く',
   'Scheduling guide': 'スケジュールのガイド',
   'Add a notification channel': '通知チャネルを追加',
+  'Connect an AI app': 'AI アプリを接続',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Claude、ChatGPT、コーディングエージェントが MCP 経由でここのワークフローを実行・編集できるようにします。',
+  'Use from Claude or ChatGPT': 'Claude や ChatGPT から使う',
+  'Set up a coding agent': 'コーディングエージェントを設定',
   'Could not change remote access.': 'リモートアクセスを変更できませんでした。',
   'Remote access': 'リモートアクセス',
   'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
@@ -9288,9 +9444,37 @@ const baseJapanese = {
   'MCP URL': 'MCP URL',
   'Copy MCP URL': 'MCP URL をコピー',
   'MCP URL copied': 'MCP URL をコピーしました',
-  'Add this URL to your MCP client as a remote MCP server, then sign in to Dagu Cloud. Workspace owners choose what each client may do.':
-    'この URL をリモート MCP サーバーとして MCP クライアントに追加し、Dagu Cloud にサインインしてください。各クライアントに許可する操作はワークスペースのオーナーが決めます。',
-  'Manage MCP clients': 'MCP クライアントを管理',
+  'Last call': '最後の呼び出し',
+  'No calls yet': 'まだ呼び出しはありません',
+  'Connect a client': 'クライアントを接続',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'Claude で Customize を開き、Connectors を選びます。+ Add を選び、Add custom connector を選びます。URL を貼り付けて Continue を選び、サインインします。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'Team と Enterprise では、先にオーナーが Organization settings の Connectors で追加します。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '+ を選び、Add custom MCP server を選びます。Server URL に URL を貼り付け、OAuth を選んで確認し、Create as a plugin を選びます。プラグインをインストールし、サインインします。',
+  'Copy command': 'コマンドをコピー',
+  'Command copied': 'コマンドをコピーしました',
+  'Then run /mcp in Claude Code to sign in.':
+    'その後、Claude Code で /mcp を実行してサインインします。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud のほかのクライアントと接続',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'トライアルに {date} まで含まれています。MCP クライアントを使い続けるにはプランを選んでください。',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Claude、ChatGPT などの MCP クライアントからこのサーバーを使う',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'トライアルに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'プランに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '有料プランまたはトライアルが必要です。14 日間のトライアルは無料で、カードは不要です。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'MCP calls need a paid plan or a trial':
+    'MCP の呼び出しには有料プランまたはトライアルが必要です',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'ワークスペースに有料プランかトライアルがあるまで、Dagu Cloud はこのサーバーへの呼び出しを拒否します。14 日間のトライアルは無料で、カードは不要です。',
   'Choose remote access': 'リモートアクセスを選択',
   'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
     'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',
@@ -9406,6 +9590,32 @@ const baseJapanese = {
   "Couldn't preview the calendar.": 'カレンダーをプレビューできませんでした。',
   'Loading {year}...': '{year} 年を読み込み中...',
   "Couldn't check": '確認できませんでした',
+  'Service DAG': 'サービス DAG',
+  'Service DAGs': 'サービス DAG',
+  'DAGs that Dagu restarts when their run ends.': '実行が終わると Dagu が再起動する DAG。',
+  'Pending': '待機中',
+  'Restarting': '再起動中',
+  'Failing': '失敗中',
+  'Up for {duration}': '{duration} 稼働中',
+  'Restarting…': '再起動しています…',
+  'Restart in {duration}': '{duration}後に再起動',
+  'Next restart unknown': '次の再起動の時刻は不明',
+  'Only service DAGs are running.': '実行中なのはサービス DAG だけです。',
+  'Restart on hold: the scheduler is paused':
+    '再起動は保留中: スケジューラーが一時停止しています',
+  'Restart on hold: no scheduler is running':
+    '再起動は保留中: スケジューラーが動いていません',
+  'Stopped by an operator': 'オペレーターが停止',
+  'No new run': '新しい実行なし',
+  'Waiting for a run': '実行を待機中',
+  'Restarts {seconds}s after a run ends': '実行の終了 {seconds} 秒後に再起動',
+  'Show runs of {name}': '{name} の実行を表示',
+  'Hide runs of {name}': '{name} の実行を隠す',
+  'Last {count} runs': '直近 {count} 件の実行',
+  '{count} succeeded': '{count} 件成功',
+  'No run in the last {days} days': '過去 {days} 日間の実行なし',
+  'Last run failed': '前回の実行が失敗',
+  '{count} failures in a row': '{count} 回連続で失敗',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {

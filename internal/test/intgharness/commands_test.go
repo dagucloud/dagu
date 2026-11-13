@@ -4,6 +4,10 @@
 package intgharness
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -35,6 +39,29 @@ func TestCommandsEnvOutputWithSeparatorUsesShellSyntax(t *testing.T) {
 }
 
 func TestCommandsWaitForFileUsesShellSyntax(t *testing.T) {
-	require.Equal(t, "while [ ! -f '/tmp/marker' ]; do\n  sleep 0.05\ndone", commandsForShell(posixShell).WaitForFile("/tmp/marker"))
-	require.Equal(t, "while (-not (Test-Path 'C:/tmp/marker')) {\n  Start-Sleep -Milliseconds 50\n}", commandsForShell(powerShell).WaitForFile("C:/tmp/marker"))
+	require.Equal(t, "while [ ! -f '/tmp/marker' ]; do\n  [ -d '/tmp' ] || exit 1\n  sleep 0.05\ndone", commandsForShell(posixShell).WaitForFile("/tmp/marker"))
+	require.Equal(t, "while (-not (Test-Path 'C:/tmp/marker')) {\n  if (-not (Test-Path (Split-Path -Parent 'C:/tmp/marker'))) { exit 1 }\n  Start-Sleep -Milliseconds 50\n}", commandsForShell(powerShell).WaitForFile("C:/tmp/marker"))
+}
+
+// A wait whose directory is removed, as when its test ends, fails rather than
+// leaving the step running forever.
+func TestCommandsWaitForFileEndsWhenDirectoryIsGone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("runs the POSIX snippet")
+	}
+	dir := filepath.Join(t.TempDir(), "run")
+	require.NoError(t, os.Mkdir(dir, 0o750))
+	wait := exec.Command("/bin/sh", "-c", commandsForShell(posixShell).WaitForFile(filepath.Join(dir, "release"))) //nolint:gosec // Test runs its own snippet.
+	require.NoError(t, wait.Start())
+	done := make(chan error, 1)
+	go func() { done <- wait.Wait() }()
+
+	require.NoError(t, os.RemoveAll(dir))
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		_ = wait.Process.Kill()
+		t.Fatal("the wait outlived its directory")
+	}
 }
