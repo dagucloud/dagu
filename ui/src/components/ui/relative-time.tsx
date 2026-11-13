@@ -21,6 +21,11 @@ type Props = {
    */
   ago?: boolean;
   /**
+   * With `compact`, the timestamp is ahead: a lapse of 5 s or more reads
+   * "in 3m", and rounds as `ago` does.
+   */
+  until?: boolean;
+  /**
    * With `compact`, keeps the width of the widest text of the unit that shows
    * now ("99m ago"), so that a text that ticks moves nothing next to it.
    */
@@ -73,6 +78,7 @@ export function RelativeTime({
   fallback = '-',
   compact = false,
   ago = false,
+  until = false,
   stable = false,
   absolute,
   className,
@@ -89,7 +95,7 @@ export function RelativeTime({
       ? formatCompact(
           dayjs(nowMs).diff(parsed, 'second'),
           now,
-          ago ? Math.round : Math.floor,
+          ago || until ? Math.round : Math.floor,
           units
         )
       : longForm(
@@ -105,9 +111,11 @@ export function RelativeTime({
 
   const lapse = compact ? text : undefined;
   const label = lapse
-    ? ago && lapse !== now
-      ? ts('{time} ago', { time: lapse })
-      : lapse
+    ? until && lapse !== now
+      ? ts('in {time}', { time: lapse })
+      : ago && lapse !== now
+        ? ts('{time} ago', { time: lapse })
+        : lapse
     : text;
 
   // The widest text of the same unit has two digits: "99m", "99m ago".
