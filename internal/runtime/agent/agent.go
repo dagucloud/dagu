@@ -1827,7 +1827,7 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 		Profile:      a.profileName,
 		ScheduleTime: a.contextScheduleTime(),
 		Window:       a.contextScheduleWindow(),
-		Inherited:    !a.parentDAGRun.Zero(),
+		Inherited:    a.slotInherited(source),
 		CreatedAt:    createdAt,
 		Location:     cfg.Core.Location,
 		Calendars:    calendars,
@@ -1837,6 +1837,15 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 	}
 	a.setDates(dates)
 	return nil
+}
+
+// slotInherited reports whether the run's slot came from its parent run,
+// rather than being the default slot of the run's own schedule.
+func (a *Agent) slotInherited(source *ir.DAGRunStatus) bool {
+	if a.parentDAGRun.Zero() || a.defaultSlot {
+		return false
+	}
+	return source == nil || !source.DefaultSlot
 }
 
 func (a *Agent) setDates(dates []ir.DateValue) {

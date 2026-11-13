@@ -218,3 +218,29 @@ func TestResolveDatesTakesDefaultSlot(t *testing.T) {
 	assert.True(t, slot.Equal(time.Date(2026, 11, 1, 2, 0, 0, 0, time.UTC)), a.scheduleTime)
 	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-10-31"}}, a.dates)
 }
+
+// A sub-DAG of a parent with no slot takes the default slot of its own
+// schedule, so business days follow that schedule's calendar, not the DAG's.
+func TestResolveDatesOwnDefaultSlotCalendar(t *testing.T) {
+	t.Parallel()
+
+	daily, err := ir.NewCronSchedule("CRON_TZ=UTC 0 2 * * *")
+	require.NoError(t, err)
+	daily.Calendar = ir.CalendarWeekdays
+	weekdays, _ := ir.BuiltinCalendar(ir.CalendarWeekdays)
+	require.NoError(t, daily.BindCalendar(weekdays))
+	monday := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	a := &Agent{
+		dag: &ir.DAG{
+			Schedule: []ir.Schedule{daily},
+			Calendar: "missing",
+			Dates:    []ir.DateSpec{{Name: "last_open_day", Shift: []string{"-1bd"}}},
+		},
+		parentDAGRun: ir.NewDAGRunRef("parent", "run-1"),
+		retryTarget:  &ir.DAGRunStatus{CreatedAt: monday.UnixMilli()},
+	}
+
+	require.NoError(t, a.resolveDates(context.Background()))
+	assert.True(t, a.defaultSlot)
+	assert.Equal(t, []ir.DateValue{{Name: "last_open_day", Value: "2026-11-06"}}, a.dates)
+}
