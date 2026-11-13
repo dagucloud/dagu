@@ -248,6 +248,19 @@ first discovered. The ID never changes; the name can.
 - Audit entries record the project's ID and its name at the time. Old
   entries keep `workspace`.
 
+### Checkouts
+
+[Spec 001](../specs/001-project.md) calls a directory that holds
+`.dagu.json` a project and runs its workflows from the CLI. That is the same
+project seen from a checkout, not a second concept.
+
+- A project's DAG directory may hold `.dagu.json`. The server then reads the
+  project's DAG files where `.dagu.json` says, so one checkout runs on a
+  laptop and as a server project.
+- A `dagu` command run inside a project's DAG directory without `--project`
+  addresses that project.
+- Spec 001 adopts these rules before either ships.
+
 ### Library
 
 Child DAGs that several projects call live in a library at
@@ -623,6 +636,8 @@ v2 gets no new workspace features.
     refused while a `dag.run` caller remains in the source project.
 27. All projects shows the runs and failures of every project the user can
     see, and of no other.
+28. A `dagu` command run inside a project's DAG directory without
+    `--project` addresses that project.
 
 ## Alternatives considered
 
@@ -664,6 +679,8 @@ v2 gets no new workspace features.
 - **Directories named by project ID.** Makes a rename a registry update, but
   the layout and git checkouts become unreadable, and adding a directory no
   longer creates a project.
+- **Keep spec 001's project separate.** A checkout and the server project
+  it becomes would use one word for two things, as workspaces did.
 - **Matching projects across servers by name.** A guess: two servers may
   use one name for unrelated work, and macOS and Windows ignore the case
   that Linux keeps.
@@ -686,7 +703,8 @@ v2 gets no new workspace features.
   it.
 - The scheduler gains a supervisor, and project units reuse the current
   scheduling logic.
-- "Workspace" means only the Dagu Cloud account.
+- "Workspace" means only the Dagu Cloud account, and "project" means one
+  thing in a checkout, on the server, and in Dagu Cloud.
 - Each project has an ID, so a rename keeps its grants and history. Project
   names are valid directory names on macOS, Windows, and Linux, and display
   names can be any text.
@@ -706,3 +724,6 @@ v2 gets no new workspace features.
 3. **An index for reads across projects.** Search and the All projects view
    read every visible project's stores. Open: whether servers with many
    projects need a server-wide index.
+4. **A checkout's project on another machine.** A checkout outside the
+   server's directories does not say which server project it is. Open:
+   whether `.dagu.json` names the project, or the directory name does.
