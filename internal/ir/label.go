@@ -208,6 +208,9 @@ type LabelFilter struct {
 	Type  LabelFilterType
 	Key   string
 	Value string
+	// HasValue reports that the term named a value after "=". An empty value
+	// then matches only labels with no value.
+	HasValue bool
 	// Negate selects the labels the condition does not match.
 	Negate bool
 }
@@ -239,6 +242,7 @@ func ParseLabelFilter(s string) (LabelFilter, error) {
 	}
 
 	key, value, hasValue := strings.Cut(term, "=")
+	filter.HasValue = hasValue
 	filter.Key = strings.ToLower(strings.TrimSpace(key))
 	filter.Value = strings.ToLower(strings.TrimSpace(value))
 	if !labelFilterKeyPattern.MatchString(filter.Key) ||
@@ -309,7 +313,7 @@ func (f LabelFilter) matches(labels Labels) bool {
 				continue
 			}
 			// Key matches; check value if specified
-			if f.Value == "" || matchGlob(f.Value, t.Value) {
+			if !f.HasValue || matchGlob(f.Value, t.Value) {
 				return true
 			}
 		}

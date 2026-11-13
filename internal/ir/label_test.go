@@ -268,15 +268,15 @@ func TestParseLabelFilter(t *testing.T) {
 		want  LabelFilter
 	}{
 		{"key only", "env", LabelFilter{Type: LabelFilterTypeKeyOnly, Key: "env"}},
-		{"exact match", "env=prod", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "prod"}},
-		{"key with no value", "critical=", LabelFilter{Type: LabelFilterTypeExact, Key: "critical"}},
+		{"exact match", "env=prod", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "prod", HasValue: true}},
+		{"key with no value", "critical=", LabelFilter{Type: LabelFilterTypeExact, Key: "critical", HasValue: true}},
 		{"negated key", "!deprecated", LabelFilter{Type: LabelFilterTypeKeyOnly, Key: "deprecated", Negate: true}},
-		{"negated pair", "!env=dev", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "dev", Negate: true}},
-		{"negated glob", "!region=us-*", LabelFilter{Type: LabelFilterTypeWildcard, Key: "region", Value: "us-*", Negate: true}},
-		{"case normalized", "ENV=PROD", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "prod"}},
-		{"spaces trimmed", "  env = prod  ", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "prod"}},
+		{"negated pair", "!env=dev", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "dev", HasValue: true, Negate: true}},
+		{"negated glob", "!region=us-*", LabelFilter{Type: LabelFilterTypeWildcard, Key: "region", Value: "us-*", HasValue: true, Negate: true}},
+		{"case normalized", "ENV=PROD", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "prod", HasValue: true}},
+		{"spaces trimmed", "  env = prod  ", LabelFilter{Type: LabelFilterTypeExact, Key: "env", Value: "prod", HasValue: true}},
 		{"negation with spaces", "! deprecated ", LabelFilter{Type: LabelFilterTypeKeyOnly, Key: "deprecated", Negate: true}},
-		{"value with slash", "path=foo/bar", LabelFilter{Type: LabelFilterTypeExact, Key: "path", Value: "foo/bar"}},
+		{"value with slash", "path=foo/bar", LabelFilter{Type: LabelFilterTypeExact, Key: "path", Value: "foo/bar", HasValue: true}},
 	}
 
 	for _, tt := range tests {
@@ -317,7 +317,7 @@ func TestParseLabelFilters(t *testing.T) {
 	filters, err := ParseLabelFilters([]string{"env=prod", " ", "", "!canary"})
 	require.NoError(t, err)
 	assert.Equal(t, []LabelFilter{
-		{Type: LabelFilterTypeExact, Key: "env", Value: "prod"},
+		{Type: LabelFilterTypeExact, Key: "env", Value: "prod", HasValue: true},
 		{Type: LabelFilterTypeKeyOnly, Key: "canary", Negate: true},
 	}, filters)
 
@@ -360,6 +360,9 @@ func TestLabelFilter_MatchesLabels(t *testing.T) {
 		{"negated pair (same value)", "!env=prod", false},
 		{"negated glob", "!env=pro*", false},
 		{"negated key with no value", "!critical=", false},
+		{"glob key with no value", "crit*=", true},
+		{"glob key with no value (label has a value)", "env*=", false},
+		{"negated glob key with no value", "!env*=", true},
 	}
 
 	for _, tt := range tests {

@@ -31,6 +31,8 @@ Blank terms are ignored.
 | `!` before any term above | Do not match that term |
 
 - Keys and values match without case.
+- A term with `=` and nothing after it matches only labels with no value,
+  whether its key is a glob or not: `env*=` does not select `env=prod`.
 - Spaces around a term, around its `!`, and around its `=` are ignored.
 - A key is a letter or digit followed by letters, digits, `-`, `_`, or `.`.
   A value is a letter or digit followed by letters, digits, `-`, `_`, `.`, or
