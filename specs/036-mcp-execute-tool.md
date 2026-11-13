@@ -63,7 +63,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `reason` | string | Optional for `reject`. | Reason recorded with the rejection. |
 | `attemptId` | string | Optional for `approve`, `reject`, and `push_back`. | Attempt the decision is based on. |
 | `backfillId` | string | Required for `backfill_resume` and `backfill_cancel`. | Backfill identifier. |
-| `from`, `to`, `slots`, `rerun` | string, string, array of strings, string | Optional for `backfill`. | The slots to backfill, as for `dagu backfill start` ([Spec 086](086-backfill.md)). |
+| `from`, `to`, `by`, `slots`, `rerun` | string, string, string, array of strings, string | Optional for `backfill`. | The slots to backfill, as for `dagu backfill start` ([Spec 086](086-backfill.md)). |
 | `maxConcurrency`, `onFailure` | integer, string | Optional for `backfill` and `backfill_resume`. | Runs of the backfill at once, and `stop` or `continue` after a slot fails. |
 | `dryRun`, `revision` | boolean, string | Optional for `backfill` and `backfill_resume`. | Return the plan only; refuse a plan that changed since `revision`. |
 | `stopRunning` | boolean | Optional for `backfill_cancel`. | Also stop the backfill's running and waiting runs. |

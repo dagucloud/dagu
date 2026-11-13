@@ -48,6 +48,7 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 	breq := backfill.Request{
 		From:           valueOf(body.From),
 		To:             valueOf(body.To),
+		By:             valueOf(body.By),
 		Rerun:          string(valueOf(body.Rerun)),
 		MaxConcurrency: valueOf(body.MaxConcurrency),
 		OnFailure:      string(valueOf(body.OnFailure)),
@@ -539,6 +540,9 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 		From:        timeOrNil(plan.From),
 		To:          timeOrNil(plan.To),
 		Clamped:     &plan.Clamped,
+		By:          stringOrNil(plan.By),
+		FromDate:    stringOrNil(dateText(plan.FromDate)),
+		ToDate:      stringOrNil(dateText(plan.ToDate)),
 		Rerun:       api.BackfillRerun(plan.Rerun),
 		Concurrency: outlook.Concurrency,
 		QueueLimit:  outlook.QueueLimit,
@@ -568,9 +572,36 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 			Action:      api.BackfillPlanSlotAction(slot.Action),
 			RunId:       stringOrNil(slot.RunID),
 			CoveredBy:   timeOrNil(slot.CoveredAt),
+			Dates:       toAPIRunDates(slot.Dates),
 		})
 	}
 	return out
+}
+
+// toAPIRunDates converts a run's dates, or returns nil when there are none.
+func toAPIRunDates(dates []ir.DateValue) *[]api.RunDateValue {
+	if len(dates) == 0 {
+		return nil
+	}
+	out := make([]api.RunDateValue, 0, len(dates))
+	for _, date := range dates {
+		value := api.RunDateValue{Name: date.Name}
+		if date.List {
+			value.List = new(true)
+			value.Values = new(slices.Clone(date.Values))
+		} else {
+			value.Value = new(date.Value)
+		}
+		out = append(out, value)
+	}
+	return &out
+}
+
+func dateText(d ir.CivilDate) string {
+	if d.IsZero() {
+		return ""
+	}
+	return d.String()
 }
 
 func dagSlotStatus(status backfill.SlotStatus) api.DAGSlotStatus {

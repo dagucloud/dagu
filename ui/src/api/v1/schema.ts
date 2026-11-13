@@ -4985,7 +4985,9 @@ export interface components {
             from?: string;
             /** @description Last slot, inclusive. Defaults to now. */
             to?: string;
-            /** @description Slots to run instead of a range. Excludes from, to, and rerun. */
+            /** @description A dates entry of the DAG. from and to are then dates (YYYY-MM-DD) of that entry, and the range holds the slots whose entry falls between them. */
+            by?: string;
+            /** @description Slots to run instead of a range. Excludes from, to, by, and rerun. */
             slots?: string[];
             rerun?: components["schemas"]["BackfillRerun"];
             /** @description Runs of the backfill allowed at once. Defaults to 1. */
@@ -5025,6 +5027,17 @@ export interface components {
              * @description Scheduled time of the run under an earlier schedule that a skip relies on
              */
             coveredBy?: string;
+            /** @description Dates the slot's run gets, in the order the DAG declares them */
+            dates?: components["schemas"]["RunDateValue"][];
+        };
+        /** @description A resolved entry of a DAG's dates block */
+        RunDateValue: {
+            name: string;
+            /** @description The formatted date of a single entry */
+            value?: string;
+            /** @description The entry steps through the window; values holds its dates */
+            list?: boolean;
+            values?: string[];
         };
         BackfillPlan: {
             dag: string;
@@ -5037,6 +5050,12 @@ export interface components {
             to?: string;
             /** @description The range ended later than now */
             clamped?: boolean;
+            /** @description The dates entry the range selects by */
+            by?: string;
+            /** @description First date of the by entry, YYYY-MM-DD */
+            fromDate?: string;
+            /** @description Last date of the by entry, YYYY-MM-DD; empty when the range runs to now */
+            toDate?: string;
             rerun: components["schemas"]["BackfillRerun"];
             /** @description Slots each rerun value would run */
             runCounts: {

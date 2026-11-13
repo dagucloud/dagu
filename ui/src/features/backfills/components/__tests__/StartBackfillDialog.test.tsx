@@ -12,6 +12,7 @@ import {
 } from '@/api/v1/schema';
 import {
   type BackfillTarget,
+  loadsRange,
   StartBackfillDialog,
 } from '../StartBackfillDialog';
 
@@ -206,5 +207,59 @@ describe('StartBackfillDialog', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Start 3 runs' })).toBeEnabled()
     );
+  });
+});
+
+describe('loadsRange', () => {
+  // A daily 02:00 slot loads the day before it.
+  const slot = (
+    day: number,
+    action: BackfillPlanSlotAction,
+    dates: NonNullable<BackfillPlan['slots'][number]['dates']>
+  ) => ({
+    slot: `2026-10-${String(day).padStart(2, '0')}T02:00:00Z`,
+    windowEnd: `2026-10-${String(day).padStart(2, '0')}T02:00:00Z`,
+    action,
+    dates,
+  });
+
+  it('spans the first date of the runs to the last', () => {
+    const value = plan('r1', 0);
+    value.slots = [
+      slot(2, BackfillPlanSlotAction.skip_succeeded, [
+        { name: 'target_day', value: '2026-10-01' },
+      ]),
+      slot(3, BackfillPlanSlotAction.run, [
+        { name: 'target_day', value: '2026-10-02' },
+      ]),
+      slot(4, BackfillPlanSlotAction.run, [
+        { name: 'target_day', value: '2026-10-03' },
+      ]),
+    ];
+    expect(loadsRange(value)).toEqual({
+      entry: 'target_day',
+      from: '2026-10-02',
+      to: '2026-10-03',
+    });
+  });
+
+  it('reads the entry a range selects by, and the values of a list', () => {
+    const value = plan('r1', 0);
+    value.by = 'days';
+    value.slots = [
+      slot(5, BackfillPlanSlotAction.run, [
+        { name: 'target_day', value: '2026-10-04' },
+        { name: 'days', list: true, values: ['2026-10-02', '2026-10-03'] },
+      ]),
+    ];
+    expect(loadsRange(value)).toEqual({
+      entry: 'days',
+      from: '2026-10-02',
+      to: '2026-10-03',
+    });
+  });
+
+  it('is null for a DAG without dates', () => {
+    expect(loadsRange(plan('r1', 2))).toBeNull();
   });
 });
