@@ -1256,7 +1256,14 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		return context.Canceled
 	}
 	executionStarted = true
-	lastErr := a.runner.Run(ctx, a.plan, progressCh)
+	runCtx := ctx
+	if a.resumingCheckpoint() {
+		// A checkpoint resume cannot run a step before its approval or human
+		// task again, so it reuses outputs stored masked as they are. Their
+		// record stays, so a later retry still checks them.
+		runCtx = cmnvalue.IgnoreMaskedReads(ctx)
+	}
+	lastErr := a.runner.Run(runCtx, a.plan, progressCh)
 	finishRunner()
 
 	// Drain the progress goroutine before computing the final status.
@@ -2662,19 +2669,10 @@ func (a *Agent) retryNodes() ([]*runtime.Node, error) {
 		steps[step.Name] = step
 	}
 
-	// A checkpoint resume cannot run a step before its approval or human
-	// task again, so a masked output it restores is reused as it is; only a
-	// retry checks reads of one.
-	resume := a.resumingCheckpoint()
 	nodes := make([]*runtime.Node, 0, len(a.retryTarget.Nodes))
 	for _, node := range a.retryTarget.Nodes {
 		if node == nil {
 			continue
-		}
-		if resume && node.MaskedOutputs != nil {
-			unchecked := *node
-			unchecked.MaskedOutputs = nil
-			node = &unchecked
 		}
 		step, ok := steps[node.Step.Name]
 		if !ok {

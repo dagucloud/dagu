@@ -146,9 +146,9 @@ func TestRetryPlanReopensResetHumanTaskFromTemplate(t *testing.T) {
 	require.Equal(t, sourceStep.HumanTask, nodes[0].Step().HumanTask)
 }
 
-// A retry checks reads of an output stored masked. A checkpoint resume cannot
-// run the steps before its approval or human task again, so it reuses such
-// an output as it is.
+// Restored nodes keep the record of outputs stored masked, including on a
+// checkpoint resume, which does not check reads of them but writes the record
+// back so that a later retry does.
 func TestRetryNodesMaskedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -157,9 +157,8 @@ func TestRetryNodesMaskedOutputs(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		status ir.Status
-		want   *ir.MaskedOutputs
 	}{
-		{name: "Retry", status: ir.Failed, want: masked},
+		{name: "Retry", status: ir.Failed},
 		{name: "QueuedCheckpoint", status: ir.Queued},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -172,7 +171,7 @@ func TestRetryNodesMaskedOutputs(t *testing.T) {
 			}
 			nodes, err := agent.RetryNodesForTest(dag, status)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, nodes[0].State().MaskedOutputs)
+			assert.Equal(t, masked, nodes[0].State().MaskedOutputs)
 		})
 	}
 }
