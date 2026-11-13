@@ -385,3 +385,30 @@ func TestNextRunGroup(t *testing.T) {
 		{},
 	}, groups)
 }
+
+// An invalid label filter fails even when no DAG directory is read: with no
+// runs at all, and with every DAG excluded.
+func TestQueryStatusesRejectsInvalidLabelFilter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NoRuns", func(t *testing.T) {
+		t.Parallel()
+		th := setupTestRepository(t)
+
+		_, err := th.Backend.QueryStatuses(th.Context, persis.DAGRunStatusQuery{Labels: []string{"env==prod"}})
+		require.ErrorIs(t, err, ir.ErrInvalidLabelFilter)
+	})
+
+	t.Run("AllExcluded", func(t *testing.T) {
+		t.Parallel()
+		th := setupTestRepository(t)
+		dag := th.DAG("excluded-dag")
+		th.CreateAttemptWithDAG(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "run-1", ir.Succeeded, dag.DAG)
+
+		_, err := th.Backend.QueryStatuses(th.Context, persis.DAGRunStatusQuery{
+			Labels:          []string{"env==prod"},
+			ExcludeDAGNames: []string{"excluded-dag"},
+		})
+		require.ErrorIs(t, err, ir.ErrInvalidLabelFilter)
+	})
+}
