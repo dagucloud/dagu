@@ -2085,6 +2085,7 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
 	node.SetStatus(ir.NodeFailed)
 	if node.ShouldMarkSuccess(ctx) {
+		node.SetError(execErr)
 		node.SetStatus(ir.NodeSucceeded)
 		return
 	}

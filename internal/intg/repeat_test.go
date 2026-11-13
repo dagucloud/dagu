@@ -660,8 +660,10 @@ func TestRepeatPolicy_UntilOnLimitFailContinueOnMarkSuccess(t *testing.T) {
 	dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
 	require.Len(t, dagRunStatus.Nodes, 1)
-	assert.Equal(t, ir.NodeSucceeded, dagRunStatus.Nodes[0].Status)
-	assert.Equal(t, 2, dagRunStatus.Nodes[0].DoneCount, "the step must still stop at the limit")
+	node := dagRunStatus.Nodes[0]
+	assert.Equal(t, ir.NodeSucceeded, node.Status)
+	assert.Equal(t, 2, node.DoneCount, "the step must still stop at the limit")
+	assert.Contains(t, node.Error, "repeat limit 2 reached", "mark_success must not discard the limit failure from diagnostics")
 }
 
 func TestRepeatPolicy_UntilOnLimitFailConditionMetOnFinalAttempt(t *testing.T) {
