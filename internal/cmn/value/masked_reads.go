@@ -41,7 +41,7 @@ type MaskedReadError struct {
 
 func (e *MaskedReadError) Error() string {
 	return fmt.Sprintf(
-		"reads output %q of step %q, which was stored masked because it holds a secret; step %q has to run again to produce it",
+		"reads output %q of step %q, which was stored masked because it holds a secret; step %q has to run again, together with the steps after it, to produce it",
 		e.Output, e.Step, e.Step,
 	)
 }
