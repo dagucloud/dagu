@@ -21,6 +21,8 @@ type StepInfo struct {
 	Output          *string // nil = no output: configured; non-nil = captured value (may be "")
 	Outputs         *string // nil = no outputs published; non-nil = compact JSON object
 	DeclaredOutputs *string // nil = no declared file-based outputs published; non-nil = compact JSON object
+	// Masked names the outputs above that were restored with a secret masked.
+	Masked StepMasks
 }
 
 func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
@@ -32,6 +34,9 @@ func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string,
 	if stepInfo.DeclaredOutputs == nil {
 		logger.Debug(ctx, "Step has no declared outputs published", tag.Step(stepName))
 		return "", false
+	}
+	if stepInfo.Masked.field(outputName) {
+		maskedReadsFrom(ctx).note(stepName, outputName)
 	}
 	raw, ok := parseJSONValue(ctx, stepName, *stepInfo.DeclaredOutputs)
 	if !ok {
@@ -69,6 +74,9 @@ func resolveStepProperty(ctx context.Context, stepName, path string, stepMap map
 	if !ok {
 		logger.Debug(ctx, "Step not found in stepMap", tag.Step(stepName))
 		return "", false
+	}
+	if output, masked := stepInfo.Masked.path(path); masked {
+		maskedReadsFrom(ctx).note(stepName, output)
 	}
 
 	if strings.HasPrefix(path, ".output.") || strings.HasPrefix(path, ".output[") {

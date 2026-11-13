@@ -20,7 +20,14 @@ func ExpandEnvContext(ctx context.Context, s string) string {
 	if scope == nil {
 		return expandWithLookup(s, lookupProcessEnv, true)
 	}
-	return scope.Expand(s)
+	reads := maskedReadsFrom(ctx)
+	return expandWithLookup(s, func(key string) (string, bool) {
+		entry, ok := scope.GetEntry(key)
+		if ok {
+			reads.noteEntry(entry)
+		}
+		return entry.Value, ok
+	}, true)
 }
 
 // expandEnvScopeOnly expands $VAR and ${VAR} using only non-OS-sourced
@@ -30,8 +37,10 @@ func expandEnvScopeOnly(ctx context.Context, s string) string {
 	if scope == nil {
 		return s
 	}
+	reads := maskedReadsFrom(ctx)
 	return expandWithLookup(s, func(key string) (string, bool) {
 		if entry, ok := scope.GetEntry(key); ok && entry.Source != EnvSourceOS {
+			reads.noteEntry(entry)
 			return entry.Value, true
 		}
 		return "", false

@@ -102,7 +102,7 @@ func HasValueReference(raw string) bool {
 // HasValueReference reports whether raw, read as a value of the field,
 // contains a supported value-reference form.
 func (f Field) HasValueReference(raw string) bool {
-	for _, ref := range scanReferences(raw, f.EscapesDollar()) {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind == referenceStrict || ref.Kind == referenceEval {
 			return true
 		}
@@ -249,7 +249,7 @@ func HasStepRuntimeOutputReference(raw, stepID string) bool {
 // HasStepRuntimeOutputReference reports whether raw, read as a value of the
 // field, reads an attempt result from stepID.
 func (f Field) HasStepRuntimeOutputReference(raw, stepID string) bool {
-	for _, ref := range scanReferences(raw, f.EscapesDollar()) {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind != referenceEval {
 			continue
 		}
@@ -266,7 +266,7 @@ func (f Field) HasStepRuntimeOutputReference(raw, stepID string) bool {
 // field, that insert text a step produced.
 func (f Field) StepTextReferences(raw string) []StepTextReference {
 	var out []StepTextReference
-	for _, ref := range scanReferences(raw, f.EscapesDollar()) {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.StepOutput != nil {
 			out = append(out, StepTextReference{
 				Expression: ref.Raw,

@@ -432,6 +432,14 @@ func (d *Data) MaskedOutputs() *ir.MaskedOutputs {
 	return d.inner.State.MaskedOutputs
 }
 
+// maskedVariables names the output variables a restore brought back masked.
+func (d *Data) maskedVariables() []string {
+	if masked := d.MaskedOutputs(); masked != nil {
+		return masked.Variables
+	}
+	return nil
+}
+
 func (d *Data) StepInfo() cmnvalue.StepInfo {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -442,26 +450,35 @@ func (d *Data) StepInfo() cmnvalue.StepInfo {
 		ExitCode: strconv.Itoa(d.inner.State.ExitCode),
 	}
 
+	masked := d.inner.State.MaskedOutputs
+
 	// Step-scoped references use OutputValue for both string-form and object-form output.
 	if d.inner.State.OutputValue != nil {
 		value := *d.inner.State.OutputValue
 		info.Output = &value
+		info.Masked.Output = masked.HasCaptured()
 	}
 
 	// Backward-compatible fallback for previously persisted string-form outputs.
 	if info.Output == nil {
 		if value, ok := d.inner.StringFormOutputValue(); ok {
 			info.Output = &value
+			info.Masked.Output = masked.HasVariable(d.inner.Step.Output)
 		}
 	}
 	if d.inner.State.StepOutputsValue != nil {
 		value := *d.inner.State.StepOutputsValue
 		info.Outputs = &value
 		info.DeclaredOutputs = &value
+		if masked != nil {
+			info.Masked.Outputs = masked.Published
+			info.Masked.AllOutputs = masked.AllPublished
+		}
 	}
 	if info.Outputs == nil && d.inner.State.OutputsValue != nil {
 		value := *d.inner.State.OutputsValue
 		info.Outputs = &value
+		info.Masked.AllOutputs = masked.HasCaptured()
 	}
 
 	return info

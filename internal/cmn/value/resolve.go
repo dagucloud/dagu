@@ -17,6 +17,7 @@ type resolver struct {
 	expandOS               bool
 	deferShellVars         bool
 	recognizeEscapedDollar bool
+	maskedReads            *maskedReads
 }
 
 // newResolver creates a resolver from the given context and options.
@@ -28,6 +29,7 @@ func newResolver(ctx context.Context, opts *options) *resolver {
 		expandOS:               opts.ExpandOS,
 		deferShellVars:         opts.DeferShellVars,
 		recognizeEscapedDollar: opts.RecognizeEscapedDollar,
+		maskedReads:            maskedReadsFrom(ctx),
 	}
 }
 
@@ -56,6 +58,7 @@ func (r *resolver) lookupScopeNonOSEntry(name string) (EnvEntry, bool) {
 	}
 	entry, ok := r.scope.GetEntry(name)
 	if ok && entry.Source != EnvSourceOS {
+		r.maskedReads.noteEntry(entry)
 		return entry, true
 	}
 	return EnvEntry{}, false
@@ -186,8 +189,9 @@ func (r *resolver) resolveJSONSource(name string) (string, bool) {
 	}
 	if r.expandOS {
 		if r.scope != nil {
-			if val, ok := r.scope.Get(name); ok {
-				return val, true
+			if entry, ok := r.scope.GetEntry(name); ok {
+				r.maskedReads.noteEntry(entry)
+				return entry.Value, true
 			}
 		}
 		return lookupProcessEnv(name)

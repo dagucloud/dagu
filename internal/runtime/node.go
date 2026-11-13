@@ -66,11 +66,6 @@ type Node struct {
 	outputSchemaOnce sync.Once
 	outputSchema     *jsonschema.Resolved
 	outputSchemaErr  error
-
-	// readsOnce caches what the step's fields read from other steps. The
-	// masked-output check needs it on every attempt of a restored run.
-	readsOnce sync.Once
-	reads     stepReads
 }
 
 func NewNode(step ir.Step, state NodeState) *Node {
@@ -1159,9 +1154,13 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 		commands := make([]ir.CommandEntry, len(step.Commands))
 		for i, cmdEntry := range step.Commands {
 			fieldPath := commandEntryFieldPath(len(step.Commands), i)
+			// Each form records its masked reads apart, since only the form
+			// the executor runs reads anything.
+			directCtx := cmnvalue.TrackMaskedReads(ctx)
+			shellCtx := cmnvalue.TrackMaskedReads(ctx)
 			commandName := cmdEntry.Command
 			if commandName != "" {
-				evaluated, err := resolveRuntimeString(ctx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
+				evaluated, err := resolveRuntimeString(directCtx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
 					return ir.Step{}, fmt.Errorf("failed to eval command: %w", err)
 				}
@@ -1170,7 +1169,7 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 
 			args := make([]string, len(cmdEntry.Args))
 			for j, arg := range cmdEntry.Args {
-				value, err := resolveRuntimeString(ctx, arg, cmnvalue.DirectCommandField(fieldPath, command))
+				value, err := resolveRuntimeString(directCtx, arg, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
 					return ir.Step{}, fmt.Errorf("failed to eval command args: %w", err)
 				}
@@ -1180,7 +1179,7 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 			// Evaluate CmdWithArgs if present
 			cmdWithArgs := cmdEntry.CmdWithArgs
 			if cmdWithArgs != "" {
-				evaluated, err := resolveRuntimeString(ctx, cmdWithArgs, cmnvalue.ShellCommandField(fieldPath, command))
+				evaluated, err := resolveRuntimeString(shellCtx, cmdWithArgs, cmnvalue.ShellCommandField(fieldPath, command))
 				if err != nil {
 					return ir.Step{}, fmt.Errorf("failed to eval command with args: %w", err)
 				}
@@ -1189,6 +1188,12 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 				}
 				cmdWithArgs = evaluated
 			}
+			// A shell runs the command text when one is configured; other
+			// executors may run either form.
+			if !command.ShellConfigured || cmdWithArgs == "" {
+				cmnvalue.AddMaskedRead(ctx, cmnvalue.MaskedRead(directCtx))
+			}
+			cmnvalue.AddMaskedRead(ctx, cmnvalue.MaskedRead(shellCtx))
 
 			commands[i] = ir.CommandEntry{
 				Command:     commandName,

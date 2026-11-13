@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,6 +50,9 @@ type EnvEntry struct {
 	Value  string
 	Source EnvSource
 	Origin string // stepID for outputs, filepath for dotenv (optional metadata)
+	// Masked marks an output variable restored with a secret masked. A read
+	// of it is recorded (see TrackMaskedReads).
+	Masked bool
 }
 
 // EnvScope is an isolated, immutable environment scope for DAG loading/execution.
@@ -127,8 +131,9 @@ func (e *EnvScope) WithEntries(entries map[string]string, source EnvSource) *Env
 }
 
 // WithStepOutputs returns a new EnvScope with step output variables added.
-// The stepID is recorded as the origin for debugging.
-func (e *EnvScope) WithStepOutputs(outputs map[string]string, stepID string) *EnvScope {
+// The stepID is recorded as the origin. The variables named in masked were
+// restored with a secret masked.
+func (e *EnvScope) WithStepOutputs(outputs map[string]string, stepID string, masked ...string) *EnvScope {
 	if len(outputs) == 0 {
 		return e
 	}
@@ -137,7 +142,7 @@ func (e *EnvScope) WithStepOutputs(outputs map[string]string, stepID string) *En
 		parent:  e,
 	}
 	for k, v := range outputs {
-		newScope.entries[k] = EnvEntry{Key: k, Value: v, Source: EnvSourceOutput, Origin: stepID}
+		newScope.entries[k] = EnvEntry{Key: k, Value: v, Source: EnvSourceOutput, Origin: stepID, Masked: slices.Contains(masked, k)}
 	}
 	return newScope
 }

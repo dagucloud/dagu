@@ -133,7 +133,7 @@ func resolveBindings(
 		return itemPath(path) || supportedStrictBinding(segments) || reservedBuiltinContextReference(segments)
 	}
 	// A leading non-identifier rune keeps an adjacent $NAME from absorbing a placeholder.
-	resolved, err := walkBindings(input, field.EscapesDollar(), owned, func(token string, path string, escaped bool) (string, error) {
+	resolved, err := walkBindings(input, field.escapesDollar(), owned, func(token string, path string, escaped bool) (string, error) {
 		item := itemPath(path)
 		switch {
 		case escaped && item:
@@ -477,7 +477,7 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		}
 		return bindingMapValue("params", segments[1], scope.Params, requireValue)
 	case "env":
-		return bindingEnvValue(segments[1], scope.Env, requireValue)
+		return bindingEnvValue(ctx, segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	case "foreach":
@@ -675,12 +675,13 @@ func formatForeachItemValue(value any) any {
 	}
 }
 
-func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, error) {
+func bindingEnvValue(ctx context.Context, name string, scope *EnvScope, requireValue bool) (any, error) {
 	if scope == nil && !requireValue {
 		return nil, nil
 	}
-	if value, ok := scope.Get(name); ok {
-		return value, nil
+	if entry, ok := scope.GetEntry(name); ok {
+		maskedReadsFrom(ctx).noteEntry(entry)
+		return entry.Value, nil
 	}
 	if !requireValue {
 		return nil, nil

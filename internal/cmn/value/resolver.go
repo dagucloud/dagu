@@ -183,6 +183,9 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	if err != nil {
 		return "", err
 	}
+	if field.ReachesShell() {
+		noteShellReads(ctx, evaluated)
+	}
 	return restoreProtectedReferences(evaluated, protected.all), nil
 }
 
@@ -193,7 +196,7 @@ func (r Resolver) unqualifiedItemFieldError(ctx context.Context, raw string, fie
 	if !ok {
 		return nil
 	}
-	tokens := unqualifiedItemFieldReferences(raw, alias, field.EscapesDollar())
+	tokens := unqualifiedItemFieldReferences(raw, alias, field.escapesDollar())
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -443,7 +446,7 @@ func StepOutputReferences(raw string) []StepOutputReference {
 // StepOutputReferences returns the braced step output references the field
 // resolves in raw.
 func (f Field) StepOutputReferences(raw string) []StepOutputReference {
-	refs := scanReferences(raw, f.EscapesDollar())
+	refs := scanReferences(raw, f.escapesDollar())
 	out := make([]StepOutputReference, 0, len(refs))
 	for _, ref := range refs {
 		if ref.StepOutput == nil {

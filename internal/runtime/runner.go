@@ -463,6 +463,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 			go func(n *Node) {
 				// Set step context for all logs in this goroutine
 				ctx := logger.WithValues(ctx, tag.Step(n.Name()))
+				ctx = cmnvalue.TrackMaskedReads(ctx)
 
 				// Finish the node and clamp its dependents before the runner loop
 				// queues them and before the wait group lets the run end, so that
@@ -668,7 +669,9 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 			"step precondition was not met", progressCh)
 		return
 	}
-	if err := r.checkMaskedReads(plan, node); err != nil {
+	// A skipped step reads nothing, so a masked read fails the step only once
+	// its preconditions hold.
+	if err := maskedReadError(ctx, node); err != nil {
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(ir.NodeFailed)
@@ -944,13 +947,6 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 	if !met {
 		return
 	}
-	if err := r.checkMaskedReads(plan, node); err != nil {
-		r.setLastError(err)
-		node.MarkError(err)
-		node.SetStatus(ir.NodeFailed)
-		r.report(ctx, progressCh, node)
-		return
-	}
 
 	task := node.Step().HumanTask
 	prompt, err := resolveRuntimeString(ctx, task.Prompt, cmnvalue.WorkflowField("with.prompt"))
@@ -966,6 +962,14 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 	artifacts, err := resolveHumanTaskArtifacts(ctx, task.Artifacts)
 	if err != nil {
 		err = fmt.Errorf("failed to evaluate human task artifacts: %w", err)
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		r.report(ctx, progressCh, node)
+		return
+	}
+
+	if err := maskedReadError(ctx, node); err != nil {
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(ir.NodeFailed)
@@ -1141,7 +1145,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 			if stepID == "" {
 				stepID = predNode.Step().Name
 			}
-			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
+			env.Scope = env.Scope.WithStepOutputs(outputs, stepID, predNode.maskedVariables()...)
 		}
 	}
 
@@ -1305,7 +1309,7 @@ func (r *Runner) setupEnvironEventHandler(
 			if stepID == "" {
 				stepID = n.Step().Name
 			}
-			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
+			env.Scope = env.Scope.WithStepOutputs(outputs, stepID, n.maskedVariables()...)
 		}
 	}
 
@@ -1646,6 +1650,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	defer node.Finish()
 
 	ctx = logger.WithValues(ctx, tag.Step(node.Name()))
+	ctx = cmnvalue.TrackMaskedReads(ctx)
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
@@ -1673,7 +1678,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		node.SetStatus(ir.NodeFailed)
 		return err
 	}
-	if err := r.checkMaskedHandlerReads(plan, node); err != nil {
+	if err := maskedReadError(ctx, node); err != nil {
 		node.SetStatus(ir.NodeFailed)
 		return err
 	}
@@ -2011,6 +2016,16 @@ func (r *Runner) handlePreconditionError(plan *Plan, err error) {
 	}
 }
 
+// maskedReadError returns the error for an output restored masked that the
+// node read through ctx, or nil. The original value is gone, so the step
+// would run on starred text.
+func maskedReadError(ctx context.Context, node *Node) error {
+	if err := cmnvalue.MaskedRead(ctx); err != nil {
+		return fmt.Errorf("step %q %w", node.Name(), err)
+	}
+	return nil
+}
+
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
 	err := node.evalPreconditions(ctx)
@@ -2180,7 +2195,7 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 	if stepID == "" {
 		stepID = node.Step().Name
 	}
-	env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
+	env.Scope = env.Scope.WithStepOutputs(outputs, stepID, node.maskedVariables()...)
 	return WithEnv(ctx, env)
 }
 

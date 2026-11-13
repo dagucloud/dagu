@@ -80,6 +80,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		node.SetError(err)
 		return err
 	}
+	if err := maskedReadError(ctx, node); err != nil {
+		node.SetError(err)
+		return err
+	}
 
 	defer func() {
 		if closeErr := executor.CloseExecutor(cmd); closeErr != nil {
@@ -148,6 +152,11 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	}
 
 	if err := node.captureOutput(ctx); err != nil {
+		return err
+	}
+	// An executor can resolve a field while it runs.
+	if err := maskedReadError(ctx, node); err != nil {
+		node.SetError(err)
 		return err
 	}
 
