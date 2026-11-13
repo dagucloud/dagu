@@ -119,10 +119,13 @@ function firstTestRunRemoval(
 export function useRunHistory({
   enabled,
   includeEphemeral = false,
+  includeBackfill = false,
   pollTestRuns = false,
 }: {
   enabled: boolean;
   includeEphemeral?: boolean;
+  /** Also lists the backfill runs, which the server leaves out by default. */
+  includeBackfill?: boolean;
   pollTestRuns?: boolean;
 }): RunHistory {
   const { fileName, remoteNode, registerHistory, standaloneRun } =
@@ -155,9 +158,11 @@ export function useRunHistory({
     '/dags/{fileName}/dag-runs',
     whenEnabled(active, {
       params: {
-        query: includeEphemeral
-          ? { remoteNode, includeEphemeral: true }
-          : { remoteNode },
+        query: {
+          remoteNode,
+          ...(includeEphemeral ? { includeEphemeral: true } : {}),
+          ...(includeBackfill ? { includeBackfill: true } : {}),
+        },
         path: { fileName },
       },
     }),
@@ -183,20 +188,19 @@ export function useRunHistory({
     );
     return () => timers.forEach(clearTimeout);
   }, [removal, mutate]);
-  // The feed has no test run: it must not replace the list that has them.
-  useSSECacheSync(
-    historySSE,
-    (includeEphemeral ? noSync : mutate) as typeof mutate
-  );
+  // The feed has no test run and no backfill run: it must not replace a
+  // list that has them.
+  const ownList = includeEphemeral || includeBackfill;
+  useSSECacheSync(historySSE, (ownList ? noSync : mutate) as typeof mutate);
   const events = historySSE.data;
   useEffect(() => {
     // An event of the feed means that the history changed: read it again.
-    if (!includeEphemeral || events == null || revalidatedEvents.has(events)) {
+    if (!ownList || events == null || revalidatedEvents.has(events)) {
       return;
     }
     revalidatedEvents.add(events);
     void mutate();
-  }, [events, includeEphemeral, mutate]);
+  }, [events, ownList, mutate]);
 
   // Registered again with each committed list: a render that React drops
   // must not show its runs.
