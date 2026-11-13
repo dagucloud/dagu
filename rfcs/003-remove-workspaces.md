@@ -12,8 +12,10 @@
 
 Replace workspaces with projects in v3.0. A project is a directory with the
 same layout as `DAGU_HOME`. It holds its DAGs, runs, logs, base config,
-secrets, profiles, notification routes, incident policies, and wiki. Users,
-API keys, authentication, and workers stay server-wide. One server process
+secrets, profiles, notification routes, incident policies, and wiki. Secrets,
+profiles, notification routes, and incident policies also have a server layer
+that every project inherits, as base config does. Users, API keys,
+authentication, and workers stay server-wide. One server process
 serves every project. Child DAGs that several projects call live in a library
 at `paths.alt_dags_dir` and run in the project that calls them.
 
@@ -148,7 +150,7 @@ Windows, and Linux.
 
 | Scope | Contents |
 | --- | --- |
-| Server | `config.yaml`, global `base.yaml`, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
+| Server | `config.yaml`, global `base.yaml`, the [server layer](#server-layer) of secrets, profiles, notification routes, and incident policies, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
 | Project | DAG files, project `base.yaml`, runs, logs, artifacts, run work directories, process heartbeats, run events, DAG state, suspend flags, DAG settings, pins, views, scheduler state and checkpoints, watch state, slot index, backfills, materializations, agent session cleanups, secrets, profiles, notification routes, incident policies and incidents, wiki, per-DAG webhooks and their public URLs, node inventories ([RFC 012](012-node-inventory.md)), other queues |
 
 A store added later is per project unless it holds identity, authentication,
@@ -185,6 +187,27 @@ then the DAG file. The order matches v2's global, workspace, DAG. A child
 started with `dag.run` runs in its caller's project, so it gets that project's
 base config without carrying provenance. This holds whether the child is in
 the caller's file, in its own file, or in the library.
+
+### Server layer
+
+Secrets, profiles, notification routes, and incident policies have a server
+layer that every project inherits, as v2 workspaces inherit global entries.
+A credential or alert route that every team uses is kept once, not copied
+into each project.
+
+| Setting | A project's DAG uses |
+| --- | --- |
+| Secret | The project's secret of that name, else the server's |
+| Profile | The server's defaults, then the project's defaults, then the selected profile. A profile named by a run resolves in the project, then the server |
+| Notification routes | The project's routes, and the server's when the project's route set inherits them |
+| Incident policies | The DAG's policy, then the project's, then the server's, each inheriting its parent as in v2 |
+
+- Editing the server layer needs a server-wide role, as editing global
+  entries does in v2.
+- Project pages list inherited entries read-only, marked as coming from the
+  server. Secret values are never shown either way.
+- The server layer is stored in `paths.data_dir`, apart from the default
+  project's own entries.
 
 ### Identity and references
 
@@ -320,7 +343,7 @@ scheduler process   HA lock, health server, service registry, signals, license
   coordinator records attempts in that project's run store.
 - Tasks already carry base config content and the profile name. Both now come
   from the task's project. Profile and secret values resolve from the task's
-  project.
+  project, then the server layer.
 - `base_config_workspace` is removed from the task.
 - Workers stay shared and do not read project directories. A `dag.run` inside
   a dispatched run fetches its child from the coordinator, which resolves it
@@ -393,6 +416,7 @@ v2 install before the upgrade. Apply it with every Dagu process for that
 | `<dags>/workspaces/X/base.yaml` | `projects/X/base.yaml`, or `<projects_dags_dir>/X/base.yaml` when set |
 | Secrets and profile entries of `X` | Project `X`'s secrets and profiles, still encrypted with the server's key |
 | Notification routes and incident policies of `X` | Project `X`'s routes and policies |
+| Global secrets, profile defaults, notification routes, and incident policies | The server layer, which every project inherits |
 | Per-DAG wiki directory `<wiki>/X/<dag>`, pages under `<wiki>/X/` | Project `X`'s wiki |
 | User or API key with roles in `X` | Grants on project `X` |
 | User or API key with `workspace_access.all: false` | Also `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
@@ -492,6 +516,9 @@ v2 gets no new workspace features.
     with the same DAG name are two workflows in Dagu Cloud.
 20. Two servers share a Dagu Cloud project only after an admin of each binds
     a local project to it.
+21. A project DAG uses the server layer's secrets, profile defaults,
+    notification routes, and incident policies unless its project overrides
+    them, as a v2 workspace DAG uses global entries.
 
 ## Alternatives considered
 
@@ -515,6 +542,9 @@ v2 gets no new workspace features.
   no longer run the files that production runs.
 - **Merge projects that share child DAGs.** Brings back the coarse access
   that projects replace.
+- **Settings per project with no server layer.** A credential or alert route
+  that every team uses would be copied into each project and rotated in
+  each, and migration would have to make those copies.
 - **The name as the project's identity.** A rename would orphan grants,
   audit entries, and tasks in flight.
 - **An ID file in each project directory.** Survives renames made on disk,
@@ -534,6 +564,7 @@ v2 gets no new workspace features.
 
 - Multi-team installs keep roles per group, visibility limits, and base
   config, with membership fixed by location.
+- Settings every project shares stay in one place, in the server layer.
 - Upgrading an install with workspaces takes one reviewed command.
 - Project-scoped API paths, MCP tools, and CLI commands gain a project
   parameter. Clients that omit it address the default project.
