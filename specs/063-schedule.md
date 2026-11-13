@@ -8,6 +8,7 @@ Implemented.
 
 This specification covers calendar descriptors in workflow schedules.
 It also defines how start schedules supply parameter overrides.
+Scheduler dispatch and timing guarantees are outside this conformance suite.
 
 ## Goal
 
