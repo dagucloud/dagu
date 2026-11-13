@@ -1261,6 +1261,7 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()
+	state.collectCredentialRefs()
 	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()

@@ -1373,15 +1373,19 @@ func TestSSHAcceptsDeclaredKeys(t *testing.T) {
 	t.Parallel()
 
 	config := map[string]any{
-		"host": "example.com",
-		"user": "me",
-		"port": 22,
+		"host":       "example.com",
+		"user":       "me",
+		"port":       22,
+		"key":        map[string]any{"secret": "ssh/key"},
+		"password":   map[string]any{"secret": "ssh/password"},
+		"passphrase": "literal",
 		"bastion": map[string]any{
-			"host":     "jump.example.com",
-			"port":     22,
-			"user":     "ops",
-			"key":      "/path/to/key",
-			"password": "secret",
+			"host":       "jump.example.com",
+			"port":       22,
+			"user":       "ops",
+			"key":        "/path/to/key",
+			"password":   "secret",
+			"passphrase": map[string]any{"secret": "ssh/jump-passphrase"},
 		},
 	}
 

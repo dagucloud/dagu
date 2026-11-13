@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -143,4 +144,169 @@ steps:
 		KeySecret:        "ssh/jump-key",
 		PassphraseSecret: "ssh/ops-jump-passphrase",
 	}, dag.SSH.Bastion.SSHAuth)
+}
+
+func TestSSHCredentialRefs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+		want []secretref.Ref
+	}{
+		{
+			name: "DAGLevelKeyAndPassphrase",
+			yaml: `
+ssh:
+  host: app
+  key: {secret: ssh/key}
+  passphrase: {secret: ssh/passphrase}
+  password: {secret: ssh/unused-password}
+steps:
+  - run: "true"
+`,
+			want: []secretref.Ref{
+				{Name: "ssh.key", Ref: "ssh/key"},
+				{Name: "ssh.passphrase", Ref: "ssh/passphrase"},
+			},
+		},
+		{
+			name: "PasswordIgnoresPassphrase",
+			yaml: `
+ssh:
+  host: app
+  password: {secret: ssh/password}
+  passphrase: {secret: ssh/unused-passphrase}
+steps:
+  - run: "true"
+`,
+			want: []secretref.Ref{{Name: "ssh.password", Ref: "ssh/password"}},
+		},
+		{
+			name: "StepsHandlersAndForeachBodies",
+			yaml: `
+steps:
+  - id: deploy
+    action: ssh.run
+    with:
+      host: app
+      command: "true"
+      key: {secret: ssh/key}
+      bastion:
+        host: jump
+        password: {secret: ssh/jump}
+  - id: copy
+    action: sftp.upload
+    with:
+      host: app
+      source: a
+      destination: b
+      key: {secret: ssh/key}
+  - id: each
+    foreach:
+      items: [a, b]
+      steps:
+        - id: item
+          action: ssh.run
+          with:
+            host: ${foreach.item}
+            command: "true"
+            passphrase: {secret: ssh/default-key-passphrase}
+handler_on:
+  failure:
+    action: ssh.run
+    with:
+      host: app
+      command: "true"
+      password: {secret: ssh/handler}
+`,
+			want: []secretref.Ref{
+				{Name: "steps.deploy.with.key", Ref: "ssh/key"},
+				{Name: "steps.deploy.with.bastion.password", Ref: "ssh/jump"},
+				{Name: "steps.each.foreach.steps.item.with.passphrase", Ref: "ssh/default-key-passphrase"},
+				{Name: "handler_on.failure.with.password", Ref: "ssh/handler"},
+			},
+		},
+		{
+			// The base case of the issue: a path key leaves an inherited
+			// passphrase unused, so nothing is collected.
+			name: "PathKey",
+			yaml: `
+ssh:
+  host: app
+  key: /keys/plain
+steps:
+  - run: "true"
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, dag.CredentialRefs)
+		})
+	}
+}
+
+func TestSSHCredentialRefErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "StepBadRef",
+			yaml: `
+steps:
+  - id: deploy
+    action: ssh.run
+    with: {host: app, command: "true", key: {secret: Bad_Ref}}
+`,
+			wantErr: "field 'steps.deploy.with.key.secret': invalid secret ref",
+		},
+		{
+			name: "StepInterpolatedRef",
+			yaml: `
+steps:
+  - id: deploy
+    action: sftp.download
+    with: {host: app, source: a, destination: b, password: {secret: "ssh/${HOST}"}}
+`,
+			wantErr: "field 'steps.deploy.with.password.secret': secret ref must be literal",
+		},
+		{
+			name: "BastionUnknownField",
+			yaml: `
+steps:
+  - id: deploy
+    action: ssh.run
+    with: {host: app, command: "true", bastion: {host: jump, key: {secrte: ssh/key}}}
+`,
+			wantErr: `field 'steps.deploy.with.bastion.key': unknown field "secrte"; use secret or file`,
+		},
+		{
+			name: "DAGLevelBothForms",
+			yaml: `
+ssh:
+  host: app
+  key: {secret: ssh/key, file: /keys/k}
+steps:
+  - run: "true"
+`,
+			wantErr: "field 'ssh.key': set either secret or file, not both",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(context.Background(), []byte(tt.yaml))
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }

@@ -179,6 +179,27 @@ func portValueSchema(description string) *jsonschema.Schema {
 	}
 }
 
+// credentialSchema accepts a credential as a string or an object without
+// describing the object. ir.ParseSSHAuth checks its shape and reports errors
+// by field.
+func credentialSchema(description string) *jsonschema.Schema {
+	return &jsonschema.Schema{Types: []string{"string", "object"}, Description: description}
+}
+
+var bastionSchema = &jsonschema.Schema{
+	Type:                 "object",
+	Description:          "Bastion/jump host configuration",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+	Properties: map[string]*jsonschema.Schema{
+		"host":       {Type: "string", Description: "Bastion host address"},
+		"port":       portValueSchema("Bastion SSH port"),
+		"user":       {Type: "string", Description: "Bastion SSH username"},
+		"key":        credentialSchema("Bastion private key: a path, {file: <path>}, or {secret: <ref>}"),
+		"password":   credentialSchema("Bastion SSH password: a string or {secret: <ref>}"),
+		"passphrase": credentialSchema("Passphrase of the bastion's encrypted key: a string or {secret: <ref>}"),
+	},
+}
+
 var configSchema = &jsonschema.Schema{
 	Type:                 "object",
 	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
@@ -187,25 +208,15 @@ var configSchema = &jsonschema.Schema{
 		"host":            {Type: "string", Description: "SSH hostname"},
 		"ip":              {Type: "string", Description: "SSH host IP (alias for host)"},
 		"port":            portValueSchema("SSH port"),
-		"key":             {Type: "string", Description: "Path to private key file"},
-		"password":        {Type: "string", Description: "SSH password"},
+		"key":             credentialSchema("Private key: a path, {file: <path>}, or {secret: <ref>}"),
+		"password":        credentialSchema("SSH password: a string or {secret: <ref>}"),
+		"passphrase":      credentialSchema("Passphrase of an encrypted key: a string or {secret: <ref>}"),
 		"strict_host_key": {Type: "boolean", Description: "Enable strict host key checking"},
 		"known_host_file": {Type: "string", Description: "Path to known_hosts file"},
 		"shell":           {Type: "string", Description: "Shell for remote execution"},
 		"shell_args":      {Type: "array", Items: &jsonschema.Schema{Type: "string"}, Description: "Additional shell arguments"},
 		"timeout":         {Type: "string", Description: "Connection timeout (e.g., '30s', '1m')"},
-		"bastion": {
-			Type:                 "object",
-			Description:          "Bastion/jump host configuration",
-			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
-			Properties: map[string]*jsonschema.Schema{
-				"host":     {Type: "string", Description: "Bastion host address"},
-				"port":     portValueSchema("Bastion SSH port"),
-				"user":     {Type: "string", Description: "Bastion SSH username"},
-				"key":      {Type: "string", Description: "Path to bastion private key file"},
-				"password": {Type: "string", Description: "Bastion SSH password"},
-			},
-		},
+		"bastion":         bastionSchema,
 	},
 }
 
@@ -217,26 +228,16 @@ var sftpConfigSchema = &jsonschema.Schema{
 		"host":            {Type: "string", Description: "SSH hostname"},
 		"ip":              {Type: "string", Description: "SSH host IP (alias for host)"},
 		"port":            portValueSchema("SSH port"),
-		"key":             {Type: "string", Description: "Path to private key file"},
-		"password":        {Type: "string", Description: "SSH password"},
+		"key":             credentialSchema("Private key: a path, {file: <path>}, or {secret: <ref>}"),
+		"password":        credentialSchema("SSH password: a string or {secret: <ref>}"),
+		"passphrase":      credentialSchema("Passphrase of an encrypted key: a string or {secret: <ref>}"),
 		"strict_host_key": {Type: "boolean", Description: "Enable strict host key checking"},
 		"known_host_file": {Type: "string", Description: "Path to known_hosts file"},
 		"timeout":         {Type: "string", Description: "Connection timeout (e.g., '30s', '1m')"},
 		"direction":       {Type: "string", Description: "Transfer direction: 'upload' or 'download'"},
 		"source":          {Type: "string", Description: "Source path (local for upload, remote for download)"},
 		"destination":     {Type: "string", Description: "Destination path (remote for upload, local for download)"},
-		"bastion": {
-			Type:                 "object",
-			Description:          "Bastion/jump host configuration",
-			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
-			Properties: map[string]*jsonschema.Schema{
-				"host":     {Type: "string", Description: "Bastion host address"},
-				"port":     portValueSchema("Bastion SSH port"),
-				"user":     {Type: "string", Description: "Bastion SSH username"},
-				"key":      {Type: "string", Description: "Path to bastion private key file"},
-				"password": {Type: "string", Description: "Bastion SSH password"},
-			},
-		},
+		"bastion":         bastionSchema,
 	},
 }
 
