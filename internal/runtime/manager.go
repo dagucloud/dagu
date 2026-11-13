@@ -486,9 +486,11 @@ func (m *Manager) ReadLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunS
 			if readErr != nil || st.AttemptID != entry.Meta.AttemptID {
 				break
 			}
-			if st.Ephemeral {
-				// An ephemeral run reaches no history; the next fresh run
-				// may stand for the DAG.
+			if st.Ephemeral || st.BackfillID != "" {
+				// An ephemeral run reaches no history, and a backfill run
+				// stands for its DAG only when the DAG has no other run,
+				// which the history tells. The next fresh run may stand for
+				// the DAG.
 				continue
 			}
 			st = m.resolveRunningStatus(ctx, dag, attempt, st, entry.IsRoot())
