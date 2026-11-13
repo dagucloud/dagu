@@ -117,7 +117,7 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	scriptCommand := registry.ScriptResolution(context.Background(), step)
 
 	w.add(base.withPathValue(path+".run", step.Script).withField(scriptReferenceField(path+".run", step, scriptCommand)))
-	if !literalJQFilter(step) {
+	if !LiteralJQFilter(step) {
 		w.walkStepCommands(path, step, base, command)
 	}
 	w.add(base.withPathValue(path+".shell", step.Shell).withField(cmnvalue.StepShellField(path + ".shell")))
@@ -194,9 +194,9 @@ func (w *referenceFieldWalker) walkStepCommands(path string, step ir.Step, base 
 	}
 }
 
-// literalJQFilter reports whether step is a jq step whose filter is literal jq
+// LiteralJQFilter reports whether step is a jq step whose filter is literal jq
 // source: supplying args, even {}, makes it one.
-func literalJQFilter(step ir.Step) bool {
+func LiteralJQFilter(step ir.Step) bool {
 	_, hasArgs := step.ExecutorConfig.Config["args"]
 	return step.ExecutorConfig.Type == "jq" && hasArgs
 }

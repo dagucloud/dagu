@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/reffield"
 	"github.com/dagucloud/dagu/v2/internal/spec/types"
 	"github.com/goccy/go-yaml"
 )
@@ -1803,7 +1804,7 @@ func buildSingleCommand(val string, result *ir.Step) error {
 	if trimmed == "" {
 		return ir.NewValidationError("command", raw, ErrStepCommandIsEmpty)
 	}
-	if literalJQFilter(*result) {
+	if reffield.LiteralJQFilter(*result) {
 		result.Commands = []ir.CommandEntry{{CmdWithArgs: raw}}
 		return nil
 	}
@@ -1845,12 +1846,6 @@ func buildSingleCommand(val string, result *ir.Step) error {
 	}
 
 	return nil
-}
-
-// Explicit arguments make jq filters literal source instead of workflow expressions.
-func literalJQFilter(step ir.Step) bool {
-	_, hasArgs := step.ExecutorConfig.Config["args"]
-	return step.ExecutorConfig.Type == "jq" && hasArgs
 }
 
 // buildMultipleCommands parses an array of commands and populates the Step.Commands field.
