@@ -23,7 +23,8 @@ export type WorkflowPanelTab =
   | 'overview'
   | 'wiki'
   | 'incidents'
-  | 'notifications';
+  | 'notifications'
+  | 'backfills';
 /** A right panel that a link opens once: the Workflow panel or a launcher. */
 export type OpenPanel = 'workflow' | 'cron' | 'webhook';
 /** The tabs of the Run panel. ?dock=steps and ?dock=spec are no tabs: they read as no tab. */
@@ -105,6 +106,7 @@ export const WORKFLOW_PANEL_TABS: readonly WorkflowPanelTab[] = [
   'wiki',
   'incidents',
   'notifications',
+  'backfills',
 ];
 const OPEN_PANELS: readonly OpenPanel[] = ['workflow', 'cron', 'webhook'];
 

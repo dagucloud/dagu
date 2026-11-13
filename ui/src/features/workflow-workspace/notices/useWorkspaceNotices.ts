@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import { useMonitoringOfferState } from '@/components/MonitoringOffer';
+import { useBackfillNotice } from '@/features/backfills/hooks/useBackfillNotice';
 import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -44,7 +45,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { ts } = useI18n();
   const navigate = useNavigate();
   const run = useWorkspaceRun();
-  const { dagData } = useWorkspaceData('useWorkspaceNotices');
+  const { dagData, remoteNode } = useWorkspaceData('useWorkspaceNotices');
   const dock = useDockCommands();
   const offer = useMonitoringOfferState();
 
@@ -72,6 +73,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { setTab } = dock;
   const { dismiss: dismissOffer } = offer;
   const waitingSubRun = useWaitingSubRun();
+  const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
 
   return useMemo(() => {
     const notices: WorkspaceNotice[] = [];
@@ -159,6 +161,9 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
         priority: RUN_NOTICE_PRIORITY['newer-run-active'],
       });
     }
+    if (backfillNotice) {
+      notices.push(backfillNotice);
+    }
     if (offerVisible) {
       notices.push({
         id: 'monitoring-offer',
@@ -188,6 +193,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     actionCount,
     waitingSubRun,
     newerRunActive,
+    backfillNotice,
     offerVisible,
   ]);
 }

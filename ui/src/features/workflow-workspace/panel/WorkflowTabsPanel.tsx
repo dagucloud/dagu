@@ -5,10 +5,12 @@ import {
   AlertTriangle,
   Bell,
   BookOpen,
+  History,
   LayoutList,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, type ReactNode } from 'react';
+import { DAGBackfillsTab } from '@/features/backfills/components/DAGBackfillsTab';
 import DAGWikiTab from '@/features/dags/components/dag-details/DAGWikiTab';
 import IncidentsTab from '@/features/dags/components/dag-details/IncidentsTab';
 import NotificationsTab from '@/features/dags/components/dag-details/NotificationsTab';
@@ -34,6 +36,7 @@ export const WORKFLOW_TABS: readonly WorkflowTabInfo[] = [
   { id: 'wiki', label: 'Wiki', icon: BookOpen },
   { id: 'incidents', label: 'Incidents', icon: AlertTriangle },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'backfills', label: 'Backfills', icon: History },
 ];
 
 const TAB_ID_PREFIX = 'ww-wtab';
@@ -67,15 +70,19 @@ export function WorkflowTabsPanel({
   const [url, setUrl] = useWorkspaceUrl();
   const { guard, setDirty } = useSettingsLeaveGuard();
   const tab: WorkflowPanelTab = url.wtab ?? 'overview';
+  // Only a DAG with a schedule has slots to backfill.
+  const scheduled = (dag.schedule?.length ?? 0) > 0;
   const stripTabs = useMemo(
     () =>
-      WORKFLOW_TABS.map(({ id, label, icon }) => ({
-        id,
-        label: ts(label),
-        icon,
-        controls: panelId(id),
-      })),
-    [ts]
+      WORKFLOW_TABS.filter(({ id }) => id !== 'backfills' || scheduled).map(
+        ({ id, label, icon }) => ({
+          id,
+          label: ts(label),
+          icon,
+          controls: panelId(id),
+        })
+      ),
+    [ts, scheduled]
   );
 
   // A tab that goes away takes its draft with it.
@@ -148,6 +155,7 @@ export function WorkflowTabsPanel({
             onDirtyChange={(dirty) => setDirty('notifications', dirty)}
           />
         )}
+        {tab === 'backfills' && <DAGBackfillsTab dagName={dag.name} />}
       </div>
     </div>
   );
