@@ -27,7 +27,7 @@ Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's f
 
 ## Prerequisites (check once per session)
 
-- **Endpoint:** find the server's listen address from its configuration or process (`ss -ltnp`). Do not dump a process environment; it may hold secrets.
+- **Endpoint:** find the server's listen address from its configuration or process (listener check from step 4). Do not dump a process environment; it may hold secrets.
 - **Credential:** check by name only, never print the value. MCP and REST take `Authorization: Bearer <key>`. API keys can be limited to surfaces, so a REST-only key can be rejected by MCP.
 - **Reachability:** MCP `initialize` then `tools/list`; REST `GET /api/v1/health` (no auth) and `GET /api/v1/dags`. Close any MCP session you open with `DELETE` and the session id.
 - **Remote context:** `dagu context list`. Creating one changes CLI state, so ask first. Use `dagu context add <name> --server <url>/api/v1` and let the CLI prompt for the key instead of passing it in argv. The prompt needs an interactive terminal; without one the command fails with `--api-key is required`, so ask the user to run it.
