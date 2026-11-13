@@ -6,10 +6,10 @@ Partially implemented.
 
 Conformance covers direct provider references declared on a DAG's `secrets:`
 field, build-time validation of that field, live resolution for the
-`env`, `file`, and `aws` providers, and masking of stored step outputs as a
-retried run reads them. It does not cover the workspace-managed
-secret registry (`ref:`-style references), which requires a running Dagu
-server and its secrets management API.
+`env`, `file`, and `aws` providers, and a retry that fails a step reading an
+output stored masked while it reuses outputs the step does not read. It does
+not cover the workspace-managed secret registry (`ref:`-style references),
+which requires a running Dagu server and its secrets management API.
 
 ## Scope
 
@@ -79,19 +79,28 @@ form inside JSON text, such as a value containing `"`, `\`, `<`, `>`, `&`, or
 a newline, is masked too. The mask replaces the literal value with `*******`.
 
 Masking does not change the values steps exchange within a run. A later step
-of the same run reads a published output with the secret intact. A run that
-reuses a step's stored result instead of executing the step again reads the
-stored value, so each secret in a reused output reads as `*******`. This
-covers retry, resume after an approval or a human task, and runs that reuse
-another run's outputs.
+of the same run reads a published output with the secret intact.
 
-Stored status records which outputs masking changed. A step that runs after
-such a retry and reads one of them, as `${steps.<id>.outputs.<name>}` or as the
-plain `${NAME}` variable, fails with an error that names the step and the
-output and says the producing step has to run again, instead of running on
-`*******`. When masking changed an output name, or masked a whole output
-document as text, every output of that step counts as masked. Outputs that
-masking did not change are reused as before.
+A run can instead restore a step's stored result without executing the step
+again: a retry of the run or of a step, a retry with an edited DAG, resume
+after an approval or a human task, and a run that carries another run's
+outputs. Stored outputs stay masked, and stored status records which outputs
+masking changed. A step that reads a recorded output after such a restore
+fails before it runs, with an error that names the step and the output and
+says the producing step has to run again. A read is one of these in a field
+that value resolution reads:
+
+- `${steps.<id>.outputs.<name>}`, `${<id>.output}`, or `${<id>.outputs}` and
+  any path under it.
+- The output variable as `${NAME}` or `$NAME`. A handler step has no
+  step-output scope, so only this form is a read there.
+
+An escaped reference, such as `\${NAME}`, is not a read. When masking changed
+an output name, or masked a whole output document as text, every output of
+that step counts as masked. Outputs that masking did not change are reused
+unchanged, and a value supplied for an output of a carried step replaces the
+recorded one. A step that needs a secret after an approval or a human task
+reads the secret itself instead of through an output.
 
 Provider-specific behavior covered here:
 

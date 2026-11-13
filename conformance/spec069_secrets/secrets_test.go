@@ -74,8 +74,9 @@ func TestFileProviderMissingFile(t *testing.T) {
 }
 
 // A later step of the same run reads a published output with the secret
-// intact. A retry reuses the succeeded step's stored output, which holds the
-// mask, including for a secret that JSON escapes.
+// intact. A retry restores the succeeded step with that output stored masked,
+// so the step reading it fails instead of running on the mask, including for a
+// secret that JSON escapes.
 func TestStepOutputMaskedOnRetry(t *testing.T) {
 	t.Parallel()
 
@@ -91,11 +92,32 @@ func TestStepOutputMaskedOnRetry(t *testing.T) {
 			dagu.ExpectTextFileContent("received.out", "real\n")
 
 			dagu.WriteFile("ready", "")
-			dagu.RunWithEnv(env, "retry", "--run-id="+runID, fixture).ExpectExitCode(0)
-			dagu.ExpectTextFileContent("received.out", "real\n*******\n")
+			retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, fixture)
+			retry.ExpectNonZeroExitCode()
+			retry.ExpectStderrContains(`reads output "token" of step "login"`, `step "login" has to run again`)
+			dagu.ExpectTextFileContent("received.out", "real\n")
 			dagu.ExpectTextFileContent("logins.out", "login\n")
 		})
 	}
+}
+
+// A retried step that reads only outputs masking did not change runs on their
+// stored values. An escaped reference to the masked output is literal text.
+func TestStepOutputUnmaskedOnRetry(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-step-output-unread"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_unread.yaml").ExpectNonZeroExitCode()
+	first := "us-east\n${steps.login.outputs.token}\n"
+	dagu.ExpectTextFileContent("received.out", first)
+
+	dagu.WriteFile("ready", "")
+	dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_unread.yaml").ExpectExitCode(0)
+	dagu.ExpectTextFileContent("received.out", first+first)
+	dagu.ExpectTextFileContent("logins.out", "login\n")
 }
 
 func TestUnknownProvider(t *testing.T) {
