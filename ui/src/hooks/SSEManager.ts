@@ -118,7 +118,10 @@ export function endpointToTopic(endpoint: string): string {
     segments[1] === 'dags' &&
     segments[3] === 'dag-runs'
   ) {
-    return buildTopic('daghistory', segments[2]);
+    return buildTopic(
+      'daghistory',
+      query ? `${segments[2]}?${query}` : segments[2]
+    );
   }
   if (segments.length === 2 && segments[1] === 'dag-runs') {
     return buildTopic('dagruns', query);

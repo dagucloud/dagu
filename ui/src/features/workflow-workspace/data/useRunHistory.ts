@@ -136,7 +136,12 @@ export function useRunHistory({
     [standaloneRun]
   );
   const active = enabled && fileName !== '' && standaloneRuns === null;
-  const historySSE = useDAGHistorySSE(fileName, active, remoteNode);
+  const historySSE = useDAGHistorySSE(
+    fileName,
+    active,
+    remoteNode,
+    includeBackfill
+  );
   const startedAt = useTestRunStartedAt(fileName);
   const base = sseFallbackOptions(historySSE);
   const baseInterval = base.refreshInterval;
@@ -188,19 +193,20 @@ export function useRunHistory({
     );
     return () => timers.forEach(clearTimeout);
   }, [removal, mutate]);
-  // The feed has no test run and no backfill run: it must not replace a
-  // list that has them.
-  const ownList = includeEphemeral || includeBackfill;
-  useSSECacheSync(historySSE, (ownList ? noSync : mutate) as typeof mutate);
+  // The feed has no test run: it must not replace the list that has them.
+  useSSECacheSync(
+    historySSE,
+    (includeEphemeral ? noSync : mutate) as typeof mutate
+  );
   const events = historySSE.data;
   useEffect(() => {
     // An event of the feed means that the history changed: read it again.
-    if (!ownList || events == null || revalidatedEvents.has(events)) {
+    if (!includeEphemeral || events == null || revalidatedEvents.has(events)) {
       return;
     }
     revalidatedEvents.add(events);
     void mutate();
-  }, [events, ownList, mutate]);
+  }, [events, includeEphemeral, mutate]);
 
   // Registered again with each committed list: a render that React drops
   // must not show its runs.

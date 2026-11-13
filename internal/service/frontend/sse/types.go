@@ -56,7 +56,8 @@ type TopicType string
 //   - TopicTypeDAGRun: "dagName/dagRunId"
 //   - TopicTypeSubDAGRun: "dagName/dagRunId/subDAGRunId"
 //   - TopicTypeDAG: "fileName"
-//   - TopicTypeDAGHistory: "fileName"
+//   - TopicTypeDAGHistory: "fileName", or "fileName?includeBackfill=true"
+//     to list the DAG's backfill runs too
 //   - TopicTypeDAGRunLogs: "dagName/dagRunId"
 //   - TopicTypeStepLog: "dagName/dagRunId/stepName"
 //   - TopicTypeDAGRuns: URL query string (e.g., "limit=50&offset=0")
