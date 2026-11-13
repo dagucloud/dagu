@@ -176,8 +176,12 @@ func (s *requestedSlot) windowOrZero() ir.ScheduleWindow {
 // PreviewDAGSlot resolves the slot a run would be started for, its window,
 // and the dates its run would get, without starting a run.
 func (a *API) PreviewDAGSlot(ctx context.Context, request api.PreviewDAGSlotRequestObject) (api.PreviewDAGSlotResponseObject, error) {
-	profile := valueOf(request.Params.Profile)
-	dag, _, err := a.backfillDAG(ctx, request.FileName, profile)
+	dag, _, err := a.backfillDAG(ctx, request.FileName, valueOf(request.Params.Profile))
+	if err != nil {
+		return nil, err
+	}
+	// The profile a start would use: the one named, else the DAG's default.
+	profile, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Params.Profile)
 	if err != nil {
 		return nil, err
 	}

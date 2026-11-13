@@ -181,6 +181,16 @@ steps:
   - name: noop
     run: "true"
 `
+	profiled := `
+schedule:
+  - expression: "CRON_TZ=UTC 0 2 * * *"
+    profile: night
+dates:
+  since: { from: interval_start }
+steps:
+  - name: noop
+    run: "true"
+`
 	unscheduled := `
 dates:
   since: { from: interval_start }
@@ -188,7 +198,7 @@ steps:
   - name: noop
     run: "true"
 `
-	for name, spec := range map[string]string{"dated_dag": dated, "unscheduled_dag": unscheduled} {
+	for name, spec := range map[string]string{"dated_dag": dated, "unscheduled_dag": unscheduled, "profiled_dag": profiled} {
 		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: name, Spec: &spec}).
 			ExpectStatus(http.StatusCreated).Send(t)
 	}
@@ -244,6 +254,19 @@ steps:
 		tokyo, err := time.LoadLocation("Asia/Tokyo")
 		require.NoError(t, err)
 		assert.Equal(t, next.Time.In(tokyo).AddDate(0, 0, -1).Format(time.DateOnly), targetDay(next.Dates))
+	})
+
+	// A profile's schedule fires runs of that profile, so their dates come
+	// from that profile's window.
+	t.Run("UpcomingRunsOfAProfileSchedule", func(t *testing.T) {
+		var details api.GetDAGDetails200JSONResponse
+		server.Client().Get("/api/v1/dags/profiled_dag").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+
+		require.NotNil(t, details.Dag)
+		require.NotNil(t, details.Dag.UpcomingRuns)
+		next := (*details.Dag.UpcomingRuns)[0]
+		require.NotNil(t, next.Dates, "the window of the night schedule gives since")
+		assert.Equal(t, next.Time.AddDate(0, 0, -1).UTC().Format(time.DateOnly), valueOrEmpty((*next.Dates)[0].Value))
 	})
 
 	t.Run("RunRecordsItsDates", func(t *testing.T) {
