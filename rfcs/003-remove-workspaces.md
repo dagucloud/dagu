@@ -229,9 +229,10 @@ Each project has an ID, a random UUID assigned when the project is created or
 first discovered. The ID never changes; the name can.
 
 - A server-wide registry holds each project's ID, name, display name,
-  creation time, and [Dagu Cloud binding](#binding). Every write to it holds
-  one lock and checks the name rules before it stores. Writes are rare, so
-  one lock costs nothing.
+  creation time, and
+  [Dagu Cloud binding](002-dagu-cloud-connector.md#binding). Every write to
+  it holds one lock and checks the name rules before it stores. Writes are
+  rare, so one lock costs nothing.
 - Records that outlive a request refer to a project by ID: grants, audit
   entries, dispatch tasks, leases, and status reports. Names are for people:
   `--project`, the API's `project` parameter, and `project_mappings` take a
@@ -469,47 +470,16 @@ scheduler process   HA lock, health server, service registry, signals, license
 
 Workflows never depend on Dagu Cloud
 ([RFC 002](002-dagu-cloud-connector.md)), and projects keep it that way.
-Everything below is metadata about a project. Losing the connection changes
-no run.
+[RFC 002](002-dagu-cloud-connector.md#projects) specifies how a connected
+server reports its projects and binds them; this RFC fixes what that needs:
 
-### Binding
-
-- An admin of a connected server binds a project to a project of the Dagu
-  Cloud workspace the server is connected to, in the UI or with `dagu project
-  bind`. The registry stores the Dagu Cloud project's ID.
-- Dagu Cloud never matches projects by name. Two servers share a Dagu Cloud
-  project only when an admin of each has bound a local project to it, so
-  `weather` on two servers stays two projects until someone binds them.
-- A server binds a Dagu Cloud project to at most one of its projects.
-  Unbinding, or disconnecting the server, ends what the binding enables and
-  leaves the local project as it is.
-- In Dagu Cloud, a project belongs to a workspace and is what servers bind
-  to. A bundle of DAG files that Dagu Cloud deploys is a version of such a
-  project, not a second kind of project.
-
-### Reports
-
-Report protocol 3 extends the
-[RFC 002 wire contract](002-dagu-cloud-connector.md#wire-contract):
-
-- Each run, scheduled DAG, and queue that is not defined in `config.yaml`
-  carries `project`: the local project's ID, name, and display name, and the
-  Dagu Cloud project's ID when bound.
-- Dagu Cloud keys a server's workflows by project ID and DAG name, so `etl`
-  in two projects is two workflows. A protocol 2 report belongs to the
-  default project.
-- The reporter reads every project's run events and keeps a cursor for each.
-  It sends Dagu Cloud one opaque `cursor` for the set, still at most 4096
-  bytes, and reports a gap when any project lost events.
-
-### What a binding enables
-
-- **Inventory sync** ([RFC 012](012-node-inventory.md#dagu-cloud-sync))
-  covers bound projects only. Servers bound to the same Dagu Cloud project
-  share its inventories.
-- **Deploys,** in a later RFC, write only into a bound project and never
-  create one. A deploy owns the project's DAG files and base config: the
-  server does not edit them, and a change on disk shows as drift.
+- Reports identify a project by its ID, never its name. From v3.0, report
+  protocol 3 names the project of each run, so `etl` in two projects is two
+  workflows in Dagu Cloud.
+- A server shares a project with Dagu Cloud only through an explicit
+  [binding](002-dagu-cloud-connector.md#binding), never by matching names.
+- The registry stores the binding, and [Lifecycle](#lifecycle) says what
+  rename, delete, and changes on disk do to it.
 
 ## Migration
 
@@ -661,34 +631,30 @@ v2 gets no new workspace features.
     is offered to an admin and not scheduled until the admin answers.
 18. Every project's secrets decrypt with the server's key, and no project
     directory holds a key of its own.
-19. A connected server's reports carry each run's project, and two projects
-    with the same DAG name are two workflows in Dagu Cloud.
-20. Two servers share a Dagu Cloud project only after an admin of each binds
-    a local project to it.
-21. A project DAG uses the server layer's secrets, profile defaults,
+19. A project DAG uses the server layer's secrets, profile defaults,
     notification routes, and incident policies unless its project overrides
     them, as a v2 workspace DAG uses global entries.
-22. A display name takes any text up to 200 characters, and changing it
+20. A display name takes any text up to 200 characters, and changing it
     moves no directory.
-23. A user who can see one project sees no project selector.
-24. Every user can read library DAGs on the Library page, and only admins
+21. A user who can see one project sees no project selector.
+22. Every user can read library DAGs on the Library page, and only admins
     change them.
-25. After migration, an API call, CLI command, MCP call, or webhook URL that
+23. After migration, an API call, CLI command, MCP call, or webhook URL that
     named a v2 DAG without its workspace still reaches the DAG, with a
     deprecation warning, unless the caller cannot see its project. A DAG
     created after migration never changes where such a call goes.
-26. Moving a DAG to another project keeps its runs, logs, state, and webhook
+24. Moving a DAG to another project keeps its runs, logs, state, and webhook
     URLs. It lists what the target project lacks before it moves, and is
     refused while a `dag.run` caller remains in the source project.
-27. All projects shows the runs and failures of every project the user can
+25. All projects shows the runs and failures of every project the user can
     see, and of no other.
-28. A `dagu` command run inside a project's DAG directory without
+26. A `dagu` command run inside a project's DAG directory without
     `--project` or `DAGU_PROJECT` addresses that project.
-29. After migration, a rename, or a move, the logs, step output, and
+27. After migration, a rename, or a move, the logs, step output, and
     artifacts of every moved run open as before.
-30. A `.dagu.json` path that leads out of its project's DAG directory is a
+28. A `.dagu.json` path that leads out of its project's DAG directory is a
     load error.
-31. A v3.0 coordinator gives no task to an older worker, and both say why.
+29. A v3.0 coordinator gives no task to an older worker, and both say why.
 
 ## Alternatives considered
 
