@@ -53,9 +53,11 @@ The same rule applies to accepted `type: jq` steps with `config.args` or
 
 ## Errors
 
-`dagu validate` rejects a missing `with.filter` and configurations that set
-both `with.data` and `with.input`. It exits nonzero with an error identifying
-the invalid configuration.
+`dagu validate` rejects a missing `with.filter`, configurations that set
+both `with.data` and `with.input`, and a `with` field the action does not
+define. It exits nonzero with an error identifying the invalid configuration;
+an unknown field's error names the field and, when a defined field is a likely
+misspelling of it, suggests that field.
 
 Duplicate normalized argument names fail executor setup. Invalid variable names
 and undeclared jq variables fail filter compilation at step execution.
