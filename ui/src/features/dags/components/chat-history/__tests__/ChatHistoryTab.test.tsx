@@ -107,16 +107,23 @@ afterEach(() => {
 });
 
 describe('ChatHistoryTab', () => {
-  it('renders the step selector and the last finished transcript as before', () => {
-    const { container } = render(<ChatHistoryTab dagRun={twoChats()} />);
-    expect(container.innerHTML).toBe(BASE_ALL);
+  it('selects the last finished chat step and shows its transcript', () => {
+    render(<ChatHistoryTab dagRun={twoChats()} />);
+
+    const select = screen.getByLabelText('Step:');
+    expect(
+      screen.getAllByRole('option').map((option) => option.textContent)
+    ).toEqual(['ask (Succeeded)', 'plan (Succeeded)']);
+    expect(select).toHaveValue('plan');
+    expect(screen.getByText('question to plan')).toBeVisible();
+    expect(screen.getByText('answer from plan')).toBeVisible();
   });
 
-  it('renders the empty state as before', () => {
-    const { container } = render(
-      <ChatHistoryTab dagRun={chatRun([chatNode('shell', 'command')])} />
-    );
-    expect(container.innerHTML).toBe(BASE_EMPTY);
+  it('says when the run has no chat steps', () => {
+    render(<ChatHistoryTab dagRun={chatRun([chatNode('shell', 'command')])} />);
+
+    expect(screen.getByText('No chat steps in this DAG run')).toBeVisible();
+    expect(screen.queryByLabelText('Step:')).toBeNull();
   });
 
   it('shows only the transcript of the step filter, without the selector', () => {
@@ -163,8 +170,3 @@ describe('ChatHistoryTab', () => {
     expect(queried()).toEqual([]);
   });
 });
-
-const BASE_ALL =
-  '<div class="space-y-2"><div class="flex items-center gap-2 text-xs"><label for="chat-step-select" class="text-muted-foreground">Step:</label><select id="chat-step-select" class="h-6 px-2 text-xs border rounded bg-card focus:outline-none"><option value="ask">ask (Succeeded)</option><option value="plan">plan (Succeeded)</option></select></div><div class="border rounded bg-card"><div class="border-l-2 border-b last:border-b-0 bg-card border-l-violet-500"><button class="w-full flex items-center gap-2 px-2 py-1 hover:bg-accent/50 text-left" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right h-3 w-3 shrink-0 transition-transform" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg><span class="text-xs font-mono w-10 shrink-0 text-muted-foreground">USER</span><span class="text-xs text-muted-foreground truncate flex-1 min-w-0">question to plan</span></button></div><div class="border-l-2 border-b last:border-b-0 bg-card border-l-green-500"><button class="w-full flex items-center gap-2 px-2 py-1 hover:bg-accent/50 text-left" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right h-3 w-3 shrink-0 transition-transform rotate-90" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg><span class="text-xs font-mono w-10 shrink-0 text-muted-foreground">ASST</span></button><div class="px-2 pb-2 pl-7"><div class="flex gap-4 items-start"><div class="flex-1 min-w-0"><div class="text-xs prose prose-sm prose-slate dark:prose-invert max-w-none break-words prose-p:my-1 prose-p:leading-relaxed prose-pre:my-1 prose-pre:p-2 prose-pre:text-xs prose-pre:bg-muted prose-pre:text-foreground prose-pre:rounded prose-pre:border prose-pre:border-border prose-code:text-xs prose-code:bg-muted prose-code:text-foreground prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-ul:my-1 prose-ul:pl-4 prose-ol:my-1 prose-ol:pl-4 prose-li:my-0.5 prose-headings:my-1 prose-headings:font-semibold prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs prose-blockquote:my-1 prose-blockquote:pl-2 prose-blockquote:border-l-2 prose-table:my-1 prose-table:text-xs prose-a:text-violet-700 dark:prose-a:text-violet-400"><p>answer from plan</p></div></div><div class="shrink-0 flex flex-col items-end gap-1"><button class="p-1 hover:bg-accent rounded" type="button" title="Copy message"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy h-3 w-3 text-muted-foreground" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div></div></div></div></div></div>';
-const BASE_EMPTY =
-  '<div class="text-xs text-muted-foreground p-2">No chat steps in this DAG run</div>';
