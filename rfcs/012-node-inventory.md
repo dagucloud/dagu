@@ -9,24 +9,25 @@
 
 ## Summary
 
-Give each project a list of the hosts it runs commands on, in one
-`nodes.yaml` file. A node has a name, a host, labels, and SSH settings whose
-credentials come from the secret store. Labels are the same `key` or
-`key=value` labels that DAGs already have, and nodes are selected with the
-label filter that already filters DAGs:
+Give each project a list of the hosts it runs on. SSH hosts are listed in
+one `nodes.yaml` file, with SSH settings whose credentials come from the
+secret store. Workers with a fixed ID appear beside them. Every node has a
+name and labels, the same `key` or `key=value` labels that DAGs and workers
+already have, and nodes are selected with the label filter that already
+filters DAGs:
 
 ```text
 web,env=prod,!canary
 ```
 
 A form or one command adds a host. [RFC 013](013-node-targeting.md) runs
-steps on the nodes a selector matches. A server can also keep its inventory
-in Dagu Cloud, which is off by default.
+workflows and steps on the nodes a selector matches. A server can also keep
+its inventory in Dagu Cloud, which is off by default.
 
 ```text
-nodes.yaml ──▶ inventory ──▶ selector ──▶ matched nodes ──▶ RFC 013 runs steps
-                   │
-                   └──▶ Nodes page, API, CLI, MCP
+nodes.yaml ──┬──▶ inventory ──▶ selector ──▶ matched nodes ──▶ RFC 013 runs
+workers ─────┘        │
+                      └──▶ Nodes page, API, CLI, MCP
 ```
 
 ## Problem statement
@@ -44,7 +45,8 @@ hosts:
 
 ## Goals
 
-1. A project lists its nodes in one file, with labels.
+1. A project lists its SSH hosts in one file, and its workers appear beside
+   them, all with labels.
 2. Nodes are selected with the label filter Dagu already uses for DAGs.
 3. SSH credentials come from the secret store and never reach logs, run
    status, API responses, or disk outside the store.
@@ -57,7 +59,7 @@ hosts:
 ## Non-goals
 
 - Running anything on a node. RFC 013 does that.
-- Transports other than SSH.
+- Transports other than SSH and Dagu workers.
 - Configuration management, package state, or facts gathering.
 - The items in [Future enhancements](#future-enhancements).
 
@@ -78,7 +80,7 @@ in every environment and names a role, such as `web`. Which hosts have that
 role differs between staging and production. So the inventory never lives in
 a DAG directory, and git sync never reads or writes it.
 
-A project without an inventory has no nodes.
+A project without `nodes.yaml` has only its worker nodes.
 
 Until RFC 003 ships, the installation has one inventory, at the default
 project's location. Its secret refs resolve in the global scope, and roles on
@@ -170,6 +172,37 @@ Rules:
   it, and resolution fails with the file, line, and error, so no step runs
   on part of the fleet.
 
+### Workers
+
+Every worker that sets `worker.id` is a node. Workers are shared by every
+project ([RFC 003](003-remove-workspaces.md)), so every project lists them.
+
+| Node field | Value |
+| --- | --- |
+| `name` | The worker ID |
+| `host` | The host the worker reports, shown only |
+| `labels` | The worker's `worker.labels` |
+
+- Each node has a kind, `ssh` or `worker`, shown in the UI and API. RFC 013
+  runs a workflow on a worker node by dispatching it to that worker.
+- Worker labels follow the label rules from this RFC on. Keys and values are
+  lowercased, and a label with no value is kept, where the configuration
+  drops it today (`internal/cmn/config/loader.go`). `worker_selector` and
+  `--worker-label` compare the same way, so they and selectors read one set
+  of labels. A worker whose labels break the rules does not start, and names
+  the label.
+- A worker without `worker.id` gets `hostname@pid`, a new ID on every
+  restart, so it is not a node.
+- The coordinator remembers each worker node it has seen. One that
+  disconnects stays listed as `offline`, with the time it was last seen, so a
+  step does not quietly run on only the workers that happen to be up.
+  **Forget** on the Nodes page, or `dagu nodes forget`, removes it until it
+  connects again.
+- A worker's labels come from its configuration, so `disabled` does not apply
+  to it. A worker is kept out of a selector by changing its labels.
+- A worker ID that names a node in `nodes.yaml` makes the worker no node, and
+  the Nodes page shows the clash.
+
 ### Selecting nodes
 
 A selector is the label filter that DAG lists take in `dagu history --labels`
@@ -207,7 +240,7 @@ Two changes to the shared parser apply to DAG list filters too:
 
 - A run on the server reads `nodes.yaml` from the project directory. The
   server and coordinator keep it in memory and reload it when the file
-  changes.
+  changes. Worker nodes come from the coordinator.
 - A run on a worker calls a new coordinator RPC, `ResolveNodes`, with a
   selector or with exact node names. The answer holds the matched nodes, the
   nodes they use as bastions, and the project's trusted host keys for them.
@@ -222,7 +255,8 @@ Two changes to the shared parser apply to DAG list filters too:
 
 ### Host keys
 
-Strict host key checking is on by default. A host key is accepted when it
+Host keys apply to SSH nodes. Strict host key checking is on by default. A
+host key is accepted when it
 matches the node's `host_key` or a key in the project's trusted host keys.
 Trusted keys are stored by node name, not address, so two nodes that share a
 private address behind different bastions keep separate keys.
@@ -271,8 +305,8 @@ In Dagu Cloud, an inventory belongs to the workspace the server is connected
 to, and to the project. Every server of that workspace that syncs the project
 shares it. RFC 018 of the Dagu Cloud repository defines that side.
 
-- **What travels:** `nodes.yaml`, up to 4 MiB. Secret values and trusted
-  host keys stay on each server.
+- **What travels:** `nodes.yaml`, up to 4 MiB. Secret values, trusted host
+  keys, and workers stay on each server.
 - **Local first.** Runs read the local file and never Dagu Cloud.
 - **Push and pull.** After a local change the server sends the file, and
   Dagu Cloud stores it as the next version. The server pulls a newer
@@ -295,9 +329,10 @@ A **Nodes** page in each project:
 │ Labels [web ×] [env=prod ×] [!canary ×]   Name ______            │
 │                                             14 of 212 nodes      │
 │                                                                  │
-│ ☐ name    host         user    labels                            │
-│ ☐ web01   10.0.1.11    deploy  web, env=prod, region=us-east-1   │
-│ ☐ web03   10.0.1.13    deploy  web, env=prod, region=us-east-1   │
+│ ☐ name     kind    host        user    labels                    │
+│ ☐ web01    ssh     10.0.1.11   deploy  web, env=prod             │
+│ ☐ web03    ssh     10.0.1.13   deploy  web, env=prod             │
+│ ☐ osaka-1  worker  osaka-gw            web, env=prod, offline    │
 │ ...                                                              │
 │ [Add node] [Test connection] [Edit as YAML]                      │
 └──────────────────────────────────────────────────────────────────┘
@@ -310,9 +345,10 @@ A **Nodes** page in each project:
   tests the connection and shows the host key to trust before it saves.
 - **Test connection** checks the selected or matched nodes and shows each
   result as it arrives, with **Trust** next to unknown or changed keys.
-- A node's drawer shows its labels, its connection settings with secret
+- An SSH node's drawer shows its labels, its connection settings with secret
   refs, and its last test result. It edits the node's labels, disables it,
-  and removes it.
+  and removes it. A worker's drawer shows its labels and when it was last
+  seen, and forgets it when it is offline.
 - **Edit as YAML** opens `nodes.yaml` with schema validation. An invalid
   file cannot be saved.
 
@@ -322,7 +358,7 @@ A **Nodes** page in each project:
 | --- | --- |
 | `GET /nodes?labels=&name=` | Matched nodes, one page at a time, with the total and selector errors. `name` matches part of a node name |
 | `GET /nodes/{name}` | One node |
-| `PUT /nodes/{name}`, `DELETE /nodes/{name}` | Add, change, or remove a node in `nodes.yaml` |
+| `PUT /nodes/{name}`, `DELETE /nodes/{name}` | Add, change, or remove a node in `nodes.yaml`. `DELETE` also forgets an offline worker |
 | `GET /node-labels` | Label keys and values, for completion |
 | `POST /node-connection-tests` | Test named nodes or a selector's matches |
 | `POST /node-host-keys` | Trust host keys, given each node and the fingerprint the user saw |
@@ -340,6 +376,7 @@ a step's status.
 ```sh
 dagu nodes add web01 --host 10.0.1.11 --user deploy --labels web,env=prod
 dagu nodes remove web01
+dagu nodes forget osaka-1           # an offline worker
 dagu nodes list --labels 'web,env=prod,!canary'
 dagu nodes show web01
 dagu nodes test --labels web
@@ -363,11 +400,12 @@ the host key. `validate` with a path checks a file without a server.
 | List nodes, preview a selector | `viewer` |
 | Test connection | `operator` |
 | Add, change, or remove nodes, trust a host key, edit `nodes.yaml`, restore a version | The role that edits the project's base config |
-| Turn Dagu Cloud sync on or off | `admin` |
+| Forget a worker, turn Dagu Cloud sync on or off | `admin` |
 
 Editing the inventory decides which hosts receive the project's SSH
-credentials, so it takes the same role as editing base config. Edits, tests,
-and trusted keys are written to the audit log.
+credentials, so it takes the same role as editing base config. Workers are
+server-wide, so forgetting one takes `admin`. Edits, tests, and trusted keys
+are written to the audit log.
 
 The inventory is in the free tier.
 
@@ -380,6 +418,8 @@ The inventory is in the free tier.
   every log and status the run writes.
 - Labels are inserted into commands only where the author writes
   `${node.*}` (RFC 013).
+- A worker's labels come from its configuration. Whoever configures a
+  worker decides which selectors match it.
 - With strict checking on, no credential is sent to a host whose key is
   unknown or has changed, even by Test connection. Only a user with the trust
   role adds a key, and only the key whose fingerprint that user saw.
@@ -394,6 +434,9 @@ The inventory is in the free tier.
 | `nodes.yaml` is invalid | Resolution fails with the file, line, and error. The UI refuses to save it |
 | A save finds the file changed after it was read | The save fails, and the UI shows the current file |
 | A selector is invalid | The API, CLI, and UI report the term and the error. A step with that selector fails before any node starts |
+| A worker node is offline | It is listed as `offline`, and RFC 013 fails a run that targets it |
+| A worker's labels break the label rules | The worker does not start, and names the label |
+| A worker ID names a node in `nodes.yaml` | The worker is not a node. The Nodes page shows the clash |
 | The coordinator is unreachable from a worker | Resolution fails, as secret resolution does |
 | Dagu Cloud is unreachable with sync on | Runs and local edits are unaffected. The change is sent later, and the Nodes page shows the delay |
 | A pulled version does not validate | It is not applied. The local file stays, and the Nodes page shows the error |
@@ -408,6 +451,9 @@ part of the fleet.
   new setting in RFC 002's `cloud` section.
 - DAG list filters change as [Selecting nodes](#selecting-nodes) lists:
   `!key=value` excludes, and an invalid term is an error.
+- Worker labels change as [Workers](#workers) lists. `worker_selector` and
+  `--worker-label` match without case, a worker label with no value is kept,
+  and a worker with an invalid label no longer starts.
 
 Rollout:
 
@@ -420,8 +466,8 @@ Rollout:
 3. **Host keys**: test connection and trust from the server.
 4. **Editing**: the forms, `dagu nodes add|remove`, the YAML editor, and the
    MCP targets.
-5. **Runs on workers**: `ResolveNodes` and the `node` field on
-   `ResolveSecretReference`, with RFC 013.
+5. **Workers**: worker nodes, the worker label changes, `ResolveNodes`, and
+   the `node` field on `ResolveSecretReference`, with RFC 013.
 6. **Dagu Cloud sync**, once Dagu Cloud accepts inventories.
 
 ## Verification and acceptance criteria
@@ -446,12 +492,14 @@ checked with RFC 013's first rollout phase.
 8. With Dagu Cloud sync on, a rebuilt server gets its inventory back, two
    servers of one workspace share a project's inventory, and runs keep
    working while Dagu Cloud is unreachable.
+9. A worker with a set ID is listed with its labels, stays listed while
+   offline, and matches a selector as an SSH node with the same labels does.
 
 ## Alternatives considered
 
-- **Install a worker on every host.** Rundeck and Ansible users chose
-  agentless SSH, and installing an agent on hundreds of hosts is a migration
-  of its own. Workers as nodes is a future enhancement.
+- **Workers only.** Supported, since workers are nodes. Rundeck and Ansible
+  users chose agentless SSH, and installing an agent on hundreds of hosts is
+  a migration of its own.
 - **Nodes in `base.yaml` or in DAG files.** Puts fleet data into the DAG
   schema and gives two DAGs different views of one fleet.
 - **The inventory in the DAG directory, synced with the DAGs.** Every server
@@ -484,10 +532,6 @@ checked with RFC 013's first rollout phase.
 These are left out to keep the first version small. Each fits on top of the
 design above without changing it.
 
-- **Workers as nodes.** A connected worker is listed and selected like an SSH
-  node. Worker labels must first match as node labels do: `worker_selector`
-  compares with case today, and the worker configuration drops labels with
-  no value.
 - **Live sources.** A script or URL that prints nodes in Dagu's format, read
   on a timer, with built-in sources for EC2, Azure, GCP, and Kubernetes.
 - **Selecting by name or host, and OR,** in a selector.
