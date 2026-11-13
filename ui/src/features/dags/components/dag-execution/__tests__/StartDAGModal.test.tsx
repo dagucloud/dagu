@@ -17,6 +17,18 @@ import StartDAGModal from '../StartDAGModal';
 const renderedFormProps = vi.fn();
 const useIsAdminMock = vi.hoisted(() => vi.fn(() => true));
 
+const previewBlock = vi.hoisted(() => ({ reason: null as string | null }));
+vi.mock('../SlotDatesPreview', () => ({
+  SlotDatesPreview: ({
+    onBlocked,
+  }: {
+    onBlocked: (reason: string | null) => void;
+  }) => {
+    React.useEffect(() => onBlocked(previewBlock.reason), [onBlocked]);
+    return <div data-testid="slot-dates-preview" />;
+  },
+}));
+
 vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => useIsAdminMock(),
 }));
@@ -77,6 +89,54 @@ beforeEach(() => {
 });
 
 describe('StartDAGModal', () => {
+  // The dialog previews the dates of a DAG with dates, and holds the start
+  // while they cannot resolve.
+  it('holds the start while the dates of the slot cannot resolve', async () => {
+    previewBlock.reason = 'dates.since needs a schedule window';
+    render(
+      <StartDAGModal
+        visible
+        fileName="etl"
+        dag={
+          {
+            name: 'etl',
+            upcomingRuns: [
+              {
+                time: '2026-11-15T02:00:00Z',
+                scheduleIndex: 0,
+                timezone: 'UTC',
+                dates: [{ name: 'target_day', value: '2026-11-14' }],
+              },
+            ],
+          } as never
+        }
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('slot-dates-preview')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Enqueue|Start/ })
+      ).toBeDisabled()
+    );
+    previewBlock.reason = null;
+  });
+
+  it('previews no dates for a DAG without them', () => {
+    render(
+      <StartDAGModal
+        visible
+        fileName="etl"
+        dag={{ name: 'etl' } as never}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+    expect(screen.queryByTestId('slot-dates-preview')).toBeNull();
+  });
+
   it('groups run settings separately from DAG parameters', () => {
     render(
       <StartDAGModal
@@ -629,9 +689,7 @@ describe('StartDAGModal', () => {
         />
       );
 
-      await user.click(
-        screen.getByRole('combobox', { name: /scheduled at/i })
-      );
+      await user.click(screen.getByRole('combobox', { name: /scheduled at/i }));
       await user.click(
         await screen.findByRole('option', {
           name: '2026-11-10 02:00 (Asia/Tokyo)',
@@ -665,10 +723,10 @@ describe('StartDAGModal', () => {
         />
       );
 
+      await user.click(screen.getByRole('combobox', { name: /scheduled at/i }));
       await user.click(
-        screen.getByRole('combobox', { name: /scheduled at/i })
+        await screen.findByRole('option', { name: 'Other time' })
       );
-      await user.click(await screen.findByRole('option', { name: 'Other time' }));
       await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
       expect(

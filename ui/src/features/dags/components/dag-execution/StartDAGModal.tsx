@@ -17,6 +17,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useIsAdmin } from '@/contexts/AuthContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,7 @@ import {
 import { ParamLabel } from './ParamLabel';
 import { paramFormTemplates } from './paramFormTemplates';
 import { paramFormWidgets } from './paramFormWidgets';
+import { SlotDatesPreview } from './SlotDatesPreview';
 import { autoGrowTextarea } from './textareaAutoGrow';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -91,6 +93,8 @@ type ParamField = {
 type Props = {
   visible: boolean;
   dag?: DAGLike;
+  /** The DAG's file, which previews the dates of the chosen slot. */
+  fileName?: string;
   loading?: boolean;
   loadError?: string | null;
   dismissModal: () => void;
@@ -294,6 +298,7 @@ function validateParamFields(fields: ParamField[]): Record<string, string> {
 function StartDAGModal({
   visible,
   dag,
+  fileName,
   loading = false,
   loadError,
   dismissModal,
@@ -366,6 +371,24 @@ function StartDAGModal({
   const [noReuse, setNoReuse] = React.useState(false);
   const [slotSelection, setSlotSelection] = React.useState(NO_SLOT_VALUE);
   const [customSlot, setCustomSlot] = React.useState('');
+  const remoteNode = useRemoteNode();
+  // The reason the chosen slot's dates cannot resolve, which holds the start.
+  const [datesBlocked, setDatesBlocked] = React.useState<string | null>(null);
+  // Only a DAG with dates gives its upcoming runs dates; the preview is read
+  // for those alone.
+  const hasDates = React.useMemo(
+    () =>
+      (dagDetails?.upcomingRuns ?? []).some(
+        (run) => (run.dates?.length ?? 0) > 0
+      ),
+    [dagDetails]
+  );
+  const previewSlot =
+    slotSelection === OTHER_SLOT_VALUE
+      ? customSlot.trim() || undefined
+      : slotSelection === NO_SLOT_VALUE
+        ? undefined
+        : slotSelection;
   const recentFires = React.useMemo(
     () => dagDetails?.recentFires ?? [],
     [dagDetails]
@@ -834,6 +857,18 @@ function StartDAGModal({
                 </div>
               )}
 
+              {fileName && hasDates && (
+                <div className="space-y-1.5 sm:col-span-full">
+                  <SlotDatesPreview
+                    fileName={fileName}
+                    remoteNode={remoteNode}
+                    scheduledAt={previewSlot}
+                    profile={selectedProfileName || undefined}
+                    onBlocked={setDatesBlocked}
+                  />
+                </div>
+              )}
+
               {showProfileSelector && (
                 <div className="space-y-1.5">
                   <Label htmlFor="runtime-profile">
@@ -1184,7 +1219,7 @@ function StartDAGModal({
           <Button
             variant="primary"
             onClick={() => void handleSubmit()}
-            disabled={loading || !!loadError || submitting}
+            disabled={loading || !!loadError || submitting || !!datesBlocked}
           >
             {enqueue ? (
               <>
