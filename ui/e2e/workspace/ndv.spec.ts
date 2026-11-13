@@ -164,6 +164,37 @@ function canvasNode(page: Page, key: string): Locator {
   return page.getByTestId('ww-canvas').getByTestId(`ve-canvas-node-${key}`);
 }
 
+// Longer than a fit of the canvas waits (AUTO_FIT_DELAY_MS) plus its glide
+// (VIEW_GLIDE_MS).
+const VIEW_QUIET_MS = 500;
+
+/**
+ * Waits until the view of the canvas has kept still for VIEW_QUIET_MS. A
+ * click on a step opens its panel, and the view glides a moment later to
+ * keep the step clear of it: a click on the node meanwhile can press on one
+ * place and release on another.
+ */
+async function viewSettled(page: Page): Promise<void> {
+  const layer = page.getByTestId('ww-canvas').getByTestId('flow-layer');
+  const transform = () =>
+    layer.evaluate((element) => (element as HTMLElement).style.transform);
+  let last = await transform();
+  let stillSince = Date.now();
+  await expect
+    .poll(
+      async () => {
+        const now = await transform();
+        if (now !== last) {
+          last = now;
+          stillSince = Date.now();
+        }
+        return Date.now() - stillSince;
+      },
+      { intervals: [50], timeout: 10_000 }
+    )
+    .toBeGreaterThan(VIEW_QUIET_MS);
+}
+
 /** A node of the read-only canvas of the run definition (?def=run). */
 function runNode(page: Page, key: string): Locator {
   return page
@@ -467,6 +498,7 @@ test.describe('workspace node details view', () => {
 
     // A double click opens the node view, with the facts of the run in the
     // OUTPUT column.
+    await viewSettled(page);
     await canvasNode(page, 'steps[0]').dblclick();
     await expect(ndv).toBeVisible({ timeout: 30_000 });
     await expect(ndv).toHaveAttribute('data-state', 'expanded');
@@ -532,6 +564,7 @@ test.describe('workspace node details view', () => {
 
     // The Open step command of the node toolbar opens the node view again.
     await canvasNode(page, 'steps[0]').click();
+    await viewSettled(page);
     await canvasNode(page, 'steps[0]')
       .locator('..')
       .getByRole('button', { name: 'Open step', exact: true })
