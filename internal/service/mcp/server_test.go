@@ -6,6 +6,9 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -435,6 +438,7 @@ func TestExecuteInputValidation(t *testing.T) {
 		{name: "enqueue rejects step name", input: `{"action":"enqueue","name":"etl","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "retry rejects params", input: `{"action":"retry","name":"etl","dagRunId":"run-1","params":"x=1"}`, wantField: executeFieldParams},
 		{name: "retry rejects disabled no reuse", input: `{"action":"retry","name":"etl","dagRunId":"run-1","noReuse":false}`, wantField: executeFieldNoReuse},
+		{name: "retry rejects profile", input: `{"action":"retry","name":"etl","dagRunId":"run-1","profile":"prod"}`, wantField: executeFieldProfile},
 		{name: "stop rejects step name", input: `{"action":"stop","name":"etl","dagRunId":"run-1","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "stop rejects disabled downstream", input: `{"action":"stop","name":"etl","dagRunId":"run-1","includeDownstream":false}`, wantField: executeFieldIncludeDownstream},
 		{name: "stop rejects empty labels", input: `{"action":"stop","name":"etl","dagRunId":"run-1","labels":[]}`, wantField: executeFieldLabels},
@@ -515,6 +519,78 @@ func TestExecuteToolSupportsNoReuse(t *testing.T) {
 	enqueueBody := enqueueBody(executeInput{NoReuse: true})
 	require.NotNil(t, enqueueBody.NoReuse)
 	require.True(t, *enqueueBody.NoReuse)
+}
+
+// A selected profile reaches both launch request bodies, and an omitted one
+// leaves the server's default profile resolution untouched.
+func TestExecuteToolSupportsProfile(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	result, err := session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	schema, err := json.Marshal(findTool(t, result.Tools, toolExecute).InputSchema)
+	require.NoError(t, err)
+	require.Contains(t, string(schema), `"profile"`)
+
+	input, executeErr := parseExecuteToolInput(json.RawMessage(
+		`{"action":"enqueue","name":"etl","profile":"  parent-example  "}`,
+	))
+	require.Nil(t, executeErr)
+	require.Equal(t, "parent-example", input.Profile)
+
+	startBody := executeBody(input)
+	require.NotNil(t, startBody.Profile)
+	require.Equal(t, "parent-example", string(*startBody.Profile))
+
+	queuedBody := enqueueBody(input)
+	require.NotNil(t, queuedBody.Profile)
+	require.Equal(t, "parent-example", string(*queuedBody.Profile))
+
+	require.Nil(t, executeBody(executeInput{Name: "etl"}).Profile)
+	require.Nil(t, enqueueBody(executeInput{Name: "etl"}).Profile)
+}
+
+// Every launch handler receives the selected profile: a profile the server
+// does not know is refused before the run is created, for stored DAGs and
+// inline specs alike.
+func TestExecuteLaunchHandlersForwardProfile(t *testing.T) {
+	ctx := context.Background()
+	dagStore := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, dagStore.Create(ctx, "profile-run", []byte("name: profile-run\nsteps:\n  - run: echo hello\n")))
+	profileStore, err := persiststore.NewProfileStore(persisttestutil.NewMemoryBackend().Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Server.Permissions = map[config.Permission]bool{config.PermissionRunDAGs: true, config.PermissionWriteDAGs: true}
+	api := frontendapi.New(
+		dagStore,
+		testutil.NewFileDAGRunRepository(t.TempDir(), persis.DAGRunRepositoryOptions{}),
+		nil,
+		nil,
+		runtime.Manager{},
+		cfg,
+		nil,
+		nil,
+		prometheus.NewRegistry(),
+		nil,
+		frontendapi.WithProfileStore(profileStore),
+	)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	for _, action := range []string{executeActionStart, executeActionEnqueue} {
+		for _, target := range []map[string]any{
+			{"targetType": executeTargetTypeDAG, "name": "profile-run"},
+			{"targetType": executeTargetTypeInlineSpec, "name": "inline-profile", "spec": "steps:\n  - run: echo hello\n"},
+		} {
+			arguments := map[string]any{"action": action, "profile": "missing"}
+			maps.Copy(arguments, target)
+			result := callTool(t, ctx, session, toolExecute, arguments)
+			require.True(t, result.IsError, "%s %s", action, target["targetType"])
+			output := structuredMap(t, result)
+			require.Equal(t, executeErrorResourceNotFound, output["code"], "%s %s", action, target["targetType"])
+			require.Equal(t, "runtime profile missing not found", output["message"], "%s %s", action, target["targetType"])
+		}
+	}
 }
 
 func TestExecuteBodiesUseRequestedDAGName(t *testing.T) {
@@ -1497,6 +1573,7 @@ func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 
 	description := "Nightly ETL"
 	nextRun := time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC)
+	restartPolicy := daguapi.RestartPolicyAlways
 	raw := daguapi.ListDAGs200JSONResponse{
 		Dags: []daguapi.DAGFile{
 			{
@@ -1518,17 +1595,18 @@ func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 				},
 			},
 			{FileName: "never-ran", Dag: daguapi.DAG{Name: "never-ran"}},
+			{FileName: "worker", Dag: daguapi.DAG{Name: "worker", RestartPolicy: &restartPolicy}},
 		},
-		Pagination: daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 2},
+		Pagination: daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 3},
 	}
 
 	data, err := normalizeDAGList(raw)
 	require.NoError(t, err)
-	require.Equal(t, daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 2}, data["pagination"])
+	require.Equal(t, daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 3}, data["pagination"])
 
 	items, ok := data["items"].([]map[string]any)
 	require.True(t, ok)
-	require.Len(t, items, 2)
+	require.Len(t, items, 3)
 
 	require.Equal(t, "etl", items[0]["name"])
 	require.Equal(t, description, items[0]["description"])
@@ -1543,6 +1621,9 @@ func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 	require.Equal(t, "never-ran", items[1]["name"])
 	require.NotContains(t, items[1], "latestRun")
 	require.NotContains(t, items[1], "description")
+	require.NotContains(t, items[1], "restartPolicy")
+
+	require.Equal(t, "always", items[2]["restartPolicy"])
 }
 
 func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {
@@ -1759,4 +1840,81 @@ func TestForeachResourceURIs(t *testing.T) {
 		require.NotNil(t, readErr, raw)
 		require.Equal(t, readErrorInvalidToolInput, readErr.Code, raw)
 	}
+}
+
+func runOutputs(attemptID string, values map[string]string) *ir.DAGRunOutputs {
+	return &ir.DAGRunOutputs{Metadata: ir.OutputsMetadata{AttemptID: attemptID}, Outputs: values}
+}
+
+func TestBoundedRunOutputs(t *testing.T) {
+	require.Nil(t, boundedRunOutputs(nil, "a1", nil))
+	require.Nil(t, boundedRunOutputs(runOutputs("a1", map[string]string{}), "a1", nil))
+
+	require.Equal(t, map[string]any{"outputs": map[string]string{"count": "3", "greeting": "hello"}},
+		boundedRunOutputs(runOutputs("a1", map[string]string{"greeting": "hello", "count": "3"}), "a1", nil))
+
+	require.Equal(t, map[string]any{"outputsError": "outputs could not be read"},
+		boundedRunOutputs(nil, "a1", errors.New("error reading outputs: open /data/outputs.json: permission denied")))
+
+	// Outputs of another attempt are not the returned attempt's outputs.
+	fields := boundedRunOutputs(runOutputs("a2", map[string]string{"greeting": "hello"}), "a1", nil)
+	require.NotContains(t, fields, "outputs")
+	require.Contains(t, fields["outputsError"], "attempt a2")
+}
+
+// A value over a limit is left out whole and counted; the values kept are
+// never cut.
+func TestBoundedRunOutputsLimits(t *testing.T) {
+	big := strings.Repeat("x", runOutputValueMaxBytes+1)
+	fields := boundedRunOutputs(runOutputs("", map[string]string{"big": big, "small": "ok"}), "a1", nil)
+	require.Equal(t, map[string]any{"outputs": map[string]string{"small": "ok"}, "outputsOmitted": 1}, fields)
+
+	many := make(map[string]string)
+	for i := range runOutputsMaxCount + 5 {
+		many[fmt.Sprintf("k%03d", i)] = "v"
+	}
+	fields = boundedRunOutputs(runOutputs("a1", many), "a1", nil)
+	require.Len(t, fields["outputs"], runOutputsMaxCount)
+	require.Equal(t, 5, fields["outputsOmitted"])
+
+	value := strings.Repeat("y", runOutputValueMaxBytes)
+	large := make(map[string]string)
+	for i := range 10 {
+		large[fmt.Sprintf("k%d", i)] = value
+	}
+	fields = boundedRunOutputs(runOutputs("a1", large), "a1", nil)
+	kept := fields["outputs"].(map[string]string)
+	total := 0
+	for key, v := range kept {
+		require.Equal(t, value, v)
+		total += len(key) + len(v)
+	}
+	require.LessOrEqual(t, total, runOutputsMaxBytes)
+	require.Equal(t, 10-len(kept), fields["outputsOmitted"])
+
+	// When no value fits, there is no outputs field, only the count.
+	fields = boundedRunOutputs(runOutputs("a1", map[string]string{"big": big}), "a1", nil)
+	require.Equal(t, map[string]any{"outputsOmitted": 1}, fields)
+}
+
+// A run resource keeps the REST body and adds the output fields next to
+// dagRunDetails. Without outputs, or for an unexpected response, the body is
+// returned as it is.
+func TestWithRunOutputs(t *testing.T) {
+	attemptID := "a1"
+	details := daguapi.GetDAGRunDetails200JSONResponse{DagRunDetails: daguapi.DAGRunDetails{AttemptId: &attemptID}}
+
+	require.Equal(t, details, withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{Details: details}))
+	require.Equal(t, "other", withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{
+		Details: "other",
+		Outputs: runOutputs("a1", map[string]string{"greeting": "hello"}),
+	}))
+
+	require.Equal(t, map[string]any{
+		"dagRunDetails": details.DagRunDetails,
+		"outputs":       map[string]string{"greeting": "hello"},
+	}, withRunOutputs(frontendapi.DAGRunDetailsWithOutputs{
+		Details: details,
+		Outputs: runOutputs("a1", map[string]string{"greeting": "hello"}),
+	}))
 }

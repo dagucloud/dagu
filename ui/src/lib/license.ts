@@ -7,7 +7,7 @@ import {
   type components,
 } from '@/api/v1/schema';
 import type { LicenseStatus } from '@/contexts/ConfigContext';
-import type { StaticTranslationValues } from '@/i18n/staticMessages';
+import type { StaticTranslationValues } from '@/i18n/translateStatic';
 import { LICENSE_CONSOLE_URL } from './constants';
 import dayjs from './dayjs';
 

@@ -55,7 +55,7 @@ describe('canChangeStepStatus', () => {
   });
 
   // parity:chg-history-status-gate
-  // The History tab (DAGExecutionHistory.tsx) blocked only Running and
+  // The classic History tab, since removed, blocked only Running and
   // NotStarted runs, and it did not check human task steps. The shared gate
   // drops that looser rule: these cases were allowed there and are blocked now.
   it.each<[string, Status, Node]>([

@@ -39,9 +39,12 @@ Workflow authors can make an HTTP request and consume its result.
 
 Missing method or URL fields fail validation with a diagnostic naming the field.
 A `with.status_exit_codes` key or value outside its allowed range fails
-validation. A non-success HTTP response fails the step unless `status_exit_codes`
-maps its status to `0`. When `with.output` names an existing file, an error
-response preserves that file and writes the error body to stdout.
+validation. A `with` field the action does not define also fails validation;
+the error names the field and, when a defined field is a likely misspelling of
+it, suggests that field. A non-success HTTP response fails the step unless
+`status_exit_codes` maps its status to `0`. When `with.output` names an
+existing file, an error response preserves that file and writes the error body
+to stdout.
 
 ## Examples
 

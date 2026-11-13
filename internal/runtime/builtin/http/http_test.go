@@ -342,6 +342,22 @@ func TestHTTPExecutor_MultipartSchemaRejectsNonStringValues(t *testing.T) {
 	}
 }
 
+// A misspelled `with` key must fail validation instead of silently dropping
+// the headers (#3440). The closed schema also suggests the closest valid key.
+func TestHTTPExecutor_RejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	err := registry.ValidateExecutorConfig("http", map[string]any{
+		"method": "GET", "url": "https://example.com", "header": map[string]any{"X-Test": "1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `did you mean "headers" instead of "header"?`)
+
+	require.NoError(t, registry.ValidateExecutorConfig("http", map[string]any{
+		"method": "GET", "url": "https://example.com", "headers": map[string]any{"X-Test": "1"},
+	}))
+}
+
 func TestHTTPExecutor_MissingMethodOrURLReturnsConfigError(t *testing.T) {
 	t.Run("MissingURL", func(t *testing.T) {
 		step := ir.Step{

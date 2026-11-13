@@ -118,6 +118,7 @@ func TestValidateStep(t *testing.T) {
 		{name: "bad wait", with: `{"do": [{"wait": "soon"}]}`, llm: model, want: "must be a positive duration"},
 		{name: "bad within", with: `{"do": [{"expect": {"statement": "Saved", "within": "later"}}]}`, llm: model, want: "within"},
 		{name: "bad screenshot name", with: `{"do": [{"screenshot": "../x"}]}`, llm: model, want: "screenshot name"},
+		{name: "screenshot name in any script", with: `{"do": [{"screenshot": "請求書画面"}]}`, llm: model},
 		{name: "outline", with: `{"ai": "never", "do": [{"outline": "window"}]}`},
 		{name: "bad outline name", with: `{"do": [{"outline": "the window"}]}`, llm: model, want: "outline name"},
 		{name: "outline name that is no declared output", with: `{"do": [{"outline": "_window"}]}`, llm: model, want: "outline name"},

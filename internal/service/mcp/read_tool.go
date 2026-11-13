@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -277,7 +279,13 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 			data, err = svc.searchWikiPages(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
 		}
 	case readTargetWorkbook:
-		data, err = readWorkbook(ctx, input)
+		// A workbook can be any file the server can read, so describing one
+		// takes the trust of DAG authoring.
+		if err = svc.requireAPI(); err == nil {
+			if err = svc.api.RequireDAGAuthoring(ctx); err == nil {
+				data, err = readWorkbook(ctx, input)
+			}
+		}
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
 			var raw any
@@ -288,15 +296,20 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		}
 	case readTargetRun:
 		if err = svc.requireAPI(); err == nil {
-			var raw any
+			var result frontendapi.DAGRunDetailsWithOutputs
 			addr := runAddress{name: input.Name, dagRunID: input.DAGRunID, subRunID: input.SubRunID}
-			if input.SubRunID != "" {
-				raw, err = svc.api.GetSubDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID+"/"+input.SubRunID)
-			} else {
-				raw, err = svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+input.DAGRunID)
-			}
+			result, err = svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, input.DAGRunID, input.SubRunID)
 			if err == nil {
-				data, err = normalizeRunDetails(raw, addr)
+				var run daguapi.DAGRunDetails
+				var details map[string]any
+				run, err = dagRunDetailsFromResponse(result.Details)
+				if err == nil {
+					details, err = normalizeRunDetails(result.Details, addr)
+				}
+				if err == nil {
+					maps.Copy(details, runOutputFields(result, run))
+					data = details
+				}
 			}
 		}
 	case readTargetRunLogs:
@@ -1291,6 +1304,9 @@ func normalizeDAGList(raw any) (map[string]any, error) {
 		if schedules := scheduleStrings(dag.Dag.Schedule); len(schedules) > 0 {
 			item["schedule"] = schedules
 		}
+		if dag.Dag.RestartPolicy != nil {
+			item["restartPolicy"] = string(*dag.Dag.RestartPolicy)
+		}
 		if dag.Dag.Labels != nil && len(*dag.Dag.Labels) > 0 {
 			item["labels"] = *dag.Dag.Labels
 		}
@@ -1349,6 +1365,12 @@ func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
 		}
 		if schedules := scheduleStrings(dag.Schedule); len(schedules) > 0 {
 			out["schedule"] = schedules
+		}
+		if dag.RestartPolicy != nil {
+			out["restartPolicy"] = string(*dag.RestartPolicy)
+			if dag.RestartWaitSec != nil {
+				out["restartWaitSec"] = *dag.RestartWaitSec
+			}
 		}
 		if dag.Labels != nil && len(*dag.Labels) > 0 {
 			out["labels"] = *dag.Labels
@@ -1627,6 +1649,82 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 		out["handlers"] = handlers
 	}
 	return out, nil
+}
+
+// Run outputs go into a model's context, so a run response carries at most
+// this many outputs and bytes. A value is never cut, because a cut JSON value
+// is invalid; one that does not fit is left out and counted instead.
+const (
+	runOutputsMaxCount     = 50
+	runOutputValueMaxBytes = 4 << 10
+	runOutputsMaxBytes     = 32 << 10
+)
+
+// runOutputFields returns the fields to add to a run response for the
+// outputs loaded with result. run is result.Details decoded.
+func runOutputFields(result frontendapi.DAGRunDetailsWithOutputs, run daguapi.DAGRunDetails) map[string]any {
+	var attemptID string
+	if run.AttemptId != nil {
+		attemptID = *run.AttemptId
+	}
+	return boundedRunOutputs(result.Outputs, attemptID, result.OutputsErr)
+}
+
+// boundedRunOutputs returns the run response fields for outputs read from the
+// attempt attemptID. A run without outputs adds no fields. A read error or
+// outputs recorded by another attempt add outputsError instead of outputs.
+// The read error itself is logged by the API and not returned, since it can
+// name server paths.
+func boundedRunOutputs(outputs *ir.DAGRunOutputs, attemptID string, err error) map[string]any {
+	if err != nil {
+		return map[string]any{"outputsError": "outputs could not be read"}
+	}
+	if outputs == nil || len(outputs.Outputs) == 0 {
+		return nil
+	}
+	if recorded := outputs.Metadata.AttemptID; attemptID != "" && recorded != "" && recorded != attemptID {
+		return map[string]any{"outputsError": fmt.Sprintf("outputs were recorded by attempt %s, not the returned attempt %s; read the run again", recorded, attemptID)}
+	}
+
+	kept := make(map[string]string)
+	omitted, total := 0, 0
+	for _, key := range slices.Sorted(maps.Keys(outputs.Outputs)) {
+		value := outputs.Outputs[key]
+		size := len(key) + len(value)
+		if len(kept) == runOutputsMaxCount || len(value) > runOutputValueMaxBytes || total+size > runOutputsMaxBytes {
+			omitted++
+			continue
+		}
+		kept[key] = value
+		total += size
+	}
+	// outputs is left out when no value fits, the same as for a run without
+	// outputs; outputsOmitted then counts every value.
+	fields := map[string]any{}
+	if len(kept) > 0 {
+		fields["outputs"] = kept
+	}
+	if omitted > 0 {
+		fields["outputsOmitted"] = omitted
+	}
+	return fields
+}
+
+// withRunOutputs returns the run details API response in result, served as a
+// run resource, with the run's output fields added next to dagRunDetails. The
+// response is returned unchanged when the run has no outputs.
+func withRunOutputs(result frontendapi.DAGRunDetailsWithOutputs) any {
+	run, err := dagRunDetailsFromResponse(result.Details)
+	if err != nil {
+		return result.Details
+	}
+	fields := runOutputFields(result, run)
+	if len(fields) == 0 {
+		return result.Details
+	}
+	out := map[string]any{"dagRunDetails": run}
+	maps.Copy(out, fields)
+	return out
 }
 
 func dagRunDetailsFromResponse(raw any) (daguapi.DAGRunDetails, error) {

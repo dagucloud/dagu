@@ -817,6 +817,10 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 			merged[key] = mergeMailAccountMaps(baseMap, overrideMap)
 			continue
 		}
+		if key == "ssh" && ok && baseIsMap && overrideIsMap {
+			merged[key] = mergeSSHMaps(baseMap, overrideMap)
+			continue
+		}
 		if ok && baseIsMap && overrideIsMap {
 			mergedNested, err := mergeDefinitionMaps(baseMap, overrideMap)
 			if err != nil {
@@ -943,6 +947,10 @@ func documentYAML(index int, doc map[string]any, fullData []byte) ([]byte, error
 
 // buildBaseDAG builds a new base DAG from the base definition.
 func buildBaseDAG(ctx buildContext, baseDef *dag) (*ir.DAG, error) {
+	if err := validateBaseRestartPolicy(baseDef); err != nil {
+		return nil, fmt.Errorf("failed to build base ir.DAG: %w", err)
+	}
+
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil

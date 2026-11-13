@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -33,6 +35,7 @@ type Persistence struct {
 	StateStore                dagrun.StateStore
 	SchedulerStateStore       schedulerstate.Store
 	SchedulerPauseStore       schedulerstate.PauseStore
+	RestartBackoffStore       schedulerstate.RestartBackoffStore
 	WatchStateStore           schedulerstate.WatchStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
@@ -40,6 +43,7 @@ type Persistence struct {
 	DAGRunLeaseStore          dispatch.DAGRunLeaseStore
 	ActiveDistributedRunStore dispatch.ActiveDistributedRunStore
 	AgentSessionCleanupQueue  *agentsession.CleanupQueue
+	BackfillStore             backfill.Store
 }
 
 type filePersistenceOptions struct {
@@ -89,6 +93,9 @@ func newFilePersistence(
 	schedulerPauseStore := store.NewSchedulerPauseStore(
 		backend.Collection(persis.CollectionSchedulerState),
 	)
+	restartBackoffStore := store.NewRestartBackoffStore(
+		backend.Collection(persis.CollectionSchedulerState),
+	)
 	watchStateStore := store.NewWatchStateStore(backend.Collection(persis.CollectionWatchState))
 	serviceRegistry := file.NewServiceRegistry(cfg)
 	bundleStore := workspacebundle.NewStore(
@@ -117,6 +124,7 @@ func newFilePersistence(
 		StateStore:                stateStore,
 		SchedulerStateStore:       schedulerStateStore,
 		SchedulerPauseStore:       schedulerPauseStore,
+		RestartBackoffStore:       restartBackoffStore,
 		WatchStateStore:           watchStateStore,
 		ServiceRegistry:           serviceRegistry,
 		DispatchTaskStore:         dispatchTaskStore,
@@ -124,5 +132,6 @@ func newFilePersistence(
 		DAGRunLeaseStore:          dagRunLeaseStore,
 		ActiveDistributedRunStore: activeDistributedRunStore,
 		AgentSessionCleanupQueue:  cleanupQueue,
+		BackfillStore:             filebackfill.New(filebackfill.Dir(cfg.Paths.DataDir)),
 	}, nil
 }

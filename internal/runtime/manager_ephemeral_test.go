@@ -86,3 +86,70 @@ func TestLatestStatusSkipsAFreshEphemeralRun(t *testing.T) {
 		})
 	}
 }
+
+// writeBackfillTestRun writes a run of dag and returns its fresh process.
+func writeBackfillTestRun(t *testing.T, repo *persis.DAGRunRepository, dag *ir.DAG, runID string, status ir.Status, backfillID string, created time.Time) procctrl.ProcEntry {
+	t.Helper()
+	ctx := context.Background()
+	attempt, err := repo.CreateAttempt(ctx, dag, created, runID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, ir.NewStatusBuilder(dag).Create(runID, status, 0, created,
+		ir.WithAttemptID(attempt.ID()), ir.WithBackfillID(backfillID))))
+	require.NoError(t, attempt.Close(ctx))
+	return procctrl.ProcEntry{Fresh: true, Meta: procctrl.ProcMeta{
+		Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), RootName: dag.Name, RootDAGRunID: runID,
+	}}
+}
+
+// A running backfill run is not a DAG's latest run while the DAG has another
+// run, however fresh its process: the latest status is the newest run that
+// is no backfill run, unless the DAG has only backfill runs.
+func TestLatestStatusSkipsARunningBackfillRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: etl\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	for name, tc := range map[string]struct {
+		live bool
+		want string
+	}{
+		"to the live run":                 {live: true, want: "live"},
+		"to the backfill run without one": {live: false, want: "backfill-run"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{})
+			now := time.Now()
+			if tc.live {
+				writeBackfillTestRun(t, repo, dag, "live", ir.Succeeded, "", now.Add(-time.Minute))
+			}
+			running := writeBackfillTestRun(t, repo, dag, "backfill-run", ir.Running, "bf123456", now)
+
+			mgr := runtime.NewManager(repo, freshProcesses{running}, &config.Config{})
+			latest, err := mgr.GetLatestStatus(ctx, dag)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, latest.DAGRunID)
+		})
+	}
+}
+
+// A service DAG has one active run at a time, a backfill run included: a
+// new run is refused while a backfill run runs, though that run is not the
+// DAG's latest run.
+func TestCheckServiceRunCountsARunningBackfillRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: svc\nrestart_policy: always\nrestart_wait_sec: 1\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	repo := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{})
+	now := time.Now()
+	writeBackfillTestRun(t, repo, dag, "live", ir.Succeeded, "", now.Add(-time.Minute))
+	running := writeBackfillTestRun(t, repo, dag, "backfill-run", ir.Running, "bf123456", now)
+
+	mgr := runtime.NewManager(repo, freshProcesses{running}, &config.Config{})
+	require.ErrorIs(t, mgr.CheckServiceRun(ctx, dag, "new-run"), runtime.ErrServiceRunActive)
+}

@@ -14,6 +14,7 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
+import { ServiceDAGFailure } from '@/features/service-dags/components/ServiceDAGState';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
 import { PeekLink } from '@/features/peek/PeekLink';
 import { peekPageURL } from '@/features/peek/peekParams';
@@ -123,8 +124,12 @@ function RunLink({
 }): React.ReactElement {
   const target = { dag: name, run: run.dagRunId };
   if (direct) {
+    // The page opens on the Actions tab, where the run waits.
     return (
-      <Link to={peekPageURL(target, remoteNode)} className={className}>
+      <Link
+        to={peekPageURL({ ...target, dock: 'actions' }, remoteNode)}
+        className={className}
+      >
         {children}
       </Link>
     );
@@ -270,11 +275,16 @@ export function NeedsAttention({
                 >
                   {item.name}
                 </RunLink>
-                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                {/* On a phone the description takes a line of its own, as
+                    there is no room beside the name. */}
+                <span className="order-last min-w-0 basis-full text-sm text-muted-foreground sm:order-none sm:flex-1 sm:basis-0 sm:truncate">
                   {item.kind === 'failing' &&
                     (item.run.failedStep
                       ? `${item.run.failedStep}: ${item.run.error ?? ''}`
                       : (item.run.error ?? ''))}
+                  {item.kind === 'serviceFailing' && (
+                    <ServiceDAGFailure dag={item.dag} />
+                  )}
                   {item.kind === 'waiting' && ts('Waiting for input')}
                   {item.kind === 'slow' && (
                     <Ticker intervalMs={1000}>
@@ -334,11 +344,14 @@ export function InProgress({
   queues,
   remoteNode,
   nowSeconds,
+  serviceDAGsRunning = 0,
 }: {
   runs: ActivityRun[];
   queues: ActivityQueue[];
   remoteNode: string;
   nowSeconds: number;
+  /** Service DAGs with a run alive, whose runs the activity leaves out. */
+  serviceDAGsRunning?: number;
 }): React.ReactElement {
   const { ts } = useI18n();
   return (
@@ -348,7 +361,13 @@ export function InProgress({
       </SectionTitle>
       {runs.length === 0 && queues.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          <I18nText text={'Nothing is running.'} />
+          <I18nText
+            text={
+              serviceDAGsRunning > 0
+                ? 'Only service DAGs are running.'
+                : 'Nothing is running.'
+            }
+          />
         </p>
       ) : (
         <ul className="flex flex-col gap-1">

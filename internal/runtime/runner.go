@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -37,6 +38,7 @@ import (
 
 var (
 	ErrUpstreamFailed   = fmt.Errorf("upstream failed")
+	ErrUpstreamAborted  = fmt.Errorf("upstream aborted")
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
@@ -269,6 +271,15 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		}
 	}()
 
+	// A step retry can keep the failed or aborted upstream of a step it selected,
+	// which then never runs and records no failure. This waits for every step to
+	// end, since a repeating step clears the last error.
+	if !r.isError() {
+		if err := upstreamBlock(plan); err != nil {
+			r.setLastError(err)
+		}
+	}
+
 	// Collect final metrics
 	r.metrics.totalExecutionTime = time.Since(r.metrics.startTime)
 
@@ -383,6 +394,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 	// Buffer size = total nodes to avoid blocking
 	readyCh := make(chan *Node, len(nodes))
 	doneCh := make(chan *Node, len(nodes))
+
+	settleBlockedNodes(ctx, plan, nodes)
 
 	// Find initial ready nodes
 	for _, node := range nodes {
@@ -1499,6 +1512,48 @@ func (r *Runner) isFailed() bool {
 	return r.failed == 1
 }
 
+// upstreamBlock returns the error of a step this attempt set out to run and
+// aborted because a step it depends on failed or was aborted, or nil if there is
+// none. A failed upstream is the root cause of a chain, so it wins wherever its
+// step is listed. Errors restored from earlier attempts do not match these
+// sentinels.
+func upstreamBlock(plan *Plan) error {
+	var block error
+	for _, node := range plan.Nodes() {
+		if !blockedByUpstream(plan, node) {
+			continue
+		}
+		err := node.State().Error
+		if errors.Is(err, ErrUpstreamFailed) {
+			return err
+		}
+		block = err
+	}
+	return block
+}
+
+func blockedByUpstream(plan *Plan, node *Node) bool {
+	err := node.State().Error
+	return plan.inRetrySelection(node) && (errors.Is(err, ErrUpstreamFailed) || errors.Is(err, ErrUpstreamAborted))
+}
+
+// settleBlockedNodes ends every node that the restored state of a retry blocks
+// before anything runs. No completion reaches these nodes later, and a node can
+// be listed before the upstream that blocks it, so the scan repeats until
+// nothing changes.
+func settleBlockedNodes(ctx context.Context, plan *Plan, nodes []*Node) {
+	for changed := true; changed; {
+		changed = false
+		for _, node := range nodes {
+			if node.State().Status != ir.NodeNotStarted {
+				continue
+			}
+			isReady(ctx, plan, node)
+			changed = changed || node.State().Status != ir.NodeNotStarted
+		}
+	}
+}
+
 func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 	for _, depID := range plan.Dependencies(node.id) {
 		dep := plan.GetNode(depID)
@@ -1541,6 +1596,7 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 			logger.Debug(ctx, "Dependency aborted",
 				tag.Step(node.Name()), tag.Dependency(dep.Name()))
 			node.SetStatus(ir.NodeAborted)
+			node.SetError(ErrUpstreamAborted)
 			return false
 
 		case ir.NodeRejected:
@@ -1734,6 +1790,10 @@ func (r *Runner) isPartialSuccess(ctx context.Context, p *Plan) bool {
 				// This disqualifies the DAG from being partial success
 				return false
 			}
+		}
+		// A step the plan set out to run never ran, so its work is not done.
+		if blockedByUpstream(p, node) {
+			return false
 		}
 	}
 
@@ -2026,6 +2086,7 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
 	node.SetStatus(ir.NodeFailed)
 	if node.ShouldMarkSuccess(ctx) {
+		node.SetError(execErr)
 		node.SetStatus(ir.NodeSucceeded)
 		return
 	}
@@ -2043,6 +2104,9 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 
 	// Check the hard limit first - this overrides everything
 	if rp.Limit > 0 && node.State().DoneCount >= rp.Limit {
+		if rp.OnLimit == ir.RepeatOnLimitFail {
+			r.failRepeatLimit(ctx, node, rp, execErr)
+		}
 		return false
 	}
 
@@ -2139,6 +2203,39 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	return execErr != nil, nil
 }
 
+// failRepeatLimit resolves the outcome of an "until" loop that reached its
+// limit with on_limit: fail. A met condition leaves the step's last result
+// untouched; a not-met condition, an evaluation error, or the attempt's own
+// error all fail the step. An interrupted check is left to the abort or
+// timeout that owns the outcome.
+func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPolicy, execErr error) {
+	// An exhausted "while" condition is a normal stop, not a failure.
+	if rp.RepeatMode != ir.RepeatModeUntil || rp.Condition == nil {
+		return
+	}
+	ctx = r.reloadNodeOutputs(ctx, node)
+	shell := GetEnv(ctx).Shell(ctx)
+	err := EvalCondition(ctx, shell, rp.Condition)
+	// Abort and timeout take precedence over the final condition result. A
+	// graceful stop does not cancel ctx, so the runner flag is checked too.
+	if r.isCanceled() || node.State().Status == ir.NodeAborted || ctx.Err() != nil {
+		return
+	}
+	switch {
+	case err == nil:
+		return // condition met on the final attempt
+	case errors.Is(err, ErrConditionNotMet):
+		err = fmt.Errorf("repeat limit %d reached; condition not met", rp.Limit)
+	}
+	if execErr != nil {
+		err = fmt.Errorf("%w: %w", err, execErr)
+	}
+	// Use the same failure path as a regular step failure so that
+	// continueOn.markSuccess still applies. An evaluation error is not a loop
+	// answer and must be reported instead of being swallowed.
+	r.finalizeFailedNode(ctx, node, err)
+}
+
 // setupRepeatEnv sets up the environment of the node's next repeat the same
 // way as its first execution, so that every value derived from the repeat
 // index follows it. ctx is the context the first execution started from.
@@ -2206,72 +2303,46 @@ func waitForExecution(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
+// NewPlanEnv returns an env whose step map holds every node of plan. Its
+// working_dir does not resolve step references.
 func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	maps.Copy(env.StepMap, planStepInfos(ctx, plan.Nodes()))
 	return env
 }
 
+// NewPlanEnvWithError is NewPlanEnv with strict working_dir resolution. It
+// backs lifecycle handlers, which have no step-output lookup scope (spec 009).
 func NewPlanEnvWithError(ctx context.Context, step ir.Step, plan *Plan) (Env, error) {
 	env, err := NewEnvWithError(ctx, step)
 	if err != nil {
 		return Env{}, err
 	}
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	maps.Copy(env.StepMap, planStepInfos(ctx, plan.Nodes()))
 	return env, nil
 }
 
 func NewPlanEnvForNode(ctx context.Context, node *Node, plan *Plan) Env {
-	env := NewEnv(ctx, node.Step())
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
-	return env
+	return newEnvWithSteps(ctx, node.Step(), planStepInfos(ctx, planPredecessorNodes(plan, node)))
 }
 
 func NewPlanEnvForNodeWithError(ctx context.Context, node *Node, plan *Plan) (Env, error) {
-	env, err := NewEnvWithError(ctx, node.Step())
-	if err != nil {
-		return Env{}, err
-	}
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
-	return env, nil
+	return newEnvWithStepsStrict(ctx, node.Step(), planStepInfos(ctx, planPredecessorNodes(plan, node)))
 }
 
-func addInheritedStepMap(ctx context.Context, env *Env) {
-	if env == nil {
-		return
+// planStepInfos returns the inherited step references overlaid with the
+// entries of nodes.
+func planStepInfos(ctx context.Context, nodes []*Node) map[string]cmnvalue.StepInfo {
+	steps := make(map[string]cmnvalue.StepInfo)
+	if inherited, ok := LookupEnv(ctx); ok {
+		maps.Copy(steps, inherited.StepMap)
 	}
-	inherited, ok := LookupEnv(ctx)
-	if !ok || len(inherited.StepMap) == 0 {
-		return
-	}
-	if env.StepMap == nil {
-		env.StepMap = make(map[string]cmnvalue.StepInfo, len(inherited.StepMap))
-	}
-	for id, info := range inherited.StepMap {
-		if _, exists := env.StepMap[id]; !exists {
-			env.StepMap[id] = info
-		}
-	}
-}
-
-func addPlanStepsToEnv(env *Env, plan *Plan) {
-	for _, n := range plan.Nodes() {
+	for _, n := range nodes {
 		if n.Step().ID != "" {
-			env.StepMap[n.Step().ID] = n.StepInfo()
+			steps[n.Step().ID] = n.StepInfo()
 		}
 	}
-}
-
-func addPlanPredecessorStepsToEnv(env *Env, plan *Plan, node *Node) {
-	for _, n := range planPredecessorNodes(plan, node) {
-		if n.Step().ID != "" {
-			env.StepMap[n.Step().ID] = n.StepInfo()
-		}
-	}
+	return steps
 }
 
 func planPredecessorNodes(plan *Plan, node *Node) []*Node {

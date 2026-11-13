@@ -1454,6 +1454,55 @@ func TestHandleStart(t *testing.T) {
 	})
 }
 
+// A run executed from a queued status records the trigger a local
+// execution would: a queued run keeps its own, a retry records retry, and a
+// retried backfill run stays a backfill run. The load failure is the first
+// status a worker reports.
+func TestHandleRetryLoadErrorRecordsTrigger(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		previous ir.DAGRunStatus
+		want     ir.TriggerType
+	}{
+		{"queued run", ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeManual}, ir.TriggerTypeManual},
+		{"retry", ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeRetry}, ir.TriggerTypeRetry},
+		{"backfill retry", ir.DAGRunStatus{Status: ir.Queued, TriggerType: ir.TriggerTypeRetry, BackfillID: "bf123456"}, ir.TriggerTypeBackfill},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc.previous.Name, tc.previous.DAGRunID = "queued-dag", "run-1"
+			previous, err := convert.DAGRunStatusToProto(&tc.previous)
+			require.NoError(t, err)
+
+			var reported *ir.DAGRunStatus
+			client := newMockRemoteCoordinatorClient()
+			client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+				reported, err = convert.ProtoToDAGRunStatus(req.Status)
+				return &coordinatorv1.ReportStatusResponse{Accepted: true}, err
+			}
+			handler := &remoteTaskHandler{
+				workerID:          "test-worker",
+				coordinatorClient: client,
+				config:            &config.Config{Paths: config.PathsConfig{DAGsDir: t.TempDir()}},
+			}
+
+			err = handler.handleRetry(context.Background(), &coordinatorv1.Task{
+				Operation:      coordinatorv1.Operation_OPERATION_RETRY,
+				Target:         "queued-dag",
+				DagRunId:       "run-1",
+				Definition:     `invalid: yaml: content: [[[`,
+				PreviousStatus: previous,
+			})
+			require.ErrorContains(t, err, "failed to load DAG")
+			require.NotNil(t, reported)
+			assert.Equal(t, tc.want, reported.TriggerType)
+		})
+	}
+}
+
 func TestRemoteHandler_UniqueLogDirs(t *testing.T) {
 	t.Parallel()
 
@@ -2017,6 +2066,7 @@ steps:
 	var (
 		reportedMu sync.Mutex
 		finalActor string
+		finalType  ir.TriggerType
 	)
 	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
 		status, err := convert.ProtoToDAGRunStatus(req.Status)
@@ -2024,6 +2074,7 @@ steps:
 		if status.Status == ir.Succeeded {
 			reportedMu.Lock()
 			finalActor = status.TriggerActor
+			finalType = status.TriggerType
 			reportedMu.Unlock()
 		}
 		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
@@ -2052,7 +2103,7 @@ steps:
 	// Call executeDAGRun - this should succeed and log completion
 	// For top-level runs, pass empty parent and ensure root matches dagRunID
 	err := handler.executeDAGRun(th.Context, dag.DAG, remoteRun{
-		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice"},
+		task:     &coordinatorv1.Task{DagRunId: dagRunID, TriggerActor: "alice", TriggerType: "manual"},
 		root:     root,
 		handlers: handlers,
 	})
@@ -2062,6 +2113,7 @@ steps:
 	reportedMu.Lock()
 	defer reportedMu.Unlock()
 	require.Equal(t, "alice", finalActor)
+	require.Equal(t, ir.TriggerTypeManual, finalType)
 }
 
 func TestRemoteRunReporter_FinalizesSchedulerLogByClosingLiveWriterOnce(t *testing.T) {

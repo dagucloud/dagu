@@ -126,10 +126,14 @@ type dag struct {
 	DelaySec int `yaml:"delay_sec,omitempty"`
 	// RestartWaitSec is the wait in seconds to when the DAG is restarted.
 	RestartWaitSec int `yaml:"restart_wait_sec,omitempty"`
+	// RestartPolicy is no|always|unless-stopped: whether the scheduler keeps a run of the DAG alive.
+	RestartPolicy *string `yaml:"restart_policy,omitempty"`
 	// HistRetentionDays is the retention days of the dag-runs history.
 	HistRetentionDays *int `yaml:"hist_retention_days,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to retain in history.
 	HistRetentionRuns *int `yaml:"hist_retention_runs,omitempty"`
+	// SlotRetentionDays is how many days the record of each schedule slot is kept.
+	SlotRetentionDays *int `yaml:"slot_retention_days,omitempty"`
 	// Preconditions is the condition to run the DAG.
 	Preconditions any `yaml:"preconditions,omitempty"`
 	// MaxActiveRuns is the maximum number of concurrent dag-runs.
@@ -385,10 +389,12 @@ type ssh struct {
 	Host string `yaml:"host,omitempty"`
 	// Port is the SSH port (can be string or number).
 	Port types.PortValue `yaml:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 	// StrictHostKey enables strict host key checking. Defaults to true if not specified.
 	StrictHostKey *bool `yaml:"strict_host_key,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -411,10 +417,12 @@ type bastion struct {
 	Port types.PortValue `yaml:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `yaml:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 }
 
 // s3Config defines the default S3 configuration for the DAG.
@@ -576,6 +584,7 @@ var metadataExecutionPlacementStage = transformStage{
 	dagField("timeout", buildTimeout, func(out *ir.DAG, v time.Duration) { out.Timeout = v }),
 	dagField("delay", buildDelay, func(out *ir.DAG, v time.Duration) { out.Delay = v }),
 	dagField("restart_wait", buildRestartWait, func(out *ir.DAG, v time.Duration) { out.RestartWait = v }),
+	dagField("restart_policy", buildRestartPolicy, func(out *ir.DAG, v ir.RestartPolicy) { out.RestartPolicy = v }),
 	dagField("max_active_runs", buildMaxActiveRuns, func(out *ir.DAG, v int) { out.MaxActiveRuns = v }),
 	dagField("max_active_steps", buildMaxActiveSteps, func(out *ir.DAG, v int) { out.MaxActiveSteps = v }),
 	dagField("queue", buildQueue, func(out *ir.DAG, v string) { out.Queue = v }),
@@ -611,6 +620,7 @@ var fullInteractionStage = transformStage{
 var fullRetentionStage = transformStage{
 	dagField("hist_retention_days", buildHistRetentionDays, func(out *ir.DAG, v int) { out.HistRetentionDays = v }),
 	dagField("hist_retention_runs", buildHistRetentionRuns, func(out *ir.DAG, v int) { out.HistRetentionRuns = v }),
+	dagField("slot_retention_days", buildSlotRetentionDays, func(out *ir.DAG, v int) { out.SlotRetentionDays = v }),
 	dagField("max_clean_up_time_sec", buildMaxCleanUpTime, func(out *ir.DAG, v time.Duration) { out.MaxCleanUpTime = v }),
 }
 
@@ -716,6 +726,7 @@ func (s *dagBuildState) validateSpecShape() {
 	if err := validateHistoryRetentionConfig(s.spec); err != nil {
 		s.errs = append(s.errs, err)
 	}
+	s.errs = append(s.errs, validateRestartPolicyConfig(s.spec)...)
 }
 
 func (s *dagBuildState) prepareParamEnvStage() {
@@ -958,6 +969,7 @@ func (s *dagBuildState) collectWarnings() {
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
+		s.result.BuildWarnings = append(s.result.BuildWarnings, modelOutputInRunWarnings(s.result)...)
 	}
 }
 
@@ -1018,6 +1030,84 @@ func executorConfigWarnings(dag *ir.DAG) []string {
 		}
 	})
 	return warnings
+}
+
+// modelOutputInRunWarnings reports shell commands that have a model's reply
+// written into their text. Dagu does not escape inserted values, and a reply can
+// carry whatever text the model read, so it can run as shell code.
+func modelOutputInRunWarnings(dag *ir.DAG) []string {
+	models := make(map[string]ir.Step)
+	commands := make(map[string]struct{})
+	walkSteps(dag, func(step ir.Step, _ string) {
+		if isModelStep(step) {
+			models[step.Name] = step
+			if step.ID != "" {
+				models[step.ID] = step
+			}
+		}
+		if step.ExecutorConfig.IsCommand() {
+			commands[step.Name] = struct{}{}
+		}
+	})
+	if len(models) == 0 {
+		return nil
+	}
+
+	var warnings []string
+	seen := make(map[string]struct{})
+	for _, field := range ReferenceFields(dag) {
+		if _, ok := commands[field.OwnerStepName]; !ok || !field.Field.ReachesShell() {
+			continue
+		}
+		for _, ref := range field.Field.StepTextReferences(field.Value) {
+			model, ok := models[ref.StepName]
+			if !ok || !IsShellUnsafeModelOutput(model, ref.Field) {
+				continue
+			}
+			warning := fmt.Sprintf(
+				"DAG %q: step %q: %s writes model output into a shell command. "+
+					"Dagu does not escape it, so quotes or $(...) in the text can run as shell code. "+
+					"Pass it through env and read it from the environment instead.",
+				dag.Name, field.OwnerStepName, ref.Expression,
+			)
+			if _, ok := seen[warning]; ok {
+				continue
+			}
+			seen[warning] = struct{}{}
+			warnings = append(warnings, warning)
+		}
+	}
+	return warnings
+}
+
+// IsShellUnsafeModelOutput reports whether the named output of the step is model
+// text that can run as shell code when written into a shell command (spec 067).
+func IsShellUnsafeModelOutput(step ir.Step, output string) bool {
+	return isModelStep(step) && !schemaExcludesShellSyntax(step, output)
+}
+
+// isModelStep reports whether a model writes the outputs of the step.
+func isModelStep(step ir.Step) bool {
+	switch step.ExecutorConfig.Type {
+	case "harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent:
+		return true
+	}
+	return false
+}
+
+// schemaExcludesShellSyntax reports whether the step's output schema limits the
+// field to values the author chose or to non-text values.
+func schemaExcludesShellSyntax(step ir.Step, field string) bool {
+	properties, _ := step.OutputSchema["properties"].(map[string]any)
+	property, _ := properties[field].(map[string]any)
+	if _, ok := property["enum"]; ok {
+		return true
+	}
+	switch property["type"] {
+	case "boolean", "integer", "number":
+		return true
+	}
+	return false
 }
 
 // walkSteps calls visit for every step of dag, including foreach bodies and
@@ -1111,6 +1201,14 @@ func (s *dagBuildState) validateResult() {
 		}
 	}
 
+	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {
+		s.errs = append(s.errs, ir.NewValidationError(
+			"restart_wait_sec",
+			s.result.RestartWait,
+			fmt.Errorf("restart_wait_sec must be at least 1 when restart_policy is %q", s.result.RestartPolicy),
+		))
+	}
+
 	if s.result.Name != "" {
 		if err := ir.ValidateDAGName(s.result.Name); err != nil {
 			s.errs = append(s.errs, ir.NewValidationError("name", s.result.Name, err))
@@ -1163,6 +1261,7 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()
+	state.collectCredentialRefs()
 	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()
@@ -1182,6 +1281,7 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	inheritSSHAuth(effective, base, current)
 	effective.Params = mergeInheritedParams(base.Params, current.Params)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
@@ -1200,6 +1300,19 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	}
 	if currentSpec.Queue != nil {
 		effective.Queue = current.Queue
+	}
+	// A service DAG is neither scheduled nor retried at the DAG level, so what the
+	// base configuration adds is dropped.
+	if effective.RestartPolicy.Enabled() {
+		effective.Schedule = nil
+		effective.StopSchedule = nil
+		effective.RestartSchedule = nil
+		effective.RetryPolicy = nil
+		// Days of runs do not bound the history of a DAG that restarts every
+		// few seconds, so only a retention in its own file keeps days.
+		if currentSpec.HistRetentionDays == nil {
+			effective.HistRetentionDays = 0
+		}
 	}
 
 	return effective, nil
@@ -1318,6 +1431,64 @@ func buildDelay(_ buildContext, d *dag) (time.Duration, error) {
 
 func buildRestartWait(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.RestartWaitSec), nil
+}
+
+func buildRestartPolicy(_ buildContext, d *dag) (ir.RestartPolicy, error) {
+	if d.RestartPolicy == nil {
+		return ir.RestartPolicyNo, nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil {
+		return ir.RestartPolicyNo, ir.NewValidationError("restart_policy", *d.RestartPolicy, err)
+	}
+	return policy, nil
+}
+
+// validateBaseRestartPolicy rejects a base configuration that sets a restart
+// policy: it applies to every DAG, so it would turn them all into services.
+func validateBaseRestartPolicy(d *dag) error {
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	return ir.NewValidationError(
+		"restart_policy",
+		*d.RestartPolicy,
+		fmt.Errorf("restart_policy cannot be set in the base configuration: set it in the DAG that needs it"),
+	)
+}
+
+// validateRestartPolicyConfig rejects what a service DAG (one the scheduler
+// keeps alive) must not define itself: a schedule, which would start runs of its
+// own, and a DAG-level retry policy, which would restart a failed run next to
+// the restart policy. An invalid policy value is reported by buildRestartPolicy.
+func validateRestartPolicyConfig(d *dag) []error {
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	var errs []error
+	if len(d.Schedule.Starts())+len(d.Schedule.Stops())+len(d.Schedule.Restarts()) > 0 {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with schedule"),
+		))
+	}
+	if d.RetryPolicy != nil {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with retry_policy"),
+		))
+	}
+	return errs
 }
 
 func buildLabels(_ buildContext, d *dag) (ir.Labels, error) {
@@ -2029,6 +2200,16 @@ func buildHistRetentionRuns(_ buildContext, d *dag) (int, error) {
 	return 0, nil
 }
 
+func buildSlotRetentionDays(_ buildContext, d *dag) (int, error) {
+	if d.SlotRetentionDays != nil {
+		if *d.SlotRetentionDays <= 0 {
+			return 0, fmt.Errorf("slot_retention_days must be > 0")
+		}
+		return *d.SlotRetentionDays, nil
+	}
+	return 0, nil
+}
+
 func validateHistoryRetentionConfig(d *dag) error {
 	if d.HistRetentionDays == nil || d.HistRetentionRuns == nil {
 		return nil
@@ -2344,6 +2525,14 @@ func parseParamsInternal(ctx buildContext, d *dag) (*paramsResult, error) {
 	}
 
 	result, err := buildDAGParamsResult(ctx, d)
+	if err != nil {
+		// Every params field builder returns this same instance, so attributing
+		// it to 'params' here lets the build report it once instead of once per
+		// derived field (see dagBuildState.finish).
+		if _, ok := errors.AsType[*ir.ValidationError](err); !ok {
+			err = ir.NewValidationError("params", nil, err)
+		}
+	}
 	if ctx.paramsState != nil {
 		ctx.paramsState.cached = true
 		ctx.paramsState.result = result
@@ -2843,19 +3032,26 @@ func buildSSH(_ buildContext, d *dag) (*ir.SSHConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	auth, err := ir.ParseSSHAuth("ssh", d.SSH.Key, d.SSH.Password, d.SSH.Passphrase)
+	if err != nil {
+		return nil, err
+	}
+	bastion, err := buildBastionConfig(d.SSH.Bastion)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ir.SSHConfig{
 		User:          d.SSH.User,
 		Host:          d.SSH.Host,
 		Port:          defaultPort(d.SSH.Port.String(), "22"),
-		Key:           d.SSH.Key,
-		Password:      d.SSH.Password,
+		SSHAuth:       auth,
 		StrictHostKey: d.SSH.StrictHostKey == nil || *d.SSH.StrictHostKey,
 		KnownHostFile: d.SSH.KnownHostFile,
 		Shell:         shell,
 		ShellArgs:     shellArgs,
 		Timeout:       d.SSH.Timeout,
-		Bastion:       buildBastionConfig(d.SSH.Bastion),
+		Bastion:       bastion,
 	}, nil
 }
 
@@ -2882,17 +3078,20 @@ func parseSSHShell(shellVal types.ShellValue) (string, []string, error) {
 }
 
 // buildBastionConfig builds bastion configuration from spec.
-func buildBastionConfig(bastion *bastion) *ir.BastionConfig {
+func buildBastionConfig(bastion *bastion) (*ir.BastionConfig, error) {
 	if bastion == nil {
-		return nil
+		return nil, nil
+	}
+	auth, err := ir.ParseSSHAuth("ssh.bastion", bastion.Key, bastion.Password, bastion.Passphrase)
+	if err != nil {
+		return nil, err
 	}
 	return &ir.BastionConfig{
-		Host:     bastion.Host,
-		Port:     defaultPort(bastion.Port.String(), "22"),
-		User:     bastion.User,
-		Key:      bastion.Key,
-		Password: bastion.Password,
-	}
+		Host:    bastion.Host,
+		Port:    defaultPort(bastion.Port.String(), "22"),
+		User:    bastion.User,
+		SSHAuth: auth,
+	}, nil
 }
 
 // defaultPort returns the port if non-empty, otherwise returns the default value.
@@ -2987,6 +3186,10 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 	if !cfg.Files.IsZero() {
 		return nil, ir.NewValidationError("llm.files", cfg.Files.Value(),
 			fmt.Errorf("files is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
+	}
+	if cfg.MaxFileChars != nil {
+		return nil, ir.NewValidationError("llm.max_file_chars", *cfg.MaxFileChars,
+			fmt.Errorf("max_file_chars is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
 	}
 
 	thinking, err := buildThinkingConfig(cfg.Thinking)

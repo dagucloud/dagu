@@ -21,6 +21,15 @@ describe('getBreadcrumbItems', () => {
     expect(last(labels('zh-CN'))).toBe('执行记录');
   });
 
+  // A backfill has no list page: it sits with the runs it makes.
+  it('places a backfill under the executions', () => {
+    expect(getBreadcrumbItems('/backfills/bf123456')).toEqual([
+      { label: 'Home', to: '/home' },
+      { label: 'Executions', to: '/dag-runs' },
+      { label: 'bf123456', to: '/backfills/bf123456' },
+    ]);
+  });
+
   // An old link to the History tab keeps its crumb name until it redirects.
   it('keeps the History crumb of the old tab link', () => {
     const items = getBreadcrumbItems('/dags/etl/history');

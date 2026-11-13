@@ -59,6 +59,7 @@ type DispatchTask struct {
 	ProfileName    string
 	DefinitionID   string
 	TriggerActor   string
+	TriggerType    ir.TriggerType
 
 	PreviousStatus *ir.DAGRunStatus
 
@@ -66,8 +67,10 @@ type DispatchTask struct {
 	BaseConfigWorkspace *string
 	Labels              string
 	ScheduleTime        string
-	SourceFile          string
-	SourceWorkDir       string
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	SourceFile     string
+	SourceWorkDir  string
 
 	WorkerSelector map[string]string
 

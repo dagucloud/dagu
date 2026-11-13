@@ -28,6 +28,10 @@ message DAGIndexEntry {
   string description = 9;
   string load_error = 10;
   string load_path = 11;
+  string restart_policy = 12;
+  int64 restart_wait_sec = 13;
+  // Queue that the DAG sets; empty when it sets none.
+  string queue = 14;
 }
 
 // DAGRunIndex stores cached summaries for a single day's DAG runs.
@@ -69,4 +73,5 @@ message DAGRunIndexEntry {
   string archive_dir = 28;
   string trigger_actor = 29;
   string definition_id = 30;
+  string backfill_id = 31;
 }

@@ -753,6 +753,9 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	var dagRunID string
 	if request.Body != nil && request.Body.DagRunId != nil && *request.Body.DagRunId != "" {
 		dagRunID = *request.Body.DagRunId
+		if err := validateDAGRunID(dagRunID); err != nil {
+			return nil, err
+		}
 		// Check if a dag-run with this ID already exists
 		statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{DAGRunID: dagRunID})
 		if err != nil {
@@ -778,9 +781,16 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		dagRunID = uuid.Must(uuid.NewV7()).String()
 	}
 
+	if err := a.dagRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+		return api.TriggerWebhook409JSONResponse{
+			Code:    api.ErrorCodeConflict,
+			Message: err.Error(),
+		}, nil
+	}
+
 	// Enqueue directly from the API layer so accepted webhook payloads do not
 	// need to fit in a subprocess command line.
-	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false, nil); err != nil {
+	if err := a.enqueuePreparedDAGRun(ctx, dag, params, dagRunID, ir.TriggerTypeWebhook, profileName, false, nil, nil); err != nil {
 		logger.Error(ctx, "Webhook: failed to enqueue DAG run",
 			tag.DAG(dag.Name),
 			tag.Error(err),

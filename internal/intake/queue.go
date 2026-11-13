@@ -39,9 +39,14 @@ type QueueRequest struct {
 	TriggerActor string
 	ParallelItem string
 	ScheduleTime string
-	ProfileName  string
-	DefinitionID string
-	NoReuse      bool
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	ProfileName    string
+	DefinitionID   string
+	NoReuse        bool
+	// BackfillID names the backfill the run belongs to, which also gives
+	// the run low queue priority.
+	BackfillID string
 
 	AttemptOptions persis.DAGRunCreateAttemptOptions
 
@@ -112,7 +117,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		return nil, err
 	}
 
-	if err := req.QueueStore.Enqueue(ctx, queueName, queue.QueuePriorityLow, dagRun); err != nil {
+	if err := req.QueueStore.Enqueue(ctx, queueName, queue.PriorityOf(&status), dagRun); err != nil {
 		return nil, joinCloseAndEnqueue(
 			wrapCloseErr(writeResult.closeErr),
 			fmt.Errorf("failed to enqueue DAG run: %w", err),
@@ -193,9 +198,10 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithDAGDefinitionID(req.DefinitionID),
 		ir.WithNoReuse(req.NoReuse),
 		ir.WithEphemeral(req.AttemptOptions.Ephemeral),
+		ir.WithBackfillID(req.BackfillID),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))
 	}
 
 	return ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)

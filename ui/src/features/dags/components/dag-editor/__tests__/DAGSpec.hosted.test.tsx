@@ -58,7 +58,10 @@ vi.mock('../../../../../contexts/SchemaContext', () => ({
   useSchema: () => ({ schema: null }),
 }));
 vi.mock('../../../../../contexts/UnsavedChangesContext', () => ({
-  useUnsavedChanges: () => ({ setHasUnsavedChanges: vi.fn() }),
+  useUnsavedChanges: () => ({
+    setHasUnsavedChanges: vi.fn(),
+    registerSave: () => () => {},
+  }),
 }));
 vi.mock('../../../../../hooks/useDAGSSE', () => ({ useDAGSSE: () => null }));
 vi.mock('../../../../../hooks/useSSECacheSync', () => ({

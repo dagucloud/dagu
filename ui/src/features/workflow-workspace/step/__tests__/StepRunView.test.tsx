@@ -109,6 +109,11 @@ vi.mock('@/components/ui/error-modal', () => ({
 vi.mock('../../data/useWorkspacePermissions', () => ({
   useWorkspacePermissions: () => perms.value,
 }));
+// The human task card checks execute permission through the auth context.
+vi.mock('@/contexts/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/contexts/AuthContext')>()),
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('../../dock/DockContext', () => ({
   useDock: () => ({ openStep: dock.openStep }),
   useDockCommands: () => ({ openStep: dock.openStep }),
@@ -431,6 +436,35 @@ describe('StepRunView facts', () => {
   });
 
   // parity:steps-manual-action-details parity:common-manual-action-bits
+  // A person opening a waiting step reads the task first, not the facts.
+  it('shows a waiting human task before the step facts', () => {
+    renderView(
+      details(
+        [
+          node('review', {
+            step: {
+              id: 'review',
+              name: 'review',
+              humanTask: { prompt: 'Decide the release.' },
+            },
+            status: NodeStatus.Waiting,
+            statusLabel: NodeStatusLabel.waiting,
+            finishedAt: '',
+          }),
+        ],
+        { status: Status.Waiting, statusLabel: StatusLabel.waiting }
+      ),
+      facts({ step: 'review' })
+    );
+
+    const prompt = screen.getByText('Decide the release.');
+    const started = screen.getByText('Started');
+    expect(
+      prompt.compareDocumentPosition(started) &
+        window.Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it('shows the manual audit', () => {
     renderView(
       details([
@@ -617,11 +651,11 @@ describe('StepRunView facts', () => {
     const stderr = screen.getByRole('link', { name: 'View stderr' });
     expect(stdout).toHaveAttribute(
       'href',
-      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&step=build'
+      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&dagRunName=example&step=build'
     );
     expect(stderr).toHaveAttribute(
       'href',
-      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&step=build&stream=stderr'
+      '/dags/example.yaml/log?remoteNode=edge&dagRunId=run-1&dagRunName=example&step=build&stream=stderr'
     );
     // fireEvent returns false when the handler prevented the default.
     expect(fireEvent.click(stdout, { metaKey: true })).toBe(true);

@@ -9,16 +9,20 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -969,4 +973,91 @@ func writeLegacyCommandProcFile(
 	require.NoError(t, os.Chtimes(path, heartbeatAt, heartbeatAt))
 
 	return path
+}
+
+// A DAG with a restart_policy has one run at a time: no command starts a run
+// next to the active one. Once none is active, a manual start works again.
+func TestStartCommand_ServiceDAGRunsOneAtATime(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--run-id=ended", dag.Location}})
+	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=queued", dag.Location}})
+
+	for _, tt := range []struct {
+		name    string
+		command *cobra.Command
+		args    []string
+	}{
+		{"Start", cmd.Start(), []string{"start", dag.Location}},
+		{"StartStep", cmd.Start(), []string{"start", "--only=1", dag.Location}},
+		{"StartFromRun", cmd.Start(), []string{"start", "--from-run-id=ended", dag.Name}},
+		{"Enqueue", cmd.Enqueue(), []string{"enqueue", dag.Location}},
+		{"Retry", cmd.Retry(), []string{"retry", "--run-id=ended", dag.Name}},
+	} {
+		err := th.RunCommandWithError(t, tt.command, test.CmdTest{Args: tt.args})
+		require.ErrorContains(t, err, "restart_policy", tt.name)
+	}
+
+	th.RunCommand(t, cmd.Dequeue(), test.CmdTest{Args: []string{"dequeue", dag.ProcGroup(), "--dag-run", dag.Name + ":queued"}})
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--run-id=back", dag.Location}})
+}
+
+// Other DAGs can run next to an active run.
+func TestStartCommand_OtherDAGRunsNextToActiveRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=queued", dag.Location}})
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--run-id=next", dag.Location}})
+}
+
+// The scheduler follows the current definition, so a run whose snapshot predates
+// the restart_policy is refused like any other.
+func TestStartCommand_ServiceDAGFollowsCurrentDefinition(t *testing.T) {
+	t.Parallel()
+
+	const steps = `steps:
+  - name: "1"
+    run: "echo ok"
+`
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, steps)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--run-id=ended", dag.Location}})
+
+	require.NoError(t, os.WriteFile(dag.Location, []byte("restart_policy: always\nrestart_wait_sec: 1\n"+steps), 0600))
+	th.RunCommand(t, cmd.Enqueue(), test.CmdTest{Args: []string{"enqueue", "--run-id=queued", dag.Location}})
+
+	err := th.RunCommandWithError(t, cmd.Retry(), test.CmdTest{Args: []string{"retry", "--run-id=ended", dag.Name}})
+	require.ErrorContains(t, err, "restart_policy")
+	err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--from-run-id=ended", dag.Name}})
+	require.ErrorContains(t, err, "restart_policy")
+}
+
+// A run removes the build env file its launcher wrote for it, so the file
+// does not outlive a launcher that ends first.
+func TestStartRemovesItsBuildEnvFile(t *testing.T) {
+	th := test.SetupCommand(t, test.WithBuiltExecutable())
+	dag := th.DAG(t, "steps:\n  - command: echo ok\n")
+	env, cleanup, err := buildenv.Prepare(buildenv.NewSnapshot([]string{"KEY=value"}, false))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cleanup() })
+
+	start := exec.Command(th.Config.Paths.Executable, test.WithConfigFlag([]string{"start", "-q", dag.Location}, th.Config)...) //nolint:gosec // Test executes the repository binary.
+	start.Env = append(th.ChildEnv, env...)
+	output, err := start.CombinedOutput()
+	require.NoError(t, err, "output: %s", output)
+
+	_, err = os.Stat(strings.TrimPrefix(env[0], buildenv.PresolvedEnvFileKey+"="))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

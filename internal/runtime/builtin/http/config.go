@@ -9,7 +9,8 @@ import (
 )
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"method":  {Type: "string", Description: "HTTP method for action: http.request"},
 		"url":     {Type: "string", Description: "Request URL for action: http.request"},

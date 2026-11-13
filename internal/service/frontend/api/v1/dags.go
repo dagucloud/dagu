@@ -98,6 +98,31 @@ func (a *API) checkSingletonQueued(ctx context.Context, dag *ir.DAG) error {
 	return nil
 }
 
+// checkServiceRun returns a conflict if a new run of a DAG that sets restart_policy
+// would run next to its active run.
+func (a *API) checkServiceRun(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+	if err := a.dagRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+		return &Error{
+			HTTPStatus: http.StatusConflict,
+			Code:       api.ErrorCodeConflict,
+			Message:    err.Error(),
+		}
+	}
+	return nil
+}
+
+// checkServiceRunOfDefinition is checkServiceRun for a DAG from a run snapshot or
+// a request. Its current definition, which the scheduler follows, decides whether
+// it is a service, and the given DAG once the definition is gone.
+func (a *API) checkServiceRunOfDefinition(ctx context.Context, dag *ir.DAG, dagRunID string) error {
+	if a.dagRepository != nil {
+		if current, err := a.dagRepository.GetMetadata(ctx, dag.Name); err == nil {
+			dag = current
+		}
+	}
+	return a.checkServiceRun(ctx, dag, dagRunID)
+}
+
 // ValidateDAGSpec implements api.StrictServerInterface.
 func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRequestObject) (api.ValidateDAGSpecResponseObject, error) {
 	if request.Body == nil {
@@ -142,17 +167,21 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	}
 
 	notices := a.specValueReferenceNotices(ctx, name, source)
+	hostIssues := a.hostCommandIssues(ctx, dag)
 
 	response := &api.ValidateDAGSpec200JSONResponse{
 		Valid:                 len(errs) == 0,
 		Dag:                   details,
 		Errors:                errs,
-		Issues:                buildValidationIssues(err, dag, notices),
+		Issues:                append(slices.Clip(buildValidationIssues(err, dag, notices)), hostIssues...),
 		ValueReferenceNotices: toAPIValueReferenceNotices(notices),
 		ReferenceScope:        buildReferenceScope(dag),
 	}
 	if dag != nil {
-		response.Warnings = dag.BuildWarnings
+		response.Warnings = slices.Clone(dag.BuildWarnings)
+		for _, issue := range hostIssues {
+			response.Warnings = append(response.Warnings, issue.Message)
+		}
 	}
 	return response, dag, nil
 }
@@ -531,6 +560,7 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		Limit:            limit,
 		Cursor:           valueOf(request.Params.Cursor),
 		IncludeEphemeral: valueOf(request.Params.IncludeEphemeral),
+		ExcludeBackfill:  !valueOf(request.Params.IncludeBackfill),
 	})
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
@@ -592,6 +622,13 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 			Message:    err.Error(),
 		}
 	}
+	// The live feed leaves the backfill out: reading it reads the run of
+	// every slot the backfill has queued.
+	latest, err := a.latestBackfill(ctx, request.FileName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the latest backfill of a DAG", slog.String("dagFile", request.FileName), tag.Error(err))
+	}
+	resp.LatestBackfill = latest
 	return resp, nil
 }
 
@@ -623,6 +660,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 		details.NextRun = a.projectNextRun(ctx, dag)
 		details.UpcomingRuns = a.scheduleFires(dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
+		details.RecentFires = a.recentFires(ctx, fileName, dag)
 	}
 
 	localDAGs := make([]api.LocalDag, 0, len(dag.LocalDAGs))
@@ -931,7 +969,10 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 		return nil, err
 	}
 	pg := pagination.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
-	labels := parseCommaSeparatedLabels(labelsParam)
+	labels, err := parseCommaSeparatedLabels(labelsParam)
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -1178,6 +1219,10 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		}
 	}
 
+	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+		return nil, err
+	}
+
 	if err := a.ensureDAGRunIDUnique(ctx, dag, dagRunId); err != nil {
 		return nil, err
 	}
@@ -1187,6 +1232,10 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		return nil, err
 	}
 	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Body.Profile)
+	if err != nil {
+		return nil, err
+	}
+	slot, err := a.resolveRequestedSlot(dag, profileName, request.Body.ScheduleTime)
 	if err != nil {
 		return nil, err
 	}
@@ -1200,6 +1249,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 			profileName:    profileName,
 			noReuse:        valueOf(request.Body.NoReuse),
 			workerSelector: workerSelector,
+			slot:           slot,
 		}); err != nil {
 			return nil, err
 		}
@@ -1211,6 +1261,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		profileName:    profileName,
 		noReuse:        valueOf(request.Body.NoReuse),
 		workerSelector: workerSelector,
+		slot:           slot,
 	}); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
@@ -1225,11 +1276,17 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if len(workerSelector) > 0 {
 		detailsMap["worker_selector"] = workerSelector
 	}
+	if slot != nil {
+		detailsMap["schedule_time"] = slot.scheduleTime
+	}
 	addSelectedStepsAudit(detailsMap, selection)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
 
+	scheduleTime, warnings := slot.slotResponse()
 	return api.ExecuteDAG200JSONResponse{
-		DagRunId: dagRunId,
+		DagRunId:     dagRunId,
+		ScheduleTime: scheduleTime,
+		Warnings:     warnings,
 	}, nil
 }
 
@@ -1301,6 +1358,10 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		if err := a.checkSingletonRunning(ctx, dag); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+		return nil, err
 	}
 
 	if err := a.ensureDAGRunIDUnique(ctx, dag, dagRunId); err != nil {
@@ -1440,6 +1501,8 @@ type manualStart struct {
 	// workerSelector is the request's override, already applied to the DAG;
 	// it travels to the start subprocess, which reloads the DAG from its file.
 	workerSelector map[string]string
+	// slot is the schedule slot the run is for, or nil.
+	slot *requestedSlot
 }
 
 func (a *API) startDAGRun(ctx context.Context, dag *ir.DAG, req manualStart) (*launcher.StartResult, error) {
@@ -1453,6 +1516,8 @@ func (a *API) startDAGRun(ctx context.Context, dag *ir.DAG, req manualStart) (*l
 		profileName:    req.profileName,
 		noReuse:        req.noReuse,
 		workerSelector: req.workerSelector,
+		scheduleTime:   req.slot.scheduleTimeOrEmpty(),
+		scheduleWindow: req.slot.windowOrZero(),
 	})
 }
 
@@ -1571,6 +1636,9 @@ type startDAGRunOptions struct {
 	noReuse      bool
 	// workerSelector is a per-run override, passed to the start subprocess.
 	workerSelector map[string]string
+	// scheduleTime and scheduleWindow name the schedule slot the run is for.
+	scheduleTime   string
+	scheduleWindow ir.ScheduleWindow
 }
 
 // waitForDAGStatusChange waits until the DAG status transitions from NotStarted.
@@ -1707,6 +1775,13 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	if opts.scheduleTime != "" {
+		taskOpts = append(taskOpts,
+			executor.WithScheduleTime(opts.scheduleTime),
+			executor.WithScheduleWindow(opts.scheduleWindow),
+		)
+	}
+	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 	taskOpts = append(taskOpts, executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace))
 	if dag.SourceFile != "" {
 		taskOpts = append(taskOpts, executor.WithSourceFile(dag.SourceFile))
@@ -1826,6 +1901,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		ProfileName:    opts.profileName,
 		NoReuse:        opts.noReuse,
 		WorkerSelector: opts.workerSelector,
+		ScheduleTime:   opts.scheduleTime,
 	})
 	spec.Env = append(spec.Env, a.managedOpenCodeEnv(ctx, dag)...)
 	started, err := launcher.StartProcess(ctx, spec)
@@ -1954,11 +2030,19 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		}
 	}
 
+	if err := a.checkServiceRun(ctx, dag, dagRunId); err != nil {
+		return nil, err
+	}
+
 	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
 	if err != nil {
 		return nil, err
 	}
 	profileName, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Body.Profile)
+	if err != nil {
+		return nil, err
+	}
+	slot, err := a.resolveRequestedSlot(dag, profileName, request.Body.ScheduleTime)
 	if err != nil {
 		return nil, err
 	}
@@ -1973,6 +2057,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		noReuse:        valueOf(request.Body.NoReuse),
 		definitionID:   request.FileName,
 		workerSelector: workerSelector,
+		scheduleTime:   slot.scheduleTimeOrEmpty(),
 	}); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
@@ -1987,10 +2072,16 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if len(workerSelector) > 0 {
 		enqueueDetails["worker_selector"] = workerSelector
 	}
+	if slot != nil {
+		enqueueDetails["schedule_time"] = slot.scheduleTime
+	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_enqueue", enqueueDetails)
 
+	scheduleTime, warnings := slot.slotResponse()
 	return api.EnqueueDAGDAGRun200JSONResponse{
-		DagRunId: dagRunId,
+		DagRunId:     dagRunId,
+		ScheduleTime: scheduleTime,
+		Warnings:     warnings,
 	}, nil
 }
 
@@ -2007,6 +2098,8 @@ type enqueueRequest struct {
 	// workerSelector is the request's override, already applied to the DAG;
 	// it travels to the enqueue subprocess, which reloads the DAG from its file.
 	workerSelector map[string]string
+	// scheduleTime names the schedule slot the run is for.
+	scheduleTime string
 }
 
 func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, req enqueueRequest) error {
@@ -2059,6 +2152,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, req enqueueRequest
 		DefinitionID:   req.definitionID,
 		NoReuse:        req.noReuse,
 		WorkerSelector: req.workerSelector,
+		ScheduleTime:   req.scheduleTime,
 	}
 	if dag.Queue != "" {
 		opts.Queue = dag.Queue
@@ -2230,8 +2324,15 @@ func (a *API) GetDAGDetailsData(ctx context.Context, fileName string) (any, erro
 }
 
 // GetDAGHistoryData returns DAG execution history for SSE.
-// Identifier format: "fileName"
-func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, error) {
+// Identifier format: "fileName", or "fileName?includeBackfill=true" to list
+// the DAG's backfill runs too.
+func (a *API) GetDAGHistoryData(ctx context.Context, identifier string) (any, error) {
+	fileName, query, _ := strings.Cut(identifier, "?")
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DAG history query %q: %w", query, err)
+	}
+	includeBackfill := values.Get("includeBackfill") == "true"
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/dags/{fileName}/dag-runs",
 		dagName:  fileName,
@@ -2245,7 +2346,12 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{Limit: defaultHistoryLimit})
+		// The live feed mirrors the first page, which leaves out backfill
+		// runs unless asked.
+		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{
+			Limit:           defaultHistoryLimit,
+			ExcludeBackfill: !includeBackfill,
+		})
 	})
 }
 
@@ -2319,7 +2425,10 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 	if labelErr != nil {
 		return persis.DAGListOptions{}, labelErr
 	}
-	labels := parseCommaSeparatedLabels(labelQueryParam)
+	labels, labelErr := parseCommaSeparatedLabels(labelQueryParam)
+	if labelErr != nil {
+		return persis.DAGListOptions{}, labelErr
+	}
 
 	pg := pagination.NewPaginator(page, perPage)
 	workspaceParam := workspaceParamFromValues(params)

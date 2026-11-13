@@ -237,6 +237,9 @@ type Agent struct {
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	scheduleTime string
 
+	// scheduleWindow is the window the run's schedule slot owns.
+	scheduleWindow ir.ScheduleWindow
+
 	// queuedRun indicates this execution is from a queued item.
 	// The dag-run was already created by the enqueue command.
 	queuedRun bool
@@ -253,6 +256,8 @@ type Agent struct {
 	extraEnvs []string
 	// inheritedEnvs are env entries inherited from the parent run scope.
 	inheritedEnvs []cmnvalue.EnvEntry
+	// expandSubRuns makes PrintSummary render sub-run step trees inline.
+	expandSubRuns bool
 	// profileName is the selected runtime profile name for this run.
 	profileName string
 
@@ -331,6 +336,9 @@ type Options struct {
 	// ProgressDisplay indicates if the progress display should be shown.
 	// This is typically enabled for CLI execution in a TTY environment.
 	ProgressDisplay bool
+	// ExpandSubRuns makes PrintSummary resolve each sub-DAG run and render its
+	// step tree inline instead of a bare "subdag:" reference line.
+	ExpandSubRuns bool
 	// ExtraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	ExtraEnvs []string
 	// InheritedEnvs are env entries an in-process child run inherits from the
@@ -409,6 +417,9 @@ type Options struct {
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	ScheduleTime string
+	// ScheduleWindow is the window the slot at ScheduleTime owns. A retried
+	// run keeps the window recorded on its status instead.
+	ScheduleWindow ir.ScheduleWindow
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
 	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
@@ -465,6 +476,7 @@ func New(
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
 		inheritedEnvs:            append([]cmnvalue.EnvEntry{}, opts.InheritedEnvs...),
+		expandSubRuns:            opts.ExpandSubRuns,
 		workDir:                  opts.WorkDir,
 		workspaceSeed:            opts.WorkspaceSeed,
 		profileName:              opts.ProfileName,
@@ -486,6 +498,7 @@ func New(
 		parallelItem:             opts.ParallelItem,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
+		scheduleWindow:           opts.ScheduleWindow,
 		dagRunLogDir:             opts.DAGRunLogDir,
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
@@ -592,6 +605,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	resolvedEnv, dotenvErr := startup.env, startup.envErr
 	secretEnvs, secretErr := startup.secrets, startup.secretErr
+	credentials := startup.credentials
+	masks := credentialMasks(credentials)
 	profileValues, profileErr := startup.profileValues, startup.profileErr
 	a.lock.Lock()
 	if a.stopRequest != nil || startupCtx.Err() != nil {
@@ -603,7 +618,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	a.profileName = startup.profileName
 	a.profileResolvedAt = startup.profileResolvedAt
 	a.profileEntries = startup.profileEntries
-	a.secretMasker = newStatusSecretMasker(append(profileValues.allSecrets(), secretEnvs...))
+	statusSecrets := append(profileValues.allSecrets(), secretEnvs...)
+	for label, value := range masks {
+		statusSecrets = append(statusSecrets, label+"="+value)
+	}
+	a.secretMasker = newStatusSecretMasker(statusSecrets)
 	a.lock.Unlock()
 	for _, warning := range resolvedEnv.Warnings {
 		logger.Warn(ctx, warning)
@@ -765,11 +784,15 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			profileValues.selectedSecrets,
 		),
 		runtime.WithSecrets(secretEnvs),
+		runtime.WithMaskedSecrets(masks),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
-		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
+		contextOpts = append(contextOpts,
+			runtime.WithScheduleTime(scheduleTime),
+			runtime.WithScheduleWindow(a.contextScheduleWindow()),
+		)
 	}
 	if len(a.extraEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
@@ -809,6 +832,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	// Set even when empty, so an in-process child never reads its parent's.
+	ctx = ssh.WithSecretValues(ctx, credentials)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 	if a.workspaceSeed != nil {
 		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
@@ -1033,11 +1058,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		var bastionCfg *ssh.BastionConfig
 		if a.dag.SSH.Bastion != nil {
 			bastionCfg = &ssh.BastionConfig{
-				Host:     a.dag.SSH.Bastion.Host,
-				Port:     a.dag.SSH.Bastion.Port,
-				User:     a.dag.SSH.Bastion.User,
-				Key:      a.dag.SSH.Bastion.Key,
-				Password: a.dag.SSH.Bastion.Password,
+				Host:    a.dag.SSH.Bastion.Host,
+				Port:    a.dag.SSH.Bastion.Port,
+				User:    a.dag.SSH.Bastion.User,
+				SSHAuth: a.dag.SSH.Bastion.SSHAuth,
 			}
 		}
 
@@ -1045,8 +1069,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
-			Key:           a.dag.SSH.Key,
-			Password:      a.dag.SSH.Password,
+			SSHAuth:       a.dag.SSH.SSHAuth,
 			StrictHostKey: a.dag.SSH.StrictHostKey,
 			KnownHostFile: a.dag.SSH.KnownHostFile,
 			Shell:         a.dag.SSH.Shell,
@@ -1058,7 +1081,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
 		}
-		cli, err := ssh.NewClient(&sshConfig)
+		cli, err := ssh.NewClient(ctx, &sshConfig)
 		if err != nil {
 			initErr = fmt.Errorf("failed to create ssh client: %w", err)
 			return initErr
@@ -1566,6 +1589,9 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	// Enable colors if stdout is a terminal
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
+	if a.expandSubRuns {
+		config.SubRunResolver = a.subRunResolver(ctx)
+	}
 
 	renderer := output.NewRenderer(config)
 	summary := renderer.RenderDAGStatus(dag, &status)
@@ -1574,6 +1600,18 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	_, _ = os.Stdout.WriteString(summary)
 	_, _ = os.Stdout.WriteString("\n")
 	_ = os.Stdout.Sync()
+}
+
+// subRunResolver resolves sub-run status under this run's root so PrintSummary
+// can render child step trees inline.
+func (a *Agent) subRunResolver(ctx context.Context) output.SubRunResolver {
+	root := a.rootDAGRun
+	if root.ID == "" {
+		root = ir.NewDAGRunRef(a.dag.Name, a.dagRunID)
+	}
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		return a.dagRunMgr.FindSubDAGRunStatus(ctx, root, sub.DAGRunID)
+	}
 }
 
 // Status collects the current running status of the DAG and returns it.
@@ -1613,12 +1651,19 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithEphemeral(source.Ephemeral),
 				ir.WithSkipHandlers(source.SkipHandlers),
 				ir.WithReusedInputs(source.ReusedInputs),
+				ir.WithBackfillID(source.BackfillID),
 			)
 			if source.ScheduleTime != "" {
-				statusOpts = append(statusOpts, ir.WithScheduleTime(source.ScheduleTime))
+				statusOpts = append(statusOpts,
+					ir.WithScheduleTime(source.ScheduleTime),
+					ir.WithScheduleWindow(source.ScheduleWindow()),
+				)
 			}
 		} else if a.scheduleTime != "" {
-			statusOpts = append(statusOpts, ir.WithScheduleTime(a.scheduleTime))
+			statusOpts = append(statusOpts,
+				ir.WithScheduleTime(a.scheduleTime),
+				ir.WithScheduleWindow(a.scheduleWindow),
+			)
 		}
 		runStatus := ir.Failed
 		if !a.startupFinishedAt.IsZero() {
@@ -1679,12 +1724,19 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithEphemeral(source.Ephemeral),
 			ir.WithSkipHandlers(source.SkipHandlers),
 			ir.WithReusedInputs(source.ReusedInputs),
+			ir.WithBackfillID(source.BackfillID),
 		)
 		if source.ScheduleTime != "" {
-			opts = append(opts, ir.WithScheduleTime(source.ScheduleTime))
+			opts = append(opts,
+				ir.WithScheduleTime(source.ScheduleTime),
+				ir.WithScheduleWindow(source.ScheduleWindow()),
+			)
 		}
 	} else if a.scheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(a.scheduleTime))
+		opts = append(opts,
+			ir.WithScheduleTime(a.scheduleTime),
+			ir.WithScheduleWindow(a.scheduleWindow),
+		)
 	}
 
 	// Create the status object to record the current status.
@@ -1729,6 +1781,16 @@ func (a *Agent) contextScheduleTime() string {
 		raw = a.scheduleTime
 	}
 	return contextTimeValue(raw)
+}
+
+// contextScheduleWindow returns the window of the slot contextScheduleTime
+// names: the one recorded on the retried status, else the one this run was
+// started with.
+func (a *Agent) contextScheduleWindow() ir.ScheduleWindow {
+	if source := a.statusSourceTarget(); source != nil && source.ScheduleTime != "" {
+		return source.ScheduleWindow()
+	}
+	return a.scheduleWindow
 }
 
 func contextTimeValue(raw string) string {
@@ -2186,6 +2248,44 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	return resolvedSecrets, nil
 }
 
+// resolveCredentialRefs resolves the secret refs that SSH connections read
+// credentials from, once each, and returns the values keyed by ref.
+func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, error) {
+	if len(a.dag.CredentialRefs) == 0 {
+		return nil, nil
+	}
+	if a.secretReferenceResolver == nil {
+		ref := a.dag.CredentialRefs[0]
+		return nil, fmt.Errorf("failed to resolve %s from secret ref %q: secret store is not configured", ref.Name, ref.Ref)
+	}
+
+	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(a.dag.CredentialRefs)))
+	values := make(map[string]string, len(a.dag.CredentialRefs))
+	for _, ref := range a.dag.CredentialRefs {
+		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
+		}
+		values[ref.Ref] = value
+	}
+	return values, nil
+}
+
+// credentialMaskPrefix starts the label of each SSH credential value in the
+// masked set. Maskers parse NAME=value pairs, and a ref holds neither "=" nor
+// ":", so a label never splits a value and never collides with a variable.
+const credentialMaskPrefix = "ssh-credential:"
+
+// credentialMasks labels each resolved credential value by its ref, for
+// masking.
+func credentialMasks(values map[string]string) map[string]string {
+	masks := make(map[string]string, len(values))
+	for ref, value := range values {
+		masks[credentialMaskPrefix+ref] = value
+	}
+	return masks
+}
+
 // buildEnvScopeForSecrets creates the EnvScope secrets resolve against: DAG
 // env vars and runtime profile entries, in run environment precedence.
 func (a *Agent) buildEnvScopeForSecrets(profileValues resolvedProfileValues) *cmnvalue.EnvScope {
@@ -2395,7 +2495,10 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithParams(a.dag.Params),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
-		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
+		contextOpts = append(contextOpts,
+			runtime.WithScheduleTime(scheduleTime),
+			runtime.WithScheduleWindow(a.contextScheduleWindow()),
+		)
 	}
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))

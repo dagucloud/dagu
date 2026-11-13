@@ -40,6 +40,19 @@ vi.mock('../../data/useSubRuns', () => ({
   useSubRuns: () => ({ subRuns: subRunList.value, isLoading: false }),
 }));
 
+// The notice of the workflow's latest backfill, which its own tests cover.
+const backfillNotice = vi.hoisted(() => ({
+  value: null as null | {
+    id: string;
+    tone: 'info';
+    message: string;
+    priority: number;
+  },
+}));
+vi.mock('@/features/backfills/hooks/useBackfillNotice', () => ({
+  useBackfillNotice: () => backfillNotice.value,
+}));
+
 const useIsAdminMock = vi.mocked(useIsAdmin);
 
 const community: LicenseStatus = {
@@ -172,6 +185,7 @@ function find(notices: WorkspaceNotice[], id: string): WorkspaceNotice {
 }
 
 beforeEach(() => {
+  backfillNotice.value = null;
   subRunList.value = [];
   localStorage.clear();
   useIsAdminMock.mockReturnValue(true);
@@ -551,6 +565,12 @@ describe('useWorkspaceNotices', () => {
   });
 
   it('lists every notice with its priority, highest first', () => {
+    backfillNotice.value = {
+      id: 'backfill',
+      tone: 'info',
+      message: 'Backfill running: 1 of 3 slots done',
+      priority: 20,
+    };
     const { result } = renderNotices({
       schedule: true,
       details: { status: Status.Waiting, approvalResumePending: true },
@@ -572,6 +592,7 @@ describe('useWorkspaceNotices', () => {
       'agent-waiting',
       'actions-waiting',
       'newer-run-active',
+      'backfill',
       'monitoring-offer',
     ]);
     const priorities = result.current.map((n) => n.priority);

@@ -145,6 +145,7 @@ func Serve(ctx context.Context, cfg Config, ready func(Ready)) error {
 		waiters:   map[int64]chan reply{},
 		callbacks: map[int64]func(reply){},
 		watched:   map[string]string{},
+		pages:     map[string]string{},
 		sending:   map[string]Event{},
 		decided:   map[string]bool{},
 		done:      make(chan struct{}),
@@ -216,6 +217,8 @@ type gate struct {
 	// watched maps the sessions of the service workers and shared workers
 	// the gate watches for sockets to their kind of target.
 	watched map[string]string
+	// pages maps the open pages, by target, to the sites they show.
+	pages map[string]string
 	// sending holds the writes sent until their answers arrive, by
 	// request.
 	sending map[string]Event
@@ -255,6 +258,9 @@ func (g *gate) arm(ctx context.Context, extensionDir string) (net.Listener, erro
 	}{
 		{"Fetch.enable", map[string]any{"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}}}},
 		{"Extensions.loadUnpacked", map[string]any{"path": extensionDir}},
+		// The pages open now and later, and the addresses they move to, tell
+		// a page's own site from another.
+		{"Target.setDiscoverTargets", map[string]any{"discover": true}},
 		// A worker waits for the gate to watch it before it runs, so a socket
 		// it opens at once is still seen.
 		{"Target.setAutoAttach", map[string]any{
@@ -416,6 +422,17 @@ func (g *gate) read() {
 			g.paused(m.SessionID, m.Params)
 		case "Target.attachedToTarget":
 			g.attached(m.Params)
+		case "Target.targetCreated", "Target.targetInfoChanged":
+			g.pageChanged(m.Params)
+		case "Target.targetDestroyed":
+			var e struct {
+				TargetID string `json:"targetId"`
+			}
+			if json.Unmarshal(m.Params, &e) == nil {
+				g.mu.Lock()
+				delete(g.pages, e.TargetID)
+				g.mu.Unlock()
+			}
 		case "Target.detachedFromTarget":
 			var e struct {
 				SessionID string `json:"sessionId"`
@@ -493,8 +510,12 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		return
 	}
 	event := g.describe(req, class)
-	if class == ClassWrite && Sends(g.mode) && g.allows(event.Signature) {
+	switch {
+	case class != ClassWrite:
+	case Sends(g.mode) && g.allows(event.Signature):
 		event.Class = ClassApproved
+	case g.rules.foreign(req, g.pageSites()):
+		event.Class = ClassNoise
 	}
 	if class == ClassSignIn || class == ClassPerson || event.Class == ClassApproved {
 		if sessionID != "" && p.NetworkID != "" {
@@ -519,6 +540,39 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		reason = aborted
 	}
 	g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": reason})
+}
+
+// pageChanged keeps the site a page shows, as the page opens and each time
+// it moves to another address.
+func (g *gate) pageChanged(params json.RawMessage) {
+	var e struct {
+		TargetInfo struct {
+			TargetID string `json:"targetId"`
+			Type     string `json:"type"`
+			URL      string `json:"url"`
+		} `json:"targetInfo"`
+	}
+	if json.Unmarshal(params, &e) != nil || e.TargetInfo.Type != targetPage {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if u, err := url.Parse(e.TargetInfo.URL); err == nil && webURL(e.TargetInfo.URL) {
+		g.pages[e.TargetInfo.TargetID] = siteOf(u.Hostname())
+		return
+	}
+	delete(g.pages, e.TargetInfo.TargetID)
+}
+
+// pageSites returns the sites the open pages show.
+func (g *gate) pageSites() map[string]bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	sites := make(map[string]bool, len(g.pages))
+	for _, site := range g.pages {
+		sites[site] = true
+	}
+	return sites
 }
 
 // describe returns the event of a write.

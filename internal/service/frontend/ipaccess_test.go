@@ -155,3 +155,38 @@ func TestNewIPAccessPolicyRejectsInvalidNetworks(t *testing.T) {
 
 	require.ErrorContains(t, err, `allowed IP "invalid"`)
 }
+
+// Identity headers count only when the direct peer is a trusted proxy, or a
+// loopback peer when no trusted proxies are configured. Forwarded headers do
+// not change the peer.
+func TestIPAccessPolicyFromTrustedProxy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		trustedProxies []string
+		remoteAddr     string
+		want           bool
+	}{
+		{name: "DefaultLoopbackIPv4", remoteAddr: "127.0.0.1:1234", want: true},
+		{name: "DefaultLoopbackIPv6", remoteAddr: "[::1]:1234", want: true},
+		{name: "DefaultRemote", remoteAddr: "203.0.113.10:1234"},
+		{name: "ListedProxy", trustedProxies: []string{"10.42.0.0/16"}, remoteAddr: "10.42.1.5:1234", want: true},
+		{name: "UnlistedLoopback", trustedProxies: []string{"10.42.0.0/16"}, remoteAddr: "127.0.0.1:1234"},
+		{name: "UnlistedRemote", trustedProxies: []string{"10.42.0.0/16"}, remoteAddr: "203.0.113.10:1234"},
+		{name: "InvalidPeer", remoteAddr: "invalid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			policy, err := newIPAccessPolicy(config.IPAccessConfig{TrustedProxies: tt.trustedProxies})
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodGet, "/proxy-login", nil)
+			req.RemoteAddr = tt.remoteAddr
+			req.Header.Set("X-Forwarded-For", "127.0.0.1")
+
+			assert.Equal(t, tt.want, policy.fromTrustedProxy(req))
+		})
+	}
+}

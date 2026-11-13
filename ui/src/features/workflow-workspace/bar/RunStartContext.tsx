@@ -11,13 +11,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { AlertTriangle } from 'lucide-react';
-import ConfirmModal from '@/components/ui/confirm-dialog';
 import { useUnsavedChanges } from '@/contexts/UnsavedChangesContext';
+import { UnsavedRunDialog } from '@/features/dags/components/common/UnsavedRunDialog';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
-import { I18nProps } from '@/i18n/I18nProps';
-import { useI18n } from '@/i18n/I18nProvider';
-import { I18nText } from '@/i18n/I18nText';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 
 export interface RunStartController {
@@ -25,11 +21,20 @@ export interface RunStartController {
   canStart: boolean;
   /** Opens the start dialog of the single Start owner. */
   requestStart(): void;
+  /** canStart, and a mounted editor can save its edits. */
+  canSaveAndStart: boolean;
+  /**
+   * Saves the edits of the editor, then opens the start dialog. A failed save
+   * opens nothing.
+   */
+  requestSaveAndStart(): void;
 }
 
+type StartRequest = 'start' | 'saveAndStart';
+
 interface RunStartState {
-  pending: boolean;
-  request(): void;
+  pending: StartRequest | null;
+  request(kind: StartRequest): void;
   consume(): void;
   /** Returns the unregister function. */
   registerTarget(): () => void;
@@ -39,13 +44,13 @@ const RunStartStateContext = createContext<RunStartState | null>(null);
 
 /** Lets any zone of the workspace open the Start dialog of the bar. */
 export function RunStartProvider({ children }: { children: ReactNode }) {
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<StartRequest | null>(null);
   const targets = useRef(0);
-  const request = useCallback(() => {
+  const request = useCallback((kind: StartRequest) => {
     // Without a mounted target, a request would open the dialog later.
-    if (targets.current > 0) setPending(true);
+    if (targets.current > 0) setPending(kind);
   }, []);
-  const consume = useCallback(() => setPending(false), []);
+  const consume = useCallback(() => setPending(null), []);
   const registerTarget = useCallback(() => {
     targets.current += 1;
     return () => {
@@ -69,14 +74,18 @@ const noop = () => {};
 export function useRunStart(): RunStartController {
   const state = useContext(RunStartStateContext);
   const { canRunDags } = useWorkspacePermissions();
+  const { canSave } = useUnsavedChanges();
   const request = state?.request;
-  return useMemo(
-    () => ({
+  return useMemo(() => {
+    const canSaveAndStart = canRunDags && canSave;
+    return {
       canStart: canRunDags,
-      requestStart: canRunDags && request ? request : noop,
-    }),
-    [canRunDags, request]
-  );
+      requestStart: canRunDags && request ? () => request('start') : noop,
+      canSaveAndStart,
+      requestSaveAndStart:
+        canSaveAndStart && request ? () => request('saveAndStart') : noop,
+    };
+  }, [canRunDags, canSave, request]);
 }
 
 /**
@@ -84,31 +93,36 @@ export function useRunStart(): RunStartController {
  * DAGContext.autoOpenStartModal for it; DAGActions opens its dialog in an
  * effect when the flag becomes true. The flag goes back to false after that
  * effect, so the next request opens the dialog again. With unsaved changes,
- * the request first shows the same guard as the Start button.
+ * the request first shows the same guard as the Start button. A request to
+ * save and start saves instead of the guard, and opens the dialog only after
+ * a successful save.
  */
 export function RunStartTarget({ children }: { children: ReactNode }) {
   const state = useContext(RunStartStateContext);
   const parent = useContext(DAGContext);
-  const { hasUnsavedChanges } = useUnsavedChanges();
-  const { ts } = useI18n();
+  const { hasUnsavedChanges, canSave, save } = useUnsavedChanges();
   const [guard, setGuard] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const pending = state?.pending ?? false;
+  const pending = state?.pending ?? null;
   const registerTarget = state?.registerTarget;
   const consume = state?.consume;
 
   useEffect(() => registerTarget?.(), [registerTarget]);
   // Child effects run first, so DAGActions has seen the flag.
+  const saveAndStart = useCallback(async () => {
+    if (await save()) setConfirmed(true);
+  }, [save]);
   useEffect(() => {
     if (!pending) return;
-    if (hasUnsavedChanges) setGuard(true);
+    if (pending === 'saveAndStart') void saveAndStart();
+    else if (hasUnsavedChanges) setGuard(true);
     consume?.();
-  }, [pending, hasUnsavedChanges, consume]);
+  }, [pending, hasUnsavedChanges, consume, saveAndStart]);
   useEffect(() => {
     if (confirmed) setConfirmed(false);
   }, [confirmed]);
 
-  const open = (pending && !hasUnsavedChanges) || confirmed;
+  const open = (pending === 'start' && !hasUnsavedChanges) || confirmed;
   const value = useMemo(
     () => ({
       ...parent,
@@ -119,36 +133,20 @@ export function RunStartTarget({ children }: { children: ReactNode }) {
   return (
     <DAGContext.Provider value={value}>
       {children}
-      <I18nProps>
-        <ConfirmModal
-          title={ts('Unsaved Changes')}
-          buttonText="Run anyway"
-          visible={guard}
-          dismissModal={() => setGuard(false)}
-          onSubmit={() => {
-            setGuard(false);
-            setConfirmed(true);
-          }}
-        >
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
-            <div className="space-y-2">
-              <p className="font-medium">
-                <I18nText
-                  text={'You have unsaved changes in the DAG definition.'}
-                />
-              </p>
-              <p className="text-sm text-muted-foreground">
-                <I18nText
-                  text={
-                    'The DAG will run with the last saved version, not your current edits. Save your changes first if you want them to take effect.'
-                  }
-                />
-              </p>
-            </div>
-          </div>
-        </ConfirmModal>
-      </I18nProps>
+      <UnsavedRunDialog
+        visible={guard}
+        canSave={canSave}
+        onDismiss={() => setGuard(false)}
+        onRunSaved={() => {
+          setGuard(false);
+          setConfirmed(true);
+        }}
+        onSaveAndRun={() => {
+          // The dialog closes first: a failed save shows its errors.
+          setGuard(false);
+          void saveAndStart();
+        }}
+      />
     </DAGContext.Provider>
   );
 }

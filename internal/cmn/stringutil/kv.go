@@ -5,7 +5,6 @@ package stringutil
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 )
 
@@ -29,14 +28,6 @@ func (kv KeyValue) Value() string {
 		return ""
 	}
 	return value
-}
-
-func (kv KeyValue) Bool() bool {
-	v, err := strconv.ParseBool(kv.Value())
-	if err != nil {
-		return false
-	}
-	return v
 }
 
 func (kv KeyValue) String() string {

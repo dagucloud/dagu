@@ -168,6 +168,40 @@ func TestHarnessValidation(t *testing.T) {
 		require.NotContains(t, result.Stderr(), "has no explicit working_dir")
 	})
 
+	t.Run("model output in a shell command warns without failing", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		const producer = `working_dir: .
+steps:
+  - id: triage
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Triage this report.
+    output_schema:
+      type: object
+      properties:
+        summary: { type: string }
+`
+		dagu.WriteFile("in_run.yaml", producer+`  - id: page
+    depends: [triage]
+    run: ./page.sh '${triage.output.summary}'
+`)
+		result := dagu.Run("validate", "in_run.yaml")
+		result.ExpectExitCode(0)
+		result.ExpectStderrContains("${triage.output.summary} writes model output into a shell command")
+
+		dagu.WriteFile("in_env.yaml", producer+`  - id: page
+    depends: [triage]
+    env:
+      - SUMMARY: ${triage.output.summary}
+    run: ./page.sh "$SUMMARY"
+`)
+		result = dagu.Run("validate", "in_env.yaml")
+		result.ExpectExitCode(0)
+		require.NotContains(t, result.Stderr(), "model output")
+	})
+
 	t.Run("host directory does not suppress container warning", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)

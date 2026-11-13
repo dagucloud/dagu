@@ -44,13 +44,23 @@ func (r *DAGRepository) list(ctx context.Context, opts DAGListOptions, includeSe
 		return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 	}
 
-	labelFilters := parseLabelFilters(opts.Labels)
+	labelFilters, err := ir.ParseLabelFilters(opts.Labels)
+	if err != nil {
+		return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
+	}
 	items := make([]DAGListItem, 0, len(catalog.Items))
 	for _, item := range catalog.Items {
 		if err := ctx.Err(); err != nil {
 			return pagination.NewPaginatedResult([]DAGListItem{}, 0, *opts.Paginator), catalog.Issues, err
 		}
-		if item.DAG == nil || opts.ActiveOnly && (len(item.Schedule) == 0 || item.Suspended) {
+		if item.DAG == nil {
+			continue
+		}
+		// Active DAGs are the ones the scheduler starts runs of.
+		if opts.ActiveOnly && (item.Suspended || (len(item.Schedule) == 0 && !item.RestartPolicy.Enabled())) {
+			continue
+		}
+		if opts.OnlyServiceDAGs && !item.RestartPolicy.Enabled() {
 			continue
 		}
 		if opts.Name != "" && !matchesDAGListSearch(item.Name, item.ID, opts.Name) {
@@ -179,16 +189,6 @@ func (r *DAGRepository) LabelList(ctx context.Context) ([]string, []string, erro
 func matchesDAGListSearch(name, id, query string) bool {
 	query = strings.ToLower(query)
 	return strings.Contains(strings.ToLower(name), query) || strings.Contains(strings.ToLower(id), query)
-}
-
-func parseLabelFilters(filters []string) []ir.LabelFilter {
-	parsed := make([]ir.LabelFilter, 0, len(filters))
-	for _, filter := range filters {
-		if filter = strings.TrimSpace(filter); filter != "" {
-			parsed = append(parsed, ir.ParseLabelFilter(filter))
-		}
-	}
-	return parsed
 }
 
 func containsAllLabels(labels ir.Labels, filters []ir.LabelFilter) bool {

@@ -127,6 +127,13 @@ export function StepRunView({ target, variant, onOpenLogs }: StepRunViewProps) {
         <StepLogPane target={target} holder={holder} node={node} />
       ) : (
         <div className="space-y-3">
+          {/* What waits for a person comes before what the step is. */}
+          <StepManualActions
+            holder={holder}
+            node={node}
+            inSubRun={!!target.subRun}
+            onChanged={reread}
+          />
           <StepDeclared step={target.step} node={node} />
           <StepFacts
             target={target}
@@ -134,12 +141,6 @@ export function StepRunView({ target, variant, onOpenLogs }: StepRunViewProps) {
             node={node}
             onOpenLogs={onOpenLogs}
             onRunChanged={reread}
-          />
-          <StepManualActions
-            holder={holder}
-            node={node}
-            inSubRun={!!target.subRun}
-            onChanged={reread}
           />
           <StepChat holder={holder} node={node} />
         </div>

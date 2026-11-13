@@ -6,13 +6,20 @@ import { Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ReferenceInput } from '@/features/visual-editor/references';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
+import type { ReferenceCandidate } from '../../contracts';
+import { contextCandidates } from './ReferenceTextWidget';
 
 export interface KeyValueEditorProps {
   value: Record<string, string>;
   readOnly: boolean;
   onChange(next: Record<string, string>): void;
+  /** References that a value can take. */
+  candidates: ReferenceCandidate[];
+  /** Narrows the references of a row by the keys of that row and the rows after it. */
+  rowCandidates?(keysFromRow: ReadonlySet<string>): ReferenceCandidate[];
   /** Accessible name of the editor, for example the field label. */
   label?: string;
 }
@@ -79,6 +86,8 @@ export function KeyValueEditor({
   value,
   readOnly,
   onChange,
+  candidates,
+  rowCandidates,
   label,
 }: KeyValueEditorProps): ReactElement {
   const { ts } = useI18n();
@@ -124,15 +133,21 @@ export function KeyValueEditor({
             onChange={(event) => update(index, { key: event.target.value })}
             onBlur={() => commit(rows)}
           />
-          <Input
-            className="h-7 flex-[2] px-2 text-xs"
-            value={row.value}
-            placeholder={ts('Value')}
-            aria-label={ts('Value')}
-            disabled={readOnly}
-            onChange={(event) => update(index, { value: event.target.value })}
-            onBlur={() => commit(rows)}
-          />
+          <div className="min-w-0 flex-[2]">
+            <ReferenceInput
+              value={row.value}
+              placeholder={ts('Value')}
+              aria-label={ts('Value')}
+              disabled={readOnly}
+              candidates={
+                rowCandidates?.(
+                  new Set(rows.slice(index).map((r) => r.key.trim()))
+                ) ?? candidates
+              }
+              onChange={(text) => update(index, { value: text })}
+              onBlur={() => commit(rows)}
+            />
+          </div>
           <Button
             type="button"
             variant="ghost"
@@ -192,6 +207,7 @@ export function KeyValueField(props: FieldProps): ReactElement {
     schema,
     name,
     required,
+    registry,
   } = props;
   const label = schema.title ?? name;
   return (
@@ -207,6 +223,7 @@ export function KeyValueField(props: FieldProps): ReactElement {
         label={label}
         value={stringMap(formData)}
         readOnly={Boolean(disabled || readonly)}
+        candidates={contextCandidates(registry.formContext)}
         onChange={(next) =>
           onChange(
             Object.keys(next).length > 0 ? next : undefined,

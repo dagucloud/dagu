@@ -25,6 +25,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestManualStartDispatchCarriesTriggerType(t *testing.T) {
+	t.Parallel()
+
+	api, dag := setupEditRetryAPI(t, t.TempDir(), `name: gpu-start
+worker_selector:
+  pool: gpu
+steps:
+  - name: work
+    run: echo ok
+`)
+	stop := errors.New("stop after dispatch")
+	recorder := &retryCoordinatorRecorder{dispatchErr: stop}
+	api.coordinatorCli = recorder
+
+	_, err := api.startDAGRun(context.Background(), dag, manualStart{dagRunID: "run-1"})
+	require.ErrorIs(t, err, stop)
+	require.Len(t, recorder.dispatched, 1)
+	require.Equal(t, ir.TriggerTypeManual, recorder.dispatched[0].TriggerType)
+}
+
 func TestExecuteDAGSyncWriteDeadlineStartsWithResponse(t *testing.T) {
 	t.Parallel()
 

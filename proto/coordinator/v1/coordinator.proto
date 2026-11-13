@@ -172,6 +172,13 @@ message Task {
   // Resolved "KEY=value" pairs the parent opted to share with the child run via
   // the step's pass_env field.
   repeated string passed_envs = 41;
+  // How the DAG run was initiated. Workers record this on a started run.
+  string trigger_type = 42;
+  // Window the slot at schedule_time owns: RFC 3339 bounds and the zone of
+  // the slot's schedule. Empty when unknown.
+  string interval_start = 43;
+  string next_scheduled_at = 44;
+  string schedule_timezone = 45;
 }
 
 enum Operation {

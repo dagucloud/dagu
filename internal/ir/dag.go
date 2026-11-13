@@ -191,6 +191,9 @@ type DAG struct {
 	Delay time.Duration `json:"delay,omitempty"`
 	// RestartWait is the time to wait before restarting the DAG.
 	RestartWait time.Duration `json:"restartWait,omitempty"`
+	// RestartPolicy makes the scheduler keep a run of the DAG alive: a new run is
+	// started RestartWait after the previous one ends. See specs/080-restart-policy.md.
+	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
 	// MaxActiveSteps specifies the maximum concurrent steps to run in an execution.
 	MaxActiveSteps int `json:"maxActiveSteps,omitempty"`
 	// MaxActiveRuns specifies the maximum number of concurrent dag-runs.
@@ -203,6 +206,9 @@ type DAG struct {
 	HistRetentionDays int `json:"histRetentionDays,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to keep in history.
 	HistRetentionRuns int `json:"histRetentionRuns,omitempty"`
+	// SlotRetentionDays is the number of days to keep the record of each
+	// schedule slot. It outlasts the run history it records.
+	SlotRetentionDays int `json:"slotRetentionDays,omitempty"`
 	// Queue is the name of the queue to assign this DAG to.
 	Queue string `json:"queue,omitempty"`
 	// RetryPolicy controls automatic DAG-level retry behavior for failed runs.
@@ -273,6 +279,10 @@ type DAG struct {
 	Kubernetes KubernetesConfig `json:"-"`
 	// Secrets contains references to external secrets to be resolved at runtime.
 	Secrets []secretref.Ref `json:"secrets,omitempty"`
+	// CredentialRefs lists the registry refs that SSH connections read their
+	// credentials from, each named by field path. They resolve at run start
+	// and never become environment variables.
+	CredentialRefs []secretref.Ref `json:"credentialRefs,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
 }
@@ -372,8 +382,8 @@ func (d *DAG) UnmarshalJSON(data []byte) error {
 // HasLabel checks if the DAG has a label matching the given filter.
 // Supports both simple labels ("production") and key-value filters ("env=prod").
 func (d *DAG) HasLabel(label string) bool {
-	filter := ParseLabelFilter(label)
-	return filter.MatchesLabels(d.Labels)
+	filter, err := ParseLabelFilter(label)
+	return err == nil && filter.MatchesLabels(d.Labels)
 }
 
 // HasTag checks if the DAG has a tag matching the given filter.
@@ -426,6 +436,9 @@ func (d *DAG) Clone() *DAG {
 	}
 	if d.Kubernetes != nil {
 		clone.Kubernetes = cloneKubernetesConfig(d.Kubernetes)
+	}
+	if d.SSH != nil {
+		clone.SSH = d.SSH.clone()
 	}
 	return &clone
 }
@@ -677,8 +690,12 @@ func appendHolidays(dst, holidays []Holiday) []Holiday {
 func (d *DAG) initializeDefaults() {
 	const (
 		defaultHistRetentionDays = 30
-		defaultMaxCleanUpTime    = 5 * time.Second
-		defaultMaxActiveRuns     = 1
+		defaultSlotRetentionDays = 730
+		// A service DAG adds a run at each restart, so it keeps a number of
+		// runs rather than days of them.
+		defaultServiceDAGHistRetentionRuns = 100
+		defaultMaxCleanUpTime              = 5 * time.Second
+		defaultMaxActiveRuns               = 1
 	)
 
 	if d.Type == "" {
@@ -688,7 +705,14 @@ func (d *DAG) initializeDefaults() {
 		d.LogOutput = LogOutputSeparate
 	}
 	if d.HistRetentionDays == 0 && d.HistRetentionRuns == 0 {
-		d.HistRetentionDays = defaultHistRetentionDays
+		if d.RestartPolicy.Enabled() {
+			d.HistRetentionRuns = defaultServiceDAGHistRetentionRuns
+		} else {
+			d.HistRetentionDays = defaultHistRetentionDays
+		}
+	}
+	if d.SlotRetentionDays == 0 {
+		d.SlotRetentionDays = defaultSlotRetentionDays
 	}
 	if d.MaxCleanUpTime == 0 {
 		d.MaxCleanUpTime = defaultMaxCleanUpTime
@@ -851,10 +875,8 @@ type SSHConfig struct {
 	Host string `json:"host,omitempty"`
 	// Port is the SSH port. Default is "22".
 	Port string `json:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `json:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `json:"password,omitempty"`
+	// SSHAuth holds the key, password, and passphrase.
+	SSHAuth
 	// StrictHostKey enables strict host key checking. Defaults to true.
 	StrictHostKey bool `json:"strictHostKey,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -878,10 +900,8 @@ type BastionConfig struct {
 	Port string `json:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `json:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `json:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `json:"password,omitempty"`
+	// SSHAuth holds the bastion's key, password, and passphrase.
+	SSHAuth
 }
 
 // S3Config contains the default S3 configuration for the DAG.

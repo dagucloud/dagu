@@ -7,7 +7,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import type { ApiDAGDetails, ApiDAGRunDetails } from '../../contracts';
 import { node, run } from '../../data/__tests__/fixtures';
-import { StepsGrid, type StepsGridProps } from '../StepsGrid';
+import {
+  StepsGrid,
+  StepsGridSkeleton,
+  type StepsGridProps,
+} from '../StepsGrid';
 import { stepGrid } from '../stepHistoryModel';
 
 const NOW = Date.parse('2026-01-15T03:00:00Z');
@@ -304,5 +308,18 @@ describe('StepsGrid', () => {
     cell('test', 'r2').focus();
     expect(props.onSpotlight).toHaveBeenLastCalledWith('test');
     expect(props.onPick).not.toHaveBeenCalled();
+  });
+});
+
+// While the runs load, the grid keeps its shape: the steps, by name, with a
+// mark for each run column.
+describe('StepsGridSkeleton', () => {
+  it('shows the steps by name and a mark for each column', () => {
+    render(<StepsGridSkeleton steps={['extract', 'load']} columns={4} />);
+    const grid = screen.getByRole('status', { name: 'Loading runs...' });
+    expect(within(grid).getByText('extract')).toBeVisible();
+    expect(within(grid).getByText('load')).toBeVisible();
+    // The header row and a row for each step, each with 4 marks.
+    expect(grid.querySelectorAll('[aria-hidden="true"]')).toHaveLength(12);
   });
 });

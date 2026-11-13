@@ -36,9 +36,11 @@ import React, {
 } from 'react';
 import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '@/components/DAGNameInputModal';
-import { components, Status } from '../../../../api/v1/schema';
+import { components, ServiceDAGState, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
+import { isServiceDAG } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
+import { useServiceDAGs } from '@/features/service-dags/hooks/useServiceDAGs';
 import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
 import { CreateDAGButton, DAGPagination } from '../common';
@@ -157,6 +159,12 @@ interface DAGCardProps {
   onTogglePin: (dag: components['schemas']['DAGFile']) => void;
   /** The overlay shows the workflow, or showed it last. */
   isShown?: boolean;
+  /**
+   * Set for a service DAG that an operator stopped. The server tells it from
+   * the abort request of the latest run, so a run that the scheduler restarts
+   * does not count as stopped.
+   */
+  isStopped?: boolean;
   className?: string;
 }
 
@@ -229,6 +237,7 @@ function DAGCard({
   isPinPending,
   onTogglePin,
   isShown = false,
+  isStopped = false,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -238,6 +247,7 @@ function DAGCard({
   const labels = withoutWorkspaceLabels(dag.dag.labels ?? dag.dag.tags ?? []);
   const description = dag.dag.description;
   const hasSchedule = (dag.dag.schedule ?? []).length > 0;
+  const isService = isServiceDAG(dag.dag);
 
   // The outline marks the focus: the shadow of card-obsidian hides a ring.
   return (
@@ -340,10 +350,14 @@ function DAGCard({
           className="flex items-center gap-1 flex-shrink-0 min-w-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {hasSchedule && <LiveSwitch dag={dag} refresh={refreshFn} />}
+          {(hasSchedule || isService) && (
+            <LiveSwitch dag={dag} refresh={refreshFn} />
+          )}
           <span className="text-xs text-muted-foreground truncate">
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
+            ) : isService ? (
+              <I18nText text={isStopped ? 'Stopped' : 'Enabled'} />
             ) : hasSchedule ? (
               <I18nText text={'Live'} />
             ) : (
@@ -898,9 +912,10 @@ const defaultColumns = [
       }
 
       const hasSchedule = (data.dag.dag.schedule ?? []).length > 0;
+      const isService = isServiceDAG(data.dag.dag);
       return (
         <div className="flex min-w-0 items-center gap-1">
-          {hasSchedule && (
+          {(hasSchedule || isService) && (
             <div
               onClick={(e) => e.stopPropagation()}
               className="flex-shrink-0 p-0.5"
@@ -1149,6 +1164,22 @@ function DAGTable({
   const peekOrOpen = usePeekOrOpen();
   const isShown = usePeekShown();
   useRevealShownRow();
+  // Read only while a service DAG is listed, so a list without one reads
+  // nothing. A card says whether an operator stopped its DAG.
+  const hasServiceDAGs = useMemo(
+    () => dags.some((dag) => isServiceDAG(dag.dag)),
+    [dags]
+  );
+  const { serviceDAGs } = useServiceDAGs({ enabled: hasServiceDAGs });
+  const stoppedServiceDAGs = useMemo(
+    () =>
+      new Set(
+        serviceDAGs
+          .filter((dag) => dag.state === ServiceDAGState.stopped)
+          .map((dag) => dag.fileName)
+      ),
+    [serviceDAGs]
+  );
   const columns = useMemo(
     () =>
       canDeleteDAGs
@@ -1994,6 +2025,9 @@ function DAGTable({
                               )}
                               onTogglePin={(dag) => void togglePin(dag)}
                               isShown={isShown({ dag: dagRow.dag.fileName })}
+                              isStopped={stoppedServiceDAGs.has(
+                                dagRow.dag.fileName
+                              )}
                               className="ml-2"
                             />
                           );
@@ -2034,6 +2068,7 @@ function DAGTable({
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
+                    isStopped={stoppedServiceDAGs.has(dagRow.dag.fileName)}
                   />
                   {endsPinnedSection && (
                     <div className="border-t-2 border-border" />

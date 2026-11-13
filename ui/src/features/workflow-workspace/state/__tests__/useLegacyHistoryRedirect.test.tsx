@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Legacy /history?idx=n links open the same run on the workflow page (?run).
-// The cases port the DAGExecutionHistory pins of T06.
+// The cases port the pins of the classic History tab (T06), since removed.
 // parity:history-selection-url
 
 import { act, render } from '@testing-library/react';
@@ -78,7 +78,7 @@ function setup(
 }
 
 describe('useLegacyHistoryRedirect', () => {
-  // The T06 DAGExecutionHistory cases, ported. Out of range gives the newest run.
+  // The T06 classic History tab cases, ported. Out of range gives the newest run.
   it.each([
     ['idx 0 is the oldest column', '?idx=0', 'r1'],
     ['idx 1 is the middle column', '?idx=1', 'r2'],

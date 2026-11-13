@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { StaticTranslationValues } from '@/i18n/staticMessages';
+import type { StaticTranslationValues } from '@/i18n/translateStatic';
 import type { EditErrorCode } from './contracts';
 
 type Translate = (source: string, values?: StaticTranslationValues) => string;

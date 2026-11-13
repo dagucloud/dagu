@@ -169,3 +169,32 @@ func newTestWriterWithArtifacts(t *testing.T, workDir, artifacts, op string, cfg
 	write.SetStderr(tw.stderr)
 	return tw, nil
 }
+
+// A CSV without a byte order mark opens in the system code page in Excel,
+// so the default output carries one; utf-8 names a file without it. An
+// encoding left empty, as YAML's null is, takes the default.
+func TestConvertCSVDefaultsToBOM(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeBook(t, dir, "orders.xlsx", []any{"品名", "Qty"}, []any{"りんご", 3})
+	for name, step := range map[string]map[string]any{
+		"default": {"path": "orders.xlsx", "output": "default.csv"},
+		"null":    {"path": "orders.xlsx", "output": "null.csv", "encoding": nil},
+		"utf-8":   {"path": "orders.xlsx", "output": "plain.csv", "encoding": "utf-8"},
+		"bom":     {"path": "orders.xlsx", "output": "bom.csv", "encoding": "utf-8-bom"},
+	} {
+		tw, err := newTestWriter(t, dir, opConvert, step)
+		require.NoError(t, err, name)
+		require.NoError(t, tw.exec.Run(context.Background()), name)
+	}
+	for name, want := range map[string]string{
+		"default.csv": "\xEF\xBB\xBF品名,Qty\nりんご,3\n",
+		"null.csv":    "\xEF\xBB\xBF品名,Qty\nりんご,3\n",
+		"plain.csv":   "品名,Qty\nりんご,3\n",
+		"bom.csv":     "\xEF\xBB\xBF品名,Qty\nりんご,3\n",
+	} {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, err, name)
+		assert.Equal(t, want, string(raw), name)
+	}
+}

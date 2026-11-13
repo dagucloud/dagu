@@ -1,7 +1,28 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+
+/** The completion providers that editors registered, in order. */
+export const completionProviders: { language: string; disposed: boolean }[] =
+  [];
+
+const monacoStub = {
+  editor: {
+    registerCommand: () => ({ dispose() {} }),
+  },
+  languages: {
+    registerCompletionItemProvider(language: string) {
+      const entry = { language, disposed: false };
+      completionProviders.push(entry);
+      return {
+        dispose() {
+          entry.disposed = true;
+        },
+      };
+    },
+  },
+};
 
 /*
  * Stand-in for `@monaco-editor/react` in jsdom: a textarea that calls
@@ -18,6 +39,7 @@ function MockEditor(props: {
   options?: { readOnly?: boolean; ariaLabel?: string };
 }) {
   const blur = useRef<(() => void) | null>(null);
+  const disposed = useRef<(() => void) | null>(null);
   const mounted = useRef(false);
   const wantsFocus = useRef(false);
   if (!mounted.current) {
@@ -28,14 +50,21 @@ function MockEditor(props: {
           blur.current = callback;
           return { dispose() {} };
         },
+        onDidDispose(callback: () => void) {
+          disposed.current = callback;
+          return { dispose() {} };
+        },
+        getModel: () => null,
         // The real editor focuses once it is in the page: the textarea does.
         focus() {
           wantsFocus.current = true;
         },
       },
-      {}
+      monacoStub
     );
   }
+  // The real editor is disposed when its component unmounts.
+  useEffect(() => () => disposed.current?.(), []);
   return (
     <textarea
       data-testid="monaco"

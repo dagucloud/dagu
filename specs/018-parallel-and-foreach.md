@@ -154,7 +154,7 @@ steps:
 ```
 
 - `parallel` accepts an object form with required `items` and optional
-  `max_concurrent`:
+  `max_concurrent` and `separator`:
 
 ```yaml
 steps:
@@ -169,8 +169,8 @@ steps:
       max_concurrent: 2
 ```
 
-- Object-form `parallel` must not contain fields other than `items` and
-  `max_concurrent`.
+- Object-form `parallel` must not contain fields other than `items`,
+  `max_concurrent`, and `separator`.
 
 - `parallel.items` may be a string item source or a direct array item source.
 
@@ -209,6 +209,37 @@ Rules:
 
 - An empty or whitespace-only resolved string produces zero items and therefore
   fails the `parallel` step.
+
+Separator detection cannot distinguish a single item that contains a delimiter
+character from several delimited items on one line. `parallel.separator` names
+the separator explicitly:
+
+```yaml
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: process-item
+    parallel:
+      items: ${steps.list.outputs.rows}
+      separator: newline
+```
+
+Rules:
+
+- `parallel.separator` is optional and must be exactly one of `newline`,
+  `comma`, `semicolon`, `pipe`, `tab`, or `space`.
+
+- `parallel.separator` requires a string item source. It is invalid with a
+  direct array item source.
+
+- When `parallel.separator` is set, the resolved string is split only on that
+  separator. JSON detection, quoted-token handling, and separator detection are
+  not applied, so a token may contain any other delimiter character.
+
+- `space` splits on runs of whitespace, including tabs and line breaks.
+
+- Tokens are trimmed of surrounding whitespace and empty tokens are ignored.
 
 #### Item Scope
 
@@ -560,6 +591,19 @@ Rules:
   inferred dependency; body ordering comes from body `depends`.
 
 - Body step output references never cross item bodies.
+
+- A body step reads the `foreach` step's own `env` entries and the output
+  variables visible to the `foreach` step, as a step in the same DAG would. A
+  body step's own `env` wins over them.
+
+- Values Dagu sets for each step, such as the working directory, the step
+  name, and the trace context (Spec 017), are those of the body step, not the
+  `foreach` step. `TRACEPARENT` and `TRACESTATE` set in the `foreach` step's
+  `env` do not reach body steps.
+
+- The values a body step reads from the `foreach` step are not part of what a
+  child run started by the body step inherits. Passing one to a child run
+  requires `pass_env` (Spec 006, "Sub-DAG Passed Environment").
 
 - Top-level steps after the `foreach` step cannot reference body step outputs
   directly. They must consume the `foreach` aggregate output.

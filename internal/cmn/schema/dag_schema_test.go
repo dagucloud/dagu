@@ -1625,6 +1625,35 @@ steps:
 	require.Contains(t, err.Error(), "retry_policy")
 }
 
+// The loader reads restart_policy case-insensitively, so the schema accepts
+// what the loader accepts.
+func TestDAGSchemaRestartPolicy(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	for value, valid := range map[string]bool{
+		`always`:             true,
+		`Always`:             true,
+		`" UNLESS-STOPPED "`: true,
+		`"no"`:               true,
+		`""`:                 true,
+		`sometimes`:          false,
+		`on-failure`:         false,
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			doc := mustParseYAMLDocument(t, "restart_policy: "+value+"\nrestart_wait_sec: 5\nsteps:\n  - run: echo hi\n")
+			err := resolved.Validate(doc)
+			if valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "restart_policy")
+		})
+	}
+}
+
 func TestDAGSchemaResources(t *testing.T) {
 	t.Parallel()
 
@@ -3018,6 +3047,16 @@ steps:
   - action: chat.completion
     with: {provider: openai, model: gpt-5, prompt: hi}
 `, true},
+		{"chat max_file_chars", `
+steps:
+  - action: chat.completion
+    with: {provider: openai, model: gpt-5, prompt: hi, files: logs/*.log, max_file_chars: 400000}
+`, true},
+		{"chat max_file_chars zero", `
+steps:
+  - action: chat.completion
+    with: {provider: openai, model: gpt-5, prompt: hi, files: logs/*.log, max_file_chars: 0}
+`, false},
 		{"chat unknown provider", `
 steps:
   - action: chat.completion
@@ -3097,6 +3136,114 @@ steps: [{run: "true"}]
 			}
 			require.Error(t, schemaErr, "schema")
 			require.Error(t, parserErr, "parser")
+		})
+	}
+}
+
+func TestDAGSchemaSSHCredentials(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "DAGLevelSecretsAndBastion",
+			spec: `
+ssh:
+  user: deploy
+  host: app.example.com
+  timeout: 30s
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+  bastion:
+    host: jump.example.com
+    user: ops
+    key: {file: /keys/jump}
+    password: {secret: ssh/jump-password}
+steps:
+  - run: hostname
+`,
+		},
+		{
+			name: "SSHRunCredentials",
+			spec: `
+steps:
+  - action: ssh.run
+    with:
+      command: hostname
+      host: app.example.com
+      key: ~/.ssh/id_ed25519
+      passphrase: literal
+      bastion: {host: jump.example.com, password: {secret: ssh/jump}}
+`,
+		},
+		{
+			name: "SFTPCredentials",
+			spec: `
+steps:
+  - action: sftp.download
+    with:
+      host: app.example.com
+      source: /srv/a
+      destination: ./a
+      password: {secret: ssh/password}
+      bastion: {host: jump.example.com, passphrase: {secret: ssh/jump-passphrase}}
+`,
+		},
+		{
+			name: "RejectBadRef",
+			spec: `
+steps:
+  - action: ssh.run
+    with: {command: hostname, host: app, key: {secret: Bad_Ref}}
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectUnknownField",
+			spec: `
+ssh:
+  user: deploy
+  host: app
+  password: {secrte: ssh/password}
+steps:
+  - run: hostname
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectSecretAndFile",
+			spec: `
+steps:
+  - action: sftp.upload
+    with: {host: app, source: a, destination: b, key: {secret: ssh/key, file: /k}}
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectFileForPassword",
+			spec: `
+steps:
+  - action: ssh.run
+    with: {command: hostname, host: app, password: {file: /pw}}
+`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

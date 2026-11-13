@@ -11,7 +11,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
@@ -110,4 +116,82 @@ func TestReadAuditMetadataWorkbookPath(t *testing.T) {
 	wiki := readAuditMetadata(readInput{Target: readTargetWikiPage, Workspace: "default", Path: "guides/intro"})
 	assert.Equal(t, "guides/intro", wiki.Attributes["doc_path"])
 	assert.NotContains(t, wiki.Attributes, "workbook_path")
+}
+
+// Describing a workbook reads a file anywhere on the server, which takes the
+// trust of DAG authoring: write_dags on the server and a developer role.
+func TestReadWorkbookRequiresDAGAuthoring(t *testing.T) {
+	t.Parallel()
+	path := saveWorkbook(t, filepath.Join(t.TempDir(), "orders.xlsx"))
+
+	for _, tc := range []struct {
+		name      string
+		writeDAGs bool
+		role      auth.Role
+		denied    string
+	}{
+		{name: "Developer", writeDAGs: true, role: auth.RoleDeveloper},
+		{name: "Operator", writeDAGs: true, role: auth.RoleOperator, denied: "Insufficient permissions"},
+		{name: "Viewer", writeDAGs: true, role: auth.RoleViewer, denied: "Insufficient permissions"},
+		{name: "WriteDAGsOff", role: auth.RoleAdmin, denied: "Permission denied"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{}
+			cfg.Server.Permissions = map[config.Permission]bool{config.PermissionWriteDAGs: tc.writeDAGs}
+			api := frontendapi.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil,
+				frontendapi.WithAuthService(viewerAuth{}))
+			ctx := auth.WithUser(context.Background(), auth.NewUser("user", "", tc.role))
+
+			failed, output := callReadTool(t, ctx, &Service{api: api}, map[string]any{"target": readTargetWorkbook, "path": path})
+
+			if tc.denied == "" {
+				require.False(t, failed, output)
+				return
+			}
+			require.True(t, failed)
+			assert.Equal(t, tc.denied, output["message"])
+		})
+	}
+}
+
+// The path is taken literally. Expanding the server's environment would let a
+// caller read variables back from an error message.
+func TestReadWorkbookPathIsLiteral(t *testing.T) {
+	t.Setenv("DAGU_TEST_WORKBOOK_SECRET", "env-secret-value")
+	dir := t.TempDir()
+
+	for _, path := range []string{
+		"~x${DAGU_TEST_WORKBOOK_SECRET}.xlsx",
+		filepath.Join(dir, "${DAGU_TEST_WORKBOOK_SECRET}-missing.xlsx"),
+	} {
+		_, err := readWorkbook(context.Background(), readInput{Target: readTargetWorkbook, Path: path})
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "env-secret-value")
+	}
+
+	literal := saveWorkbook(t, filepath.Join(dir, "$DAGU_TEST_WORKBOOK_SECRET.xlsx"))
+	_, err := readWorkbook(context.Background(), readInput{Target: readTargetWorkbook, Path: literal})
+	require.NoError(t, err)
+}
+
+func saveWorkbook(t *testing.T, path string) string {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SaveAs(path))
+	require.NoError(t, f.Close())
+	return path
+}
+
+func callReadTool(t *testing.T, ctx context.Context, svc *Service, args map[string]any) (bool, map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(args)
+	require.NoError(t, err)
+	result, err := svc.readTool(ctx, &mcpsdk.CallToolRequest{
+		Params: &mcpsdk.CallToolParamsRaw{Name: toolRead, Arguments: raw},
+	})
+	require.NoError(t, err)
+	output, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	return result.IsError, output
 }

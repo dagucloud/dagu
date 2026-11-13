@@ -34,6 +34,9 @@ type Plan struct {
 	nodeByName    map[string]*Node
 	inferredEdges map[[2]int]struct{}
 	stepRetry     *stepRetrySelection
+	// retrySelection holds the steps a step retry selected. It is nil for every
+	// other plan, which sets out to run all of its steps.
+	retrySelection map[int]struct{}
 
 	// Adjacency lists (immutable after planning; exposed for unit tests)
 	DependencyMap map[int][]int // node ID -> list of dependency node IDs (upstream)
@@ -206,11 +209,12 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 	if opts.BypassPreconditions {
 		targetNode.SetBypassPreconditions(true)
 	}
+	p.retrySelection = map[int]struct{}{targetNode.id: {}}
 
 	if opts.IncludeDownstream {
 		p.stepRetry = &stepRetrySelection{
 			targetID:            targetNode.id,
-			resetIDs:            map[int]struct{}{targetNode.id: {}},
+			resetIDs:            p.retrySelection,
 			bypassPreconditions: opts.BypassPreconditions,
 			steps:               steps,
 		}
@@ -545,6 +549,15 @@ func clearNodeForRetry(node *Node, step ir.Step) {
 }
 
 // --- Accessors ---
+
+// inRetrySelection reports whether this plan set out to run node.
+func (p *Plan) inRetrySelection(node *Node) bool {
+	if p.retrySelection == nil {
+		return true
+	}
+	_, selected := p.retrySelection[node.id]
+	return selected
+}
 
 // Nodes returns a slice of all nodes in the plan.
 func (p *Plan) Nodes() []*Node {

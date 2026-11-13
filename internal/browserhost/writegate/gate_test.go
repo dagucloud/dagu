@@ -219,28 +219,50 @@ func startBrowserOn(t *testing.T, profile string) *browser {
 	var out output
 	cmd.Stdout, cmd.Stderr = &out, &out
 	require.NoError(t, cmd.Start())
+	ended := make(chan struct{})
+	var endState *os.ProcessState
+	go func() {
+		endState, _ = cmd.Process.Wait()
+		close(ended)
+	}()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		<-ended
 	})
-	cdpURL := make(chan string, 1)
-	started := assert.Eventually(t, func() bool {
+	cdpURL := waitForDevTools(t, activePort, &out, ended, func() *os.ProcessState { return endState })
+	return &browser{cmd: cmd, cdpURL: cdpURL, profile: profile}
+}
+
+// browserStartLimit only guards against a browser that hangs, as no test here
+// is about how fast a browser starts. The first browser on a loaded CI host
+// can take long, loading its files from a cold disk.
+const browserStartLimit = 2 * time.Minute
+
+// waitForDevTools returns the address where the browser answers on DevTools.
+// A browser that ended never will, so the wait stops at once. Chrome prints
+// nothing on Windows, so a failure says how far the browser came.
+func waitForDevTools(t *testing.T, activePort string, out *output, ended <-chan struct{}, endState func() *os.ProcessState) string {
+	t.Helper()
+	limit := time.After(browserStartLimit)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
 		data, err := os.ReadFile(activePort) //nolint:gosec // the test's own profile
 		port, _, _ := strings.Cut(string(data), "\n")
-		if err != nil || port == "" {
-			return false
+		if err == nil && port != "" {
+			address := "http://127.0.0.1:" + port
+			if err = browserhost.Probe(t.Context(), address); err == nil {
+				return address
+			}
 		}
-		address := "http://127.0.0.1:" + port
-		if browserhost.Probe(t.Context(), address) != nil {
-			return false
+		select {
+		case <-ended:
+			t.Fatalf("the browser ended before it answered on DevTools (%v); last check: %v; it printed:\n%s", endState(), err, out.String())
+		case <-limit:
+			t.Fatalf("the browser did not answer on DevTools in %v; last check: %v; it printed:\n%s", browserStartLimit, err, out.String())
+		case <-tick.C:
 		}
-		cdpURL <- address
-		return true
-	}, 30*time.Second, 50*time.Millisecond)
-	if !started {
-		t.Fatalf("the browser did not answer on DevTools; it printed:\n%s", out.String())
 	}
-	return &browser{cmd: cmd, cdpURL: <-cdpURL, profile: profile}
 }
 
 // output keeps what a browser prints, to show when it does not start.
@@ -806,6 +828,44 @@ func TestGateRecordSendsWhatTheOperationMay(t *testing.T) {
 	}, outcomes)
 	assert.Equal(t, 200, sent.Status)
 	assert.Equal(t, `{"ok":true}`, sent.Response)
+}
+
+// A write a page's script sends to another site, as an ad or a measuring
+// script does, is blocked without counting as the work's. A write to the
+// page's own site, a page load that writes, and a write the operation may
+// send are decided as on any site.
+func TestGateCountsAnotherSitesWriteAsNoise(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	controls, _, _ := guardIn(t, b, writegate.ModeRecord, writegate.Policy{}, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+	// The site answers on localhost too, which is another site than
+	// 127.0.0.1.
+	other := strings.Replace(s.URL, "127.0.0.1", "localhost", 1)
+
+	assert.Contains(t, p.eval(`post(`+quote(other+"/w/beacon")+`, {mode: 'no-cors'})`), "error")
+	assert.Contains(t, p.eval(`post('/w/save')`), "error")
+	p.load(`const f = document.createElement('form'); f.method = 'post'; f.action = ` + quote(other+"/w/form") + `; document.body.appendChild(f); f.submit()`)
+
+	list := events(t, controls)
+	beacon, ok := find(list, "/w/beacon")
+	require.True(t, ok, "%+v", list)
+	assert.Equal(t, writegate.ClassNoise, beacon.Class)
+	assert.Equal(t, writegate.OutcomeBlocked, beacon.Outcome)
+	save, ok := find(list, "/w/save")
+	require.True(t, ok, "%+v", list)
+	assert.True(t, save.Consequential(), "a write to the page's own site")
+	form, ok := find(list, "/w/form")
+	require.True(t, ok, "%+v", list)
+	assert.True(t, form.Consequential(), "a page load that writes")
+	assert.Empty(t, s.written())
+
+	require.NoError(t, writegate.Begin(t.Context(), controls, []string{beacon.Signature}, time.Minute))
+	assert.Equal(t, "ok 0", p.eval(`post(`+quote(other+"/w/beacon")+`, {mode: 'no-cors'})`))
+	assert.Equal(t, map[string]int{"/w/beacon": 1}, s.written())
 }
 
 // A sent write answered with a stream reaches the page as the stream

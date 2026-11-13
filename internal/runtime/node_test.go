@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -878,6 +879,53 @@ func TestNodeBuildSubDAGRuns(t *testing.T) {
 	}
 }
 
+// A single pipe-delimited line is split into fragments by automatic separator
+// detection. An explicit newline separator must keep it as one item.
+func TestBuildSubDAGRunsParallelSeparator(t *testing.T) {
+	const item = "|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|"
+
+	run := func(t *testing.T, separator string) []runtime.SubDAGRun {
+		t.Helper()
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
+		env := runtime.GetEnv(ctx)
+		env.Scope = env.Scope.WithEntry("PVCS", item, cmnvalue.EnvSourceStepEnv)
+		ctx = runtime.WithEnv(ctx, env)
+
+		subDAG := &ir.SubDAG{Name: "sub-dag", Params: "PVC=${ITEM}"}
+		step := ir.Step{
+			Name:     "restore",
+			Parallel: &ir.ParallelConfig{Variable: "${PVCS}", Separator: separator},
+			SubDAG:   subDAG,
+		}
+		runs, err := runtime.NewNode(step, runtime.NodeState{}).BuildSubDAGRuns(ctx, subDAG)
+		require.NoError(t, err)
+		return runs
+	}
+
+	t.Run("AutoDetectSplitsOnPipe", func(t *testing.T) {
+		require.Len(t, run(t, ""), 3)
+	})
+
+	t.Run("ExplicitNewlineKeepsItemWhole", func(t *testing.T) {
+		runs := run(t, "newline")
+		require.Len(t, runs, 1)
+		require.Equal(t, item, runs[0].ParallelItem)
+		require.Contains(t, runs[0].Params, item)
+	})
+
+	t.Run("UnknownSeparatorFails", func(t *testing.T) {
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
+		subDAG := &ir.SubDAG{Name: "sub-dag"}
+		step := ir.Step{
+			Name:     "restore",
+			Parallel: &ir.ParallelConfig{Variable: "a b", Separator: "colon"},
+			SubDAG:   subDAG,
+		}
+		_, err := runtime.NewNode(step, runtime.NodeState{}).BuildSubDAGRuns(ctx, subDAG)
+		require.ErrorContains(t, err, `unknown parallel separator "colon"`)
+	})
+}
+
 func TestStepExecutorResolvesMultiCommandExecutableToken(t *testing.T) {
 	executorType := "test-command-token-resolution"
 	created := make(chan ir.Step, 1)
@@ -1486,6 +1534,20 @@ func TestNodeShouldContinue(t *testing.T) {
 	}
 }
 
+// The continue_on decision is the node's own state, not a step output. As an
+// output it reached later steps' scope and every consumer of child outputs.
+func TestNodeShouldContinueKeepsDecisionOutOfOutputs(t *testing.T) {
+	t.Parallel()
+
+	node := runtime.NewNode(ir.Step{Name: "check"}, runtime.NodeState{
+		Status:   ir.NodeFailed,
+		ExitCode: 1,
+	})
+
+	require.False(t, node.ShouldContinue(context.Background()))
+	assert.Empty(t, node.OutputVariablesMap())
+}
+
 type nodeHelper struct {
 	*runtime.Node
 	test.Helper
@@ -1846,6 +1908,187 @@ func TestNodeArtifactRedirectLatestAttempt(t *testing.T) {
 	require.NoError(t, skipped.Prepare(ctx, logDir, "run-1"))
 	require.NoError(t, skipped.Teardown())
 	assertArtifacts(t)
+}
+
+// prepareRedirectNode prepares a node carrying step's redirects in workDir.
+func prepareRedirectNode(t *testing.T, workDir string, step ir.Step) error {
+	t.Helper()
+
+	step.Name = "redirect"
+	step.Commands = []ir.CommandEntry{{Command: "echo", Args: []string{"hello"}}}
+	node := runtime.NewNode(step, runtime.NodeState{})
+	node.Init()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
+	env := runtime.GetEnv(ctx)
+	env.WorkingDir = workDir
+	ctx = runtime.WithEnv(ctx, env)
+
+	err := node.Prepare(ctx, t.TempDir(), "test-run")
+	if err == nil {
+		t.Cleanup(func() { require.NoError(t, node.Teardown()) })
+	}
+	return err
+}
+
+func TestNodeOutputRedirectMissingParent(t *testing.T) {
+	t.Parallel()
+
+	redirect := func(stream, path string) ir.Step {
+		if stream == "stderr" {
+			return ir.Step{Stderr: path}
+		}
+		return ir.Step{Stdout: path}
+	}
+
+	for _, stream := range []string{"stdout", "stderr"} {
+		t.Run(stream+"Relative", func(t *testing.T) {
+			t.Parallel()
+
+			workDir := t.TempDir()
+			path := filepath.Join("logs", "deep", "out.txt")
+			require.NoError(t, prepareRedirectNode(t, workDir, redirect(stream, path)))
+			assert.FileExists(t, filepath.Join(workDir, path))
+		})
+
+		t.Run(stream+"Absolute", func(t *testing.T) {
+			t.Parallel()
+
+			workDir := t.TempDir()
+			path := filepath.Join(workDir, "logs", "deep", "out.txt")
+			require.NoError(t, prepareRedirectNode(t, workDir, redirect(stream, path)))
+			assert.FileExists(t, path)
+		})
+	}
+
+	// Missing parents are the only thing that stopped these paths from writing
+	// somewhere the author did not intend, so each one must fail and create nothing.
+	t.Run("RefusesBadPath", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name    string
+			path    func(workDir string) string
+			wantErr string
+			skipOS  string
+		}{
+			{
+				name:    "BracedReference",
+				path:    func(string) string { return "${REDIRECT_TEST_UNSET}/out.txt" },
+				wantErr: "unresolved reference",
+			},
+			{
+				name:    "BareReference",
+				path:    func(string) string { return "$REDIRECT_TEST_UNSET/out.txt" },
+				wantErr: "unresolved reference",
+			},
+			{
+				name:    "StepReference",
+				path:    func(string) string { return "${steps.nope.outputs.dir}/out.txt" },
+				wantErr: "unresolved reference",
+			},
+			{
+				name:    "Tilde",
+				path:    func(string) string { return "~/logs/out.txt" },
+				wantErr: "not expanded",
+			},
+			{
+				name:    "RelativeDotDot",
+				path:    func(string) string { return "gone/../new/out.txt" },
+				wantErr: ".. segment",
+			},
+			{
+				name:    "AbsoluteDotDot",
+				path:    func(workDir string) string { return workDir + "/gone/../new/out.txt" },
+				wantErr: ".. segment",
+			},
+			{
+				name: "TrailingSeparator",
+				path: func(workDir string) string { return workDir + "/new/" },
+			},
+			{
+				// Windows strips a trailing dot, so this names the file "new" there.
+				name:   "TrailingDot",
+				path:   func(workDir string) string { return workDir + "/new/." },
+				skipOS: "windows",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				if goruntime.GOOS == tt.skipOS {
+					t.Skipf("not applicable on %s", tt.skipOS)
+				}
+
+				workDir := t.TempDir()
+				err := prepareRedirectNode(t, workDir, ir.Step{Stdout: tt.path(workDir)})
+				require.ErrorContains(t, err, tt.wantErr)
+
+				entries, err := os.ReadDir(workDir)
+				require.NoError(t, err)
+				assert.Empty(t, entries)
+			})
+		}
+	})
+
+	t.Run("RefusesDanglingParentSymlink", func(t *testing.T) {
+		t.Parallel()
+		if goruntime.GOOS == "windows" {
+			t.Skip("symlinks need extra privileges on Windows")
+		}
+
+		workDir := t.TempDir()
+		target := filepath.Join(workDir, "nowhere")
+		link := filepath.Join(workDir, "dangling")
+		require.NoError(t, os.Symlink(target, link))
+
+		err := prepareRedirectNode(t, workDir, ir.Step{Stdout: filepath.Join(link, "out.txt")})
+		require.Error(t, err)
+		assert.NoDirExists(t, target)
+	})
+
+	// A path whose parent exists never reaches the validation above, so it
+	// keeps opening however unusual its spelling is.
+	t.Run("ExistingParentStillOpens", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			dirs []string
+			path string
+			want string
+		}{
+			{name: "Tilde", dirs: []string{"~"}, path: "~/out.txt", want: "~/out.txt"},
+			{
+				name: "LiteralReference",
+				dirs: []string{"${REDIRECT_TEST_UNSET}"},
+				path: "${REDIRECT_TEST_UNSET}/out.txt",
+				want: "${REDIRECT_TEST_UNSET}/out.txt",
+			},
+			{name: "DotDot", dirs: []string{"a", "b"}, path: "a/../b/out.txt", want: "b/out.txt"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				workDir := t.TempDir()
+				for _, dir := range tt.dirs {
+					require.NoError(t, os.Mkdir(filepath.Join(workDir, dir), 0o750))
+				}
+				require.NoError(t, prepareRedirectNode(t, workDir, ir.Step{Stdout: tt.path}))
+				assert.FileExists(t, filepath.Join(workDir, filepath.FromSlash(tt.want)))
+			})
+		}
+	})
+
+	t.Run("WindowsDevicePath", func(t *testing.T) {
+		t.Parallel()
+		if goruntime.GOOS != "windows" {
+			t.Skip("Windows device paths only exist on Windows")
+		}
+
+		require.NoError(t, prepareRedirectNode(t, t.TempDir(), ir.Step{Stdout: `\\.\NUL`}))
+	})
 }
 
 // Spec validation compares the literal paths, so equivalent spellings reach

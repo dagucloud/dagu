@@ -1,4 +1,5 @@
 import { TriggerType } from '@/api/v1/schema';
+import { useI18n } from '@/i18n/I18nProvider';
 import type { ReactElement } from 'react';
 
 export const triggerTypeLabels: Record<TriggerType, string> = {
@@ -9,6 +10,8 @@ export const triggerTypeLabels: Record<TriggerType, string> = {
   retry: 'Retry',
   catchup: 'Catch-up',
   file: 'File',
+  restart: 'Restart',
+  backfill: 'Backfill',
   unknown: 'Unknown',
 };
 
@@ -21,13 +24,14 @@ export function TriggerTypeIndicator({
   type,
   actor,
 }: Props): ReactElement | null {
+  const { ts } = useI18n();
   if (!type) {
     return null;
   }
 
   return (
     <span className="whitespace-normal break-words font-medium text-foreground/90 text-xs">
-      {triggerTypeLabels[type] ?? type}
+      {ts(triggerTypeLabels[type] ?? type)}
       {actor && (
         <span className="text-muted-foreground font-mono"> ({actor})</span>
       )}

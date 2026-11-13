@@ -6,6 +6,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { StepView } from '../../contracts';
 import { RunEditor } from '../sections/RunEditor';
 import { runStep } from './fixtures';
+import { completionProviders } from './monacoMock';
+import {
+  candidatesSample,
+  referenceList,
+  typeOpenReference,
+} from './referenceHarness';
 
 vi.mock(
   '@monaco-editor/react',
@@ -26,6 +32,7 @@ function setup(step: StepView, readOnly = false) {
       readOnly={readOnly}
       onEdit={onEdit}
       fieldIssues={{}}
+      candidates={candidatesSample}
     />
   );
   return onEdit;
@@ -46,6 +53,42 @@ describe('RunEditor layout', () => {
 });
 
 describe('RunEditor', () => {
+  it('offers references in a one-line command', () => {
+    setup(oneLine);
+    typeOpenReference(screen.getByRole('textbox', { name: 'Command' }));
+    expect(referenceList()).toBeInTheDocument();
+  });
+
+  // Spec 067: a shell can run a model's reply as code.
+  it('warns of a model output in a command', () => {
+    render(
+      <RunEditor
+        step={oneLine}
+        readOnly={false}
+        onEdit={vi.fn()}
+        fieldIssues={{}}
+        candidates={[
+          {
+            token: '${steps.model.outputs.reply}',
+            label: 'model.reply',
+            group: 'steps',
+            known: 'runtime',
+            modelOutput: true,
+          },
+        ]}
+      />
+    );
+    typeOpenReference(screen.getByRole('textbox', { name: 'Command' }));
+    expect(referenceList()).toHaveTextContent('Not safe in a shell');
+  });
+
+  it('completes references in a script', async () => {
+    completionProviders.length = 0;
+    setup({ ...oneLine, value: { name: 'build', run: 'make\nmake test' } });
+    await screen.findByTestId('monaco');
+    expect(completionProviders.map((p) => p.language)).toEqual(['shell']);
+  });
+
   it('edits a one-line command', () => {
     const onEdit = setup(oneLine);
     const input = screen.getByRole('textbox', { name: 'Command' });

@@ -97,6 +97,68 @@ function renderPanel(
   );
 }
 
+describe('UpstreamDataPanel available references', () => {
+  const topLevel = scopeHttpJq.steps[0]!.name;
+  const references = [
+    {
+      token: '${params.REGION}',
+      label: 'REGION',
+      group: 'params' as const,
+      known: 'static' as const,
+    },
+    {
+      token: `\${steps.${topLevel}.outputs.body}`,
+      label: `${topLevel}.body`,
+      group: 'steps' as const,
+      stepName: topLevel,
+      known: 'static' as const,
+    },
+    {
+      token: '${steps.inner.outputs.said}',
+      label: 'inner.said',
+      group: 'steps' as const,
+      stepName: 'inner',
+      known: 'static' as const,
+    },
+  ];
+
+  it('lists them under the upstream data', () => {
+    renderPanel({ references });
+    expect(screen.getByText('Available references')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Parameters' })).toHaveTextContent(
+      'REGION'
+    );
+  });
+
+  // The tree already shows the steps of the graph. A foreach body step is not
+  // in that tree.
+  it('leaves out the outputs that the upstream tree lists', () => {
+    renderPanel({ references });
+    const outputs = screen.getByRole('group', { name: 'Step outputs' });
+    expect(within(outputs).getByText('inner.said')).toBeInTheDocument();
+    expect(within(outputs).queryByText(`${topLevel}.body`)).toBeNull();
+  });
+
+  // The tree has no row for an output that the step does not publish yet.
+  it('keeps an output that a pick would publish', () => {
+    renderPanel({
+      references: [
+        {
+          ...references[1]!,
+          label: `${topLevel}.stdout`,
+          publish: { step: 'steps[0]' },
+        },
+      ],
+    });
+    expect(screen.getByText(`${topLevel}.stdout`)).toBeInTheDocument();
+  });
+
+  it('shows no list without references', () => {
+    renderPanel();
+    expect(screen.queryByText('Available references')).toBeNull();
+  });
+});
+
 describe('UpstreamDataPanel source badges', () => {
   // The source of an output is a badge in the language of the page.
   it('shows the source in English and in Japanese', () => {

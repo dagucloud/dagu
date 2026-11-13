@@ -91,6 +91,27 @@ describe('RunMetaLine', () => {
     expect(screen.getByText('region=eu')).toBeInTheDocument();
   });
 
+  it('links the trigger of a backfill run to its backfill', () => {
+    render(
+      <MemoryRouter>
+        <RunMetaLine
+          dagRun={{
+            ...run,
+            triggerType: TriggerType.backfill,
+            triggerActor: undefined,
+            backfillId: 'bf123456',
+          }}
+        />
+      </MemoryRouter>
+    );
+
+    expect(
+      within(screen.getByTitle('Trigger')).getByRole('link', {
+        name: 'Backfill',
+      })
+    ).toHaveAttribute('href', '/backfills/bf123456');
+  });
+
   it('omits start and duration until a queued run starts', () => {
     render(
       <RunMetaLine
@@ -297,6 +318,23 @@ describe('RunMetaLine', () => {
       );
 
       expect(rowsOf(await screen.findByRole('tooltip'))).toEqual(expected);
+    });
+
+    // A run of a schedule slot owns the window from the previous fire up to
+    // its scheduled time.
+    it('lists the start of the window after the scheduled time', async () => {
+      const windowed = { ...timed, intervalStart: '2026-03-13T09:29:00Z' };
+      render(<RunMetaLine dagRun={windowed} showTimes />);
+
+      await userEvent.hover(
+        within(screen.getByTitle('Started')).getByText(/ago$/)
+      );
+
+      const rows = rowsOf(await screen.findByRole('tooltip'));
+      expect(rows.slice(0, 2)).toEqual([
+        ['Scheduled', absoluteOf(windowed.scheduleTime)],
+        ['Window start', absoluteOf(windowed.intervalStart)],
+      ]);
     });
 
     // The workflow bar shows the start as '7d ago' in one row: its tooltip

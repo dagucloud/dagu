@@ -28,9 +28,12 @@ Flags:
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
 - `--no-reuse` — Recompute reusable build steps while preserving staged, atomic publication
+- `--recursive-output` — Expand sub-DAG runs in the final summary tree, showing each child's steps and output inline. Failed sub-runs are expanded first; when a run has more sub-runs than the limits allow, the rest keep their reference line and a notice counts them. Not supported with a remote context
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
+- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
+
+A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
 
 ### dagu enqueue
 
@@ -51,7 +54,7 @@ Flags:
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
 - `--no-reuse` — Recompute reusable build steps when the queued run starts
-- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
+- `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 ### dagu exec
 
@@ -83,6 +86,8 @@ Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
 ### dagu restart
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
+
+A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead. With `unless-stopped`, the scheduler starts no run after a stop: start the DAG again with `dagu start`.
 
 ### dagu retry
 
@@ -152,7 +157,9 @@ Validate DAG YAML without executing: `dagu validate <dag>`
 
 ### dagu status
 
-Show DAG run status: `dagu status <dag-name> [--run-id/-r <id>] [--sub-run-id/-s <id>]`
+Show DAG run status: `dagu status <dag-name> [--run-id/-r <id>] [--sub-run-id/-s <id>] [--recursive-output]`
+
+- `--recursive-output` — Expand sub-DAG runs in the status tree, showing each child's steps and output inline, for local and remote contexts. Up to 5 levels, 20 failed and 30 other sub-runs are expanded, failed ones first; the rest keep their reference line and a notice counts them, with the `dagu status --sub-run-id` command to inspect one
 
 ### dagu history
 
@@ -169,7 +176,7 @@ Flags:
 - `--last` — Relative time period (e.g. `7d`, `24h`, `1w`). Cannot combine with `--from`/`--to`
 - `--status` — Filter by status: `running`, `succeeded`, `failed`, `aborted`, `queued`, `waiting`, `rejected`, `not_started`, `partially_succeeded`
 - `--run-id` — Filter by run ID (partial match supported)
-- `--labels` — Filter by labels (comma-separated key=value or key-only, AND logic)
+- `--labels` — Filter by labels, comma-separated with AND logic: `key`, `key=value`, globs with `*` and `?`, and `!` to negate any term (e.g., `env=prod,!canary`). An invalid term is an error
 - `--tags` — Deprecated alias for `--labels`
 - `--format/-f` — Output format: `table` (default), `json`, `csv`
 - `--limit/-l` — Max results (default 100, max 1000)

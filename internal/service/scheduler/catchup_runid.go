@@ -14,8 +14,12 @@ import (
 const (
 	// catchupPrefix is the scheme identifier for catchup run IDs.
 	catchupPrefix = "catchup-"
+	// slotPrefix is the scheme identifier for runs of a recurring schedule.
+	slotPrefix = "sched-"
 	// oneOffPrefix is the scheme identifier for one-off scheduled run IDs.
 	oneOffPrefix = "oneoff-"
+	// restartPrefix is the scheme identifier for restart run IDs.
+	restartPrefix = "restart-"
 
 	// maxRunIDLen matches exec.maxDAGRunIDLen (64 chars).
 	maxRunIDLen = 64
@@ -33,9 +37,30 @@ func GenerateCatchupRunID(dagName string, scheduledTime time.Time) string {
 	return generateScheduledRunID(catchupPrefix, dagName, scheduledTime)
 }
 
+// GenerateSlotRunID produces the run ID of one slot of a recurring schedule. A
+// live run and a catch-up of the slot share it, so whichever comes second is
+// rejected as a duplicate. dataDir keeps installations on one host from sharing
+// an ID, and with it a control socket.
+func GenerateSlotRunID(dataDir, dagName string, scheduledTime time.Time) string {
+	return generateScheduledRunID(slotPrefix, dataDir+":"+dagName, scheduledTime)
+}
+
 // GenerateOneOffRunID produces a deterministic run ID for a one-off schedule.
 func GenerateOneOffRunID(dagName, fingerprint string, scheduledTime time.Time) string {
 	return generateScheduledRunID(oneOffPrefix, dagName+":"+fingerprint, scheduledTime)
+}
+
+// GenerateRestartRunID produces a deterministic run ID for a restart. It is
+// derived from the run the restart follows, so evaluating the same restart twice,
+// for example around a failover, names the same run. previousRunID is empty for
+// the first run of a DAG. previousEnd is when the previous run ended; it is zero
+// when there is no previous run or its end is unknown, and the ID then has no
+// time part.
+func GenerateRestartRunID(dagName, previousRunID string, previousEnd time.Time) string {
+	if previousEnd.IsZero() {
+		return restartPrefix + scheduledRunIDHash(dagName+":"+previousRunID, hashLen)
+	}
+	return generateScheduledRunID(restartPrefix, dagName+":"+previousRunID, previousEnd)
 }
 
 func generateScheduledRunID(prefix, hashSource string, scheduledTime time.Time) string {

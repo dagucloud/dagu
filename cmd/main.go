@@ -42,6 +42,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Dry())
 	rootCmd.AddCommand(cmd.Validate())
 	rootCmd.AddCommand(cmd.Calendar())
+	rootCmd.AddCommand(cmd.Backfill())
 	rootCmd.AddCommand(cmd.Status())
 	rootCmd.AddCommand(cmd.History())
 	rootCmd.AddCommand(cmd.Ls())

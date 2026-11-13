@@ -713,7 +713,9 @@ func isRecoveryEvent(eventType eventstore.EventType) bool {
 }
 
 func incidentEventSupported(event chatbridge.NotificationEvent) bool {
-	if event.Status == nil || event.Status.Name == "" {
+	// An incident follows a DAG's live state, which a backfill run of an
+	// old slot does not change.
+	if event.Status == nil || event.Status.Name == "" || event.Status.BackfillID != "" {
 		return false
 	}
 	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {

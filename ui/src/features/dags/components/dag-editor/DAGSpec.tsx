@@ -12,6 +12,7 @@ import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import {
   panelShellClass,
+  usePanelColumn,
   usePanelPlacement,
   PanelHeader,
   panelWidth,
@@ -94,6 +95,7 @@ import {
   requiredFieldOf,
 } from '@/features/visual-editor/inspector/issues';
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
+import { YamlReferenceButton } from '@/features/visual-editor/references/YamlReferenceButton';
 import ExternalChangeDialog from './ExternalChangeDialog';
 import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
@@ -307,6 +309,7 @@ function DAGSpec({
   launcherHost,
   renderWorkflowPanel,
   initialWorkflowOpen = false,
+  onWorkflowOpenChange,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -314,12 +317,19 @@ function DAGSpec({
   const { schema: baseSchema } = useSchema();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
-  const { setHasUnsavedChanges } = useUnsavedChanges();
+  const { setHasUnsavedChanges, registerSave } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = React.useState('parent');
   // The Workflow panel stays open across the documents of the file: each
   // document has its own editor, which opens with it.
-  const [workflowOpen, setWorkflowOpen] = React.useState(initialWorkflowOpen);
+  const [workflowOpen, setWorkflowOpenState] =
+    React.useState(initialWorkflowOpen);
+  const onWorkflowOpenChangeRef = React.useRef(onWorkflowOpenChange);
+  onWorkflowOpenChangeRef.current = onWorkflowOpenChange;
+  const setWorkflowOpen = React.useCallback((open: boolean) => {
+    setWorkflowOpenState(open);
+    onWorkflowOpenChangeRef.current?.(open);
+  }, []);
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
   >(null);
@@ -1026,6 +1036,7 @@ function DAGSpec({
   // step (its node view). With the ndv prop, the host owns whether it is open.
   const { yamlKind, setYamlKind, sectionOpen, setSectionOpen } =
     useYamlSection(ndv);
+  const panelColumn = usePanelColumn();
   // The step that the YAML shows alone: the schema docs follow it.
   const [yamlStepPath, setYamlStepPath] = React.useState<string[] | null>(null);
   // Where the visual editor puts its controls in the bar of the YAML drawer.
@@ -1107,17 +1118,17 @@ function DAGSpec({
     };
   }, [setHasUnsavedChanges]);
 
-  // Save handler function
-  const handleSave = React.useCallback(async () => {
+  // Sends the text to the server. Resolves true only when it was saved.
+  const handleSave = React.useCallback(async (): Promise<boolean> => {
     if (isSaving) {
-      return;
+      return false;
     }
     if (currentValue == null) {
       showError(ts('No changes to save'), ts('Make some edits before saving.'));
-      return;
+      return false;
     }
     if (conflict.hasConflict) {
-      return;
+      return false;
     }
 
     beginSave(currentValue);
@@ -1152,7 +1163,7 @@ function DAGSpec({
         );
         // The newer version comes in as an external change.
         void mutateSpec();
-        return;
+        return false;
       }
 
       if (error) {
@@ -1161,7 +1172,7 @@ function DAGSpec({
           error.message || ts('Failed to save spec'),
           ts('Please check the YAML syntax and try again.')
         );
-        return;
+        return false;
       }
 
       if (responseData?.errors?.length) {
@@ -1181,7 +1192,7 @@ function DAGSpec({
           ts('Validation errors'),
           responseData.errors.map(plainIssueMessage)
         );
-        return;
+        return false;
       }
 
       // Mark as saved to prevent false conflict detection on our own save
@@ -1192,9 +1203,11 @@ function DAGSpec({
 
       // Revalidate SWR cache from server as safety net
       mutateSpec();
+      return true;
     } catch {
       cancelSave();
       showError(ts('Failed to save spec'), ts('Please try again.'));
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -1281,29 +1294,53 @@ function DAGSpec({
       revertChild();
     }
   }, [childChanged, childText, revertChild, savedChildText]);
-  const requestSave = React.useCallback(async () => {
+  // Tells why the text cannot be saved now. False when nothing blocks it.
+  const showSaveBlocker = React.useCallback((): boolean => {
     if (savingBlocked) {
       setIssuesRequest((count) => count + 1);
-      return;
-    }
-    if (!localHasUnsavedChanges || isSaving) {
-      return;
+      return true;
     }
     if (syntaxError) {
       showToast(ts('Fix the YAML syntax error before you save'), {
         variant: 'error',
       });
+      return true;
+    }
+    return false;
+  }, [savingBlocked, showToast, syntaxError, ts]);
+  const requestSave = React.useCallback(async () => {
+    if (showSaveBlocker()) {
+      return;
+    }
+    if (!localHasUnsavedChanges || isSaving) {
       return;
     }
     setReviewOpen(true);
-  }, [
-    isSaving,
-    localHasUnsavedChanges,
-    savingBlocked,
-    showToast,
-    syntaxError,
-    ts,
-  ]);
+  }, [isSaving, localHasUnsavedChanges, showSaveBlocker]);
+
+  // A caller that saves in order to run has confirmed the save: the text is
+  // sent without the review of the diff.
+  const saveNow = React.useCallback(async (): Promise<boolean> => {
+    if (showSaveBlocker()) {
+      return false;
+    }
+    if (!localHasUnsavedChanges) {
+      return true;
+    }
+    const saved = await handleSave();
+    if (saved) {
+      refreshCallbackRef.current?.();
+    }
+    return saved;
+  }, [handleSave, localHasUnsavedChanges, showSaveBlocker]);
+  const saveNowRef = React.useRef(saveNow);
+  saveNowRef.current = saveNow;
+  useEffect(() => {
+    if (!editable) {
+      return;
+    }
+    return registerSave(() => saveNowRef.current());
+  }, [editable, registerSave]);
 
   // Update save handler ref when handleSave changes
   useEffect(() => {
@@ -1543,6 +1580,7 @@ function DAGSpec({
         if (v) run(v);
         else pendingPanelRef.current = run;
       },
+      closeLauncher: () => visual()?.closeLauncher?.(),
       openForm: (name) => visual()?.openForm(name) ?? false,
       openYaml: (name) => visual()?.openYaml(name) ?? false,
       copySelection: () => visual()?.copySelection() ?? null,
@@ -1624,26 +1662,34 @@ function DAGSpec({
     );
     return !!fresh && formatStepRange(deferredText, fresh) === null;
   }, [canFormatStep, deferredText, yamlStep]);
-  const yamlTools = !editable ? null : yamlKind === 'step' ? (
-    <YamlTools
-      scope="step"
-      fixCount={stepFixes.length}
-      canFormat={canFormatStep}
-      formatted={stepFormatted}
-      formatOffReason={
-        yamlStep === null ? ts('Select a step first') : undefined
-      }
-      onFixAll={applyStepQuickFixes}
-      onFormat={formatStep}
-    />
-  ) : (
-    <YamlTools
-      fixCount={allFixes.length}
-      canFormat={canFormat}
-      formatted={textFormatted}
-      onFixAll={applyAllQuickFixes}
-      onFormat={formatText}
-    />
+  const yamlTools = !editable ? null : (
+    <>
+      <YamlReferenceButton
+        editorRef={yamlEditorRef}
+        getState={referenceState}
+      />
+      {yamlKind === 'step' ? (
+        <YamlTools
+          scope="step"
+          fixCount={stepFixes.length}
+          canFormat={canFormatStep}
+          formatted={stepFormatted}
+          formatOffReason={
+            yamlStep === null ? ts('Select a step first') : undefined
+          }
+          onFixAll={applyStepQuickFixes}
+          onFormat={formatStep}
+        />
+      ) : (
+        <YamlTools
+          fixCount={allFixes.length}
+          canFormat={canFormat}
+          formatted={textFormatted}
+          onFixAll={applyAllQuickFixes}
+          onFormat={formatText}
+        />
+      )}
+    </>
   );
 
   // Show loading indicator while fetching data
@@ -2419,10 +2465,12 @@ function DAGSpec({
                     stepName={ndvStepName}
                     title={ndvTitle}
                     note={
-                      // The Workflow panel is the one of the parent tab.
+                      // The Workflow panel is the one of the parent tab; a
+                      // column of the host has its own tabs.
                       yamlKind === 'file' &&
                       preview.dag &&
-                      activeTab === 'parent' ? (
+                      activeTab === 'parent' &&
+                      !panelColumn ? (
                         <PanelSwitchButton
                           to="workflow"
                           onClick={() => editorHandle.openWorkflowPanel(true)}

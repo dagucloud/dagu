@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { StepYamlSection } from '../sections/StepYaml';
 import { httpStep, modelHttpJq, schemaSample } from './fixtures';
+import { completionProviders } from './monacoMock';
 
 vi.mock(
   '@monaco-editor/react',
@@ -21,6 +22,7 @@ async function setup(readOnly = false) {
       schema={schemaSample}
       readOnly={readOnly}
       onEdit={onEdit}
+      candidatesAtPath={() => []}
     />
   );
   const editor = await screen.findByTestId('monaco');
@@ -30,6 +32,14 @@ async function setup(readOnly = false) {
 }
 
 describe('StepYamlSection', () => {
+  it('completes references in the YAML of the step', async () => {
+    completionProviders.length = 0;
+    await setup();
+    expect(completionProviders).toEqual([
+      { language: 'yaml', disposed: false },
+    ]);
+  });
+
   it('shows the YAML of the step at column 0', async () => {
     const { editor } = await setup();
     expect(editor).toHaveAttribute('data-language', 'yaml');

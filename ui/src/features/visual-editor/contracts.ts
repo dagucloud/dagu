@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { ReactNode, Ref } from 'react';
+import type { KeyboardEvent, ReactNode, Ref } from 'react';
 import type { components } from '@/api/v1/schema';
 import type { RepeatPolicyView } from '@/components/ui/repeat-summary';
 import type { JSONSchema } from '@/lib/schema-utils';
@@ -209,12 +209,21 @@ export interface ActionCatalogEntry {
 
 /* References */
 export type ReferenceGroup =
+  | 'foreach'
+  | 'inputs'
+  | 'outputs'
   | 'params'
   | 'consts'
+  | 'stepEnv'
   | 'env'
   | 'secrets'
   | 'steps'
   | 'context';
+/** What a pick must change for an output to exist: the step, and its id if it has none. */
+export interface PublishOnPick {
+  step: StepKey;
+  id?: string;
+}
 export interface ReferenceCandidate {
   token: string; // "${steps.fetch.outputs.body}"
   label: string;
@@ -223,6 +232,16 @@ export interface ReferenceCandidate {
   stepName?: string;
   distance?: number; // 1 = direct parent
   known: 'static' | 'runtime';
+  /** A step env name that the root env has too: the root value until the step sets it. */
+  alsoRoot?: boolean;
+  /** The step does not publish this output yet: a pick must make it. */
+  publish?: PublishOnPick;
+  /** A model wrote this value, in a form that a shell can run as code. */
+  modelOutput?: boolean;
+  /** The field is read by a shell, and this value is not safe there. */
+  shellRisk?: boolean;
+  /** Called when the author picks this candidate, before the token is inserted. */
+  onPicked?(): void;
 }
 export interface ReferenceInputProps {
   value: string;
@@ -233,7 +252,10 @@ export interface ReferenceInputProps {
   disabled?: boolean;
   id?: string;
   'aria-label'?: string;
+  'aria-invalid'?: boolean;
   onBlur?(): void;
+  /** Called for a key that the open list does not use. */
+  onKeyDown?(event: KeyboardEvent): void;
 }
 
 /* Canvas */
@@ -322,6 +344,12 @@ export interface GhostLook {
 }
 
 export interface VisualCanvasProps {
+  /**
+   * The document that the graph draws, such as its file. Another document
+   * fits its graph at once, as at the first draw, and keeps no view of the
+   * last one.
+   */
+  documentKey?: string;
   graph: CanvasGraph;
   direction: CanvasDirection;
   selected: StepKey | null;
@@ -498,6 +526,8 @@ export interface VisualEditorState {
   selectedStepName: string | null; // server name
   drawer: 'none' | 'yaml' | 'form' | 'add-step' | 'workflow' | 'launcher';
   direction: CanvasDirection;
+  /** The launcher whose panel is open; null or absent when none is. */
+  launcher?: LauncherId | null;
 }
 export interface CanvasViewHandle {
   fitView(): void;
@@ -521,6 +551,8 @@ export interface VisualEditorHandle {
   openWorkflowPanel(open?: boolean): void; // toggles when open is undefined
   /** Opens the panel of a launcher. No-op without launchers. Cron adds no schedule: the Add step panel does. */
   openLauncher(id: LauncherId): void;
+  /** Closes the panel of a launcher, through the guard of its draft. */
+  closeLauncher?(): void;
   toggleYaml(open?: boolean): void;
   openForm(serverStepName: string): boolean;
   /** Selects the step and shows its own YAML in the node view. False when no node has this server name. */
@@ -620,6 +652,8 @@ export interface StepInspectorProps {
   catalog: ActionCatalogEntry[];
   customActions: EditorCustomActionHint[];
   candidates: ReferenceCandidate[];
+  /** The references of a field of the step YAML, by its path below the step entry. */
+  candidatesAtPath?(path: string[]): ReferenceCandidate[];
   issues: ValidationIssue[];
   readOnly: boolean;
   onEdit(op: DagEditOp): void;

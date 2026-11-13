@@ -479,28 +479,3 @@ func toLicenseConnectStatus(status license.ConnectStatus) api.LicenseConnectStat
 		Error:      ptrOf(status.Error),
 	}
 }
-
-// licenseProxyAuthorization requires an administrator before a license
-// request is forwarded to a remote node, which would otherwise run it with
-// the node's own stored credentials. Reading the license status stays open
-// to every signed-in user, as it is locally.
-func (a *API) licenseProxyAuthorization(apiBasePath string) func(http.Handler) http.Handler {
-	licensePath := strings.TrimRight(apiBasePath, "/") + "/license/"
-	statusPath := licensePath + "status"
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			remoteNode := r.URL.Query().Get("remoteNode")
-			if remoteNode == "" || remoteNode == "local" ||
-				!strings.HasPrefix(r.URL.Path, licensePath) ||
-				(r.Method == http.MethodGet && r.URL.Path == statusPath) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if err := a.requireAdmin(r.Context()); err != nil {
-				WriteErrorResponse(w, err)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}

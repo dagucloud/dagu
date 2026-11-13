@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -50,6 +51,8 @@ const (
 	executeFieldQueue              = "queue"
 	executeFieldSingleton          = "singleton"
 	executeFieldNoReuse            = "noReuse"
+	executeFieldScheduleTime       = "scheduleTime"
+	executeFieldProfile            = "profile"
 	executeFieldLabels             = "labels"
 	executeFieldStepName           = "stepName"
 	executeFieldIncludeDownstream  = "includeDownstream"
@@ -74,6 +77,8 @@ type executeInput struct {
 	Queue              string
 	Singleton          bool
 	NoReuse            bool
+	ScheduleTime       string
+	Profile            string
 	Labels             []string
 	StepName           string
 	IncludeDownstream  bool
@@ -85,6 +90,8 @@ type executeInput struct {
 	Inputs    json.RawMessage
 	Reason    string
 	AttemptID string
+	// Backfill holds the fields of the backfill actions.
+	Backfill backfillInput
 }
 
 func executeToolInputSchema() json.RawMessage {
@@ -93,8 +100,8 @@ func executeToolInputSchema() json.RawMessage {
 		"properties": {
 			"action": {
 				"type": "string",
-				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back"],
-				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected."
+				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back", "backfill", "backfill_resume", "backfill_cancel"],
+				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected. backfill plans and submits runs of the DAG for past schedule slots, oldest first; backfill_resume runs again a backfill's slots that have not succeeded; backfill_cancel cancels one."
 			},
 			"targetType": {
 				"type": "string",
@@ -129,6 +136,14 @@ func executeToolInputSchema() json.RawMessage {
 				"type": "boolean",
 				"description": "Execute eligible build steps without reusing prior materializations for start or enqueue."
 			},
+			"scheduleTime": {
+				"type": "string",
+				"description": "Schedule slot to start or enqueue the DAG for: latest, a date (2006-01-02), a time in the schedule's zone (2006-01-02T15:04), or RFC 3339 with an offset. The run gets that slot's schedule time and window. A slot later than now is rejected. Only for targetType dag."
+			},
+			"profile": {
+				"type": "string",
+				"description": "Runtime profile name for start or enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile."
+			},
 			"labels": {
 				"type": "array",
 				"items": {"type": "string"},
@@ -161,6 +176,50 @@ func executeToolInputSchema() json.RawMessage {
 			"wait": {
 				"type": "boolean",
 				"description": "When true, wait for the identified run to reach a terminal state or a waiting checkpoint and include its result summary in the output."
+			},
+			"backfillId": {
+				"type": "string",
+				"description": "Backfill ID. Required for backfill_resume and backfill_cancel."
+			},
+			"from": {
+				"type": "string",
+				"description": "For backfill: first slot, inclusive: a date, a time in the schedule's zone (2006-01-02T15:04), or RFC 3339. Required without slots."
+			},
+			"to": {
+				"type": "string",
+				"description": "For backfill: last slot, inclusive. Defaults to now."
+			},
+			"slots": {
+				"type": "array",
+				"items": {"type": "string"},
+				"description": "For backfill: slots to run instead of a range. Excludes from, to, and rerun."
+			},
+			"rerun": {
+				"type": "string",
+				"enum": ["none", "failed", "all"],
+				"description": "For backfill: which slots that already have a run run again. Defaults to none."
+			},
+			"maxConcurrency": {
+				"type": "integer",
+				"minimum": 1,
+				"description": "For backfill and backfill_resume: runs of the backfill allowed at once."
+			},
+			"onFailure": {
+				"type": "string",
+				"enum": ["stop", "continue"],
+				"description": "For backfill and backfill_resume: what to do after a slot fails. Defaults to stop."
+			},
+			"dryRun": {
+				"type": "boolean",
+				"description": "For backfill and backfill_resume: return the plan and start nothing."
+			},
+			"revision": {
+				"type": "string",
+				"description": "For backfill and backfill_resume: the revision of a plan from a dry run. A plan that changed since is refused with conflict and returned."
+			},
+			"stopRunning": {
+				"type": "boolean",
+				"description": "For backfill_cancel: also stop the backfill's running and waiting runs."
 			},
 			"waitTimeoutSeconds": {
 				"type": "integer",
@@ -218,17 +277,21 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 	if err := svc.requireAPI(); err != nil {
 		return nil, nil, err
 	}
+	if isBackfillAction(input.Action) {
+		return svc.executeBackfill(ctx, input)
+	}
 
 	var (
 		dagRunID string
+		warnings []string
 		err      error
 	)
 
 	switch input.Action {
 	case executeActionStart:
-		dagRunID, err = svc.startDAG(ctx, input.TargetType, input)
+		dagRunID, warnings, err = svc.startDAG(ctx, input.TargetType, input)
 	case executeActionEnqueue:
-		dagRunID, err = svc.enqueueDAG(ctx, input.TargetType, input)
+		dagRunID, warnings, err = svc.enqueueDAG(ctx, input.TargetType, input)
 	case executeActionRetry:
 		err = svc.retryDAGRun(ctx, input)
 		dagRunID = input.DAGRunID
@@ -251,6 +314,9 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 		"dagName":    input.Name,
 		"dagRunId":   dagRunID,
 		"references": defaultReferenceURIs(),
+	}
+	if len(warnings) > 0 {
+		output["warnings"] = warnings
 	}
 	links := []resourceLink{}
 	message := "Dagu execute action completed."
@@ -314,8 +380,9 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 
 	output["completed"] = false
 	for {
-		raw, err := svc.api.GetDAGRunDetailsData(ctx, input.Name+"/"+dagRunID)
+		result, err := svc.api.GetDAGRunDetailsWithOutputsData(ctx, input.Name, dagRunID, "")
 		if err == nil {
+			raw := result.Details
 			run, detailsErr := dagRunDetailsFromResponse(raw)
 			if detailsErr != nil {
 				output["waitError"] = detailsErr.Error()
@@ -334,6 +401,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
+				maps.Copy(details, runOutputFields(result, run))
 				output["completed"] = terminal
 				output["run"] = details
 				if waiting {
@@ -429,6 +497,10 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 			input.Singleton, parseErr = executeBoolField(field, value)
 		case executeFieldNoReuse:
 			input.NoReuse, parseErr = executeBoolField(field, value)
+		case executeFieldScheduleTime:
+			input.ScheduleTime, parseErr = executeStringField(field, value)
+		case executeFieldProfile:
+			input.Profile, parseErr = executeStringField(field, value)
 		case executeFieldLabels:
 			if err := json.Unmarshal(value, &input.Labels); err != nil {
 				parseErr = executeInputError("Field labels must be an array of strings.", executeFieldLabels)
@@ -456,6 +528,10 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 		case executeFieldAttemptID:
 			input.AttemptID, parseErr = executeStringField(field, value)
 		default:
+			if isBackfillField(field) {
+				parseErr = parseBackfillField(&input.Backfill, field, value)
+				break
+			}
 			parseErr = executeInputError("Unknown field "+field+".", field)
 		}
 		if parseErr != nil {
@@ -512,8 +588,15 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 		return executeInputError("The action field is required.", executeFieldAction)
 	case executeActionStart, executeActionEnqueue, executeActionRetry, executeActionStop,
 		executeActionApprove, executeActionReject, executeActionPushBack:
+	case executeActionBackfill, executeActionBackfillResume, executeActionBackfillCancel:
+		return validateBackfillInput(input, provided)
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
+	}
+	for field := range provided {
+		if isBackfillField(field) {
+			return executeInputError("The "+field+" field is only valid for backfill, backfill_resume, and backfill_cancel.", field)
+		}
 	}
 	decision := isStepDecisionAction(input.Action)
 
@@ -570,9 +653,16 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 			return executeInputError("The singleton field is only valid for start and enqueue.", executeFieldSingleton)
 		case provided[executeFieldNoReuse]:
 			return executeInputError("The noReuse field is only valid for start and enqueue.", executeFieldNoReuse)
+		case provided[executeFieldScheduleTime]:
+			return executeInputError("The scheduleTime field is only valid for start and enqueue.", executeFieldScheduleTime)
+		case input.Profile != "":
+			return executeInputError("The profile field is only valid for start and enqueue.", executeFieldProfile)
 		case provided[executeFieldLabels]:
 			return executeInputError("The labels field is only valid for start and enqueue.", executeFieldLabels)
 		}
+	}
+	if launchAction && provided[executeFieldScheduleTime] && input.TargetType != executeTargetTypeDAG {
+		return executeInputError("The scheduleTime field is only valid for targetType dag.", executeFieldScheduleTime)
 	}
 	if input.Action != executeActionRetry {
 		if input.StepName != "" && !decision {

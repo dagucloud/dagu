@@ -104,6 +104,26 @@ when the definition's `flag_style` is `single_dash`) unless
 entirely); a string, integer, or float value produces `flag value`; an
 array value repeats `flag value` once per element.
 
+### Model output in shell commands
+
+Dagu does not escape values inserted into a shell command (Spec 003), and a
+model's reply can carry whatever text the model read. So a command step whose
+shell-parsed text inserts the output of a `harness.run`, `chat.completion`, or
+agent step produces a non-fatal validation warning naming its DAG, step, and
+reference.
+
+A reference that reads a step's exit code or log path does not warn, and neither
+does an escaped reference. A field that the step's `output_schema` declares with
+`enum`, or as `boolean`, `integer`, or `number`, does not warn, because validation
+limits its values. The warning is reported the same way as a working-directory
+warning.
+
+The fix is to pass the value through step `env` and read it from the environment.
+How to read it safely depends on what runs the command: Dagu leaves `"$NAME"` to a
+POSIX or Nix shell on the local host, but writes it into the text in other cases
+(Spec 003), such as a container with a shell, where `"$(printenv NAME)"` reads it
+safely.
+
 ### Working-directory warnings
 
 A harness step without an explicitly configured working directory produces a

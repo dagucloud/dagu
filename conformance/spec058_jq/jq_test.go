@@ -50,6 +50,7 @@ func TestJQConfig(t *testing.T) {
 	}{
 		{"missing_filter.yaml", "with.filter is required"},
 		{"both_data_and_input.yaml", "does not allow both with.data and with.input"},
+		{"unknown_field.yaml", `unexpected additional properties ["inpout"]; did you mean "input" instead of "inpout"?`},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()

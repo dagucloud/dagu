@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -53,19 +54,30 @@ const shopPage = `<!doctype html><html><head><title>Shop</title></head><body>
 <button onclick="document.getElementById('status').textContent='clicked'">Submit</button>
 </body></html>`
 
-// testBrowserDir keeps what test browsers learn about the executable, so
-// only the first headless launch of a test process learns its user agent.
-var testBrowserDir string
+var (
+	browserDirOnce sync.Once
+	browserDir     string
+	browserDirErr  error
+)
+
+// testBrowserDir returns where test browsers keep what they learn about the
+// executable, so only the first headless launch of a test process learns its
+// user agent. It is made on first use, so a helper process that launches no
+// browser leaves none behind when a test kills it.
+func testBrowserDir(t *testing.T) string {
+	t.Helper()
+	browserDirOnce.Do(func() {
+		browserDir, browserDirErr = os.MkdirTemp("", "dagu-browser-state-")
+	})
+	require.NoError(t, browserDirErr)
+	return browserDir
+}
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "dagu-browser-state-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	testBrowserDir = dir
 	code := m.Run()
-	_ = os.RemoveAll(dir)
+	if browserDir != "" {
+		_ = os.RemoveAll(browserDir)
+	}
 	os.Exit(code)
 }
 
@@ -141,7 +153,7 @@ func launchBrowser(t *testing.T, opts launchOptions) engine {
 		opts.UserDataDir = browserProfileDir(t)
 	}
 	opts.NoSandbox = true
-	opts.BrowserDir = cmp.Or(opts.BrowserDir, testBrowserDir)
+	opts.BrowserDir = cmp.Or(opts.BrowserDir, testBrowserDir(t))
 	var eng engine
 	err := withStartupSlot(func() (err error) {
 		eng, err = stagehandLauncher{}.Launch(ctx, opts)
@@ -1294,6 +1306,100 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond, "closing terminates the browser")
 }
 
+// The runtime tries once to open its socket to the browser, and a host can
+// refuse that try, so one refusal must not fail the step.
+func TestStagehandStartsAfterItsSocketFailsToOpen(t *testing.T) {
+	t.Parallel()
+
+	model := &shopModel{}
+	var eng engine
+	handle, sockets := refusingRuntimeSockets(t, 1)
+	err := withStartupSlot(func() (err error) {
+		eng, err = stagehandLauncher{}.Reattach(t.Context(), handle, launchOptions{Generate: model.generate})
+		return err
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(t.Context())) })
+	assert.Greater(t, sockets.Load(), int32(1), "the runtime opened a socket after the refusal")
+
+	require.NoError(t, eng.Goto(t.Context(), serveShop(t), time.Minute))
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, outcome.Success, outcome.Message)
+}
+
+// A browser that keeps refusing fails the start, within a bound.
+func TestStagehandStartGivesUpOnARefusingBrowser(t *testing.T) {
+	t.Parallel()
+
+	handle, sockets := refusingRuntimeSockets(t, runtimeStartAttempts+1)
+	err := withStartupSlot(func() error {
+		_, err := stagehandLauncher{}.Reattach(t.Context(), handle, launchOptions{Generate: (&shopModel{}).generate})
+		return err
+	})
+	require.ErrorContains(t, err, runtimeSocketFailure)
+	assert.Equal(t, int32(runtimeStartAttempts), sockets.Load())
+}
+
+// refusingRuntimeSockets starts a browser and returns a handle to it through a
+// proxy that refuses the runtime's first sockets. The returned count covers
+// every socket the runtime tried to open.
+func refusingRuntimeSockets(t *testing.T, refused int32) (browserHandle, *atomic.Int32) {
+	t.Helper()
+	launched := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	handle := launched.Handle()
+	require.NoError(t, launched.Detach(t.Context()))
+	// A running worker keeps the socket it has. A new one opens its own.
+	stopRuntimeWorker(t, handle)
+
+	browserURL, err := url.Parse(handle.CDPURL)
+	require.NoError(t, err)
+	forward := httputil.NewSingleHostReverseProxy(browserURL)
+	sockets := new(atomic.Int32)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Of the browser's clients, only the runtime connects from the extension.
+		if strings.HasPrefix(r.Header.Get("Origin"), "chrome-extension://") && sockets.Add(1) <= refused {
+			http.Error(w, "refused", http.StatusServiceUnavailable)
+			return
+		}
+		forward.ServeHTTP(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+	handle.CDPURL = proxy.URL
+	return handle, sockets
+}
+
+// stopRuntimeWorker ends the runtime's service worker, as the browser does to
+// a worker left idle.
+func stopRuntimeWorker(t *testing.T, handle browserHandle) {
+	t.Helper()
+	get := func(path string) []byte {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, handle.CDPURL+path, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+		return body
+	}
+	var targets []struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	}
+	require.NoError(t, json.Unmarshal(get("/json/list"), &targets))
+	workers := 0
+	for _, target := range targets {
+		if target.Type == "service_worker" && strings.HasPrefix(target.URL, "chrome-extension://"+handle.ExtensionID+"/") {
+			get("/json/close/" + target.ID)
+			workers++
+		}
+	}
+	require.Positive(t, workers, "the browser lists the runtime's worker")
+}
+
 const reportBody = "id,total\n1,10\n2,20\n"
 
 // serveReport serves a page linking to a CSV that arrives in slow chunks, so
@@ -1721,6 +1827,24 @@ func TestStagehandAcceptsDialogs(t *testing.T) {
 	}, eng.TakeDialogs())
 }
 
+// A browser launched dismissing confirms answers a confirm with cancel and
+// still accepts the alert and the prompt.
+func TestStagehandDismissesConfirm(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate, DismissConfirm: true})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(dialogPage), 30*time.Second))
+
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "cancelled/guest")
+	assert.Equal(t, []dialog{
+		{Type: "alert", Message: "Welcome"},
+		{Type: "confirm", Message: "Continue?", Dismissed: true},
+		{Type: "prompt", Message: "Name?"},
+	}, eng.TakeDialogs())
+}
+
 // blockedPage loads images and a script from hosts outside the allowed
 // domains. As a data: page it has no host of its own to block.
 const blockedPage = `<img src="http://cdn.blocked.test/logo.png">
@@ -2057,8 +2181,9 @@ func TestStagehandLaunchesWhenTheProbeFails(t *testing.T) {
 	assert.Contains(t, warnings[0], "learn the user agent the browser sends with a window: start the browser")
 }
 
-// serveRefusals serves a page behind a bot check, answered as Cloudflare
-// answers, and a forbidden page without a body.
+// serveRefusals serves pages behind bot checks, answered as Cloudflare and
+// AWS WAF answer, pages that show a check in a frame, pages whose check
+// frames are not shown, and a forbidden page without a body.
 func serveRefusals(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2068,6 +2193,41 @@ func serveRefusals(t *testing.T) string {
 			w.Header().Set("Cf-Mitigated", "challenge")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = io.WriteString(w, "<title>Just a moment...</title><p>Checking your browser</p>")
+		case "/captcha":
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("X-Amzn-Waf-Action", "captcha")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = io.WriteString(w, "<title>Human verification</title><p>Solve the puzzle</p>")
+		case "/challenged":
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("X-Amzn-Waf-Action", "challenge")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, "<title>Verifying</title><p>Checking your browser</p>")
+		case "/recaptcha":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<title>Sign in</title><form><iframe title="reCAPTCHA" width="304" height="78"
+ src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=site-key&co=aHR0cHM&hl=en&size=normal"></iframe></form>`)
+		case "/hcaptcha":
+			// A same-origin frame holds the check's frame.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<title>Sign in</title><iframe src="/hcaptcha-form" width="400" height="200"></iframe>`)
+		case "/hcaptcha-form":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<form><iframe width="303" height="78"
+ src="https://newassets.hcaptcha.com/captcha/v1/abc/static/hcaptcha.html#frame=checkbox&id=0&host=example.com&sitekey=key&size=normal"></iframe></form>`)
+		case "/turnstile":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<title>Sign in</title><iframe width="300" height="65"
+ src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/abc/0x4AAA/auto/fbE/new/normal/auto/"></iframe>`)
+		case "/badge":
+			// An invisible reCAPTCHA shows a badge, not a check, until it must.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<title>Sign in</title><p>Welcome</p><div style="position: fixed; bottom: 14px; right: -186px; width: 256px; height: 60px"><iframe width="256" height="60"
+ src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=site-key&co=aHR0cHM&hl=en&size=invisible"></iframe></div>`)
+		case "/hidden":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, `<title>Sign in</title><p>Welcome</p><div style="visibility: hidden"><iframe width="303" height="78"
+ src="https://newassets.hcaptcha.com/captcha/v1/abc/static/hcaptcha.html#frame=challenge&id=0"></iframe></div>`)
 		case "/forbidden":
 			w.WriteHeader(http.StatusForbidden)
 		default:
@@ -2079,19 +2239,27 @@ func serveRefusals(t *testing.T) string {
 	return server.URL
 }
 
-// A page a site refused tells how: a bot check, or a refusal the browser
-// shows its own error page for.
+// A page a site refused tells how: a bot check the site answered with or
+// the page shows in a frame, or a refusal the browser shows its own error
+// page for. A check frame that is not shown, as an invisible reCAPTCHA's
+// badge, is not a check.
 func TestStagehandTellsRefusedPages(t *testing.T) {
 	t.Parallel()
 
-	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
-	// The check here never passes.
+	// The check frames' sites are not reached.
+	eng := launchBrowser(t, launchOptions{AllowedDomains: []string{"127.0.0.1"}, Generate: (&shopModel{}).generate})
+	// The checks here never pass.
 	eng.(*stagehandEngine).botCheckWait = time.Second
 	site := serveRefusals(t)
 	host := urlHost(site)
 	for path, want := range map[string]refusal{
-		"/checked":   {Host: host, Status: http.StatusForbidden, BotCheck: browserhost.BotCheckCloudflare},
-		"/forbidden": {Host: host, Status: http.StatusForbidden},
+		"/checked":    {Host: host, Status: http.StatusForbidden, BotCheck: browserhost.BotCheckCloudflare},
+		"/captcha":    {Host: host, Status: http.StatusMethodNotAllowed, BotCheck: browserhost.BotCheckAWSWAFCaptcha},
+		"/challenged": {Host: host, Status: http.StatusAccepted, BotCheck: browserhost.BotCheckAWSWAFChallenge},
+		"/recaptcha":  {Host: host, Status: http.StatusOK, BotCheck: browserhost.BotCheckRecaptcha},
+		"/hcaptcha":   {Host: host, Status: http.StatusOK, BotCheck: browserhost.BotCheckHCaptcha},
+		"/turnstile":  {Host: host, Status: http.StatusOK, BotCheck: browserhost.BotCheckTurnstile},
+		"/forbidden":  {Host: host, Status: http.StatusForbidden},
 	} {
 		// A browser that shows its own error page for the answer reports
 		// the navigation as failed.
@@ -2102,11 +2270,13 @@ func TestStagehandTellsRefusedPages(t *testing.T) {
 		require.True(t, ok, "%s: %+v", path, page)
 		assert.Equal(t, want, refused, path)
 	}
-	require.NoError(t, eng.Goto(t.Context(), site, time.Minute))
-	page, err := eng.PageOutcome(t.Context())
-	require.NoError(t, err)
-	_, refused := refusalOf(page)
-	assert.False(t, refused, "%+v", page)
+	for _, path := range []string{"/", "/badge", "/hidden"} {
+		require.NoError(t, eng.Goto(t.Context(), site+path, time.Minute))
+		page, err := eng.PageOutcome(t.Context())
+		require.NoError(t, err, path)
+		_, refused := refusalOf(page)
+		assert.False(t, refused, "%s: %+v", path, page)
+	}
 }
 
 // A wait that ends while it reads the page leaves the browser answering: a
@@ -2331,7 +2501,7 @@ func TestStagehandWriteGateDecidesFromTheFirstPage(t *testing.T) {
 	var eng engine
 	err := withStartupSlot(func() (err error) {
 		eng, err = launcher.Launch(t.Context(), launchOptions{
-			Executable: chrometest.Path(), Headless: true, UserDataDir: browserProfileDir(t), NoSandbox: true, BrowserDir: testBrowserDir,
+			Executable: chrometest.Path(), Headless: true, UserDataDir: browserProfileDir(t), NoSandbox: true, BrowserDir: testBrowserDir(t),
 			Generate: model.generate, WriteGate: &writeGateOptions{Mode: writegate.ModeRehearse},
 		})
 		return err

@@ -3,7 +3,18 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { getYamlPathAtOffset } from '@/hooks/useYamlCursorPath';
-import type { DagDocModel, ReferenceScope, StepKey } from '../contracts';
+import { parseDagDocLenient } from '../doc/parse';
+import type {
+  DagDocModel,
+  ReferenceCandidate,
+  ReferenceScope,
+  StepKey,
+} from '../contracts';
+import {
+  buildReferenceCandidates,
+  declaresRepeat,
+  foreachFramesAt,
+} from './candidates';
 
 export type ReferenceScopeStep = ReferenceScope['steps'][number];
 
@@ -65,15 +76,72 @@ export function findOwningStep(
   return null;
 }
 
+/**
+ * The YAML path below a step entry, for a path under `steps` or `handler_on`.
+ * A step of a parallel group has one more index: ['steps', '1', '0', 'run'].
+ */
+export function pathBelowStep(path: readonly string[]): string[] {
+  return path.slice(/^\d+$/.test(path[2] ?? '') ? 3 : 2);
+}
+
+/** The path below the innermost step of `below`, a path below a step entry. */
+export function pathBelowBodies(below: string[]): string[] {
+  let inner = below;
+  while (inner[0] === 'foreach' && inner[1] === 'steps') {
+    inner = inner.slice(3);
+  }
+  return inner;
+}
+
+/** Candidates for a field at the offset, as seen by the step that owns it. */
+export function candidatesAt(
+  text: string,
+  offset: number,
+  state: ReferenceEditorState
+): ReferenceCandidate[] {
+  const owner = findOwningStep(text, offset, state);
+  const view = state.model?.steps.find((s) => s.key === owner?.stepPath);
+  const frames = owner
+    ? foreachFramesAt(
+        owner,
+        pathBelowStep(getYamlPathAtOffset(text, offset).path)
+      )
+    : [];
+  return buildReferenceCandidates(state.scope, owner?.name ?? null, {
+    repeats: frames.length === 0 && declaresRepeat(view),
+    frames,
+    doc: currentDoc(text, state.model),
+  });
+}
+
+// The model trails the text by a parse, and a completion runs on the keystroke.
+// A state without a model is one where nothing can edit.
+function currentDoc(
+  text: string,
+  model: DagDocModel | undefined
+): DagDocModel | undefined {
+  if (!model) return undefined;
+  return model.text === text ? model : parseDagDocLenient(text);
+}
+
 const RUN_FIELDS = new Set(['run', 'script', 'command']);
 
-/** True when the path points at a shell field that is a direct child of a step. */
+/** True for a step field that a shell reads. */
+export function isRunField(field: string | undefined): boolean {
+  return field !== undefined && RUN_FIELDS.has(field);
+}
+
+/** True for a step field that runs as the command of the executor. */
+export function isCommandField(field: string | undefined): boolean {
+  return isRunField(field) || field === 'args';
+}
+
+/** True when the path points at a shell field of a step, at any depth of foreach bodies. */
 export function isRunFieldPath(path: string[]): boolean {
-  const [root, , field] = path;
+  const [root] = path;
   return (
     (root === 'steps' || root === 'handler_on') &&
-    field !== undefined &&
-    RUN_FIELDS.has(field)
+    isRunField(pathBelowBodies(pathBelowStep(path))[0])
   );
 }
 

@@ -33,6 +33,35 @@ export function usePanelPlacement(): PanelPlacement {
   return useContext(PanelPlacementContext);
 }
 
+/**
+ * The right column of a host: the element that each panel of the page (the
+ * Workflow panel, the YAML of the file) renders into, beside the zone instead
+ * of over it. The host shows one of them and keeps the others mounted. A
+ * panel in the column claims no right-panel slot, so no other panel closes
+ * it. Null where the host has no column.
+ */
+export interface PanelColumn {
+  workflow: HTMLElement | null;
+  yaml: HTMLElement | null;
+  /** The temporary tab of the panel of a trigger (a launcher). */
+  launcher: HTMLElement | null;
+  /**
+   * A layer over the graph zone and the column. The YAML frame stays in it,
+   * over the YAML tab or over both when it shows a step, so that its editor
+   * is never mounted again when it changes place.
+   */
+  layer: HTMLElement | null;
+}
+
+const PanelColumnContext = createContext<PanelColumn | null>(null);
+
+/** A host with a right column gives its elements to the panels below it. */
+export const PanelColumnProvider = PanelColumnContext.Provider;
+
+export function usePanelColumn(): PanelColumn | null {
+  return useContext(PanelColumnContext);
+}
+
 // The important top wins over a host rule that starts a fixed panel below its bar.
 // The zone sets --ww-toolbar-row to the height of its row of toolbars (0 without
 // one). A panel in the zone is one box from the top of the zone: the first rows

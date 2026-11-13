@@ -405,14 +405,14 @@ describe('workspace selection', () => {
     expect(props().ndv?.state).toBeNull();
 
     // Enter or double-click: DAGSpec asks the host to open the view.
-    act(() => props().ndv?.onStateChange('docked'));
-    expect(nav.location).toBe('/dags/f?step=fetch&ndv=docked');
+    act(() => props().ndv?.onStateChange('expanded'));
+    expect(nav.location).toBe('/dags/f?step=fetch&ndv=expanded');
     expect(nav.type).toBe('REPLACE');
-    expect(props().ndv?.state).toBe('docked');
+    expect(props().ndv?.state).toBe('expanded');
   });
 
-  // Esc closes the top layer only. The YAML panel is no layer to leave: it
-  // stays.
+  // Esc closes the top layer only. The YAML tab of the right column is no
+  // layer to leave: it stays. A link to the YAML panel opens that tab.
   it('closes the menu on Esc and keeps the YAML panel', async () => {
     const user = userEvent.setup();
     renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun(), <Menu />);
@@ -426,7 +426,7 @@ describe('workspace selection', () => {
 
     await user.keyboard('{Escape}');
     expect(props().ndv?.state).toBe('docked');
-    expect(nav.location).toBe('/dags/f?step=fetch&ndv=docked');
+    expect(nav.location).toBe('/dags/f?step=fetch');
   });
 
   it('restores a maximized Activity panel on Esc, then keeps it open', async () => {

@@ -13,6 +13,11 @@ import {
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  LeaveGuardHostProvider,
+  type LeaveGuard,
+  type LeaveGuardHost,
+} from '@/contexts/LeaveGuardHostContext';
+import {
   useWorkspaceEditorBinding,
   WorkspaceEditorProvider,
 } from '../../canvas/WorkspaceEditorContext';
@@ -78,6 +83,27 @@ function renderPage(dirty: boolean, settingsDirty = false) {
   );
 }
 
+// A host such as the workflow overlay, with the guard that the page set.
+function renderHosted(dirty: boolean) {
+  const host: LeaveGuardHost & { guard: LeaveGuard | null } = {
+    guard: null,
+    register(guard) {
+      host.guard = guard;
+      return () => {
+        host.guard = null;
+      };
+    },
+  };
+  render(
+    <LeaveGuardHostProvider value={host}>
+      <BrowserRouter>
+        <Page dirty={dirty} settingsDirty={false} />
+      </BrowserRouter>
+    </LeaveGuardHostProvider>
+  );
+  return host;
+}
+
 // The router starts at index 0; the browser goes back to the entry at index 5
 // of another page.
 function backToAnotherPage() {
@@ -102,6 +128,35 @@ afterEach(() => {
 });
 
 describe('EditorLeaveGuard', () => {
+  // The overlay asks before it closes, so the page stays while the question
+  // is open; the Back of the close it then makes is not held a second time.
+  it('asks for a host before it takes the page away', async () => {
+    const go = vi.spyOn(window.history, 'go').mockImplementation(() => {});
+    const host = renderHosted(true);
+    const leave = vi.fn();
+    act(() => host.guard?.(leave));
+    expect(await screen.findByRole('dialog')).toHaveTextContent(
+      'The workflow has unsaved changes'
+    );
+    expect(leave).not.toHaveBeenCalled();
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Leave' }));
+    expect(leave).toHaveBeenCalledTimes(1);
+    backToAnotherPage();
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('lets a host take a clean page away at once', () => {
+    const host = renderHosted(false);
+    const leave = vi.fn();
+    act(() => host.guard?.(leave));
+    expect(leave).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('asks on unload only while the draft is dirty', () => {
     const { unmount } = renderPage(false);
     expect(unloadPrevented()).toBe(false);

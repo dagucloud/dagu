@@ -84,6 +84,39 @@ func envReportScript(names ...string) string {
 }
 
 func TestInlineSubDAG(t *testing.T) {
+	t.Run("FailedChildPublishesNoInternalState", func(t *testing.T) {
+		th := test.Setup(t)
+
+		testDAG := th.DAG(t, `
+steps:
+  - name: run-local-child
+    action: dag.run
+    with:
+      dag: failing-child
+
+---
+
+name: failing-child
+steps:
+  - name: check
+    run: exit 1
+`)
+
+		agent := testDAG.Agent()
+		require.Error(t, agent.Run(agent.Context))
+
+		testDAG.AssertLatestStatus(t, ir.Failed)
+
+		dagRunStatus, err := th.DAGRunMgr.GetLatestStatus(th.Context, testDAG.DAG)
+		require.NoError(t, err)
+		require.Len(t, dagRunStatus.Nodes, 1)
+
+		result, err := os.ReadFile(dagRunStatus.Nodes[0].Stdout)
+		require.NoError(t, err)
+		require.Contains(t, string(result), "failing-child")
+		require.NotContains(t, string(result), "CONTINUE_ON")
+	})
+
 	t.Run("SimpleExecution", func(t *testing.T) {
 		th := test.Setup(t)
 
@@ -1116,6 +1149,112 @@ steps:
 		require.Equal(t, "a:2026-03-05:octocat", results["a"])
 		require.Equal(t, "b:2026-03-05:octocat", results["b"])
 	})
+}
+
+// startSummary runs `dagu start` with the given arguments and returns the
+// summary it printed to stdout, along with the command error.
+func startSummary(t *testing.T, th test.Command, args ...string) (string, error) {
+	t.Helper()
+	var err error
+	stdout, _ := captureOutput(t, func() {
+		err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+			Args: append([]string{"start"}, args...),
+		})
+	})
+	return stdout, err
+}
+
+// TestSubDAG_RecursiveOutput covers issue #2831: `dagu start --recursive-output`
+// expands each sub-run's step tree in the final summary instead of leaving a
+// bare "subdag:" reference.
+func TestSubDAG_RecursiveOutput(t *testing.T) {
+	// Not parallel: captures os.Stdout.
+	th := test.SetupCommand(t)
+
+	th.CreateDAGFile(t, "parent_recursive_out.yaml", `
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_recursive_out
+`)
+
+	th.CreateDAGFile(t, "sub_recursive_out.yaml", `
+steps:
+  - name: child_step
+    run: echo "hello"
+`)
+
+	dagRunID := uuid.Must(uuid.NewV7()).String()
+	summary, err := startSummary(t, th, "--run-id", dagRunID, "--recursive-output", "parent_recursive_out")
+	require.NoError(t, err)
+
+	require.Contains(t, summary, "(sub_recursive_out: succeeded)")
+	require.Contains(t, summary, "child_step")
+	require.NotContains(t, summary, "Sub-runs not expanded")
+}
+
+// A failed sub-run shows its failed step and that step's stderr, which the
+// parent's own output does not carry.
+func TestSubDAG_RecursiveOutputFailedChild(t *testing.T) {
+	// Not parallel: captures os.Stdout.
+	th := test.SetupCommand(t)
+
+	th.CreateDAGFile(t, "parent_recursive_fail.yaml", `
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_recursive_fail
+`)
+
+	th.CreateDAGFile(t, "sub_recursive_fail.yaml", `
+steps:
+  - name: child_failing_step
+    run: |
+      `+test.ForOS(
+		"echo child_stderr_marker 1>&2",
+		"[Console]::Error.WriteLine('child_stderr_marker')",
+	)+`
+      exit 1
+`)
+
+	dagRunID := uuid.Must(uuid.NewV7()).String()
+	summary, err := startSummary(t, th, "--run-id", dagRunID, "--recursive-output", "parent_recursive_fail")
+	require.Error(t, err)
+
+	require.Contains(t, summary, "(sub_recursive_fail: failed)")
+	require.Contains(t, summary, "child_failing_step")
+	require.Contains(t, summary, "child_stderr_marker")
+}
+
+// TestSubDAG_DefaultSummaryOmitsChildTree guards the default: without
+// --recursive-output the summary keeps the bare sub-run reference.
+func TestSubDAG_DefaultSummaryOmitsChildTree(t *testing.T) {
+	// Not parallel: captures os.Stdout.
+	th := test.SetupCommand(t)
+
+	th.CreateDAGFile(t, "parent_default_out.yaml", `
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_default_out
+`)
+
+	th.CreateDAGFile(t, "sub_default_out.yaml", `
+steps:
+  - name: child_step_default
+    run: echo "hello"
+`)
+
+	dagRunID := uuid.Must(uuid.NewV7()).String()
+	summary, err := startSummary(t, th, "--run-id", dagRunID, "parent_default_out")
+	require.NoError(t, err)
+
+	require.Contains(t, summary, "subdag:")
+	require.NotContains(t, summary, "child_step_default")
+	require.NotContains(t, summary, "sub_default_out: succeeded")
 }
 
 // TestSubDAG_ChildParamsOverrideInheritedEnv covers a local child run that

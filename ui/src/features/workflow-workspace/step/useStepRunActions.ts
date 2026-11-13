@@ -538,8 +538,9 @@ export function useStepRunActions(
       }
       // One rule for every start, a test run too: the new run replaces the
       // run in the URL, with no history entry, because the URL always names
-      // the shown run and does not follow a newer one. No mode, no ?ndv.
-      setUrl({ run: id }, { replace: true });
+      // the shown run and does not follow a newer one. No mode, no ?ndv. A
+      // step runs from the file, under the DAG name of the file.
+      setUrl({ run: id, runName: null }, { replace: true });
       void refresh();
     },
     [

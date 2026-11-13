@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { translateStatic } from '@/i18n/staticMessages';
+import { translateStatic } from '@/i18n/translateStatic';
 import { DOCK_TAB_LABELS } from '../dock/DockTabStrip';
 
 describe('Japanese wording of the dock and the run list', () => {

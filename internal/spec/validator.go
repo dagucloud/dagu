@@ -523,6 +523,10 @@ func validateParallelConfig(step ir.Step) ir.ErrorList {
 		errs = append(errs, ir.NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel must have either items array or variable reference")))
 	}
 
+	if step.Parallel.Separator != "" && step.Parallel.Variable == "" {
+		errs = append(errs, ir.NewValidationError("parallel.separator", step.Parallel.Separator, fmt.Errorf("parallel.separator requires a string item source")))
+	}
+
 	return errs
 }
 

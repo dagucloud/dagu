@@ -3,7 +3,7 @@
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReferenceCandidate, ReferenceInputProps } from '../../contracts';
 import { ReferenceInput } from '../ReferenceInput';
 
@@ -73,6 +73,46 @@ function focusAt(
 }
 
 describe('ReferenceInput', () => {
+  describe('a candidate that wants to know', () => {
+    const onPicked = vi.fn();
+    const publishable: ReferenceCandidate = {
+      token: '${steps.a.outputs.stdout}',
+      label: 'a.stdout',
+      group: 'steps',
+      known: 'runtime',
+      publish: { step: 'steps[0]' },
+      onPicked,
+    };
+
+    beforeEach(() => onPicked.mockClear());
+
+    it('hears a pick from typing', () => {
+      render(<Controlled initial="" candidates={[publishable]} />);
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: '${' } });
+      fireEvent.keyDown(el, { key: 'Enter' });
+      expect(onPicked).toHaveBeenCalledTimes(1);
+      expect(el).toHaveValue('${steps.a.outputs.stdout}');
+    });
+
+    it('hears a pick from the button', () => {
+      render(<Controlled initial="" candidates={[publishable]} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Insert reference' }));
+      fireEvent.click(screen.getByRole('option', { name: /a\.stdout/ }));
+      expect(onPicked).toHaveBeenCalledTimes(1);
+    });
+
+    it('hears nothing when the list only closes', () => {
+      render(<Controlled initial="" candidates={[publishable]} />);
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: '${' } });
+      fireEvent.keyDown(el, { key: 'Escape' });
+      expect(onPicked).not.toHaveBeenCalled();
+    });
+  });
+
   it('renders an input and reports changes', () => {
     const onChange = vi.fn();
     render(
@@ -260,6 +300,47 @@ describe('ReferenceInput', () => {
       expect(screen.getAllByRole('option')).toHaveLength(3);
       fireEvent.click(screen.getByRole('option', { name: /fetch body/ }));
       expect(onValue).toHaveBeenLastCalledWith('${steps.fetch.outputs.body}');
+    });
+
+    // `grep foo$` is a whole command: Enter must commit it, not pick a reference.
+    it('leaves Enter to the host on a lone dollar', () => {
+      const onValue = vi.fn();
+      const onKeyDown = vi.fn();
+      render(<Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />);
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: 'grep foo$' } });
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(el).not.toHaveAttribute('aria-activedescendant');
+      fireEvent.keyDown(el, { key: 'Enter' });
+      expect(onKeyDown).toHaveBeenCalledTimes(1);
+      expect(onValue).toHaveBeenLastCalledWith('grep foo$');
+    });
+
+    it('picks on a lone dollar once an arrow key chose an option', () => {
+      const onValue = vi.fn();
+      const onKeyDown = vi.fn();
+      render(<Controlled initial="" onValue={onValue} onKeyDown={onKeyDown} />);
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: '$' } });
+      fireEvent.keyDown(el, { key: 'ArrowDown' });
+      fireEvent.keyDown(el, { key: 'Enter' });
+      expect(onKeyDown).not.toHaveBeenCalled();
+      expect(onValue).toHaveBeenLastCalledWith('${steps.fetch.outputs.body}');
+    });
+
+    it('activates the first option once the brace follows the dollar', () => {
+      render(<Controlled initial="" />);
+      const el = field();
+      act(() => el.focus());
+      fireEvent.change(el, { target: { value: '$' } });
+      expect(el).not.toHaveAttribute('aria-activedescendant');
+      fireEvent.change(el, { target: { value: '${' } });
+      expect(el).toHaveAttribute(
+        'aria-activedescendant',
+        screen.getAllByRole('option')[0]?.id
+      );
     });
 
     it('closes on Escape and stays closed for that reference', () => {

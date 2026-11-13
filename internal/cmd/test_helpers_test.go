@@ -70,11 +70,11 @@ func commandError(t *testing.T, th test.Command, command *cobra.Command, args ..
 	}
 }
 
+// commandLogWaitTimeout bounds a wait for a command to make progress. It only
+// decides how long a failing test takes, and a loaded CI host can stall a
+// command for over ten seconds.
 func commandLogWaitTimeout() time.Duration {
-	if runtime.GOOS == "windows" {
-		return 30 * time.Second
-	}
-	return 10 * time.Second
+	return 30 * time.Second
 }
 
 func assertSecondInterruptTerminatesBlockedCleanup(t *testing.T, commandName, shutdownLog string) {

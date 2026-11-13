@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { components } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
@@ -100,11 +106,11 @@ function firstTestRunRemoval(
 }
 
 /**
- * The run history of the workflow. Without `includeEphemeral` it has the SWR
- * key of DAGExecutionHistory, so both share one cache entry. With it, the
- * server also lists the test runs (they leave no trace elsewhere): the query
- * has a key of its own and the SSE feed cannot fill it, so an event only
- * revalidates it. With `pollTestRuns`, the list is read again every
+ * The run history of the workflow. Without `includeEphemeral` it has the
+ * plain SWR key of the history query, which the history SSE feed fills. With
+ * it, the server also lists the test runs (they leave no trace elsewhere):
+ * the query has a key of its own and the SSE feed cannot fill it, so an
+ * event only revalidates it. With `pollTestRuns`, the list is read again every
  * `TEST_RUN_POLL_MS` while a test run in it is active or this tab started one
  * a moment ago. The server drops an ended test run without any event, so the
  * list is read once more when the first one is gone, and a few more times
@@ -113,16 +119,29 @@ function firstTestRunRemoval(
 export function useRunHistory({
   enabled,
   includeEphemeral = false,
+  includeBackfill = false,
   pollTestRuns = false,
 }: {
   enabled: boolean;
   includeEphemeral?: boolean;
+  /** Also lists the backfill runs, which the server leaves out by default. */
+  includeBackfill?: boolean;
   pollTestRuns?: boolean;
 }): RunHistory {
-  const { fileName, remoteNode, registerHistory } =
+  const { fileName, remoteNode, registerHistory, standaloneRun } =
     useWorkspaceData('useRunHistory');
-  const active = enabled && fileName !== '';
-  const historySSE = useDAGHistorySSE(fileName, active, remoteNode);
+  // A run without its workflow file has no history to read: it is its own.
+  const standaloneRuns = useMemo(
+    () => (standaloneRun ? [standaloneRun] : null),
+    [standaloneRun]
+  );
+  const active = enabled && fileName !== '' && standaloneRuns === null;
+  const historySSE = useDAGHistorySSE(
+    fileName,
+    active,
+    remoteNode,
+    includeBackfill
+  );
   const startedAt = useTestRunStartedAt(fileName);
   const base = sseFallbackOptions(historySSE);
   const baseInterval = base.refreshInterval;
@@ -144,9 +163,11 @@ export function useRunHistory({
     '/dags/{fileName}/dag-runs',
     whenEnabled(active, {
       params: {
-        query: includeEphemeral
-          ? { remoteNode, includeEphemeral: true }
-          : { remoteNode },
+        query: {
+          remoteNode,
+          ...(includeEphemeral ? { includeEphemeral: true } : {}),
+          ...(includeBackfill ? { includeBackfill: true } : {}),
+        },
         path: { fileName },
       },
     }),
@@ -189,19 +210,24 @@ export function useRunHistory({
 
   // Registered again with each committed list: a render that React drops
   // must not show its runs.
-  const runs = data?.dagRuns ?? NO_RUNS;
+  const runs = standaloneRuns ?? data?.dagRuns ?? NO_RUNS;
   useEffect(() => {
+    if (standaloneRuns) {
+      return enabled
+        ? registerHistory(noSync, () => standaloneRuns)
+        : undefined;
+    }
     if (!active) return;
     return registerHistory(
       () => mutate(),
       () => runs
     );
-  }, [active, mutate, registerHistory, runs]);
+  }, [active, enabled, standaloneRuns, mutate, registerHistory, runs]);
 
   return {
     runs,
-    gridData: data?.gridData ?? NO_GRID,
-    nextCursor: data?.nextCursor ?? null,
+    gridData: standaloneRuns ? NO_GRID : (data?.gridData ?? NO_GRID),
+    nextCursor: standaloneRuns ? null : (data?.nextCursor ?? null),
     isLoading: active && isLoading,
   };
 }

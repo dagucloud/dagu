@@ -22,14 +22,7 @@ import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
-import {
-  AlertTriangle,
-  Ban,
-  CircleStop,
-  Play,
-  RotateCcw,
-  X,
-} from 'lucide-react';
+import { Ban, CircleStop, Play, RotateCcw, X } from 'lucide-react';
 import React from 'react';
 import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
@@ -49,6 +42,7 @@ import { pushRunProgress } from '../dag-execution/RunProgressStack';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { UnsavedRunDialog } from './UnsavedRunDialog';
 
 // The run form holds the schema form libraries: it loads when first opened.
 const StartDAGModal = React.lazy(
@@ -119,7 +113,7 @@ function DAGActions({
   const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
   const config = useConfig();
-  const { hasUnsavedChanges } = useUnsavedChanges();
+  const { hasUnsavedChanges, canSave, save } = useUnsavedChanges();
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
   const canManageProfiles = useCanManageProfiles();
@@ -896,7 +890,8 @@ function DAGActions({
                 dagRunId,
                 immediate,
                 profile,
-                noReuse
+                noReuse,
+                scheduleTime
               ) => {
                 if (dagContext.onEnqueue) {
                   const result = await dagContext.onEnqueue(
@@ -904,7 +899,8 @@ function DAGActions({
                     dagRunId,
                     immediate,
                     profile,
-                    noReuse
+                    noReuse,
+                    scheduleTime
                   );
                   const startedRunId =
                     typeof result === 'string' && result ? result : dagRunId;
@@ -921,9 +917,13 @@ function DAGActions({
                   dagRunId?: string;
                   profile?: string;
                   noReuse?: boolean;
+                  scheduleTime?: string;
                 } = { params };
                 if (dagRunId) {
                   body.dagRunId = dagRunId;
+                }
+                if (scheduleTime) {
+                  body.scheduleTime = scheduleTime;
                 }
                 if (profile !== undefined) {
                   body.profile = profile;
@@ -966,6 +966,9 @@ function DAGActions({
                   showRunProgress(data.dagRunId);
                 }
                 showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
+                for (const warning of data?.warnings ?? []) {
+                  showToast(warning, { variant: 'info' });
+                }
                 // Just refresh the current page data
                 reloadData();
               }}
@@ -977,38 +980,22 @@ function DAGActions({
             />
           </React.Suspense>
         )}
-        <I18nProps>
-          <ConfirmModal
-            title="Unsaved Changes"
-            buttonText="Run anyway"
-            visible={isUnsavedChangesModal}
-            dismissModal={() => {
-              setIsUnsavedChangesModal(false);
-            }}
-            onSubmit={() => {
-              setIsUnsavedChangesModal(false);
-              setIsEnqueueModal(true);
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
-              <div className="space-y-2">
-                <p className="font-medium">
-                  <I18nText
-                    text={'You have unsaved changes in the DAG definition.'}
-                  />
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  <I18nText
-                    text={
-                      'The DAG will run with the last saved version, not your current edits. Save your changes first if you want them to take effect.'
-                    }
-                  />
-                </p>
-              </div>
-            </div>
-          </ConfirmModal>
-        </I18nProps>
+        <UnsavedRunDialog
+          visible={isUnsavedChangesModal}
+          canSave={canSave}
+          onDismiss={() => setIsUnsavedChangesModal(false)}
+          onRunSaved={() => {
+            setIsUnsavedChangesModal(false);
+            setIsEnqueueModal(true);
+          }}
+          onSaveAndRun={() => {
+            // The dialog closes first: a failed save shows its errors.
+            setIsUnsavedChangesModal(false);
+            void save().then((saved) => {
+              if (saved) setIsEnqueueModal(true);
+            });
+          }}
+        />
       </div>
     </TooltipProvider>
   );

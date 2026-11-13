@@ -12,9 +12,10 @@ import (
 
 func isSchedulerManagedTriggerType(triggerType ir.TriggerType) bool {
 	switch triggerType {
-	case ir.TriggerTypeScheduler, ir.TriggerTypeCatchUp, ir.TriggerTypeRetry:
+	case ir.TriggerTypeScheduler, ir.TriggerTypeCatchUp, ir.TriggerTypeRetry, ir.TriggerTypeRestart:
 		return true
-	case ir.TriggerTypeUnknown, ir.TriggerTypeManual, ir.TriggerTypeWebhook, ir.TriggerTypeSubDAG, ir.TriggerTypeFile:
+	case ir.TriggerTypeUnknown, ir.TriggerTypeManual, ir.TriggerTypeWebhook, ir.TriggerTypeSubDAG, ir.TriggerTypeFile,
+		ir.TriggerTypeBackfill:
 		return false
 	}
 	return false
@@ -67,6 +68,23 @@ func isSuspendedDAG(
 //
 // Read failures propagate. Every caller treats an error as "do not dispatch",
 // which is the safe direction for an operator-driven pause.
+// IsPausedFunc reports whether an operator paused the scheduler.
+type IsPausedFunc func(ctx context.Context) (bool, error)
+
+// newPauseChecker reports an operator's pause, which a wake hold is not.
+func newPauseChecker(pauseStore schedulerstate.PauseStore) IsPausedFunc {
+	return func(ctx context.Context) (bool, error) {
+		if pauseStore == nil {
+			return false, nil
+		}
+		pause, err := pauseStore.Get(ctx)
+		if err != nil {
+			return false, err
+		}
+		return pause.Paused && !pause.WakeHold(), nil
+	}
+}
+
 func newSuspensionChecker(pauseStore schedulerstate.PauseStore, isSuspended IsSuspendedFunc) IsSuspendedFunc {
 	if pauseStore == nil {
 		return isSuspended

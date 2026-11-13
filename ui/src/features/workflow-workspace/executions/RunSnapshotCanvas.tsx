@@ -487,12 +487,15 @@ function RunSnapshot(props: RunSnapshotCanvasProps) {
         data-testid="ww-run-snapshot-bar"
         className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2"
       >
-        <IconButton
-          label={ts('Back to current definition')}
-          icon={ArrowLeft}
-          data-testid="ww-run-snapshot-back"
-          onClick={back}
-        />
+        {/* A run without its workflow file has no current definition. */}
+        {!data.standaloneRun && (
+          <IconButton
+            label={ts('Back to current definition')}
+            icon={ArrowLeft}
+            data-testid="ww-run-snapshot-back"
+            onClick={back}
+          />
+        )}
         <ReadOnlyMarker runId={run.ref?.runId} />
       </div>
       {/* The panels of this canvas never close those of the editor. */}

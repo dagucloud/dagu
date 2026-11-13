@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { ReactElement, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   PANEL_BODY_CLASS,
   PanelHeader,
+  usePanelColumn,
 } from '@/features/dags/components/step-details/PanelShell';
 import { cn } from '@/lib/utils';
 import { StepSideDrawer } from '@/features/dags/components/step-details/StepSideDrawer';
@@ -31,6 +33,22 @@ export function WorkflowDrawer({
   children: ReactNode;
 }): ReactElement {
   const { ts } = useI18n();
+  const column = usePanelColumn();
+  // In the right column of the host the panel is the body of its tab: the
+  // column has the title and the button that collapses it.
+  if (column) {
+    if (!open || !column.workflow) return <></>;
+    return createPortal(
+      <div data-testid="ve-workflow" className="flex min-h-0 flex-1 flex-col">
+        {bare ? (
+          children
+        ) : (
+          <div className={cn(PANEL_BODY_CLASS, 'space-y-6')}>{children}</div>
+        )}
+      </div>,
+      column.workflow
+    );
+  }
   return (
     <StepSideDrawer
       isOpen={open}

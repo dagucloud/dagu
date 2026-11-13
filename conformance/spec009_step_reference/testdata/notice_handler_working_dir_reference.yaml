@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: build
+    run: |
+      mkdir -p out
+      printf 'dir=out\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: dir
+
+handler_on:
+  success:
+    working_dir: ${steps.build.outputs.dir}
+    run: |
+      printf 'handler\n' > handler-working-dir.txt

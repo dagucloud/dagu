@@ -5,6 +5,10 @@ package worker_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"runtime"
 	"sync"
@@ -29,6 +33,7 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gossh "golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -112,6 +117,94 @@ steps:
 	status, convErr := convert.ProtoToDAGRunStatus(reported[len(reported)-1].Status)
 	require.NoError(t, convErr)
 	assert.Equal(t, ir.Succeeded, status.Status)
+}
+
+// An SSH key and its passphrase from the secret registry reach a worker
+// through the coordinator, and the worker unlocks the key at run start.
+func TestRemoteTaskHandlerResolvesSSHCredentialsViaCoordinator(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	enc, err := crypto.NewEncryptor("test-key-for-secrets")
+	require.NoError(t, err)
+	coordinatorSecrets, err := store.NewSecretStore(testutil.NewMemoryBackend().Collection("secrets"), enc)
+	require.NoError(t, err)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	block, err := gossh.MarshalPrivateKeyWithPassphrase(priv, "", []byte("open sesame"))
+	require.NoError(t, err)
+	keyPEM := string(pem.EncodeToMemory(block))
+
+	now := time.Now().UTC()
+	for ref, value := range map[string]string{"ssh/deploy-key": keyPEM, "ssh/passphrase": "open sesame"} {
+		sec, err := secretpkg.New(secretpkg.CreateInput{
+			Ref:          ref,
+			ProviderType: secretpkg.ProviderDaguManaged,
+			CreatedBy:    "test",
+		}, now)
+		require.NoError(t, err)
+		require.NoError(t, coordinatorSecrets.Create(ctx, sec, &secretpkg.WriteValueInput{
+			Value:     value,
+			CreatedBy: "test",
+			CreatedAt: now,
+		}))
+	}
+
+	client := &secretResolvingRemoteCoordinatorClient{
+		resolveSecret: func(ctx context.Context, ref secretref.Ref, workspace string, _ bool) (string, error) {
+			return secretpkg.NewReferenceResolver(coordinatorSecrets, workspace).ResolveReference(ctx, ref)
+		},
+	}
+	cfg := &config.Config{
+		Paths: config.PathsConfig{DataDir: t.TempDir()},
+	}
+	backend := file.NewBackend(cfg.Paths)
+	handler := workersvc.NewRemoteTaskHandler(workersvc.RemoteTaskHandlerConfig{
+		WorkerID:          "ssh-secret-worker",
+		CoordinatorClient: client,
+		Config:            cfg,
+		SecretStore:       file.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets)),
+		ProfileStore:      file.NewProfileStore(ctx, cfg, backend.Collection(persis.CollectionProfiles)),
+	})
+
+	err = handler.Handle(ctx, &coordinatorv1.Task{
+		Operation:            coordinatorv1.Operation_OPERATION_START,
+		Target:               "ssh-secret-dag",
+		RootDagRunName:       "ssh-secret-dag",
+		RootDagRunId:         "ssh-secret-run",
+		DagRunId:             "ssh-secret-run",
+		AttemptId:            "attempt-1",
+		AttemptKey:           "attempt-key-1",
+		OwnerCoordinatorId:   "coord-1",
+		OwnerCoordinatorHost: "127.0.0.1",
+		OwnerCoordinatorPort: 4521,
+		Definition: `
+ssh:
+  host: app.invalid
+  user: deploy
+  strict_host_key: false
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/passphrase}
+steps:
+  - name: main
+    action: noop
+`,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []secretref.Ref{
+		{Name: "ssh.key", Ref: "ssh/deploy-key"},
+		{Name: "ssh.passphrase", Ref: "ssh/passphrase"},
+	}, client.resolvedRefs())
+
+	reported := client.reportedStatuses()
+	require.NotEmpty(t, reported)
+	status, convErr := convert.ProtoToDAGRunStatus(reported[len(reported)-1].Status)
+	require.NoError(t, convErr)
+	assert.Equal(t, ir.Succeeded, status.Status)
+	statusJSON, err := json.Marshal(status)
+	require.NoError(t, err)
+	assert.NotContains(t, string(statusJSON), "open sesame")
 }
 
 func secretAssertionStep() string {

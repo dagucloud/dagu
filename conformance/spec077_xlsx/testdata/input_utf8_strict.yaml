@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: strict.xlsx
+      input: detect_input.csv
+      encoding: utf-8

@@ -20,6 +20,7 @@ export interface WorkspaceDataProviderProps {
   dagData: DAGPageData;
   refreshDag(): Promise<unknown>;
   workspaceName: string | null;
+  standaloneRun?: ApiDAGRunDetails | null;
   children: ReactNode;
 }
 
@@ -29,6 +30,7 @@ export function WorkspaceDataProvider({
   dagData,
   refreshDag,
   workspaceName,
+  standaloneRun = null,
   children,
 }: WorkspaceDataProviderProps) {
   const remoteNode = useRemoteNode();
@@ -77,6 +79,7 @@ export function WorkspaceDataProvider({
     dagData,
     remoteNode,
     listedRun,
+    standalone: standaloneRun !== null,
   });
   useLayoutEffect(() => {
     awaited.current = awaitedRunId;
@@ -106,6 +109,7 @@ export function WorkspaceDataProvider({
       workspaceName,
       remoteNode,
       run,
+      standaloneRun,
       refresh,
       registerHistory,
     }),
@@ -115,6 +119,7 @@ export function WorkspaceDataProvider({
       workspaceName,
       remoteNode,
       run,
+      standaloneRun,
       refresh,
       registerHistory,
     ]

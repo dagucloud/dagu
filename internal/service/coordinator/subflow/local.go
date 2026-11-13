@@ -264,7 +264,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.R
 	}
 	if retryTarget != nil {
 		opts.RetryTarget = retryTarget
-		opts.TriggerType = inProcessRetryTriggerType(retryTarget)
+		opts.TriggerType = queue.ExecutionTriggerType(retryTarget)
 	}
 
 	child, err := r.newAgent(ctx, req, dag, opts)
@@ -319,6 +319,8 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		TriggerActor:     req.TriggerActor,
 		ParallelItem:     req.ParallelItem,
 		ProfileName:      req.ProfileName,
+		ScheduleTime:     req.ScheduleTime,
+		ScheduleWindow:   req.ScheduleWindow,
 	})
 	if err != nil {
 		return executor.EnqueueResult{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -354,7 +356,7 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		StepRetry:           req.StepName,
 		IncludeDownstream:   req.IncludeDownstream,
 		BypassPreconditions: req.BypassPreconditions,
-		TriggerType:         inProcessRetryTriggerType(retryTarget),
+		TriggerType:         queue.ExecutionTriggerType(retryTarget),
 		WorkDir:             workspaceDir,
 	}
 	if req.Workspace != nil {
@@ -488,6 +490,8 @@ func (r *Local) newAgent(
 	opts.RootDAGRun = req.RootDAGRun
 	opts.TriggerActor = req.TriggerActor
 	opts.ParallelItem = req.ParallelItem
+	opts.ScheduleTime = req.ScheduleTime
+	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath
 	opts.ExtraEnvs = append(inProcessExtraEnvs(req), toolEnvs...)
 	opts.InheritedEnvs = inheritedEnvForLocalRunner(rCtx.InheritedEnvs())
@@ -713,12 +717,4 @@ func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID strin
 		return "", fmt.Errorf("failed to generate child workflow artifact directory: %w", err)
 	}
 	return dir, nil
-}
-
-func inProcessRetryTriggerType(status *ir.DAGRunStatus) ir.TriggerType {
-	triggerType := queue.PreservedQueueTriggerType(status)
-	if triggerType != ir.TriggerTypeUnknown {
-		return triggerType
-	}
-	return ir.TriggerTypeRetry
 }

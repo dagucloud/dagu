@@ -26,6 +26,12 @@ type eventingAttempt struct {
 	// ephemeral suppresses every event of the run.
 	ephemeral            bool
 	lastEmittedEventType eventstore.EventType
+	// slots records the run in its schedule slot on the first status write
+	// that carries a scheduled time. It is set only for a new top-level run.
+	slots *slotRecorder
+	// onRetry learns of the first status write of a retry attempt of a
+	// top-level run, before the write.
+	onRetry func(context.Context, *ir.DAGRunStatus) error
 }
 
 func newEventingAttempt(attempt dagrun.Attempt, dag *ir.DAG, ephemeral bool) dagrun.Attempt {
@@ -65,9 +71,16 @@ func (a *eventingAttempt) Write(ctx context.Context, status ir.DAGRunStatus) err
 	// Every attempt in the ephemeral store is ephemeral, a child run's too,
 	// whatever its writer knows.
 	status.Ephemeral = status.Ephemeral || a.ephemeral
+	if a.onRetry != nil {
+		if err := a.onRetry(ctx, &status); err != nil {
+			return err
+		}
+		a.onRetry = nil
+	}
 	if err := a.Attempt.Write(ctx, status); err != nil {
 		return err
 	}
+	a.recordSlotRun(ctx, &status)
 	if a.ephemeral || status.Ephemeral {
 		return nil
 	}

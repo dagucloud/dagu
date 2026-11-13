@@ -455,6 +455,20 @@ steps:
 
 Each child invocation receives the current item as `ITEM`.
 
+A string item source is parsed as a JSON array when it is one, and otherwise split on a detected separator: line breaks when the string has several lines, else the most frequent of `,` `;` `|` and tab, else whitespace. Detection cannot tell one item containing `|` or `,` from several items on one line, so set `separator` (`newline`, `comma`, `semicolon`, `pipe`, `tab`, or `space`) when items may contain delimiter characters. An explicit separator splits on that separator alone and skips JSON detection; it requires a string `items` value.
+
+```yaml
+  - id: restore
+    action: dag.run
+    with:
+      dag: restore-pvc
+      params:
+        PVC_DETAILS: ${ITEM}
+    parallel:
+      items: ${get_pvcs.outputs.ALL_PVCS}
+      separator: newline
+```
+
 `max_concurrent` defaults to 10. Set `defaults.max_concurrent` in a DAG or base config to change it for every `parallel` and `foreach` step that omits `max_concurrent`:
 
 ```yaml
@@ -489,7 +503,17 @@ steps:
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `shell`, `shell_args`, `bastion`.
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `passphrase`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+
+`key` is a path, `{file: <path>}`, or `{secret: <ref>}`. `password` and `passphrase` are a string or `{secret: <ref>}`. `bastion` takes the same three fields. A `secret` names a Dagu-managed registry secret, is literal (no `${...}`), resolves once at run start, and is masked but never exported to step environments. A passphrase unlocks an encrypted key, including a default `~/.ssh/id_*` key.
+
+```yaml
+ssh:
+  user: deploy
+  host: server.example.com
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+```
 
 ## http.request
 
@@ -1077,12 +1101,14 @@ does not carry tables, images, or charts.
 
 `xlsx.convert` exports a sheet: `path`, `output` (the file; `.csv`, `.json`,
 `.jsonl`, or `format`), the read options `sheet`, `range`, `header`,
-`columns`, `types`, `trim`, `skip_hidden`, and for csv `encoding` (`utf-8`, `utf-8-bom`,
+`columns`, `types`, `trim`, `skip_hidden`, and for csv `encoding` (`utf-8-bom` by default so Excel opens it as UTF-8, `utf-8`,
 `shift_jis`; `cp932` is accepted) and `delimiter`. Every row is written, with
 no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse
 direction is `xlsx.write` with `input`, whose csv also takes `encoding` and
-`delimiter`.
+`delimiter`; without `encoding` the input is detected as UTF-8 or else
+Shift_JIS, and a file that is neither, or not UTF-8 under `encoding: utf-8`,
+fails naming it.
 
 `xlsx.extract` reads fields out of a sheet laid out as a form rather than a
 table, such as a supplier's quote whose layout differs by sender. `path`,
@@ -1153,11 +1179,11 @@ steps:
 
 ## chat.completion
 
-Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`, `max_file_chars`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
 
-With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`.
+With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`. A request that carries tools, or forces a tool call, also sets OpenRouter's `provider.require_parameters`, so it reaches only endpoints that support them.
 
-`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, 1,000,000 characters of text and 50 images a step. Read a document into typed values with `output_schema`:
+`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, `max_file_chars` characters of text (1,000,000 by default; set it to what the model's context window holds) and 50 images a step. When the provider refuses the request for its length, the error ends with how many characters the files held, so the work can be split. Read a document into typed values with `output_schema`:
 
 ```yaml
 steps:
@@ -1320,23 +1346,24 @@ Browser behavior:
 - Each `do` item sets exactly one of `goto`, `act`, `upload`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless it holds) and `timeout`.
 - An `act` performs one action: "Sign in with %user% and %password%" types into one field and stops. Write one act per field and one for the button. A dropdown that is not a native `<select>` takes two acts: one opens it, the next picks the option.
 - `upload: {files, into}` gives local files to a file input; an `act` cannot. `files` is a path or glob pattern relative to the step's working directory, a list of them, or an earlier step's output holding a JSON list of paths, of objects with a `path`, or of `mail.search` emails, whose attachments saved with `save_attachments: true` are uploaded. Each file is at most 50 MB. `into` names the file input, or the button or drop area that opens the file picker, in plain words; the model finds it once and later runs replay it like an act. Leave `into` out when the page has one file input; no model is asked then. The element gets the files directly when it is or holds one file input; otherwise Dagu clicks it and hands the files to the file picker it opens, which never shows; when none opens, the file input nearest it gets them. A file input that takes one file fails when given several. The model never sees the files. Follow an upload with an `expect` for what the site shows once it has the files, such as `{text: "Uploaded", within: 1m}`.
-- `expect` and `when` take a statement the model judges, or a fixed check `{text}`, `{selector}`, or `{url}` that reads the page without a model call. Text and selector checks, and `wait: {selector}`, cover the frames the page shows from its own origin, and a selector matches inside open shadow roots too; `wait` also takes a selector that hops into frames with `>>`, or an XPath, as written. Prefer fixed checks for monitoring; they give the same result on every run. A fixed `when` reads the page once; add `within: 10s` when the page may still be loading.
+- `expect` and `when` take a statement the model judges, or a fixed check `{text}`, `{selector}`, or `{url}` that reads the page without a model call. Text and selector checks, and `wait: {selector}`, cover the frames the page shows from its own origin, and a selector matches inside open shadow roots too; `wait` also takes a selector that hops into frames with `>>`, or an XPath, as written. Prefer fixed checks for monitoring; they give the same result on every run. A fixed `when` reads the page once; add `within: 10s` when the page may still be loading. A `{text}` check folds full-width characters to half-width and collapses whitespace on both sides, as a computer check does, so `ABC123` finds a page showing `ＡＢＣ１２３`.
 - Declare secrets under `secrets:`, pass them in `variables`, and reference them as `%name%`. The browser gets the value, the model only the name. An instruction containing a declared secret value (4+ characters) fails the step; do not write `${SECRET}` inside an instruction. A `%name%` that is not a variable or an earlier `ask.as` fails validation.
 - Model requests carry the instruction, the page's elements and visible text, and the extract schema; never variable values, typed field text, or screenshots. Declared secrets shown on the page are masked; plain variables are not.
 - "the model (...) answered that no element on the page matches the instruction" means the model chose no element. If the failure screenshot shows the element, the model answers that way for every request (for example `google/gemini-2.5-flash` via OpenRouter); switch models. Otherwise fix the instruction.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
+- An answer that breaks the `extract` schema gets one correction, then the next `with.model` entry is tried. When a page may have nothing to find, use a list the model can leave empty, or allow null with `type: [string, "null"]`; a required string has no way to say "nothing".
 - A field that should hold the address a link points to needs `format: uri`, as in `link: {type: string, format: uri}`, and a place in `required`. Without the format the model returns the link's element id, such as `0-11` or `[0-11]`, and the step still succeeds; without `required` some models leave the field out. `dagu validate` warns about a string field named like an address (`url`, `link`, `href`, `detail_url`, ...) that has no `format: uri`.
 - The `act` and `upload` operations of a step that succeeded are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay acts only on an element with the role and name it recorded, in the same row text when the page repeats it (such as a Delete button per row), and on a select offering the recorded option, or else asks the model again. A recording whose actions never use a variable the instruction names, as when the page already showed the value, replays only where that variable has the value it had then; another value asks the model, and fails under `never`. Unnamed elements are told apart by role only, so follow important acts with an `expect`: when a later operation fails on the page, the step's replays are dropped and the next run asks the model again.
 - `with.ai` chooses how much the model decides for `act` and for `upload` with `into`, and `ai` on an `act` or an `upload` replaces it for that operation. `on_miss` (default): replay the recording, and let the model act and repair it when a replay fails. `every_run`: the model acts every run; a successful one still records. `never`: replay only; with no recording on the host, or a replay that fails, the step fails and says why, and the recording is kept for a run under `on_miss` to repair. A step whose operations never call the model needs no `llm`. An `extract` and a statement `expect` or `when` need the model, so a step-level `never` refuses them; fixed checks and an `upload` without `into` are allowed. `cache: false` means `every_run`; set `ai` or `cache`, not both. To run a step with no model, record it under `on_miss` first (or export a browser session), then set `ai: never`.
 - The browser runtime applies `allowed_domains` to the page's HTTP(S) requests, so list CDN and sign-in hosts too; WebSockets are not covered. `example.com` matches only that host; `*.example.com` matches its subdomains. Dagu also fails the step when the page URL leaves the list. Blocked requests are counted per host in the timeline and appended to a failed step's error, so a missing CDN or sign-in host shows up there.
 - For a site that requires a TLS client certificate, set `browser.client_certificates`: entries with `hosts` (a host, `*.example.com`, or `*`) and `pfx_file` with `passphrase: ${CERT_PASSPHRASE}` from a declared secret, or `cert_file` and `key_file` in PEM. The host setting `browser.client_certificates` in the Dagu config applies to every browser on that host, after the step's. Dagu presents the certificate through a local proxy, so the OS never asks for its password. While certificates are presented, other HTTPS requests go through the proxy too, presenting none, so a site that asks for one fails at once with "<host> asks for a TLS client certificate, and none is configured for it" instead of hanging on a system prompt; the host setting `browser.guard_client_certificates` turns that off. Requests follow the OS proxy settings. A rejected certificate fails with the site's reason, and a timed-out operation names the connections still waiting.
-- `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Not supported on Windows. Answers are stored in run history, so use it for short-lived codes.
-- Downloads started by an act or goto are saved under `browser/<step id>/downloads/` in the run artifacts and awaited, up to the longest act or goto timeout, before the step ends. Screenshots are saved on failure by default (`screenshots: final` also keeps one of a successful end). Artifacts are not masked.
-- JavaScript dialogs are accepted automatically (a `prompt` gets its default text) and listed in the timeline, so an act that raises "Are you sure?" goes through.
+- `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Answers are stored in run history, so use it for short-lived codes. On Windows, where the browser cannot outlive the step process, an `ask` cannot run: one without a `when` fails the step before a browser starts, and one guarded by `when` fails only if it runs; the error names the alternative, `dagu browser session open <url> --headed --profile <name>`, which signs the profile in once in a headed session.
+- Downloads started by an act or goto are saved under `browser/<step id>/downloads/` in the run artifacts and awaited, up to the longest act or goto timeout, before the step ends. Every browser step publishes `${steps.<id>.outputs.downloads}`, a JSON array of the absolute paths of the files it saved in the order they finished (empty when none), so pass that to a later `run`, an `upload`'s `files`, or `chat.completion` `files` instead of rebuilding the path; an extract property may not be named `downloads`. Screenshots are saved on failure by default (`screenshots: final` also keeps one of a successful end). Artifacts are not masked.
+- JavaScript dialogs are answered automatically and listed in the timeline: `alert` and `beforeunload` are accepted, a `prompt` gets its default text, and a `confirm` gets what `browser.on_confirm` says. `accept` (default) agrees, so an act that raises "Are you sure?" goes through; `dismiss` cancels it; `fail` cancels it and fails the operation with the dialog's message, so a confirm the workflow did not expect stops the step instead of being agreed to.
 - Where the browser sandbox cannot start, the host setting `browser.sandbox: false` or `DAGU_BROWSER_SANDBOX=false` turns it off for every browser step; a compromised page then runs with the Dagu process's permissions, so prefer the seccomp profile. DAGs cannot change it. With the sandbox on, a browser step fails when `CI` is set or Dagu runs as root on Linux, because the browser would run without the sandbox there; set `DAGU_BROWSER_SANDBOX=false` to allow it.
 - The host setting `browser.max_open` (or `DAGU_BROWSER_MAX_OPEN`) bounds the browsers open at once on the host, across steps, DAG runs, and browser sessions; a browser past it waits for one to close within the step's timeout. Each browser holds a Chromium process, so set it where memory is tight; `0`, the default, sets no limit.
 - Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
-- A browser without a window (`headless: true`, the default) sends the user agent the same Chrome sends with one and reports a desktop-sized screen, so showing the window does not change how a site sees the step. A page the site refused, with a bot check such as Cloudflare's or a 403 or 429, is logged as `page refused` and named at the end of the error of a step that fails on it; a bot check that passes on its own is waited out for up to 10 seconds.
+- A browser without a window (`headless: true`, the default) sends the user agent the same Chrome sends with one and reports a desktop-sized screen, so showing the window does not change how a site sees the step. A page the site refused, with a bot check such as Cloudflare's or a 403 or 429, is logged as `page refused` and fails the `act`, `upload`, `expect`, or `extract` that would run on it, with the refusal as its error, unless a `when` on it holds (an `extract` never runs there); a `goto`, `wait`, `screenshot`, or `ask` runs, and a step that ends on a refused page fails. A step that fails there for another reason names the refusal at the end of its error; a bot check that passes on its own is waited out for up to 10 seconds.
 - After a site redesign, clear recorded acts with `dagu browser cache clear <dag> [--step <id>]` on that host instead of editing the instruction or setting `cache: false`.
 
 ## computer.extract / computer.run

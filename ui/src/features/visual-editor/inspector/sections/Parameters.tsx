@@ -17,11 +17,7 @@ import {
 import { schemaFormTemplates } from '@/features/dags/components/dag-execution/schemaFormTemplates';
 import { I18nText } from '@/i18n/I18nText';
 import { cn } from '@/lib/utils';
-import type {
-  EditorCustomActionHint,
-  JSONSchema,
-  ReferenceCandidate,
-} from '../../contracts';
+import type { EditorCustomActionHint, JSONSchema } from '../../contracts';
 import { FieldIssues } from '../FieldIssues';
 import { diffFormData, sameValue, toFieldOps } from '../formDiff';
 import { issuesUnder } from '../issues';
@@ -49,7 +45,6 @@ import {
 export interface ParametersSectionProps extends SectionProps {
   schema: JSONSchema;
   customActions: EditorCustomActionHint[];
-  candidates: ReferenceCandidate[];
 }
 
 /** Time between the last form change and the field edits that it sends. */

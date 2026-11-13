@@ -80,9 +80,13 @@ It must not be treated as product behavior until implementation catches up.
 | [077: XLSX Actions](077-xlsx.md) | Implemented |
 | [078: JS Run Action](078-js-run.md) | Implemented |
 | [079: Browser Sessions](079-browser-session.md) | Implemented for local commands |
+| [080: DAG Restart Policy](080-restart-policy.md) | Implemented |
 | [081: ClickHouse Action](081-clickhouse.md) | Partially implemented |
 | [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
 | [084: Business Calendars](084-business-calendars.md) | Implemented |
+| [085: Scheduler High Availability](085-scheduler-ha.md) | Partially implemented |
+| [086: Backfill](086-backfill.md) | Partially implemented |
+| [087: Label Filters](087-label-filters.md) | Implemented |
 
 **Writing guidelines:**
 
