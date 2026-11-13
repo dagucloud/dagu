@@ -95,6 +95,7 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
+      ['/events/backfills/bf123456', 'backfill:bf123456'],
       ['/events/service-dags?workspace=ops', 'servicedags:workspace=ops'],
       ['/events/wiki-tree?prefix=docs', 'wikitree:prefix=docs'],
       [

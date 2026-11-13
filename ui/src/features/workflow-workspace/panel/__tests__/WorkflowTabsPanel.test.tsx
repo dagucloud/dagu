@@ -28,6 +28,8 @@ const state = vi.hoisted(() => ({
   canWriteWiki: true,
   profile: '',
   queries: [] as string[],
+  // The workflow has a schedule, so its slots can be backfilled.
+  scheduled: false,
 }));
 
 const client = vi.hoisted(() => ({
@@ -106,6 +108,33 @@ vi.mock('@/hooks/api', async () => {
           state: 'active',
           url: 'https://hooks.example/x',
           deliveries: [],
+        };
+      case '/backfills':
+        return {
+          backfills: [
+            {
+              id: 'old12345',
+              dag: 'nightly',
+              status: 'succeeded',
+              submittedAt: '2026-10-01T00:00:00Z',
+              rerun: 'none',
+              maxConcurrency: 1,
+              onFailure: 'stop',
+              slotCount: 3,
+              counts: { succeeded: 3 },
+            },
+            {
+              id: 'new12345',
+              dag: 'nightly',
+              status: 'failed',
+              submittedAt: '2026-11-01T00:00:00Z',
+              rerun: 'none',
+              maxConcurrency: 1,
+              onFailure: 'stop',
+              slotCount: 3,
+              counts: { succeeded: 1, failed: 1, 'not run': 1 },
+            },
+          ],
         };
       case '/incident-providers':
         return { providers: [] };
@@ -250,6 +279,10 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit) {
 const fetchMock = vi.fn(routeFetch);
 
 const dag = { name: 'nightly' } as ApiDAGDetails;
+const scheduledDAG = {
+  name: 'nightly',
+  schedule: [{ expression: '0 2 * * *' }],
+} as ApiDAGDetails;
 
 function Page() {
   const location = useLocation();
@@ -267,7 +300,7 @@ function Page() {
       <div className="flex h-96 flex-col">
         <WorkflowTabsPanel
           overview={<p>overview body</p>}
-          dag={dag}
+          dag={state.scheduled ? scheduledDAG : dag}
           fileName="nightly.yaml"
           workspaceName="ops"
         />
@@ -323,6 +356,7 @@ async function makeNotificationsDirty(
 }
 
 beforeEach(() => {
+  state.scheduled = false;
   state.canManageProfiles = true;
   state.canWriteWiki = true;
   state.profile = '';
@@ -351,6 +385,27 @@ describe('WorkflowTabsPanel', () => {
     ).toEqual(['Overview', 'Wiki', 'Incidents', 'Notifications']);
     expect(tab('Overview')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('overview body')).toBeVisible();
+    expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
+  });
+
+  it('lists the backfills of a scheduled workflow, newest first', async () => {
+    state.scheduled = true;
+    renderAt(['/dags/nightly.yaml?wtab=backfills']);
+
+    expect(tab('Backfills')).toHaveAttribute('aria-selected', 'true');
+    await screen.findByText('new12345');
+    expect(
+      screen.getAllByRole('link').map((link) => link.getAttribute('href'))
+    ).toEqual([
+      '/backfills/new12345?remoteNode=local',
+      '/backfills/old12345?remoteNode=local',
+    ]);
+  });
+
+  it('opens the overview for Backfills of a workflow without a schedule', () => {
+    renderAt(['/dags/nightly.yaml?wtab=backfills']);
+
+    expect(tab('Overview')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
   });
 
