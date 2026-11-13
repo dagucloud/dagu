@@ -95,7 +95,8 @@ that runs the step's command or script expands it from its environment:
 - `${<id>.outputs}` and any path under it read the published outputs when the
   step published any, and the captured output document otherwise.
 - `${<id>.output}` reads the captured output text, or the step's output
-  variable when no captured text is stored.
+  variable when no captured text is stored. A path under it reads that field
+  of a JSON object.
 - `${NAME}`, `$NAME`, and `${env.NAME}` read an output variable when the value
   under that name in the step's scope is the output variable.
 
@@ -120,7 +121,9 @@ step replaces the recorded one. The check runs once the step's preconditions
 hold, so a step whose preconditions are not met is skipped as before; a
 precondition that reads a recorded output reads `*******`, and when it holds
 the step fails, since the precondition is one of its reads. A field that an
-executor resolves while the step runs fails the step when it ends. A step that
+executor resolves while the step runs fails the step when it ends. The failure
+is the same on every attempt, so it is not retried, repeated, or marked
+successful. A step that
 needs a secret after an approval or a human task reads the secret itself
 instead of through an output.
 
