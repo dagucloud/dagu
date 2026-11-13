@@ -103,14 +103,18 @@ read there; the other forms are.
 
 An escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
 count as reads wherever they appear in such a field, even where a shell would
-not expand them, such as inside single quotes. When masking changed the name of
-a published output, or masked the published outputs as text, every published
-output of that step counts as masked. Outputs that masking did not change are
-reused unchanged, and a value supplied for an output of a carried step replaces
-the recorded one. The check runs once the step's preconditions hold, so a step
-whose preconditions are not met is skipped as before; a precondition that reads
-a recorded output reads `*******`. A step that needs a secret after an approval
-or a human task reads the secret itself instead of through an output.
+not expand them, such as inside single quotes. A variable the step defines in
+its own `env:` is the step's own value in its other fields, so only its `env:`
+values read the output variable there. Only the step's fields are checked: a
+program the step runs that reads an output variable from its environment
+receives `*******`. When masking changed the name of a published output, or
+masked the published outputs as text, every published output of that step
+counts as masked. Outputs that masking did not change are reused unchanged, and
+a value supplied for an output of a carried step replaces the recorded one. The
+check runs once the step's preconditions hold, so a step whose preconditions
+are not met is skipped as before; a precondition that reads a recorded output
+reads `*******`. A step that needs a secret after an approval or a human task
+reads the secret itself instead of through an output.
 
 Provider-specific behavior covered here:
 
