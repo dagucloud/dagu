@@ -38,7 +38,7 @@ import { useClient } from '@/hooks/api';
 import { useWorkspaceData } from '../data/context';
 import { useRunHistory } from '../data/useRunHistory';
 
-/** The most requests that one evaluation makes to check the runs of the cache. */
+/** The most requests, to check the runs of the cache, that wait for an answer at one time. */
 const MAX_RUN_CHECKS = 5;
 
 /** The most outputs requests that one evaluation makes. */
@@ -88,7 +88,10 @@ export interface ReuseSourceState {
   cacheCapturedAt: number | null;
   /** The capture time of each cached step (ms). */
   cacheTimes: Record<string, number>;
-  /** A top-level key of the definition changed: every previous step is stale. */
+  /**
+   * A top-level key of the definition, or a document after the first,
+   * changed: every previous step is stale.
+   */
   headChanged: boolean;
   /** The source run used parameters other than the defaults. */
   paramsDiffer: boolean;
@@ -129,7 +132,11 @@ export function useReuseSource(p: {
 }): ReuseSourceState {
   const { dagData, run, remoteNode } = useWorkspaceData('useReuseSource');
   const client = useClient();
-  const history = useRunHistory({ enabled: true, includeEphemeral: true });
+  const history = useRunHistory({
+    enabled: true,
+    includeEphemeral: true,
+    newestOnly: true,
+  });
   const dagName = dagData.dag?.name ?? p.fileName;
   // The automatic choice looks at the runs that stay; a test run is for the
   // user to choose.
@@ -268,16 +275,31 @@ export function useReuseSource(p: {
       asked[id],
     [asked, listed, selected]
   );
-  // Each run is asked once. A pass never drops the answers of an earlier
-  // one, and the pass after an answer asks for the runs past the limit.
-  const requested = useRef(new Set<string>());
+  // The runs already requested stay requested: a pass that starts again (a new
+  // answer, a polled selected run) must not cancel or repeat them. The answers
+  // of another workflow or node are ignored.
+  const scopeKey = `${dagName}\u0001${remoteNode}`;
+  const scopeRef = useRef(scopeKey);
+  scopeRef.current = scopeKey;
+  const requested = useRef({ scopeKey, ids: new Set<string>() });
   useEffect(() => {
     if (history.isLoading) return;
-    const missingIds = runIds.filter(
-      (id) => !requested.current.has(id) && runOfId(id) === undefined
-    );
-    for (const id of missingIds.slice(0, MAX_RUN_CHECKS)) {
-      requested.current.add(id);
+    if (requested.current.scopeKey !== scopeKey) {
+      requested.current = { scopeKey, ids: new Set() };
+    }
+    const sent = requested.current.ids;
+    // At most `MAX_RUN_CHECKS` requests wait for an answer at one time.
+    const inFlight = [...sent].filter((id) => asked[id] === undefined).length;
+    const toSend = runIds
+      .filter((id) => !sent.has(id) && runOfId(id) === undefined)
+      .slice(0, Math.max(0, MAX_RUN_CHECKS - inFlight));
+    const answer = (id: string, value: ReuseRun | 'gone' | 'unknown') => {
+      if (scopeRef.current === scopeKey) {
+        setAsked((held) => ({ ...held, [id]: value }));
+      }
+    };
+    for (const id of toSend) {
+      sent.add(id);
       void clientRef.current
         .GET('/dag-runs/{name}/{dagRunId}', {
           params: {
@@ -288,18 +310,26 @@ export function useReuseSource(p: {
         .then(({ data, response }) => {
           // Only a clear "not found" says that the run is gone.
           // Another failure leaves the decision to the server.
-          const answer: ReuseRun | 'gone' | 'unknown' = data
-            ? data.dagRunDetails
-            : response.status === 404
-              ? 'gone'
-              : 'unknown';
-          setAsked((held) => ({ ...held, [id]: answer }));
+          answer(
+            id,
+            data?.dagRunDetails
+              ? (data.dagRunDetails as unknown as ReuseRun)
+              : response.status === 404
+                ? 'gone'
+                : 'unknown'
+          );
         })
-        .catch(() => {
-          setAsked((held) => ({ ...held, [id]: 'unknown' }));
-        });
+        .catch(() => answer(id, 'unknown'));
     }
-  }, [dagName, history.isLoading, remoteNode, runIds, runOfId]);
+  }, [
+    asked,
+    dagName,
+    history.isLoading,
+    remoteNode,
+    runIds,
+    runOfId,
+    scopeKey,
+  ]);
   const check = useCallback(
     (step: string, entry: { runId: string }): RunCheck => {
       const found = runOfId(entry.runId);
@@ -312,6 +342,7 @@ export function useReuseSource(p: {
     },
     [runOfId]
   );
+  const defaultParams = dagData.dag?.defaultParams;
 
   // The run that the user chose, when it still exists and holds the reads.
   const chosen = choice.kind === 'run' ? runOfId(choice.runId) : null;
@@ -334,9 +365,10 @@ export function useReuseSource(p: {
         hasSource: false,
         entries,
         hashes,
+        defaultParams,
         check,
       }),
-    [check, entries, hashes, previous]
+    [check, defaultParams, entries, hashes, previous]
   );
 
   // A choice of the cache gives way to the automatic choice once no fresh
@@ -388,9 +420,19 @@ export function useReuseSource(p: {
         hasSource: source !== null,
         entries,
         hashes,
+        defaultParams,
         check,
       }),
-    [check, entries, hashes, previous, runMissing, runStale, source]
+    [
+      check,
+      defaultParams,
+      entries,
+      hashes,
+      previous,
+      runMissing,
+      runStale,
+      source,
+    ]
   );
   const options = useMemo(() => {
     const runs: SourceRun[] = [...history.runs];

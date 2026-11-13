@@ -11,7 +11,6 @@ export default defineMessages({
     'Newer run': 'Newer run',
     Latest: 'Latest',
     'Follow latest': 'Follow latest',
-    'A newer run is active': 'A newer run is active',
   },
   'zh-CN': {
     'No runs yet': '尚无运行',
@@ -20,7 +19,6 @@ export default defineMessages({
     'Newer run': '较新的运行',
     Latest: '最新',
     'Follow latest': '跟随最新',
-    'A newer run is active': '有较新的运行正在进行',
   },
   ja: {
     'No runs yet': 'まだ実行がありません',
@@ -29,6 +27,5 @@ export default defineMessages({
     'Newer run': '新しい実行',
     Latest: '最新',
     'Follow latest': '最新に追従',
-    'A newer run is active': '新しい実行が進行中です',
   },
 });

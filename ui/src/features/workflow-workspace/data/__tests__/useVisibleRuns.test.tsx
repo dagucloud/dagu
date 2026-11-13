@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status } from '@/api/v1/schema';
+import { WorkspaceDataContext, type WorkspaceDataValue } from '../context';
 import type { ApiDAGRunDetails } from '../types';
 import {
   CUSTOM_RANGE_KEY,
@@ -88,6 +90,7 @@ describe('useVisibleRuns', () => {
       enabled: true,
       includeEphemeral: true,
       pollTestRuns: true,
+      newestOnly: true,
     });
   });
 
@@ -245,6 +248,74 @@ describe('useVisibleRuns', () => {
   it('reads nothing while disabled', () => {
     renderHook(() => useVisibleRuns({ enabled: false }));
     expect(h.args[0]).toMatchObject({ enabled: false });
+  });
+
+  // A service DAG offers the presets up to three years; another DAG does
+  // not, and the stored one of a service DAG gives way to the default.
+  it('keeps a long preset for a service DAG only', () => {
+    window.localStorage.setItem(RUN_MODE_KEY, 'range');
+    window.localStorage.setItem(RUN_RANGE_KEY, '{"preset":"1y"}');
+    const onPage =
+      (restartPolicy?: string) =>
+      ({ children }: { children: ReactNode }) => (
+        <WorkspaceDataContext.Provider
+          value={
+            {
+              dagData: { dag: { name: 'demo', restartPolicy } },
+            } as unknown as WorkspaceDataValue
+          }
+        >
+          {children}
+        </WorkspaceDataContext.Provider>
+      );
+    const service = renderHook(() => useVisibleRuns({ enabled: true }), {
+      wrapper: onPage('always'),
+    });
+    expect(service.result.current.settings.range).toEqual({ preset: '1y' });
+    const { from, to } = service.result.current.range!;
+    expect(to).toBe(NOW);
+    expect(to - from).toBe(365 * 86_400_000);
+
+    const other = renderHook(() => useVisibleRuns({ enabled: true }), {
+      wrapper: onPage(),
+    });
+    expect(other.result.current.settings.range).toEqual({ preset: '24h' });
+    const span = other.result.current.range!;
+    expect(span.to - span.from).toBe(86_400_000);
+  });
+
+  // A service DAG has no count mode: a stored count, or a stored mode of an
+  // older version, does not apply to it. The stored mode stays for a normal DAG.
+  it('uses the range mode for a service DAG whatever is stored', () => {
+    window.localStorage.setItem(RUN_MODE_KEY, 'count');
+    window.localStorage.setItem(
+      'dagu.workspace.runTimelineServiceMode',
+      'count'
+    );
+    const onPage =
+      (restartPolicy?: string) =>
+      ({ children }: { children: ReactNode }) => (
+        <WorkspaceDataContext.Provider
+          value={
+            {
+              dagData: { dag: { name: 'demo', restartPolicy } },
+            } as unknown as WorkspaceDataValue
+          }
+        >
+          {children}
+        </WorkspaceDataContext.Provider>
+      );
+    const service = renderHook(() => useVisibleRuns({ enabled: true }), {
+      wrapper: onPage('always'),
+    });
+    expect(service.result.current.settings.mode).toBe('range');
+    expect(service.result.current.range).not.toBeNull();
+
+    const other = renderHook(() => useVisibleRuns({ enabled: true }), {
+      wrapper: onPage(),
+    });
+    expect(other.result.current.settings.mode).toBe('count');
+    expect(other.result.current.range).toBeNull();
   });
 });
 

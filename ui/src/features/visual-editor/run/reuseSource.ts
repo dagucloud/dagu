@@ -3,7 +3,6 @@
 
 import type { components } from '@/api/v1/schema';
 import { NodeStatus } from '@/api/v1/schema';
-import { parseParams } from '@/lib/parseParams';
 import type { CacheEntries, CacheEntry } from './outputCache';
 import type { RunSpecDiff } from './runSpecDiff';
 import { isReusedNode, isRunActive } from './stepRunInfo';
@@ -75,7 +74,11 @@ export function staleUpstream(p: {
   return p.previous.filter((name) => stale.has(name));
 }
 
-/** True when the node of a step holds a state that a new run can copy. */
+/**
+ * True when the node of a step holds a state that a new run can copy. The
+ * server rule (transform.Reusable): a node that succeeded or partially
+ * succeeded, or one that a retry skipped.
+ */
 export function nodeHoldsOutputs(node: Node | undefined): boolean {
   return (
     node !== undefined &&
@@ -234,9 +237,11 @@ export interface CacheCover {
  * does not cover: a step that the source run holds and that did not change
  * takes its outputs from that run, never from the cache. An entry covers a
  * step when its hash is the current hash of the step, which includes the
- * steps that it needs, and its run can still give the step (`check`); a stale
- * entry, or one whose run is gone, covers nothing. `hashes` is null while the
- * current definition is not known: then nothing is covered.
+ * steps that it needs, the parameters of its run equal `defaultParams` (the
+ * parameters that a new step run uses; the hash does not cover them), and its
+ * run can still give the step (`check`); a stale entry, or one whose run is
+ * gone, covers nothing. `hashes` is null while the current definition is not
+ * known: then nothing is covered.
  */
 export function coverFromCache(p: {
   previous: readonly string[];
@@ -245,6 +250,8 @@ export function coverFromCache(p: {
   hasSource: boolean;
   entries: CacheEntries;
   hashes: ReadonlyMap<string, string> | null;
+  /** `defaultParams` of the workflow, as the server sends it (quoted). */
+  defaultParams: string | null | undefined;
   check: (step: string, entry: CacheEntry) => RunCheck;
 }): CacheCover {
   const cached: string[] = [];
@@ -259,6 +266,7 @@ export function coverFromCache(p: {
     if (p.hasSource && !open.has(name)) continue;
     const entry = p.entries[name];
     if (!entry || p.hashes?.get(name) !== entry.stepHash) continue;
+    if (paramsDiffer(entry.params, p.defaultParams)) continue;
     const state = p.check(name, entry);
     if (state === 'checking') {
       checking = true;
@@ -319,20 +327,66 @@ export function defaultChoice(p: {
 // The server lists the parameters of a run unquoted (`A=1`) and the defaults
 // of a workflow quoted (`A="1"`): both read as unquoted pairs.
 function normalizeParams(params: string | null | undefined): string {
-  return parseParams(params ?? '')
-    .map((param) => (param.Name ? `${param.Name}=${param.Value}` : param.Value))
-    .join(' ')
-    .trim()
-    .replace(/\s+/g, ' ');
+  return (params ?? '').trim();
+}
+
+// One parameter of a text, as the server parses it: an optional `NAME=` and a
+// double-quoted, back-quoted or bare value.
+const PARAM_TOKEN = /(?:([^\s="]+)=)?("(?:\\"|[^"])*"|`[^`]*`|[^"\s]+)/g;
+const GO_ESCAPES: Record<string, string> = {
+  a: '\x07',
+  b: '\b',
+  f: '\f',
+  n: '\n',
+  r: '\r',
+  t: '\t',
+  v: '\v',
+  '\\': '\\',
+  '"': '"',
+};
+
+function unquoteValue(value: string): string {
+  if (!value.startsWith('"')) return value;
+  if (value.length < 2 || !value.endsWith('"')) {
+    return value.replace(/^"+|"+$/g, '').replace(/\\"/g, '"');
+  }
+  return value
+    .slice(1, -1)
+    .replace(
+      /\\(?:([abfnrtv\\"])|x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8}))/g,
+      (_all, simple?: string, x?: string, u?: string, big?: string) =>
+        simple !== undefined
+          ? (GO_ESCAPES[simple] as string)
+          : String.fromCodePoint(parseInt((x ?? u ?? big) as string, 16))
+    );
+}
+
+/**
+ * The `defaultParams` of a workflow in the form of a run's `params`. The
+ * server quotes each value in `defaultParams` (`ENV="dev"`) and does not
+ * quote it in the `params` of a run (`ENV=dev`).
+ */
+export function unquoteParams(defaults: string | null | undefined): string {
+  return [...(defaults ?? '').matchAll(PARAM_TOKEN)]
+    .map(([, name, value]) =>
+      name
+        ? `${name}=${unquoteValue(value as string)}`
+        : unquoteValue(value as string)
+    )
+    .join(' ');
 }
 
 /**
  * True when the parameters of the source run differ from the defaults of the
- * workflow. A new step run uses the defaults. Spacing and quotes do not count.
+ * workflow. A new step run uses the defaults. `runParams` is the `params` of
+ * a run and `defaults` the `defaultParams` of the workflow, in the forms that
+ * the server sends. Spaces inside a value count; the ends of the text do not.
  */
 export function paramsDiffer(
   runParams: string | null | undefined,
   defaults: string | null | undefined
 ): boolean {
-  return normalizeParams(runParams) !== normalizeParams(defaults);
+  return (
+    normalizeParams(runParams) !== normalizeParams(unquoteParams(defaults))
+  );
 }

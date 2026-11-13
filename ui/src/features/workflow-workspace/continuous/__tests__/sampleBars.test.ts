@@ -123,6 +123,21 @@ describe('barModel', () => {
     expect(model.bars).toHaveLength(1);
   });
 
+  it('draws no bar for a bucket with up time and no sample', () => {
+    const model = barModel({
+      buckets: [
+        bucket(NOW - 30 * 60_000),
+        bucket(NOW - 20 * 60_000, { count: 0, upMs: 60_000, p95Ms: 0 }),
+      ],
+      resolutionSeconds: 60,
+      from: NOW - HOUR,
+      to: NOW,
+      width: 600,
+      height: 96,
+    });
+    expect(model.bars).toHaveLength(1);
+  });
+
   // The red part is the share of the failures, with a floor so that it shows.
   it('sets the failed part to the share of failures', () => {
     const model = barModel({

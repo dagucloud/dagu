@@ -203,6 +203,7 @@ describe('InputsUsed', () => {
       runId: 'r0',
       capturedAt: 5_300,
       stepHash: 'h',
+      params: '',
     });
     h.results['fetch'] = { error: new Error('404') };
     render(
@@ -225,6 +226,7 @@ describe('InputsUsed', () => {
       runId: 'other',
       capturedAt: 5_300,
       stepHash: 'h',
+      params: '',
     });
     h.results['fetch'] = { error: new Error('404') };
     render(

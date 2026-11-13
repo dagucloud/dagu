@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WorkspaceLayout } from '../WorkspaceLayout';
+import { DOCK_TAB_HEIGHT, WorkspaceLayout } from '../WorkspaceLayout';
 
-const dock = vi.hoisted(() => ({ maximized: false }));
+const dock = vi.hoisted(() => ({ maximized: false, open: false }));
 vi.mock('../../dock/DockContext', () => ({ useDock: () => dock }));
 
 const FLOOR = '[@media(min-height:640px)]:min-h-[280px]';
@@ -22,6 +22,7 @@ function renderLayout() {
 
 beforeEach(() => {
   dock.maximized = false;
+  dock.open = false;
 });
 
 afterEach(() => {
@@ -54,6 +55,25 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('ww-zone-main')).toContainElement(
       screen.getByTestId('main')
     );
+  });
+
+  // The collapsed dock is a tab laid over the foot of the zone (LogsDock, `h-8`).
+  // It covered the overview of the canvas, which sits at the bottom left too.
+  it('keeps the foot of the canvas free for the tab of a collapsed dock', () => {
+    renderLayout();
+    const zone = screen.getByTestId('ww-zone-main');
+    expect(zone.style.getPropertyValue('--canvas-inset-bottom')).toBe(
+      DOCK_TAB_HEIGHT
+    );
+    // An open dock has a bar of its own, under the zone: nothing lies over it.
+    cleanup();
+    dock.open = true;
+    renderLayout();
+    expect(
+      screen
+        .getByTestId('ww-zone-main')
+        .style.getPropertyValue('--canvas-inset-bottom')
+    ).toBe('0px');
   });
 
   it('hides the minimap in the main zone below md', () => {

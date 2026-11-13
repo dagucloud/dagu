@@ -111,13 +111,16 @@ const SPEC = `steps:
 
 function wrapper(
   selected: ApiDAGRunDetails | null,
-  defaultParams?: string
+  defaultParams?: string,
+  fresh = false
 ): (props: { children: ReactNode }) => ReactNode {
-  const run = {
-    selection: 'latest',
-    ref: selected ? { name: 'example', runId: selected.dagRunId } : null,
-    details: selected,
-  } as unknown as WorkspaceRunValue;
+  const runFor = (details: ApiDAGRunDetails | null) =>
+    ({
+      selection: 'latest',
+      ref: details ? { name: 'example', runId: details.dagRunId } : null,
+      details,
+    }) as unknown as WorkspaceRunValue;
+  const run = runFor(selected);
   const value = {
     fileName: 'example.yaml',
     dagData: {
@@ -138,8 +141,12 @@ function wrapper(
     registerHistory: () => () => undefined,
   };
   return function Wrapper({ children }: { children: ReactNode }) {
+    // A polled run arrives as a new object each time.
+    const current = fresh
+      ? { ...value, run: runFor(selected && { ...selected }) }
+      : value;
     return (
-      <WorkspaceDataContext.Provider value={value}>
+      <WorkspaceDataContext.Provider value={current}>
         {children}
       </WorkspaceDataContext.Provider>
     );
@@ -155,7 +162,8 @@ function outputsCalls() {
 function render(
   p: Partial<Parameters<typeof useReuseSource>[0]> = {},
   selected: ApiDAGRunDetails | null = null,
-  defaultParams?: string
+  defaultParams?: string,
+  fresh = false
 ) {
   return renderHook(
     () =>
@@ -167,7 +175,7 @@ function render(
         followedUpstreamRunId: null,
         ...p,
       }),
-    { wrapper: wrapper(selected, defaultParams) }
+    { wrapper: wrapper(selected, defaultParams, fresh) }
   );
 }
 
@@ -217,6 +225,7 @@ function cacheStep(
     runId,
     capturedAt: 5000,
     stepHash: stepHashes(text).get(step) ?? '',
+    params: '',
   });
 }
 
@@ -451,6 +460,90 @@ describe('useReuseSource', () => {
       expect(asked[0]?.[1]).toMatchObject({
         params: { path: { name: 'example', dagRunId: 'r0' } },
       });
+    });
+
+    // Each answer arrives at its own time. A new answer or a new selected run
+    // must not cancel or repeat the requests in flight.
+    describe('with answers that arrive at different times', () => {
+      const runCalls = () =>
+        h.get.mock.calls.filter(
+          (call) => call[0] === '/dag-runs/{name}/{dagRunId}'
+        );
+      function gate() {
+        const open: Record<string, () => void> = {};
+        h.get.mockImplementation(
+          async (
+            path: string,
+            init: { params: { path: { dagRunId: string } } }
+          ) => {
+            if (path !== '/dag-runs/{name}/{dagRunId}') {
+              return { data: { outputs: [{ name: 'x', value: '1' }] } };
+            }
+            const id = init.params.path.dagRunId as string;
+            await new Promise<void>((resolve) => {
+              open[id] = resolve;
+            });
+            return {
+              data: { dagRunDetails: runOf(id) },
+              response: { status: 200 },
+            };
+          }
+        );
+        return open;
+      }
+      const cacheTwo = () => {
+        cacheStep('a', SPEC);
+        outputCache.put(SCOPE, 'b', {
+          values: { x: '1' },
+          runId: 'r1',
+          capturedAt: 5000,
+          stepHash: stepHashes(SPEC).get('b') ?? '',
+          params: '',
+        });
+      };
+
+      it('makes one request for each run', async () => {
+        h.history = [];
+        const open = gate();
+        cacheTwo();
+        const view = render({ liveText: SPEC });
+        await waitFor(() => expect(runCalls()).toHaveLength(2));
+        await act(async () => open['r0']!());
+        await waitFor(() => expect(view.result.current.cached).toEqual(['a']));
+        await act(async () => open['r1']!());
+        await waitFor(() => expect(view.result.current.loading).toBe(false));
+        expect(view.result.current.cached).toEqual(['a', 'b']);
+        expect(runCalls()).toHaveLength(2);
+      });
+
+      it('settles with a running selected run that is polled', async () => {
+        h.history = [];
+        const open = gate();
+        cacheTwo();
+        const selected = runOf('live', Status.Running);
+        const view = render({ liveText: SPEC }, selected, undefined, true);
+        await waitFor(() => expect(runCalls()).toHaveLength(2));
+        view.rerender();
+        view.rerender();
+        await act(async () => open['r0']!());
+        view.rerender();
+        await act(async () => open['r1']!());
+        await waitFor(() => expect(view.result.current.loading).toBe(false));
+        expect(runCalls()).toHaveLength(2);
+      });
+    });
+
+    it('leaves the decision to the server when a 200 answer holds no run', async () => {
+      h.history = [];
+      h.get.mockImplementation(async (path: string) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? { data: {}, response: { status: 200 } }
+          : { data: { outputs: [{ name: 'x', value: '1' }] } }
+      );
+      cacheStep('a', SPEC);
+      const view = render({ liveText: SPEC });
+      await waitFor(() => expect(view.result.current.loading).toBe(false));
+      expect(view.result.current.cached).toEqual(['a']);
     });
 
     // An answer must not drop the requests still in flight: each run is asked

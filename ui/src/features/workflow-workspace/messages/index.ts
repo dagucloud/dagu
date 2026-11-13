@@ -58,7 +58,15 @@ import wb1 from './wb1';
 import wc1 from './wc1';
 import xc1 from './xc1';
 import ta1 from './ta1';
+import zl1 from './zl1';
+import sl1 from './sl1';
+import ar1 from './ar1';
+import ag1 from './ag1';
+import tp1 from './tp1';
+import ci1 from './ci1';
+import dv1 from './dv1';
 import td1 from './td1';
+import td2 from './td2';
 import ya1 from './ya1';
 import w1l2 from './w1l2';
 import w2n3 from './w2n3';
@@ -87,6 +95,9 @@ import w14b from './w14b';
 import w14c from './w14c';
 import w15h from './w15h';
 import cr1 from './cr1';
+import cf1 from './cf1';
+import tl1 from './tl1';
+import nc1 from './nc1';
 import sh1 from './sh1';
 import sp1 from './sp1';
 import gp1 from './gp1';
@@ -96,6 +107,7 @@ import qa1 from './qa1';
 import ux1 from './ux1';
 import hp1 from './hp1';
 import rc1 from './rc1';
+import sv1 from './sv1';
 
 export const workspaceModules = {
   q2,
@@ -154,6 +166,7 @@ export const workspaceModules = {
   xc1,
   ta1,
   td1,
+  td2,
   ya1,
   w1l2,
   w2n3,
@@ -182,6 +195,16 @@ export const workspaceModules = {
   w14c,
   w15h,
   cr1,
+  cf1,
+  tl1,
+  nc1,
+  zl1,
+  sl1,
+  ar1,
+  ag1,
+  tp1,
+  ci1,
+  dv1,
   sh1,
   sp1,
   gp1,
@@ -191,6 +214,7 @@ export const workspaceModules = {
   ux1,
   hp1,
   rc1,
+  sv1,
 } as const;
 
 export const workspaceMessages = {
@@ -251,6 +275,7 @@ export const workspaceMessages = {
     ...xc1.en,
     ...ta1.en,
     ...td1.en,
+    ...td2.en,
     ...ya1.en,
     ...w1l2.en,
     ...w2n3.en,
@@ -279,6 +304,16 @@ export const workspaceMessages = {
     ...w14c.en,
     ...w15h.en,
     ...cr1.en,
+    ...cf1.en,
+    ...tl1.en,
+    ...nc1.en,
+    ...zl1.en,
+    ...sl1.en,
+    ...ar1.en,
+    ...ag1.en,
+    ...tp1.en,
+    ...ci1.en,
+    ...dv1.en,
     ...sh1.en,
     ...sp1.en,
     ...gp1.en,
@@ -288,6 +323,7 @@ export const workspaceMessages = {
     ...ux1.en,
     ...hp1.en,
     ...rc1.en,
+    ...sv1.en,
   },
   'zh-CN': {
     ...q2['zh-CN'],
@@ -346,6 +382,7 @@ export const workspaceMessages = {
     ...xc1['zh-CN'],
     ...ta1['zh-CN'],
     ...td1['zh-CN'],
+    ...td2['zh-CN'],
     ...ya1['zh-CN'],
     ...w1l2['zh-CN'],
     ...w2n3['zh-CN'],
@@ -374,6 +411,16 @@ export const workspaceMessages = {
     ...w14c['zh-CN'],
     ...w15h['zh-CN'],
     ...cr1['zh-CN'],
+    ...cf1['zh-CN'],
+    ...tl1['zh-CN'],
+    ...nc1['zh-CN'],
+    ...zl1['zh-CN'],
+    ...sl1['zh-CN'],
+    ...ar1['zh-CN'],
+    ...ag1['zh-CN'],
+    ...tp1['zh-CN'],
+    ...ci1['zh-CN'],
+    ...dv1['zh-CN'],
     ...sh1['zh-CN'],
     ...sp1['zh-CN'],
     ...gp1['zh-CN'],
@@ -383,6 +430,7 @@ export const workspaceMessages = {
     ...ux1['zh-CN'],
     ...hp1['zh-CN'],
     ...rc1['zh-CN'],
+    ...sv1['zh-CN'],
   },
   ja: {
     ...q2.ja,
@@ -441,6 +489,7 @@ export const workspaceMessages = {
     ...xc1.ja,
     ...ta1.ja,
     ...td1.ja,
+    ...td2.ja,
     ...ya1.ja,
     ...w1l2.ja,
     ...w2n3.ja,
@@ -469,6 +518,16 @@ export const workspaceMessages = {
     ...w14c.ja,
     ...w15h.ja,
     ...cr1.ja,
+    ...cf1.ja,
+    ...tl1.ja,
+    ...nc1.ja,
+    ...zl1.ja,
+    ...sl1.ja,
+    ...ar1.ja,
+    ...ag1.ja,
+    ...tp1.ja,
+    ...ci1.ja,
+    ...dv1.ja,
     ...sh1.ja,
     ...sp1.ja,
     ...gp1.ja,
@@ -478,5 +537,6 @@ export const workspaceMessages = {
     ...ux1.ja,
     ...hp1.ja,
     ...rc1.ja,
+    ...sv1.ja,
   },
 } as const;

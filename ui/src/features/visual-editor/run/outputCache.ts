@@ -3,9 +3,9 @@
 
 /**
  * What the browser remembers of the upstream steps: for each step, a
- * reference to a run in which it succeeded (`runId`, `capturedAt`) and the
- * hash of the step definition (see `stepHashes`). A step run names that run
- * to the server (`outputsFromRuns`), which reads the outputs from it: the
+ * reference to a run in which it succeeded (`runId`, `capturedAt`), the hash
+ * of the step definition (see `stepHashes`) and the parameters of that run. A
+ * step run names that run to the server (`outputsFromRuns`), which reads the outputs from it: the
  * browser never sends a value. The values that were read from the run stay
  * for display only, labelled with their run; nobody can type or edit one.
  */
@@ -21,6 +21,12 @@ export interface CacheEntry {
   capturedAt: number;
   /** Hash of the step and of the steps that it needs, when it was captured. */
   stepHash: string;
+  /**
+   * The parameters of the run, as the server stores them, outside the
+   * definition. A step run uses the default parameters of the workflow, so the
+   * entry is fresh only when they equal these.
+   */
+  params: string;
 }
 
 /** The entries of one workflow, by server step name. */
@@ -101,13 +107,14 @@ export function removeEntry(entries: CacheEntries, step: string): CacheEntries {
   return next;
 }
 
-/** True when two entries hold the same values for the same run and step hash. */
+/** True when two entries hold the same values for the same run, step hash and parameters. */
 export function sameEntry(a: CacheEntry | undefined, b: CacheEntry): boolean {
   if (!a) return false;
   const left = Object.keys(a.values);
   return (
     a.runId === b.runId &&
     a.stepHash === b.stepHash &&
+    a.params === b.params &&
     left.length === Object.keys(b.values).length &&
     left.every((name) => a.values[name] === b.values[name])
   );
@@ -125,6 +132,7 @@ function isEntry(value: unknown): value is CacheEntry {
     e['runId'] !== '' &&
     typeof e['capturedAt'] === 'number' &&
     typeof e['stepHash'] === 'string' &&
+    typeof e['params'] === 'string' &&
     // An entry of an earlier version that the user pinned has no run to name.
     e['pinned'] !== true
   );

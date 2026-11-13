@@ -14,9 +14,18 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { useDAGHistorySSE } from '@/hooks/useDAGHistorySSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { isRunActive } from '@/features/visual-editor/run/stepRunInfo';
+import { runTimeMs } from '../dock/runTimelineModel';
 import { useWorkspaceData } from './context';
 import { testRunExpiry } from './testRun';
+import {
+  gatedRead,
+  noteRead,
+  SERVICE_READ_GAP_MS,
+  useIsServiceDag,
+} from './useServiceDag';
 import type { ApiDAGRunDetails } from './types';
+
+export { resetReadGates, SERVICE_READ_GAP_MS } from './useServiceDag';
 
 type DAGGridItem = components['schemas']['DAGGridItem'];
 
@@ -86,6 +95,11 @@ const REMOVAL_RETRY_MS = 60_000;
  */
 const revalidatedEvents = new WeakSet<object>();
 
+/** A poll of a service DAG keeps the gap too. */
+function spaced(service: boolean, ms: number): number {
+  return service && ms > 0 ? Math.max(ms, SERVICE_READ_GAP_MS) : ms;
+}
+
 const isActiveTestRun = (run: ApiDAGRunDetails) =>
   !!run.ephemeral && isRunActive(run);
 
@@ -120,10 +134,18 @@ export function useRunHistory({
   enabled,
   includeEphemeral = false,
   pollTestRuns = false,
+  newestOnly = false,
 }: {
   enabled: boolean;
   includeEphemeral?: boolean;
   pollTestRuns?: boolean;
+  /**
+   * The caller uses only the newest page. While the feed of a service DAG is
+   * connected, its runs come from the feed, with the test runs of the last
+   * read, and an event does not read the list again. The older pages need a
+   * cursor that the feed does not give: they keep the reads.
+   */
+  newestOnly?: boolean;
 }): RunHistory {
   const { fileName, remoteNode, registerHistory, standaloneRun } =
     useWorkspaceData('useRunHistory');
@@ -135,8 +157,10 @@ export function useRunHistory({
   const active = enabled && fileName !== '' && standaloneRuns === null;
   const historySSE = useDAGHistorySSE(fileName, active, remoteNode);
   const startedAt = useTestRunStartedAt(fileName);
+  const service = useIsServiceDag();
+  const gateKey = `${remoteNode}\n${fileName}\n${includeEphemeral}`;
   const base = sseFallbackOptions(historySSE);
-  const baseInterval = base.refreshInterval;
+  const baseInterval = spaced(service, base.refreshInterval);
   // SWR restarts its poll timer when this function changes, so it changes
   // only when the poll can: a list that gains an active test run
   // (holdsActiveTestRun) must restart a poll that stopped. A new function at
@@ -147,9 +171,9 @@ export function useRunHistory({
     (latest?: { dagRuns?: ApiDAGRunDetails[] }) =>
       (startedAt !== undefined && Date.now() - startedAt < START_GRACE_MS) ||
       latest?.dagRuns?.some(isActiveTestRun)
-        ? TEST_RUN_POLL_MS
+        ? spaced(service, TEST_RUN_POLL_MS)
         : baseInterval,
-    [startedAt, baseInterval, holdsActiveTestRun]
+    [startedAt, baseInterval, holdsActiveTestRun, service]
   );
   const { data, isLoading, mutate } = useQuery(
     '/dags/{fileName}/dag-runs',
@@ -163,10 +187,25 @@ export function useRunHistory({
     }),
     {
       ...base,
+      refreshInterval: baseInterval,
       ...(includeEphemeral && pollTestRuns
         ? { refreshInterval: testRunInterval }
         : {}),
+      ...(service
+        ? {
+            focusThrottleInterval: SERVICE_READ_GAP_MS,
+            // A read that SWR makes by itself counts for the gap too.
+            onSuccess: () => {
+              noteRead(gateKey);
+            },
+          }
+        : {}),
     }
+  );
+  // An event or a refresh that asks for a read: a service DAG keeps the gap.
+  const read = useCallback(
+    () => (service ? gatedRead(gateKey, () => mutate()) : mutate()),
+    [service, gateKey, mutate]
   );
   const holds = data?.dagRuns?.some(isActiveTestRun) ?? false;
   if (holds !== holdsActiveTestRun) setHoldsActiveTestRun(holds);
@@ -179,28 +218,41 @@ export function useRunHistory({
     // A read that drops the run changes the removal and cancels the rest.
     const due = Math.max(0, removal - Date.now());
     const timers = Array.from({ length: 1 + REMOVAL_RETRIES }, (_, i) =>
-      setTimeout(() => void mutate(), due + i * REMOVAL_RETRY_MS)
+      setTimeout(() => void read(), due + i * REMOVAL_RETRY_MS)
     );
     return () => timers.forEach(clearTimeout);
-  }, [removal, mutate]);
+  }, [removal, read]);
   // The feed has no test run: it must not replace the list that has them.
   useSSECacheSync(
     historySSE,
     (includeEphemeral ? noSync : mutate) as typeof mutate
   );
   const events = historySSE.data;
+  const fromFeed =
+    newestOnly && includeEphemeral && service && historySSE.isConnected;
   useEffect(() => {
     // An event of the feed means that the history changed: read it again.
-    if (!includeEphemeral || events == null || revalidatedEvents.has(events)) {
+    if (
+      !includeEphemeral ||
+      fromFeed ||
+      events == null ||
+      revalidatedEvents.has(events)
+    ) {
       return;
     }
     revalidatedEvents.add(events);
-    void mutate();
-  }, [events, includeEphemeral, mutate]);
+    void read();
+  }, [events, includeEphemeral, fromFeed, read]);
 
   // Registered again with each committed list: a render that React drops
   // must not show its runs.
-  const runs = standaloneRuns ?? data?.dagRuns ?? NO_RUNS;
+  const fed = fromFeed ? events?.dagRuns : undefined;
+  const listed = data?.dagRuns;
+  const runs = useMemo(
+    () =>
+      standaloneRuns ?? (fed ? withTestRuns(fed, listed) : listed) ?? NO_RUNS,
+    [standaloneRuns, fed, listed]
+  );
   useEffect(() => {
     if (standaloneRuns) {
       return enabled
@@ -208,11 +260,8 @@ export function useRunHistory({
         : undefined;
     }
     if (!active) return;
-    return registerHistory(
-      () => mutate(),
-      () => runs
-    );
-  }, [active, enabled, standaloneRuns, mutate, registerHistory, runs]);
+    return registerHistory(read, () => runs);
+  }, [active, enabled, standaloneRuns, read, registerHistory, runs]);
 
   return {
     runs,
@@ -220,6 +269,20 @@ export function useRunHistory({
     nextCursor: standaloneRuns ? null : (data?.nextCursor ?? null),
     isLoading: active && isLoading,
   };
+}
+
+const timeOf = (run: ApiDAGRunDetails) =>
+  runTimeMs(run) ?? Number.MAX_SAFE_INTEGER;
+
+/** The runs of the feed and the test runs of the last read, newest first. */
+function withTestRuns(
+  fed: ApiDAGRunDetails[],
+  listed: ApiDAGRunDetails[] | undefined
+): ApiDAGRunDetails[] {
+  const tests = listed?.filter((r) => r.ephemeral);
+  return tests?.length
+    ? [...fed, ...tests].sort((a, b) => timeOf(b) - timeOf(a))
+    : fed;
 }
 
 // A mutator that does nothing, for a query that the SSE feed cannot fill.

@@ -657,6 +657,7 @@ describe('RunChip navigation', () => {
       enabled: true,
       includeEphemeral: true,
       pollTestRuns: false,
+      newestOnly: true,
     });
     expect(state.run.select).toHaveBeenCalledWith('r1');
     await userEvent.click(screen.getByRole('button', { name: 'Newer run' }));

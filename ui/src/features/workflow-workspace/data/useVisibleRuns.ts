@@ -16,6 +16,7 @@ import {
   parseStoredShowTests,
   RANGE_DEFAULT,
   rangeBounds,
+  rangeFor,
   runInRange,
   runTimeMs,
   timelineRuns,
@@ -30,6 +31,7 @@ import { useClockNow } from '@/hooks/useClock';
 import type { ApiDAGRunDetails, WorkspaceRunValue } from './types';
 import { useOlderRuns, type OlderRuns } from './useOlderRuns';
 import { useRunHistory } from './useRunHistory';
+import { useIsServiceDag } from './useServiceDag';
 import { useWorkspaceRun } from './useWorkspaceRun';
 
 export const RUN_COUNT_KEY = 'dagu.workspace.runTimelineCount';
@@ -209,6 +211,7 @@ export interface VisibleRuns {
   range: { from: number; to: number } | null;
   /** The run ID that is selected; null when none is. */
   selectedId: string | null;
+  /** The choices of the user, with the range that this DAG offers. */
   settings: RunViewSettings;
   /** True when the history holds a test run. */
   hasTestRuns: boolean;
@@ -286,8 +289,20 @@ export function useVisibleRuns({
     enabled,
     includeEphemeral: true,
     pollTestRuns,
+    newestOnly: true,
   });
-  const [settings] = useRunViewSettings();
+  const [stored] = useRunViewSettings();
+  // A service DAG offers more presets: a range that the DAG does not offer
+  // gives way to the default. It has no count mode: the run history is
+  // always a time range.
+  const service = useIsServiceDag();
+  const settings = useMemo(() => {
+    const range = rangeFor(stored.range, service);
+    const mode = service ? 'range' : stored.mode;
+    return range === stored.range && mode === stored.mode
+      ? stored
+      : { ...stored, range, mode };
+  }, [stored, service]);
   const preset = settings.range.preset;
   // A custom range has fixed ends, but a running run lasts until now.
   const rangeNow = useMinuteClock(enabled && settings.mode === 'range');

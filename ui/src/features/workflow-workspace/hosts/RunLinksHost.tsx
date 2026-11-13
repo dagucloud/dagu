@@ -23,7 +23,11 @@ export function RunLinksHost({ children }: { children: ReactNode }) {
   // The history is read once a mark asks for it.
   const [active, setActive] = useState(false);
   const activate = useCallback(() => setActive(true), []);
-  const history = useRunHistory({ enabled: active, includeEphemeral: true });
+  const history = useRunHistory({
+    enabled: active,
+    includeEphemeral: true,
+    newestOnly: true,
+  });
   const client = useClient();
   const [, setUrl] = useWorkspaceUrl();
   const dagName = dagData.dag?.name ?? fileName;
