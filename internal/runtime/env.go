@@ -99,10 +99,8 @@ func NewEnv(ctx context.Context, step ir.Step) Env {
 	return newEnvWithSteps(ctx, step, nil)
 }
 
-// newEnvWithSteps resolves working_dir against the given steps' outputs. The
-// map holds the predecessor steps that have already run in the current plan
-// plus any inherited step references. It is package-private: only runner.go
-// builds these scoped envs.
+// newEnvWithSteps is NewEnv with working_dir resolved against the outputs of
+// steps, which also seed the env's StepMap.
 func newEnvWithSteps(ctx context.Context, step ir.Step, steps map[string]cmnvalue.StepInfo) Env {
 	rCtx := GetDAGContext(ctx)
 	workingDir := resolveWorkingDir(ctx, step, rCtx, steps)
