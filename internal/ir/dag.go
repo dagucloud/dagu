@@ -1045,8 +1045,6 @@ func cloneConfigValue(value any) any {
 
 // Schedule contains the cron expression and the parsed cron schedule.
 type Schedule struct {
-	// Params is a JSON object of literal runtime parameter overrides.
-	Params json.RawMessage `json:"params,omitempty"`
 	// Kind identifies the schedule type.
 	Kind ScheduleKind `json:"kind,omitempty"`
 	// Expression is the cron expression.
@@ -1062,6 +1060,8 @@ type Schedule struct {
 	// month, counted from the start when positive and from the end when
 	// negative.
 	BusinessDays []int `json:"business_days,omitempty"`
+	// Params is a JSON object of literal runtime parameter overrides.
+	Params json.RawMessage `json:"params,omitempty"`
 	// Parsed is the parsed cron schedule. A calendar schedule has none until
 	// its calendar is bound.
 	Parsed cron.Schedule `json:"-"`
