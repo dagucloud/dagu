@@ -261,11 +261,9 @@ func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStat
 		statusesFilter[status] = struct{}{}
 	}
 
-	labelFilters := make([]ir.LabelFilter, 0, len(opts.Labels))
-	for _, label := range opts.Labels {
-		if trimmed := strings.TrimSpace(label); trimmed != "" {
-			labelFilters = append(labelFilters, ir.ParseLabelFilter(trimmed))
-		}
+	labelFilters, err := ir.ParseLabelFilters(opts.Labels)
+	if err != nil {
+		return nil, err
 	}
 
 	return &dagRunStatusIterator{

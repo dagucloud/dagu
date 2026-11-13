@@ -697,7 +697,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 	if err != nil {
 		return nil, err
 	}
-	opts := buildDAGRunListOptions(dagRunListFilterInput{
+	opts, err := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: request.Params.Status,
 		fromDate: request.Params.FromDate,
 		toDate:   request.Params.ToDate,
@@ -710,6 +710,9 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		backfillID:            request.Params.BackfillId,
 		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -748,7 +751,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 }
 
 func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNameRequestObject) (api.ListDAGRunsByNameResponseObject, error) {
-	opts := buildDAGRunListOptions(dagRunListFilterInput{
+	opts, err := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses:  request.Params.Status,
 		fromDate:  request.Params.FromDate,
 		toDate:    request.Params.ToDate,
@@ -757,6 +760,9 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 		cursor:    request.Params.Cursor,
 		exactName: &request.Name,
 	})
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -815,7 +821,7 @@ type dagRunListFilterInput struct {
 	excludeServiceDAGRuns bool
 }
 
-func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
+func buildDAGRunListOptions(input dagRunListFilterInput) (dagRunListOptions, error) {
 	const (
 		defaultLimit = 100
 		maxLimit     = 500
@@ -841,7 +847,11 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.dagRunID != nil && *input.dagRunID != "" {
 		opts.query.DAGRunID = *input.dagRunID
 	}
-	if labels := parseCommaSeparatedLabels(input.labels); len(labels) > 0 {
+	labels, err := parseCommaSeparatedLabels(input.labels)
+	if err != nil {
+		return dagRunListOptions{}, err
+	}
+	if len(labels) > 0 {
 		opts.query.Labels = labels
 	}
 	opts.query.BackfillID = valueOf(input.backfillID)
@@ -853,7 +863,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	}
 	opts.excludeServiceDAGRuns = input.excludeServiceDAGRuns
 	opts.query.Limit = limit
-	return opts
+	return opts, nil
 }
 
 func (a *API) readDAGRunsPage(
@@ -888,9 +898,11 @@ func dagRunListBadRequest(err error) *Error {
 	}
 }
 
-func parseCommaSeparatedLabels(labelsParam *string) []string {
+// parseCommaSeparatedLabels splits a labels query parameter into its filter
+// terms. An invalid term is a bad request.
+func parseCommaSeparatedLabels(labelsParam *string) ([]string, error) {
 	if labelsParam == nil || *labelsParam == "" {
-		return nil
+		return nil, nil
 	}
 
 	parts := strings.Split(*labelsParam, ",")
@@ -905,7 +917,14 @@ func parseCommaSeparatedLabels(labelsParam *string) []string {
 			}
 		}
 	}
-	return labels
+	if _, err := ir.ParseLabelFilters(labels); err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	return labels, nil
 }
 
 func queryLabelsParam(labelsParam, deprecatedTagsParam *string) (*string, error) {
@@ -5505,7 +5524,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		excludeServiceDAGRuns = parsed
 	}
 
-	opts := buildDAGRunListOptions(dagRunListFilterInput{
+	opts, err := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: statusValues,
 		fromDate: fromDate,
 		toDate:   toDate,
@@ -5518,6 +5537,9 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		backfillID:            backfillID,
 		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
+	if err != nil {
+		return dagRunListOptions{}, err
+	}
 
 	workspaceParam := workspaceParamFromValues(params)
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, workspaceParam)

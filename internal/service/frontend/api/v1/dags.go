@@ -969,7 +969,10 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 		return nil, err
 	}
 	pg := pagination.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
-	labels := parseCommaSeparatedLabels(labelsParam)
+	labels, err := parseCommaSeparatedLabels(labelsParam)
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -2415,7 +2418,10 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 	if labelErr != nil {
 		return persis.DAGListOptions{}, labelErr
 	}
-	labels := parseCommaSeparatedLabels(labelQueryParam)
+	labels, labelErr := parseCommaSeparatedLabels(labelQueryParam)
+	if labelErr != nil {
+		return persis.DAGListOptions{}, labelErr
+	}
 
 	pg := pagination.NewPaginator(page, perPage)
 	workspaceParam := workspaceParamFromValues(params)

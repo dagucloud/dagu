@@ -90,11 +90,10 @@ func (s *oracleSeed) update(t *testing.T, name, id string, status ir.Status) {
 }
 
 // expected lists the seeded runs matching query in list order.
-func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
-	labelFilters := make([]ir.LabelFilter, 0, len(query.Labels))
-	for _, label := range query.Labels {
-		labelFilters = append(labelFilters, ir.ParseLabelFilter(label))
-	}
+func (s *oracleSeed) expected(t *testing.T, query persis.DAGRunStatusQuery) []string {
+	t.Helper()
+	labelFilters, err := ir.ParseLabelFilters(query.Labels)
+	require.NoError(t, err)
 	var matched []seededRun
 	for _, run := range s.runs {
 		labels := ir.NewLabels(run.labels)
@@ -242,7 +241,7 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 	}
 
 	for filterName, filter := range filters {
-		want := seed.expected(filter)
+		want := seed.expected(t, filter)
 		require.NotEmpty(t, want, filterName)
 		for tuningName, tuning := range tunings {
 			for _, limit := range []int{0, 3, 100} {
@@ -280,7 +279,7 @@ func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(broken, "dag-runs"), nil, 0o600))
 
 	query := persis.DAGRunStatusQuery{ExcludeDAGNames: []string{"my.svc", "broken"}}
-	require.Equal(t, seed.expected(query), listAll(t, seed.th.Backend, query))
+	require.Equal(t, seed.expected(t, query), listAll(t, seed.th.Backend, query))
 	if runtime.GOOS != "windows" {
 		_, err := seed.th.Backend.QueryStatuses(t.Context(), persis.DAGRunStatusQuery{})
 		require.Error(t, err)
