@@ -1,7 +1,7 @@
 # RFC 003: Replace Workspaces with Projects
 
 - **Status:** Proposed
-- **Date:** 2026-10-09, revised 2026-10-24
+- **Date:** 2026-10-09, revised 2026-10-24 and 2026-11-13
 - **Affected areas:** `workspace`, `auth`, `spec` (base config), `runtime`
   (`dag.run` resolution), `secret`, `profile`, notification routes, incident
   policies, wiki, `audit`, `gitsync`, `service/scheduler`,
@@ -16,6 +16,9 @@ secrets, profiles, notification routes, incident policies, and wiki. Users,
 API keys, authentication, and workers stay server-wide. One server process
 serves every project. Child DAGs that several projects call live in a library
 at `paths.alt_dags_dir` and run in the project that calls them.
+
+Each project has an ID that survives renames. Grants, audit entries, and
+distributed tasks refer to the ID; people refer to the name.
 
 `dagu migrate workspaces` moves each v2 workspace into a project. v3.0 refuses
 to start while unmigrated workspace items remain. Installs without workspaces
@@ -56,6 +59,7 @@ workspaces without a replacement would keep those installs on v2.
 5. Migrate workspaces with one reviewed command, and never change silently
    which settings or secrets a workflow runs with.
 6. Leave "workspace" to mean only the Dagu Cloud account.
+7. Give each project an identity that survives renames.
 
 ## Non-goals
 
@@ -91,8 +95,7 @@ $DAGU_HOME/
   `$DAGU_HOME/projects`, or the XDG data directory when `DAGU_HOME` is unset.
 - The default project is the existing home. Its paths, including any set in
   `config.yaml`, do not change.
-- Project names match `^[A-Za-z0-9_-]+$`, as workspace names do. `default` is
-  reserved.
+- Project names follow [Names](#names).
 - A new directory under `paths.projects_dir`, or under
   `paths.projects_dags_dir` when set, is a new project. Admins can also create
   one in the UI or API.
@@ -119,6 +122,26 @@ $DAGU_HOME/projects/
 `base.yaml` at the root of a project's DAG directory is the project base
 config, not a DAG.
 
+### Names
+
+A project name is a directory name, so it must work as one on macOS,
+Windows, and Linux.
+
+- It matches `^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$`. Run files nest several
+  levels below the project directory, and many Windows tools stop at 260
+  characters in a path. A name never starts with `-`, so `--project` never
+  reads it as a flag.
+- It is not a Windows device name: `con`, `prn`, `aux`, `nul`, `com1` to
+  `com9`, or `lpt1` to `lpt9`, in any case.
+- `default` is reserved, in any case.
+- Names are unique without regard to case, because macOS and Windows compare
+  file names that way and Linux does not. A request that names a project in
+  another case resolves to the stored spelling, so every path uses one
+  spelling.
+- Discovery skips a directory whose name breaks these rules or differs only
+  in case from another project's name. The server logs it, and the projects
+  page lists it for admins.
+
 ### Scope
 
 | Scope | Contents |
@@ -136,6 +159,17 @@ the caller's file, in its own file, or in the library.
 
 ### Identity and references
 
+Each project has an ID, a random UUID assigned when the project is created or
+first discovered. The ID never changes; the name can.
+
+- A server-wide registry holds each project's ID, name, and creation time.
+  Every write to it holds one lock and checks the name rules before it
+  stores. Writes are rare, so one lock costs nothing.
+- Records that outlive a request refer to a project by ID: grants, audit
+  entries, dispatch tasks, leases, and status reports. Names are for people:
+  `--project`, the API's `project` parameter, and `project_mappings` take a
+  name and resolve it to an ID.
+- The default project gets its ID at the first v3.0 start.
 - A DAG is identified by its project and name. Names are unique within a
   project.
 - `dag.run` resolves its target in the caller's project, then in the
@@ -151,7 +185,8 @@ the caller's file, in its own file, or in the library.
   the `?workspace=` parameter are removed.
 - Local runs start their child process with `--project`. `DAGU_HOME` stays the
   server root, so the child still reads `config.yaml` and the global base.
-- Audit entries record the project. Old entries keep `workspace`.
+- Audit entries record the project's ID and its name at the time. Old
+  entries keep `workspace`.
 
 ### Library
 
@@ -191,6 +226,31 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   `workspace_mappings` and `default_workspace_access` with the same shape.
   v3.0 reads the old keys with a warning. v3.1 drops them.
 
+### Lifecycle
+
+- **Create.** An admin creates a project in the UI or API, or with `dagu
+  project create`, or adds a directory that discovery finds. Either way the
+  registry assigns its ID, and the scheduler starts its unit without a
+  restart.
+- **Rename.** An admin renames a project in the UI or API, or with `dagu
+  project rename`. The rename holds the registry lock while it moves the
+  project's directories and updates the registry. Discovery takes the same
+  lock, so no process sees the moved directory as a new project. The ID,
+  grants, and run history stay. Clients that address the project by name use
+  the new name. With `paths.projects_dags_dir` set, a git checkout shows the
+  moved DAG directory as a change to commit.
+- **Delete.** An admin deletes a project in the UI or API, or with `dagu
+  project delete`. It removes the project's directories, registry entry, and
+  grants. With `paths.projects_dags_dir` set, it is refused while the
+  project's DAG directory exists: the checkout owns that directory, so it is
+  removed there first.
+- Rename and delete are refused while the project has runs queued, running,
+  or waiting.
+- **Changed on disk.** A directory renamed or removed outside Dagu is not a
+  rename. The old registry entry keeps its ID and grants, and the projects
+  page lists it as missing until its directory returns or an admin deletes
+  it. A renamed directory registers as a new project, with no grants.
+
 ### UI
 
 The workspace selector becomes a project selector that lists the projects the
@@ -223,7 +283,7 @@ scheduler process   HA lock, health server, service registry, signals, license
 
 ## Distributed execution
 
-- Dispatch tasks, leases, and status reports carry the project. The
+- Dispatch tasks, leases, and status reports carry the project ID. The
   coordinator records attempts in that project's run store.
 - Tasks already carry base config content and the profile name. Both now come
   from the task's project. Profile and secret values resolve from the task's
@@ -231,8 +291,8 @@ scheduler process   HA lock, health server, service registry, signals, license
 - `base_config_workspace` is removed from the task.
 - Workers stay shared and do not read project directories. A `dag.run` inside
   a dispatched run fetches its child from the coordinator, which resolves it
-  in the task's project, then the library. `GetDAG` gains a project field for
-  this.
+  in the task's project, then the library. `GetDAG` gains a project ID field
+  for this.
 - A worker's own `dags_dir` and `alt_dags_dir` serve only default-project
   tasks, so a project run never picks up a default-project DAG with the same
   name.
@@ -246,6 +306,7 @@ v2 install before the upgrade. Apply it with every Dagu process for that
 
 | v2 | v3.0 |
 | --- | --- |
+| Workspace `X` | Project `X` in the registry, with a new ID |
 | DAG labelled `workspace=X` | `projects/X/dags/`, or `<projects_dags_dir>/X/` when set, with its runs, logs, artifacts, DAG state, suspend flags, and DAG settings |
 | DAG or base file already at its v3 path | Left in place. Its runs, logs, and state still move |
 | DAG without a `workspace` label | Stays in the default project |
@@ -268,7 +329,9 @@ The plan lists these conflicts, and `--apply` refuses while any remain:
 
 - A `dag.run` target that would land in another project.
 - A DAG or base file present at both its v2 and v3 paths.
-- A workspace named `default`, or two names that differ only in case.
+- A workspace name that breaks the [name rules](#names), including
+  `default` and two names that differ only in case. `--rename OLD=NEW` gives
+  such a workspace a project name.
 - A queue not defined in `config.yaml` that DAGs in different projects share.
   Defining it in `config.yaml` keeps it shared.
 
@@ -336,6 +399,13 @@ v2 gets no new workspace features.
     load from it, and runtime state stays under `paths.projects_dir`.
 14. `--apply` leaves DAG files already at their v3 path in place and still
     moves their runs and state.
+15. A project name that breaks the name rules is refused at creation and
+    skipped at discovery, and the server logs it.
+16. Renaming a project keeps its ID, grants, and run history. Rename and
+    delete are refused while the project has runs queued, running, or
+    waiting.
+17. A directory renamed outside Dagu registers as a new project without
+    grants, and the old entry is listed as missing.
 
 ## Alternatives considered
 
@@ -359,6 +429,14 @@ v2 gets no new workspace features.
   no longer run the files that production runs.
 - **Merge projects that share child DAGs.** Brings back the coarse access
   that projects replace.
+- **The name as the project's identity.** A rename would orphan grants,
+  audit entries, and tasks in flight.
+- **An ID file in each project directory.** Survives renames made on disk,
+  but every DAG checkout then carries a generated file, and a copied
+  directory claims the same ID.
+- **Directories named by project ID.** Makes a rename a registry update, but
+  the layout and git checkouts become unreadable, and adding a directory no
+  longer creates a project.
 
 ## Consequences
 
@@ -372,6 +450,8 @@ v2 gets no new workspace features.
 - The scheduler gains a supervisor, and project units reuse the current
   scheduling logic.
 - "Workspace" means only the Dagu Cloud account.
+- Each project has an ID, so a rename keeps its grants and history. Project
+  names are valid directory names on macOS, Windows, and Linux.
 
 ## Open questions
 
