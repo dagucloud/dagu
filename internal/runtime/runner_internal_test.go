@@ -1396,6 +1396,12 @@ func TestSetupVariablesFailsOnMaskedOutputs(t *testing.T) {
 			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
 		},
 		{
+			name:    "output variable after a backslash pair",
+			command: `deploy \\${TOKEN}`,
+			masked:  &ir.MaskedOutputs{Names: []string{"TOKEN"}},
+			wantErr: `output "TOKEN" of step "fetch"`,
+		},
+		{
 			name:        "mention in the description",
 			command:     "deploy",
 			description: "uses ${TOKEN} and ${steps.fetch.outputs.token}",

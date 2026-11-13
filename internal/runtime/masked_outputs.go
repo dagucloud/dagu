@@ -87,10 +87,10 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 }
 
 // readsVariable reports whether value reads the variable as $NAME or ${NAME}.
-// A dollar escaped with a backslash is literal text.
+// A dollar after an odd number of backslashes is escaped, so it is text.
 func readsVariable(value, name string) bool {
 	for i := 0; i < len(value); i++ {
-		if value[i] != '$' || (i > 0 && value[i-1] == '\\') {
+		if value[i] != '$' || escapedDollar(value, i) {
 			continue
 		}
 		rest := value[i+1:]
@@ -105,6 +105,14 @@ func readsVariable(value, name string) bool {
 		return true
 	}
 	return false
+}
+
+func escapedDollar(value string, at int) bool {
+	backslashes := 0
+	for i := at - 1; i >= 0 && value[i] == '\\'; i-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }
 
 func isNameByte(b byte) bool {
