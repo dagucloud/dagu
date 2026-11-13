@@ -104,6 +104,7 @@ const (
 	buildFlagValidateRuntimeParams
 	buildFlagDeferWorkerSelector
 	buildFlagBaseDefinition // Building a base config, before it merges into a DAG
+	buildFlagRunValues      // The run's dates and context are known
 )
 
 // buildOpts is used to control the behavior of the builder.
@@ -143,6 +144,10 @@ type buildOpts struct {
 	BuildEnv map[string]string
 	// RuntimeResolved reports whether BuildEnv contains the complete runtime environment.
 	RuntimeResolved bool
+	// RunDates and RunContext are the run's dates and context, which a
+	// param's eval may read. They are set with buildFlagRunValues.
+	RunDates   cmnvalue.Values
+	RunContext cmnvalue.BuiltinContext
 }
 
 // Has reports whether the flag is enabled on the current buildOpts.

@@ -13,6 +13,9 @@ working_dir: .
 dates:
   since: { from: interval_start, format: datetime }
   day: -1d
+params:
+  - name: day
+    eval: "${dates.day}"
 steps:
   - id: capture
-    run: printf 'since=%s day=%s\n' '${dates.since}' '${dates.day}' > child-dates.txt
+    run: printf 'since=%s day=%s param=%s\n' '${dates.since}' '${dates.day}' '${params.day}' > child-dates.txt

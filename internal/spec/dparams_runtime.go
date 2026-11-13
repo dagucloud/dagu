@@ -218,8 +218,14 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 	scope := buildParamEvalScope(ctx)
 	params := make(cmnvalue.Values)
 	paramDeclarations := paramDeclarationsForPlan(plan)
+	waiting := false
 	for i := range entries {
 		if i < len(plan.entries) {
+			if !overridden[i] && waitsForRun(ctx, plan.entries[i].Eval, waiting) {
+				waiting = true
+				entries[i].Value, entries[i].HasValue, entries[i].Deferred = "", false, true
+				continue
+			}
 			if err := resolveLegacyEntry(ctx, &entries[i], plan.entries[i], overridden[i], &scope, params, paramDeclarations, i); err != nil {
 				return nil, err
 			}
@@ -489,6 +495,16 @@ func buildParamEvalScope(ctx buildContext) *cmnvalue.EnvScope {
 	return scope
 }
 
+// waitsForRun reports whether a param's eval waits for the run's values: it
+// reads the run's dates or context, or follows an eval that waits. It waits
+// only in a load that evaluates without them.
+func waitsForRun(ctx buildContext, eval string, afterWaiting bool) bool {
+	if strings.TrimSpace(eval) == "" || ctx.opts.Has(buildFlagNoEval) || ctx.opts.Has(buildFlagRunValues) {
+		return false
+	}
+	return afterWaiting || cmnvalue.HasReferenceToNamespace(eval, "dates", "context")
+}
+
 func resolveLegacyEntry(
 	ctx buildContext,
 	entry *dagParamEntry,
@@ -516,10 +532,16 @@ func resolveLegacyEntry(
 	}
 	runtimeScope.Consts = consts
 	runtimeScope.Params = params
+	staticScope := cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations}
+	if ctx.opts.Has(buildFlagRunValues) {
+		runtimeScope.Dates = ctx.opts.RunDates
+		runtimeScope.BuiltinContext = ctx.opts.RunContext
+		staticScope.Dates = ctx.opts.RunDates
+	}
 	fieldPath := fmt.Sprintf("params[%d].eval", index)
 	reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, fieldPath, base.Eval)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
+		staticScope,
 		runtimeScope,
 		cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 	)

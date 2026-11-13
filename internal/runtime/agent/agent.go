@@ -617,6 +617,14 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// Initialize propagators for W3C trace context before anything else
 	telemetry.InitializePropagators()
 
+	if err := a.resolveDates(ctx); err != nil {
+		return err
+	}
+	// The env resolved at startup may read the params that wait for the dates.
+	if err := a.evaluateDeferredParams(ctx); err != nil {
+		return err
+	}
+
 	startup, err := a.resolveStartup(logger.WithValues(startupCtx, centralLogFields...))
 	if err != nil {
 		return a.abortStartup(ctx, nil)
@@ -709,10 +717,6 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	initializationCtx, finishInitialization := bindStartupContext(ctx, startupCtx)
 	defer finishInitialization()
-
-	if err := a.resolveDates(ctx); err != nil {
-		return err
-	}
 
 	// Check if the DAG is already running.
 	if err := a.checkIsAlreadyRunning(initializationCtx); err != nil {
@@ -1836,6 +1840,21 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 		return err
 	}
 	a.setDates(dates)
+	return nil
+}
+
+// evaluateDeferredParams gives the params whose eval waits for the run their
+// values, from the run's dates and the context it has at creation.
+func (a *Agent) evaluateDeferredParams(ctx context.Context) error {
+	if len(a.dag.DeferredParams) == 0 {
+		return nil
+	}
+	runContext := runctx.CreationContext(a.dag.Name, a.dagRunID, a.contextScheduleTime(), a.contextScheduleWindow())
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if _, err := spec.EvaluateDeferredParams(ctx, a.dag, a.dates, runContext); err != nil {
+		return fmt.Errorf("failed to evaluate params: %w", err)
+	}
 	return nil
 }
 

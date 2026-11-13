@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
@@ -423,4 +424,36 @@ steps:
 
 	assert.Contains(t, restored.Env, "DECLARED=from-yaml")
 	assert.Contains(t, restored.Env, "SNAPSHOT_ONLY=kept")
+}
+
+// The params whose eval waits for the run get their values from its dates
+// and context, and so do the env entries and later params that read them.
+func TestEvaluateDeferredParams(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+dates:
+  target_day: -1d
+params:
+  - name: day
+    eval: "${dates.target_day}"
+  - name: target
+    eval: "/data/$day"
+env:
+  - DAY: ${params.day}
+steps:
+  - run: echo ${params.target}
+`)
+	dag, err := spec.LoadYAML(context.Background(), yaml)
+	require.NoError(t, err)
+	require.Equal(t, []string{"day", "target"}, dag.DeferredParams)
+
+	dates := []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}
+	evaluated, err := spec.EvaluateDeferredParams(context.Background(), dag, dates, cmnvalue.BuiltinContext{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"day=2026-11-09", "target=/data/2026-11-09"}, evaluated.Params)
+	assert.JSONEq(t, `{"day":"2026-11-09","target":"/data/2026-11-09"}`, evaluated.ParamsJSON)
+	assert.Contains(t, evaluated.Env, "DAY=2026-11-09")
+	assert.Empty(t, evaluated.DeferredParams)
 }

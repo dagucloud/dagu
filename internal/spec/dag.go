@@ -571,6 +571,7 @@ var metadataParamsEnvStage = transformStage{
 	dagField("param_defs", buildParamDefs, func(out *ir.DAG, v []ir.ParamDef) { out.ParamDefs = v }),
 	dagField("param_schema", buildParamSchema, func(out *ir.DAG, v json.RawMessage) { out.ParamSchema = v }),
 	dagField("params_json", buildParamsJSON, func(out *ir.DAG, v string) { out.ParamsJSON = v }),
+	dagField("deferred_params", buildDeferredParams, func(out *ir.DAG, v []string) { out.DeferredParams = v }),
 	dagField("env", buildEnvs, func(out *ir.DAG, v []string) { out.Env = v }),
 }
 
@@ -2335,6 +2336,8 @@ type paramsResult struct {
 	ParamDefs     []ir.ParamDef
 	ParamSchema   json.RawMessage
 	ParamsJSON    string // JSON representation of resolved params (original payload when provided as JSON)
+	// DeferredParams names the params whose eval waits for the run.
+	DeferredParams []string
 }
 
 func buildParams(ctx buildContext, d *dag) ([]string, error) {
@@ -2415,6 +2418,14 @@ func buildParamsJSON(ctx buildContext, d *dag) (string, error) {
 		return "", err
 	}
 	return result.ParamsJSON, nil
+}
+
+func buildDeferredParams(ctx buildContext, d *dag) ([]string, error) {
+	result, err := parseParamsInternal(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	return result.DeferredParams, nil
 }
 
 func buildParamSchema(ctx buildContext, d *dag) (json.RawMessage, error) {

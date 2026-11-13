@@ -77,6 +77,7 @@ steps:
 - A run started without a slot, by hand, a webhook, or a watched file, gets the default slot: the latest fire at or before it was created. A monthly DAG started on the 15th loads what its run of the 1st loaded.
 - On a DAG with no schedule, `scheduled_at` is the minute the run was created, and a date that needs a window is refused, except in a sub-DAG of a run with a slot, which resolves from its parent's slot.
 - Dates are not environment variables. Pass one through `env:` when a script needs it.
+- A param can follow the slot with `eval: ${dates.target_day}`. It is evaluated when the run starts, so a caller's value overrides it (`dagu start etl -- date=2026-11-01`) without changing the date.
 
 ## Supported Context References
 

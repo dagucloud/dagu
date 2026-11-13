@@ -614,6 +614,16 @@ func evaluateDAGEnvRuntime(
 	return result
 }
 
+// CreationContext returns the context values a run has when it is created,
+// which a param's eval may read: the DAG name, the run ID, and the slot and
+// its window.
+func CreationContext(dagName, dagRunID, scheduleTime string, window ir.ScheduleWindow) cmnvalue.BuiltinContext {
+	options := &contextOptions{}
+	WithScheduleTime(scheduleTime)(options)
+	WithScheduleWindow(window)(options)
+	return buildDAGRunBuiltinContext(&ir.DAG{Name: dagName}, dagRunID, nil, options)
+}
+
 func buildDAGRunBuiltinContext(
 	dag *ir.DAG,
 	dagRunID string,

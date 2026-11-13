@@ -169,6 +169,10 @@ type DAG struct {
 	// Note: This field is evaluated at build time and may contain secrets.
 	// It is excluded from JSON serialization to prevent secret leakage.
 	ParamsJSON string `json:"-"`
+	// DeferredParams names the params whose eval waits for the run: an eval
+	// that reads the run's dates or context, and every eval after it. A load
+	// without the run's values leaves them unset.
+	DeferredParams []string `json:"-"`
 	// Steps contains the list of steps in the DAG.
 	Steps []Step `json:"steps,omitempty"`
 	// HandlerOn contains the steps to be executed on different events.

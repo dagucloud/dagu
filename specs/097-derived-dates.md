@@ -3,11 +3,12 @@
 ## Status
 
 Partially implemented. Loading, validation, resolution for runs,
-`${dates.NAME}`, and the default slot are implemented; conformance covers
-them through `dagu validate`, `dagu start`, sub-DAG runs, `parallel`, and
-`dagu retry`, and the previews through `dagu dry`, `dagu calendar fires`, and
-`dagu start`; the API previews are covered by API tests. Not yet implemented:
-reading dates in `params[].eval`, and the UI previews.
+`${dates.NAME}`, `params[].eval` that reads dates, and the default slot are
+implemented; conformance covers them through `dagu validate`, `dagu start`,
+sub-DAG runs, `parallel`, and `dagu retry`, and the previews through
+`dagu dry`, `dagu calendar fires`, and `dagu start`; the API previews and the
+run dialog's preview are covered by API and UI tests. Not yet implemented:
+the dates in the editor and on the run details page.
 
 ## Scope
 
@@ -205,14 +206,34 @@ A slot's dates can be read before a run exists, and after it records them:
 `${dates.NAME}` is a Dagu-owned reference in the `dates` namespace of
 [Spec 003](003-value-resolution.md). It resolves wherever `${params.NAME}`
 does, except in the fields that resolve while the DAG loads, before a run's
-dates exist: `consts`, `params[].eval`, and the map form of
-`worker_selector`. There the reference is preserved.
+dates exist: `consts` and the map form of `worker_selector`. There the
+reference is preserved.
 
 - A single entry inserts its formatted text.
 - A list inserts a JSON array of its values, such as
   `["2026-11-06","2026-11-07","2026-11-08"]`, so `parallel: ${dates.days}`
   runs one item per date.
 - A `dates` param stays addressable as `${params.dates}`.
+
+### Params
+
+A param can follow the slot:
+
+```yaml
+params:
+  - name: date
+    eval: ${dates.target_day}
+```
+
+- A `params[].eval` that reads `${dates.NAME}` or `${context.*}`, and every
+  `params[].eval` after it, is evaluated when the run starts, after its dates
+  resolve and before root `env`, as Spec 003 defines.
+- A value the caller gives skips `eval`, as for any param. It changes
+  `${params.date}`, not `${dates.target_day}`.
+- A queued run evaluates the param when it starts, from the dates recorded
+  when it was created. A retry reuses the value the run recorded.
+- A load that starts no run, such as `dagu validate` or a DAG's details,
+  leaves the param unset. `dagu dry` evaluates it for the slot it previews.
 - Outside a run, as in `dagu validate`, a declared name is unavailable and is
   preserved with a runtime-only notice. A name the DAG does not declare is a
   defect.
