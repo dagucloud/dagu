@@ -895,6 +895,48 @@ func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
 	}
 }
 
+// A failed response need not carry JSON, so format: json keeps the mapped exit
+// code when the error body is HTML or empty.
+func TestHTTPExecutor_StatusExitCodesWithNonJSONBody(t *testing.T) {
+	t.Parallel()
+
+	for name, body := range map[string]string{"HTML": "<html>busy</html>", "Empty": ""} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.WriteHeader(nethttp.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{Command: "GET"}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: map[string]any{
+					"url":               server.URL,
+					"format":            "json",
+					"status_exit_codes": map[string]any{"5xx": 75},
+				}},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			out := &testWriter{}
+			httpExec.SetStdout(out)
+			httpExec.SetStderr(&testWriter{})
+
+			require.ErrorIs(t, httpExec.Run(context.Background()), errHTTPStatusCode)
+			assert.Equal(t, 75, httpExec.ExitCode())
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(out.data, &result))
+			assert.InDelta(t, nethttp.StatusServiceUnavailable, result["status_code"], 0)
+			assert.Equal(t, body, result["body"])
+		})
+	}
+}
+
 // A status mapped to 0 is a success, so the response is written as for a 2xx
 // response and output receives the body.
 func TestHTTPExecutor_StatusMappedToZeroWritesResponse(t *testing.T) {

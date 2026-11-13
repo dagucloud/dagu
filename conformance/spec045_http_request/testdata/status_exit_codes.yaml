@@ -16,6 +16,7 @@ steps:
     with:
       method: GET
       url: $HTTP_URL/flaky
+      format: json
       status_exit_codes:
         "5xx": 75
     retry_policy:

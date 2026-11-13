@@ -110,7 +110,8 @@ func TestHTTPErrorOutput(t *testing.T) {
 }
 
 // A mapped status is the step exit code, so retry_policy and continue_on act
-// on it, and a status mapped to 0 still writes the response body.
+// on it, even when a format: json failure has a non-JSON body. A status mapped
+// to 0 writes the response body.
 func TestHTTPStatusExitCodes(t *testing.T) {
 	t.Parallel()
 
@@ -123,7 +124,10 @@ func TestHTTPStatusExitCodes(t *testing.T) {
 		case "/flaky":
 			if flakyRequests.Add(1) == 1 {
 				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("<html>busy</html>"))
+				return
 			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		case "/gone":
 			w.WriteHeader(http.StatusGone)
 		}

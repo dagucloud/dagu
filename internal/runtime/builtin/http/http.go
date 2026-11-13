@@ -210,7 +210,9 @@ func (e *http) writeJSONResult(rsp *resty.Response, body []byte) error {
 		httpJSONResultData.Output = e.cfg.Output
 	} else {
 		if err = json.Unmarshal(body, &httpJSONResultData.Body); err != nil {
-			if e.cfg.Output == "" || e.succeeded(rsp) {
+			// Only a successful response must carry JSON; a failed one keeps
+			// its body as text so the step reports the status failure.
+			if e.succeeded(rsp) {
 				return err
 			}
 			httpJSONResultData.Body = string(body)
