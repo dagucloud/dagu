@@ -1342,7 +1342,9 @@ func TestCheckMaskedReads(t *testing.T) {
 		name        string
 		command     string
 		description string
-		noID        bool // fetch has no id
+		noID        bool   // fetch has no id
+		published   string // fetch's stored published outputs
+		captured    string // fetch's stored captured text
 		masked      *ir.MaskedOutputs
 		wantErr     string // the output named in the error; empty when the step runs
 	}{
@@ -1365,22 +1367,44 @@ func TestCheckMaskedReads(t *testing.T) {
 			wantErr: `output "region" of step "fetch"`,
 		},
 		{
-			name:    "captured output",
+			name:     "captured output",
+			command:  "deploy ${fetch.output}",
+			captured: "***",
+			masked:   &ir.MaskedOutputs{Captured: true},
+			wantErr:  `output "${fetch.output}" of step "fetch"`,
+		},
+		{
+			name:    "captured output read from the output variable",
 			command: "deploy ${fetch.output}",
-			masked:  &ir.MaskedOutputs{Captured: true},
+			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "${fetch.output}" of step "fetch"`,
 		},
 		{
-			name:    "field of the captured output",
+			name:    "field of the captured document",
 			command: "deploy ${fetch.outputs.region}",
 			masked:  &ir.MaskedOutputs{Captured: true},
-			wantErr: `output "${fetch.outputs.region}" of step "fetch"`,
+			wantErr: `output "region" of step "fetch"`,
+		},
+		// ${<id>.outputs...} reads published outputs when the step has them.
+		{
+			name:      "published output through the step property",
+			command:   "deploy ${fetch.outputs.token}",
+			published: `{"token":"***"}`,
+			masked:    &ir.MaskedOutputs{Published: []string{"token"}},
+			wantErr:   `output "token" of step "fetch"`,
+		},
+		{
+			name:      "captured change does not mask a published read",
+			command:   "deploy ${fetch.outputs.region}",
+			published: `{"region":"us"}`,
+			masked:    &ir.MaskedOutputs{Captured: true},
 		},
 		// Each kind of output is read by its own references.
 		{
-			name:    "published names do not mask the captured output",
-			command: "deploy ${fetch.output}",
-			masked:  &ir.MaskedOutputs{Published: []string{"token"}, AllPublished: true},
+			name:     "published names do not mask the captured output",
+			command:  "deploy ${fetch.output}",
+			captured: "text",
+			masked:   &ir.MaskedOutputs{Published: []string{"token"}, AllPublished: true},
 		},
 		{
 			name:    "the captured output does not mask published ones",
@@ -1443,6 +1467,12 @@ func TestCheckMaskedReads(t *testing.T) {
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")
 			fetch.setVariable("TOKEN", "***")
+			if tt.published != "" {
+				fetch.inner.State.StepOutputsValue = &tt.published
+			}
+			if tt.captured != "" {
+				fetch.inner.State.OutputValue = &tt.captured
+			}
 			fetch.inner.State.MaskedOutputs = tt.masked
 
 			err = New(&Config{}).checkMaskedReads(plan, plan.GetNodeByName("use"))

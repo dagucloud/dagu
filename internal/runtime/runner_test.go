@@ -5318,9 +5318,13 @@ func TestHumanTask(t *testing.T) {
 		require.NotNil(t, result.nodeByName(t, "review").State().StepOutputsValue)
 		assert.JSONEq(t, stepOutputs, *result.nodeByName(t, "review").State().StepOutputsValue)
 	})
+}
 
-	// A retried step that reads an output restored masked fails, but only once
-	// its preconditions hold: a skipped step reads nothing.
+// A retried step that reads an output restored masked fails, but only once
+// its preconditions hold: a skipped step reads nothing.
+func TestRetryMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name       string
 		expected   string

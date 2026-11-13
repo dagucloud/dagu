@@ -70,18 +70,13 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 	// Step references resolve by step id only.
 	if id := source.Step().ID; id != "" && !handler {
 		for _, ref := range reads.text {
-			if ref.StepName != id {
+			if ref.StepName != id || !readsMaskedText(ref, source, masked) {
 				continue
 			}
-			if publishedReference(ref) {
-				if masked.HasPublished(ref.Field) {
-					return ref.Field, true
-				}
-				continue
+			if ref.Field != "" {
+				return ref.Field, true
 			}
-			if masked.HasCaptured() {
-				return ref.Expression, true
-			}
+			return ref.Expression, true
 		}
 	}
 	variables := source.OutputVariablesMap()
@@ -95,11 +90,38 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 	return "", false
 }
 
-// publishedReference reports whether ref reads a published output, as
-// ${steps.<id>.outputs.<name>}, rather than the captured output.
-func publishedReference(ref cmnvalue.StepTextReference) bool {
-	expression := strings.TrimSpace(strings.TrimPrefix(ref.Expression, "${"))
-	return strings.HasPrefix(expression, "steps.")
+// readsMaskedText reports whether ref reads a masked output of source. It picks
+// the output the reference resolves from the way Data.StepInfo does.
+func readsMaskedText(ref cmnvalue.StepTextReference, source *Node, masked *ir.MaskedOutputs) bool {
+	path := referencePath(ref)
+	state := source.State()
+	switch {
+	case strings.HasPrefix(path, "steps."):
+		return masked.HasPublished(ref.Field)
+	case strings.HasPrefix(path, ref.StepName+".outputs"):
+		// Published outputs take precedence over the captured document.
+		if state.StepOutputsValue == nil {
+			return masked.HasCaptured()
+		}
+		if ref.Field == "" {
+			return masked.AllPublished || len(masked.Published) > 0
+		}
+		return masked.HasPublished(ref.Field)
+	default:
+		// ${<id>.output} falls back to the output variable when no captured
+		// text is stored.
+		if state.OutputValue != nil {
+			return masked.HasCaptured()
+		}
+		return masked.HasVariable(source.Step().Output)
+	}
+}
+
+// referencePath returns the reference without its dollar and braces.
+func referencePath(ref cmnvalue.StepTextReference) string {
+	path := strings.TrimPrefix(ref.Expression, "$")
+	path = strings.TrimPrefix(path, "{")
+	return strings.TrimSpace(strings.TrimSuffix(path, "}"))
 }
 
 // readsVariable reports whether value reads the variable as $NAME or ${NAME}.
