@@ -424,17 +424,11 @@ func (d *Data) setHumanTask(prompt string, artifacts []string) {
 	d.inner.Step.HumanTask = &task
 }
 
-// MaskedOutputs returns the record of the outputs a restore brought back
-// masked, or nil. The record is shared, so callers must not change it.
-func (d *Data) MaskedOutputs() *ir.MaskedOutputs {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.inner.State.MaskedOutputs
-}
-
 // maskedVariables names the output variables a restore brought back masked.
 func (d *Data) maskedVariables() []string {
-	if masked := d.MaskedOutputs(); masked != nil {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if masked := d.inner.State.MaskedOutputs; masked != nil {
 		return masked.Variables
 	}
 	return nil

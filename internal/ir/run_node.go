@@ -194,11 +194,6 @@ func (m *MaskedOutputs) HasVariable(name string) bool {
 	return m != nil && slices.Contains(m.Variables, name)
 }
 
-// HasPublished reports whether the published output is masked.
-func (m *MaskedOutputs) HasPublished(name string) bool {
-	return m != nil && (m.AllPublished || slices.Contains(m.Published, name))
-}
-
 // HasCaptured reports whether the captured output is masked.
 func (m *MaskedOutputs) HasCaptured() bool {
 	return m != nil && m.Captured
