@@ -953,6 +953,31 @@ describe('LicensePage', () => {
       ).toBeVisible();
     });
 
+    // A link asking for remote access before the server connects lands on
+    // this offer with MCP clients and the trial they need chosen.
+    it('chooses MCP clients and the trial from a link to #remote-access', () => {
+      const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+      useClientMock.mockReturnValue({
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community(), { path: '/license#remote-access' });
+
+      expect(scroll.mock.contexts).toContain(offer());
+      expect(
+        within(offer()).getByRole('checkbox', {
+          name: /Use this server from MCP clients/,
+        })
+      ).toBeChecked();
+      expect(
+        within(offer()).getByRole('checkbox', {
+          name: /Also try paid features free for 14 days/,
+        })
+      ).toBeChecked();
+      expect(
+        within(offer()).getByRole('button', { name: 'Connect and start trial' })
+      ).toBeVisible();
+    });
+
     it('starts the same request from the free monitoring offer', async () => {
       vi.spyOn(window, 'open').mockReturnValue(null);
       const post = vi.fn().mockResolvedValue({ data: pending });
@@ -1579,11 +1604,19 @@ describe('LicensePage', () => {
     };
 
     // Serves an online license with audit logs, the given remote access,
-    // which PUT changes the way the server does, and the given audit entries.
+    // which PUT changes the way the server does, and the given audit entries,
+    // and renders the page at path.
     function serveRemoteAccess(
       initial: LicenseRemoteAccess,
-      entries = [],
-      license = online
+      {
+        entries = [],
+        license = online,
+        path,
+      }: {
+        entries?: never[];
+        license?: Partial<LicenseStatus>;
+        path?: string;
+      } = {}
     ) {
       let access = initial;
       const get = vi.fn((path: string) =>
@@ -1609,13 +1642,14 @@ describe('LicensePage', () => {
           return Promise.resolve({ data: access });
         }
       );
+      const post = vi.fn().mockResolvedValue({ data: undefined });
       useClientMock.mockReturnValue({
         GET: get,
-        POST: vi.fn(),
+        POST: post,
         PUT: put,
       } as never);
-      renderPage(license);
-      return { get, put };
+      renderPage(license, { path });
+      return { get, put, post };
     }
 
     function findRemoteAccessCard() {
@@ -1697,10 +1731,11 @@ describe('LicensePage', () => {
     it('shows how to connect an AI app through the console', async () => {
       serveRemoteAccess(
         { ...remoteOff, level: LicenseRemoteAccessLevel.viewer },
-        [],
         {
-          ...online,
-          consoleUrl: 'https://console.example.com/servers?server=srv-123',
+          license: {
+            ...online,
+            consoleUrl: 'https://console.example.com/servers?server=srv-123',
+          },
         }
       );
       const card = await findRemoteAccessCard();
@@ -1710,9 +1745,136 @@ describe('LicensePage', () => {
       expect(
         within(card).getByRole('button', { name: 'Copy MCP URL' })
       ).toBeVisible();
+      expect(card).toHaveTextContent(
+        'In Claude, open Customize, then Connectors.'
+      );
       expect(
-        within(card).getByRole('link', { name: 'Manage MCP clients' })
-      ).toHaveAttribute('href', 'https://console.example.com/ai-apps');
+        within(card).getByRole('link', { name: 'chatgpt.com/plugins' })
+      ).toHaveAttribute('href', 'https://chatgpt.com/plugins');
+      expect(
+        within(card).getByText(
+          'claude mcp add --transport http --scope user dagu https://console.example.com/mcp'
+        )
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('button', { name: 'Copy command' })
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('link', {
+          name: 'Other clients and connections in Dagu Cloud',
+        })
+      ).toHaveAttribute('href', 'https://console.example.com/mcp-access');
+    });
+
+    // The last call that reached the server shows that a client connected.
+    it('names the last call from Dagu Cloud', async () => {
+      serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.operator,
+        connected: true,
+        lastCall: {
+          at: new Date(Date.now() - 2 * 60_000).toISOString(),
+          client: 'Claude',
+          user: 'ana@example.com',
+        },
+      });
+      const card = await findRemoteAccessCard();
+      const lastCall = (await within(card).findByText('Last call'))
+        .nextElementSibling as HTMLElement;
+      expect(lastCall).toHaveTextContent('Claude ·');
+      expect(lastCall).toHaveTextContent('ana@example.com ·');
+      expect(lastCall).toHaveTextContent('2 minutes ago');
+    });
+
+    it('says when no call reached the server yet', async () => {
+      serveRemoteAccess({
+        ...remoteOff,
+        level: LicenseRemoteAccessLevel.operator,
+        connected: true,
+      });
+      const card = await findRemoteAccessCard();
+      expect(await within(card).findByText('No calls yet')).toBeVisible();
+    });
+
+    // MCP clients stop working when the trial ends, so the date shows with
+    // a way to keep them.
+    it('says until when the trial includes remote access', async () => {
+      const expiry = '2099-11-25T12:00:00Z';
+      serveRemoteAccess(
+        { ...remoteOff, level: LicenseRemoteAccessLevel.developer },
+        {
+          license: {
+            ...online,
+            plan: 'trial',
+            expiry,
+          },
+        }
+      );
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText(
+          // The date shows in the viewer's timezone.
+          `Included in your trial until ${dayjs(expiry).format('YYYY-MM-DD')}. Choose a plan to keep MCP clients working.`,
+          { exact: false }
+        )
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('link', { name: 'View plans' })
+      ).toHaveAttribute('href', expect.stringContaining('dagu.sh/pricing'));
+    });
+
+    it('offers remote access as part of a trial', async () => {
+      serveRemoteAccess(remoteOff, { license: { ...online, plan: 'trial' } });
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText(
+          'Use this server from Claude, ChatGPT, and other MCP clients'
+        )
+      ).toBeVisible();
+      expect(card).toHaveTextContent('Included in your trial.');
+      expect(
+        within(card).getByRole('button', { name: 'Turn on' })
+      ).toBeVisible();
+    });
+
+    // Dagu Cloud refuses calls under the free plan, so the trial comes
+    // first, and the plan is read again on coming back from it.
+    it('offers the trial first on the free plan', async () => {
+      const { post } = serveRemoteAccess(remoteOff, {
+        license: {
+          ...freeOnline,
+          consoleUrl: 'https://console.dagu.sh/servers',
+        },
+      });
+      const card = await findRemoteAccessCard();
+      const trial = await within(card).findByRole('link', {
+        name: 'Start free trial',
+      });
+      expect(trial).toHaveAttribute('href', 'https://console.dagu.sh/servers');
+      expect(card).toHaveTextContent('Needs a paid plan or a trial.');
+      expect(
+        within(card).getByRole('button', { name: 'Turn on' })
+      ).toBeVisible();
+
+      await userEvent.click(trial);
+      window.dispatchEvent(new Event('focus'));
+      expect(post).toHaveBeenCalledWith('/license/refresh', {
+        params: { query: { remoteNode: 'local' } },
+      });
+    });
+
+    it('warns that Dagu Cloud refuses calls on the free plan', async () => {
+      serveRemoteAccess(
+        { ...remoteOff, level: LicenseRemoteAccessLevel.viewer },
+        { license: freeOnline }
+      );
+      const card = await findRemoteAccessCard();
+      expect(
+        await within(card).findByText('MCP calls need a paid plan or a trial')
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('link', { name: 'Start free trial' })
+      ).toBeVisible();
     });
 
     it('says why Dagu Cloud refused the connection', async () => {
@@ -1732,25 +1894,27 @@ describe('LicensePage', () => {
     it('lists the calls agents made lately', async () => {
       serveRemoteAccess(
         { ...remoteOff, level: LicenseRemoteAccessLevel.operator },
-        [
-          {
-            id: '2',
-            timestamp: new Date().toISOString(),
-            category: 'mcp',
-            action: 'mcp.tool_call.denied',
-            mcpTool: 'dagu_change',
-            username: 'ana@example.com',
-            details: '{"mcp_action":"upsert_dag","resource_id":"etl"}',
-          },
-          {
-            id: '1',
-            timestamp: new Date().toISOString(),
-            category: 'mcp',
-            action: 'mcp.tool_call.started',
-            mcpTool: 'dagu_execute',
-            username: 'ana@example.com',
-          },
-        ] as never
+        {
+          entries: [
+            {
+              id: '2',
+              timestamp: new Date().toISOString(),
+              category: 'mcp',
+              action: 'mcp.tool_call.denied',
+              mcpTool: 'dagu_change',
+              username: 'ana@example.com',
+              details: '{"mcp_action":"upsert_dag","resource_id":"etl"}',
+            },
+            {
+              id: '1',
+              timestamp: new Date().toISOString(),
+              category: 'mcp',
+              action: 'mcp.tool_call.started',
+              mcpTool: 'dagu_execute',
+              username: 'ana@example.com',
+            },
+          ] as never,
+        }
       );
       const card = await findRemoteAccessCard();
       const activity = await within(card).findByText(
@@ -1775,6 +1939,15 @@ describe('LicensePage', () => {
       expect(card).toHaveTextContent(
         'cloud.remote_access and cloud.remote_approvals in the server configuration set these.'
       );
+    });
+
+    it('scrolls to remote access from a link to #remote-access', async () => {
+      const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+      serveRemoteAccess(remoteOff, { path: '/license#remote-access' });
+
+      const card = await findRemoteAccessCard();
+      expect(scroll.mock.contexts).toContain(card);
+      scroll.mockRestore();
     });
   });
 

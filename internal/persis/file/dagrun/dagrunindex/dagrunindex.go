@@ -84,6 +84,7 @@ type Entry struct {
 	AutoRetryMaxInterval time.Duration
 	ProcGroup            string
 	DefinitionID         string
+	BackfillID           string
 	ArchiveDir           string
 	latestStatusSize     int64
 	latestStatusModTime  int64
@@ -249,6 +250,7 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 			AutoRetryMaxInterval: status.AutoRetryMaxInterval,
 			ProcGroup:            status.ProcGroup,
 			DefinitionID:         status.DAGDefinitionID(),
+			BackfillID:           status.BackfillID,
 			ArchiveDir:           status.ArchiveDir,
 			latestStatusSize:     statusInfo.Size(),
 			latestStatusModTime:  statusInfo.ModTime().UnixNano(),
@@ -598,6 +600,7 @@ func writeIndex(dayDir string, entries []Entry) error {
 			AutoRetryMaxInterval: int64(e.AutoRetryMaxInterval),
 			ProcGroup:            e.ProcGroup,
 			DefinitionId:         e.DefinitionID,
+			BackfillId:           e.BackfillID,
 			ArchiveDir:           e.ArchiveDir,
 		})
 	}
@@ -651,6 +654,7 @@ func protoToEntry(pe *indexv1.DAGRunIndexEntry) Entry {
 		AutoRetryMaxInterval: time.Duration(pe.AutoRetryMaxInterval),
 		ProcGroup:            pe.ProcGroup,
 		DefinitionID:         pe.DefinitionId,
+		BackfillID:           pe.BackfillId,
 		ArchiveDir:           pe.ArchiveDir,
 		latestStatusSize:     pe.LatestStatusSize,
 		latestStatusModTime:  pe.LatestStatusModTime,

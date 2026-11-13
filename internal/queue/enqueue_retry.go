@@ -143,7 +143,7 @@ func EnqueueRetry(
 	if procGroup := retryProcGroup(dag, admission.Status); procGroup == "" {
 		enqueueErr = errors.New("proc group is empty")
 	} else {
-		enqueueErr = queueStore.Enqueue(ctx, procGroup, QueuePriorityLow, admission.Status.DAGRun())
+		enqueueErr = queueStore.Enqueue(ctx, procGroup, PriorityOf(admission.Status), admission.Status.DAGRun())
 	}
 	if enqueueErr == nil {
 		return true, nil

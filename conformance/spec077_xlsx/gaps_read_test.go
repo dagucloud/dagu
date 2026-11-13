@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/test/xlsxtest"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
 )
@@ -241,7 +242,7 @@ func TestXlsxHiddenSheetsAndRows(t *testing.T) {
 	require.Equal(t, 3, out.Checked)
 	require.True(t, out.OK, "validate checks only the rows shown")
 	require.Equal(t, 3, out.Converted)
-	require.Equal(t, "ID,状態\nA-1,済\nA-3,済\nA-6,済\n", strings.ReplaceAll(readFile(t, dagu, "visible.csv"), "\r\n", "\n"))
+	require.Equal(t, "\xEF\xBB\xBFID,状態\nA-1,済\nA-3,済\nA-6,済\n", strings.ReplaceAll(readFile(t, dagu, "visible.csv"), "\r\n", "\n"))
 
 	text := dagu.Run("xlsx", "inspect", "hidden.xlsx", "--rows", "0")
 	text.ExpectExitCode(0)
@@ -304,6 +305,44 @@ func TestXlsxFormulasAndEmptyRows(t *testing.T) {
 		require.False(t, capped.Truncated, "exactly max_rows countable rows is not truncated")
 		require.Empty(t, capped.Warnings)
 	})
+}
+
+// writeStaleBook writes, by hand, a workbook no action or library can: a
+// 明細 sheet whose 金額 formulas in D cache the amounts of older quantities,
+// as a program that sets cells without recalculating leaves them.
+func writeStaleBook(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	const cell = `<c r="%s"><v>%d</v></c>`
+	var rows strings.Builder
+	rows.WriteString(`<row r="1"><c r="A1" t="inlineStr"><is><t>品名</t></is></c><c r="B1" t="inlineStr"><is><t>数量</t></is></c><c r="C1" t="inlineStr"><is><t>単価</t></is></c><c r="D1" t="inlineStr"><is><t>金額</t></is></c></row>`)
+	for i, line := range [][3]int{{40, 3100, 93000}, {600, 386, 193000}, {12, 5200, 52000}} {
+		r := i + 2
+		fmt.Fprintf(&rows, `<row r="%d"><c r="A%d" t="inlineStr"><is><t>品目%d</t></is></c>`, r, r, i+1)
+		fmt.Fprintf(&rows, cell, fmt.Sprintf("B%d", r), line[0])
+		fmt.Fprintf(&rows, cell, fmt.Sprintf("C%d", r), line[1])
+		fmt.Fprintf(&rows, `<c r="D%d"><f>B%d*C%d</f><v>%d</v></c></row>`, r, r, r, line[2])
+	}
+	xlsxtest.RawWorkbook(t, dagu.ProjectPath("stale_formulas.xlsx"), "明細", `<sheetData>`+rows.String()+`</sheetData>`)
+}
+
+// Spec 077 "Typing", formula: a cached read names the cells whose cached
+// value is not what their formula evaluates to and still reads the cache;
+// formulas: calculate reads the current values with no such warning.
+func TestXlsxStaleCachedFormulas(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	writeStaleBook(t, dagu)
+	dagu.Run("start", "stale_formulas.yaml").ExpectExitCode(0)
+	var out map[string]readOut
+	readJSON(t, dagu, "out.json", &out)
+
+	cached := out["cached"]
+	require.Equal(t, []string{"93000", "193000", "52000"}, names(cached.Rows, "amount"), "the cached values are still what is read")
+	require.Equal(t, []string{"明細!D2, 明細!D3, 明細!D4: cached formula value is stale; set formulas: calculate to read current values"}, cached.Warnings)
+
+	calculated := out["calculated"]
+	require.Equal(t, []string{"124000", "231600", "62400"}, names(calculated.Rows, "amount"))
+	require.Empty(t, calculated.Warnings)
 }
 
 func TestXlsxWhere(t *testing.T) {

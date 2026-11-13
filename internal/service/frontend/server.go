@@ -32,6 +32,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -337,7 +338,9 @@ type ServerConfig struct {
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	SchedulerStateStore  schedulerstate.Store
+	BackfillStore        backfill.Store
 	SchedulerPauseStore  schedulerstate.PauseStore
+	RestartBackoffStore  schedulerstate.RestartBackoffStore
 	Caches               []fileutil.CacheMetrics
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
@@ -381,7 +384,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		opts = append(opts, WithAPIOption(apiv1.WithWorkerHeartbeatStore(setup.WorkerHeartbeatStore)))
 	}
 	opts = append(opts, WithAPIOption(apiv1.WithSchedulerStateStore(setup.SchedulerStateStore)))
+	opts = append(opts, WithAPIOption(apiv1.WithBackfillStore(setup.BackfillStore)))
 	opts = append(opts, WithAPIOption(apiv1.WithSchedulerPauseStore(setup.SchedulerPauseStore)))
+	opts = append(opts, WithAPIOption(apiv1.WithRestartBackoffStore(setup.RestartBackoffStore)))
 
 	remoteNodes := make([]string, 0, len(cfg.Server.RemoteNodes))
 	for _, n := range cfg.Server.RemoteNodes {

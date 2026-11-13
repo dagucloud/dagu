@@ -183,6 +183,9 @@ type CloudCredentials struct {
 	HeartbeatSecret string
 	// Free is set while the license is on free monitoring.
 	Free bool
+	// Plan is the plan the license names, which changes as a trial starts or
+	// a plan replaces it.
+	Plan string
 }
 
 // CloudCredentials returns the credentials of the current activation. It
@@ -200,6 +203,7 @@ func (m *Manager) CloudCredentials() (CloudCredentials, bool) {
 		ServerID:        ad.ServerID,
 		HeartbeatSecret: ad.HeartbeatSecret,
 		Free:            claims.IsFree(),
+		Plan:            claims.Plan,
 	}, true
 }
 
@@ -226,6 +230,7 @@ func StoredCloudCredentials(store ActivationStore, pubKey ed25519.PublicKey, clo
 			ServerID:        ad.ServerID,
 			HeartbeatSecret: ad.HeartbeatSecret,
 			Free:            claims.IsFree(),
+			Plan:            claims.Plan,
 		}, true
 	}
 }

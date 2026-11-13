@@ -11,7 +11,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 )
+
+// slotIndexDirName is the slot index directory under the data directory.
+const slotIndexDirName = "slot-index"
 
 // DAGRunRepositoryOption configures the file-backed DAG-run repository.
 type DAGRunRepositoryOption func(*dagRunRepositoryOptions)
@@ -66,11 +70,17 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	// listing, retention pass or index of the history reaches them.
 	ephemeralStore := filedagrun.NewStore(EphemeralDAGRunsDir(cfg.Paths.DAGRunsDir), storeOpts...)
 	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
+	var slots persis.SlotIndex
+	if cfg.Paths.DataDir != "" {
+		slots = slotindex.New(filepath.Join(cfg.Paths.DataDir, slotIndexDirName))
+	}
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
 		Location:          cfg.Core.Location,
 		RemovalEnqueuer:   options.RemovalEnqueuer,
 		EphemeralStore:    ephemeralStore,
+		SlotIndex:         slots,
+		CalendarsDir:      cfg.Paths.CalendarsDir,
 	})
 }
 

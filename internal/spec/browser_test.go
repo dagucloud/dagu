@@ -60,6 +60,7 @@ steps:
 	assert.Equal(t, "claude-sonnet-5", step.LLM.Model)
 
 	assert.ElementsMatch(t, []ir.StepOutputDeclaration{
+		{Name: "downloads", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "count", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "stories", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 	}, step.Outputs)
@@ -103,8 +104,9 @@ steps:
 	assert.Equal(t, "openai", step.LLM.Provider, "with.llm replaces the DAG llm block")
 	assert.Equal(t, "gpt-5", step.LLM.Model)
 	assert.Equal(t, []ir.StepOutputDeclaration{
+		{Name: "downloads", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "invoice_number", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
-	}, step.Outputs)
+	}, step.Outputs, "the downloads list is declared beside the extracted properties")
 	require.NotNil(t, dag.Artifacts)
 	assert.False(t, dag.Artifacts.Enabled, "an explicit opt-out still loads")
 }
