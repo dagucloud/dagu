@@ -7,9 +7,10 @@ Use this file when a request targets a running Dagu instance rather than local f
 Do not ask whether the user means a server or local files. Decide in this order:
 
 1. The user names a context, URL, or "local": use it.
-2. `dagu context list` shows a remote context, even if `local` is the current one: use it.
-3. A server answers `GET <url>/api/v1/health` at a configured URL, at the address of a listening `dagu` process (`ss -ltnp`), or at the default `localhost:8080`: use it. The port is often not 8080.
-4. Otherwise no server exists: use the local CLI and file edits as usual, saying once that no server was found.
+2. Dagu MCP tools (`dagu_read`, `dagu_change`, `dagu_execute`) are already connected: use them.
+3. `dagu context list` shows a current remote context: use it. If `local` is current and exactly one remote context exists, use that; if several remote contexts could apply (for example staging and production), ask which.
+4. A server answers `GET <url>/api/v1/health` at a configured URL, at the address of a listening `dagu` process (`ss -ltnp`), or at the default `localhost:8080`: use it. The port is often not 8080.
+5. Otherwise no server exists: use the local CLI and file edits as usual, saying once that no server was found.
 
 Ask only if a server is detected and the request could equally mean local DAG files.
 
@@ -29,7 +30,7 @@ Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's f
 - **Endpoint:** find the server's listen address from its configuration or process (`ss -ltnp`). Do not dump a process environment; it may hold secrets.
 - **Credential:** check by name only, never print the value; list environment variable names that contain `DAGU` or `API_KEY`. MCP and REST take `Authorization: Bearer <key>`. API keys can be limited to surfaces, so a REST-only key can be rejected by MCP.
 - **Reachability:** MCP `initialize` then `tools/list`; REST `GET /api/v1/health` (no auth) and `GET /api/v1/dags`. Close any MCP session you open with `DELETE` and the session id.
-- **Remote context:** `dagu context list`. Creating one changes CLI state, so ask first. Use `dagu context add <name> --server <url>/api/v1` and let the CLI prompt for the key instead of passing it in argv.
+- **Remote context:** `dagu context list`. Creating one changes CLI state, so ask first. Use `dagu context add <name> --server <url>/api/v1` and let the CLI prompt for the key instead of passing it in argv. The prompt needs an interactive terminal; without one the command fails with `--api-key is required`, so ask the user to run it.
 - **Write permission:** a successful read does not prove writes are allowed, and `dagu_change` with `mode=preview` never writes. Write permission is known only when an apply succeeds; report an authorization error as is.
 - **No credential found:** ask the user. Never search files or shell history for keys.
 
@@ -50,7 +51,7 @@ The live MCP `tools/list` schema and the server's OpenAPI document are authorita
 
 ## Practical notes
 
-- MCP is JSON-RPC over HTTP: `initialize`, `notifications/initialized`, then `tools/call`, sending the returned `Mcp-Session-Id` header on every later request and `Accept: application/json, text/event-stream`. Tool arguments are flat, for example `dagu_change` `{type, name, spec, mode}` and `dagu_execute` `{action, name, dagRunId}`, `dagu_read` `{target: "dags"}`; `mode` defaults to `preview`, so send `mode=apply` to write. Use REST for simple reads.
+- MCP is JSON-RPC over HTTP: `initialize`, `notifications/initialized`, then `tools/call`, sending the returned `Mcp-Session-Id` header on every later request and `Accept: application/json, text/event-stream`. Tool arguments are flat, for example `dagu_change` `{type, name, spec, mode}` and `dagu_execute` `{action, name, dagRunId}`, `dagu_read` `{target: "dags"}`; `mode` defaults to `preview`, so send `mode=apply` to write.
 - For create and update, preview, check `valid`, apply, then read the DAG back.
 - Report a run's `statusLabel` (such as `succeeded`), not the numeric `status`.
 - Pass the key to `curl` through a config file on stdin (`-K -`) so it stays out of argv and output.

@@ -173,6 +173,10 @@ Reuse stable file transformations.
 
 Use harness.run.
 `,
+		filepath.Join("references", "server-operations.md"): `# Operating a Running Dagu Server
+
+Use MCP first.
+`,
 	}
 
 	for name, content := range files {
