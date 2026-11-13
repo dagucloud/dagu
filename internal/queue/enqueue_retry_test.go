@@ -193,7 +193,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *testutil.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-1")).
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityHigh, ir.NewDAGRunRef("test-dag", "run-1")).
 					Return(nil)
 			},
 			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {
@@ -212,6 +212,40 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Zero(t, backend.status.PID)
 				assert.Zero(t, backend.status.PIDStartedAt)
 				assert.Zero(t, backend.status.LeaseAt)
+			},
+			wantQueued: true,
+		},
+		{
+			// A retried backfill run keeps its backfill ID, waits behind
+			// live runs, and is queued as a retry.
+			name: "BackfillRunKeepsIdentity",
+			dag:  &ir.DAG{Name: "test-dag"},
+			status: &ir.DAGRunStatus{
+				Name:        "test-dag",
+				DAGRunID:    "run-backfill",
+				AttemptID:   "att-backfill",
+				Status:      ir.Failed,
+				TriggerType: ir.TriggerTypeBackfill,
+				BackfillID:  "bf123456",
+			},
+			backend: &stubDAGRunStore{
+				status: &ir.DAGRunStatus{
+					Name:        "test-dag",
+					DAGRunID:    "run-backfill",
+					AttemptID:   "att-backfill",
+					Status:      ir.Failed,
+					TriggerType: ir.TriggerTypeBackfill,
+					BackfillID:  "bf123456",
+				},
+			},
+			setupQueue: func(qs *testutil.MockQueueStore) {
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-backfill")).
+					Return(nil)
+			},
+			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {
+				require.NotNil(t, backend.status)
+				assert.Equal(t, ir.TriggerTypeRetry, backend.status.TriggerType)
+				assert.Equal(t, "bf123456", backend.status.BackfillID)
 			},
 			wantQueued: true,
 		},
@@ -237,7 +271,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *testutil.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-auto")).
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityHigh, ir.NewDAGRunRef("test-dag", "run-auto")).
 					Return(nil)
 			},
 			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {
@@ -269,7 +303,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *testutil.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "custom-queue", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-fast-path")).
+				qs.On("Enqueue", mock.Anything, "custom-queue", queue.QueuePriorityHigh, ir.NewDAGRunRef("test-dag", "run-fast-path")).
 					Return(nil)
 			},
 			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {
@@ -298,7 +332,7 @@ func TestEnqueueRetry(t *testing.T) {
 				},
 			},
 			setupQueue: func(qs *testutil.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "child-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("child-dag", "run-root")).
+				qs.On("Enqueue", mock.Anything, "child-dag", queue.QueuePriorityHigh, ir.NewDAGRunRef("child-dag", "run-root")).
 					Return(nil)
 			},
 			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {
@@ -380,7 +414,7 @@ func TestEnqueueRetry(t *testing.T) {
 			},
 			opts: queue.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
 			setupQueue: func(qs *testutil.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-4")).
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityHigh, ir.NewDAGRunRef("test-dag", "run-4")).
 					Return(errors.New("enqueue error"))
 			},
 			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {
@@ -416,7 +450,7 @@ func TestEnqueueRetry(t *testing.T) {
 				secondErr: errors.New("rollback error"),
 			},
 			setupQueue: func(qs *testutil.MockQueueStore) {
-				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityLow, ir.NewDAGRunRef("test-dag", "run-rollback-failure")).
+				qs.On("Enqueue", mock.Anything, "test-dag", queue.QueuePriorityHigh, ir.NewDAGRunRef("test-dag", "run-rollback-failure")).
 					Return(errors.New("enqueue error"))
 			},
 			assertBackend: func(t *testing.T, backend *stubDAGRunStore) {

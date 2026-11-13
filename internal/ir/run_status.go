@@ -228,10 +228,12 @@ type DAGRunStatus struct {
 	IntervalStart    string `json:"intervalStart,omitempty"`
 	NextScheduledAt  string `json:"nextScheduledAt,omitempty"`
 	ScheduleTimezone string `json:"scheduleTimezone,omitempty"`
-	StartedAt        string `json:"startedAt,omitempty"`
-	FinishedAt       string `json:"finishedAt,omitempty"`
-	AutoRetryCount   int    `json:"autoRetryCount,omitempty"`
-	AutoRetryLimit   int    `json:"autoRetryLimit,omitempty"`
+	// BackfillID names the backfill that started the run. Retries keep it.
+	BackfillID     string `json:"backfillId,omitempty"`
+	StartedAt      string `json:"startedAt,omitempty"`
+	FinishedAt     string `json:"finishedAt,omitempty"`
+	AutoRetryCount int    `json:"autoRetryCount,omitempty"`
+	AutoRetryLimit int    `json:"autoRetryLimit,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
@@ -323,7 +325,6 @@ func NormalizeDAGRunConditions(status *DAGRunStatus) {
 	status.Conditions = nil
 }
 
-// DAGRun returns a reference to the dag-run associated with this status
 // ScheduleWindow returns the window the run's schedule slot owns.
 func (st *DAGRunStatus) ScheduleWindow() ScheduleWindow {
 	return ScheduleWindow{
@@ -333,6 +334,17 @@ func (st *DAGRunStatus) ScheduleWindow() ScheduleWindow {
 	}
 }
 
+// NeverStarted reports whether the run ended or stopped before it started,
+// as one cancelled while queued. A retry follows an attempt that ran, so a
+// run whose retry was cancelled before it started did start.
+func (st *DAGRunStatus) NeverStarted() bool {
+	if st.TriggerType == TriggerTypeRetry {
+		return false
+	}
+	return st.Status == NotStarted || (st.Status == Aborted && st.StartedAt == "")
+}
+
+// DAGRun returns a reference to the dag-run associated with this status
 func (st *DAGRunStatus) DAGRun() DAGRunRef {
 	return NewDAGRunRef(st.Name, st.DAGRunID)
 }

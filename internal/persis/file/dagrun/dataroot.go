@@ -793,6 +793,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		ProcGroup:            ie.ProcGroup,
 		DefinitionID:         ie.DefinitionID,
 		ArchiveDir:           ie.ArchiveDir,
+		BackfillID:           ie.BackfillID,
 	}
 }
 
