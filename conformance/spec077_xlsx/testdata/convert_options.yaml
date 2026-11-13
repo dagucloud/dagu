@@ -15,6 +15,13 @@ steps:
       output: bom.csv
       encoding: utf-8-bom
       atomic: false
+  - id: plain
+    depends: write
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: plain.csv
+      encoding: utf-8
   - id: result
     depends: csv
     action: file.write

@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,13 +21,14 @@ func TestReporter(t *testing.T) {
 	for scenario, fn := range map[string]func(
 		t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node,
 	){
-		"create error mail":   testErrorMail,
-		"no error mail":       testNoErrorMail,
-		"create success mail": testSuccessMail,
-		"create wait mail":    testWaitMail,
-		"no wait mail":        testNoWaitMail,
-		"create summary":      testRenderSummary,
-		"create node list":    testRenderTable,
+		"create error mail":    testErrorMail,
+		"no error mail":        testNoErrorMail,
+		"create success mail":  testSuccessMail,
+		"create wait mail":     testWaitMail,
+		"no wait mail":         testNoWaitMail,
+		"no backfill run mail": testNoBackfillRunMail,
+		"create summary":       testRenderSummary,
+		"create node list":     testRenderTable,
 	} {
 		t.Run(scenario, func(t *testing.T) {
 
@@ -202,6 +204,24 @@ func testErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, no
 	require.Contains(t, mock.subject, "Error")
 	require.Contains(t, mock.subject, "test DAG")
 	require.Equal(t, 1, mock.count)
+}
+
+// A backfill run sends no mail of its own, except while it waits for a
+// person.
+func testNoBackfillRunMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {
+	dag.MailOn.Failure, dag.MailOn.Wait = true, true
+
+	require.NoError(t, rp.send(context.Background(), dag, ir.DAGRunStatus{Status: ir.Failed, BackfillID: "bf123456", Nodes: nodes}, nil))
+	require.Equal(t, 0, mock.count)
+
+	require.NoError(t, rp.send(context.Background(), dag, ir.DAGRunStatus{Status: ir.Waiting, BackfillID: "bf123456", Nodes: nodes}, nil))
+	require.Equal(t, 1, mock.count)
+
+	failedStep := runtime.NewNode(ir.Step{Name: "load", MailOnError: true}, runtime.NodeState{Status: ir.NodeFailed})
+	require.NoError(t, rp.reportStep(context.Background(), dag, ir.DAGRunStatus{Status: ir.Running, BackfillID: "bf123456"}, failedStep))
+	require.Equal(t, 1, mock.count, "a failed step of a backfill run mails nothing")
+	require.NoError(t, rp.reportStep(context.Background(), dag, ir.DAGRunStatus{Status: ir.Running}, failedStep))
+	require.Equal(t, 2, mock.count, "a failed step of a live run still mails")
 }
 
 func testNoErrorMail(t *testing.T, rp *reporter, mock *mockSender, dag *ir.DAG, nodes []*ir.Node) {

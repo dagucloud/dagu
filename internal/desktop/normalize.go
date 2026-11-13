@@ -6,7 +6,7 @@ package desktop
 import (
 	"strings"
 
-	"golang.org/x/text/width"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
 
 // NormalizeText returns text as it is compared: full-width letters, digits,
@@ -14,8 +14,9 @@ import (
 // full-width, and runs of whitespace, including the ideographic space,
 // collapsed to one space with none at the ends. A name an application
 // pads, or writes in the other width, still matches what a person typed.
+// Browser text checks compare the same way, through stringutil.
 func NormalizeText(s string) string {
-	return strings.Join(strings.Fields(width.Fold.String(s)), " ")
+	return stringutil.NormalizeText(s)
 }
 
 // normalizeLabel normalizes a label, dropping the colon a form puts after

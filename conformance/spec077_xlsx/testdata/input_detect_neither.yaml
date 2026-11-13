@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: neither.xlsx
+      input: neither_input.csv

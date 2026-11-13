@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
@@ -539,7 +540,9 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		source:      plan.sourceStatus,
 		params:      plan.params,
 		profileName: plan.profileName,
-		triggerType: ir.TriggerTypeRetry,
+		// A retry of a backfill run stays a backfill run.
+		triggerType: queue.ExecutionTriggerType(plan.sourceStatus),
+		backfillID:  plan.sourceStatus.BackfillID,
 		enqueue:     true,
 	})
 }
