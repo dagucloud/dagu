@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -101,6 +103,11 @@ func runDry(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	slot = withDefaultSlot(ctx, dag, profileName, slot)
+	dates, err := slotDates(ctx, dag, profileName, slot)
+	if err != nil {
+		return err
+	}
 
 	ag := agent.New(
 		dagRunID,
@@ -125,6 +132,8 @@ func runDry(ctx *Context, args []string) error {
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             slot.scheduleTime,
 			ScheduleWindow:           slot.window,
+			Dates:                    dates,
+			DefaultSlot:              slot.isDefault,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 		},
@@ -142,6 +151,9 @@ func runDry(ctx *Context, args []string) error {
 
 	if slot.scheduleTime != "" {
 		writeDrySlot(ctx.Command.OutOrStdout(), slot, ctx.Config.Core.Location)
+	}
+	if len(dates) > 0 {
+		writeDryDates(ctx.Command.OutOrStdout(), dates)
 	}
 	ag.PrintSummary(ctx)
 
@@ -192,9 +204,28 @@ func writeDrySlot(out io.Writer, slot runSlot, serverZone *time.Location) {
 		}
 		return t.In(zone).Format(time.RFC3339)
 	}
-	_, _ = fmt.Fprintf(out, "Scheduled at: %s (%s)\n", format(at), slot.window.Timezone)
+	defaultNote := ""
+	if slot.isDefault {
+		defaultNote = ", the default slot"
+	}
+	_, _ = fmt.Fprintf(out, "Scheduled at: %s (%s%s)\n", format(at), slot.window.Timezone, defaultNote)
 	_, _ = fmt.Fprintf(out, "Window:       %s to %s\n", format(slot.window.Start), format(at))
 	_, _ = fmt.Fprintf(out, "Next fire:    %s\n", format(slot.window.Next))
+}
+
+// writeDryDates prints the dates a dry run resolved, one per line, a list
+// as its values.
+func writeDryDates(out io.Writer, dates []ir.DateValue) {
+	_, _ = fmt.Fprintln(out, "Dates:")
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	for _, date := range dates {
+		value := date.Value
+		if date.List {
+			value = "[" + strings.Join(date.Values, ", ") + "]"
+		}
+		_, _ = fmt.Fprintf(w, "  %s\t%s\n", date.Name, value)
+	}
+	_ = w.Flush()
 }
 
 // loadDAGForDryRun loads the DAG with parameters from flags or command-line arguments.

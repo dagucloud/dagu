@@ -318,6 +318,7 @@ func runStart(ctx *Context, args []string) error {
 		if dates, err = slotDates(ctx, dag, profileName, slot); err != nil {
 			return err
 		}
+		reportRunDates(ctx, slot, dates)
 	}
 
 	recursiveOutput, err := ctx.Command.Flags().GetBool("recursive-output")
