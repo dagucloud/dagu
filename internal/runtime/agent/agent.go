@@ -245,6 +245,10 @@ type Agent struct {
 	// dates are the run's dates. See resolveDates.
 	dates []ir.DateValue
 
+	// defaultSlot reports that scheduleTime is the default slot of a run
+	// started without one.
+	defaultSlot bool
+
 	// queuedRun indicates this execution is from a queued item.
 	// The dag-run was already created by the enqueue command.
 	queuedRun bool
@@ -429,6 +433,9 @@ type Options struct {
 	// run of a DAG with dates resolves them as it starts. A retried run keeps
 	// the dates recorded on its status instead.
 	Dates []ir.DateValue
+	// DefaultSlot marks ScheduleTime as the default slot of a run that named
+	// none.
+	DefaultSlot bool
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
 	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
@@ -509,6 +516,7 @@ func New(
 		scheduleTime:             opts.ScheduleTime,
 		scheduleWindow:           opts.ScheduleWindow,
 		dates:                    opts.Dates,
+		defaultSlot:              opts.DefaultSlot,
 		dagRunLogDir:             opts.DAGRunLogDir,
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
@@ -1668,19 +1676,8 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 				ir.WithReusedInputs(source.ReusedInputs),
 				ir.WithBackfillID(source.BackfillID),
 			)
-			if source.ScheduleTime != "" {
-				statusOpts = append(statusOpts,
-					ir.WithScheduleTime(source.ScheduleTime),
-					ir.WithScheduleWindow(source.ScheduleWindow()),
-				)
-			}
-		} else if a.scheduleTime != "" {
-			statusOpts = append(statusOpts,
-				ir.WithScheduleTime(a.scheduleTime),
-				ir.WithScheduleWindow(a.scheduleWindow),
-			)
 		}
-		statusOpts = append(statusOpts, ir.WithDates(a.recordedDates(source)))
+		statusOpts = append(statusOpts, a.slotStatusOptions(source)...)
 		runStatus := ir.Failed
 		if !a.startupFinishedAt.IsZero() {
 			runStatus = ir.Aborted
@@ -1742,19 +1739,8 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithReusedInputs(source.ReusedInputs),
 			ir.WithBackfillID(source.BackfillID),
 		)
-		if source.ScheduleTime != "" {
-			opts = append(opts,
-				ir.WithScheduleTime(source.ScheduleTime),
-				ir.WithScheduleWindow(source.ScheduleWindow()),
-			)
-		}
-	} else if a.scheduleTime != "" {
-		opts = append(opts,
-			ir.WithScheduleTime(a.scheduleTime),
-			ir.WithScheduleWindow(a.scheduleWindow),
-		)
 	}
-	opts = append(opts, ir.WithDates(a.recordedDates(source)))
+	opts = append(opts, a.slotStatusOptions(source)...)
 
 	// Create the status object to record the current status.
 	status := ir.NewStatusBuilder(a.dag).
@@ -1812,7 +1798,8 @@ func (a *Agent) contextScheduleWindow() ir.ScheduleWindow {
 
 // resolveDates sets the run's dates: those recorded on the run it
 // continues, else those it was started with, else resolved now from its
-// slot, once, so that every attempt reads the same values.
+// slot, once, so that every attempt reads the same values. A run of a DAG
+// with dates that has no slot first takes the default slot of its creation.
 func (a *Agent) resolveDates(ctx context.Context) error {
 	source := a.statusSourceTarget()
 	if source != nil && source.Dates != nil {
@@ -1827,15 +1814,23 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 		createdAt = time.UnixMilli(source.CreatedAt)
 	}
 	cfg := config.GetConfig(ctx)
+	calendars := spec.NewCalendarSource(cfg.Paths.CalendarsDir)
+	if a.contextScheduleTime() == "" {
+		if slot, ok := rundates.DefaultSlot(a.dag, a.profileName, cfg.Core.Location, calendars, createdAt); ok {
+			a.lock.Lock()
+			a.scheduleTime, a.scheduleWindow, a.defaultSlot = slot.ScheduleTime, slot.Window, true
+			a.lock.Unlock()
+		}
+	}
 	dates, err := rundates.Resolve(rundates.Request{
 		DAG:          a.dag,
 		Profile:      a.profileName,
 		ScheduleTime: a.contextScheduleTime(),
 		Window:       a.contextScheduleWindow(),
-		Inherited:    !a.parentDAGRun.Zero(),
+		Inherited:    a.slotInherited(source),
 		CreatedAt:    createdAt,
 		Location:     cfg.Core.Location,
-		Calendars:    spec.NewCalendarSource(cfg.Paths.CalendarsDir),
+		Calendars:    calendars,
 	})
 	if err != nil {
 		return err
@@ -1844,19 +1839,45 @@ func (a *Agent) resolveDates(ctx context.Context) error {
 	return nil
 }
 
+// slotInherited reports whether the run's slot came from its parent run,
+// rather than being the default slot of the run's own schedule.
+func (a *Agent) slotInherited(source *ir.DAGRunStatus) bool {
+	if a.parentDAGRun.Zero() || a.defaultSlot {
+		return false
+	}
+	return source == nil || !source.DefaultSlot
+}
+
 func (a *Agent) setDates(dates []ir.DateValue) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 	a.dates = dates
 }
 
-// recordedDates returns the dates to record on the run's status. The
-// caller holds the lock.
-func (a *Agent) recordedDates(source *ir.DAGRunStatus) []ir.DateValue {
-	if a.dates == nil && source != nil {
-		return source.Dates
+// slotStatusOptions records the run's slot, window, and dates: those of the
+// run it continues, else those it was started with or settled as it
+// started. The caller holds the lock.
+func (a *Agent) slotStatusOptions(source *ir.DAGRunStatus) []ir.StatusOption {
+	var opts []ir.StatusOption
+	switch {
+	case source != nil && source.ScheduleTime != "":
+		opts = append(opts,
+			ir.WithScheduleTime(source.ScheduleTime),
+			ir.WithScheduleWindow(source.ScheduleWindow()),
+			ir.WithDefaultSlot(source.DefaultSlot),
+		)
+	case a.scheduleTime != "":
+		opts = append(opts,
+			ir.WithScheduleTime(a.scheduleTime),
+			ir.WithScheduleWindow(a.scheduleWindow),
+			ir.WithDefaultSlot(a.defaultSlot),
+		)
 	}
-	return a.dates
+	dates := a.dates
+	if dates == nil && source != nil {
+		dates = source.Dates
+	}
+	return append(opts, ir.WithDates(dates))
 }
 
 func contextTimeValue(raw string) string {

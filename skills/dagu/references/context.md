@@ -74,7 +74,8 @@ steps:
 - `each` lists the window from `interval_start` up to the slot as a JSON array, for `parallel: ${dates.window_days}`. A step under a day needs `format`.
 - Formats: `date` (default), `date_compact`, `datetime`, `rfc3339`, `unix`, or a strftime pattern.
 - Business days use the calendar of the schedule entry that owns the slot, else the DAG's `calendar`.
-- A run with no slot resolves `scheduled_at` from the minute it was created. A date that needs a window is refused there, except in a sub-DAG of a run with a slot, which resolves from its parent's slot.
+- A run started without a slot, by hand, a webhook, or a watched file, gets the default slot: the latest fire at or before it was created. A monthly DAG started on the 15th loads what its run of the 1st loaded.
+- On a DAG with no schedule, `scheduled_at` is the minute the run was created, and a date that needs a window is refused, except in a sub-DAG of a run with a slot, which resolves from its parent's slot.
 - Dates are not environment variables. Pass one through `env:` when a script needs it.
 
 ## Supported Context References
