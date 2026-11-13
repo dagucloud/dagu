@@ -130,6 +130,20 @@ type Step struct {
 	Approval *ApprovalConfig `json:"approval,omitempty"`
 	// HumanTask configures a processless step completed by a local operator.
 	HumanTask *HumanTaskConfig `json:"humanTask,omitempty"`
+	// Agent is set on a step that was written as action agent.run. The step
+	// then runs as harness.run.
+	Agent *AgentRun `json:"agentRun,omitempty"`
+	// Secrets lists the names of the DAG secrets that the step gets (Spec 092).
+	Secrets []string `json:"secrets,omitempty"`
+	// Untrusted marks a step that runs code that an agent wrote or controls. It
+	// is the effective value (Spec 092, "Default of the key"): the loader sets it
+	// for an agent.run step, and, in a DAG that has an agent.run step, for each
+	// step that runs a process and does not opt out.
+	Untrusted bool `json:"untrusted,omitempty"`
+	// UntrustedKey is the value of the key untrusted that the author wrote, or nil
+	// when the key is absent. The loader reads it once to set Untrusted for the
+	// whole DAG, and then clears it. It is not stored.
+	UntrustedKey *bool `json:"-"`
 }
 
 const (
@@ -254,6 +268,70 @@ func (s *Step) AllDepends() []string {
 		all = append(all, dep.Step)
 	}
 	return all
+}
+
+// AIEndpoints returns the names of the AI endpoints that the step uses
+// (Spec 094): the endpoint of an agent.run step, or the endpoints of the models
+// of a chat.completion step. It returns nil for another step.
+func (s *Step) AIEndpoints() []string {
+	if s == nil {
+		return nil
+	}
+	if s.Agent != nil && s.Agent.Endpoint != "" {
+		return []string{s.Agent.Endpoint}
+	}
+	if s.ExecutorConfig.Type == ExecutorTypeChat && s.LLM != nil {
+		return s.LLM.Endpoints()
+	}
+	return nil
+}
+
+// toolEntries returns the tool entries that the step offers: the entries
+// of an agent.run step, or the entries of the llm block of a chat.completion step.
+func (s *Step) toolEntries() []ToolEntry {
+	if s == nil {
+		return nil
+	}
+	if s.Agent != nil {
+		if s.Agent.CLI == nil {
+			return nil
+		}
+		return s.Agent.CLI.Tools
+	}
+	if s.ExecutorConfig.Type == ExecutorTypeChat && s.LLM != nil {
+		return s.LLM.ToolEntries
+	}
+	return nil
+}
+
+// IsNamedMCP reports whether the entry names a MCP server entry of the AI page
+// (Spec 095): an mcp entry with no url.
+func (e ToolEntry) IsNamedMCP() bool {
+	return e.Kind == ToolEntryMCP && e.MCP != nil && e.MCP.URL == ""
+}
+
+// AIMCPServers returns the names of the MCP server entries that the step names
+// (Spec 095, "The key tools.mcp"): the mcp entries with no url, in the order of the
+// step. It returns nil for a step with no such entry.
+func (s *Step) AIMCPServers() []string {
+	var names []string
+	for _, entry := range s.toolEntries() {
+		if entry.IsNamedMCP() && !slices.Contains(names, entry.Name) {
+			names = append(names, entry.Name)
+		}
+	}
+	return names
+}
+
+// MCPAllow returns the key allow of the named MCP entry of the step: the tools that
+// a tools/call can name. It returns nil when the step has no such entry.
+func (s *Step) MCPAllow(name string) []string {
+	for _, entry := range s.toolEntries() {
+		if entry.IsNamedMCP() && entry.Name == name {
+			return entry.MCP.Allow
+		}
+	}
+	return nil
 }
 
 // String returns a formatted string representation of the step

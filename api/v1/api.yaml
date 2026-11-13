@@ -63,6 +63,10 @@ tags:
     description: "Runtime profile operations for managed environment variables and secrets"
   - name: "views"
     description: "Shared saved view configurations"
+  - name: "skills"
+    description: "Skill folders that give instructions to chat steps"
+  - name: "ai"
+    description: "AI endpoint management: the addresses and the keys of model APIs (admin only)"
 
 paths:
   /health:
@@ -8968,6 +8972,549 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+
+  /skills:
+    get:
+      summary: "List skills"
+      description: "Lists the skill folders of the DAGs directory, sorted by name. A skill that is not in the Agent Skills format is listed too, with its errors: Dagu refuses to load it."
+      operationId: "listSkills"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Skills"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SkillSummary"
+                required:
+                  - skills
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/download:
+    post:
+      summary: "Download several skills as one ZIP"
+      description: "Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored. A skill that is not valid can be downloaded. An unknown name gives 404 and no ZIP. At most 100 skills."
+      operationId: "downloadSkills"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                names:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: string
+                    maxLength: 255
+                  description: "Names of the skills"
+              required:
+                - names
+      responses:
+        "200":
+          description: "The ZIP"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name: skills-<date>.zip, or <name>.zip for one skill"
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid request, or too many skills, or the skills are too large"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "A skill does not exist"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/{name}:
+    get:
+      summary: "Get a skill"
+      description: "Returns the raw SKILL.md of a skill, its hash, its files, and its errors and warnings."
+      operationId: "getSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+      responses:
+        "200":
+          description: "Skill"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillDetail"
+        "400":
+          description: "Invalid skill name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Create or update SKILL.md"
+      description: "Validates the SKILL.md content and writes it atomically as skills/{name}/SKILL.md of the DAGs directory. Send If-Match with the hash that the client read, or If-None-Match: * to create the skill. A skill that changed meanwhile gives 409 with its current hash. Requires developer role or above."
+      operationId: "updateSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The write applies only when the skill still has this hash. Every write needs this header, or If-None-Match: * to create."
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: "The value * makes the write apply only when the skill does not exist."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                content:
+                  type: string
+                  maxLength: 4194304
+                  description: "The raw content of SKILL.md: a YAML front matter block with name and description, then the Markdown instructions"
+              required:
+                - content
+      responses:
+        "200":
+          description: "Skill saved"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillWriteResult"
+        "400":
+          description: "Invalid skill name or invalid SKILL.md"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "If-Match names a skill that does not exist"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it, or it exists"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "428":
+          description: "The request has no If-Match or If-None-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete a skill"
+      description: "Deletes the whole folder of a skill with every file. Send If-Match with the hash that the client read. Requires developer role or above."
+      operationId: "deleteSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Skill deleted"
+        "400":
+          description: "Invalid skill name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "428":
+          description: "The request has no If-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/{name}/download:
+    get:
+      summary: "Download one skill as a ZIP"
+      description: "Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded."
+      operationId: "downloadSkill"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+      responses:
+        "200":
+          description: "The ZIP"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name: <name>.zip"
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid skill name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /skills/{name}/files:
+    get:
+      summary: "Get one file of a skill"
+      description: "Streams the bytes of one file of a skill, exactly as stored. The header ETag holds the hash of the skill."
+      operationId: "getSkillFile"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - $ref: "#/components/parameters/SkillFilePath"
+      responses:
+        "200":
+          description: "File content"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment file name"
+            ETag:
+              schema:
+                type: "string"
+              description: "The hash of the skill"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "Invalid skill name or path"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill or file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed while the server read the file; read it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      summary: "Create or replace one file of a skill"
+      description: "Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. Requires developer role or above."
+      operationId: "putSkillFile"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - $ref: "#/components/parameters/SkillFilePath"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: "File saved"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillWriteResult"
+        "400":
+          description: "Invalid name, path or content"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "413":
+          description: "The file is too large"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "428":
+          description: "The request has no If-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Delete one file of a skill"
+      description: "Deletes one file under references/, assets/ or scripts/. Send If-Match with the hash that the client read. Requires developer role or above."
+      operationId: "deleteSkillFile"
+      tags:
+        - "skills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/SkillName"
+        - $ref: "#/components/parameters/SkillFilePath"
+        - name: If-Match
+          in: header
+          required: false
+          description: "The hash of the skill that the client read (the field hash). The request applies only when the skill still has this hash. The request needs this header."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "File deleted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillWriteResult"
+        "400":
+          description: "Invalid name or path"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires developer role or above"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Skill or file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The skill changed after the client read it"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillError"
+        "428":
+          description: "The request has no If-Match header"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
   /calendars:
     get:
       summary: "List business calendars"
@@ -11700,6 +12247,820 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /ai/endpoints:
+    get:
+      summary: "List AI endpoints"
+      description: |
+        Lists the AI endpoints of all scopes. Requires the admin role.
+        The response never holds a key. It holds the prefix and the fingerprint of the key.
+      operationId: "listAIEndpoints"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "AI endpoints"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpointListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create AI endpoint"
+      description: |
+        Creates an AI endpoint with its key. Requires the admin role.
+        The key is in the request only. No response holds it.
+        The scope is fixed at creation.
+      operationId: "createAIEndpoint"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAIEndpointRequest"
+      responses:
+        "201":
+          description: "AI endpoint created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpoint"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace of the scope not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "An endpoint with this name exists in the scope"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/endpoints/{name}:
+    patch:
+      summary: "Update AI endpoint"
+      description: |
+        Changes the fields of an endpoint that are not the key, the name, the preset, the protocol and the scope.
+        Requires the admin role.
+      operationId: "updateAIEndpoint"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIEndpointName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAIEndpointRequest"
+      responses:
+        "200":
+          description: "AI endpoint updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpoint"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "AI endpoint not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete AI endpoint"
+      description: |
+        Deletes an endpoint and its key. Requires the admin role.
+        A run that names the endpoint then fails with the reason endpoint_unknown.
+      operationId: "deleteAIEndpoint"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIEndpointName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "AI endpoint deleted"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "AI endpoint not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/endpoints/{name}/key:
+    put:
+      summary: "Set or rotate the key of an AI endpoint"
+      description: |
+        Replaces the key of an endpoint. Requires the admin role.
+        The key is in the request only. No response holds it.
+        The old value stays in the store as an encrypted old version. No route reads it.
+      operationId: "setAIEndpointKey"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIEndpointName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAIEndpointKeyRequest"
+      responses:
+        "200":
+          description: "Key replaced"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpoint"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "AI endpoint not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/endpoints/{name}/models:
+    get:
+      summary: "Read the models list of an AI endpoint"
+      description: |
+        Gives the models list of an endpoint with the date of its last good read and the error of its last read.
+        The route reads the list that the server keeps. It does not call the provider.
+        Requires the admin role. A step form reads the list of an endpoint that it may use from the route of choices.
+      operationId: "getAIEndpointModels"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIEndpointName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The models list"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpointModels"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "AI endpoint not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/endpoints/{name}/models/reload:
+    post:
+      summary: "Reload the models list of an AI endpoint"
+      description: |
+        Calls the models URL of the endpoint now, with its key, and keeps the result. Requires the admin role.
+        A failed read is not an error of this route: the response has the error, and the last good list stays.
+        The route waits for the provider, up to the timeout ai.models_timeout_sec.
+      operationId: "reloadAIEndpointModels"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIEndpointName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The models list after the read"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpointModels"
+        "400":
+          description: "The endpoint has no models URL"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "AI endpoint not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/endpoint-choices:
+    get:
+      summary: "List the AI endpoints that a DAG may use"
+      description: |
+        Lists the endpoints that the DAG may use, for the form of a step.
+        The roles that edit DAGs can call it.
+        The response has no key data and no base URL.
+      operationId: "listAIEndpointChoices"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: dag
+          in: query
+          description: "Name of the DAG."
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: workspace
+          in: query
+          description: "Workspace of the DAG, from its label workspace. Omit it for a DAG with no workspace. Then only the global endpoints can match."
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Endpoints that the DAG may use"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpointChoicesResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/endpoint-presets:
+    get:
+      summary: "List the AI endpoint presets"
+      description: |
+        Lists the provider presets of the server (Spec 093, Provider presets). A preset gives the default
+        values of a new endpoint. Requires the admin role.
+      operationId: "listAIEndpointPresets"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "AI endpoint presets"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIEndpointPresetListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/mcp-servers:
+    get:
+      summary: "List MCP server entries"
+      description: |
+        Lists the MCP server entries of all scopes. Requires the admin role.
+        The response never holds a credential. It holds the prefix and the fingerprint of each value.
+      operationId: "listAIMCPServers"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "MCP server entries"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIMCPServerListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create MCP server entry"
+      description: |
+        Creates a MCP server entry with its credentials. Requires the admin role.
+        The credentials are in the request only. No response holds them.
+        The scope is fixed at creation.
+      operationId: "createAIMCPServer"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAIMCPServerRequest"
+      responses:
+        "201":
+          description: "MCP server entry created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIMCPServer"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Workspace of the scope not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "An entry with this name exists in the scope"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/mcp-servers/{name}:
+    patch:
+      summary: "Update MCP server entry"
+      description: |
+        Changes the URL and the use rule of an entry. It does not change the credentials, the name and the scope.
+        Requires the admin role.
+      operationId: "updateAIMCPServer"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIMCPServerName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAIMCPServerRequest"
+      responses:
+        "200":
+          description: "MCP server entry updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIMCPServer"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "MCP server entry not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete MCP server entry"
+      description: |
+        Deletes an entry and its credentials. Requires the admin role.
+        A run that names the entry then fails with the reason mcp_server_unknown.
+      operationId: "deleteAIMCPServer"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIMCPServerName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "204":
+          description: "MCP server entry deleted"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "MCP server entry not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/mcp-servers/{name}/credentials:
+    put:
+      summary: "Set or rotate the credentials of a MCP server entry"
+      description: |
+        Replaces the whole set of credentials of an entry: a token, or headers, or none. Requires the admin role.
+        The values are in the request only. No response holds them.
+        The old values stay in the store as encrypted old versions. No route reads them.
+      operationId: "setAIMCPServerCredentials"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AIMCPServerName"
+        - $ref: "#/components/parameters/AIEndpointWorkspace"
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAIMCPServerCredentialsRequest"
+      responses:
+        "200":
+          description: "Credentials replaced"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIMCPServer"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Requires admin role"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "MCP server entry not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ai/mcp-server-choices:
+    get:
+      summary: "List the MCP server entries that a DAG may use"
+      description: |
+        Lists the entries that the DAG may use, for the form of a step.
+        The roles that edit DAGs can call it.
+        The response has no credential data and no URL.
+      operationId: "listAIMCPServerChoices"
+      tags:
+        - "ai"
+      security:
+        - apiToken: []
+        - basicAuth: []
+      parameters:
+        - name: dag
+          in: query
+          description: "Name of the DAG."
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: workspace
+          in: query
+          description: "Workspace of the DAG, from its label workspace. Omit it for a DAG with no workspace. Then only the global entries can match."
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkspaceName"
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "MCP server entries that the DAG may use"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIMCPServerChoicesResponse"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /views:
     get:
       summary: "List saved views"
@@ -12751,6 +14112,26 @@ components:
         type: boolean
         default: false
 
+    SkillName:
+      name: name
+      in: path
+      description: name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server).
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+    SkillFilePath:
+      name: path
+      in: query
+      description: "Path of a file of the skill, relative to its folder, with / separators, for example references/guide.md"
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+
     RemoteNode:
       name: remoteNode
       in: query
@@ -12988,6 +14369,30 @@ components:
       description: "The unique identifier of the remote node"
       schema:
         type: string
+
+    AIEndpointName:
+      name: name
+      in: path
+      description: "Name of the AI endpoint"
+      required: true
+      schema:
+        $ref: "#/components/schemas/AIEndpointName"
+
+    AIEndpointWorkspace:
+      name: workspace
+      in: query
+      description: "Scope of the endpoint. Use global or omit it for the global scope. Use a workspace name for a workspace endpoint."
+      required: false
+      schema:
+        type: string
+
+    AIMCPServerName:
+      name: name
+      in: path
+      description: "Name of the MCP server entry"
+      required: true
+      schema:
+        $ref: "#/components/schemas/AIMCPServerName"
 
   schemas:
     Tags:
@@ -13428,6 +14833,11 @@ components:
           items:
             $ref: "#/components/schemas/ToolDefinition"
           description: "Tool definitions that were available to the LLM"
+        skillDefinitions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillDefinition"
+          description: "Skills that the effective catalog offered to the LLM or left out"
         stepStatus:
           $ref: "#/components/schemas/NodeStatus"
         stepStatusLabel:
@@ -13440,6 +14850,215 @@ components:
         - stepStatus
         - stepStatusLabel
         - hasMore
+
+    SkillIssue:
+      type: object
+      description: "One finding of the check of a skill against the Agent Skills format"
+      properties:
+        severity:
+          type: string
+          enum:
+            - error
+            - warning
+          description: "An error makes Dagu refuse the skill. A warning does not."
+        rule:
+          type: string
+          description: "Identifier of the rule, for example name-folder"
+        file:
+          type: string
+          description: "File of the skill, relative to its folder. Empty when the issue concerns the folder."
+        message:
+          type: string
+          description: "What is wrong and what the rule is"
+      required:
+        - severity
+        - rule
+        - message
+
+    SkillFile:
+      type: object
+      description: "One file of a skill"
+      properties:
+        path:
+          type: string
+          description: "Path relative to the skill folder, with / separators"
+        size:
+          type: integer
+          format: int64
+          description: "Size in bytes"
+        sha256:
+          type: string
+          description: "SHA-256 of the content, in lower case hexadecimal"
+        text:
+          type: boolean
+          description: "True for a text file that the model can read (SKILL.md, references/ and scripts/)"
+      required:
+        - path
+        - size
+        - sha256
+        - text
+
+    SkillSummary:
+      type: object
+      description: "A skill folder of the skills directory"
+      properties:
+        name:
+          type: string
+          description: "Name of the skill, the name of its folder. A chat.completion step names it in with.skills."
+        description:
+          type: string
+          description: "Description of the skill. Empty when the front matter is not valid."
+        hash:
+          type: string
+          description: "Hash of the version of the skill: the SHA-256 of the sorted list of the path and the SHA-256 of each file"
+        valid:
+          type: boolean
+          description: "False when the skill has an error. Dagu refuses a skill that is not valid."
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+          description: "Errors of the format. Not empty when valid is false."
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+          description: "Warnings of the format. They do not refuse the skill."
+        fileCount:
+          type: integer
+          description: "Number of files, with SKILL.md"
+        totalBytes:
+          type: integer
+          format: int64
+          description: "Size of all files in bytes"
+        bodyLines:
+          type: integer
+          description: "Number of lines of the Markdown body"
+        bodyTokens:
+          type: integer
+          description: "Estimate of the tokens of the body: bytes divided by 3.7. Approximate."
+      required:
+        - name
+        - description
+        - hash
+        - valid
+        - errors
+        - warnings
+        - fileCount
+        - totalBytes
+        - bodyLines
+        - bodyTokens
+
+    SkillDetail:
+      type: object
+      description: "A skill with the content of SKILL.md and the list of its files"
+      properties:
+        name:
+          type: string
+          description: "Name of the skill"
+        content:
+          type: string
+          description: "The raw content of SKILL.md. Empty when the file does not exist."
+        hash:
+          type: string
+          description: "Hash of the version of the skill. Send it in If-Match for a write."
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillFile"
+        license:
+          type: string
+        compatibility:
+          type: string
+        allowedTools:
+          type: string
+          description: "The value of allowed-tools. Informational: it never widens the permissions of a step."
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        summary:
+          $ref: "#/components/schemas/SkillSummary"
+      required:
+        - name
+        - content
+        - hash
+        - errors
+        - warnings
+        - files
+        - summary
+
+    SkillWriteResult:
+      type: object
+      description: "The skill after a write"
+      properties:
+        hash:
+          type: string
+          description: "The new hash of the skill"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillFile"
+      required:
+        - hash
+        - errors
+        - warnings
+        - files
+
+    SkillError:
+      type: object
+      description: "An error of a skill route: a content that breaks a rule, or a write that conflicts"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillIssue"
+          description: "The rules that the content breaks"
+        hash:
+          type: string
+          description: "For a conflict: the hash of the skill now. Empty when the skill does not exist."
+      required:
+        - code
+        - message
+
+    SkillDefinition:
+      type: object
+      description: "A skill that the effective catalog of a step offered to the LLM"
+      properties:
+        name:
+          type: string
+          description: "Name of the skill"
+        description:
+          type: string
+          description: "Description of the skill"
+        hash:
+          type: string
+          description: "Hash of the version of the skill that the step received"
+        omitted:
+          type: string
+          description: "Set only in the record of an older run, where a condition left the skill out. The effective catalog no longer leaves a skill out."
+      required:
+        - name
 
     ToolDefinition:
       type: object
@@ -13455,6 +15074,9 @@ components:
           type: object
           additionalProperties: true
           description: "JSON Schema describing the tool's parameters"
+        source:
+          type: string
+          description: "Where the tool comes from: dag:<name>, mcp:<name> (the label of the server) or skills (the tool load_skill)"
       required:
         - name
 
@@ -21396,6 +23018,573 @@ components:
         name:
           type: string
           description: "The setting, such as a workspace, a secret and its workspace, or a username"
+
+    AIEndpointName:
+      type: string
+      description: "Name of an AI endpoint. It is unique in its scope."
+      pattern: "^[a-z][a-z0-9-]{0,63}$"
+
+    AIEndpointProtocol:
+      type: string
+      description: "Form of the HTTP API of the provider."
+      enum:
+        - anthropic
+        - openai
+
+    AIEndpointAuth:
+      type: string
+      description: |
+        Header form that the coordinator sets. The form anthropic-oauth is valid with the protocol anthropic only.
+      enum:
+        - x-api-key
+        - bearer
+        - anthropic-oauth
+
+    AIEndpointScope:
+      type: string
+      description: "The value global, or workspace: and the name of a workspace."
+      pattern: "^(global|workspace:[A-Za-z0-9_-]{1,64})$"
+
+    AIEndpointAllow:
+      type: object
+      additionalProperties: false
+      description: |
+        Who may use the endpoint. A name is an exact name. The value * is the only pattern.
+        It must be the only item of its list.
+      required:
+        - dags
+      properties:
+        workspaces:
+          type: array
+          description: |
+            Workspace names, or *. Required for the scope global. Not valid in a workspace scope.
+          items:
+            type: string
+            minLength: 1
+        dags:
+          type: array
+          description: "DAG names, or *."
+          items:
+            type: string
+            minLength: 1
+
+    AIEndpoint:
+      type: object
+      description: "An AI endpoint. It never holds the key."
+      required:
+        - name
+        - preset
+        - protocol
+        - baseUrl
+        - auth
+        - scope
+        - allow
+        - createdAt
+        - updatedAt
+      properties:
+        name:
+          $ref: "#/components/schemas/AIEndpointName"
+        description:
+          type: string
+          maxLength: 200
+        preset:
+          type: string
+          description: "Name of a preset of the server, or custom."
+        protocol:
+          $ref: "#/components/schemas/AIEndpointProtocol"
+        baseUrl:
+          type: string
+        auth:
+          $ref: "#/components/schemas/AIEndpointAuth"
+        modelsUrl:
+          type: string
+          description: "Models URL. Valid with the preset custom only."
+        scope:
+          $ref: "#/components/schemas/AIEndpointScope"
+        allow:
+          $ref: "#/components/schemas/AIEndpointAllow"
+        keyPrefix:
+          type: string
+          description: |
+            First characters of the key. The length is the smaller of 6 and 10 percent of the key length, rounded down.
+            Absent for a key of fewer than 10 characters and for an endpoint with no key.
+        keyFingerprint:
+          type: string
+          description: "First 12 hexadecimal digits of the SHA-256 of the key. Absent for an endpoint with no key."
+          pattern: "^[0-9a-f]{12}$"
+        keyUpdatedAt:
+          type: string
+          format: date-time
+          description: "Time of the last write of the key. Absent for an endpoint with no key."
+        models:
+          $ref: "#/components/schemas/AIEndpointModelsStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AIEndpointModelsStatus:
+      type: object
+      description: |
+        The state of the models list of an endpoint, without the names.
+        The error of a failed read comes with the last good list. The error never holds the key.
+      required:
+        - supported
+        - count
+      properties:
+        supported:
+          type: boolean
+          description: "False when the endpoint has no models URL. It then has no list."
+        count:
+          type: integer
+          minimum: 0
+          description: "Number of models in the last good list."
+        refreshedAt:
+          type: string
+          format: date-time
+          description: "Time of the last good read. Absent before the first good read."
+        error:
+          type: string
+          description: "Text of the error of the last read. Absent when the last read was good."
+        errorAt:
+          type: string
+          format: date-time
+          description: "Time of the error. Present with error."
+
+    AIModelInfo:
+      type: object
+      description: "The details of one model of the models list of an endpoint."
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: "The model name."
+        displayName:
+          type: string
+          description: "The name that a person reads, for example Claude Haiku 5.5. Absent when the provider gives none."
+        efforts:
+          type: array
+          description: |
+            The levels of effort that the model supports, from the lowest to the highest.
+            Absent when the provider gives none. A level is low, medium, high, xhigh or max.
+          items:
+            type: string
+
+    AIEndpointModels:
+      description: "The models list of an endpoint, with its state."
+      allOf:
+        - $ref: "#/components/schemas/AIEndpointModelsStatus"
+        - type: object
+          required:
+            - models
+          properties:
+            models:
+              type: array
+              description: "The model names of the last good read, in the order of the provider."
+              items:
+                type: string
+            modelInfo:
+              type: array
+              description: |
+                The details of the models, one item for each name of models, in the same order.
+              items:
+                $ref: "#/components/schemas/AIModelInfo"
+
+    AIEndpointListResponse:
+      type: object
+      required:
+        - endpoints
+      properties:
+        endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIEndpoint"
+
+    CreateAIEndpointRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - preset
+        - protocol
+        - scope
+        - allow
+      properties:
+        name:
+          $ref: "#/components/schemas/AIEndpointName"
+        description:
+          type: string
+          maxLength: 200
+        preset:
+          type: string
+          description: "Name of a preset of the server, or custom."
+        protocol:
+          $ref: "#/components/schemas/AIEndpointProtocol"
+        baseUrl:
+          type: string
+          description: |
+            Base URL. The preset gives the default. It is required when the preset gives none.
+            The scheme is https. The presets of a local model and custom also accept http.
+        auth:
+          $ref: "#/components/schemas/AIEndpointAuth"
+        modelsUrl:
+          type: string
+          description: "Models URL. Valid with the preset custom only."
+        scope:
+          $ref: "#/components/schemas/AIEndpointScope"
+        allow:
+          $ref: "#/components/schemas/AIEndpointAllow"
+        key:
+          type: string
+          writeOnly: true
+          maxLength: 8192
+          description: |
+            The key of the provider. It is not empty and has no control character.
+            Required, except for the presets of a local model, which accept no key.
+            The response never holds it.
+
+    UpdateAIEndpointRequest:
+      type: object
+      additionalProperties: false
+      description: "Fields to change. An absent field keeps its value. A present allow replaces the whole allow."
+      properties:
+        description:
+          type: string
+          maxLength: 200
+        baseUrl:
+          type: string
+        auth:
+          $ref: "#/components/schemas/AIEndpointAuth"
+        modelsUrl:
+          type: string
+        allow:
+          $ref: "#/components/schemas/AIEndpointAllow"
+
+    SetAIEndpointKeyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+      properties:
+        key:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 8192
+          description: "The new key. It has no control character. The response never holds it."
+
+    AIEndpointChoice:
+      type: object
+      description: "An endpoint that a DAG may use. It has no key data and no base URL."
+      required:
+        - name
+        - protocol
+        - preset
+        - scope
+      properties:
+        models:
+          type: array
+          description: |
+            The model names of the last good read, as suggestions for the Model field of a step.
+            The list is empty when the endpoint has no list, or when no read worked yet.
+          items:
+            type: string
+        modelInfo:
+          type: array
+          description: |
+            The details of the models, one item for each name of models, in the same order.
+          items:
+            $ref: "#/components/schemas/AIModelInfo"
+        name:
+          $ref: "#/components/schemas/AIEndpointName"
+        protocol:
+          $ref: "#/components/schemas/AIEndpointProtocol"
+        preset:
+          type: string
+        scope:
+          $ref: "#/components/schemas/AIEndpointScope"
+
+    AIEndpointChoicesResponse:
+      type: object
+      required:
+        - choices
+      properties:
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIEndpointChoice"
+        cliModelAliases:
+          type: array
+          description: |
+            The model names that the CLI claude accepts and the models list of an endpoint does not hold.
+            The model check of an agent.run step lets them pass. The suffix [1m] is valid on each name.
+          items:
+            type: string
+
+    AIEndpointConsumer:
+      type: string
+      description: "A client that can use a row of a preset. The value codex is for later: agent.run does not run it yet."
+      enum:
+        - claude
+        - codex
+        - chat.completion
+
+    AIEndpointPresetProtocol:
+      type: object
+      description: "One protocol of a preset. It is one row of the table of presets."
+      required:
+        - protocol
+        - chatType
+        - consumers
+      properties:
+        protocol:
+          $ref: "#/components/schemas/AIEndpointProtocol"
+        baseUrl:
+          type: string
+          description: "Default base URL. Absent when the administrator must give one."
+        auth:
+          $ref: "#/components/schemas/AIEndpointAuth"
+        modelsUrl:
+          type: string
+          description: "URL of the models list. The text {base_url} stands for the base URL of the endpoint. Absent when the preset gives none."
+        chatType:
+          type: string
+          description: "Provider type that chat.completion uses for the row."
+        consumers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIEndpointConsumer"
+
+    AIEndpointPreset:
+      type: object
+      description: "A provider preset. The row of a protocol gives the defaults of a new endpoint."
+      required:
+        - id
+        - label
+        - needsKey
+        - protocols
+      properties:
+        id:
+          type: string
+          description: "Identifier of the preset, such as openrouter. The preset custom has the identifier custom."
+        label:
+          type: string
+        needsKey:
+          type: boolean
+          description: "False for a local model: it accepts an endpoint with no key and the scheme http."
+        protocols:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIEndpointPresetProtocol"
+
+    AIEndpointPresetListResponse:
+      type: object
+      required:
+        - presets
+      properties:
+        presets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIEndpointPreset"
+
+    AIMCPServerName:
+      type: string
+      description: "Name of a MCP server entry. It is unique in its scope. The name dagu is not valid."
+      pattern: "^[a-z][a-z0-9-]{0,63}$"
+
+    AIMCPServerAllow:
+      type: object
+      additionalProperties: false
+      description: |
+        Who may use the entry. A name is an exact name. The value * is the only pattern.
+        It must be the only item of its list.
+      required:
+        - dags
+      properties:
+        workspaces:
+          type: array
+          description: |
+            Workspace names, or *. Required for the scope global. Not valid in a workspace scope.
+          items:
+            type: string
+            minLength: 1
+        dags:
+          type: array
+          description: "DAG names, or *."
+          items:
+            type: string
+            minLength: 1
+
+    AIMCPCredential:
+      type: object
+      description: "The display values of one credential. The value itself is never returned."
+      required:
+        - keyFingerprint
+        - keyUpdatedAt
+      properties:
+        keyPrefix:
+          type: string
+          description: |
+            First characters of the value. The length is the smaller of 6 and 10 percent of the length of the value, rounded down.
+            Absent for a value of fewer than 10 characters.
+        keyFingerprint:
+          type: string
+          description: "First 12 hexadecimal digits of the SHA-256 of the value."
+          pattern: "^[0-9a-f]{12}$"
+        keyUpdatedAt:
+          type: string
+          format: date-time
+          description: "Time of the last write of the value."
+
+    AIMCPHeaderCredential:
+      type: object
+      description: "A header of the entry, with the display values of its value."
+      required:
+        - name
+        - keyFingerprint
+        - keyUpdatedAt
+      properties:
+        name:
+          type: string
+          description: "Header name, in lower case."
+        keyPrefix:
+          type: string
+        keyFingerprint:
+          type: string
+          pattern: "^[0-9a-f]{12}$"
+        keyUpdatedAt:
+          type: string
+          format: date-time
+
+    AIMCPServer:
+      type: object
+      description: "A MCP server entry. It never holds a credential value."
+      required:
+        - name
+        - url
+        - scope
+        - allow
+        - createdAt
+        - updatedAt
+      properties:
+        name:
+          $ref: "#/components/schemas/AIMCPServerName"
+        url:
+          type: string
+          description: "URL of the MCP server."
+        scope:
+          $ref: "#/components/schemas/AIEndpointScope"
+        allow:
+          $ref: "#/components/schemas/AIMCPServerAllow"
+        token:
+          $ref: "#/components/schemas/AIMCPCredential"
+        headers:
+          type: array
+          description: "The headers that carry a credential, sorted by name."
+          items:
+            $ref: "#/components/schemas/AIMCPHeaderCredential"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AIMCPServerListResponse:
+      type: object
+      required:
+        - servers
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIMCPServer"
+
+    CreateAIMCPServerRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - url
+        - scope
+        - allow
+      properties:
+        name:
+          $ref: "#/components/schemas/AIMCPServerName"
+        url:
+          type: string
+          description: |
+            URL of the MCP server. The scheme is https, or http. It has no user information and no fragment.
+        scope:
+          $ref: "#/components/schemas/AIEndpointScope"
+        allow:
+          $ref: "#/components/schemas/AIMCPServerAllow"
+        token:
+          type: string
+          writeOnly: true
+          maxLength: 8192
+          description: |
+            A bearer token. The coordinator sends it as authorization: Bearer. It does not go with a header authorization.
+            The response never holds it.
+        headers:
+          type: object
+          writeOnly: true
+          description: |
+            Header names and values, at most 16. A value has at most 8192 bytes.
+            The response never holds a value.
+          additionalProperties:
+            type: string
+
+    UpdateAIMCPServerRequest:
+      type: object
+      additionalProperties: false
+      description: "Fields to change. An absent field keeps its value. A present allow replaces the whole allow."
+      properties:
+        url:
+          type: string
+        allow:
+          $ref: "#/components/schemas/AIMCPServerAllow"
+
+    SetAIMCPServerCredentialsRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        The new set of credentials. It replaces the whole set. A request with no token and no headers removes the credentials.
+      properties:
+        token:
+          type: string
+          writeOnly: true
+          maxLength: 8192
+        headers:
+          type: object
+          writeOnly: true
+          additionalProperties:
+            type: string
+
+    AIMCPServerChoice:
+      type: object
+      description: "A MCP server entry that a DAG may use. It has no credential data and no URL."
+      required:
+        - name
+        - scope
+      properties:
+        name:
+          $ref: "#/components/schemas/AIMCPServerName"
+        scope:
+          $ref: "#/components/schemas/AIEndpointScope"
+
+    AIMCPServerChoicesResponse:
+      type: object
+      required:
+        - choices
+      properties:
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIMCPServerChoice"
 
 # Apply security requirements globally
 security:

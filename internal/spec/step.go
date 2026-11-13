@@ -135,12 +135,22 @@ type step struct {
 	// Requires explicit type: chat.
 	LLM *llmConfig `yaml:"llm,omitempty"`
 
+	// AgentRun carries an agent.run action to the build of the step. Only the
+	// normalization of the action sets it; a YAML value cannot fill it.
+	AgentRun *agentRunDraft `yaml:"agent_run,omitempty"`
+
 	// Messages contains the session messages for chat steps.
 	// Only valid when type is "chat".
 	Messages []llmMessage `yaml:"messages,omitempty"`
 
 	// Approval configures a human approval gate after step execution.
 	Approval *approvalConfig `yaml:"approval,omitempty"`
+
+	// Secrets lists the names of the DAG secrets that the step gets (Spec 092).
+	Secrets []string `yaml:"secrets,omitempty"`
+	// Untrusted marks a step that runs code that an agent wrote or controls
+	// (Spec 092).
+	Untrusted *bool `yaml:"untrusted,omitempty"`
 
 	// Router configuration (type: router)
 	// Value is the expression to evaluate for routing
@@ -317,6 +327,9 @@ type llmConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `yaml:"api_key_name,omitempty"`
+	// Endpoint is the AI endpoint of a chat.completion step (Spec 094). Only the
+	// block endpoint of its with sets it: see normalizeChatEndpoint.
+	Endpoint *chatEndpoint `yaml:"endpoint,omitempty"`
 	// ProviderOrder names the upstream providers OpenRouter tries first, in
 	// order. Only the openrouter provider accepts it.
 	ProviderOrder []string `yaml:"provider_order,omitempty"`
@@ -325,8 +338,20 @@ type llmConfig struct {
 	Stream *bool `yaml:"stream,omitempty"`
 	// Thinking enables extended thinking/reasoning mode.
 	Thinking *thinkingConfig `yaml:"thinking,omitempty"`
-	// Tools is a list of DAG names to use as callable tools.
-	Tools []string `yaml:"tools,omitempty"`
+	// DAGs lists the DAG tools of Spec 090. The loader parses the raw value once
+	// the build context is known.
+	DAGs any `yaml:"dags,omitempty"`
+	// Tools is the tool map of Spec 090: the category mcp. The loader parses
+	// the raw value once the build context is known. The list form of main, a
+	// list of DAG names, is deprecated.
+	Tools any `yaml:"tools,omitempty"`
+	// Skills is a list of skill names.
+	Skills skillEntryList `yaml:"skills,omitempty"`
+	// MaxTools limits the size of the effective tool catalog (default: 64).
+	MaxTools *int `yaml:"max_tools,omitempty"`
+	// ToolResultMaxBytes limits one tool result sent to the model (default:
+	// 524288). Zero disables the limit.
+	ToolResultMaxBytes *int `yaml:"tool_result_max_bytes,omitempty"`
 	// MaxToolIterations limits tool calling rounds (default: 10).
 	MaxToolIterations *int `yaml:"max_tool_iterations,omitempty"`
 	// MaxContextTokens activates agent observation aging at this prompt size.
@@ -619,8 +644,20 @@ func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 		return nil, err
 	}
 
+	// An agent.run step compiles to the step of its engine, and keeps the
+	// compiled form.
+	var agentRun *ir.AgentRun
+	if s.AgentRun != nil {
+		compiled, run, err := compileAgentRun(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		s, agentRun = compiled, run
+	}
+
 	result := &ir.Step{
 		ExecutorConfig: ir.ExecutorConfig{Config: make(map[string]any)},
+		Agent:          agentRun,
 	}
 
 	// Run the transformer pipeline
@@ -635,6 +672,7 @@ func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 	// Final validators run after the executor type is determined
 	// Capabilities-based validators handle all execution type conflicts
 	errs = append(errs, runStepValidationStages(result)...)
+	errs = append(errs, buildStepTrust(s, result)...)
 
 	// Validate executor config against registered schema
 	// Only validate when config has actual values (not just initialized as empty map)
@@ -2053,10 +2091,23 @@ func validateSubDAG(result *ir.Step) error {
 	return nil
 }
 
-// validateWorkerSelector checks if the executor type supports worker selection.
+// validateWorkerSelector checks if the executor type supports worker selection
+// and that no key belongs to Dagu (Spec 092, "Reserved labels").
 func validateWorkerSelector(result *ir.Step) error {
 	if len(result.WorkerSelector) == 0 {
 		return nil
+	}
+	for _, key := range slices.Sorted(maps.Keys(result.WorkerSelector)) {
+		if err := ir.CheckReservedSelectorKey(key); err != nil {
+			return ir.NewValidationError("worker_selector", result.WorkerSelector, err)
+		}
+		// A key that a run resolves could start with agent. A value can still
+		// have a reference.
+		if cmnvalue.HasAnyReference(key) {
+			return ir.NewValidationError("worker_selector", result.WorkerSelector,
+				fmt.Errorf("worker selector key %q has a value reference: a key must be literal, because Dagu checks the keys that start with %s when it loads the DAG",
+					key, ir.AgentLabelPrefix))
+		}
 	}
 	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).WorkerSelector {
 		return ir.NewValidationError(
@@ -2085,8 +2136,9 @@ func validateLLM(result *ir.Step) error {
 	hasModels := len(result.LLM.Models) > 0
 
 	if !hasModels {
-		// Single model config (legacy): require both provider and model
-		if result.LLM.Provider == "" {
+		// Single model config (legacy): require both provider and model. An
+		// endpoint gives the provider type (Spec 094).
+		if result.LLM.Provider == "" && result.LLM.Endpoint == "" {
 			return ir.NewValidationError(
 				"llm.provider",
 				result.LLM.Provider,
@@ -2196,7 +2248,7 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 	if result.ExecutorConfig.Type == "redis" && ctx.dag != nil && ctx.dag.Redis != nil {
 		mergeRedisConfig(ctx.dag.Redis, result.ExecutorConfig.Config)
 	}
-	if result.ExecutorConfig.Type == "harness" && ctx.dag != nil && ctx.dag.Harness != nil {
+	if result.ExecutorConfig.Type == "harness" && result.Agent == nil && ctx.dag != nil && ctx.dag.Harness != nil {
 		config, inherited := mergeHarnessConfig(ctx.dag.Harness, ctx.dag.Harnesses, stepConfig)
 		result.ExecutorConfig.Config = config
 		// A provider chosen by a variable is unknown here, so the runtime filters
@@ -2618,6 +2670,9 @@ func parseForeachSteps(ctx stepBuildContext, value any, defs *defaults) ([]ir.St
 			return nil, ir.NewValidationError("foreach.steps", rawStep,
 				fmt.Errorf("foreach.steps[%d] must be an object, got %T", idx, rawStep))
 		}
+		if err := rejectStepTrustKeys(fmt.Sprintf("foreach.steps[%d]", idx), stepMap, "a step of foreach.steps", ""); err != nil {
+			return nil, err
+		}
 		builtStep, err := buildStepFromRaw(ctx, idx, stepMap, names, defs)
 		if err != nil {
 			return nil, ir.NewValidationError("foreach.steps", rawStep, err)
@@ -2690,8 +2745,15 @@ func buildStepLLM(ctx stepBuildContext, s *step, result *ir.Step) error {
 		return nil
 	}
 
+	// An endpoint belongs to a chat.completion step.
+	if result.ExecutorConfig.Type != ir.ExecutorTypeChat {
+		if err := rejectLLMEndpoint("llm", s.LLM); err != nil {
+			return err
+		}
+	}
+
 	// Step has explicit llm: config - use it (full override of DAG-level)
-	cfg, err := llmConfigOf(s.LLM)
+	cfg, err := llmConfigOf(ctx.buildContext, s.LLM)
 	if err != nil {
 		return err
 	}
@@ -2706,14 +2768,21 @@ func ParseLLMConfig(data []byte) (*ir.LLMConfig, error) {
 	if err := yaml.UnmarshalWithOptions(data, &cfg, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("llm: %w", err)
 	}
-	return llmConfigOf(&cfg)
+	if err := rejectLLMEndpoint("llm", &cfg); err != nil {
+		return nil, err
+	}
+	return llmConfigOf(buildContext{}, &cfg)
 }
 
 // llmConfigOf checks an llm block and returns the configuration it gives.
-func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
+func llmConfigOf(ctx buildContext, cfg *llmConfig) (*ir.LLMConfig, error) {
 	// Validate provider if specified (for single model config)
 	if err := validateLLMProvider(cfg.Provider); err != nil {
 		return nil, ir.NewValidationError("llm.provider", cfg.Provider, err)
+	}
+
+	if err := validateLLMEndpoints(cfg); err != nil {
+		return nil, err
 	}
 
 	// Model is required when llm config is provided
@@ -2784,25 +2853,58 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 		return nil, err
 	}
 
+	tools, err := parseToolMapValue(cfg.DAGs, cfg.Tools, "llm")
+	if err != nil {
+		return nil, err
+	}
+	toolEntries, err := buildToolEntries(tools)
+	if err != nil {
+		return nil, err
+	}
+	skills, err := parseSkillEntries(ctx, []any(cfg.Skills), "llm.skills")
+	if err != nil {
+		return nil, err
+	}
+	if err := validateToolLimits(cfg); err != nil {
+		return nil, err
+	}
+
 	return &ir.LLMConfig{
-		Provider:          cfg.Provider,
-		Model:             modelString,
-		Models:            models,
-		System:            cfg.System,
-		Temperature:       cfg.Temperature,
-		MaxTokens:         cfg.MaxTokens,
-		TopP:              cfg.TopP,
-		BaseURL:           cfg.BaseURL,
-		APIKeyName:        cfg.APIKeyName,
-		ProviderOrder:     cfg.ProviderOrder,
-		Stream:            cfg.Stream,
-		Thinking:          thinking,
-		Tools:             cfg.Tools,
-		MaxToolIterations: cfg.MaxToolIterations,
-		WebSearch:         buildWebSearchConfig(cfg.WebSearch),
-		Files:             cfg.Files.Values(),
-		MaxFileChars:      cfg.MaxFileChars,
+		Provider:           cfg.Provider,
+		Model:              modelString,
+		Models:             models,
+		System:             cfg.System,
+		Temperature:        cfg.Temperature,
+		MaxTokens:          cfg.MaxTokens,
+		TopP:               cfg.TopP,
+		BaseURL:            cfg.BaseURL,
+		APIKeyName:         cfg.APIKeyName,
+		Endpoint:           cfg.Endpoint.String(),
+		ProviderOrder:      cfg.ProviderOrder,
+		Stream:             cfg.Stream,
+		Thinking:           thinking,
+		ToolEntries:        toolEntries,
+		Skills:             skills,
+		MaxTools:           cfg.MaxTools,
+		ToolResultMaxBytes: cfg.ToolResultMaxBytes,
+		MaxToolIterations:  cfg.MaxToolIterations,
+		WebSearch:          buildWebSearchConfig(cfg.WebSearch),
+		Files:              cfg.Files.Values(),
+		MaxFileChars:       cfg.MaxFileChars,
 	}, nil
+}
+
+// validateToolLimits checks the size limits of the tool catalog.
+func validateToolLimits(cfg *llmConfig) error {
+	if cfg.MaxTools != nil && *cfg.MaxTools < 1 {
+		return ir.NewValidationError("llm.max_tools", *cfg.MaxTools,
+			fmt.Errorf("max_tools must be at least 1"))
+	}
+	if cfg.ToolResultMaxBytes != nil && *cfg.ToolResultMaxBytes < 0 {
+		return ir.NewValidationError("llm.tool_result_max_bytes", *cfg.ToolResultMaxBytes,
+			fmt.Errorf("tool_result_max_bytes must not be negative; 0 disables the limit"))
+	}
+	return nil
 }
 
 func validateAgentLLMLimits(cfg *llmConfig, agentRoot bool) error {
@@ -2896,10 +2998,15 @@ func requireOpenRouter(path string, order []string, provider string) error {
 		fmt.Errorf("provider_order is only supported by the openrouter provider, not %q", provider))
 }
 
-// convertModelEntries converts types.ModelEntry slice to ir.ModelEntry slice with validation.
+// convertModelEntries converts types.ModelEntry slice to ir.ModelEntry slice with
+// validation. An entry needs a provider or an endpoint of its own (Spec 094).
 func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 	models := make([]ir.ModelEntry, len(entries))
 	for i, e := range entries {
+		if e.Provider == "" && e.Endpoint == "" {
+			return nil, ir.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), nil,
+				fmt.Errorf("model[%d].provider: required, unless the model names an endpoint", i))
+		}
 		if err := validateLLMProvider(e.Provider); err != nil {
 			return nil, ir.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
 		}
@@ -2911,6 +3018,7 @@ func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 			TopP:          e.TopP,
 			BaseURL:       e.BaseURL,
 			APIKeyName:    e.APIKeyName,
+			Endpoint:      e.Endpoint,
 			ProviderOrder: e.ProviderOrder,
 		}
 	}

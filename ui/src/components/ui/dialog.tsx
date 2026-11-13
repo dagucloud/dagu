@@ -7,7 +7,32 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 
-const Dialog = DialogPrimitive.Root;
+/** The element that had the focus when the dialog opened. */
+const OpenerContext = React.createContext<React.RefObject<HTMLElement | null>>({
+  current: null,
+});
+
+/**
+ * A dialog that a button opens by state has no DialogTrigger: it gives the
+ * focus back to the element that had it when it opened. The render that opens
+ * the dialog still sees that element: a field that autofocuses takes the focus
+ * at the commit.
+ */
+function Dialog({ open, ...props }: DialogPrimitive.DialogProps) {
+  const opener = React.useRef<HTMLElement | null>(null);
+  const wasOpen = React.useRef(false);
+  if (open && !wasOpen.current) {
+    const active = document.activeElement;
+    opener.current =
+      active instanceof HTMLElement && active !== document.body ? active : null;
+  }
+  wasOpen.current = !!open;
+  return (
+    <OpenerContext.Provider value={opener}>
+      <DialogPrimitive.Root open={open} {...props} />
+    </OpenerContext.Provider>
+  );
+}
 
 const DialogTrigger = DialogPrimitive.Trigger;
 
@@ -79,6 +104,8 @@ const DialogContent = React.forwardRef<
   ) => {
     const inherited = React.useContext(DialogLayerContext);
     const raised = (layer ?? inherited) === 'raised';
+    const opener = React.useContext(OpenerContext);
+    const { onCloseAutoFocus } = props;
     return (
       <DialogPortal>
         <DialogOverlay className={raised ? RAISED_LAYER : undefined} />
@@ -92,6 +119,13 @@ const DialogContent = React.forwardRef<
             className
           )}
           {...props}
+          onCloseAutoFocus={(event) => {
+            onCloseAutoFocus?.(event);
+            const target = opener.current;
+            if (event.defaultPrevented || !target?.isConnected) return;
+            event.preventDefault();
+            target.focus();
+          }}
         >
           <DialogLayerContext.Provider value={raised ? 'raised' : 'default'}>
             {children}

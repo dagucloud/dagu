@@ -159,7 +159,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 							APIKeyName: "${env.MODEL_API_KEY}",
 						},
 					},
-					Tools: []string{"${consts.llm_tool}"},
+					ToolEntries: []ir.ToolEntry{{Kind: ir.ToolEntryDAG, Name: "${consts.llm_tool}", DAG: "${consts.llm_tool}"}},
 				},
 				Messages: []ir.PromptMessage{
 					{Content: "${env.MESSAGE_CONTENT}"},
@@ -259,7 +259,7 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 	assert.NotContains(t, got, "steps[0].output.digest.select")
 	assert.NotContains(t, got, "steps[0].llm.api_key_name")
 	assert.NotContains(t, got, "steps[0].llm.model[0].api_key_name")
-	assert.NotContains(t, got, "steps[0].llm.tools[0]")
+	assert.NotContains(t, got, "steps[0].llm.dags[0]")
 }
 
 func TestReferenceFieldsIncludesHumanTaskArtifacts(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agenttools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1003,11 +1004,8 @@ func TestEmptyToolAnswer(t *testing.T) {
 		},
 	}
 
-	registry := &ToolRegistry{
-		tools:    map[string]*toolInfo{"lookup": {Name: "lookup"}},
-		dagNames: map[string]string{"lookup": "lookup"},
-	}
-	executor.toolExecutor = NewToolExecutor(registry, "")
+	registry := agenttools.NewRegistryOfNames(map[string]string{"lookup": ""})
+	executor.toolExecutor = agenttools.NewToolExecutor(registry, "")
 	conv := newConversation([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
 	done, err := executor.executeToolStep(context.Background(), provider, cfg, nil, conv, 0)
 	require.NoError(t, err)
@@ -1043,11 +1041,8 @@ func TestEmptyToolCallIsValid(t *testing.T) {
 		},
 	}
 
-	registry := &ToolRegistry{
-		tools:    map[string]*toolInfo{"lookup": {Name: "lookup"}},
-		dagNames: map[string]string{"lookup": "lookup"},
-	}
-	executor.toolExecutor = NewToolExecutor(registry, "")
+	registry := agenttools.NewRegistryOfNames(map[string]string{"lookup": ""})
+	executor.toolExecutor = agenttools.NewToolExecutor(registry, "")
 	tools := registry.ToLLMTools()
 	conv := newConversation([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
 	done, err := executor.executeToolStep(context.Background(), provider, cfg, tools, conv, 0)
@@ -1081,10 +1076,7 @@ func TestExecutor_ToolLoopReplaysProviderState(t *testing.T) {
 		},
 	}
 	cfg := &ir.LLMConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"}
-	registry := &ToolRegistry{
-		tools:    map[string]*toolInfo{"lookup": {Name: "lookup"}},
-		dagNames: map[string]string{"lookup": "lookup"},
-	}
+	registry := agenttools.NewRegistryOfNames(map[string]string{"lookup": ""})
 	var stdout bytes.Buffer
 	executor := &Executor{stdout: &stdout, step: ir.Step{LLM: cfg}, toolRegistry: registry}
 
