@@ -137,7 +137,7 @@ func (m *maskedReads) noteEntry(entry EnvEntry) {
 func noteShellReads(ctx context.Context, text string) {
 	reads := maskedReadsFrom(ctx)
 	scope := GetEnvScope(ctx)
-	if reads == nil || scope == nil {
+	if reads == nil || !scope.hasMaskedOutput() {
 		return
 	}
 	for _, name := range shellEnvReads(text) {
