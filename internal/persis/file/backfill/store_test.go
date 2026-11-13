@@ -58,6 +58,26 @@ func TestStoreCreateGetList(t *testing.T) {
 	assert.Len(t, all, 3)
 }
 
+// Listing a DAG's backfills reads that DAG's records only: another DAG's
+// record that does not decode leaves the list intact.
+func TestStoreListReadsOneDAG(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "other", now)))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bbbbbbbb.json"), []byte("{"), 0o600))
+
+	records, err := store.List(ctx, "etl")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, "aaaaaaaa", records[0].ID)
+	_, err = store.List(ctx, "")
+	assert.Error(t, err, "listing every DAG reads the record that does not decode")
+}
+
 // Holders of a DAG's lock in different stores run one at a time.
 func TestStoreLockDAGSerializes(t *testing.T) {
 	t.Parallel()
