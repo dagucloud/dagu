@@ -9,7 +9,7 @@ Do not ask whether the user means a server or local files. Decide in this order:
 1. The user names a context, URL, or "local": use it. If they name a remote server without a context or URL, ask for it.
 2. Dagu MCP tools (`dagu_read`, `dagu_change`, `dagu_execute`) are already connected: use them.
 3. `dagu context list` shows a current remote context: use it. If `local` is current and exactly one remote context exists, use that; if several remote contexts could apply (for example staging and production), ask which.
-4. Probe `GET <url>/api/v1/health` on the first candidate that exists: a configured URL, else the address of a listening `dagu` process (`ss -ltnp`), else `localhost:8080`. The port is often not 8080. If it is healthy, use it. If it is not, report the server as unavailable and ask before any local change; do not move on to another candidate. A failed probe of the `localhost:8080` guess alone means no server (step 5).
+4. Probe `GET <url>/api/v1/health` on the first candidate that exists: a configured URL, else the address of a listening `dagu` process (`ss -ltnp`), else `localhost:8080`. The port is often not 8080. If it is healthy, use it, and before the first call list credential variable names (see Prerequisites) to get a key for MCP and REST; a 401 without a key means the key was not checked yet. If it is not healthy, report the server as unavailable and ask before any local change; do not move on to another candidate. A failed probe of the `localhost:8080` guess alone means no server (step 5).
 5. No candidate exists: no server. Use the local CLI and file edits as usual, saying once that no server was found.
 
 Ask only if a server is detected and the request could equally mean local DAG files.
@@ -18,7 +18,7 @@ Ask only if a server is detected and the request could equally mean local DAG fi
 
 Once a server is detected, use the first tier that supports the operation and reaches the selected target; a tier pointing at a different server (for example connected MCP tools for production when staging was named) is not eligible. Fall back only when it is unavailable, unsupported, or its key is rejected for that whole surface (after a timed-out write, check the run list before retrying so it does not start twice), and say which tier was used when it affects the result.
 
-1. **MCP** (`<server>/mcp`): tools `dagu_read`, `dagu_change`, `dagu_execute`.
+1. **MCP**, either already-connected Dagu tools or the server's `<server>/mcp` endpoint: tools `dagu_read`, `dagu_change`, `dagu_execute`.
 2. **REST API** (`<server>/api/v1`).
 3. **CLI remote context** (`dagu --context <name> ...`), only for commands that support it.
 4. **Local CLI or file edits**, last resort when a server was detected. These act on local files, not on the server.
