@@ -164,9 +164,11 @@ function canvasNode(page: Page, key: string): Locator {
   return page.getByTestId('ww-canvas').getByTestId(`ve-canvas-node-${key}`);
 }
 
-// Longer than a fit of the canvas waits (AUTO_FIT_DELAY_MS) plus its glide
-// (VIEW_GLIDE_MS).
-const VIEW_QUIET_MS = 500;
+// Longer than the latest a click on a step moves the view: a step panel
+// beside the canvas takes its room after DOUBLE_CLICK_MS (500 ms), and the
+// fit that follows glides for VIEW_GLIDE_MS (200 ms). A panel in the column
+// resizes the canvas, which fits after AUTO_FIT_DELAY_MS (150 ms).
+const VIEW_QUIET_MS = 1_000;
 
 /**
  * Waits until the view of the canvas has kept still for VIEW_QUIET_MS. A
