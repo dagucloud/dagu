@@ -5,8 +5,9 @@
 Partially implemented. Loading, validation, resolution for runs,
 `${dates.NAME}`, and the default slot are implemented; conformance covers
 them through `dagu validate`, `dagu start`, sub-DAG runs, `parallel`, and
-`dagu retry`; the API previews are covered by API tests. Not yet implemented:
-reading dates in `params[].eval`, and the CLI and UI previews.
+`dagu retry`, and the previews through `dagu dry`, `dagu calendar fires`, and
+`dagu start`; the API previews are covered by API tests. Not yet implemented:
+reading dates in `params[].eval`, and the UI previews.
 
 ## Scope
 
@@ -179,6 +180,15 @@ at start, naming the date, when one cannot resolve.
 ### Previews
 
 A slot's dates can be read before a run exists, and after it records them:
+
+- `dagu calendar fires`, with or without `--from`, adds a `DATES` column
+  for a DAG with `dates`: each entry as `name=date`, and a list as
+  `name=first..last`.
+- `dagu dry [--scheduled-at]` prints the slot, its window, and the dates the
+  real run of that slot records, under `Dates:`. With no `--scheduled-at` it
+  takes the default slot, and says so.
+- `dagu start` and `dagu enqueue` report on stderr the slot and dates of the
+  run they create, as `Dates for slot <time>: name=date ...`.
 
 - The upcoming runs of a DAG's details, and of the MCP `dag` read as
   `upcomingRunDates`, list the dates each fire's run gets.
