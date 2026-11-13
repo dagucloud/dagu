@@ -4154,6 +4154,12 @@
           "type": "boolean",
           "description": "Skip TLS certificate verification. WARNING: Only use for testing with self-signed certificates."
         },
+        "status_exit_codes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[1-5]([0-9]{2}|xx)$" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "description": "Map an HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). An exact code wins over a class. A status not in the map keeps the default behaviour (exit 1)."
+        },
         "output": {
           "type": "string",
           "minLength": 1,

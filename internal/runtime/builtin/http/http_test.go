@@ -358,6 +358,38 @@ func TestHTTPExecutor_RejectsUnknownWithKey(t *testing.T) {
 	}))
 }
 
+// status_exit_codes keys are a status code (100-599) or class (1xx-5xx), and
+// values are exit codes (0-255), so dagu validate rejects anything else.
+func TestHTTPExecutor_StatusExitCodesSchema(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		codes   map[string]any
+		wantErr bool
+	}{
+		{name: "code and class", codes: map[string]any{"404": 0, "5xx": 3}},
+		{name: "code out of range", codes: map[string]any{"600": 1}, wantErr: true},
+		{name: "unknown class", codes: map[string]any{"6xx": 1}, wantErr: true},
+		{name: "partial class", codes: map[string]any{"40x": 1}, wantErr: true},
+		{name: "exit code too high", codes: map[string]any{"404": 256}, wantErr: true},
+		{name: "negative exit code", codes: map[string]any{"404": -1}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := registry.ValidateExecutorConfig("http", map[string]any{
+				"method": "GET", "url": "https://example.com", "status_exit_codes": tc.codes,
+			})
+			if tc.wantErr {
+				require.ErrorContains(t, err, "status_exit_codes")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestHTTPExecutor_MissingMethodOrURLReturnsConfigError(t *testing.T) {
 	t.Run("MissingURL", func(t *testing.T) {
 		step := ir.Step{

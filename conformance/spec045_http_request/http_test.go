@@ -144,6 +144,7 @@ func TestHTTPConfig(t *testing.T) {
 		{"missing_method.yaml", "with.method"},
 		{"missing_url.yaml", "with.url"},
 		{"unknown_field.yaml", `unexpected additional properties ["header"]; did you mean "headers" instead of "header"?`},
+		{"status_exit_codes_invalid.yaml", "status_exit_codes"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

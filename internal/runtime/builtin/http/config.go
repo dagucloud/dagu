@@ -46,7 +46,13 @@ var configSchema = &jsonschema.Schema{
 			Type: "object",
 			Description: "Map an HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). " +
 				"An exact code wins over a class. A status not in the map keeps the default behaviour (exit 1).",
-			AdditionalProperties: &jsonschema.Schema{Type: "integer"},
+			// Keys are a status code (100-599) or a class (1xx-5xx).
+			PropertyNames: &jsonschema.Schema{Pattern: `^[1-5]([0-9]{2}|xx)$`},
+			AdditionalProperties: &jsonschema.Schema{
+				Type:    "integer",
+				Minimum: new(float64(0)),
+				Maximum: new(float64(255)),
+			},
 		},
 	},
 }
