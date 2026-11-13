@@ -1486,19 +1486,23 @@ func TestCheckMaskedReads(t *testing.T) {
 	}
 }
 
-// Handler steps (onExit, onFailure, ...) see the output variables of every
-// step, so they fail on a masked one. Step references do not resolve in a
+// Handler steps (onExit, onFailure, ...) see the outputs of every step, so
+// they fail on a masked one. Only ${steps...} references do not resolve in a
 // handler, so they read nothing.
 func TestCheckMaskedOutputsInHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		command string
-		masked  *ir.MaskedOutputs
-		wantErr bool
+		name      string
+		command   string
+		published string // fetch's stored published outputs
+		captured  string // fetch's stored captured text
+		masked    *ir.MaskedOutputs
+		wantErr   bool
 	}{
 		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}, wantErr: true},
+		{name: "captured output", command: "notify ${fetch.output}", captured: "***", masked: &ir.MaskedOutputs{Captured: true}, wantErr: true},
+		{name: "published output through the step property", command: "notify ${fetch.outputs.token}", published: `{"token":"***"}`, masked: &ir.MaskedOutputs{Published: []string{"token"}}, wantErr: true},
 		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Published: []string{"token"}}},
 		{name: "unmasked output", command: "notify ${steps.fetch.outputs.region}", masked: &ir.MaskedOutputs{Published: []string{"token"}}},
 		{name: "nothing masked", command: "notify ${TOKEN}"},
@@ -1512,6 +1516,12 @@ func TestCheckMaskedOutputsInHandler(t *testing.T) {
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")
 			fetch.setVariable("TOKEN", "***")
+			if tt.published != "" {
+				fetch.inner.State.StepOutputsValue = &tt.published
+			}
+			if tt.captured != "" {
+				fetch.inner.State.OutputValue = &tt.captured
+			}
 			fetch.inner.State.MaskedOutputs = tt.masked
 
 			handler := NewNode(ir.Step{Name: "onExit", Command: tt.command}, NodeState{})

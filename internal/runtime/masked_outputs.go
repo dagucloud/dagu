@@ -45,8 +45,8 @@ func (r *Runner) checkMaskedReads(plan *Plan, node *Node) error {
 
 // checkMaskedOutputs fails a step that reads an output of one of sources that
 // was restored from a status stored with that output masked. The original text
-// is gone, so the step would run on starred text. A handler has no step-output
-// scope, so only its reads of output variables count.
+// is gone, so the step would run on starred text. A handler has no
+// ${steps...} lookup scope, so those references are no reads there.
 func checkMaskedOutputs(sources []*Node, node *Node, handler bool) error {
 	for _, source := range sources {
 		masked := source.State().MaskedOutputs
@@ -67,10 +67,12 @@ func checkMaskedOutputs(sources []*Node, node *Node, handler bool) error {
 
 // maskedRead returns the first masked output of source that reads names.
 func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler bool) (string, bool) {
+	state := source.State()
+	step := source.Step()
 	// Step references resolve by step id only.
-	if id := source.Step().ID; id != "" && !handler {
+	if step.ID != "" {
 		for _, ref := range reads.text {
-			if ref.StepName != id || !readsMaskedText(ref, source, masked) {
+			if ref.StepName != step.ID || !readsMaskedText(ref, step, state, masked, handler) {
 				continue
 			}
 			if ref.Field != "" {
@@ -90,14 +92,15 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 	return "", false
 }
 
-// readsMaskedText reports whether ref reads a masked output of source. It picks
-// the output the reference resolves from the way Data.StepInfo does.
-func readsMaskedText(ref cmnvalue.StepTextReference, source *Node, masked *ir.MaskedOutputs) bool {
+// readsMaskedText reports whether ref reads a masked output of the step. It
+// picks the output the reference resolves from the way Data.StepInfo does.
+func readsMaskedText(ref cmnvalue.StepTextReference, step ir.Step, state NodeState, masked *ir.MaskedOutputs, handler bool) bool {
 	path := referencePath(ref)
-	state := source.State()
 	switch {
 	case strings.HasPrefix(path, "steps."):
-		return masked.HasPublished(ref.Field)
+		// A handler has no ${steps...} lookup scope, so the reference reads
+		// nothing there.
+		return !handler && masked.HasPublished(ref.Field)
 	case strings.HasPrefix(path, ref.StepName+".outputs"):
 		// Published outputs take precedence over the captured document.
 		if state.StepOutputsValue == nil {
@@ -113,7 +116,7 @@ func readsMaskedText(ref cmnvalue.StepTextReference, source *Node, masked *ir.Ma
 		if state.OutputValue != nil {
 			return masked.HasCaptured()
 		}
-		return masked.HasVariable(source.Step().Output)
+		return masked.HasVariable(step.Output)
 	}
 }
 

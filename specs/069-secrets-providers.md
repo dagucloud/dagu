@@ -95,10 +95,11 @@ that value resolution reads:
   step published any, and the captured output document otherwise.
 - `${<id>.output}` reads the captured output text, or the step's output
   variable when no captured text is stored.
-- `${NAME}` and `$NAME` read an output variable. A handler step has no
-  step-output scope, so only this form is a read there.
+- `${NAME}` and `$NAME` read an output variable.
 
-Each reference fails only when masking changed the output it reads.
+Each reference fails only when masking changed the output it reads. In a
+handler step, `${steps.<id>.outputs.<name>}` does not resolve, so it is not a
+read there; the other forms are.
 
 An escaped reference, such as `\${NAME}`, is not a read. `$NAME` and `${NAME}`
 count as reads wherever they appear in such a field, even where a shell would
