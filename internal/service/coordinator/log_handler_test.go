@@ -11,9 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -39,6 +42,11 @@ func TestStreamTypeToExtension(t *testing.T) {
 			name:       "SCHEDULER",
 			streamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER,
 			expected:   "scheduler.log",
+		},
+		{
+			name:       "AGENT_STREAM",
+			streamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM,
+			expected:   "stdout.log.stream.jsonl",
 		},
 		{
 			name:       "UNSPECIFIED",
@@ -158,6 +166,26 @@ func TestLogHandler_LogFilePath(t *testing.T) {
 		// Should fallback to dagRunID
 		expected := filepath.Join(logDir, "test-dag", "run-123", "run-123", "step1.stderr.log")
 		require.Equal(t, expected, path)
+	})
+
+	// The agent stream is next to the stdout log, with the suffix of the local
+	// run (Spec 091, "Outputs"), so a reader of the stdout log finds it.
+	t.Run("AgentStreamIsNextToStdoutLog", func(t *testing.T) {
+		t.Parallel()
+
+		stdout := &coordinatorv1.LogChunk{
+			DagName:        "sub-dag",
+			DagRunId:       "sub-run-456",
+			AttemptId:      "attempt-1",
+			StepName:       "step/1",
+			StreamType:     coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+			RootDagRunName: "root-dag",
+			RootDagRunId:   "root-run-123",
+		}
+		agent := proto.Clone(stdout).(*coordinatorv1.LogChunk)
+		agent.StreamType = coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM
+
+		require.Equal(t, h.logFilePath(stdout)+ir.AgentStreamSuffix, h.logFilePath(agent))
 	})
 
 	t.Run("SafeNameSanitization", func(t *testing.T) {
@@ -831,4 +859,109 @@ func (s *blockingStreamLogsServer) Recv() (*coordinatorv1.LogChunk, error) {
 	close(s.waiting)
 	<-s.release
 	return nil, io.EOF
+}
+
+// The agent stream of a CLI agent is stored next to the stdout log of the step,
+// at the path that transformLogPaths gives the stdout log plus the suffix. The
+// stream of the stdout log and the agent stream do not mix.
+func TestLogHandler_AgentStream(t *testing.T) {
+	t.Parallel()
+
+	// dataOf is a positioned chunk at the start of the file. finalOf ends the
+	// file at the given size.
+	dataOf := func(streamType coordinatorv1.LogStreamType, data string) *coordinatorv1.LogChunk {
+		chunk := &coordinatorv1.LogChunk{
+			WorkerId:   "worker-1",
+			DagRunId:   "run-123",
+			DagName:    "test-dag",
+			AttemptId:  "attempt-1",
+			StepName:   "review",
+			StreamType: streamType,
+			Data:       []byte(data),
+		}
+		chunk.SetByteOffset(0)
+		return chunk
+	}
+	finalOf := func(streamType coordinatorv1.LogStreamType, size int) *coordinatorv1.LogChunk {
+		chunk := dataOf(streamType, "")
+		chunk.IsFinal = true
+		chunk.SetByteOffset(uint64(size))
+		return chunk
+	}
+
+	t.Run("WritesNextToStdoutLog", func(t *testing.T) {
+		t.Parallel()
+
+		logDir := t.TempDir()
+		h := newLogHandler(logDir)
+		defer h.Close(context.Background())
+
+		const events = "{\"type\":\"system\"}\n{\"type\":\"result\"}\n"
+		stream := &mockStreamLogsServer{ctx: context.Background(), chunks: []*coordinatorv1.LogChunk{
+			dataOf(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT, "done\n"),
+			dataOf(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM, events),
+			finalOf(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT, len("done\n")),
+			finalOf(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM, len(events)),
+		}}
+		require.NoError(t, h.handleStream(stream))
+
+		runStatus := &ir.DAGRunStatus{
+			Name: "test-dag", DAGRunID: "run-123", AttemptID: "attempt-1",
+			Nodes: []*ir.Node{{Step: ir.Step{Name: "review"}}},
+		}
+		NewHandler(HandlerConfig{LogDir: logDir}).transformLogPaths(runStatus)
+		stdoutPath := runStatus.Nodes[0].Stdout
+
+		stdout, err := os.ReadFile(stdoutPath)
+		require.NoError(t, err)
+		assert.Equal(t, "done\n", string(stdout))
+		agent, err := os.ReadFile(stdoutPath + ir.AgentStreamSuffix)
+		require.NoError(t, err)
+		assert.Equal(t, events, string(agent))
+	})
+
+	// The stream passes the same attempt validation as the other logs: a chunk of
+	// an attempt that the coordinator does not accept writes no file.
+	t.Run("PassesAttemptValidation", func(t *testing.T) {
+		t.Parallel()
+
+		logDir := t.TempDir()
+		h := newLogHandler(logDir)
+		defer h.Close(context.Background())
+		var validated []attemptIdentity
+		h.attemptValidator = func(_ context.Context, identity attemptIdentity) error {
+			validated = append(validated, identity)
+			return status.Error(codes.FailedPrecondition, "attempt is not leased")
+		}
+
+		stream := &mockStreamLogsServer{ctx: context.Background(), chunks: []*coordinatorv1.LogChunk{
+			dataOf(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM, "{}\n"),
+		}}
+		err := h.handleStream(stream)
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		require.Len(t, validated, 1)
+		assert.Equal(t, "worker-1", validated[0].workerID)
+		assert.Equal(t, "attempt-1", validated[0].attemptID)
+
+		entries, readErr := os.ReadDir(logDir)
+		require.NoError(t, readErr)
+		assert.Empty(t, entries, "a rejected stream writes no file")
+	})
+
+	// A chunk with no worker or attempt identity is refused when the coordinator
+	// validates attempts, whatever the stream type.
+	t.Run("NeedsAttemptIdentity", func(t *testing.T) {
+		t.Parallel()
+
+		h := newLogHandler(t.TempDir())
+		defer h.Close(context.Background())
+		h.attemptValidator = func(context.Context, attemptIdentity) error { return nil }
+
+		chunk := dataOf(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM, "{}\n")
+		chunk.AttemptId = ""
+		err := h.handleStream(&mockStreamLogsServer{ctx: context.Background(), chunks: []*coordinatorv1.LogChunk{chunk}})
+		require.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
 }

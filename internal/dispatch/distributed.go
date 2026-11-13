@@ -38,9 +38,14 @@ type CoordinatorEndpoint struct {
 // DispatchTaskClaim describes a worker poller's attempt to claim a shared
 // distributed task.
 type DispatchTaskClaim struct {
-	WorkerID     string
-	PollerID     string
-	Labels       map[string]string
+	WorkerID string
+	PollerID string
+	Labels   map[string]string
+	// Capabilities are the capabilities that the worker announces.
+	Capabilities []string
+	// WorkerPool is the worker pool of the certificate of the poller (Spec 092).
+	// It is empty when the coordinator has no worker pools.
+	WorkerPool   string
 	Owner        CoordinatorEndpoint
 	ClaimTimeout time.Duration
 }
@@ -53,6 +58,8 @@ type ClaimedDispatchTask struct {
 	ClaimedAt  time.Time
 	WorkerID   string
 	PollerID   string
+	// WorkerPool is the worker pool that claimed the task.
+	WorkerPool string
 	Owner      CoordinatorEndpoint
 }
 
@@ -122,10 +129,15 @@ type DispatchTaskStore interface {
 
 // WorkerHeartbeatRecord is the shared presence record for a worker.
 type WorkerHeartbeatRecord struct {
-	WorkerID        string            `json:"workerId"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Stats           *WorkerStats      `json:"stats,omitempty"`
-	LastHeartbeatAt int64             `json:"lastHeartbeatAt"`
+	WorkerID string `json:"workerId"`
+	// WorkerPool is the worker pool of the certificate of the worker (Spec 092).
+	// It is empty when the coordinator has no worker pools.
+	WorkerPool string            `json:"workerPool,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	// Capabilities are the capabilities that the worker announces (Spec 094).
+	Capabilities    []string     `json:"capabilities,omitempty"`
+	Stats           *WorkerStats `json:"stats,omitempty"`
+	LastHeartbeatAt int64        `json:"lastHeartbeatAt"`
 	// Host names the machine the worker runs on; empty when unknown.
 	Host string `json:"host,omitempty"`
 	// Machine is the worker's latest machine sample; nil when the worker
@@ -209,16 +221,19 @@ func WorkerHeartbeatFresh(record WorkerHeartbeatRecord, now time.Time, staleThre
 }
 
 // WorkerHeartbeatMatches reports whether a worker satisfies the selector and target worker requirements.
+// It applies the match rule of ir.WorkerLabelsMatchSelector.
 func WorkerHeartbeatMatches(record WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string) bool {
 	if targetWorkerID != "" && record.WorkerID != targetWorkerID {
 		return false
 	}
-	for key, value := range selector {
-		if record.Labels[key] != value {
-			return false
-		}
-	}
-	return true
+	return ir.WorkerLabelsMatchSelector(record.Labels, selector)
+}
+
+// WorkerHeartbeatMatchesTask is WorkerHeartbeatMatches with the capabilities
+// that the task requires (Spec 094, "Version check").
+func WorkerHeartbeatMatchesTask(record WorkerHeartbeatRecord, selector map[string]string, required []string, targetWorkerID string) bool {
+	return WorkerHeartbeatMatches(record, selector, targetWorkerID) &&
+		ir.WorkerHasCapabilities(record.Capabilities, required)
 }
 
 // WorkerHeartbeatStore persists shared worker presence across coordinators.
@@ -227,17 +242,23 @@ type WorkerHeartbeatStore interface {
 	Get(ctx context.Context, workerID string) (*WorkerHeartbeatRecord, error)
 	List(ctx context.Context) ([]WorkerHeartbeatRecord, error)
 	DeleteStale(ctx context.Context, before time.Time) (int, error)
+	// Delete removes the record of a worker that stopped. A worker with no
+	// record is not an error.
+	Delete(ctx context.Context, workerID string) error
 }
 
 // DAGRunLease is the shared liveness record for an accepted worker claim.
 type DAGRunLease struct {
-	AttemptKey            string              `json:"attemptKey"`
-	DAGRun                ir.DAGRunRef        `json:"dagRun"`
-	Root                  ir.DAGRunRef        `json:"root,omitzero"`
-	AttemptID             string              `json:"attemptId"`
-	ProfileName           string              `json:"profileName,omitempty"`
-	QueueName             string              `json:"queueName"`
-	WorkerID              string              `json:"workerId"`
+	AttemptKey  string       `json:"attemptKey"`
+	DAGRun      ir.DAGRunRef `json:"dagRun"`
+	Root        ir.DAGRunRef `json:"root,omitzero"`
+	AttemptID   string       `json:"attemptId"`
+	ProfileName string       `json:"profileName,omitempty"`
+	QueueName   string       `json:"queueName"`
+	WorkerID    string       `json:"workerId"`
+	// WorkerPool is the worker pool that claimed the attempt (Spec 092). Each
+	// later call of the attempt must come from this pool.
+	WorkerPool            string              `json:"workerPool,omitempty"`
 	Owner                 CoordinatorEndpoint `json:"owner"`
 	ClaimToken            string              `json:"claimToken,omitempty"`
 	WorkspaceBundleDigest string              `json:"workspaceBundleDigest,omitempty"`

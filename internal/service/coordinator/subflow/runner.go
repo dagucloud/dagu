@@ -56,6 +56,9 @@ type Runner struct {
 	logInterval          time.Duration
 	cancellationTimeout  time.Duration
 	maxConsecutiveErrors int
+	// localAgentRuns lets a child that needs a CLI provider run in this
+	// process: the process has no coordinator (Spec 092, development mode).
+	localAgentRuns bool
 }
 
 // Option configures Runner.
@@ -79,6 +82,14 @@ func WithLogInterval(interval time.Duration) Option {
 func WithCancellationTimeout(timeout time.Duration) Option {
 	return func(r *Runner) {
 		r.cancellationTimeout = timeout
+	}
+}
+
+// WithLocalAgentRuns marks a process with no coordinator: the label of a CLI
+// provider does not send a child to the coordinator (Spec 092, "Dispatch").
+func WithLocalAgentRuns() Option {
+	return func(r *Runner) {
+		r.localAgentRuns = true
 	}
 }
 
@@ -126,10 +137,18 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 	if req.RunID == "" || req.RootDAGRun.Zero() {
 		return false
 	}
+	selector := req.WorkerSelector
+	if len(ir.SelectorAgentProviders(selector)) > 0 {
+		if !r.localAgentRuns {
+			// A child that needs a CLI provider always goes to the coordinator.
+			return true
+		}
+		selector = ir.WithoutAgentLabels(selector)
+	}
 	if req.DAG.ForceLocal {
 		return false
 	}
-	if len(req.WorkerSelector) > 0 {
+	if len(selector) > 0 {
 		return true
 	}
 	// A source-less child with dependencies must be packaged by the coordinator.

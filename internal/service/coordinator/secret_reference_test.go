@@ -91,6 +91,21 @@ steps:
     with:
       dag: cycle-a
 `)))
+	// A DAG of the tool map of an agent.run or chat.completion step is a child
+	// of the run: the tool bridge runs it on the worker.
+	for _, name := range []string{"agent-tool-child", "chat-tool-child"} {
+		require.NoError(t, dagRepository.Create(ctx, name, []byte(`
+name: `+name+`
+labels:
+  - workspace=payments
+secrets:
+  - name: MY_SECRET
+    ref: prod/my-secret
+steps:
+  - name: noop
+    run: "true"
+`)))
+	}
 	require.NoError(t, dagRepository.Create(ctx, "unrelated-child", []byte(`
 name: unrelated-child
 labels:
@@ -125,6 +140,18 @@ steps:
 						SubDAG: &ir.SubDAG{
 							Name: "cycle-a",
 						},
+					},
+					{
+						Name: "agent",
+						Agent: &ir.AgentRun{CLI: &ir.AgentCLIConfig{Tools: []ir.ToolEntry{
+							{Kind: ir.ToolEntryDAG, DAG: "agent-tool-child"},
+						}}},
+					},
+					{
+						Name: "chat",
+						LLM: &ir.LLMConfig{ToolEntries: []ir.ToolEntry{
+							{Kind: ir.ToolEntryDAG, DAG: "chat-tool-child"},
+						}},
 					},
 				},
 			},
@@ -209,6 +236,20 @@ steps:
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "secret-value", localNestedResp.GetValue())
+
+	for _, name := range []string{"agent-tool-child", "chat-tool-child"} {
+		toolResp, err := handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
+			Name:       "MY_SECRET",
+			Ref:        "prod/my-secret",
+			Workspace:  "payments",
+			WorkerId:   "worker-1",
+			AttemptKey: attemptKey,
+			AttemptId:  attempt.ID(),
+			DagName:    name,
+		})
+		require.NoError(t, err, name)
+		assert.Equal(t, "secret-value", toolResp.GetValue())
+	}
 
 	_, err = handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
 		Name:       "MY_SECRET",

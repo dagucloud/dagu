@@ -177,7 +177,8 @@ func (s *LogStreamer) openStream(ctx context.Context) (coordinatorv1.Coordinator
 }
 
 // NewStepWriter creates a writer that streams to coordinator
-// streamType should be execution.StreamTypeStdout or execution.StreamTypeStderr
+// streamType is runctx.StreamTypeStdout, runctx.StreamTypeStderr or
+// runctx.StreamTypeAgentStream.
 func (s *LogStreamer) NewStepWriter(ctx context.Context, stepName string, streamType int) io.WriteCloser {
 	if ctx == nil {
 		ctx = context.Background()
@@ -365,7 +366,10 @@ func (w *stepLogWriter) FlushIfDue() error {
 // Sent data remains buffered until the coordinator acknowledges the stream.
 func (w *stepLogWriter) flushLocked() error {
 	if len(w.buffer) > 0 {
-		w.streamer.mirrorToSchedulerLog(w.buffer)
+		// The scheduler log holds the output of the step, not the raw stream of an agent.
+		if w.streamType != runctx.StreamTypeAgentStream {
+			w.streamer.mirrorToSchedulerLog(w.buffer)
+		}
 		w.remoteBuffer = append(w.remoteBuffer, w.buffer...)
 		w.buffer = w.buffer[:0]
 	}
@@ -600,6 +604,8 @@ func toProtoStreamType(streamType int) coordinatorv1.LogStreamType {
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT
 	case runctx.StreamTypeStderr:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR
+	case runctx.StreamTypeAgentStream:
+		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM
 	default:
 		return coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED
 	}

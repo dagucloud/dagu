@@ -354,7 +354,7 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 		return fmt.Errorf("load DAG for file dependency snapshot: %w", err)
 	}
 	// A configured working_dir does not establish that this host owns the DAG source.
-	if task.SourceFile == "" && task.SourceWorkDir == "" && runtimeexec.HasDAGFileDependencies(dag) {
+	if task.SourceFile == "" && task.SourceWorkDir == "" && runtimeexec.HasDispatchFiles(dag) {
 		return runtimeexec.ErrDAGWorkspaceSourceUnavailable
 	}
 	desc, archivePath, err := runtimeexec.PrepareDAGWorkspaceFile(ctx, dag, cli.config.WorkspaceBundleDir)
@@ -437,8 +437,10 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			continue
 		}
 
-		// Check if the coordinator is healthy
-		if err := cli.isHealthy(ctx, client); err != nil {
+		// The registry can still list a coordinator that does not answer, such
+		// as the coordinator of an earlier container. Its check must not use
+		// the whole call, so the next coordinator gets the call.
+		if err := cli.isHealthyWithin(ctx, client); err != nil {
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
@@ -871,6 +873,16 @@ func (cli *clientImpl) isHealthy(ctx context.Context, client *client) error {
 	}
 
 	return nil
+}
+
+// isHealthyWithin is isHealthy bounded by the dial timeout of the client.
+func (cli *clientImpl) isHealthyWithin(ctx context.Context, client *client) error {
+	if cli.config.DialTimeout <= 0 {
+		return cli.isHealthy(ctx, client)
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, cli.config.DialTimeout)
+	defer cancel()
+	return cli.isHealthy(checkCtx, client)
 }
 
 // getOrCreateClient gets a client for the member without changing the cached address.

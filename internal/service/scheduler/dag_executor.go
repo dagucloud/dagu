@@ -241,7 +241,7 @@ func (e *DAGExecutor) executeDAG(
 		}
 		// Distributed execution: dispatch to coordinator
 		taskOpts := []executor.TaskOption{
-			executor.WithWorkerSelector(dag.WorkerSelector),
+			executor.WithWorkerSelector(dag.DispatchWorkerSelector()),
 			executor.WithPreviousStatus(previousStatus),
 			executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, e.baseConfigPath), dag.BaseConfigWorkspace),
 		}

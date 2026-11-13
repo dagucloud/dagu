@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,9 +91,11 @@ type dispatchTaskIndexEntry struct {
 	claimToken     string
 	targetWorkerID string
 	workerSelector map[string]string
-	hasTask        bool
-	enqueuedAt     int64
-	claimedAt      int64
+	// requiredCapabilities are the capabilities that a worker must announce.
+	requiredCapabilities []string
+	hasTask              bool
+	enqueuedAt           int64
+	claimedAt            int64
 	// holdUntil is the task's HoldUntil in Unix milliseconds, 0 when the
 	// task was not held for a worker.
 	holdUntil int64
@@ -109,6 +112,7 @@ type dispatchTaskPayload struct {
 	ClaimedAt                 int64                        `json:"claimedAt,omitempty"`
 	WorkerID                  string                       `json:"workerId,omitempty"`
 	PollerID                  string                       `json:"pollerId,omitempty"`
+	WorkerPool                string                       `json:"workerPool,omitempty"`
 	Owner                     dispatch.CoordinatorEndpoint `json:"owner,omitzero"`
 	AdmissionReservationToken string                       `json:"admissionReservationToken,omitempty"`
 }
@@ -276,7 +280,7 @@ func (idx *dispatchTaskIndex) invalidateDerivedState() {
 // candidatePendingIDs returns a copy of the matching pending IDs so callers
 // may mutate the index while iterating. The copy is allocated lazily so a
 // scan with no match costs nothing.
-func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels map[string]string) []string {
+func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels map[string]string, capabilities []string) []string {
 	var ids []string
 	for i, id := range idx.pendingIDs {
 		entry, ok := idx.pending[id]
@@ -287,6 +291,9 @@ func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels 
 			continue
 		}
 		if !matchesDispatchSelector(workerLabels, entry.workerSelector) {
+			continue
+		}
+		if !ir.WorkerHasCapabilities(capabilities, entry.requiredCapabilities) {
 			continue
 		}
 		if ids == nil {
@@ -349,6 +356,7 @@ func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPa
 		entry.attemptKey = payload.Task.AttemptKey
 		entry.targetWorkerID = payload.Task.TargetWorkerID
 		entry.workerSelector = maps.Clone(payload.Task.WorkerSelector)
+		entry.requiredCapabilities = slices.Clone(payload.Task.RequiredCapabilities)
 		if !payload.Task.HoldUntil.IsZero() {
 			entry.holdUntil = payload.Task.HoldUntil.UnixMilli()
 		}
@@ -366,7 +374,7 @@ func holdExpired(holdUntil time.Time, now time.Time) bool {
 // dispatchNoMatchKey identifies a worker and label set in the no-match
 // cache. Every field is length-prefixed so boundaries stay unambiguous
 // regardless of the bytes in the worker ID, keys, and values.
-func dispatchNoMatchKey(workerID string, labels map[string]string) string {
+func dispatchNoMatchKey(workerID string, labels map[string]string, capabilities []string) string {
 	workerIDLength := strconv.Itoa(len(workerID))
 	keys := make([]string, 0, len(labels))
 	size := len(workerIDLength) + 1 + len(workerID)
@@ -388,6 +396,12 @@ func dispatchNoMatchKey(workerID string, labels map[string]string) string {
 		b.WriteString(strconv.Itoa(len(value)))
 		b.WriteByte(':')
 		b.WriteString(value)
+	}
+	for _, capability := range slices.Sorted(slices.Values(capabilities)) {
+		b.WriteString("+")
+		b.WriteString(strconv.Itoa(len(capability)))
+		b.WriteByte(':')
+		b.WriteString(capability)
 	}
 	return b.String()
 }
@@ -626,11 +640,11 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 	if len(s.index.pendingIDs) == 0 {
 		return nil, false, nil
 	}
-	noMatchKey := dispatchNoMatchKey(claim.WorkerID, claim.Labels)
+	noMatchKey := dispatchNoMatchKey(claim.WorkerID, claim.Labels, claim.Capabilities)
 	if s.index.hasNoMatch(noMatchKey) {
 		return nil, false, nil
 	}
-	ids := s.index.candidatePendingIDs(claim.WorkerID, claim.Labels)
+	ids := s.index.candidatePendingIDs(claim.WorkerID, claim.Labels, claim.Capabilities)
 	if len(ids) == 0 {
 		s.index.rememberNoMatch(noMatchKey)
 		return nil, false, nil
@@ -663,7 +677,8 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			s.index.addPending(rec, payload)
 			continue
 		}
-		if !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
+		if !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) ||
+			!ir.WorkerHasCapabilities(claim.Capabilities, payload.Task.RequiredCapabilities) {
 			s.index.addPending(rec, payload)
 			continue
 		}
@@ -682,6 +697,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			payload.ClaimedAt = claimedAt.UnixMilli()
 			payload.WorkerID = claim.WorkerID
 			payload.PollerID = claim.PollerID
+			payload.WorkerPool = claim.WorkerPool
 			payload.Owner = claim.Owner
 
 			claimRec, err := s.newDispatchRecord(claimDispatchRecordID(claimToken), payload, rec.CreatedAt, claimedAt)
@@ -708,6 +724,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 				ClaimedAt:  claimedAt,
 				WorkerID:   claim.WorkerID,
 				PollerID:   claim.PollerID,
+				WorkerPool: claim.WorkerPool,
 				Owner:      claim.Owner,
 			}
 			return nil
@@ -759,6 +776,7 @@ func (s *DispatchTaskStore) GetClaim(ctx context.Context, claimToken string) (*d
 		ClaimedAt:  time.UnixMilli(payload.ClaimedAt).UTC(),
 		WorkerID:   payload.WorkerID,
 		PollerID:   payload.PollerID,
+		WorkerPool: payload.WorkerPool,
 		Owner:      payload.Owner,
 	}, nil
 }
@@ -1111,6 +1129,7 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	payload.ClaimedAt = 0
 	payload.WorkerID = ""
 	payload.PollerID = ""
+	payload.WorkerPool = ""
 	payload.Owner = dispatch.CoordinatorEndpoint{}
 	payload.Task = clearDispatchTaskClaim(payload.Task)
 
@@ -1429,6 +1448,7 @@ func cloneDispatchTask(task *dispatch.DispatchTask) *dispatch.DispatchTask {
 	}
 	cloned := *task
 	cloned.WorkerSelector = maps.Clone(task.WorkerSelector)
+	cloned.RequiredCapabilities = slices.Clone(task.RequiredCapabilities)
 	return &cloned
 }
 
@@ -1453,14 +1473,8 @@ func clearDispatchTaskClaim(task *dispatch.DispatchTask) *dispatch.DispatchTask 
 	return task
 }
 
+// matchesDispatchSelector applies the match rule of Spec 092, which the
+// coordinator and the scheduler share.
 func matchesDispatchSelector(workerLabels, selector map[string]string) bool {
-	if len(selector) == 0 {
-		return true
-	}
-	for key, value := range selector {
-		if workerLabels[key] != value {
-			return false
-		}
-	}
-	return true
+	return ir.WorkerLabelsMatchSelector(workerLabels, selector)
 }

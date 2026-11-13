@@ -1,0 +1,8 @@
+# Send the weekly digest of the team.
+group: reports
+description: Send the weekly digest of the team.
+schedule: "0 9 * * 1"
+type: chain
+steps:
+  - name: run
+    run: echo "weekly-digest"

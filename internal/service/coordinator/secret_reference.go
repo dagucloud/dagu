@@ -32,6 +32,9 @@ type SecretReferenceRun struct {
 	AttemptKey string
 	AttemptID  string
 	DAGName    string
+	// StepName is the step that fetches a registry secret of its list when it
+	// starts (Spec 092). It is empty at the start of the run.
+	StepName string
 }
 
 const secretReferenceAccessDenied = "secret reference access denied"
@@ -62,6 +65,17 @@ func (r *secretReferenceResolver) ResolveReference(ctx context.Context, ref secr
 func (r *secretReferenceResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
 	_, err := r.resolve(ctx, ref, true)
 	return err
+}
+
+// ResolveStepReference fetches the value of a registry secret for the step
+// that lists it (Spec 092). The request names the step.
+func (r *secretReferenceResolver) ResolveStepReference(ctx context.Context, step string, ref secretref.Ref) (string, error) {
+	if step == "" {
+		return "", fmt.Errorf("secret %q: the request names no step", ref.Name)
+	}
+	run := r.run
+	run.StepName = step
+	return r.client.ResolveSecretReference(ctx, r.owner, ref, r.workspace, false, run)
 }
 
 func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref, checkOnly bool) (string, error) {
@@ -140,6 +154,7 @@ func secretReferenceRequest(ref secretref.Ref, workspace string, checkOnly bool,
 		AttemptKey: run.AttemptKey,
 		AttemptId:  run.AttemptID,
 		DagName:    run.DAGName,
+		StepName:   run.StepName,
 	}
 }
 
@@ -209,6 +224,9 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
+	if err := h.checkLeasePool(ctx, lease.WorkerPool); err != nil {
+		return err
+	}
 	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
@@ -227,7 +245,7 @@ func (h *Handler) authorizeSecretReference(ctx context.Context, req *coordinator
 	if !secretReferenceDeclared(dag, ref) {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
-	return nil
+	return h.authorizeStepSecretReference(ctx, attempt, dag, req, ref)
 }
 
 func (h *Handler) authorizedAttempt(ctx context.Context, lease *dispatch.DAGRunLease, deniedMessage string) (dagrun.Attempt, error) {
@@ -332,6 +350,12 @@ func externalSubDAGNames(dag *ir.DAG) []string {
 			if step.SubDAG != nil && localDAGByName(dag, step.SubDAG.Name) == nil {
 				names = append(names, step.SubDAG.Name)
 			}
+			// A DAG tool runs as a child of the run (Spec 090).
+			for _, entry := range stepToolEntries(step) {
+				if entry.Kind == ir.ToolEntryDAG && entry.DAG != "" && localDAGByName(dag, entry.DAG) == nil {
+					names = append(names, entry.DAG)
+				}
+			}
 		}
 		for _, child := range current.LocalDAGs {
 			collect(child)
@@ -339,6 +363,18 @@ func externalSubDAGNames(dag *ir.DAG) []string {
 	}
 	collect(dag)
 	return names
+}
+
+// stepToolEntries returns the tool entries of an agent.run or chat.completion step.
+func stepToolEntries(step ir.Step) []ir.ToolEntry {
+	var entries []ir.ToolEntry
+	if step.Agent != nil && step.Agent.CLI != nil {
+		entries = append(entries, step.Agent.CLI.Tools...)
+	}
+	if step.LLM != nil {
+		entries = append(entries, step.LLM.ToolEntries...)
+	}
+	return entries
 }
 
 func dagWorkspace(dag *ir.DAG) string {
@@ -369,6 +405,8 @@ func secretReferenceRPCError(err error) error {
 		return nil
 	case errors.Is(err, secretpkg.ErrInvalidRef), errors.Is(err, secretpkg.ErrInvalidWorkspace):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, secretpkg.ErrReservedRef):
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, secretpkg.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, secretpkg.ErrDisabled), errors.Is(err, secretpkg.ErrNoValue), errors.Is(err, secretpkg.ErrUnsupportedProvider):

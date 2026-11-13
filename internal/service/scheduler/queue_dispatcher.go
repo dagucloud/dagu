@@ -1459,20 +1459,44 @@ func workerAvailableInSnapshot(
 	status *ir.DAGRunStatus,
 ) (bool, []queuedConditionDef) {
 	targetWorkerID := ir.RetryAgentOwnerWorkerID(status, false)
+	// The task carries the selector with the implied labels (Spec 092), so the
+	// check of the available workers uses the same selector.
+	selector := dag.DispatchWorkerSelector()
+	required := dag.RequiredCapabilities()
 	healthyWorkers := 0
 	for _, record := range records {
 		if !dispatch.WorkerHeartbeatFresh(record, now, staleThreshold) {
 			continue
 		}
 		healthyWorkers++
-		if dispatch.WorkerHeartbeatMatches(record, dag.WorkerSelector, targetWorkerID) {
+		if dispatch.WorkerHeartbeatMatchesTask(record, selector, required, targetWorkerID) {
 			return true, nil
 		}
 	}
-	if healthyWorkers == 0 && len(dag.WorkerSelector) == 0 && targetWorkerID == "" {
+	if healthyWorkers == 0 && len(selector) == 0 && len(required) == 0 && targetWorkerID == "" {
 		return false, noAvailableWorkerConditionDefs
 	}
-	return false, noMatchingWorkerConditionDefs
+	return false, noMatchingWorkerConditionDefsFor(selector)
+}
+
+// noMatchingWorkerConditionDefsFor returns noMatchingWorkerConditionDefs, with
+// messages that name the provider when the selector needs an agent worker.
+func noMatchingWorkerConditionDefsFor(selector map[string]string) []queuedConditionDef {
+	if _, ok := ir.DescribeAgentSelector(selector); !ok {
+		return noMatchingWorkerConditionDefs
+	}
+	messages := map[string]string{}
+	for _, condition := range ir.NoMatchingWorkerConditionsFor(selector, time.Time{}) {
+		messages[condition.Type] = condition.Message
+	}
+	defs := make([]queuedConditionDef, len(noMatchingWorkerConditionDefs))
+	for i, def := range noMatchingWorkerConditionDefs {
+		if message, ok := messages[def.conditionType]; ok {
+			def.message = message
+		}
+		defs[i] = def
+	}
+	return defs
 }
 
 func dispatchAdmissionWaitingCondition(decision *dispatch.DispatchAdmissionDecision) []queuedConditionDef {

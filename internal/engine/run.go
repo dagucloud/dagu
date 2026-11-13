@@ -328,7 +328,9 @@ func (e *Engine) loadFile(ctx context.Context, path string, opts RunOptions) (*i
 	if dag.SourceFile == "" {
 		dag.SourceFile = path
 	}
-	applyRunOverrides(dag, opts)
+	if err := applyRunOverrides(dag, opts); err != nil {
+		return nil, err
+	}
 	return dag, nil
 }
 
@@ -338,7 +340,9 @@ func (e *Engine) loadYAML(ctx context.Context, data []byte, opts RunOptions) (*i
 	if err != nil {
 		return nil, err
 	}
-	applyRunOverrides(dag, opts)
+	if err := applyRunOverrides(dag, opts); err != nil {
+		return nil, err
+	}
 	return dag, nil
 }
 
@@ -362,10 +366,14 @@ func (e *Engine) loadOptions(opts RunOptions) []spec.LoadOption {
 	return loadOpts
 }
 
-func applyRunOverrides(dag *ir.DAG, opts RunOptions) {
+func applyRunOverrides(dag *ir.DAG, opts RunOptions) error {
 	// Name, DefaultWorkingDir, and params are handled during loading; only
 	// overrides that must mutate the loaded DAG belong here.
 	if len(opts.WorkerSelector) > 0 {
+		// A run selector cannot set the labels that Dagu sets (Spec 092).
+		if err := ir.ValidateWorkerSelector(opts.WorkerSelector); err != nil {
+			return err
+		}
 		dag.WorkerSelector = cloneStringMap(opts.WorkerSelector)
 	}
 	if len(opts.Labels) > 0 {
@@ -382,6 +390,7 @@ func applyRunOverrides(dag *ir.DAG, opts RunOptions) {
 			dag.Labels = append(dag.Labels, candidate)
 		}
 	}
+	return nil
 }
 
 func (e *Engine) runLoaded(ctx context.Context, dag *ir.DAG, opts RunOptions) (*Run, error) {
@@ -404,6 +413,11 @@ func (e *Engine) runLoaded(ctx context.Context, dag *ir.DAG, opts RunOptions) (*
 	}
 	if mode == "" {
 		mode = ExecutionModeLocal
+	}
+	// Spec 092, "Dispatch": a DAG that needs a CLI provider goes to the
+	// coordinator when the engine has one. Without one, it runs here.
+	if mode == ExecutionModeLocal && len(dag.AgentProviders()) > 0 && len(e.distributed.Coordinators) > 0 {
+		mode = ExecutionModeDistributed
 	}
 	switch mode {
 	case ExecutionModeLocal:
@@ -522,6 +536,11 @@ func (e *Engine) runDistributed(ctx context.Context, dag *ir.DAG, runID string, 
 	if len(opts.WorkerSelector) > 0 {
 		dist.WorkerSelector = cloneStringMap(opts.WorkerSelector)
 	}
+	if err := ir.ValidateWorkerSelector(dist.WorkerSelector); err != nil {
+		return nil, err
+	}
+	// The labels that start with agent. come from the DAG only.
+	dist.WorkerSelector = ir.RoutedWorkerSelector(dist.WorkerSelector, dag)
 	client, err := e.coordinatorClient(dist)
 	if err != nil {
 		return nil, err

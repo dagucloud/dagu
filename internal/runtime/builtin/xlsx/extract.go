@@ -134,10 +134,7 @@ func newExtractExecutor(ctx context.Context, env runtime.Env, step ir.Step, path
 	if dataDir == "" {
 		return nil, errors.New("xlsx: the Dagu data directory is not configured")
 	}
-	var secrets map[string]string
-	if env.Scope != nil {
-		secrets = env.Scope.AllSecrets()
-	}
+	secrets := runtime.SecretsForMasking(ctx)
 	if err := agentstep.CheckTextSecrets(executorType, "instruction", cfg.Instruction, secrets); err != nil {
 		return nil, err
 	}

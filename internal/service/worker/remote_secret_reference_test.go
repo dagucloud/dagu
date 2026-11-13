@@ -130,6 +130,7 @@ type secretResolvingRemoteCoordinatorClient struct {
 	resolved      []secretref.Ref
 	owners        []serviceregistry.HostInfo
 	runs          []coordinator.SecretReferenceRun
+	checks        []bool
 	resolveSecret func(context.Context, secretref.Ref, string, bool) (string, error)
 }
 
@@ -239,8 +240,15 @@ func (c *secretResolvingRemoteCoordinatorClient) ResolveSecretReference(ctx cont
 	c.resolved = append(c.resolved, ref)
 	c.owners = append(c.owners, owner)
 	c.runs = append(c.runs, run)
+	c.checks = append(c.checks, checkOnly)
 	c.mu.Unlock()
 	return c.resolveSecret(ctx, ref, workspace, checkOnly)
+}
+
+func (c *secretResolvingRemoteCoordinatorClient) resolvedChecks() []bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]bool(nil), c.checks...)
 }
 
 type secretTestStreamLogsClient struct {

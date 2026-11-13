@@ -216,6 +216,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		coord.DisableHealthServer()
 	} else {
 		logger.Info(serviceCtx, "Coordinator disabled via configuration")
+		logAIConfig(serviceCtx)
 	}
 
 	// Persist monitor boundaries before any bundled service can emit DAG-run events.

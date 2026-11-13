@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dagucloud/dagu/v2/internal/aigateway"
 	"log/slog"
 	"maps"
 	"os"
@@ -44,16 +45,20 @@ import (
 )
 
 type workerInfo struct {
-	workerID    string
-	pollerID    string
-	taskChan    chan *coordinatorv1.Task
-	labels      map[string]string
-	connectedAt time.Time
+	workerID string
+	pollerID string
+	taskChan chan *coordinatorv1.Task
+	labels   map[string]string
+	// capabilities are the capabilities that the poller announces (Spec 094).
+	capabilities []string
+	connectedAt  time.Time
 }
 
 type heartbeatInfo struct {
 	workerID        string
+	workerPool      string
 	labels          map[string]string
+	capabilities    []string
 	stats           *coordinatorv1.WorkerStats
 	lastHeartbeatAt time.Time
 }
@@ -178,6 +183,9 @@ type Handler struct {
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
+	workerPools               *WorkerPools                       // Labels bound to certificate identities (Spec 092)
+	aiGateway                 *aigateway.Gateway                 // Model gateway for the relay of the workers (Spec 094)
+	relayRecheckInterval      time.Duration                      // How often an open relay stream checks its lease
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -258,6 +266,20 @@ type HandlerConfig struct {
 	// AgentSessionCleanupQueue stores provider cleanup claimed by owning workers.
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
 
+	// WorkerPools binds the labels of a worker to the identity of its client
+	// certificate (Spec 092). Nil means no pools: a label that starts with
+	// agent. is then refused.
+	WorkerPools *WorkerPools
+
+	// AIGateway serves the calls CheckAIEndpoint and RelayAIRequest (Spec 094).
+	// Nil means that the coordinator has no gateway: a call gets the reason
+	// endpoint_unavailable.
+	AIGateway *aigateway.Gateway
+
+	// RelayRecheckInterval is how often an open relay stream checks its lease
+	// again. Zero selects 10 seconds.
+	RelayRecheckInterval time.Duration
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -266,9 +288,10 @@ type HandlerConfig struct {
 	// lease is considered stale (worker stopped pushing status). Defaults to 90 seconds.
 	StaleLeaseThreshold time.Duration
 
-	// WorkerWaitTimeout is how long a dispatch with no healthy matching worker
-	// is held, as a queued run, for such a worker to register. 0 refuses the
-	// dispatch at once, which is also the default.
+	// WorkerWaitTimeout is how long a dispatch waits for a matching worker to
+	// take it. A dispatch with no healthy matching worker waits as a queued
+	// run; 0 refuses it at once, which is also the default. With 0, a dispatch
+	// that a healthy worker matched waits for StaleLeaseThreshold.
 	WorkerWaitTimeout time.Duration
 
 	// EventService persists coordinator-originated event envelopes.
@@ -301,7 +324,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 			dispatchAdmissionStore = admissionStore
 		}
 	}
-	return &Handler{
+	h := &Handler{
 		waitingPollers:            make(map[string]*workerInfo),
 		heartbeats:                make(map[string]*heartbeatInfo),
 		dispatchWakeCh:            make(chan struct{}),
@@ -324,12 +347,19 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		secretStore:               cfg.SecretStore,
 		profileStore:              cfg.ProfileStore,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
+		workerPools:               cfg.WorkerPools,
+		aiGateway:                 cfg.AIGateway,
+		relayRecheckInterval:      cfg.RelayRecheckInterval,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
 		eventService:              cfg.EventService,
 		eventSourceInstance:       cfg.EventSourceInstance,
 	}
+	// A worker of a pool makes the calls for its own runs: the pools read the
+	// leases of this handler (Spec 092, "Behavior").
+	cfg.WorkerPools.setLeaseHolder(h.poolHoldsFreshLease)
+	return h
 }
 
 func (h *Handler) eventContext(ctx context.Context) context.Context {
@@ -427,17 +457,22 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 	if req.PollerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "poller_id is required")
 	}
+	workerPool, err := h.authorizeWorkerLabels(ctx, req.Labels)
+	if err != nil {
+		return nil, err
+	}
 	if h.dispatchTaskStore == nil {
 		// Backward-compatible single-coordinator fallback for tests and legacy
 		// in-memory coordination paths.
 		h.mu.Lock()
 		taskChan := make(chan *coordinatorv1.Task, 1)
 		h.waitingPollers[req.PollerId] = &workerInfo{
-			workerID:    req.WorkerId,
-			pollerID:    req.PollerId,
-			taskChan:    taskChan,
-			labels:      req.Labels,
-			connectedAt: time.Now(),
+			workerID:     req.WorkerId,
+			pollerID:     req.PollerId,
+			taskChan:     taskChan,
+			labels:       req.Labels,
+			capabilities: req.Capabilities,
+			connectedAt:  time.Now(),
 		}
 		h.mu.Unlock()
 
@@ -468,6 +503,8 @@ func (h *Handler) Poll(ctx context.Context, req *coordinatorv1.PollRequest) (*co
 			WorkerID:     req.WorkerId,
 			PollerID:     req.PollerId,
 			Labels:       req.Labels,
+			Capabilities: req.Capabilities,
+			WorkerPool:   workerPool,
 			Owner:        h.owner,
 			ClaimTimeout: h.staleLeaseThreshold,
 		})
@@ -515,6 +552,9 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err := h.ensureWorkspaceBundle(ctx, req.Task); err != nil {
 		return nil, err
 	}
+	// Spec 092, "Routing": the coordinator sets the labels that start with
+	// agent. before any check of the available workers, for each task shape.
+	h.routeDispatchTask(ctx, req.Task)
 
 	logger.Info(ctx, "Handler Dispatch called",
 		tag.RunID(req.Task.DagRunId),
@@ -526,7 +566,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		if admissionToken != "" {
 			return nil, status.Error(codes.FailedPrecondition, "admission reservation requires dispatch task storage")
 		}
-		if err := h.ensureWaitingWorkerAvailability(ctx, req.Task.WorkerSelector, req.Task.TargetWorkerId); err != nil {
+		if err := h.ensureWaitingWorkerAvailability(ctx, req.Task.WorkerSelector, req.Task.RequiredCapabilities, req.Task.TargetWorkerId); err != nil {
 			return nil, status.Error(dispatchErrorCode(err), err.Error())
 		}
 		if err := h.prepareDispatchTaskWorkspace(ctx, req.Task); err != nil {
@@ -581,10 +621,17 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		h.releaseAdmissionToken(ctx, admissionToken)
 		return nil, status.Error(codes.Internal, "failed to encode task: "+err.Error())
 	}
+	if shortfall != nil || (admissionToken == "" && isDirectDispatch(req.Task)) {
+		// A healthy worker can be a worker that is gone, and the store drops a
+		// task with no deadline after its reservation, with no word to the run.
+		// So each direct dispatch waits until a deadline; the coordinator then
+		// fails the run if no worker took it. A dispatch with an admission
+		// reservation belongs to the scheduler's queue, which keeps its runs.
+		dispatchTask.HoldUntil = time.Now().Add(h.directDispatchWait()).UTC()
+	}
 	if shortfall != nil {
 		// The run is queued before the task is stored, so a worker that
 		// registers in between cannot have its first status overwritten.
-		dispatchTask.HoldUntil = time.Now().Add(h.workerWaitTimeout).UTC()
 		if err := h.markPreparedAttemptHeld(ctx, req.Task, prepared, shortfall); err != nil {
 			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 			h.releaseAdmissionToken(ctx, admissionToken)
@@ -598,6 +645,25 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	}
 	h.notifyDispatchAvailable()
 	return &coordinatorv1.DispatchResponse{}, nil
+}
+
+// routeDispatchTask replaces the labels that start with agent. in the selector
+// of the task with the implied selector of its DAG. A caller cannot set these
+// labels. When the definition does not load, the task keeps no such label; the
+// creation of the attempt then fails, and no agent worker takes the task.
+func (h *Handler) routeDispatchTask(ctx context.Context, task *coordinatorv1.Task) {
+	loadOpts := taskDefinitionLoadOptions(task, h.dagRepository.DAGsDir())
+	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
+	if err != nil {
+		logger.Warn(ctx, "Failed to load the DAG of a dispatched task for routing",
+			tag.RunID(task.DagRunId), tag.Target(task.Target), tag.Error(err))
+		task.WorkerSelector = ir.WithoutAgentLabels(task.WorkerSelector)
+		task.RequiredCapabilities = nil
+		return
+	}
+	task.WorkerSelector = ir.RoutedWorkerSelector(task.WorkerSelector, dag)
+	// The capabilities come from the DAG only (Spec 094, "Version check").
+	task.RequiredCapabilities = dag.RequiredCapabilities()
 }
 
 func (h *Handler) ensureWorkspaceBundle(ctx context.Context, task *coordinatorv1.Task) error {
@@ -641,11 +707,11 @@ func (h *Handler) prepareDispatchTaskWorkspace(ctx context.Context, task *coordi
 		return nil
 	}
 
-	candidate, err := loadDispatchWorkspaceDAG(ctx, task, []byte(task.Definition), "")
+	candidate, err := loadDispatchWorkspaceDAG(ctx, task, []byte(task.Definition), "", h.dagRepository.DAGsDir())
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "invalid dispatch DAG definition for workspace preparation: "+err.Error())
 	}
-	if !runtimeexec.HasDAGFileDependencies(candidate) {
+	if !runtimeexec.HasDispatchFiles(candidate) {
 		return nil
 	}
 	if h.dagRepository == nil {
@@ -671,7 +737,7 @@ func (h *Handler) prepareDispatchTaskWorkspace(ctx context.Context, task *coordi
 		return status.Errorf(codes.FailedPrecondition, "authoritative DAG %q does not have a source file for dependency resolution", task.Target)
 	}
 
-	dag, err := loadDispatchWorkspaceDAG(ctx, task, authoritative.YamlData, authoritativeSource)
+	dag, err := loadDispatchWorkspaceDAG(ctx, task, authoritative.YamlData, authoritativeSource, h.dagRepository.DAGsDir())
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, "failed to rebuild authoritative DAG for workspace preparation: "+err.Error())
 	}
@@ -705,11 +771,8 @@ func (h *Handler) prepareDispatchTaskWorkspace(ctx context.Context, task *coordi
 	return nil
 }
 
-func loadDispatchWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task, definition []byte, sourceFile string) (*ir.DAG, error) {
-	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
-	if task.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
-	}
+func loadDispatchWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task, definition []byte, sourceFile, dagsDir string) (*ir.DAG, error) {
+	loadOpts := taskDefinitionLoadOptions(task, dagsDir)
 	if task.Params != "" {
 		loadOpts = append(loadOpts, spec.WithParams(task.Params))
 	} else if task.Operation == coordinatorv1.Operation_OPERATION_RETRY && task.PreviousStatus != nil {
@@ -725,6 +788,20 @@ func loadDispatchWorkspaceDAG(ctx context.Context, task *coordinatorv1.Task, def
 		return spec.LoadYAMLAt(ctx, definition, sourceFile, loadOpts...)
 	}
 	return spec.LoadYAML(ctx, definition, loadOpts...)
+}
+
+// taskDefinitionLoadOptions returns the options to parse the definition of a
+// task. The DAGs directory lets the parse find the skills of a definition that
+// has no file.
+func taskDefinitionLoadOptions(task *coordinatorv1.Task, dagsDir string) []spec.LoadOption {
+	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
+	if task.BaseConfig != "" {
+		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
+	}
+	if dagsDir != "" {
+		loadOpts = append(loadOpts, spec.WithDAGsDir(dagsDir))
+	}
+	return loadOpts
 }
 
 func dispatchBindErrorCode(err error) codes.Code {
@@ -818,15 +895,15 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 		return nil, nil
 	}
 
-	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
-	if task.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
-	}
+	loadOpts := taskDefinitionLoadOptions(task, h.dagRepository.DAGsDir())
 	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
 	dag.SourceFile = task.SourceFile
+	// The labels that start with agent. come from the DAG only (Spec 092).
+	task.WorkerSelector = ir.RoutedWorkerSelector(task.WorkerSelector, dag)
+	task.RequiredCapabilities = dag.RequiredCapabilities()
 	applyTaskWorkerSelector(dag, task)
 	// An unlabeled legacy child still needs its parent's provenance; named workspaces are already known.
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
@@ -990,15 +1067,15 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 
 	rootRef := ir.DAGRunRef{Name: task.RootDagRunName, ID: task.RootDagRunId}
 
-	loadOpts := []spec.LoadOption{spec.WithName(task.Target)}
-	if task.BaseConfig != "" {
-		loadOpts = append(loadOpts, spec.WithBaseConfigContent([]byte(task.BaseConfig)))
-	}
+	loadOpts := taskDefinitionLoadOptions(task, h.dagRepository.DAGsDir())
 	dag, err := spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
 	dag.SourceFile = task.SourceFile
+	// The labels that start with agent. come from the DAG only (Spec 092).
+	task.WorkerSelector = ir.RoutedWorkerSelector(task.WorkerSelector, dag)
+	task.RequiredCapabilities = dag.RequiredCapabilities()
 	applyTaskWorkerSelector(dag, task)
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
 		dag.BaseConfigWorkspace = task.BaseConfigWorkspace
@@ -1046,10 +1123,13 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 // This ensures the status file is not empty when read before the worker reports its first status.
 func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
 	initialStatus := ir.DAGRunStatus{
-		Name:             dagName,
-		DAGRunID:         task.DagRunId,
-		AttemptID:        attempt.ID(),
-		AttemptKey:       task.AttemptKey,
+		Name:       dagName,
+		DAGRunID:   task.DagRunId,
+		AttemptID:  attempt.ID(),
+		AttemptKey: task.AttemptKey,
+		// A dispatched attempt has a claim of its own. The record says so, so a
+		// call that names the claim of an ancestor is refused (Spec 092).
+		ClaimKey:         task.AttemptKey,
 		Status:           ir.NotStarted,
 		StartedAt:        stringutil.FormatTime(time.Now().UTC()),
 		Root:             root,
@@ -1128,33 +1208,33 @@ func (h *Handler) prepareAttemptForDispatch(ctx context.Context, task *coordinat
 	return nil, nil
 }
 
-func (h *Handler) ensureWaitingWorkerAvailability(ctx context.Context, selector map[string]string, targetWorkerID string) error {
+func (h *Handler) ensureWaitingWorkerAvailability(ctx context.Context, selector map[string]string, required []string, targetWorkerID string) error {
 	h.mu.Lock()
 	for _, worker := range h.waitingPollers {
 		if targetWorkerID != "" && worker.workerID != targetWorkerID {
 			continue
 		}
-		if !matchesSelector(worker.labels, selector) {
+		if !matchesSelector(worker.labels, selector) || !ir.WorkerHasCapabilities(worker.capabilities, required) {
 			continue
 		}
 		h.mu.Unlock()
 		return nil
 	}
 	h.mu.Unlock()
-	return h.waitingWorkerUnavailable(ctx, selector, targetWorkerID)
+	return h.waitingWorkerUnavailable(ctx, selector, required, targetWorkerID)
 }
 
 // Waiting pollers describe immediate capacity, not worker presence. Consult
 // fresh heartbeats before diagnosing a selector or target mismatch.
-func (h *Handler) waitingWorkerUnavailable(ctx context.Context, selector map[string]string, targetWorkerID string) error {
-	if len(selector) == 0 && targetWorkerID == "" {
+func (h *Handler) waitingWorkerUnavailable(ctx context.Context, selector map[string]string, required []string, targetWorkerID string) error {
+	if len(selector) == 0 && len(required) == 0 && targetWorkerID == "" {
 		return errNoAvailableWorkers
 	}
 	healthyWorkers, err := h.listHealthyWorkers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list workers: %w", err)
 	}
-	if anyWorkerMatches(healthyWorkers, selector, targetWorkerID) {
+	if anyWorkerMatches(healthyWorkers, selector, required, targetWorkerID) {
 		return errNoAvailableWorkers
 	}
 	return errNoMatchingWorkers
@@ -1168,7 +1248,7 @@ func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinator
 		if task.TargetWorkerId != "" && worker.workerID != task.TargetWorkerId {
 			continue
 		}
-		if !matchesSelector(worker.labels, task.WorkerSelector) {
+		if !matchesSelector(worker.labels, task.WorkerSelector) || !ir.WorkerHasCapabilities(worker.capabilities, task.RequiredCapabilities) {
 			continue
 		}
 		matched = true
@@ -1185,7 +1265,7 @@ func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinator
 	if matched {
 		return errNoAvailableWorkers
 	}
-	return h.waitingWorkerUnavailable(ctx, task.WorkerSelector, task.TargetWorkerId)
+	return h.waitingWorkerUnavailable(ctx, task.WorkerSelector, task.RequiredCapabilities, task.TargetWorkerId)
 }
 
 func dispatchErrorCode(err error) codes.Code {
@@ -1263,7 +1343,7 @@ func workerShortfall(healthyWorkers []dispatch.WorkerHeartbeatRecord, task *coor
 	if len(healthyWorkers) == 0 {
 		return errNoAvailableWorkers
 	}
-	if !anyWorkerMatches(healthyWorkers, task.WorkerSelector, task.TargetWorkerId) {
+	if !anyWorkerMatches(healthyWorkers, task.WorkerSelector, task.RequiredCapabilities, task.TargetWorkerId) {
 		return errNoMatchingWorkers
 	}
 	return nil
@@ -1274,11 +1354,25 @@ func workerShortfall(healthyWorkers []dispatch.WorkerHeartbeatRecord, task *coor
 // of a queued run is always refused: the queue already holds that run and
 // reads the refusal to keep it queued.
 func (h *Handler) holdsDispatch(task *coordinatorv1.Task) bool {
-	if h.workerWaitTimeout <= 0 {
-		return false
-	}
+	return h.workerWaitTimeout > 0 && isDirectDispatch(task)
+}
+
+// isDirectDispatch reports whether the task comes without the scheduler's
+// queue: a start, a retry or a sub-DAG run. The queue keeps its own runs.
+func isDirectDispatch(task *coordinatorv1.Task) bool {
 	queued, err := queueDispatchStatusForTask(task)
 	return err == nil && queued == nil
+}
+
+// directDispatchWait is how long the task of a direct dispatch waits for a
+// worker to take it: coordinator.worker_wait_timeout, or one lease period when
+// that wait is 0. With the wait 0, only a dispatch that a healthy worker
+// matched gets a task.
+func (h *Handler) directDispatchWait() time.Duration {
+	if h.workerWaitTimeout > 0 {
+		return h.workerWaitTimeout
+	}
+	return h.staleLeaseThreshold
 }
 
 // markPreparedAttemptHeld records that the run is waiting for a worker: the
@@ -1308,7 +1402,7 @@ func (h *Handler) markPreparedAttemptHeld(ctx context.Context, task *coordinator
 	default:
 		return nil
 	}
-	conditions := ir.NoMatchingWorkerConditions(now)
+	conditions := ir.NoMatchingWorkerConditionsFor(task.WorkerSelector, now)
 	if errors.Is(shortfall, errNoAvailableWorkers) {
 		conditions = ir.NoAvailableWorkerConditions(now)
 	}
@@ -1342,11 +1436,12 @@ func (h *Handler) expireHeldDispatches(ctx context.Context, now time.Time) {
 	}
 }
 
-// failHeldDispatch fails the run of one held task that no worker claimed in
-// time, then drops the task. A run that is no longer queued, was claimed after
-// all, or no longer exists only loses the stale task. A run that cannot be read
-// keeps its task, so the next pass tries again instead of leaving the run
-// queued with nothing behind it.
+// failHeldDispatch fails the run of one task that no worker claimed before its
+// deadline, then drops the task. The run is queued when no healthy worker
+// matched at the dispatch, and not started when one matched. A run in another
+// state, claimed after all, or no longer there only loses the stale task. A
+// run that cannot be read keeps its task, so the next pass tries again instead
+// of leaving the run waiting with nothing behind it.
 func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchTask, now time.Time) {
 	if task == nil {
 		return
@@ -1364,13 +1459,21 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 		logger.Warn(ctx, "Failed to read the run of a held dispatch past its wait",
 			tag.RunID(task.DAGRunID), tag.Error(err))
 		return
-	case runStatus != nil && runStatus.Status == ir.Queued && runStatus.WorkerID == "" &&
-		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID):
+	case runStatus != nil && (runStatus.Status == ir.Queued || runStatus.Status == ir.NotStarted) &&
+		runStatus.WorkerID == "" && (task.AttemptID == "" || runStatus.AttemptID == task.AttemptID):
+		wait := h.directDispatchWait()
 		// runStatus may be the cached status other readers share.
 		failed := *runStatus
+		failed.Error = heldDispatchFailure(task, wait)
+		if failed.Status == ir.NotStarted {
+			failed.Error = unclaimedDispatchFailure(task, wait)
+		}
+		if text := h.missingCapabilityFailure(storeCtx, task, attempt); text != "" {
+			// Spec 094, "Version check": the error names the reason and the step.
+			failed.Error = fmt.Sprintf("%s; no worker took the run within %s", text, wait)
+		}
 		failed.Status = ir.Failed
 		failed.FinishedAt = stringutil.FormatTime(now)
-		failed.Error = heldDispatchFailure(task, h.workerWaitTimeout)
 		if writeErr := h.writeHeldAttemptStatus(storeCtx, task.DAGRunID, attempt, failed); writeErr != nil {
 			logger.Warn(ctx, "Failed to fail the run of a held dispatch past its wait",
 				tag.RunID(task.DAGRunID), tag.Error(writeErr))
@@ -1388,6 +1491,29 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 		logger.Warn(ctx, "Failed to drop a held dispatch past its wait",
 			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
 	}
+}
+
+// missingCapabilityFailure returns the run error of a task that needs a
+// capability that no worker announced. It returns an empty string when the task
+// needs none, or when the DAG does not name the step.
+func (h *Handler) missingCapabilityFailure(ctx context.Context, task *dispatch.DispatchTask, attempt dagrun.Attempt) string {
+	if len(task.RequiredCapabilities) == 0 || attempt == nil {
+		return ""
+	}
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil || dag == nil {
+		return ""
+	}
+	workers, err := h.listHealthyWorkers(ctx)
+	if err == nil {
+		for _, worker := range workers {
+			if ir.WorkerHasCapabilities(worker.Capabilities, task.RequiredCapabilities) {
+				return ""
+			}
+		}
+	}
+	text, _ := dag.DescribeMissingAIRelay()
+	return text
 }
 
 // dropOrphanedDispatches removes the pending tasks that have waited a lease
@@ -1464,12 +1590,32 @@ func (h *Handler) writeHeldAttemptStatus(ctx context.Context, dagRunID string, a
 // heldDispatchFailure is the run error for a held dispatch no worker took.
 func heldDispatchFailure(task *dispatch.DispatchTask, wait time.Duration) string {
 	if len(task.WorkerSelector) > 0 {
+		// Spec 092, "No match": the error names the provider.
+		if text, ok := ir.DescribeAgentSelector(task.WorkerSelector); ok {
+			return fmt.Sprintf("%s; no worker matched it within %s", text, wait)
+		}
 		return fmt.Sprintf("no worker matched the selector %s within %s", ir.FormatWorkerSelector(task.WorkerSelector), wait)
 	}
 	if task.TargetWorkerID != "" {
 		return fmt.Sprintf("worker %s did not register within %s", task.TargetWorkerID, wait)
 	}
 	return fmt.Sprintf("no worker became available within %s", wait)
+}
+
+// unclaimedDispatchFailure is the run error for a dispatch that a healthy
+// worker matched, but that no worker took before the deadline. The worker
+// that matched can have stopped after its last heartbeat.
+func unclaimedDispatchFailure(task *dispatch.DispatchTask, wait time.Duration) string {
+	if text, ok := ir.DescribeAgentSelector(task.WorkerSelector); ok {
+		return fmt.Sprintf("%s; no worker took the run within %s", text, wait)
+	}
+	if len(task.WorkerSelector) > 0 {
+		return fmt.Sprintf("no worker took the run within %s: the selector is %s", wait, ir.FormatWorkerSelector(task.WorkerSelector))
+	}
+	if task.TargetWorkerID != "" {
+		return fmt.Sprintf("worker %s did not take the run within %s", task.TargetWorkerID, wait)
+	}
+	return fmt.Sprintf("no worker took the run within %s", wait)
 }
 
 func (h *Handler) releasePreparedDispatchAttempt(ctx context.Context, dagRunID string, attempt dagrun.Attempt) {
@@ -1567,11 +1713,28 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 	if req.WorkerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
 	}
+	// A refused heartbeat keeps no label.
+	workerPool, err := h.authorizeWorkerLabels(ctx, req.Labels)
+	if err != nil {
+		return nil, err
+	}
+	// A worker ID belongs to the pool of its last fresh heartbeat (Spec 092).
+	if err := h.checkWorkerIDPool(ctx, req.WorkerId, workerPool, false); err != nil {
+		return nil, err
+	}
+	if req.Offline {
+		if err := h.removeWorker(ctx, req.WorkerId); err != nil {
+			return nil, err
+		}
+		return &coordinatorv1.HeartbeatResponse{}, nil
+	}
 	receivedAt := time.Now().UTC()
 	h.mu.Lock()
 	h.heartbeats[req.WorkerId] = &heartbeatInfo{
 		workerID:        req.WorkerId,
+		workerPool:      workerPool,
 		labels:          req.Labels,
+		capabilities:    req.Capabilities,
 		stats:           req.Stats,
 		lastHeartbeatAt: receivedAt,
 	}
@@ -1580,7 +1743,9 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 	if h.workerHeartbeatStore != nil {
 		if err := h.workerHeartbeatStore.Upsert(ctx, dispatch.WorkerHeartbeatRecord{
 			WorkerID:        req.WorkerId,
+			WorkerPool:      workerPool,
 			Labels:          req.Labels,
+			Capabilities:    req.Capabilities,
 			Stats:           convert.ProtoToWorkerStats(req.Stats),
 			LastHeartbeatAt: receivedAt.UnixMilli(),
 			Host:            req.Host,
@@ -1600,6 +1765,22 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 	}, nil
 }
 
+// removeWorker forgets a worker that stopped, so the check of the available
+// workers does not count on it until its last heartbeat is stale. A worker
+// stops only after its runs end, so no run of it is lost here.
+func (h *Handler) removeWorker(ctx context.Context, workerID string) error {
+	h.mu.Lock()
+	delete(h.heartbeats, workerID)
+	h.mu.Unlock()
+	if h.workerHeartbeatStore != nil {
+		if err := h.workerHeartbeatStore.Delete(ctx, workerID); err != nil {
+			return status.Error(codes.Internal, "failed to remove worker heartbeat: "+err.Error())
+		}
+	}
+	logger.Info(ctx, "Worker went offline", tag.WorkerID(workerID))
+	return nil
+}
+
 // AckTaskClaim confirms that a worker accepted a claimed task and creates the
 // initial active lease for that distributed attempt.
 func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskClaimRequest) (*coordinatorv1.AckTaskClaimResponse, error) {
@@ -1613,6 +1794,11 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 		return nil, status.Error(codes.FailedPrecondition, "dag-run lease store is not configured")
 	}
 
+	callerPool, err := h.callerPoolName(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	claimed, err := h.dispatchTaskStore.GetClaim(ctx, req.ClaimToken)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
@@ -1620,6 +1806,9 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 				lease, leaseErr := h.dagRunLeaseStore.Get(ctx, req.AttemptKey)
 				if leaseErr == nil && lease.MatchesClaim(req.AttemptKey, req.WorkerId) &&
 					lease.ClaimToken == req.ClaimToken {
+					if err := h.checkLeasePool(ctx, lease.WorkerPool); err != nil {
+						return nil, err
+					}
 					return &coordinatorv1.AckTaskClaimResponse{Accepted: true}, nil
 				}
 				if leaseErr != nil && !errors.Is(leaseErr, dispatch.ErrDAGRunLeaseNotFound) {
@@ -1632,6 +1821,10 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	}
 	if claimed.WorkerID != "" && req.WorkerId != "" && claimed.WorkerID != req.WorkerId {
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different worker"}, nil
+	}
+	if claimed.WorkerPool != callerPool {
+		return nil, status.Errorf(codes.PermissionDenied, "the claim belongs to the worker pool %q, and the call comes from the worker pool %q",
+			claimed.WorkerPool, callerPool)
 	}
 	if claimed.Task == nil {
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim has no task payload"}, nil
@@ -1658,7 +1851,7 @@ func (h *Handler) AckTaskClaim(ctx context.Context, req *coordinatorv1.AckTaskCl
 	if req.AttemptKey != "" && req.AttemptKey != task.AttemptKey {
 		return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "claim belongs to a different attempt"}, nil
 	}
-	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID); err != nil {
+	if err := h.attemptOwnership().recordTaskClaim(ctx, task, workerID, claimed.WorkerPool); err != nil {
 		if errors.Is(err, dispatch.ErrDAGRunLeaseConflict) {
 			return &coordinatorv1.AckTaskClaimResponse{Accepted: false, Error: "attempt claim conflicts with the active lease"}, nil
 		}
@@ -1678,6 +1871,9 @@ func (h *Handler) ClaimAgentSessionCleanup(
 ) (*coordinatorv1.ClaimAgentSessionCleanupResponse, error) {
 	if req.WorkerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id is required")
+	}
+	if err := h.checkCallerWorkerID(ctx, req.WorkerId); err != nil {
+		return nil, err
 	}
 	if h.agentSessionCleanupQueue == nil || h.dagRunRepository == nil {
 		return nil, status.Error(codes.Unimplemented, "agent session cleanup is not configured")
@@ -1720,6 +1916,9 @@ func (h *Handler) CompleteAgentSessionCleanup(
 ) (*coordinatorv1.CompleteAgentSessionCleanupResponse, error) {
 	if req.WorkerId == "" || req.JobId == "" || req.ClaimToken == "" {
 		return nil, status.Error(codes.InvalidArgument, "worker_id, job_id, and claim_token are required")
+	}
+	if err := h.checkCallerWorkerID(ctx, req.WorkerId); err != nil {
+		return nil, err
 	}
 	if h.agentSessionCleanupQueue == nil {
 		return nil, status.Error(codes.Unimplemented, "agent session cleanup is not configured")
@@ -1929,6 +2128,7 @@ func (h *Handler) listHealthyWorkers(ctx context.Context) ([]dispatch.WorkerHear
 			records = append(records, dispatch.WorkerHeartbeatRecord{
 				WorkerID:        hb.workerID,
 				Labels:          hb.labels,
+				Capabilities:    hb.capabilities,
 				LastHeartbeatAt: hb.lastHeartbeatAt.UnixMilli(),
 			})
 		}
@@ -2059,25 +2259,19 @@ func (h *Handler) leaseRefreshWriteInterval() time.Duration {
 	return interval
 }
 
-func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string, targetWorkerID string) bool {
+func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[string]string, required []string, targetWorkerID string) bool {
 	for _, worker := range workers {
-		if dispatch.WorkerHeartbeatMatches(worker, selector, targetWorkerID) {
+		if dispatch.WorkerHeartbeatMatchesTask(worker, selector, required, targetWorkerID) {
 			return true
 		}
 	}
 	return false
 }
 
+// matchesSelector applies the match rule of Spec 092, which the dispatch store
+// and the scheduler share.
 func matchesSelector(workerLabels, selector map[string]string) bool {
-	if len(selector) == 0 {
-		return true
-	}
-	for key, value := range selector {
-		if workerLabels[key] != value {
-			return false
-		}
-	}
-	return true
+	return ir.WorkerLabelsMatchSelector(workerLabels, selector)
 }
 
 func (h *Handler) collectAndRemoveStaleHeartbeats() []*heartbeatInfo {
@@ -2261,6 +2455,13 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 
 	ownership := h.attemptOwnership()
 	if leaseMissing && latestStatus.Status != ir.NotStarted && !isTerminalRunStatus(latestStatus.Status) {
+		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedLeaseInactive)
+		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedLeaseInactive}, nil
+	}
+	if leaseMissing && h.workerPools.Enabled() {
+		// With pools, an attempt has a lease from its acknowledged claim, and the
+		// lease names the pool. A status without a lease has no pool to check:
+		// it would make a lease that no pool owns, or rewrite a final status.
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedLeaseInactive)
 		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedLeaseInactive}, nil
 	}

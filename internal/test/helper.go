@@ -849,6 +849,7 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 			WorkerID:           "local",
 			DAGRunLogDir:       d.Config.Paths.LogDir,
 			DAGRunArtifactDir:  d.Config.Paths.ArtifactDir,
+			LocalAgentRuns:     !d.Config.Coordinator.Enabled,
 		})
 	}
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
@@ -107,6 +108,8 @@ type API struct {
 	wikiStore            wiki.PageStore
 	workspaceWikiMu      sync.RWMutex
 	secretStore          secretpkg.Store
+	aiEndpoints          *aiendpoint.Service
+	aiMCPServers         *aiendpoint.MCPService
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	licenseManager       *license.Manager
@@ -314,6 +317,20 @@ func WithWorkspaceBaseConfigProvider(provider dagsettings.BaseConfigProvider) AP
 func WithSecretStore(store secretpkg.Store) APIOption {
 	return func(a *API) {
 		a.secretStore = store
+	}
+}
+
+// WithAIMCPServerService returns an APIOption that sets the MCP server entry service.
+func WithAIMCPServerService(service *aiendpoint.MCPService) APIOption {
+	return func(a *API) {
+		a.aiMCPServers = service
+	}
+}
+
+// WithAIEndpointService returns an APIOption that sets the AI endpoint service.
+func WithAIEndpointService(service *aiendpoint.Service) APIOption {
+	return func(a *API) {
+		a.aiEndpoints = service
 	}
 }
 
@@ -603,6 +620,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
+		r.Use(closedBodyMiddleware(swagger, mountedAPIPath))
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
 		}

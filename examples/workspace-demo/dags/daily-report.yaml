@@ -1,0 +1,8 @@
+# Build the daily sales report.
+group: reports
+description: Build the daily sales report.
+schedule: "0 7 * * *"
+type: chain
+steps:
+  - name: run
+    run: echo "daily-report"

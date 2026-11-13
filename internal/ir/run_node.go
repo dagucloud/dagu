@@ -156,6 +156,9 @@ type Node struct {
 	// ToolDefinitions stores the tool definitions that were available to the LLM.
 	// This enables debugging visibility into what tools and schemas were sent.
 	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
+	// SkillDefinitions stores the skills that the effective catalog offered to
+	// the LLM or left out.
+	SkillDefinitions []SkillDefinition `json:"skillDefinitions,omitempty"`
 	// AgentSession stores managed coding-agent state for display and durable resume.
 	AgentSession *AgentSession `json:"agentSession,omitempty"`
 	// ModelUsage is what the step's calls to models used, over every attempt

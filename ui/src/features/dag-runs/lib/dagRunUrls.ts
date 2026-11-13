@@ -12,11 +12,14 @@ type DAGRunPageURLInput = {
   remoteNode: string;
   /** Workspace scope (?workspace) to keep on the target page. */
   workspace?: string;
-  /** A sub-run of the root run, which opens on the sub-run stack (?subRun). */
+  /**
+   * A sub-run of the root run. The link opens it on the sub-run stack of the
+   * root run (?subRun); ?step then names a step of the sub-run.
+   */
   subDAGRunId?: string;
   /** A step of the sub-run when subDAGRunId is set, else of the root run. */
   step?: string;
-  /** Dock tab, for example 'artifacts'. */
+  /** Dock tab, for example 'artifacts'. It belongs to the root run. */
   dock?: string;
 };
 
@@ -98,6 +101,29 @@ export function buildDAGRunPageURL({
     step,
     dock,
   });
+}
+
+type RunFileInput = {
+  dagRunId: string;
+  rootDAGRunId?: string;
+  sourceFileName?: string;
+};
+
+/**
+ * The workflow file to open for the root run, from run details the caller
+ * holds. Only the run endpoint sets `sourceFileName`; a caller that has run
+ * details from a workflow list or history passes the file of its page as
+ * `pageFileName`. A sub-run has the file of its own DAG, not of its root, so
+ * it gives none and the link names the root by its DAG name.
+ */
+export function rootRunFileName(
+  run: RunFileInput | null | undefined,
+  pageFileName?: string
+): string | undefined {
+  if (!run || (run.rootDAGRunId && run.rootDAGRunId !== run.dagRunId)) {
+    return undefined;
+  }
+  return run.sourceFileName || pageFileName || undefined;
 }
 
 export function buildDAGPageURL(input: DAGPageURLInput): string {

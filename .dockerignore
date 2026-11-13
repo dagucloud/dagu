@@ -20,6 +20,8 @@ coverage.html
 # Build artifacts
 internal/service/frontend/assets/
 dist/
+# Binaries, keys and evidence that examples/agent-worker-demo/run-demo.sh makes
+examples/agent-worker-demo/run/
 
 # IDE
 .vscode/

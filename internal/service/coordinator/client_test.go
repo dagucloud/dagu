@@ -1842,6 +1842,44 @@ func TestClientHeartbeatFailsOverAfterHealthCheckStalls(t *testing.T) {
 	assert.Equal(t, int32(1), heartbeatCalls.Load())
 }
 
+// The registry can still list a coordinator that no longer answers, such as
+// the coordinator of an earlier container. Its health check does not use the
+// whole call: the dispatch goes to the next coordinator.
+func TestClientDispatchFailsOverAfterHealthCheckStalls(t *testing.T) {
+	t.Parallel()
+
+	config := coordinator.DefaultConfig()
+	config.MaxRetries = 0
+	config.DialTimeout = 200 * time.Millisecond
+
+	healthServer := &stallFirstHealthCheckServer{}
+	var dispatchCalls atomic.Int32
+	mockCoord := &mockCoordinatorService{
+		dispatchFunc: func(context.Context, *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
+			dispatchCalls.Add(1)
+			return &coordinatorv1.DispatchResponse{}, nil
+		},
+	}
+	firstServer, firstAddr := startMockServerWithHealth(t, mockCoord, healthServer)
+	defer firstServer.Stop()
+	secondServer, secondAddr := startMockServerWithHealth(t, mockCoord, healthServer)
+	defer secondServer.Stop()
+
+	firstHost, firstPort := parseHostPort(firstAddr)
+	secondHost, secondPort := parseHostPort(secondAddr)
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{
+		{ID: "coord-old", Host: firstHost, Port: firstPort, Status: serviceregistry.ServiceStatusActive},
+		{ID: "coord-new", Host: secondHost, Port: secondPort, Status: serviceregistry.ServiceStatusActive},
+	}}, config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{DAGRunID: "run-1", Target: "test.yaml"}})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), healthServer.calls.Load())
+	assert.Equal(t, int32(1), dispatchCalls.Load())
+}
+
 func TestClientRPCFailuresPreserveActiveLogStream(t *testing.T) {
 	t.Parallel()
 

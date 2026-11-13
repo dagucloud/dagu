@@ -126,7 +126,7 @@ func (h *Handler) validateStatusLease(
 		lease, err := h.dagRunLeaseStore.Get(ctx, identity.claimKey)
 		switch {
 		case err == nil:
-			return lease, false, h.validateAttemptLease(lease, identity)
+			return lease, false, h.validateAttemptLease(ctx, lease, identity)
 		case !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
 			return nil, false, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
 		}
@@ -238,15 +238,19 @@ func (h *Handler) attemptLease(ctx context.Context, identity attemptIdentity) (*
 		}
 		return nil, status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
 	}
-	if err := h.validateAttemptLease(lease, identity); err != nil {
+	if err := h.validateAttemptLease(ctx, lease, identity); err != nil {
 		return nil, err
 	}
 	return lease, nil
 }
 
-func (h *Handler) validateAttemptLease(lease *dispatch.DAGRunLease, identity attemptIdentity) error {
+func (h *Handler) validateAttemptLease(ctx context.Context, lease *dispatch.DAGRunLease, identity attemptIdentity) error {
 	if !lease.MatchesClaim(identity.claimKey, identity.workerID) {
 		return status.Error(codes.FailedPrecondition, remoteAttemptRejectedSuperseded)
+	}
+	// Each call of an attempt comes from the pool that claimed it (Spec 092).
+	if err := h.checkLeasePool(ctx, lease.WorkerPool); err != nil {
+		return err
 	}
 	leaseRoot := lease.Root
 	if leaseRoot.Zero() {
@@ -257,11 +261,52 @@ func (h *Handler) validateAttemptLease(lease *dispatch.DAGRunLease, identity att
 	}
 	if identity.claimKey != identity.attemptKey {
 		// Inline descendants inherit their dispatching ancestor's worker claim.
-		return nil
+		// A descendant that was dispatched has a claim of its own, so a call
+		// that names the claim of an ancestor for it is refused (Spec 092).
+		return h.checkInlineDescendant(ctx, identity)
 	}
 	if lease.DAGRun != identity.dagRun ||
 		(identity.attemptID != "" && lease.AttemptID != identity.attemptID) {
 		return status.Error(codes.FailedPrecondition, remoteAttemptRejectedSuperseded)
+	}
+	return nil
+}
+
+// checkInlineDescendant refuses a call that names the claim of an ancestor for
+// an attempt that is not an inline descendant of it: the attempt has a lease of
+// its own, or its record has another claim key. A lease or a record that cannot
+// be read fails the call.
+func (h *Handler) checkInlineDescendant(ctx context.Context, identity attemptIdentity) error {
+	if h.dagRunLeaseStore != nil {
+		_, err := h.dagRunLeaseStore.Get(ctx, identity.attemptKey)
+		switch {
+		case err == nil:
+			return status.Error(codes.PermissionDenied, "the attempt has a lease of its own: a call for it must name its own claim")
+		case !errors.Is(err, dispatch.ErrDAGRunLeaseNotFound):
+			return status.Error(codes.Internal, "failed to load distributed run lease: "+err.Error())
+		}
+	}
+	if h.dagRunRepository == nil || identity.root == identity.dagRun {
+		return nil
+	}
+	attempt, err := h.dagRunRepository.FindSubAttempt(ctx, identity.root, identity.dagRun.ID)
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+		return nil // The first status of an inline descendant creates its record.
+	}
+	if err != nil {
+		return status.Error(codes.Internal, "failed to load sub-attempt: "+err.Error())
+	}
+	stored, err := attempt.ReadStatus(ctx)
+	if errors.Is(err, dagrun.ErrNoStatusData) {
+		return nil
+	}
+	if err != nil {
+		return status.Error(codes.Internal, "failed to read sub-attempt status: "+err.Error())
+	}
+	// A dispatched attempt has its own claim key in its record from the first
+	// status (writeInitialStatus). A record of an older version has none.
+	if storedKey := stored.ClaimKey; storedKey != "" && storedKey != identity.claimKey {
+		return status.Error(codes.PermissionDenied, "the attempt belongs to another claim: a call for it must name its own claim")
 	}
 	return nil
 }

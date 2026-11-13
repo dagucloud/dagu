@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dagucloud/dagu/v2/internal/aigateway"
 	"io"
 	"log/slog"
 	"os"
@@ -68,6 +69,12 @@ type RemoteTaskHandlerConfig struct {
 	SecretStore secret.Store
 	// ProfileStore resolves profile values during execution.
 	ProfileStore profile.Store
+	// AgentProvider is the provider of an agent worker (Spec 092). It is empty
+	// for a general worker. The handler refuses a DAG that the worker must not run.
+	AgentProvider string
+	// AgentBinary is the absolute path of the binary of AgentProvider. The steps
+	// of the provider run it.
+	AgentBinary string
 }
 
 type runtimeStores struct {
@@ -96,6 +103,8 @@ func NewRemoteTaskHandler(cfg RemoteTaskHandlerConfig) TaskHandler {
 		serviceRegistry:   cfg.ServiceRegistry,
 		peerConfig:        cfg.PeerConfig,
 		config:            cfg.Config,
+		agentProvider:     cfg.AgentProvider,
+		agentBinary:       cfg.AgentBinary,
 		runtimeStores: runtimeStores{
 			SecretStore:  cfg.SecretStore,
 			ProfileStore: cfg.ProfileStore,
@@ -113,6 +122,8 @@ type remoteTaskHandler struct {
 	peerConfig        config.Peer
 	config            *config.Config
 	runtimeStores     runtimeStores
+	agentProvider     string
+	agentBinary       string
 }
 
 // Handle executes a task in-process with remote status/log streaming
@@ -123,6 +134,9 @@ func (h *remoteTaskHandler) Handle(ctx context.Context, task *coordinatorv1.Task
 		tag.RunID(task.DagRunId),
 		slog.String("root-dag-run-id", task.RootDagRunId),
 		slog.String("parent-dag-run-id", task.ParentDagRunId))
+	if h.agentProvider != "" && h.agentBinary != "" {
+		ctx = runtime.WithAgentProviderBinary(ctx, h.agentProvider, h.agentBinary)
+	}
 
 	switch task.Operation {
 	case coordinatorv1.Operation_OPERATION_START:
@@ -155,6 +169,8 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 		profileName: task.ProfileName,
 	}
 
+	ctx = h.withAIRelay(ctx, task, owner)
+
 	loaded, err := h.loadDAG(ctx, task)
 	if err != nil {
 		h.reportTaskLoadFailure(ctx, run, err)
@@ -165,8 +181,13 @@ func (h *remoteTaskHandler) handleStart(ctx context.Context, task *coordinatorv1
 	}
 	dag := loaded.dag
 	run.workspaceSeed = loaded.workspaceSeed
+	if err := checkAgentRouting(dag, h.agentProvider); err != nil {
+		h.reportTaskLoadFailure(ctx, run, err)
+		return refusedByRouting(err)
+	}
 
 	run.handlers = h.createRemoteHandlers(run, dag.Name)
+	run.handlers.status = wrapFinalReport(ctx, run.handlers.status)
 	err = h.executeDAGRun(ctx, dag, run)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
@@ -215,6 +236,8 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		tag.RunID(task.DagRunId),
 		slog.Int("nodes", len(status.Nodes)))
 
+	ctx = h.withAIRelay(ctx, task, owner)
+
 	loaded, err := h.loadDAG(ctx, task)
 	if err != nil {
 		h.reportTaskLoadFailure(ctx, run, err)
@@ -225,8 +248,13 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 	}
 	dag := loaded.dag
 	run.workspaceSeed = loaded.workspaceSeed
+	if err := checkAgentRouting(dag, h.agentProvider); err != nil {
+		h.reportTaskLoadFailure(ctx, run, err)
+		return refusedByRouting(err)
+	}
 
 	run.handlers = h.createRemoteHandlers(run, dag.Name)
+	run.handlers.status = wrapFinalReport(ctx, run.handlers.status)
 	err = h.executeDAGRun(ctx, dag, run)
 	var initErr *taskInitError
 	if errors.As(err, &initErr) && !initErr.reported {
@@ -244,7 +272,7 @@ func retryTaskProfileName(status *ir.DAGRunStatus) string {
 
 func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remoteRun, loadErr error) {
 	task := run.task
-	statusPusher := coordreport.NewTaskStatusPusher(h.coordinatorClient, h.workerID, task, run.owner)
+	statusPusher := wrapFinalReport(ctx, coordreport.NewTaskStatusPusher(h.coordinatorClient, h.workerID, task, run.owner))
 	finishedAt := stringutil.FormatTime(time.Now())
 	logger.Warn(ctx, "Failed to load DAG on worker",
 		tag.Target(task.Target),
@@ -536,6 +564,12 @@ func (h *remoteTaskHandler) loadWorkspaceDAG(ctx context.Context, task *coordina
 				slog.String("path", workDir),
 				tag.Error(err))
 		}
+	}
+	// The workspace is the work directory of the run. The restricted user of an
+	// untrusted step must pass the folder above it, and cannot list it (Spec 092).
+	if err := os.Chmod(workDir, 0o711); err != nil { //nolint:gosec // the restricted user must pass this folder
+		cleanupFunc()
+		return nil, fmt.Errorf("open the run folder %s: %w", workDir, err)
 	}
 
 	loadOpts := []spec.LoadOption{spec.WithDefaultWorkingDir(workspace.dir)}
@@ -850,6 +884,21 @@ func (h *remoteTaskHandler) executeDAGRun(
 		tag.RunID(dagRunID))
 
 	return nil
+}
+
+// withAIRelay gives the steps of the run the client of the gateway (Spec 094).
+// The client sends each request of a step that names an endpoint to the
+// coordinator that owns the task, as the attempt of this worker.
+func (h *remoteTaskHandler) withAIRelay(ctx context.Context, task *coordinatorv1.Task, owner serviceregistry.HostInfo) context.Context {
+	client := coordinator.NewAIRelayClient(h.coordinatorClient, owner, coordinator.AIRelayRun{
+		WorkerID:   h.workerID,
+		AttemptKey: task.AttemptKey,
+		AttemptID:  task.AttemptId,
+	})
+	if client == nil {
+		return ctx
+	}
+	return aigateway.WithClient(ctx, client)
 }
 
 func (h *remoteTaskHandler) secretReferenceResolver(dag *ir.DAG, owner serviceregistry.HostInfo, run coordinator.SecretReferenceRun) providers.ReferenceResolver {

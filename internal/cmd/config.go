@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -116,6 +120,74 @@ func renderConfigPaths(ctx *Context) error {
 		}
 	}
 
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if err := printUntrusted(ctx); err != nil {
+		return err
+	}
+	if err := printWorkerPools(ctx); err != nil {
+		return err
+	}
+	if err := printAgentTools(ctx); err != nil {
+		return err
+	}
+	return printAI(ctx)
+}
+
+// printWorkerPools prints the worker pools of the coordinator (Spec 092): the
+// name, the identities and the labels of each pool. The block has no secret.
+func printWorkerPools(ctx *Context) error {
+	out := ctx.Command.OutOrStdout()
+	pools := ctx.Config.Coordinator.WorkerPools
+	if len(pools) == 0 {
+		_, _ = fmt.Fprintln(out, "\nWorker pools (coordinator.worker_pools): none")
+		return nil
+	}
+	_, _ = fmt.Fprintln(out, "\nWorker pools (name, identities, labels):")
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+	for _, pool := range pools {
+		labels := make([]string, 0, len(pool.Labels))
+		for _, key := range slices.Sorted(maps.Keys(pool.Labels)) {
+			labels = append(labels, key+"="+strconv.Quote(pool.Labels[key]))
+		}
+		_, _ = fmt.Fprintf(w, "  %s:\t%s\t%s\n", pool.Name, strings.Join(pool.Identities, ", "), strings.Join(labels, ", "))
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "Dispatchers (coordinator.dispatchers): %s\n", strings.Join(ctx.Config.Coordinator.Dispatchers, ", "))
+	return nil
+}
+
+// printAgentTools prints the value that applies for each key of the block
+// agent_tools (Spec 090), and where the value came from. The block has no secret.
+func printAgentTools(ctx *Context) error {
+	tools := ctx.Config.AgentTools
+	values := map[string]string{
+		"max_tools":             strconv.Itoa(tools.MaxTools),
+		"tool_result_max_bytes": strconv.Itoa(tools.ToolResultMaxBytes),
+	}
+	out := ctx.Command.OutOrStdout()
+	_, _ = fmt.Fprintln(out, "\nAgent tools (key, value that applies, source):")
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+	for _, doc := range config.AgentToolsKeyDocs {
+		_, _ = fmt.Fprintf(w, "  agent_tools.%s:\t%s\t%s\n", doc.Key, values[doc.Key], tools.Sources[doc.Key])
+	}
+	return w.Flush()
+}
+
+// printAI prints the value that applies for each key of the block ai (Spec 093),
+// and where the value came from. The block has no secret.
+func printAI(ctx *Context) error {
+	ai := ctx.Config.AI
+	values := ai.Values()
+	out := ctx.Command.OutOrStdout()
+	_, _ = fmt.Fprintln(out, "\nAI (key, value that applies, source):")
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
+	for _, doc := range config.AIKeyDocs() {
+		_, _ = fmt.Fprintf(w, "  ai.%s:\t%s\t%s\n", doc.Key, values[doc.Key], ai.Sources[doc.Key])
+	}
 	return w.Flush()
 }
 

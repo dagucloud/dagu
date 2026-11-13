@@ -108,6 +108,9 @@ type NodeState struct {
 	// ToolDefinitions stores the tool definitions that were available to the LLM during execution.
 	// This provides visibility into what tools/functions the LLM could call.
 	ToolDefinitions []ir.ToolDefinition
+	// SkillDefinitions stores the skills that the effective catalog offered to
+	// the LLM or left out.
+	SkillDefinitions []ir.SkillDefinition
 	// AgentSession stores managed coding-agent state across suspended attempts.
 	AgentSession *ir.AgentSession
 	// ModelUsage is what the step's calls to models used, over every attempt
@@ -885,6 +888,20 @@ func (d *Data) GetToolDefinitions() []ir.ToolDefinition {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.inner.State.ToolDefinitions
+}
+
+// SetSkillDefinitions sets the skills that the effective catalog offered or left out.
+func (d *Data) SetSkillDefinitions(skills []ir.SkillDefinition) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.SkillDefinitions = skills
+}
+
+// GetSkillDefinitions returns the skills that the effective catalog offered or left out.
+func (d *Data) GetSkillDefinitions() []ir.SkillDefinition {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.inner.State.SkillDefinitions
 }
 
 // SetAgentSession stores managed coding-agent state on the node.

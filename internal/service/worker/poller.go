@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/google/uuid"
@@ -32,6 +33,13 @@ type Poller struct {
 	handler        TaskHandler
 	index          int
 	labels         map[string]string
+	// capabilities are the capabilities that the worker announces (Spec 094).
+	capabilities []string
+	// onRunEnd makes the poller take one run (Spec 092, agent worker). After the
+	// first acknowledged claim, the poller runs the task, calls onRunEnd with the
+	// result of the final report, and polls no more. A claim that the owner
+	// rejects before execution does not count.
+	onRunEnd func(error)
 }
 
 // NewPoller creates a new poller instance
@@ -81,12 +89,32 @@ func (p *Poller) Run(ctx context.Context) {
 					tag.PollerIndex(p.index),
 					tag.RunID(task.DagRunId))
 
+				// The worker refuses a task that its labels do not match (Spec
+				// 092, "Match"). The coordinator applies the same rule first.
+				if !ir.WorkerLabelsMatchSelector(p.labels, task.WorkerSelector) ||
+					!ir.WorkerHasCapabilities(p.capabilities, task.RequiredCapabilities) {
+					logger.Error(ctx, "Refusing a task whose worker selector does not match the labels of the worker",
+						tag.WorkerID(p.workerID),
+						tag.PollerIndex(p.index),
+						tag.RunID(task.DagRunId),
+						slog.Any("worker-selector", task.WorkerSelector),
+						slog.Any("required-capabilities", task.RequiredCapabilities))
+					continue
+				}
+
 				if err := p.ackTaskClaim(ctx, task); err != nil {
 					logger.Error(ctx, "Failed to acknowledge claimed task",
 						tag.WorkerID(p.workerID),
 						tag.PollerIndex(p.index),
 						tag.RunID(task.DagRunId),
 						tag.Error(err))
+					continue
+				}
+
+				if p.onRunEnd != nil {
+					if p.runOnce(ctx, task) {
+						return
+					}
 					continue
 				}
 
@@ -119,6 +147,33 @@ func (p *Poller) Run(ctx context.Context) {
 			// Continue polling for the next task
 		}
 	}
+}
+
+// runOnce runs the one task of an agent worker. It returns false when the owner
+// rejected the claim before execution, so the poller may take another claim.
+func (p *Poller) runOnce(ctx context.Context, task *coordinatorv1.Task) bool {
+	report := newFinalReport(task.DagRunId)
+	err := p.handler.Handle(withFinalReport(ctx, report), task)
+	if errors.Is(err, errTaskClaimRejectedBeforeExecution) {
+		logger.Info(ctx, "Task claim rejected before execution",
+			tag.WorkerID(p.workerID),
+			tag.PollerIndex(p.index),
+			tag.RunID(task.DagRunId))
+		return ctx.Err() != nil
+	}
+	result := report.result()
+	if result != nil {
+		logger.Error(ctx, "Agent worker run ended without a final report",
+			tag.WorkerID(p.workerID),
+			tag.RunID(task.DagRunId),
+			tag.Error(result))
+	} else {
+		logger.Info(ctx, "Agent worker run ended; the worker takes no other run",
+			tag.WorkerID(p.workerID),
+			tag.RunID(task.DagRunId))
+	}
+	p.onRunEnd(result)
+	return true
 }
 
 func (p *Poller) ackTaskClaim(ctx context.Context, task *coordinatorv1.Task) error {
@@ -175,6 +230,8 @@ func (p *Poller) pollForTask(ctx context.Context, policy backoff.RetryPolicy) (*
 		WorkerId: p.workerID,
 		PollerId: pollerID,
 		Labels:   p.labels,
+
+		Capabilities: p.capabilities,
 	}
 
 	// Use coordinator client's Poll method which handles retries and failover

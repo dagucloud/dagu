@@ -97,6 +97,22 @@ func NoMatchingWorkerConditions(checkedAt time.Time) []DAGRunCondition {
 	}
 }
 
+// NoMatchingWorkerConditionsFor are the conditions of NoMatchingWorkerConditions.
+// When the selector needs an agent worker, the messages name the provider
+// (Spec 092, "No match").
+func NoMatchingWorkerConditionsFor(selector map[string]string, checkedAt time.Time) []DAGRunCondition {
+	text, ok := DescribeAgentSelector(selector)
+	if !ok {
+		return NoMatchingWorkerConditions(checkedAt)
+	}
+	return []DAGRunCondition{
+		NewDAGRunCondition(DAGRunConditionRunnable, DAGRunConditionStatusFalse, DAGRunReasonNoMatchingWorker,
+			"The DAG-run cannot start: "+text+".", checkedAt),
+		NewDAGRunCondition(DAGRunConditionWorkerReady, DAGRunConditionStatusFalse, DAGRunReasonNoMatchingWorker,
+			text, checkedAt),
+	}
+}
+
 // NoAvailableWorkerConditions are the conditions a run waits under when no
 // healthy distributed worker exists at all.
 func NoAvailableWorkerConditions(checkedAt time.Time) []DAGRunCondition {

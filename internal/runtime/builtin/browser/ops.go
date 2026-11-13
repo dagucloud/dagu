@@ -137,8 +137,8 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	}
 	var secrets map[string]string
 	artifactsDir := ""
+	secrets = runtime.SecretsForMasking(ctx)
 	if env.Scope != nil {
-		secrets = env.Scope.AllSecrets()
 		artifactsDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	}
 	secrets = withCertificatePassphrases(secrets, e.cfg.Browser.ClientCertificates)

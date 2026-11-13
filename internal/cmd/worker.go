@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -32,7 +33,14 @@ poller_id for every poll request.
 
 By default, the worker ID is set to hostname@PID, but can be overridden.
 
+The option --agent <provider>=<path> makes an agent worker of a CLI provider
+(Spec 092). An agent worker has one poller and takes one run. It announces the
+label agent.provider.<provider> and takes only the runs that need its provider.
+After the final status of the run, it exits with the code 0. It needs mutual TLS
+to the coordinator, and it refuses an explicit worker.max_active_runs.
+
 Flags:
+  --agent string                           Agent worker: <provider>=<absolute path of its binary>
   --worker.id string                       Worker instance ID (default: hostname@PID)
   --worker.max-active-runs int             Maximum number of active runs (default: 100)
   --worker.health-port int                 Port number for the HTTP health check server (default: 8092, 0 disables)
@@ -76,6 +84,7 @@ before the canceled runs report their final status.
 }
 
 var workerFlags = []commandLineFlag{
+	workerAgentFlag,
 	workerIDFlag,
 	workerMaxActiveRunsFlag,
 	workerHealthPortFlag,
@@ -91,6 +100,26 @@ var workerFlags = []commandLineFlag{
 }
 
 func runWorker(ctx *Context, _ []string) error {
+	// The checks of an agent worker come before the worker connects to the
+	// coordinator (Spec 092, "Start"). A failed check stops the worker with the
+	// exit code 1.
+	agent, err := agentWorkerFromFlags(ctx)
+	if err != nil {
+		return err
+	}
+	labels := ctx.Config.Worker.Labels
+	if err := worker.CheckConfiguredLabels(labels); err != nil {
+		return err
+	}
+	if agent != nil {
+		// Checks 6 to 8 of Spec 092 "Start": the restricted user, the six
+		// capabilities with the effective user ID 0, and no-new-privileges.
+		if err := untrusted.CheckAgentWorker(ctx.Config.Untrusted); err != nil {
+			return err
+		}
+		logger.Info(ctx, "Starting an agent worker", slog.String("provider", agent.provider), slog.String("binary", agent.path))
+	}
+
 	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -105,7 +134,9 @@ func runWorker(ctx *Context, _ []string) error {
 	}
 
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
-	labels := ctx.Config.Worker.Labels
+	if agent != nil {
+		maxActiveRuns = 1
+	}
 
 	coordinatorCli, err := createCoordinatorClient(ctx)
 	if err != nil {
@@ -119,6 +150,11 @@ func runWorker(ctx *Context, _ []string) error {
 		labels,
 		ctx.Config,
 	)
+	if agent != nil {
+		if err := w.EnableAgentMode(agent.provider); err != nil {
+			return fmt.Errorf("--agent: %w", err)
+		}
+	}
 
 	stores := ctx.runtimeStores()
 	handlerCfg := worker.RemoteTaskHandlerConfig{
@@ -128,6 +164,10 @@ func runWorker(ctx *Context, _ []string) error {
 		Config:            ctx.Config,
 		SecretStore:       stores.SecretStore,
 		ProfileStore:      stores.ProfileStore,
+	}
+	if agent != nil {
+		handlerCfg.AgentProvider = agent.provider
+		handlerCfg.AgentBinary = agent.path
 	}
 	w.SetHandler(worker.NewRemoteTaskHandler(handlerCfg))
 	logger.Info(ctx, "Using remote task handler")
@@ -156,7 +196,8 @@ func runWorker(ctx *Context, _ []string) error {
 		}
 	}()
 
-	// Wait for either context cancellation or an error
+	// Wait for either context cancellation, the end of the run of an agent
+	// worker, or an error. Done is nil for a general worker.
 	select {
 	case <-signalCtx.Done():
 		// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
@@ -168,10 +209,23 @@ func runWorker(ctx *Context, _ []string) error {
 		if err := w.Stop(stopCtx); err != nil {
 			return fmt.Errorf("failed to stop worker: %w", err)
 		}
+	case <-w.Done():
+		// Spec 092, "End": the agent worker exits after its one run.
+		logger.Info(ctx, "Agent worker stopping after its run")
+		stopCtx, cancel := workerStopContext(ctx.Context, ctx.Config.Worker.ShutdownTimeout)
+		defer cancel()
+		if err := w.Stop(stopCtx); err != nil {
+			return fmt.Errorf("failed to stop worker: %w", err)
+		}
 	case err := <-errCh:
 		return fmt.Errorf("worker failed: %w", err)
 	}
 
+	// The status of the run does not change the exit code. A failed final
+	// report gives the exit code 1.
+	if err := w.AgentRunErr(); err != nil {
+		return fmt.Errorf("agent worker: %w", err)
+	}
 	return nil
 }
 
