@@ -44,6 +44,14 @@ type dagParamEntry struct {
 }
 
 func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
+	// A map-form worker selector resolves as the DAG loads and routes the
+	// run, so it needs the params' values: a load that would defer every eval
+	// keeps evaluating when the selector reads a value.
+	if ctx.opts.Has(buildFlagDeferParamEval) && workerSelectorReadsValues(ctx, d) {
+		opts := ctx.opts
+		opts.Flags &^= buildFlagDeferParamEval
+		ctx = ctx.WithOpts(opts)
+	}
 	plan, err := buildDAGParamPlan(ctx, d)
 	if err != nil {
 		return nil, err
@@ -151,6 +159,23 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 		ParamsJSON:     paramsJSON,
 		DeferredParams: deferred,
 	}, nil
+}
+
+// workerSelectorReadsValues reports whether the map-form worker selector the
+// DAG resolves as it loads, its own or its base config's, reads any value.
+func workerSelectorReadsValues(ctx buildContext, d *dag) bool {
+	readsValues := func(selector map[string]string) bool {
+		for key, value := range selector {
+			if cmnvalue.HasAnyReference(key) || cmnvalue.HasAnyReference(value) {
+				return true
+			}
+		}
+		return false
+	}
+	if own, _, err := buildWorkerSelector(ctx, d); err == nil && readsValues(own) {
+		return true
+	}
+	return ctx.baseDAG != nil && readsValues(ctx.baseDAG.WorkerSelector)
 }
 
 func deferredParamNames(entries []dagParamEntry) []string {
