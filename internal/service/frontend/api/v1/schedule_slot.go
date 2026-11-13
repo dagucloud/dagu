@@ -214,5 +214,26 @@ func (a *API) PreviewDAGSlot(ctx context.Context, request api.PreviewDAGSlotRequ
 	if converted := toAPIRunDates(dates); converted != nil {
 		preview.Dates = *converted
 	}
+	preview.Params = slotParamValues(dag.ParamDefs, dates)
 	return api.PreviewDAGSlot200JSONResponse(preview), nil
+}
+
+// slotParamValues returns the value each param whose eval is one date
+// reference takes from a slot's dates. Other evals run only when the run
+// starts.
+func slotParamValues(defs []ir.ParamDef, dates []ir.DateValue) *[]api.SlotParamValue {
+	var values []api.SlotParamValue
+	for _, def := range defs {
+		name, ok := def.DateName()
+		if !ok {
+			continue
+		}
+		if i := slices.IndexFunc(dates, func(date ir.DateValue) bool { return date.Name == name }); i >= 0 {
+			values = append(values, api.SlotParamValue{Name: def.Name, Value: dates[i].Text()})
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return &values
 }

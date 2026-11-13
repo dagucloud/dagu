@@ -625,6 +625,8 @@ params:
 	require.NoError(t, err)
 	assert.Equal(t, []string{"region=us-east-1"}, dag.Params)
 	assert.Equal(t, []string{"day", "run", "path"}, dag.DeferredParams)
+	require.Len(t, dag.ParamDefs, 4)
+	assert.Equal(t, "${dates.target_day}", dag.ParamDefs[1].Eval)
 
 	dag, err = LoadYAML(context.Background(), yaml, WithParams(`day=2026-11-01`))
 	require.NoError(t, err)

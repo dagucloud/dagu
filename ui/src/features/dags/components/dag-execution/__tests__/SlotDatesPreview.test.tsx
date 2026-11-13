@@ -31,6 +31,7 @@ describe('SlotDatesPreview', () => {
         fileName="etl"
         remoteNode="local"
         onBlocked={onBlocked}
+        onParams={vi.fn()}
       />
     );
 
@@ -38,6 +39,29 @@ describe('SlotDatesPreview', () => {
     expect(screen.getByText('target_day')).toBeInTheDocument();
     expect(screen.getAllByText('2026-11-09')).toHaveLength(2);
     expect(onBlocked).toHaveBeenLastCalledWith(null);
+  });
+
+  it('reports the values params take from the slot', async () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        defaultSlot: false,
+        dates: [{ name: 'target_day', value: '2026-11-09' }],
+        params: [{ name: 'date', value: '2026-11-09' }],
+      },
+    });
+    const onParams = vi.fn();
+    render(
+      <SlotDatesPreview
+        fileName="etl"
+        remoteNode="local"
+        onBlocked={vi.fn()}
+        onParams={onParams}
+      />
+    );
+
+    await waitFor(() =>
+      expect(onParams).toHaveBeenLastCalledWith({ date: '2026-11-09' })
+    );
   });
 
   it('asks for a run without a profile', () => {
@@ -48,6 +72,7 @@ describe('SlotDatesPreview', () => {
         remoteNode="local"
         profile=""
         onBlocked={vi.fn()}
+        onParams={vi.fn()}
       />
     );
     expect(useQueryMock).toHaveBeenCalledWith(
@@ -73,6 +98,7 @@ describe('SlotDatesPreview', () => {
         remoteNode="local"
         scheduledAt="2026-11-09"
         onBlocked={onBlocked}
+        onParams={vi.fn()}
       />
     );
 

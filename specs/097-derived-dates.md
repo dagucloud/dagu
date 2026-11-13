@@ -197,7 +197,12 @@ A slot's dates can be read before a run exists, and after it records them:
 - `GET /api/v1/dags/{fileName}/slot-preview?scheduledAt=` returns the slot a
   run would be started for, as the start API reads `scheduleTime`, with its
   window and dates, and starts nothing. With no `scheduledAt` it previews the
-  default slot. A date that cannot resolve returns 400 with the reason.
+  default slot. A date that cannot resolve returns 400 with the reason. Its
+  `params` give the value each param whose `eval` is one `${dates.NAME}`
+  reference takes from the slot, without running any other `eval`.
+- The run dialog shows the slot, its window, and its dates, holds the start
+  while a date cannot resolve, and shows a param's value from the slot as
+  its field's placeholder.
 - A run's details, and the MCP `run` read, include the dates it recorded and
   whether its slot was the default.
 

@@ -177,6 +177,11 @@ schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
 dates:
   target_day: -1d
   window_days: { each: 1d }
+params:
+  - name: date
+    eval: "${dates.target_day}"
+  - name: path
+    eval: "/data/${dates.target_day}"
 steps:
   - name: noop
     run: "true"
@@ -227,6 +232,8 @@ steps:
 			{Name: "target_day", Value: new("2026-11-09")},
 			{Name: "window_days", List: new(true), Values: &[]string{"2026-11-09"}},
 		}, preview.Dates)
+		// Only a param whose eval is one date reference shows a value.
+		assert.Equal(t, &[]api.SlotParamValue{{Name: "date", Value: "2026-11-09"}}, preview.Params)
 	})
 
 	t.Run("PreviewDefaultSlot", func(t *testing.T) {
