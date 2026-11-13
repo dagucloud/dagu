@@ -404,6 +404,17 @@ func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 	assert.Equal(t, "Free-form operator notes", *(*details.ParamDefs)[0].Description)
 }
 
+func TestToDAGDetailsIncludesDateNames(t *testing.T) {
+	details := toDAGDetails(&ir.DAG{
+		Name:  "dated",
+		Dates: []ir.DateSpec{{Name: "run_date"}, {Name: "prev_day"}},
+	})
+	require.NotNil(t, details.DateNames)
+	assert.Equal(t, []string{"run_date", "prev_day"}, *details.DateNames)
+
+	assert.Nil(t, toDAGDetails(&ir.DAG{Name: "undated"}).DateNames)
+}
+
 func TestToDAGDetailsIncludesQueue(t *testing.T) {
 	details := toDAGDetails(&ir.DAG{Name: "test-dag", Queue: "normal"})
 	require.NotNil(t, details.Queue)

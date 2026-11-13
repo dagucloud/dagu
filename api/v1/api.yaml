@@ -16650,6 +16650,11 @@ components:
             $ref: "#/components/schemas/UpcomingRun"
         upcomingRunsHold:
           $ref: "#/components/schemas/UpcomingRunsHold"
+        dateNames:
+          type: array
+          description: "Names the DAG declares in its dates block, in order. Absent when it declares none."
+          items:
+            type: string
         recentFires:
           type: array
           description: "Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime."

@@ -877,6 +877,7 @@ function DAGActions({
           <React.Suspense fallback={null}>
             <StartDAGModal
               dag={startModalDag}
+              fileName={fileName}
               visible={isEnqueueModal}
               loading={startModalLoading}
               loadError={startModalLoadError}

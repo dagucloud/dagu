@@ -864,10 +864,20 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 		}
 	}
 
+	var dateNames *[]string
+	if len(dag.Dates) > 0 {
+		names := make([]string, len(dag.Dates))
+		for i, spec := range dag.Dates {
+			names[i] = spec.Name
+		}
+		dateNames = &names
+	}
+
 	return &api.DAGDetails{
 		Type:              agentDAGType(dag.Type),
 		Tasks:             declaredAgentTasks(dag),
 		Artifacts:         artifacts,
+		DateNames:         dateNames,
 		Name:              dag.Name,
 		Description:       ptrOf(dag.Description),
 		DefaultParams:     ptrOf(dag.DefaultParams),
