@@ -8,6 +8,7 @@ import {
   namesArraySteps,
   overlaySample,
 } from '../../testing/fixtures';
+import { launcherStates, withLaunchers } from '../../launchers/model';
 import { buildCanvasGraph } from '../graph';
 import type { NodePositions } from '../types';
 import {
@@ -373,5 +374,76 @@ describe('compact layout', () => {
     expect(graphShapeKey(graph, 'LR', undefined, true)).not.toBe(
       graphShapeKey(graph, 'LR', undefined, false)
     );
+  });
+});
+
+// Manual, Cron, Always on and Webhook are roots of the graph: no two cards
+// overlap, in both directions, in the full and in the simplified view. Cron
+// and Always on share one slot, so a graph has two to four launchers: the
+// widest is a file with both keys and a Webhook.
+describe('layout with the launchers', () => {
+  const cases = [
+    { name: 'a policy', input: { restartPolicy: 'always' as const }, count: 2 },
+    { name: 'a schedule', input: { scheduleCount: 1 }, count: 2 },
+    { name: 'neither', input: {}, count: 2 },
+    {
+      name: 'both',
+      input: { scheduleCount: 1, restartPolicy: 'always' as const },
+      count: 3,
+    },
+  ];
+
+  it.each(cases)('places the launchers of $name without overlap', (c) => {
+    const graph = graphOf(['a', 'b', 'c'], ['a>c', 'b>c']);
+    for (const webhooks of [false, true]) {
+      const launched = withLaunchers(
+        graph,
+        launcherStates({
+          scheduleCount: 0,
+          restartWaitSec: 5,
+          webhookCount: 0,
+          webhooksAvailable: webhooks,
+          ...c.input,
+        })
+      ).graph;
+      const keys = launched.nodes.map((n) => n.key);
+      const launchers = keys.filter((key) => key.startsWith('launcher:'));
+      expect(launchers).toHaveLength(c.count + (webhooks ? 1 : 0));
+      for (const direction of ['LR', 'TB'] as const) {
+        for (const compact of [false, true]) {
+          const positions = layoutGraph(
+            launched,
+            direction,
+            undefined,
+            compact
+          );
+          const box = (key: string) => {
+            const found = launched.nodes.find((n) => n.key === key)!;
+            const p = positions[key]!;
+            const { width, height } = nodeSize(found, compact, direction);
+            return {
+              left: p.x,
+              top: p.y,
+              right: p.x + width,
+              bottom: p.y + height,
+            };
+          };
+          for (const a of keys) {
+            for (const b of keys) {
+              if (a < b) {
+                expect(overlaps(box(a), box(b))).toBe(false);
+              }
+            }
+          }
+          // The launchers come before the start steps along the flow, on
+          // one rank: the same position on the flow axis.
+          const axis = direction === 'LR' ? 'x' : 'y';
+          for (const key of launchers) {
+            expect(positions[key]![axis]).toBeLessThan(positions['a']![axis]);
+            expect(positions[key]![axis]).toBe(positions[launchers[0]!]![axis]);
+          }
+        }
+      }
+    }
   });
 });

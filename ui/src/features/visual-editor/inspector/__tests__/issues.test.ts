@@ -7,6 +7,12 @@ import {
   ValidationIssueSource,
 } from '@/api/v1/schema';
 import type { StepView, ValidationIssue } from '../../contracts';
+import {
+  RESTART_WAIT_MISSING_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  SECRETS_UNTRUSTED_MESSAGE,
+} from '../../doc/issueMessages';
 import { issuesSample, modelArraySteps } from '../../testing/fixtures';
 import {
   issuesUnder,
@@ -164,6 +170,30 @@ describe('required field issues', () => {
       fieldPath: 'steps[1].with.filter',
       message: 'filter is required',
     });
+  });
+
+  it('translates the error of secrets on an untrusted step', () => {
+    const trust = issue({
+      stepPath: 'steps[1]',
+      fieldPath: 'steps[1].secrets',
+      message: SECRETS_UNTRUSTED_MESSAGE,
+    });
+    expect(refineIssue(trust, () => 'traduit')).toMatchObject({
+      fieldPath: 'steps[1].secrets',
+      message: 'traduit',
+    });
+  });
+
+  it('translates the fixed errors of a service DAG', () => {
+    for (const message of [
+      RESTART_WITH_SCHEDULE_MESSAGE,
+      RESTART_WITH_RETRY_MESSAGE,
+      RESTART_WAIT_MISSING_MESSAGE,
+    ]) {
+      expect(refineIssue(issue({ message }), () => 'traduit').message).toBe(
+        'traduit'
+      );
+    }
   });
 
   it('leaves other issues alone', () => {

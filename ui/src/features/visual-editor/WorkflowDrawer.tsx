@@ -11,6 +11,11 @@ import {
 import { cn } from '@/lib/utils';
 import { StepSideDrawer } from '@/features/dags/components/step-details/StepSideDrawer';
 import { useI18n } from '@/i18n/I18nProvider';
+import {
+  PanelRowTitle,
+  ROW_PANEL_HEADER_CLASS,
+  usePanelInToolbarRow,
+} from './canvas/toolbarHost';
 import { PanelSwitchButton } from './PanelSwitchButton';
 
 /** The side drawer of the workflow panel: what the workflow is, apart from one step. */
@@ -34,6 +39,8 @@ export function WorkflowDrawer({
 }): ReactElement {
   const { ts } = useI18n();
   const column = usePanelColumn();
+  // The Workflow toggle of the row names the panel: the bar goes from md.
+  const inRow = usePanelInToolbarRow();
   // In the right column of the host the panel is the body of its tab: the
   // column has the title and the button that collapses it.
   if (column) {
@@ -60,10 +67,16 @@ export function WorkflowDrawer({
       onRestore={onRestore}
     >
       <div data-testid="ve-workflow" className="flex min-h-0 flex-1 flex-col">
+        <PanelRowTitle
+          title={ts('Workflow')}
+          closeLabel={ts('Close')}
+          onClose={onClose}
+        />
         <PanelHeader
           title={ts('Workflow')}
           closeLabel={ts('Close')}
           onClose={onClose}
+          className={inRow ? ROW_PANEL_HEADER_CLASS : undefined}
         >
           {onShowYaml && (
             <div className="flex min-w-0 flex-1 items-center gap-2">

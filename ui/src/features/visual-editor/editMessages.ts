@@ -19,6 +19,10 @@ const MESSAGES: Record<Exclude<EditErrorCode, 'noop'>, string> = {
   invalidName: 'This step name is not valid.',
   cycle: 'This dependency makes a cycle.',
   invalidYaml: 'The step YAML is not valid.',
+  handlerStep: 'A handler cannot be duplicated.',
+  restartConflict:
+    'A service DAG cannot have a schedule or a retry_policy. Remove it first.',
+  invalidValue: 'The value must be a positive integer.',
 };
 
 /**

@@ -9,6 +9,7 @@
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
 import { useRightPanelClaim } from '@/contexts/RightPanelContext';
 import { useCopyFeedback } from '@/hooks/useCopyFeedback';
+import { useEndpointChoices } from '@/features/ai-endpoints/useEndpointChoices';
 import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import {
   panelShellClass,
@@ -97,13 +98,14 @@ import {
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
 import { YamlReferenceButton } from '@/features/visual-editor/references/YamlReferenceButton';
 import ExternalChangeDialog from './ExternalChangeDialog';
-import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
 import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
 import { PanelSwitchButton } from '@/features/visual-editor/PanelSwitchButton';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { WIDE_QUERY } from '@/lib/breakpoints';
 import type { LauncherId } from '@/features/visual-editor/launchers/model';
 // Not lazy: the canvas is what the page shows first, and a lazy editor adds
 // a blank render that React holds for up to 300 ms.
@@ -151,6 +153,8 @@ type ValidationIssue = components['schemas']['ValidationIssue'];
 // The second pass of the validation loads with the editor, not before.
 type ClientIssuesModule =
   typeof import('@/features/visual-editor/doc/clientIssues');
+/** Time in ms after the canvas of a host mounts, before the code editor loads. */
+const EDITOR_PRELOAD_DELAY_MS = 1500;
 const SaveDiffDialog = React.lazy(() =>
   import('@/features/visual-editor/run/SaveDiffDialog').then((module) => ({
     default: module.SaveDiffDialog,
@@ -273,7 +277,9 @@ function draftStepTitle(
 /** The key of the file that a trigger stands for; a webhook has none. */
 const TRIGGER_KEYS: Record<LauncherId, string | null> = {
   manual: 'params',
+  schedule: null,
   cron: 'schedule',
+  always: 'restart_policy',
   webhook: null,
 };
 
@@ -403,6 +409,19 @@ function DAGSpec({
     [data?.dag?.labels, data?.dag?.tags]
   );
   const editable = useCanWriteForWorkspace(dagWorkspaceName);
+  // The endpoints of the AI page that this DAG may use: the pickers read the
+  // same list. The names stay unknown until it arrives.
+  const endpointChoices = useEndpointChoices({
+    name: data?.dag?.name ?? '',
+    workspace: dagWorkspaceName,
+  });
+  const endpointNames = React.useMemo(
+    () =>
+      endpointChoices.loaded
+        ? endpointChoices.choices.map((choice) => choice.name)
+        : undefined,
+    [endpointChoices.loaded, endpointChoices.choices]
+  );
 
   // Server spec — SWR cache stays current via live invalidations or polling fallback
   const serverSpec = data?.spec ?? null;
@@ -837,27 +856,36 @@ function DAGSpec({
     [textModel, visualValidation.dag]
   );
   // A lens above each step of the whole file opens the step in the
-  // full-screen step view. The steps follow the checked text.
-  const lensSteps = React.useMemo(
-    () =>
-      textModel.steps.flatMap((step) => {
-        // A step with no name runs under its id.
-        const name = textNames.byKey[step.key] ?? step.explicitName ?? step.id;
-        return name ? [{ line: step.range.startLine, name }] : [];
-      }),
-    [textModel, textNames]
-  );
+  // full-screen step view. The lines come from the text that the editor has
+  // when Monaco asks, not from the checked text, which can be older.
   const stepLensLabel = ts('Open step');
-  const stepLenses = React.useMemo(
-    () => ({
-      steps: lensSteps,
+  const stepLenses = React.useMemo(() => {
+    let last: { text: string; steps: { line: number; name: string }[] } | null =
+      null;
+    const stepsOf = (text: string) => {
+      if (last?.text === text) return last.steps;
+      const model =
+        text === textModel.text ? textModel : parseDagDocLenient(text);
+      const names =
+        model === textModel
+          ? textNames
+          : resolveStepNames(model, visualValidation.dag);
+      const steps = model.steps.flatMap((step) => {
+        // A step with no name runs under its id.
+        const name = names.byKey[step.key] ?? step.explicitName ?? step.id;
+        return name ? [{ line: step.range.startLine, name }] : [];
+      });
+      last = { text, steps };
+      return steps;
+    };
+    return {
+      steps: stepsOf,
       label: stepLensLabel,
       open: (name: string) => {
         visualHandleRef.current?.openYaml(name);
       },
-    }),
-    [lensSteps, stepLensLabel]
-  );
+    };
+  }, [textModel, textNames, visualValidation.dag, stepLensLabel]);
   const allIssues = React.useMemo(
     () =>
       !clientIssues
@@ -872,11 +900,13 @@ function DAGSpec({
               names: textNames,
               scope: visualValidation.referenceScope,
               customActions: visualCustomActions.map((hint) => hint.name),
+              endpoints: endpointNames,
             })
           ),
     [
       clientIssues,
       editorSchema,
+      endpointNames,
       textModel,
       textNames,
       visualCustomActions,
@@ -1037,6 +1067,9 @@ function DAGSpec({
   const { yamlKind, setYamlKind, sectionOpen, setSectionOpen } =
     useYamlSection(ndv);
   const panelColumn = usePanelColumn();
+  // From md the toggles of the toolbar row swap the docks: the YAML dock has
+  // no header, and so no switch button.
+  const phone = !useMediaQuery(WIDE_QUERY, true);
   // The step that the YAML shows alone: the schema docs follow it.
   const [yamlStepPath, setYamlStepPath] = React.useState<string[] | null>(null);
   // Where the visual editor puts its controls in the bar of the YAML drawer.
@@ -1055,14 +1088,9 @@ function DAGSpec({
   const [visualStepName, setVisualStepName] = React.useState<string | null>(
     null
   );
-  // The same drawer shows the form of a step in place of the text. The mode
-  // of a step view is the last one of the session, and only the pane that is
-  // shown writes it (a hidden editor under the run snapshot does not).
-  const [drawerForm, setDrawerForm] = useStepViewForm(
-    ndv?.state === 'expanded' &&
-      (ndv.active ?? true) &&
-      (selectedStepName ?? visualStepName) != null
-  );
+  // The same drawer shows the form of a step in place of the text. A step
+  // always opens on its text; the form is one tab away.
+  const [drawerForm, setDrawerForm] = React.useState(false);
 
   const closeSection = React.useCallback(() => {
     setSectionOpen(false);
@@ -1247,6 +1275,8 @@ function DAGSpec({
 
   // The editor hides the text, so a save from it shows the diff first.
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  // True from the click on Save until the diff dialog renders.
+  const [reviewPending, setReviewPending] = React.useState(false);
   // The server cannot read a text with a YAML syntax error: the save waits.
   const syntaxError = React.useMemo(
     () =>
@@ -1312,11 +1342,17 @@ function DAGSpec({
     if (showSaveBlocker()) {
       return;
     }
-    if (!localHasUnsavedChanges || isSaving) {
+    if (!localHasUnsavedChanges || isSaving || reviewPending) {
       return;
     }
+    // The dialog renders in one long task. Let the spinner paint first.
+    setReviewPending(true);
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    );
     setReviewOpen(true);
-  }, [isSaving, localHasUnsavedChanges, showSaveBlocker]);
+    setReviewPending(false);
+  }, [isSaving, reviewPending, localHasUnsavedChanges, showSaveBlocker]);
 
   // A caller that saves in order to run has confirmed the save: the text is
   // sent without the review of the diff.
@@ -1605,6 +1641,13 @@ function DAGSpec({
   // and for the tools of the step YAML.
   const ndvStepName =
     selectedStepName !== undefined ? selectedStepName : visualStepName;
+  // A host opens the node view on a double click, at once: the code editor
+  // loads soon after the canvas, so that the view never waits for it.
+  React.useEffect(() => {
+    if (!hostMode) return;
+    const timer = window.setTimeout(preloadDAGEditor, EDITOR_PRELOAD_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [hostMode]);
   // The YAML that shows one step alone has the tools of that step: the quick
   // fixes and the format act inside its range and leave the rest of the text.
   const yamlStep = React.useMemo(() => {
@@ -1832,7 +1875,10 @@ function DAGSpec({
       ? undefined
       : ndvIssues.map((issue) => refineIssue(issue, ts).message);
   const ndvProblemFixes = ndvIssues.map((issue) => quickFixOf(issue));
+  // The arrows of the step view move to another step on its YAML, never on
+  // its form, even when the form of the last step was open.
   const selectNdvStep = (name: string) => {
+    if (visualHandleRef.current?.openYaml(name)) return;
     if (onSelectedStepNameChange) {
       onSelectedStepNameChange(name);
     } else {
@@ -2090,16 +2136,17 @@ function DAGSpec({
               </I18nProps>
             )}
             {editable && (
-              // Save and the issues button share this box: the same place,
-              // the same height and the same width, so that nothing moves.
+              // Save and the issues button share this box: the same place and
+              // the same height. The box starts at the end of the YAML button,
+              // so that Save has no gap before it.
               // In the tools sheet of a phone the Save button says its name.
               <IconButtonLabelsConsumer>
                 {(saveLabeled) => (
                   <div
                     data-testid="save-slot"
                     className={cn(
-                      'flex h-7 items-center justify-start',
-                      saveLabeled ? 'h-9 w-full' : 'w-14'
+                      'flex h-7 items-center',
+                      saveLabeled ? 'h-9 w-full justify-start' : 'justify-start'
                     )}
                   >
                     {savingBlocked && issuesPopover}
@@ -2119,6 +2166,7 @@ function DAGSpec({
                           size="xs"
                           aria-label={ts('Save')}
                           aria-describedby="save-status"
+                          aria-busy={reviewPending || undefined}
                           title={saveButtonTitle}
                           // Icon only, with one size in every state. The issues
                           // button beside it tells the warnings.
@@ -2137,7 +2185,11 @@ function DAGSpec({
                           }}
                         >
                           <SaveStatusIcon
-                            busy={isSaving || saveState === 'validating'}
+                            busy={
+                              isSaving ||
+                              reviewPending ||
+                              saveState === 'validating'
+                            }
                           />
                           {saveLabeled && (
                             <span aria-hidden="true">{ts('Save')}</span>
@@ -2268,6 +2320,7 @@ function DAGSpec({
                         <VisualEditor
                           fileName={fileName}
                           dagName={data.dag.name}
+                          workspace={dagWorkspaceName}
                           text={
                             editable
                               ? (currentValue ?? serverSpec ?? '')
@@ -2323,6 +2376,9 @@ function DAGSpec({
                           onWorkflowOpenChange={setWorkflowOpen}
                           toolbarStart={documentTabs}
                           toolbarTrail={specActions}
+                          yamlTools={
+                            yamlKind === 'file' ? yamlTools : undefined
+                          }
                           onRevertToSave={editable ? requestDiscard : undefined}
                           yamlToolbarRoot={yamlToolbarRoot}
                           onYamlStepPathChange={setYamlStepPath}
@@ -2470,7 +2526,8 @@ function DAGSpec({
                       yamlKind === 'file' &&
                       preview.dag &&
                       activeTab === 'parent' &&
-                      !panelColumn ? (
+                      !panelColumn &&
+                      phone ? (
                         <PanelSwitchButton
                           to="workflow"
                           onClick={() => editorHandle.openWorkflowPanel(true)}

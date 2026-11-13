@@ -152,6 +152,27 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(offset + 1);
   });
 
+  // The caret is in the name of a reference that already has its '}'.
+  it('replaces the whole reference that holds the caret', () => {
+    const text = 'steps:\n  - name: a\n    run: curl ${params.API_URL}/x\n';
+    const offset = at(text, '${params.API', 12);
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: false,
+    });
+    expect(result?.from).toBe(at(text, '${params.API'));
+    expect(result?.to).toBe(at(text, '}/x', 1));
+  });
+
+  it('keeps the caret as the end of a reference with no brace', () => {
+    const text = 'steps:\n  - name: a\n    run: echo ${env.HOME} ${par\n';
+    const offset = at(text, '${par', 5);
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: false,
+    });
+    expect(result?.from).toBe(at(text, '${par'));
+    expect(result?.to).toBe(offset);
+  });
+
   it('leaves a lone dollar alone unless the request is explicit', () => {
     const text = `${yamlHttpJq.slice(0, filterOffset)}$${yamlHttpJq.slice(filterOffset)}`;
     const offset = filterOffset + 1;

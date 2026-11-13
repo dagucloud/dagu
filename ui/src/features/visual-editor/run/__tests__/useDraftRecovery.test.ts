@@ -102,6 +102,144 @@ describe('useDraftRecovery', () => {
       expect(readDraft(KEY)?.text).toBe('bc');
     });
 
+    it('stores the hash of the server version the text is based on', () => {
+      setup({
+        storageKey: KEY,
+        serverText: 'a',
+        serverSha256: 'sha-1',
+        currentText: 'b',
+        isDirty: true,
+      });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(readDraft(KEY)).toEqual({
+        text: 'b',
+        savedAt: 6000,
+        baseSha256: 'sha-1',
+      });
+    });
+
+    // The text stays based on the version that it was edited from, whatever
+    // the server holds now: an external change that nobody accepted yet does
+    // not rebase it.
+    it('keeps the base hash while the text is dirty', () => {
+      const { rerender, unmount } = setup({
+        storageKey: KEY,
+        serverText: 'a',
+        serverSha256: 'sha-1',
+        currentText: 'a',
+        isDirty: false,
+      });
+      rerender({
+        storageKey: KEY,
+        serverText: 'a',
+        serverSha256: 'sha-1',
+        currentText: 'b',
+        isDirty: true,
+      });
+      rerender({
+        storageKey: KEY,
+        serverText: 'a2',
+        serverSha256: 'sha-2',
+        currentText: 'bc',
+        isDirty: true,
+      });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(readDraft(KEY)?.baseSha256).toBe('sha-1');
+      rerender({
+        storageKey: KEY,
+        serverText: 'a2',
+        serverSha256: 'sha-2',
+        currentText: 'bcd',
+        isDirty: true,
+      });
+      unmount();
+      expect(readDraft(KEY)).toEqual({
+        text: 'bcd',
+        savedAt: 6000,
+        baseSha256: 'sha-1',
+      });
+    });
+
+    // The text that a restore puts back is based on the version of the draft,
+    // not on the version that the server holds now.
+    it('stores a restored draft with the base hash of the draft', () => {
+      writeDraft(KEY, { text: 'old', savedAt: 42, baseSha256: 'sha-1' });
+      const { result, rerender, unmount } = setup({
+        storageKey: KEY,
+        serverText: 'new',
+        serverSha256: 'sha-2',
+        currentText: 'new',
+        isDirty: false,
+      });
+      act(() => {
+        result.current.restore();
+      });
+      rerender({
+        storageKey: KEY,
+        serverText: 'new',
+        serverSha256: 'sha-2',
+        currentText: 'old',
+        isDirty: true,
+      });
+      unmount();
+      expect(readDraft(KEY)?.baseSha256).toBe('sha-1');
+    });
+
+    it('stores a restored draft without a hash with no hash', () => {
+      writeDraft(KEY, { text: 'old', savedAt: 42 });
+      const { result, rerender, unmount } = setup({
+        storageKey: KEY,
+        serverText: 'new',
+        serverSha256: 'sha-2',
+        currentText: 'new',
+        isDirty: false,
+      });
+      act(() => {
+        result.current.restore();
+      });
+      rerender({
+        storageKey: KEY,
+        serverText: 'new',
+        serverSha256: 'sha-2',
+        currentText: 'old',
+        isDirty: true,
+      });
+      unmount();
+      expect(readDraft(KEY)).toEqual({ text: 'old', savedAt: 5000 });
+    });
+
+    it('takes the new base hash once the text is clean again', () => {
+      const { rerender } = setup({
+        storageKey: KEY,
+        serverText: 'a',
+        serverSha256: 'sha-1',
+        currentText: 'b',
+        isDirty: true,
+      });
+      rerender({
+        storageKey: KEY,
+        serverText: 'a2',
+        serverSha256: 'sha-2',
+        currentText: 'a2',
+        isDirty: false,
+      });
+      rerender({
+        storageKey: KEY,
+        serverText: 'a2',
+        serverSha256: 'sha-2',
+        currentText: 'a2b',
+        isDirty: true,
+      });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(readDraft(KEY)?.baseSha256).toBe('sha-2');
+    });
+
     it('stores nothing when clean', () => {
       setup({
         storageKey: KEY,

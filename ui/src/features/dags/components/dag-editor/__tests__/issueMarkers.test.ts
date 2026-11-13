@@ -64,6 +64,21 @@ describe('buildIssueMarkers', () => {
     expect(markers[0]).toMatchObject({ startLineNumber: 2, severity: 4 });
   });
 
+  // A squiggle under each line of a step, or of a block scalar, hides the text.
+  it('marks only the first line of a range of several lines', () => {
+    const markers = buildIssueMarkers(
+      text,
+      [issue({ stepPath: 'steps[1]' })],
+      []
+    );
+
+    expect(markers[0]).toMatchObject({
+      startLineNumber: 4,
+      endLineNumber: 4,
+      endColumn: '  - name: load'.length + 1,
+    });
+  });
+
   it('uses the position prefix of an issue without a location', () => {
     const markers = buildIssueMarkers(
       text,

@@ -74,7 +74,6 @@ export interface WorkspaceNotice {
     | 'approval-resume'
     | 'actions-waiting'
     | 'monitoring-offer'
-    | 'newer-run-active'
     | 'validation'
     | string;
   tone: 'info' | 'warning' | 'error';

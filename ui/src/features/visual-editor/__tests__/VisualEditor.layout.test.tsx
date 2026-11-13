@@ -11,6 +11,7 @@ import {
 } from '@/features/dags/components/step-details/PanelShell';
 import { realSchema } from '../inspector/__tests__/realSchema';
 import { yamlArraySteps } from '../testing/fixtures';
+import { CanvasToolbarHostContext } from '../canvas/toolbarHost';
 import { VisualEditor, type VisualEditorProps } from '../VisualEditor';
 
 vi.mock(
@@ -34,7 +35,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -339,5 +343,84 @@ describe.skipIf(realSchema === null)('VisualEditor step scope path', () => {
       })
     );
     expect(onYamlStepPathChange).toHaveBeenLastCalledWith(null);
+  });
+});
+
+// The toolbar row of the zone holds the toggles. With the Workflow or the YAML
+// panel open, the toggle shows its name, and the YAML tools join the row.
+describe.skipIf(realSchema === null)('VisualEditor toolbar row', () => {
+  let row: HTMLElement;
+  beforeEach(() => {
+    row = document.createElement('div');
+    document.body.appendChild(row);
+  });
+  afterEach(() => row.remove());
+
+  function renderInRow(
+    width: number,
+    overrides: Partial<VisualEditorProps> = {}
+  ) {
+    setWidth(width);
+    return render(
+      <UserPreferencesProvider>
+        <PanelPlacementProvider value="zone">
+          <CanvasToolbarHostContext.Provider value={row}>
+            <Harness chrome={CHROME} {...overrides} />
+          </CanvasToolbarHostContext.Provider>
+        </PanelPlacementProvider>
+      </UserPreferencesProvider>
+    );
+  }
+
+  it('keeps the Workflow toggle as an icon: the panel shows its own title', () => {
+    renderInRow(1280);
+    const button = within(row).getByRole('button', { name: 'Workflow' });
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(button).not.toHaveTextContent('Workflow');
+  });
+
+  it('shows the YAML tools in the row only while the file panel is open', () => {
+    const tools = <button data-testid="yaml-format">Format</button>;
+    renderInRow(1280, { yamlTools: tools, initialYamlMode: 'file' });
+    const yaml = within(row).getByRole('button', { name: 'YAML' });
+    expect(within(row).queryByTestId('yaml-format')).toBeNull();
+    expect(yaml).not.toHaveTextContent('YAML');
+    fireEvent.click(yaml);
+    expect(within(row).getByTestId('yaml-format')).toBeInTheDocument();
+    expect(yaml).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(yaml);
+    expect(within(row).queryByTestId('yaml-format')).toBeNull();
+  });
+
+  it('leaves the YAML tools to the panel of a step', () => {
+    renderInRow(1280, {
+      yamlTools: <button data-testid="yaml-format">Format</button>,
+      yamlVisible: true,
+      initialYamlMode: 'step',
+    });
+    expect(within(row).queryByTestId('yaml-format')).toBeNull();
+    expect(
+      within(row).getByRole('button', { name: 'YAML' })
+    ).not.toHaveTextContent('YAML');
+  });
+
+  // A touch has no tooltip: the sheet shows the names of the toggles, with a
+  // panel open or not, and the YAML tools stay out of the row.
+  it('shows the names of the toggles in the Tools sheet of a narrow window', () => {
+    renderInRow(600, {
+      yamlTools: <button data-testid="yaml-format">Format</button>,
+      initialYamlMode: 'file',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    const sheet = screen.getByTestId('ve-tools-sheet-actions');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Workflow' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    expect(
+      within(screen.getByTestId('ve-tools-sheet-actions')).getByRole('button', {
+        name: 'Workflow',
+      })
+    ).toHaveTextContent('Workflow');
+    expect(screen.queryByTestId('yaml-format')).toBeNull();
   });
 });

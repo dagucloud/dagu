@@ -279,9 +279,14 @@ function DAGEditor({
       registration.dispose();
     };
   }, [isEditorMounted, wantsStepLenses]);
+  // The steps of the text that the skeleton shows.
+  const skeletonLenses = useMemo(
+    () => stepLenses?.steps(value ?? ''),
+    [stepLenses, value]
+  );
   const settled = useEditorSettled(
     isEditorMounted ? editorRef.current : null,
-    (stepLenses?.steps.length ?? 0) > 0,
+    (skeletonLenses?.length ?? 0) > 0,
     effectiveModelUri
   );
   // The skeleton stays for the fade of the editor, which takes its place.
@@ -296,12 +301,11 @@ function DAGEditor({
   }, [settled, effectiveModelUri]);
   const skeleton = fadedIn !== effectiveModelUri;
 
-  const lensKey = stepLenses
-    ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
-    : '';
+  // The lenses read the text of the model when Monaco asks. Draw them again
+  // when the names or the label change.
   useEffect(() => {
     stepLensRegistration.current?.refresh();
-  }, [lensKey]);
+  }, [stepLenses]);
   useEffect(() => {
     if (!isEditorMounted) {
       return;
@@ -417,7 +421,7 @@ function DAGEditor({
       {skeleton && (
         <EditorSkeleton
           text={value ?? ''}
-          lenses={stepLenses?.steps}
+          lenses={skeletonLenses}
           className={cn(
             'transition-opacity duration-80 ease-out motion-reduce:transition-none',
             settled && 'opacity-0'

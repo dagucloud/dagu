@@ -62,7 +62,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -583,8 +586,11 @@ describe.skipIf(realSchema === null)(
       const outside = screen.getByRole('button', { name: 'Outside' });
       act(() => outside.focus());
 
+      // The click shows the YAML of the step, not its form, and moves no focus.
       fireEvent.click(screen.getByTestId('ve-canvas-node-steps[1]'));
-      expect(frameBody()).toHaveTextContent('jq.filter');
+      expect(
+        frameBody().querySelector('[data-testid="ve-inspector"]')
+      ).toBeNull();
       expect(document.activeElement).toBe(outside);
 
       act(() => void handle().openForm('fetch'));

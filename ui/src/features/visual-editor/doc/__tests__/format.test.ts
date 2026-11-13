@@ -27,6 +27,13 @@ const e2eDir = path.resolve(here, '../../../../../e2e/fixtures/dags');
 const base = 'name: demo\nsteps:\n  - name: a\n    run: echo a\n';
 
 describe('isSameYaml', () => {
+  it('tells apart integers that differ beyond 2^53', () => {
+    const one = 'name: demo\nenv:\n  CHANNEL: 1234567890123456789\n';
+    const two = one.replace('789\n', '788\n');
+    expect(isSameYaml(one, two)).toBe(false);
+    expect(isSameYaml(one, one + '\n')).toBe(true);
+  });
+
   it('ignores blank lines, trailing spaces and the final line end', () => {
     expect(isSameYaml(base, base + '\n\n')).toBe(true);
     expect(isSameYaml(base, base.replace('name: demo', 'name: demo   '))).toBe(
@@ -87,6 +94,41 @@ describe('isSameYaml', () => {
     expect(isSameYaml('a: 1\n# tail\n', 'a: 1\n\n# tail\n\n')).toBe(true);
   });
 
+  // A comment belongs to the node that holds it: moving it is a change.
+  it('counts a comment that moves to another node', () => {
+    const steps = (first: string, second: string) =>
+      `steps:\n${first}  - name: a\n${second}  - name: b\n`;
+    const onA = steps('  # build\n', '');
+    const onB = steps('', '  # build\n');
+    expect(isSameYaml(onA, onB)).toBe(false);
+    expect(isSameYaml(onB, onA)).toBe(false);
+    expect(isSameYaml('a: 1\n# note\nb: 2\n', 'a: 1\nb: 2\n# note\n')).toBe(
+      false
+    );
+    expect(isSameYaml('a: 1 # x\nb: 2\n', 'a: 1\nb: 2 # x\n')).toBe(false);
+    expect(isSameYaml('# x\na: 1\n# y\nb: 2\n', '# y\na: 1\n# x\nb: 2\n')).toBe(
+      false
+    );
+  });
+
+  it('ignores a blank line around the first comment of a node', () => {
+    const steps = (gap: string) => `steps:\n  # build\n${gap}  - name: a\n`;
+    expect(isSameYaml(steps(''), steps('\n'))).toBe(true);
+    expect(isSameYaml('# a\n# b\nname: x\n', '# a\n\n# b\nname: x\n')).toBe(
+      true
+    );
+    expect(isSameYaml('# a\n- x\n', '# a\n\n- x\n')).toBe(true);
+    expect(isSameYaml('# c\n- name: a\n', '# c\n\n- name: a\n')).toBe(true);
+    expect(isSameYaml('# c\n- - 1\n', '# c\n\n- - 1\n')).toBe(true);
+    const block = (gap: string) => `  # c\n${gap}  - name: a\n    run: x\n`;
+    expect(isSameYaml(block(''), block('\n'))).toBe(true);
+  });
+
+  it('compares the comments of a text without a document', () => {
+    expect(isSameYaml('# a\n', '# b\n')).toBe(false);
+    expect(isSameYaml('# a\n', '# a\n\n')).toBe(true);
+  });
+
   it('takes a quote style change as the same value', () => {
     expect(isSameYaml('name: "demo"\n', "name: 'demo'\n")).toBe(true);
     expect(isSameYaml('name: demo\n', 'name: "demo"\n')).toBe(true);
@@ -114,6 +156,18 @@ describe('isSameYaml', () => {
     expect(isSameYaml(broken, broken.replace('run', 'cmd'))).toBe(false);
     expect(isSameYaml(broken, base)).toBe(false);
     expect(isSameYaml('', '\n\n')).toBe(true);
+  });
+
+  // An alias before its anchor parses, but toJS throws. isSameYaml runs while a
+  // page renders, so it must compare the texts instead.
+  it('does not throw on an alias that has no anchor before it', () => {
+    const aliased = 'env: *x\n' + base;
+    expect(() => isSameYaml(base, aliased)).not.toThrow();
+    expect(isSameYaml(base, aliased)).toBe(false);
+    expect(isSameYaml(aliased, aliased + '\n\n')).toBe(true);
+    expect(isSameYaml(aliased, aliased.replace('echo a', 'echo b'))).toBe(
+      false
+    );
   });
 
   // An alias without its anchor parses, but the document has no value.
@@ -332,6 +386,74 @@ function load(dir: string): { name: string; text: string }[] {
     return [];
   }
 }
+
+describe('formatYaml with an alias and a keep block', () => {
+  // The key order puts `stdout` before `stderr`: the alias would come first.
+  const aliased = [
+    'name: demo',
+    'steps:',
+    '  - name: a',
+    '    stderr: &log /tmp/a.log',
+    '    stdout: *log',
+    '    run: echo 1',
+    '',
+  ].join('\n');
+
+  it('returns the text unchanged when the key order breaks an alias', () => {
+    expect(formatYaml(aliased)).toBe(aliased);
+  });
+
+  it('returns no edit for a step when the key order breaks an alias', () => {
+    const model = parseDagDoc(aliased);
+    expect(formatStepRange(aliased, model.steps[0]!)).toBeNull();
+  });
+
+  it('keeps the trailing line ends of a |+ block at the end', () => {
+    const text =
+      'name: demo\nsteps:\n  - name: a\n    script: |+\n      echo hi\n\n\n';
+    const out = formatYaml(text);
+    const script = (parse(out) as { steps: { script: string }[] }).steps[0]!
+      .script;
+    expect(script).toBe('echo hi\n\n\n');
+    expect(formatYaml(out)).toBe(out);
+  });
+
+  // The range of the step stops before the blank lines that a kept block
+  // owns: the edit takes them in, so that the value of the block stays.
+  it.each(['|+', '|+2', '>+2', '|2+'])(
+    'formats a step with a %s block and keeps its value',
+    (header) => {
+      const text = `name: demo\nsteps:\n  - run: echo 1\n    name: a\n    script: ${header}\n      echo hi\n\n\n  - name: b\n    run: echo 2\n`;
+      const model = parseDagDoc(text);
+      const edit = formatStepRange(text, model.steps[0]!);
+      expect(edit).not.toBeNull();
+      const out = applyTextEdits(text, [edit!]);
+      expect(out).not.toBe(text);
+      const before = parse(text) as { steps: { script: string }[] };
+      const after = parse(out) as { steps: { script: string }[] };
+      expect(after.steps[0]!.script).toBe(before.steps[0]!.script);
+      expect(after.steps[1]).toEqual(before.steps[1]);
+    }
+  );
+
+  it.each(['run: echo a |+', 'run: x # keep |+'])(
+    'formats a step with `%s` in a plain scalar or a comment',
+    (line) => {
+      const text = `name: demo\nsteps:\n  - ${line}\n    name: a\n`;
+      const model = parseDagDoc(text);
+      expect(formatStepRange(text, model.steps[0]!)).not.toBeNull();
+    }
+  );
+
+  it('keeps a |+ block in the last of several documents', () => {
+    const text = 'name: a\n---\nname: b\nscript: |+\n  echo hi\n\n\n';
+    const docs = parseAllDocuments(formatYaml(text));
+    expect(docs).toHaveLength(2);
+    expect((docs[1]!.toJS() as { script: string }).script).toBe(
+      'echo hi\n\n\n'
+    );
+  });
+});
 
 describe('formatYaml on the fixtures', () => {
   const files = [...load(fixtureDir), ...load(e2eDir)];
@@ -716,6 +838,54 @@ describe('formatStepRange', () => {
     const out = formatStep(crlf, 1);
     expect(out).not.toMatch(/[^\r]\n/);
     expect(out.replace(/\r\n/g, '\n')).toBe(formatYaml(messy));
+  });
+
+  it('keeps an integer beyond 2^53 exact', () => {
+    const text = [
+      'name: demo',
+      'env:',
+      '  CHANNEL: 1234567890123456789',
+      'steps:',
+      '  - id: a',
+      '    name: a',
+      '    run: echo a',
+      '    env:',
+      '      ID: 1234567890123456789',
+      '',
+    ].join('\n');
+    expect(formatYaml(text)).toContain('CHANNEL: 1234567890123456789');
+    expect(formatYaml(text)).toContain('ID: 1234567890123456789');
+    expect(isSameYaml(text, formatYaml(text))).toBe(true);
+    // A step out of key order is rewritten, and the integer stays.
+    const messy = text.replace(
+      '  - id: a\n    name: a\n',
+      '  - name: a\n    id: a\n'
+    );
+    const out = formatStep(messy, 0);
+    expect(out).not.toBe(messy);
+    expect(out).toContain('ID: 1234567890123456789');
+  });
+
+  // A line of spaces inside a block scalar is content when it is longer
+  // than the block indent.
+  it('keeps a whitespace-only line of a block scalar', () => {
+    const text = [
+      'name: demo',
+      '',
+      'steps:',
+      '  - id: a',
+      '    name: a',
+      '    run: |',
+      '      echo a',
+      '        ',
+      '      echo b',
+      '',
+    ].join('\n');
+    const before = parse(text).steps[0].run;
+    expect(before).toBe('echo a\n  \necho b\n');
+    expect(parse(formatStep(text, 0)).steps[0].run).toBe(before);
+    expect(parse(formatYaml(text)).steps[0].run).toBe(before);
+    expect(formatStep(text, 0)).toBe(formatYaml(text));
   });
 
   it('keeps a line of spaces inside a block scalar', () => {

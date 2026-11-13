@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { RestartPolicy } from '../doc/ops/restart';
 import type {
   CanvasEdge,
   CanvasGraph,
@@ -8,14 +9,23 @@ import type {
   StepKey,
 } from '../contracts';
 
-/** The three ways to start a workflow. They are not steps and not in the YAML. */
-export type LauncherId = 'manual' | 'cron' | 'webhook';
+/**
+ * The ways to start a workflow. They are not steps. Always on stands for the
+ * `restart_policy` of the YAML. Schedule is the placeholder of the slot that
+ * Cron and Always on share, while neither is set.
+ */
+export type LauncherId = 'manual' | 'schedule' | 'cron' | 'always' | 'webhook';
 
 export const LAUNCHER_IDS: readonly LauncherId[] = [
   'manual',
+  'schedule',
   'cron',
+  'always',
   'webhook',
 ];
+
+/** The launchers that share the slot of the schedule. */
+export const SLOT_IDS: readonly LauncherId[] = ['schedule', 'cron', 'always'];
 
 /** 'active' draws solid. 'dashed' means: not set up yet. */
 export type LauncherStatus = 'active' | 'dashed';
@@ -25,11 +35,29 @@ export interface LauncherState {
   status: LauncherStatus;
   /** Set on Cron: the number of cron expressions of the schedule. */
   count?: number;
+  /**
+   * Set on an active Always on: the policy, the wait in seconds and the runs
+   * kept, each null when the file has none.
+   */
+  policy?: Exclude<RestartPolicy, 'no'>;
+  waitSec?: number | null;
+  retentionRuns?: number | null;
 }
+
+/** The runs that the history keeps for a service DAG with no retention (spec 080). */
+export const DEFAULT_RETENTION_RUNS = 100;
 
 export interface LauncherInputs {
   /** Number of schedule entries in the YAML. */
   scheduleCount: number;
+  /** True when the YAML has a schedule of any form. The default is `scheduleCount > 0`. */
+  schedulePresent?: boolean;
+  /** The `restart_policy` of the YAML. The default is `no`. */
+  restartPolicy?: RestartPolicy;
+  /** The `restart_wait_sec` of the YAML. */
+  restartWaitSec?: number | null;
+  /** The `hist_retention_runs` of the YAML. */
+  restartRetentionRuns?: number | null;
   /**
    * Number of webhooks of the workflow, or null while it is not known (the
    * request is running or failed).
@@ -40,17 +68,33 @@ export interface LauncherInputs {
 }
 
 /**
- * The launcher nodes to draw, in order. Manual is always active. Cron is
- * active with a schedule. Webhook is active with at least one webhook, and is
- * absent when the instance has no webhooks.
+ * The launcher nodes to draw, in order. Manual is always active. Cron and
+ * Always on share one slot, because a restart policy cannot go with a
+ * schedule (spec 080): a policy draws Always on in place of Cron, a schedule
+ * draws Cron alone, and neither draws one dashed Schedule placeholder. A file
+ * with both is invalid: both are drawn solid, so that the conflict shows. Webhook is
+ * active with at least one webhook, and is absent when the instance has no
+ * webhooks.
  */
 export function launcherStates(input: LauncherInputs): LauncherState[] {
   const states: LauncherState[] = [{ id: 'manual', status: 'active' }];
-  states.push({
-    id: 'cron',
-    status: input.scheduleCount > 0 ? 'active' : 'dashed',
-    count: input.scheduleCount,
-  });
+  const policy = input.restartPolicy ?? 'no';
+  const scheduled = input.schedulePresent ?? input.scheduleCount > 0;
+  if (policy === 'no' && !scheduled) {
+    states.push({ id: 'schedule', status: 'dashed' });
+  }
+  if (scheduled) {
+    states.push({ id: 'cron', status: 'active', count: input.scheduleCount });
+  }
+  if (policy !== 'no') {
+    states.push({
+      id: 'always',
+      status: 'active',
+      policy,
+      waitSec: input.restartWaitSec ?? null,
+      retentionRuns: input.restartRetentionRuns ?? null,
+    });
+  }
   if (input.webhooksAvailable) {
     states.push({
       id: 'webhook',
@@ -58,6 +102,20 @@ export function launcherStates(input: LauncherInputs): LauncherState[] {
     });
   }
   return states;
+}
+
+/**
+ * The launcher that an open panel belongs to. A node of the slot changes its
+ * id when the author sets or removes a value (Schedule, Cron, Always on):
+ * the panel stays open and follows the node that is drawn.
+ */
+export function drawnLauncher(
+  open: LauncherId | null,
+  states: readonly LauncherState[] | undefined
+): LauncherId | null {
+  if (open === null || !SLOT_IDS.includes(open) || !states) return open;
+  if (states.some((state) => state.id === open)) return open;
+  return states.find((state) => SLOT_IDS.includes(state.id))?.id ?? open;
 }
 
 /** True when the node key is a launcher node, not a step. */

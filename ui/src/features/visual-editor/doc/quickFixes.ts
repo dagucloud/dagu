@@ -8,8 +8,13 @@ import type {
   TextEdit,
   ValidationIssue,
 } from '../contracts';
-import { NO_ID_MESSAGE, OUTPUTS_ID_MESSAGE } from './issueMessages';
-import { issueMarkerMessage, locateIssue } from './issues';
+import { stringify } from 'yaml';
+import {
+  mustBeValue,
+  NO_ID_MESSAGE,
+  OUTPUTS_ID_MESSAGE,
+} from './issueMessages';
+import { issueMarkerMessage, locateIssue, scalarAtField } from './issues';
 import { validateStepId } from './names';
 import { resolveStepNames } from './parse';
 
@@ -125,19 +130,58 @@ function nameLineOf(text: string, step: StepView): NameLine | null {
   return null;
 }
 
+/** The YAML text of a value on one line, or null when it needs more lines. */
+function scalarText(value: string | number | boolean | null): string | null {
+  const text = stringify(value).trimEnd();
+  return text.includes('\n') ? null : text;
+}
+
+/**
+ * The fixes of the issues that name the one value that a field accepts
+ * (`with.tools.builtin.read must be true.`): the value of the field becomes
+ * that value. One fix serves all the issues of a field.
+ */
+function planValueFixes(
+  model: DagDocModel,
+  issues: readonly ValidationIssue[],
+  fixes: Map<ValidationIssue, QuickFix>
+): void {
+  const byOffset = new Map<number, QuickFix>();
+  for (const issue of issues) {
+    if (issue.severity === 'notice' || !issue.fieldPath) continue;
+    const wanted = mustBeValue(issue.message);
+    const target = wanted && scalarAtField(model, issue.fieldPath);
+    if (!wanted || !target || target.value === wanted.value) continue;
+    const text = scalarText(wanted.value);
+    if (text === null) continue;
+    let fix = byOffset.get(target.range.from);
+    if (!fix) {
+      fix = {
+        message: 'Replace with {value}',
+        params: { value: text },
+        edits: [{ from: target.range.from, to: target.range.to, insert: text }],
+      };
+      byOffset.set(target.range.from, fix);
+    }
+    fixes.set(issue, fix);
+  }
+}
+
 /**
  * The quick fixes of a list of issues, by issue. A step without an `id` gets
  * an `id:` line after its `name:` line, with the slug of its name; a number
  * (`_1`, `_2`, ...) makes it differ from every name and id of the file and
  * from the ids that the other fixes of the same plan add. One fix serves all
  * the issues of a step. The fixes are in step order, so that two steps with
- * one name always get the same ids.
+ * one name always get the same ids. A field that accepts one value only,
+ * with another value, gets that value (see `planValueFixes`).
  */
 export function planQuickFixes(
   model: DagDocModel,
   issues: readonly ValidationIssue[]
 ): Map<ValidationIssue, QuickFix> {
   const fixes = new Map<ValidationIssue, QuickFix>();
+  planValueFixes(model, issues, fixes);
   const wanted = new Map<StepView, ValidationIssue[]>();
   for (const issue of issues) {
     if (issue.severity === 'notice' || !isMissingIdMessage(issue.message)) {

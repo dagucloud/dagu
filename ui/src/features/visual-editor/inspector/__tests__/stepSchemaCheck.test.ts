@@ -211,4 +211,46 @@ describe('checkStepSchemaErrors', () => {
     ).toEqual([]);
     expect(checkStepSchemaErrors(schemaSample, 'x')).toEqual([]);
   });
+
+  it('gives the allowed values of a const or an enum, and tells a choice apart', () => {
+    const schema: JSONSchema = {
+      type: 'object',
+      definitions: {
+        step: {
+          type: 'object',
+          properties: {
+            flag: { const: true },
+            format: { enum: ['json'] },
+            mode: { oneOf: [{ const: 'a' }, { enum: ['b', 'c'] }] },
+          },
+        },
+      },
+    };
+    const errors = checkStepSchemaErrors(schema, {
+      flag: false,
+      format: 'xml',
+      mode: 'z',
+    });
+    const at = (path: string) =>
+      errors.filter((error) => error.instancePath === path);
+    expect(at('/flag')).toEqual([
+      expect.objectContaining({
+        keyword: 'const',
+        allowedValues: [true],
+        inChoice: false,
+      }),
+    ]);
+    expect(at('/format')).toEqual([
+      expect.objectContaining({
+        keyword: 'enum',
+        allowedValues: ['json'],
+        inChoice: false,
+      }),
+    ]);
+    // Each branch of a choice names its own values: none of them is the only one.
+    expect(at('/mode').filter((error) => error.allowedValues)).toEqual([
+      expect.objectContaining({ allowedValues: ['a'], inChoice: true }),
+      expect.objectContaining({ allowedValues: ['b', 'c'], inChoice: true }),
+    ]);
+  });
 });

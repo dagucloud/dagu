@@ -50,7 +50,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -282,6 +285,8 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
       url: https://example.com
 `
     );
+    // The list closes under the focus: the canvas keeps it.
+    expect(screen.getByTestId('ve-canvas')).toHaveFocus();
   });
 
   it('adds a step at the end of a chain workflow with no depends', () => {
@@ -626,10 +631,12 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     expect(screen.getByLabelText('Top to bottom')).toBeInTheDocument();
   });
 
-  // There is no bar above the canvas: the controls sit on the canvas.
+  // There is no bar above the canvas: the controls sit on the canvas. The
+  // saved definition starts from the header, so the bar has only the draft run.
   it('puts the run, history and workflow controls on the canvas', () => {
     renderEditor({
       initial: yamlArraySteps,
+      isDirty: true,
       toolbarStart: <button type="button">Start</button>,
       toolbarTrail: <button type="button">Trail</button>,
       workflowPanel: <p>About the workflow</p>,
@@ -637,7 +644,13 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     });
 
     const toolbar = within(screen.getByTestId('ve-toolbar'));
-    for (const name of ['Trail', 'Undo', 'Redo', 'Run', 'Workflow']) {
+    for (const name of [
+      'Trail',
+      'Undo',
+      'Redo',
+      'Run unsaved draft',
+      'Workflow',
+    ]) {
       expect(toolbar.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(toolbar.getByRole('button', { name: 'YAML' })).toBeInTheDocument();
@@ -1048,30 +1061,26 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
         t.clean();
       });
 
-      it('stays in the form while the user clicks other steps', () => {
+      it('shows the YAML of the next clicked step, not its form, after the form was open', () => {
         const t = setup();
         fireEvent.click(screen.getByTestId('ve-canvas-node-steps[0]'));
         fireEvent.click(t.bar.getByRole('button', { name: 'Form' }));
 
         fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
 
-        expect(t.body.getByTestId('ve-inspector')).toBeInTheDocument();
-        expect(t.onFormVisibleChange).not.toHaveBeenLastCalledWith(false);
+        expect(t.body.queryByTestId('ve-inspector')).toBeNull();
+        expect(t.onFormVisibleChange).toHaveBeenLastCalledWith(false);
         t.clean();
       });
     });
 
-    it('stays on the form while the user clicks other steps', () => {
+    it('shows the YAML of a clicked step, not its form, after the form was open', () => {
       renderEditorWithBar({ initial: yamlArraySteps });
       openForm('ve-canvas-node-steps[0]');
 
       fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
 
-      expect(
-        within(screen.getByTestId('ve-inspector')).getByRole('heading', {
-          name: 'publish',
-        })
-      ).toBeInTheDocument();
+      expect(screen.queryByTestId('ve-inspector')).toBeNull();
     });
 
     it('lights the step that the cursor of the YAML is in', () => {

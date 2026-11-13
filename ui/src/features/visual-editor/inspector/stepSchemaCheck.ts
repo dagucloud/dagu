@@ -13,6 +13,7 @@ interface CompiledCheck {
         instancePath: string;
         keyword?: string;
         message?: string;
+        schemaPath?: string;
         params?: Record<string, unknown>;
       }[]
     | null;
@@ -169,6 +170,13 @@ export interface StepSchemaError {
   message: string;
   /** The key that is missing (`required`) or not allowed (`additionalProperties`). */
   property?: string;
+  /** The values of the rule that failed, for `const` and `enum`. */
+  allowedValues?: unknown[];
+  /**
+   * True when the rule is in a branch of `oneOf` or `anyOf`: another branch
+   * can allow other values, so the values above are not the only ones.
+   */
+  inChoice?: boolean;
 }
 
 /**
@@ -195,11 +203,25 @@ export function checkStepSchemaErrors(
         : typeof params.additionalProperty === 'string'
           ? params.additionalProperty
           : undefined;
+    const allowedValues =
+      'allowedValue' in params
+        ? [params.allowedValue]
+        : Array.isArray(params.allowedValues)
+          ? params.allowedValues
+          : undefined;
     return {
       instancePath: error.instancePath,
       keyword: (error as { keyword?: string }).keyword ?? '',
       message: error.message ?? 'is not valid',
       ...(property !== undefined ? { property } : {}),
+      ...(allowedValues !== undefined
+        ? {
+            allowedValues,
+            inChoice: /\/(?:anyOf|oneOf)\/\d+(?:\/|$)/.test(
+              error.schemaPath ?? ''
+            ),
+          }
+        : {}),
     };
   });
 }

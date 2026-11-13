@@ -144,6 +144,12 @@ describe('host seam contracts', () => {
     );
     expectTypeOf<CanvasCommand['kind']>().toEqualTypeOf<
       | 'openInspector'
+      | 'openForm'
+      | 'openSlotDock'
+      | 'openSlotPanel'
+      | 'openPromptDock'
+      | 'openTool'
+      | 'openDagView'
       | 'runStep'
       | 'showRun'
       | 'rename'
@@ -169,6 +175,8 @@ describe('host seam contracts', () => {
     expectTypeOf<VisualCanvasProps>().toHaveProperty('hideFrozenNotice');
     expectTypeOf<CanvasActions>().toHaveProperty('stepCommandGates');
     expectTypeOf<CanvasActions>().toHaveProperty('onRename');
+    expectTypeOf<CanvasActions>().toHaveProperty('selectedTool');
+    expectTypeOf<VisualCanvasProps>().toHaveProperty('selectedTool');
     expectTypeOf<
       VisualEditorHandle['paste']
     >().returns.toEqualTypeOf<EditResult>();

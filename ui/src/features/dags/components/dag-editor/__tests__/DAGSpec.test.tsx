@@ -390,11 +390,19 @@ function connected(data: unknown): SSEState<unknown> {
   };
 }
 
-/** Lets the lazy chunks resolve, with real or fake timers. */
+/**
+ * Lets the lazy chunks resolve and the two animation frames of a Save click
+ * pass, with real or fake timers.
+ */
 async function settle() {
   await act(async () => {
     for (let i = 0; i < 8; i++) {
       await Promise.resolve();
+    }
+    if (vi.isFakeTimers()) {
+      await vi.advanceTimersByTimeAsync(40);
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 40));
     }
   });
 }
@@ -548,6 +556,29 @@ describe('DAGSpec live validation', () => {
 
     fireEvent.change(editor, { target: { value: savedSpec } });
     expect(screen.getByRole('status')).toHaveTextContent(warning);
+  });
+
+  // The diff dialog renders in one long task: the button shows its pending
+  // state before that task starts, and returns to normal when it ends.
+  it('shows the Save button as busy until the diff dialog opens', async () => {
+    vi.useFakeTimers();
+    await renderSpec();
+    fireEvent.change(screen.getByLabelText('DAG spec'), {
+      target: { value: savedSpec + '# edited' },
+    });
+    const button = screen.getByRole('button', { name: /^save$/i });
+    expect(button).not.toHaveAttribute('aria-busy');
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button.querySelector('.animate-spin')).not.toBeNull();
+    expect(screen.queryByText('Confirm save')).not.toBeInTheDocument();
+
+    await settle();
+    expect(button).not.toHaveAttribute('aria-busy');
+    expect(screen.getByText('Confirm save')).toBeInTheDocument();
   });
 
   it('prevents overlapping saves without losing newer edits', async () => {

@@ -8,6 +8,7 @@ import type {
   StepKey,
 } from '../contracts';
 import { isLauncherKey } from '../launchers/model';
+import { AGENT_CARD_WIDTH, agentCardHeight } from './agentCard';
 import {
   bundleGapExtra,
   detectBundles,
@@ -20,9 +21,25 @@ import {
   type BundleCandidate,
   type EdgeBundleRef,
 } from './bundles';
+import { clearance, type Block, type Flip, type Rect } from './clearance';
 import type { Waypoint } from './engine/geometry';
 import { isGhostKey } from './ghost';
-import { layeredRoutes, type LayeredBand, type LayeredRoute } from './layered';
+import {
+  planSubRow,
+  subNodeSize,
+  type SubBox,
+  type SubRowBase,
+  type SubRowPlan,
+} from './subRow';
+import { promptFit } from './promptCard';
+import { isSubNode } from './toolSatellites';
+import {
+  layeredRoutes,
+  type LayeredBand,
+  type LayeredNode,
+  type LayeredResult,
+  type LayeredRoute,
+} from './layered';
 import {
   AGENT_NODE_KEY,
   type CanvasNodeWithRoutes,
@@ -33,6 +50,44 @@ export const NODE_WIDTH = 240;
 export const NODE_HEIGHT = 64;
 /** Side of a step card that shows only its icon. */
 export const COMPACT_NODE_SIZE = 56;
+/**
+ * Size of the card of a chat step: about 1.4 times the width and 1.6 times
+ * the height of a step card, as it carries the connectors of its Model, Tools
+ * and Skills slots. The compact card is a tile of the same ratio.
+ */
+export const CHAT_NODE_WIDTH = 336;
+export const CHAT_NODE_HEIGHT = 104;
+export const CHAT_COMPACT_WIDTH = 80;
+export const CHAT_COMPACT_HEIGHT = 88;
+
+/**
+ * Size of the card of a node, without its caption: a chat step is larger, and
+ * the card of an agent step is as tall as its rows of chips need, with a row
+ * more while a run is shown.
+ */
+export function cardSize(
+  node: Pick<CanvasNode, 'key' | 'run'> & {
+    chat?: unknown;
+    subRow?: unknown;
+    agent?: { chipRows: number };
+  },
+  compact: boolean
+): { width: number; height: number } {
+  if (node.chat || node.subRow) {
+    if (compact) {
+      return { width: CHAT_COMPACT_WIDTH, height: CHAT_COMPACT_HEIGHT };
+    }
+    return node.agent
+      ? {
+          width: AGENT_CARD_WIDTH,
+          height: agentCardHeight(node.agent.chipRows, node.run !== undefined),
+        }
+      : { width: CHAT_NODE_WIDTH, height: CHAT_NODE_HEIGHT };
+  }
+  return compact
+    ? { width: COMPACT_NODE_SIZE, height: COMPACT_NODE_SIZE }
+    : { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
 /**
  * The caption under a compact step card: its name, always shown. The layout
  * reserves the height of the line, and in a top-to-bottom layout the width of
@@ -146,6 +201,7 @@ export function hasCompactCaption(node: CanvasNode): boolean {
     !isLauncherKey(node.key) &&
     node.kind !== 'agent' &&
     !(node as CanvasNodeWithRoutes).tool &&
+    !isSubNode(node) &&
     node.kind !== 'router' &&
     node.action !== 'router.route'
   );
@@ -159,25 +215,40 @@ export function hasCompactCaption(node: CanvasNode): boolean {
  * height of the caption on top of the card, and the caption hangs out of its
  * lower side by half of that.
  */
-export function compactBox(direction: CanvasDirection): {
+export function compactBox(
+  direction: CanvasDirection,
+  card: { width: number; height: number } = {
+    width: COMPACT_NODE_SIZE,
+    height: COMPACT_NODE_SIZE,
+  }
+): {
   width: number;
   height: number;
 } {
   return {
-    width: direction === 'TB' ? COMPACT_CAPTION_WIDTH : COMPACT_NODE_SIZE,
-    height: COMPACT_NODE_SIZE + COMPACT_CAPTION_HEIGHT,
+    width:
+      direction === 'TB'
+        ? Math.max(COMPACT_CAPTION_WIDTH, card.width)
+        : card.width,
+    height: card.height + COMPACT_CAPTION_HEIGHT,
   };
 }
 
 /** Top-left corner of the card in its compact box, in px. */
-export function compactCardOffset(direction: CanvasDirection): {
+export function compactCardOffset(
+  direction: CanvasDirection,
+  card: { width: number; height: number } = {
+    width: COMPACT_NODE_SIZE,
+    height: COMPACT_NODE_SIZE,
+  }
+): {
   left: number;
   top: number;
 } {
-  const box = compactBox(direction);
+  const box = compactBox(direction, card);
   return {
-    left: (box.width - COMPACT_NODE_SIZE) / 2,
-    top: direction === 'TB' ? 0 : (box.height - COMPACT_NODE_SIZE) / 2,
+    left: (box.width - card.width) / 2,
+    top: direction === 'TB' ? 0 : (box.height - card.height) / 2,
   };
 }
 
@@ -203,6 +274,11 @@ export function nodeSize(
       ? { width: COMPACT_NODE_SIZE, height: COMPACT_NODE_SIZE }
       : { width: LAUNCHER_WIDTH, height: LAUNCHER_HEIGHT };
   }
+  if (isSubNode(node)) {
+    // A sub-node of a chat step is a round icon with its caption, or a card
+    // of rows for its Tools or Skills slot.
+    return subNodeSize(node as CanvasNodeWithRoutes, compact);
+  }
   if (node.kind === 'agent') {
     const tasks = (node as CanvasNodeWithRoutes).hub?.tasks.length ?? 0;
     return { width: HUB_WIDTH, height: hubHeight(tasks) };
@@ -215,10 +291,88 @@ export function nodeSize(
     const size = routerSize(node.routes?.length ?? 0);
     return { width: size, height: size };
   }
+  const plan = chatPlan(node, compact, direction);
+  if (plan) {
+    return { width: plan.width, height: plan.height };
+  }
+  if ((node as CanvasNodeWithRoutes).chat) {
+    // A chat step without its row of sub-nodes keeps the size of its card.
+    const card = cardSize(node as CanvasNodeWithRoutes, compact);
+    return compact ? compactBox(direction, card) : card;
+  }
   if (compact) {
     return compactBox(direction);
   }
   return { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
+
+/**
+ * Where the card and the sub-nodes of a chat step are in its box, or null
+ * for a node that has no row of sub-nodes. The box can be longer than the
+ * card along the flow: the ranks count the card only (see `reachOf`).
+ */
+export function chatPlan(
+  node: CanvasNode,
+  compact: boolean,
+  direction: CanvasDirection
+): SubRowPlan | null {
+  const shape = (node as CanvasNodeWithRoutes).subRow;
+  if (!shape) {
+    return null;
+  }
+  // Left to right, the caption of a compact card hangs out of its box.
+  const card = cardSize(node as CanvasNodeWithRoutes, compact);
+  const base: SubRowBase = compact
+    ? {
+        ...compactBox(direction, card),
+        ...(direction === 'LR' ? { overhang: COMPACT_CAPTION_HEIGHT / 2 } : {}),
+        tile: { ...compactCardOffset(direction, card), ...card },
+      }
+    : card;
+  return planSubRow(shape, base, direction, compact);
+}
+
+/**
+ * Where the entry and the exit of a chat step are along the flow, in px from
+ * the start of its box. The handles sit on the card, which is inside a box
+ * that the sub-nodes make larger: an edge must run straight from the edge of
+ * the box to the handle, between the sub-nodes, and not cross them.
+ */
+export function chatHandleAlong(
+  plan: Pick<SubRowPlan, 'base' | 'card'>,
+  compact: boolean,
+  direction: CanvasDirection
+): { enter: number; exit: number } {
+  if (direction !== 'LR') {
+    return { enter: plan.card.y, exit: plan.base.y + plan.base.height };
+  }
+  const card = compact
+    ? cardSize({ key: '', chat: true }, true)
+    : { width: plan.base.width, height: plan.base.height };
+  const left =
+    plan.base.x + (compact ? compactCardOffset(direction, card).left : 0);
+  return { enter: left, exit: left + card.width };
+}
+
+/**
+ * The positions with the place of the card of each chat step in place of the
+ * place of its box, for a drawing that has no sub-nodes (the export).
+ */
+export function cardPositions(
+  graph: CanvasGraph,
+  positions: NodePositions,
+  compact: boolean,
+  direction: CanvasDirection
+): NodePositions {
+  const result: NodePositions = { ...positions };
+  for (const node of graph.nodes) {
+    const plan = chatPlan(node, compact, direction);
+    const at = positions[node.key];
+    if (plan && at) {
+      result[node.key] = { x: at.x + plan.base.x, y: at.y + plan.base.y };
+    }
+  }
+  return result;
 }
 
 /**
@@ -314,6 +468,255 @@ function rankSepOf(direction: CanvasDirection, compact: boolean): number {
 }
 
 /**
+ * The chat steps of a component whose sub-nodes reach out of their box along
+ * the flow. The box of such a step is as long as its sub-nodes need, and the
+ * ranks would be as thick. Instead the ranks count its card, so that its
+ * edges are as short as the edges of a plain step, and the box hangs out of
+ * the rank into the gaps and the ranks next to it. A step is placed by its
+ * box, so that the sub-nodes, the handles and the stalk keep their places.
+ */
+interface Reach {
+  /** Count of the chat steps that can reach out. */
+  size: number;
+  /** The node as the ranks see it: its length along the flow is its card. */
+  rank(node: LayeredNode): LayeredNode;
+  /** The box of the step holds its sub-nodes on this side. */
+  flip(flip: Flip): void;
+  /** The cards, the sub-nodes and the edges, for `clearance`. */
+  blocks(
+    result: LayeredResult,
+    edges: readonly CanvasGraph['edges'][number][],
+    bundles: readonly Bundle[],
+    cross: (key: string) => number
+  ): Block[];
+  /** The result with the places of the boxes, and every place after the first rank shifted so that none is negative. */
+  place(result: LayeredResult): LayeredResult;
+}
+
+function reachOf(
+  graph: CanvasGraph,
+  keys: readonly StepKey[],
+  compact: boolean,
+  direction: CanvasDirection
+): Reach {
+  const horizontal = direction === 'LR';
+  const members = new Set(keys);
+  const plans = new Map<string, SubRowPlan>();
+  const sizes = new Map<string, { width: number; height: number }>();
+  for (const node of graph.nodes) {
+    if (!members.has(node.key)) {
+      continue;
+    }
+    sizes.set(node.key, nodeSize(node, compact, direction));
+    const plan = chatPlan(node, compact, direction);
+    if (plan) {
+      plans.set(node.key, plan);
+    }
+  }
+  const length = (box: { width: number; height: number }) =>
+    horizontal ? box.width : box.height;
+  const from = (box: { x: number; y: number }) => (horizontal ? box.x : box.y);
+  const cardFrom = (plan: SubRowPlan) => from(plan.base);
+  const cardTo = (plan: SubRowPlan) => cardFrom(plan) + length(plan.base);
+  // A side that the box holds is as long as the sub-nodes need.
+  const held = new Map<string, Record<Flip['side'], boolean>>();
+  for (const [key, plan] of plans) {
+    if (cardFrom(plan) > 0.5 || cardTo(plan) < length(plan) - 0.5) {
+      held.set(key, { before: false, after: false });
+    }
+  }
+  const span = (key: string) => {
+    const plan = plans.get(key);
+    const side = held.get(key);
+    return plan && side
+      ? {
+          from: side.before ? 0 : cardFrom(plan),
+          to: side.after ? length(plan) : cardTo(plan),
+        }
+      : { from: 0, to: plan ? length(plan) : 0 };
+  };
+  const origin = (key: string, result: LayeredResult) => {
+    const at = result.positions[key];
+    if (!at) {
+      return null;
+    }
+    const lead = span(key).from;
+    return horizontal
+      ? { x: at.x - lead, y: at.y }
+      : { x: at.x, y: at.y - lead };
+  };
+  return {
+    size: held.size,
+    rank(node) {
+      if (!held.has(node.key)) {
+        return node;
+      }
+      const { from: start, to } = span(node.key);
+      return horizontal
+        ? { ...node, width: to - start }
+        : { ...node, height: to - start };
+    },
+    flip({ owner, side }) {
+      const sides = held.get(owner);
+      if (sides) {
+        sides[side] = true;
+      }
+    },
+    blocks(result, edges, bundles, cross) {
+      const out: Block[] = [];
+      for (const [key, size] of sizes) {
+        const at = origin(key, result);
+        const rank = result.bands[key]?.rank;
+        if (!at || rank === undefined) {
+          continue;
+        }
+        const plan = plans.get(key);
+        const where = (box: SubBox): Rect => ({
+          x: at.x + box.x,
+          y: at.y + box.y,
+          width: box.width,
+          height: box.height,
+        });
+        if (!plan) {
+          out.push({
+            owner: key,
+            top: rank,
+            bottom: rank,
+            rect: where({ x: 0, y: 0, ...size }),
+          });
+          continue;
+        }
+        out.push({
+          owner: key,
+          top: rank,
+          bottom: rank,
+          rect: where(plan.base),
+        });
+        const box = held.has(key) ? span(key) : { from: 0, to: length(plan) };
+        for (const item of Object.values(plan.items)) {
+          const start = from(item);
+          out.push({
+            owner: key,
+            top: rank,
+            bottom: rank,
+            rect: where(item),
+            before: start < box.from - 0.5,
+            after: start + length(item) > box.to + 0.5,
+          });
+        }
+      }
+      // An edge sweeps the box of its two ends, and the cross positions of
+      // the points where it bends.
+      const routes = new Map(
+        result.routes.map((route) => [
+          `${route.source}\u0000${route.target}`,
+          route,
+        ])
+      );
+      const trunks = new Map<string, number>();
+      for (const bundle of bundles) {
+        const at = trunkCross(bundle, cross);
+        bundle.edges.forEach((id) => trunks.set(id, at));
+      }
+      const across = (point: { x: number; y: number }) =>
+        horizontal ? point.y : point.x;
+      for (const edge of edges) {
+        const a = result.bands[edge.source];
+        const b = result.bands[edge.target];
+        if (!a || !b || a.rank === b.rank) {
+          continue;
+        }
+        const [first, last] =
+          a.rank < b.rank
+            ? [edge.source, edge.target]
+            : [edge.target, edge.source];
+        const start = origin(first, result);
+        const end = origin(last, result);
+        const startSize = sizes.get(first);
+        const endSize = sizes.get(last);
+        if (!start || !end || !startSize || !endSize) {
+          continue;
+        }
+        const startPlan = plans.get(first);
+        const endPlan = plans.get(last);
+        const exit =
+          from(start) +
+          (startPlan
+            ? chatHandleAlong(startPlan, compact, direction).exit
+            : length(startSize));
+        const enter =
+          from(end) +
+          (endPlan ? chatHandleAlong(endPlan, compact, direction).enter : 0);
+        const crossings = [cross(first), cross(last)];
+        const trunk = trunks.get(edge.id);
+        if (trunk !== undefined) {
+          crossings.push(trunk);
+        }
+        const route = routes.get(`${edge.source}\u0000${edge.target}`);
+        route?.points.forEach((point) => crossings.push(across(point)));
+        if (edge.kind === 'route') {
+          // A route leaves from a port anywhere along the router.
+          const router = origin(edge.source, result);
+          const routerSize = sizes.get(edge.source);
+          if (router && routerSize) {
+            const low = horizontal ? router.y : router.x;
+            crossings.push(
+              low,
+              low + (horizontal ? routerSize.height : routerSize.width)
+            );
+          }
+        }
+        const low = Math.min(...crossings);
+        const wide = Math.max(...crossings) - low;
+        const near = Math.min(exit, enter);
+        const long = Math.abs(enter - exit);
+        out.push({
+          owner: null,
+          top: Math.min(a.rank, b.rank),
+          bottom: Math.max(a.rank, b.rank),
+          rect: horizontal
+            ? { x: near, y: low, width: long, height: wide }
+            : { x: low, y: near, width: wide, height: long },
+        });
+      }
+      return out;
+    },
+    place(result) {
+      if (held.size === 0) {
+        return result;
+      }
+      const boxes = Object.keys(result.positions).flatMap((key) => {
+        const at = origin(key, result);
+        return at ? [[key, at] as const] : [];
+      });
+      const shift = Math.max(0, ...boxes.map(([, at]) => -from(at)));
+      const move = (at: { x: number; y: number }) =>
+        horizontal
+          ? { x: at.x + shift, y: at.y }
+          : { x: at.x, y: at.y + shift };
+      const bands: Record<string, LayeredBand> = {};
+      for (const [key, band] of Object.entries(result.bands)) {
+        bands[key] = {
+          ...band,
+          start: band.start + shift,
+          end: band.end + shift,
+        };
+      }
+      return {
+        positions: Object.fromEntries(
+          boxes.map(([key, at]) => [key, move(at)])
+        ),
+        routes: result.routes.map((route) => ({
+          ...route,
+          points: route.points.map(move),
+        })),
+        bands,
+      };
+    },
+  };
+}
+
+/**
  * Lay out one component in ranks. The keys come in YAML order, so siblings
  * follow the YAML order. The result starts at the origin.
  */
@@ -336,25 +739,29 @@ function layoutComponent(
       members.has(edge.target)
   );
   const rankSep = rankSepOf(direction, compact);
-  const input = {
-    nodes,
-    edges,
-    direction,
-    nodeSep: compact ? COMPACT_NODE_SEP : NODE_SEP,
-    rankSep,
-  };
-  const first = layeredRoutes(input);
-  let result = first;
+  const horizontal = direction === 'LR';
+  // The sub-nodes of a chat step can reach out of its box along the flow.
+  // The ranks count only its card, and the box hangs out of them.
+  const reach = reachOf(graph, keys, compact, direction);
+  const place = (gapExtra?: readonly number[]) =>
+    layeredRoutes({
+      nodes: reach.size === 0 ? nodes : nodes.map((node) => reach.rank(node)),
+      edges,
+      direction,
+      nodeSep: compact ? COMPACT_NODE_SEP : NODE_SEP,
+      rankSep,
+      ...(gapExtra ? { gapExtra } : {}),
+    });
+  let result = place();
   // A gap between two ranks grows when its curves need room for a smooth
   // bend: the curves that merge into a trunk (the edges that share one), and
   // the far edges of a wide fan. The ranks, the orders and the cross
   // positions do not change.
-  const rank = (key: string) => first.bands[key]?.rank;
+  const rank = (key: string) => result.bands[key]?.rank;
   const bundles = detectBundles(edges.map(candidateOf), rank);
-  const horizontal = direction === 'LR';
   const size = new Map(nodes.map((node) => [node.key, node]));
   const cross = (key: string) => {
-    const at = first.positions[key];
+    const at = result.positions[key];
     const node = size.get(key);
     return !at || !node
       ? 0
@@ -363,11 +770,11 @@ function layoutComponent(
         : at.x + node.width / 2;
   };
   const ranks =
-    Math.max(0, ...Object.values(first.bands).map((band) => band.rank)) + 1;
+    Math.max(0, ...Object.values(result.bands).map((band) => band.rank)) + 1;
   // A route leaves from its port on the edge of the router, not its middle.
   const leave = (edge: (typeof edges)[number]) => {
     const router = byKey.get(edge.source);
-    const at = first.positions[edge.source];
+    const at = result.positions[edge.source];
     const box = size.get(edge.source);
     const routes = router?.routes;
     if (
@@ -391,16 +798,42 @@ function layoutComponent(
     rankSep,
     ranks
   );
-  const extra =
+  const needs =
     bundles.length > 0
       ? bundleGapExtra(bundles, cross, rankSep, ranks).map((value, index) =>
           Math.max(value, spread[index] ?? 0)
         )
       : spread;
-  if (extra.some((value) => value > 0)) {
-    result = layeredRoutes({ ...input, gapExtra: extra });
+  let extra: number[] | undefined;
+  if (needs.some((value) => value > 0)) {
+    extra = needs;
+    result = place(needs);
   }
-  const { positions: placed, routes, bands } = result;
+  // A gap grows where a sub-node that hangs out of its box would touch a
+  // card or an edge of the next rank. A side that no gap can clear keeps the
+  // room of the sub-nodes in its box. The orders and the cross positions do
+  // not change, so each pass only moves the ranks.
+  while (reach.size > 0) {
+    const found = clearance(
+      horizontal,
+      reach.blocks(result, edges, bundles, cross)
+    );
+    if (found.flips.length > 0) {
+      found.flips.forEach((flip) => reach.flip(flip));
+      result = place(extra);
+      continue;
+    }
+    if (found.gaps.size > 0) {
+      result = place(
+        Array.from(
+          { length: ranks },
+          (_, r) => (extra?.[r] ?? 0) + (found.gaps.get(r) ?? 0)
+        )
+      );
+    }
+    break;
+  }
+  const { positions: placed, routes, bands } = reach.place(result);
 
   const positions = emptyPositions();
   let width = 0;
@@ -588,6 +1021,9 @@ function edgeWaypoints(
     }
     const sourceSize = nodeSize(source, compact, direction);
     const targetSize = nodeSize(target, compact, direction);
+    // The handles of a chat step are on its card, inside its box.
+    const sourcePlan = chatPlan(source, compact, direction);
+    const targetPlan = chatPlan(target, compact, direction);
     // The cross position of the handle that the edge leaves, and that it enters.
     let leave = horizontal
       ? sp.y + sourceSize.height / 2
@@ -595,6 +1031,11 @@ function edgeWaypoints(
     let leaveAlong = horizontal
       ? sp.x + sourceSize.width
       : sp.y + sourceSize.height;
+    if (sourcePlan) {
+      leaveAlong =
+        (horizontal ? sp.x : sp.y) +
+        chatHandleAlong(sourcePlan, compact, direction).exit;
+    }
     const routes = source.routes;
     if (edge.kind === 'route' && routes && edge.label !== undefined) {
       const port = routePorts(routes.length, sourceSize.width, direction)[
@@ -608,7 +1049,9 @@ function edgeWaypoints(
     const enter = horizontal
       ? tp.y + targetSize.height / 2
       : tp.x + targetSize.width / 2;
-    const enterAlong = horizontal ? tp.x : tp.y;
+    const enterAlong =
+      (horizontal ? tp.x : tp.y) +
+      (targetPlan ? chatHandleAlong(targetPlan, compact, direction).enter : 0);
     const points: Waypoint[] = [];
     if (from.end - leaveAlong > 0.5) {
       points.push(spot(from.end, leave));
@@ -673,14 +1116,17 @@ export function layoutRoutes(
   let offset = 0;
   let mainRight = 0;
   let mainBottom = 0;
-  for (const keys of connectedComponents(graph)) {
-    const part = layoutComponent(graph, keys, direction, compact);
+  // The sub-nodes of a chat step are not ranked: they sit in the box of their
+  // step, which is as large as they need (see `chatPlan`).
+  const steps = withoutSubNodes(graph);
+  for (const keys of connectedComponents(steps)) {
+    const part = layoutComponent(steps, keys, direction, compact);
     const dx = horizontal ? 0 : offset;
     const dy = horizontal ? offset : 0;
     for (const [key, p] of Object.entries(part.positions)) {
       positions[key] = { x: p.x + dx, y: p.y + dy };
     }
-    const routed = edgeWaypoints(graph, part, direction, compact, dx, dy);
+    const routed = edgeWaypoints(steps, part, direction, compact, dx, dy);
     Object.assign(waypoints, routed.waypoints);
     Object.assign(bundles, routed.bundles);
     mainRight = Math.max(mainRight, part.width + dx);
@@ -703,7 +1149,45 @@ export function layoutRoutes(
       x += size.width + NODE_SEP;
     }
   }
+  placeSubNodes(graph, positions, compact, direction);
   return { positions, waypoints, bundles };
+}
+
+/** The graph without the sub-nodes of the chat steps and their edges. */
+function withoutSubNodes(graph: CanvasGraph): CanvasGraph {
+  if (!graph.nodes.some(isSubNode)) {
+    return graph;
+  }
+  const subs = new Set(graph.nodes.filter(isSubNode).map((node) => node.key));
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => !subs.has(node.key)),
+    edges: graph.edges.filter(
+      (edge) => !subs.has(edge.source) && !subs.has(edge.target)
+    ),
+  };
+}
+
+// Puts each sub-node at its place in the box of its chat step.
+function placeSubNodes(
+  graph: CanvasGraph,
+  positions: NodePositions,
+  compact: boolean,
+  direction: CanvasDirection
+): void {
+  for (const node of graph.nodes) {
+    const plan = chatPlan(node, compact, direction);
+    const at = positions[node.key];
+    if (!plan || !at) {
+      continue;
+    }
+    for (const [key, box] of Object.entries(plan.items)) {
+      positions[key] = {
+        x: at.x + Math.round(box.x),
+        y: at.y + Math.round(box.y),
+      };
+    }
+  }
 }
 
 /**
@@ -803,6 +1287,13 @@ export function reformRouting(
   return { waypoints, bundles };
 }
 
+// The fit of the Prompt card of a node, or null for another node.
+function promptFitOf(node: CanvasNodeWithRoutes) {
+  return node.promptCard
+    ? promptFit(node.promptCard.system, node.promptCard.prompt)
+    : null;
+}
+
 /**
  * Key of everything that decides the layout: node keys, lanes, card shapes
  * and routes, edge ids, direction and the compact flag. It ignores labels,
@@ -829,6 +1320,20 @@ export function graphShapeKey(
       node.routes ?? null,
       // The hub grows with the tasks that it lists.
       (node as CanvasNodeWithRoutes).hub?.tasks.length ?? null,
+      // An agent card grows with its rows of chips, and with a run.
+      (node as CanvasNodeWithRoutes).agent?.chipRows ?? null,
+      (node as CanvasNodeWithRoutes).agent ? node.run !== undefined : null,
+      // A slot card grows with the rows and the columns that it lists.
+      (node as CanvasNodeWithRoutes).slotCard?.rows ?? null,
+      (node as CanvasNodeWithRoutes).slotCard?.cols ?? null,
+      // The DAGs card grows with the entries that it lists.
+      (node as CanvasNodeWithRoutes).slotCard?.slot === 'dags'
+        ? ((node as CanvasNodeWithRoutes).slotCard?.entries.length ?? null)
+        : null,
+      // The card of the Model node grows with its models and its controls.
+      (node as CanvasNodeWithRoutes).modelSat?.card ?? null,
+      // The Prompt card grows with the lines of its texts.
+      promptFitOf(node as CanvasNodeWithRoutes),
     ]),
     graph.edges.map((edge) => edge.id),
   ]);

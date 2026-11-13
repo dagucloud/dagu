@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { KeyboardEvent, ReactNode, Ref } from 'react';
-import type { components } from '@/api/v1/schema';
+import type { components, Status } from '@/api/v1/schema';
 import type { RepeatPolicyView } from '@/components/ui/repeat-summary';
 import type { JSONSchema } from '@/lib/schema-utils';
+import type { TrustSource } from './agentRun/agentRun';
 import type { LauncherId, LauncherState } from './launchers/model';
 import type { InputProvenance } from './run/inputProvenance';
 import type { SourceOption } from './run/runSourceOptions';
+import type { SkillsChange, ToolsChange } from './tools/edit';
+import type { ToolCategory } from './tools/model';
 import type { EditorCustomActionHint } from '@/features/dags/components/dag-editor/customActionSchema';
 
 export type ApiDAGDetails = components['schemas']['DAGDetails'];
@@ -138,7 +141,18 @@ export type DagEditOp =
     }
   | { kind: 'convertStepsToExplicitForm' }
   /** Sets the start expressions of `schedule`; the other entries stay. */
-  | { kind: 'setSchedule'; expressions: string[] };
+  | { kind: 'setSchedule'; expressions: string[] }
+  /** Sets `restart_policy`, `restart_wait_sec` and `hist_retention_runs`. A field that is left out stays; `null` removes the key. */
+  | {
+      kind: 'setRestartPolicy';
+      policy?: 'no' | 'always' | 'unless-stopped';
+      waitSec?: number | null;
+      histRetentionRuns?: number | null;
+    }
+  /** Changes the tools of a `chat.completion` or `agent.run` step: `with.dags`, `with.tools` and its limits. */
+  | { kind: 'editStepTools'; step: StepKey; change: ToolsChange }
+  /** Changes the skills of a `chat.completion` or `agent.run` step: `with.skills`. */
+  | { kind: 'editStepSkills'; step: StepKey; change: SkillsChange };
 
 export interface StepNameMap {
   byKey: Record<StepKey, string>;
@@ -158,6 +172,9 @@ export type EditErrorCode =
   | 'invalidName'
   | 'cycle'
   | 'invalidYaml'
+  | 'handlerStep'
+  | 'restartConflict'
+  | 'invalidValue'
   | 'noop';
 export type EditResult =
   | { ok: true; text: string; edits: TextEdit[]; select?: StepKey }
@@ -248,10 +265,27 @@ export interface ReferenceInputProps {
   onChange(value: string): void;
   candidates: ReferenceCandidate[];
   multiline?: boolean;
+  /** Visible lines of a multi-line field (default 3); the field is at least this tall. */
+  rows?: number;
+  /** A multi-line field that the user can make taller by dragging its corner. */
+  resizable?: boolean;
   placeholder?: string;
   disabled?: boolean;
   id?: string;
   'aria-label'?: string;
+  /**
+   * Plain-text suggestions, such as the models of an endpoint. They filter by
+   * the text of the field. A pick replaces the whole text. The text stays free:
+   * a value that is not in the list is as valid as one that is.
+   */
+  suggestions?: readonly string[];
+  /** The accessible name of the list of `suggestions`. */
+  suggestionsLabel?: string;
+  /**
+   * A multi-line field of free text, such as a prompt: references and the marks
+   * of Markdown show in colour while the text is edited.
+   */
+  highlight?: boolean;
   'aria-invalid'?: boolean;
   onBlur?(): void;
   /** Called for a key that the open list does not use. */
@@ -260,6 +294,36 @@ export interface ReferenceInputProps {
 
 /* Canvas */
 export type CanvasDirection = 'LR' | 'TB';
+/**
+ * What `continue_on` of a step lets the run do after the step: carry on when
+ * the step failed, was skipped, ended with one of the exit codes, or wrote a
+ * matching output. `markSuccess` turns that end into a success.
+ */
+export interface ContinueOnView {
+  failure?: true;
+  skipped?: true;
+  exitCodes?: number[];
+  output?: true;
+  markSuccess?: true;
+}
+
+/**
+ * The condition on a link, from a precondition of the step that the link
+ * reaches that reads the step that the link leaves. `failed` and `succeeded`
+ * come from a test of `${step.exit_code}` against 0. `text` is the
+ * precondition as written, for the tooltip.
+ */
+export interface EdgeCondition {
+  when: 'failed' | 'succeeded' | 'exit' | 'match';
+  /** The name of the step that the link leaves. */
+  step: string;
+  /** The exit code (`exit`), or the comparison (`match`). */
+  value?: string;
+  /** `exit`: the step ended with any other code. */
+  negate?: boolean;
+  text: string;
+}
+
 export interface CanvasNode {
   key: StepKey;
   serverName?: string;
@@ -279,6 +343,14 @@ export interface CanvasNode {
   repeat?: RepeatPolicyView;
   /** What a router step routes on, as written in `value`. */
   routeValue?: string;
+  /** The YAML of the step says `untrusted: true`: the Untrusted mark. A default shows none. */
+  untrusted?: boolean;
+  /** The trust that the YAML writes: `marked` or `opted-out` (the Trusted mark). */
+  trust?: TrustSource;
+  /** The `continue_on` of the step, when it has one. */
+  continueOn?: ContinueOnView;
+  /** The preconditions of the step, one line each, when it has some. */
+  preconditions?: string[];
   /** The number of tasks of an agent DAG, on its agent node. */
   taskCount?: number;
   issues: { errors: number; warnings: number };
@@ -300,6 +372,8 @@ export interface CanvasEdge {
   target: StepKey;
   kind: 'depends' | 'inferred' | 'route' | 'order' | 'agent';
   label?: string;
+  /** Set on a `depends` edge that a precondition of its target reads. */
+  condition?: EdgeCondition;
 }
 export interface CanvasGraph {
   nodes: CanvasNode[];
@@ -313,8 +387,42 @@ export interface CanvasGraphInput {
   issues: IssueGroups;
   overlay?: RunOverlay;
 }
+/**
+ * The sections of the form of a step that a sub-node of the canvas opens. The
+ * Tools and Skills cards open the dock of their list (`openSlotPanel`), not
+ * the form.
+ */
+export type FormSection = 'model';
+/**
+ * A tool entry of a step, as the canvas and the editor select it: the list
+ * that holds it (`dags` is `with.dags`, `mcp` is `with.tools.mcp`) and its
+ * place in it.
+ * The built-in tools of an agent step are one entry: `builtin`, place 0.
+ */
+export interface ToolSelection {
+  step: StepKey;
+  category: ToolCategory | 'builtin';
+  index: number;
+}
 export type CanvasCommand =
+  // Shows the YAML of the step.
   | { kind: 'openInspector'; step: StepKey }
+  // Opens the form of the step with one of its sections open and in view:
+  // a double click on the Model node, or a click on its add button.
+  | { kind: 'openForm'; step: StepKey; section: FormSection }
+  // Opens the dock that picks a tool or a skill to add to a chat step or an agent step.
+  | { kind: 'openSlotDock'; step: StepKey; slot: 'tools' | 'skills' | 'dags' }
+  // Opens the dock that edits the whole list of the DAGs, the Tools or the
+  // Skills of a step: a double click, or Enter, on the card of the slot. The
+  // DAGs dock lists the DAG tools only, and the Tools dock the MCP servers
+  // and the built-in tools.
+  | { kind: 'openSlotPanel'; step: StepKey; slot: 'tools' | 'skills' | 'dags' }
+  // Opens the enlarged view of the DAG that a DAG tool calls, in the dock.
+  | { kind: 'openDagView'; tool: ToolSelection }
+  // Opens the dock that edits the system message and the prompt of an agent step.
+  | { kind: 'openPromptDock'; step: StepKey }
+  // Selects a tool entry and opens its panel at the right.
+  | { kind: 'openTool'; tool: ToolSelection }
   | { kind: 'runStep'; step: StepKey }
   | { kind: 'showRun'; step: StepKey }
   | { kind: 'rename'; step: StepKey }
@@ -353,6 +461,8 @@ export interface VisualCanvasProps {
   graph: CanvasGraph;
   direction: CanvasDirection;
   selected: StepKey | null;
+  /** The tool entry whose panel is open: its row on the Tools card is lit. */
+  selectedTool?: ToolSelection | null;
   frozen: boolean; // text does not parse: show last graph + banner, no edits
   /**
    * Set while no text has parsed and the graph holds the steps that the
@@ -401,10 +511,17 @@ export interface VisualCanvasProps {
   escapeToHost?: boolean;
   /** A connection drag that makes no edit because of a cycle: the host tells the user. */
   onRefused?(code: 'cycle'): void;
+  /**
+   * The DAG that holds the steps: the Model node reads the endpoints that it
+   * may use. Without it the node has no endpoint to offer.
+   */
+  dag?: { name: string; workspace?: string | undefined };
   /** The launcher nodes to draw as roots of the graph. None: no launcher. */
   launchers?: readonly LauncherState[];
   /** The launcher whose panel is open: its node is lit. */
   activeLauncher?: LauncherId | null;
+  /** True while the workflow is alive: the icon of an Always on card turns. */
+  launcherAlive?: boolean;
   /** The user opens a launcher node. */
   onLauncher?(id: LauncherId): void;
   /**
@@ -572,6 +689,14 @@ export interface LauncherHost {
   /** Runs `next` at once, or after the user confirms a loss. */
   guard(next: () => void): void;
   setSecretVisible(visible: boolean): void;
+  /** True while the workflow is suspended: an Always on card does not turn. */
+  suspended?: boolean;
+  /**
+   * The latest run of the workflow, kept live by the host. The page can show
+   * an older run (its URL names it), but the workflow is alive by its latest
+   * run. Without it, the shown run stands for it.
+   */
+  latestRun?: { status: Status; finishedAt?: string } | null;
 }
 export interface EditorHostProps {
   launcherHost?: LauncherHost;
@@ -660,8 +785,25 @@ export interface StepInspectorProps {
   onClose(): void;
   /** Shows the YAML of the step instead of its form. The button is hidden without it. */
   onShowYaml?(): void;
+  /** Selects a tool entry of the step: its panel opens at the right. */
+  onOpenTool?(tool: ToolSelection): void;
+  /** Opens the dock that picks a DAG (`dags`) or a tool (`tools`) to add to the step. */
+  onAddTool?(slot: 'tools' | 'dags'): void;
+  /**
+   * A request from the canvas to open a section and put the focus in it: a
+   * double click on the Model node. A new `seq` is a new
+   * request. The inspector calls `onRevealed` once it has shown the section.
+   */
+  reveal?: { section: FormSection; seq: number };
+  onRevealed?(): void;
   /** The form is in a drawer that has its own bar: no header, no name, no close button. */
   embedded?: boolean;
+  /**
+   * The DAG that holds the step. The Endpoint choice of an agent step lists
+   * the endpoints that this DAG may use (Spec 093). `workspace` is the value
+   * of the label `workspace` of the DAG.
+   */
+  dag?: { name: string; workspace?: string | undefined };
   runPanel?: ReactNode; // P2 passes <StepRunPanel/>
 }
 

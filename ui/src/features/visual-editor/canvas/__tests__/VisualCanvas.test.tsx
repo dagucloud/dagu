@@ -20,6 +20,7 @@ import { CanvasToolbarHostContext } from '../toolbarHost';
 import { buildCanvasGraph } from '../graph';
 import { CANVAS_DETAILS_KEY } from '../useCanvasDetails';
 import { agentColumns } from '../layout';
+import { AUTO_FIT_SETTLE_MS } from '../useAutoFit';
 import { neighbourStep } from '../neighbours';
 import type { CanvasKeyHandlers } from '../useCanvasKeymap';
 import { EDGE_HOVER_SETTLE_MS } from '../engine/edgeParts';
@@ -1190,6 +1191,45 @@ describe('VisualCanvas', () => {
         );
       });
 
+      // A panel that opens, changes or closes never changes the zoom, once
+      // the canvas has been shown for a while.
+      describe('with a panel that comes and goes', () => {
+        const withPanel = (right: number) => (
+          <UserPreferencesProvider>
+            <CanvasOverlayInsetContext.Provider value={{ right }}>
+              <VisualCanvas
+                graph={graph}
+                direction="TB"
+                selected={null}
+                frozen={false}
+                readOnly={false}
+                catalog={catalogSample}
+                onSelect={vi.fn()}
+                onEdit={vi.fn()}
+                onCommand={vi.fn()}
+              />
+            </CanvasOverlayInsetContext.Provider>
+          </UserPreferencesProvider>
+        );
+        beforeEach(() => {
+          vi.useFakeTimers();
+          // The fit is 125 % with no panel, 100 % beside 500 px of panel and
+          // 50 % beside 700 px of it.
+          sizes.width = 1000;
+          sizes.height = 900;
+        });
+        afterEach(() => vi.useRealTimers());
+
+        it('gives the graph its place back when the zoom holds', () => {
+          const { rerender } = render(withPanel(0));
+          const before = viewport();
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(700));
+          rerender(withPanel(0));
+          expect(viewport()).toEqual(before);
+        });
+      });
+
       // The fit keeps its content clear of the panel.
       it('fits the graph in the part that the panel leaves free', () => {
         sizes.width = 1000;
@@ -1596,8 +1636,8 @@ describe('VisualCanvas launchers', () => {
       'data-status',
       'active'
     );
-    // Not set up: dashed.
-    expect(screen.getByTestId('ve-launcher-cron')).toHaveAttribute(
+    // Neither Cron nor Always on is set up: one dashed placeholder.
+    expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
       'data-status',
       'dashed'
     );
@@ -1605,6 +1645,8 @@ describe('VisualCanvas launchers', () => {
       'data-status',
       'active'
     );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
     for (const node of graph.nodes) {
       expect(nodeCard(node.key)).toBeInTheDocument();
     }
@@ -1634,9 +1676,9 @@ describe('VisualCanvas launchers', () => {
     const onLauncher = vi.fn();
     const { props } = renderCanvas({ launchers, onLauncher });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    expect(onLauncher).toHaveBeenCalledWith('cron');
+    expect(onLauncher).toHaveBeenCalledWith('schedule');
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
@@ -1644,6 +1686,149 @@ describe('VisualCanvas launchers', () => {
     const { props } = renderCanvas({ launchers, onLauncher: vi.fn() });
     fireEvent.doubleClick(screen.getByTestId('ve-launcher-manual'));
     expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  // Always on stands for `restart_policy` and takes the place of Cron: the
+  // two exclude each other (spec 080).
+  describe('Always on', () => {
+    const withPolicy = (
+      restartPolicy: 'no' | 'always' | 'unless-stopped',
+      restartWaitSec: number | null = null,
+      restartRetentionRuns: number | null = null
+    ) =>
+      launcherStates({
+        scheduleCount: 0,
+        restartPolicy,
+        restartWaitSec,
+        restartRetentionRuns,
+        webhookCount: 0,
+        webhooksAvailable: true,
+      });
+    const button = (id: string) =>
+      within(screen.getByTestId(`ve-launcher-${id}`)).getByRole('button');
+    const summary = () => screen.queryByTestId('ve-launcher-summary');
+
+    // The slot of Cron and Always on has one placeholder: the name of both
+    // choices, and no second line.
+    it('draws one dashed placeholder for both choices without a policy', () => {
+      renderCanvas({ launchers: withPolicy('no') });
+      expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
+        'data-status',
+        'dashed'
+      );
+      expect(button('schedule')).toHaveAttribute(
+        'aria-label',
+        'Cron or Always on: Not set up. Choose a cron schedule or Always on.'
+      );
+      expect(button('schedule')).toHaveTextContent(/^Cron or Always on$/);
+      expect(summary()).toBeNull();
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+      expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
+    });
+
+    it('draws a solid card in place of Cron, with the policy and its numbers', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, 20) });
+      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+        'data-status',
+        'active'
+      );
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+      expect(summary()).toHaveTextContent('5 s · 20 runs');
+      // One line, cut with an ellipsis when it is longer than the card.
+      expect(summary()).toHaveClass('truncate');
+      // As wide as the other launchers: LAUNCHER_WIDTH, 176 px.
+      expect(button('always')).toHaveClass('w-44');
+      expect(button('always')).toHaveTextContent(/^Always on5 s · 20 runs$/);
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
+      );
+    });
+
+    it('marks the default runs kept in the tooltip only', () => {
+      renderCanvas({ launchers: withPolicy('always', 5) });
+      expect(summary()).toHaveTextContent('5 s · 100 runs');
+      expect(button('always')).toHaveAttribute(
+        'aria-label',
+        'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
+      );
+    });
+
+    // The line is short, to fit the card: it has the wait, not the runs kept.
+    it('tells Unless stopped, and leaves out a missing wait', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped') });
+      expect(summary()).toHaveTextContent(/^unless stopped$/);
+      expect(button('always')).toHaveAttribute(
+        'aria-label',
+        'Always on: Restarts unless stopped, keeps 100 runs (default)'
+      );
+    });
+
+    it('tells Unless stopped with its wait', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped', 5, 20) });
+      expect(summary()).toHaveTextContent(/^unless stopped · 5 s$/);
+    });
+
+    it('uses the singular for one run kept', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, 1) });
+      expect(summary()).toHaveTextContent('5 s · 1 run');
+    });
+
+    it('opens the Always on panel on click', () => {
+      const onLauncher = vi.fn();
+      renderCanvas({ launchers: withPolicy('always', 5), onLauncher });
+      fireEvent.click(button('always'));
+      expect(onLauncher).toHaveBeenCalledWith('always');
+    });
+
+    it('keeps the name and the state in the simplified view, with no second line', () => {
+      window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
+      try {
+        renderCanvas({ launchers: withPolicy('always', 5, 20) });
+        expect(button('always')).toHaveTextContent('');
+        expect(summary()).toBeNull();
+        expect(button('always')).toHaveAttribute(
+          'aria-label',
+          'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
+        );
+      } finally {
+        window.localStorage.removeItem(CANVAS_DETAILS_KEY);
+      }
+    });
+  });
+
+  // The icon of a solid Always on card turns while the workflow is alive.
+  describe('Always on animation', () => {
+    const states = (restartPolicy: 'no' | 'always') =>
+      launcherStates({
+        scheduleCount: 0,
+        restartPolicy,
+        restartWaitSec: 5,
+        webhookCount: 0,
+        webhooksAvailable: true,
+      });
+    const icon = (id: string) =>
+      within(screen.getByTestId(`ve-launcher-${id}`))
+        .getByRole('button')
+        .querySelector('svg:not([data-testid])')!;
+
+    it('is still when the workflow is not alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: false });
+      expect(screen.getByTestId('ve-launcher-always')).not.toHaveAttribute(
+        'data-alive'
+      );
+      expect(icon('always').getAttribute('class')).not.toContain('animate-');
+    });
+
+    it('never turns on the placeholder, Manual and Webhook', () => {
+      renderCanvas({ launchers: states('no'), launcherAlive: true });
+      for (const id of ['schedule', 'manual', 'webhook']) {
+        expect(screen.getByTestId(`ve-launcher-${id}`)).not.toHaveAttribute(
+          'data-alive'
+        );
+        expect(icon(id).getAttribute('class')).not.toContain('animate-');
+      }
+    });
   });
 
   // The owner asked to see how many cron expressions are set up.
@@ -1679,10 +1864,10 @@ describe('VisualCanvas launchers', () => {
       );
     });
 
-    it('hides the badge when there is no schedule', () => {
+    it('draws no badge on the placeholder when there is no schedule', () => {
       renderCanvas({ launchers: withSchedules(0) });
       expect(screen.queryByTestId('ve-launcher-count')).toBeNull();
-      expect(cronButton()).toHaveAttribute('aria-label', 'Cron: Not set up');
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
     });
 
     it('keeps the badge in the simplified view', () => {
@@ -1699,7 +1884,8 @@ describe('VisualCanvas launchers', () => {
       }
     });
 
-    // The owner asked for the name alone: no second line.
+    // The owner asked for the name alone: no second line, except on a solid
+    // Always on card.
     it('shows only the name on Cron, Manual and Webhook, without a subtitle', () => {
       renderCanvas({ launchers: withSchedules(2) });
       const button = (id: string) =>
@@ -1710,15 +1896,15 @@ describe('VisualCanvas launchers', () => {
       expect(button('cron')).toHaveTextContent(/^Cron2$/);
       for (const id of ['manual', 'cron', 'webhook']) {
         expect(button(id)).not.toHaveTextContent(
-          /Always on|Not set up|Scheduled|Enabled/
+          /Available|Not set up|Scheduled|Enabled/
         );
       }
       // The state stays in the accessible name and the tooltip.
       expect(button('manual')).toHaveAttribute(
         'aria-label',
-        'Manual: Always on'
+        'Manual: Available'
       );
-      expect(button('manual')).toHaveAttribute('title', 'Manual: Always on');
+      expect(button('manual')).toHaveAttribute('title', 'Manual: Available');
       expect(button('webhook')).toHaveAttribute(
         'aria-label',
         'Webhook: Not set up'
@@ -1755,7 +1941,7 @@ describe('VisualCanvas launchers', () => {
   // is focused or open, with the same dashes for the border and the edges.
   describe('dashes of a launcher that is not set up', () => {
     const outline = () =>
-      within(screen.getByTestId('ve-launcher-cron')).getByTestId(
+      within(screen.getByTestId('ve-launcher-schedule')).getByTestId(
         've-launcher-outline'
       );
     const rect = () => outline().querySelector('rect')!;
@@ -1779,12 +1965,12 @@ describe('VisualCanvas launchers', () => {
     });
 
     it('keeps the dashes of the border and of the edges when the node is open', () => {
-      renderCanvas({ launchers, activeLauncher: 'cron' });
+      renderCanvas({ launchers, activeLauncher: 'schedule' });
       expect(rect().getAttribute('stroke-dasharray')).toBe('6 4');
       expect(rect().getAttribute('class')).toContain('stroke-primary');
       // No solid ring over the dashes.
       expect(
-        within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+        within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
       ).not.toHaveClass('ring-2');
       const lit = screen
         .getAllByTestId('ve-launcher-edge')
@@ -1808,9 +1994,9 @@ describe('VisualCanvas launchers', () => {
       expect(rect().getAttribute('class')).toContain(
         'group-focus-visible:stroke-primary'
       );
-      const button = within(screen.getByTestId('ve-launcher-cron')).getByRole(
-        'button'
-      );
+      const button = within(
+        screen.getByTestId('ve-launcher-schedule')
+      ).getByRole('button');
       expect(button).toHaveClass('group');
       expect(button.className).not.toContain('focus-visible:ring');
     });

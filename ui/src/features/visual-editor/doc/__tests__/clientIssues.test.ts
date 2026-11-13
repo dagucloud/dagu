@@ -10,12 +10,22 @@ import {
 import type { ReferenceScope, ValidationIssue } from '../../contracts';
 import { realSchema } from '../../inspector/__tests__/realSchema';
 import {
+  AGENT_NEEDS_ENDPOINT_MESSAGE,
+  AGENT_NEEDS_PROVIDER_MESSAGE,
   collectClientIssues,
   issueLine,
   mergeIssues,
+  mergeQuickFixes,
+  missingEndpointMessage,
+  planQuickFixes,
+  RESTART_WAIT_MISSING_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  SECRETS_UNTRUSTED_MESSAGE,
   type ClientIssueInput,
 } from '../clientIssues';
 import { parseDagDocLenient, resolveStepNames } from '../parse';
+import { applyTextEdits } from '../patch';
 
 // The file of the issues demo: the server stops at the first error of it.
 const fixture = `# Demo: fetch JSON over HTTP, filter it with jq, log the result.
@@ -161,6 +171,58 @@ describe.skipIf(realSchema === null)('collectClientIssues rules', () => {
         line: 4,
       })
     );
+  });
+
+  // The tool keys of agent.run take true only. The message says the value
+  // and the key, and the quick fix sets the value.
+  it('names the one value of a built-in tool, and a quick fix sets it', () => {
+    const tools = (lines: string[]) =>
+      step(
+        [
+          '  - name: a',
+          '    action: agent.run',
+          '    with:',
+          '      prompt: Fix it.',
+          '      provider: claude',
+          '      endpoint: {name: main, model: sonnet}',
+          '      tools:',
+          '        builtin:',
+          ...lines.map((line) => `          ${line}`),
+          '',
+        ].join('\n')
+      );
+    expect(
+      issuesOf(
+        tools(['read: true', 'write: True', 'edit: true', 'search: true'])
+      )
+    ).toEqual([]);
+
+    const text = tools(['read: false', 'write: "yes"', 'edit: True']);
+    const issues = issuesOf(text);
+    expect(issues).toEqual([
+      expect.objectContaining({
+        severity: ValidationIssueSeverity.error,
+        message: 'with.tools.builtin.read must be true.',
+        fieldPath: 'steps[0].with.tools.builtin.read',
+        line: lineOf(text, 'read: false'),
+      }),
+      expect.objectContaining({
+        message: 'with.tools.builtin.write must be true.',
+        fieldPath: 'steps[0].with.tools.builtin.write',
+      }),
+    ]);
+
+    const model = parseDagDocLenient(text);
+    const plan = planQuickFixes(model, issues);
+    expect([...plan.values()].map((fix) => fix.params.value)).toEqual([
+      'true',
+      'true',
+    ]);
+    const fixed = applyTextEdits(text, mergeQuickFixes(plan.values()));
+    expect(fixed).toBe(
+      text.replace('read: false', 'read: true').replace('"yes"', 'true')
+    );
+    expect(issuesOf(fixed)).toEqual([]);
   });
 
   it('accepts a reference where the schema wants a number', () => {
@@ -370,6 +432,88 @@ describe.skipIf(realSchema === null)('collectClientIssues rules', () => {
   });
 });
 
+// Spec 092: in a DAG that has an agent step, a process step that lists
+// secrets needs `untrusted: false`. These checks do not read the schema.
+describe('collectClientIssues: secrets of an untrusted step', () => {
+  const agent = [
+    '  - name: review',
+    '    action: agent.run',
+    '    with:',
+    '      prompt: Fix it.',
+    '      provider: claude',
+  ];
+  const dag = (...steps: string[][]) =>
+    `steps:\n${steps.map((lines) => lines.join('\n')).join('\n')}\n`;
+  const push = (...extra: string[]) => [
+    '  - name: push',
+    '    run: git push',
+    '    secrets: [GIT_TOKEN]',
+    ...extra,
+  ];
+  const trustIssues = (text: string) =>
+    issuesOf(text, { schema: null }).filter(
+      (issue) => issue.message === SECRETS_UNTRUSTED_MESSAGE
+    );
+
+  it('reports an error on secrets when the key untrusted is absent', () => {
+    const text = dag(agent, push());
+    expect(trustIssues(text)).toEqual([
+      expect.objectContaining({
+        severity: ValidationIssueSeverity.error,
+        stepPath: 'steps[1]',
+        fieldPath: 'steps[1].secrets',
+        line: lineOf(text, 'secrets: [GIT_TOKEN]'),
+      }),
+    ]);
+  });
+
+  it('reports no error with untrusted: false or true', () => {
+    expect(trustIssues(dag(agent, push('    untrusted: false')))).toEqual([]);
+    expect(trustIssues(dag(agent, push('    untrusted: true')))).toEqual([]);
+  });
+
+  it('reports no error in a DAG without an agent step', () => {
+    expect(trustIssues(dag(push()))).toEqual([]);
+  });
+
+  it('reports no error for a step that runs no process', () => {
+    const http = [
+      '  - name: call',
+      '    action: http.request',
+      '    secrets: [GIT_TOKEN]',
+      '    with:',
+      '      url: https://example.com',
+    ];
+    expect(trustIssues(dag(agent, http))).toEqual([]);
+  });
+
+  it('reports no error without secrets', () => {
+    expect(
+      trustIssues(dag(agent, ['  - name: push', '    run: git push']))
+    ).toEqual([]);
+  });
+
+  it('merges with the same error of the server as one issue', () => {
+    const text = dag(agent, push());
+    const model = parseDagDocLenient(text);
+    const server = [
+      serverIssue({
+        message: SECRETS_UNTRUSTED_MESSAGE,
+        stepPath: 'steps[1]',
+      }),
+    ];
+    const merged = mergeIssues(
+      model,
+      resolveStepNames(model),
+      server,
+      issuesOf(text, { schema: null })
+    );
+    expect(
+      merged.filter((issue) => issue.message === SECRETS_UNTRUSTED_MESSAGE)
+    ).toHaveLength(1);
+  });
+});
+
 describe.skipIf(realSchema === null)('mergeIssues', () => {
   const model = parseDagDocLenient(fixture);
   const names = resolveStepNames(model);
@@ -455,5 +599,272 @@ describe.skipIf(realSchema === null)('mergeIssues', () => {
   it('gives the server list back when the client has nothing to add', () => {
     const server = [serverIssue({ message: 'm' })];
     expect(mergeIssues(model, names, server, [])).toBe(server);
+  });
+});
+
+// The loader refuses an agent.run step of the CLI claude that names no
+// endpoint, and an agent.run step that names no provider. The endpoint of a
+// step that the AI page does not list loads, so it is a warning.
+describe('collectClientIssues: the endpoint of a step', () => {
+  const step = (...withLines: string[]) =>
+    [
+      'steps:',
+      '  - name: ask',
+      '    action: agent.run',
+      '    with:',
+      ...withLines.map((line) => `      ${line}`),
+      '',
+    ].join('\n');
+  const only = (text: string, extra: Partial<ClientIssueInput> = {}) =>
+    issuesOf(text, extra).filter((issue) => issue.stepPath === 'steps[0]');
+  const messages = (text: string) => only(text).map((i) => i.message);
+
+  it('reports a missing endpoint on the with line of the step', () => {
+    const text = step('provider: claude', 'prompt: hi');
+    expect(only(text)).toContainEqual(
+      expect.objectContaining({
+        severity: ValidationIssueSeverity.error,
+        message: AGENT_NEEDS_ENDPOINT_MESSAGE,
+        fieldPath: 'steps[0].with.endpoint',
+        line: lineOf(text, 'with:'),
+      })
+    );
+  });
+
+  it('asks for no endpoint of a CLI that has none, or of an unknown provider', () => {
+    expect(messages(step('provider: codex', 'prompt: hi'))).not.toContain(
+      AGENT_NEEDS_ENDPOINT_MESSAGE
+    );
+    expect(messages(step('provider: ${CLI}', 'prompt: hi'))).not.toContain(
+      AGENT_NEEDS_ENDPOINT_MESSAGE
+    );
+  });
+
+  it('says the loader message when the provider is missing', () => {
+    const text = step('prompt: hi', 'endpoint:', '  name: main', '  model: m');
+    const found = only(text).filter(
+      (i) => i.fieldPath === 'steps[0].with.provider'
+    );
+    expect(found.map((i) => [i.severity, i.message])).toEqual([
+      [ValidationIssueSeverity.error, AGENT_NEEDS_PROVIDER_MESSAGE],
+    ]);
+  });
+
+  const named = step(
+    'provider: claude',
+    'prompt: hi',
+    'endpoint:',
+    '  name: ghost-endpoint',
+    '  model: sonnet'
+  );
+
+  it('warns about an endpoint that the AI page does not list', () => {
+    expect(only(named, { endpoints: ['main'] })).toContainEqual(
+      expect.objectContaining({
+        severity: ValidationIssueSeverity.warning,
+        source: ValidationIssueSource.warning,
+        message: missingEndpointMessage('ghost-endpoint'),
+        fieldPath: 'steps[0].with.endpoint.name',
+        line: lineOf(named, 'name: ghost-endpoint'),
+      })
+    );
+  });
+
+  it('claims nothing before the endpoints are known, or for a listed or computed name', () => {
+    const quiet = (text: string, endpoints?: string[]) =>
+      only(text, { endpoints }).filter((i) =>
+        i.message.includes('does not exist')
+      );
+    expect(quiet(named, undefined)).toEqual([]);
+    expect(quiet(named, ['ghost-endpoint'])).toEqual([]);
+    expect(quiet(named.replace('ghost-endpoint', '${EP}'), ['main'])).toEqual(
+      []
+    );
+  });
+
+  it('checks the endpoint of a chat step and of an entry of its model list', () => {
+    const chat = [
+      'steps:',
+      '  - name: talk',
+      '    action: chat.completion',
+      '    with:',
+      '      model:',
+      '        - name: m1',
+      '          endpoint: ghost-a',
+      '',
+    ].join('\n');
+    expect(issuesOf(chat, { endpoints: ['main'] })).toContainEqual(
+      expect.objectContaining({
+        message: missingEndpointMessage('ghost-a'),
+        fieldPath: 'steps[0].with.model[0].endpoint',
+        line: lineOf(chat, 'endpoint: ghost-a'),
+      })
+    );
+  });
+
+  it('drops the stepless server issue that a client issue says with its place', () => {
+    const text = step('provider: claude', 'prompt: hi');
+    const model = parseDagDocLenient(text);
+    const server = serverIssue({
+      message: `field 'steps': field 'with.endpoint': ${AGENT_NEEDS_ENDPOINT_MESSAGE}`,
+    });
+    const merged = mergeIssues(
+      model,
+      resolveStepNames(model),
+      [server],
+      collectClientIssues(input(text))
+    );
+    expect(
+      merged.filter((i) => i.message.includes(AGENT_NEEDS_ENDPOINT_MESSAGE))
+    ).toHaveLength(1);
+    expect(merged).not.toContain(server);
+  });
+});
+
+// The rules of Spec 080 that the loader checks in the file, on the line of the key.
+describe('collectClientIssues: restart_policy', () => {
+  const dag = (...top: string[]) =>
+    [...top, 'steps:', '  - run: echo serve', ''].join('\n');
+  const restartIssues = (text: string) =>
+    issuesOf(text, { schema: null }).filter(
+      (issue) =>
+        issue.stepPath === undefined &&
+        /restart_/.test(`${issue.message} ${issue.fieldPath ?? ''}`)
+    );
+  const shape = (text: string) =>
+    restartIssues(text).map((i) => [i.severity, i.message, i.line]);
+  const error = ValidationIssueSeverity.error;
+  const warning = ValidationIssueSeverity.warning;
+  const WAIT_ALWAYS =
+    'restart_wait_sec must be at least 1 when restart_policy is "always"';
+
+  it('gives nothing for the valid files of the conformance suite', () => {
+    for (const text of [
+      dag('restart_policy: always', 'restart_wait_sec: 5'),
+      dag('restart_policy: " Unless-Stopped "', 'restart_wait_sec: 10'),
+      dag('restart_policy: no', 'schedule: "* * * * *"'),
+      dag('restart_policy: ""'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: []'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: ""'),
+      dag('restart_policy: always', 'restart_wait_sec: ${WAIT}'),
+      dag('schedule: "* * * * *"', 'retry_policy:', '  limit: 2'),
+    ]) {
+      expect(restartIssues(text)).toEqual([]);
+    }
+  });
+
+  it('reports a value that is not no, always or unless-stopped', () => {
+    const text = dag('restart_policy: on-failure', 'restart_wait_sec: 5');
+    expect(shape(text)).toEqual([
+      [
+        error,
+        'invalid restart_policy "on-failure": must be "no", "always", or "unless-stopped"',
+        1,
+      ],
+    ]);
+    expect(restartIssues(text)[0]).toMatchObject({
+      fieldPath: 'restart_policy',
+      source: ValidationIssueSource.build,
+    });
+  });
+
+  it('reports a schedule on the restart_policy line, in each form', () => {
+    for (const schedule of [
+      ['schedule: "* * * * *"'],
+      ['schedule:', '  start: "0 8 * * *"', '  stop: "0 18 * * *"'],
+    ]) {
+      const text = dag(
+        'restart_policy: always',
+        'restart_wait_sec: 5',
+        ...schedule
+      );
+      expect(shape(text)).toEqual([[error, RESTART_WITH_SCHEDULE_MESSAGE, 1]]);
+    }
+  });
+
+  it('reports a DAG-level retry_policy on the restart_policy line', () => {
+    const text = dag(
+      'name: svc',
+      'restart_policy: unless-stopped',
+      'restart_wait_sec: 5',
+      'retry_policy:',
+      '  limit: 3'
+    );
+    expect(shape(text)).toEqual([[error, RESTART_WITH_RETRY_MESSAGE, 2]]);
+  });
+
+  it('reports a wait of 0 or less on the restart_wait_sec line', () => {
+    for (const wait of ['0', '-3']) {
+      const text = dag('restart_policy: Always', `restart_wait_sec: ${wait}`);
+      expect(shape(text)).toEqual([[error, WAIT_ALWAYS, 2]]);
+    }
+  });
+
+  it('warns about a missing wait: the base configuration can give it', () => {
+    const text = dag('restart_policy: always');
+    expect(shape(text)).toEqual([[warning, RESTART_WAIT_MISSING_MESSAGE, 1]]);
+    expect(restartIssues(text)[0]?.source).toBe(ValidationIssueSource.warning);
+    expect(RESTART_WAIT_MISSING_MESSAGE).toContain(
+      'or set it in the base configuration'
+    );
+  });
+
+  it('keeps one issue when the server says the same errors', () => {
+    const text = dag(
+      'restart_policy: always',
+      'restart_wait_sec: 0',
+      'schedule: "* * * * *"'
+    );
+    const model = parseDagDocLenient(text);
+    const server = [
+      serverIssue({
+        message: `field 'restart_policy': ${RESTART_WITH_SCHEDULE_MESSAGE} (value: always)`,
+      }),
+      serverIssue({
+        message: `field 'restart_wait_sec': ${WAIT_ALWAYS} (value: 0s)`,
+      }),
+    ];
+    const merged = mergeIssues(
+      model,
+      resolveStepNames(model),
+      server,
+      issuesOf(text, { schema: null })
+    );
+    expect(merged.map((i) => [i.severity, i.message, i.line])).toEqual([
+      [error, RESTART_WITH_SCHEDULE_MESSAGE, 1],
+      [error, WAIT_ALWAYS, 2],
+    ]);
+  });
+
+  it('turns the warning of a missing wait into the error of the server', () => {
+    const text = dag('restart_policy: always');
+    const model = parseDagDocLenient(text);
+    const merged = mergeIssues(
+      model,
+      resolveStepNames(model),
+      [
+        serverIssue({
+          message: `field 'restart_wait_sec': ${WAIT_ALWAYS} (value: 0s)`,
+        }),
+      ],
+      issuesOf(text, { schema: null })
+    );
+    expect(merged.map((i) => [i.severity, i.message, i.line])).toEqual([
+      [error, WAIT_ALWAYS, 1],
+    ]);
+  });
+
+  it('shows the warning alone when the server says nothing', () => {
+    const text = dag('restart_policy: always');
+    const model = parseDagDocLenient(text);
+    const merged = mergeIssues(
+      model,
+      resolveStepNames(model),
+      [],
+      issuesOf(text, { schema: null })
+    );
+    expect(merged.map((i) => [i.severity, i.message])).toEqual([
+      [warning, RESTART_WAIT_MISSING_MESSAGE],
+    ]);
   });
 });

@@ -567,15 +567,17 @@ export function AnchoredPopover({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Capture phase: Esc closes this layer only, not the panel under it.
+        event.stopPropagation();
         anchorRef.current?.focus();
         onClose();
       }
     };
     document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDown, true);
     };
   }, [anchorRef, onClose, open]);
 

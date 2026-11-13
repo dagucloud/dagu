@@ -6,11 +6,14 @@ import type { CanvasGraph, CanvasNode } from '../../contracts';
 import { layoutGraph } from '../../canvas/layout';
 import { toFlowNodes, withLauncherStates } from '../../canvas/flow';
 import {
+  drawnLauncher,
   isLauncherKey,
   launcherIdOf,
   launcherKey,
   launcherStates,
+  SLOT_IDS,
   startSteps,
+  type LauncherInputs,
   withLaunchers,
 } from '../model';
 
@@ -42,7 +45,7 @@ function graphOf(keys: string[], pairs: string[] = []): CanvasGraph {
 }
 
 describe('launcherStates', () => {
-  it('keeps Manual active and sets Cron and Webhook dashed by default', () => {
+  it('keeps Manual active and sets the Schedule slot and Webhook dashed by default', () => {
     expect(
       launcherStates({
         scheduleCount: 0,
@@ -51,9 +54,93 @@ describe('launcherStates', () => {
       })
     ).toEqual([
       { id: 'manual', status: 'active' },
-      { id: 'cron', status: 'dashed', count: 0 },
+      { id: 'schedule', status: 'dashed' },
       { id: 'webhook', status: 'dashed' },
     ]);
+  });
+
+  it('draws Always on solid with the policy, the wait and the runs kept', () => {
+    const states = launcherStates({
+      scheduleCount: 0,
+      restartPolicy: 'unless-stopped',
+      restartWaitSec: 5,
+      restartRetentionRuns: 20,
+      webhookCount: 0,
+      webhooksAvailable: false,
+    });
+    expect(states.find((s) => s.id === 'always')).toEqual({
+      id: 'always',
+      status: 'active',
+      policy: 'unless-stopped',
+      waitSec: 5,
+      retentionRuns: 20,
+    });
+  });
+
+  // Cron and Always on are one slot: a policy cannot go with a schedule
+  // (spec 080).
+  describe('the Cron and Always on slot', () => {
+    type Slot = Partial<LauncherInputs> & { scheduleCount: number };
+    const ids = (input: Slot) =>
+      launcherStates({ webhookCount: 0, webhooksAvailable: false, ...input })
+        .filter((s) => SLOT_IDS.includes(s.id))
+        .map((s) => `${s.id}:${s.status}`);
+
+    it('draws Always on in place of Cron with a policy', () => {
+      expect(
+        ids({ scheduleCount: 0, restartPolicy: 'always', restartWaitSec: 5 })
+      ).toEqual(['always:active']);
+      expect(
+        ids({ scheduleCount: 0, restartPolicy: 'unless-stopped' })
+      ).toEqual(['always:active']);
+    });
+
+    it('draws Cron alone with a schedule', () => {
+      expect(ids({ scheduleCount: 2 })).toEqual(['cron:active']);
+      expect(ids({ scheduleCount: 1, restartPolicy: 'no' })).toEqual([
+        'cron:active',
+      ]);
+    });
+
+    it('draws Cron for a schedule of any form, even with no start entry', () => {
+      expect(ids({ scheduleCount: 0, schedulePresent: true })).toEqual([
+        'cron:active',
+      ]);
+    });
+
+    it('draws one Schedule placeholder with neither', () => {
+      expect(ids({ scheduleCount: 0 })).toEqual(['schedule:dashed']);
+      expect(ids({ scheduleCount: 0, restartPolicy: 'no' })).toEqual([
+        'schedule:dashed',
+      ]);
+    });
+
+    // The file is invalid: the diagnostics flag it, and the graph shows it.
+    it('draws both solid with a policy and a schedule', () => {
+      expect(
+        ids({ scheduleCount: 1, restartPolicy: 'always', restartWaitSec: 5 })
+      ).toEqual(['cron:active', 'always:active']);
+    });
+
+    it('keeps Manual first and Webhook last, and counts the launchers', () => {
+      const count = (input: Slot) =>
+        launcherStates({ webhookCount: 0, webhooksAvailable: true, ...input });
+      const set = count({ scheduleCount: 0, restartPolicy: 'always' });
+      expect(set.map((s) => s.id)).toEqual(['manual', 'always', 'webhook']);
+      expect(count({ scheduleCount: 2 }).map((s) => s.id)).toEqual([
+        'manual',
+        'cron',
+        'webhook',
+      ]);
+      expect(count({ scheduleCount: 0 }).map((s) => s.id)).toEqual([
+        'manual',
+        'schedule',
+        'webhook',
+      ]);
+      expect(
+        count({ scheduleCount: 1, restartPolicy: 'always' }).map((s) => s.id)
+      ).toEqual(['manual', 'cron', 'always', 'webhook']);
+    });
   });
 
   it('draws Cron solid with a schedule', () => {
@@ -106,6 +193,7 @@ describe('launcherStates', () => {
 describe('launcher keys', () => {
   it('tells launchers from steps', () => {
     expect(isLauncherKey(launcherKey('cron'))).toBe(true);
+    expect(launcherIdOf('launcher:always')).toBe('always');
     expect(isLauncherKey('steps[0]')).toBe(false);
     expect(launcherIdOf('launcher:webhook')).toBe('webhook');
     expect(launcherIdOf('launcher:other')).toBeNull();
@@ -146,8 +234,11 @@ describe('startSteps', () => {
 });
 
 describe('withLaunchers', () => {
+  // The widest set: a file with both keys draws Cron and Always on.
   const states = launcherStates({
-    scheduleCount: 0,
+    scheduleCount: 1,
+    restartPolicy: 'always',
+    restartWaitSec: 5,
     webhookCount: 0,
     webhooksAvailable: true,
   });
@@ -155,9 +246,12 @@ describe('withLaunchers', () => {
   it('connects every launcher to every start step', () => {
     const graph = graphOf(['a', 'b', 'c'], ['a>c', 'b>c']);
     const launched = withLaunchers(graph, states);
-    expect(launched.edges).toHaveLength(6);
+    expect(launched.edges).toHaveLength(8);
     expect(launched.edges.map((e) => `${e.source}>${e.target}`)).toContain(
       'launcher:cron>b'
+    );
+    expect(launched.edges.map((e) => `${e.source}>${e.target}`)).toContain(
+      'launcher:always>a'
     );
     // The graph of the edits is untouched.
     expect(graph.edges).toHaveLength(2);
@@ -222,6 +316,35 @@ describe('withLaunchers', () => {
     expect(lit.find((n) => n.id === 'launcher:cron')!.selected).toBe(true);
     expect(
       lit.find((n) => n.id === 'launcher:cron')!.data.launcher?.status
-    ).toBe('dashed');
+    ).toBe('active');
+  });
+});
+
+describe('drawnLauncher', () => {
+  const states = (input: Parameters<typeof launcherStates>[0]) =>
+    launcherStates(input);
+  const none = { webhookCount: 0, webhooksAvailable: false };
+
+  it('keeps an id that is drawn, and an id outside the slot', () => {
+    const set = states({ scheduleCount: 1, ...none });
+    expect(drawnLauncher('cron', set)).toBe('cron');
+    expect(drawnLauncher('manual', set)).toBe('manual');
+    expect(drawnLauncher('webhook', set)).toBe('webhook');
+    expect(drawnLauncher(null, set)).toBeNull();
+  });
+
+  // The panel of the slot follows the node as the author sets a value.
+  it('follows the node of the slot when its id changes', () => {
+    const cron = states({ scheduleCount: 1, ...none });
+    const always = states({
+      scheduleCount: 0,
+      restartPolicy: 'always',
+      ...none,
+    });
+    const neither = states({ scheduleCount: 0, ...none });
+    expect(drawnLauncher('schedule', cron)).toBe('cron');
+    expect(drawnLauncher('schedule', always)).toBe('always');
+    expect(drawnLauncher('cron', neither)).toBe('schedule');
+    expect(drawnLauncher('always', cron)).toBe('cron');
   });
 });

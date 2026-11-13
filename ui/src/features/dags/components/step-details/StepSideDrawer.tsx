@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import {
+  useActiveRightPanel,
   useRightPanelClaim,
   type RightPanelId,
 } from '@/contexts/RightPanelContext';
@@ -54,6 +55,12 @@ type StepSideDrawerProps = {
    * the body of a tab: no shell, width or claim of a right-panel slot.
    */
   column?: HTMLElement | null;
+  /**
+   * The least width, in pixels, for the content that shows now. The drawer is
+   * this wide while that content shows, even when the stored width is smaller,
+   * and the stored width does not change. A larger stored width still applies.
+   */
+  minWidth?: number;
   children: React.ReactNode;
 };
 
@@ -68,6 +75,16 @@ function keepsEscape(element: Element | null): boolean {
 }
 
 const DRAWER_WIDTH_STORAGE_KEY = 'dagu.stepDetailsDrawer.width';
+
+/**
+ * The key of the stored width of a panel. The step details and the YAML keep
+ * the first key. Each other panel has its own width.
+ */
+function widthKey(panelId?: RightPanelId | null): string {
+  return !panelId || panelId === 'ndv' || panelId === 'yaml'
+    ? DRAWER_WIDTH_STORAGE_KEY
+    : `${DRAWER_WIDTH_STORAGE_KEY}.${panelId}`;
+}
 const DEFAULT_DRAWER_WIDTH = 560;
 /** The change of width of one arrow key on the resize handle. */
 const DRAWER_WIDTH_STEP = 40;
@@ -77,15 +94,15 @@ function clampDrawerWidth(value: number): number {
   return clampPanelWidth(value, window.innerWidth);
 }
 
-/** The width the user chose for the drawer, kept between visits. */
-export function getStoredDrawerWidth(): number {
+/** The width the user chose for the drawer of a panel, kept between visits. */
+export function getStoredDrawerWidth(panelId?: RightPanelId | null): number {
   if (typeof window === 'undefined') {
     return DEFAULT_DRAWER_WIDTH;
   }
 
   let storedValue: string | null = null;
   try {
-    storedValue = window.localStorage.getItem(DRAWER_WIDTH_STORAGE_KEY);
+    storedValue = window.localStorage.getItem(widthKey(panelId));
   } catch {
     return DEFAULT_DRAWER_WIDTH;
   }
@@ -97,27 +114,31 @@ export function getStoredDrawerWidth(): number {
 }
 
 // The width while the user drags a handle, before it is stored, and the
-// width that the storage refused: every right panel and the layout beside
-// them follow it (see useDrawerWidth).
-let liveDrawerWidth: number | null = null;
-let unsavedDrawerWidth: number | null = null;
+// widths that the storage refused: the panel and the layout beside it follow
+// them (see useDrawerWidth). Each panel has its own width.
+let liveDrawerWidth: { key: string; width: number } | null = null;
+const unsavedDrawerWidths = new Map<string, number>();
 const drawerWidthListeners = new Set<() => void>();
 
 /** Shows a width while the user drags a handle, before it is stored. */
-function setLiveDrawerWidth(width: number | null): void {
-  if (liveDrawerWidth === width) return;
-  liveDrawerWidth = width;
+function setLiveDrawerWidth(key: string, width: number | null): void {
+  const same =
+    width === null
+      ? liveDrawerWidth === null
+      : liveDrawerWidth?.key === key && liveDrawerWidth.width === width;
+  if (same) return;
+  liveDrawerWidth = width === null ? null : { key, width };
   drawerWidthListeners.forEach((listener) => listener());
 }
 
-/** Sets the width of every right panel, kept for the next visit. */
-function storeDrawerWidth(width: number): void {
+/** Sets the width of the panel of `key`, kept for the next visit. */
+function storeDrawerWidth(key: string, width: number): void {
   try {
-    window.localStorage.setItem(DRAWER_WIDTH_STORAGE_KEY, String(width));
-    unsavedDrawerWidth = null;
+    window.localStorage.setItem(key, String(width));
+    unsavedDrawerWidths.delete(key);
   } catch {
     // Without storage, the width holds until the page reloads.
-    unsavedDrawerWidth = width;
+    unsavedDrawerWidths.set(key, width);
   }
   liveDrawerWidth = null;
   drawerWidthListeners.forEach((listener) => listener());
@@ -130,21 +151,29 @@ function subscribeDrawerWidth(listener: () => void): () => void {
   };
 }
 
-function currentDrawerWidth(): number {
-  return liveDrawerWidth ?? unsavedDrawerWidth ?? getStoredDrawerWidth();
+function currentDrawerWidth(panelId: RightPanelId | null): number {
+  const key = widthKey(panelId);
+  return liveDrawerWidth?.key === key
+    ? liveDrawerWidth.width
+    : (unsavedDrawerWidths.get(key) ?? getStoredDrawerWidth(panelId));
+}
+
+/** The width of the panel `panelId`, live while the user drags its handle. */
+function usePanelWidth(panelId: RightPanelId | null): number {
+  return React.useSyncExternalStore(
+    subscribeDrawerWidth,
+    () => currentDrawerWidth(panelId),
+    () => getStoredDrawerWidth(panelId)
+  );
 }
 
 /**
- * The width of the right panels, live: it changes while the user drags a
- * handle, so that every panel and a layout that leaves room for them keep
- * the same width.
+ * The width of the drawer of the panel that shows, live: it changes while
+ * the user drags the handle, so that a layout that leaves room for the drawer
+ * keeps the same width.
  */
 export function useDrawerWidth(): number {
-  return React.useSyncExternalStore(
-    subscribeDrawerWidth,
-    currentDrawerWidth,
-    getStoredDrawerWidth
-  );
+  return usePanelWidth(useActiveRightPanel());
 }
 
 /**
@@ -184,20 +213,33 @@ function usePanelRoom(
 export function PanelResizeHandle({
   shown,
   modal = false,
+  panelId,
+  leastWidth = 0,
 }: {
   /** True while the panel is shown, so that the size of its zone is known. */
   shown: boolean;
   /** A modal panel covers the page: the cap beside the page does not apply. */
   modal?: boolean;
+  /** The panel that the handle sizes; the panel that shows when omitted. */
+  panelId?: RightPanelId | null;
+  /** The width that the content asks for: the handle shows at least this. */
+  leastWidth?: number;
 }) {
   const { ts } = useI18n();
   const handleRef = React.useRef<HTMLDivElement>(null);
+  const activePanel = useActiveRightPanel();
+  const sizedPanel = panelId === undefined ? activePanel : panelId;
+  const key = widthKey(sizedPanel);
   const viewport = useViewportWidth();
   const room = usePanelRoom(handleRef, shown, viewport);
   const cap = modal ? undefined : viewport;
   const maxWidth = panelMaxWidthIn(room, cap);
   const minWidth = Math.min(PANEL_MIN_WIDTH, maxWidth);
-  const width = clampPanelWidth(useDrawerWidth(), room, cap);
+  const width = clampPanelWidth(
+    Math.max(usePanelWidth(sizedPanel), leastWidth),
+    room,
+    cap
+  );
   const clamp = (next: number) => clampPanelWidth(next, room, cap);
 
   const onMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -210,10 +252,10 @@ export function PanelResizeHandle({
     let latest: number | null = null;
     const onMove = (move: MouseEvent) => {
       latest = clamp(startWidth + startX - move.clientX);
-      setLiveDrawerWidth(latest);
+      setLiveDrawerWidth(key, latest);
     };
     const onUp = () => {
-      if (latest !== null) storeDrawerWidth(latest);
+      if (latest !== null) storeDrawerWidth(key, latest);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -231,7 +273,7 @@ export function PanelResizeHandle({
     const next = targets[event.key];
     if (next === undefined) return;
     event.preventDefault();
-    storeDrawerWidth(clamp(next));
+    storeDrawerWidth(key, clamp(next));
   };
 
   return (
@@ -270,12 +312,15 @@ export function StepSideDrawer({
   onRestore,
   closeOnPageEscape = false,
   column,
+  minWidth = 0,
   children,
 }: StepSideDrawerProps) {
   useRightPanelClaim(column ? null : panelId, isOpen, onClose, onRestore);
   const placement = usePanelPlacement();
   const viewport = useViewportWidth();
-  const drawerWidth = useDrawerWidth();
+  const storedWidth = usePanelWidth(panelId ?? null);
+  // A dock with a list and a detail asks for more room while it shows.
+  const shownWidth = Math.max(storedWidth, minWidth);
   const [shouldRender, setShouldRender] = React.useState(false);
   const [isVisible, setIsVisible] = React.useState(false);
   const drawerRef = React.useRef<HTMLElement>(null);
@@ -485,7 +530,7 @@ export function StepSideDrawer({
       data-side-drawer=""
       data-panel-shell={modal ? undefined : 'right'}
       className={cn(
-        'outline-none transition-[opacity,translate] duration-200 ease-out',
+        'outline-none transition-[opacity,translate] duration-200 ease-out motion-reduce:transition-none',
         modal &&
           'z-10 flex h-full max-w-full flex-col border-l border-border bg-card shadow-lg shadow-foreground/10',
         modal ? 'relative' : panelShellClass(placement),
@@ -501,11 +546,16 @@ export function StepSideDrawer({
       style={{
         // A modal drawer covers the page: the cap beside the page does not apply.
         width: modal
-          ? `min(100vw, ${drawerWidth}px)`
-          : panelWidth(drawerWidth, viewport),
+          ? `min(100vw, ${shownWidth}px)`
+          : panelWidth(shownWidth, viewport),
       }}
     >
-      <PanelResizeHandle shown={isOpen} modal={modal} />
+      <PanelResizeHandle
+        shown={isOpen}
+        modal={modal}
+        panelId={panelId ?? null}
+        leastWidth={minWidth}
+      />
       {header}
       {children}
     </aside>
@@ -525,7 +575,7 @@ export function StepSideDrawer({
           tabIndex={-1}
           aria-label="Close step details"
           className={cn(
-            'absolute inset-0 h-full w-full cursor-default bg-transparent transition-opacity duration-200 ease-out',
+            'absolute inset-0 h-full w-full cursor-default bg-transparent transition-opacity duration-200 ease-out motion-reduce:transition-none',
             isVisible ? 'opacity-100' : 'opacity-0'
           )}
           onClick={onClose}

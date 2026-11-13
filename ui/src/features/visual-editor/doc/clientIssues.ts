@@ -15,13 +15,36 @@ import type {
   StepView,
   ValidationIssue,
 } from '../contracts';
+import {
+  dagHasAgentRun,
+  isAgentRunValue,
+  readAgentProvider,
+  secretsNeedOptOut,
+} from '../agentRun/agentRun';
+import { readAgentRunInfo, readChatInfo } from '../canvas/chatModel';
 import { builtinActionNames } from '../inspector/actionRules';
+import { plainIssueMessage } from '../inspector/issues';
 import { checkStepSchemaErrors } from '../inspector/stepSchemaCheck';
 import { nextRuns } from '../launchers/nextRuns';
 import { findReferenceTokens } from '../references/tokens';
-import { NO_ID_MESSAGE, OUTPUTS_ID_MESSAGE } from './issueMessages';
-import { locateIssue, rangeFromOffsets } from './issues';
+import {
+  AGENT_NEEDS_ENDPOINT_MESSAGE,
+  AGENT_NEEDS_PROVIDER_MESSAGE,
+  invalidRestartPolicyMessage,
+  missingEndpointMessage,
+  mustBeMessage,
+  NO_ID_MESSAGE,
+  OUTPUTS_ID_MESSAGE,
+  RESTART_WAIT_MISSING_MESSAGE,
+  RESTART_WAIT_SERVER_ERROR,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  restartWaitMessage,
+  SECRETS_UNTRUSTED_MESSAGE,
+} from './issueMessages';
+import { locateIssue, rangeFromOffsets, scalarAtField } from './issues';
 import { validateStepId, validateStepName } from './names';
+import { isServicePolicy, readRestart } from './ops/restart';
 import { readSchedule } from './ops/schedule';
 
 /*
@@ -35,7 +58,17 @@ import { readSchedule } from './ops/schedule';
 /** The messages of the issues that this module makes, for the merge. */
 export const EMPTY_ACTION_MESSAGE = 'Action is empty.';
 export const NO_COMMAND_MESSAGE = 'The step has no action and no command.';
-export { NO_ID_MESSAGE, OUTPUTS_ID_MESSAGE } from './issueMessages';
+export {
+  AGENT_NEEDS_ENDPOINT_MESSAGE,
+  AGENT_NEEDS_PROVIDER_MESSAGE,
+  missingEndpointMessage,
+  NO_ID_MESSAGE,
+  OUTPUTS_ID_MESSAGE,
+  RESTART_WAIT_MISSING_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  SECRETS_UNTRUSTED_MESSAGE,
+} from './issueMessages';
 export {
   mergeQuickFixes,
   planQuickFixes,
@@ -151,6 +184,11 @@ export interface ClientIssueInput {
   scope?: ReferenceScope;
   /** The names of the custom actions: those of the base config and of the file. */
   customActions?: string[];
+  /**
+   * The names of the AI endpoints that this DAG may use, from the AI page.
+   * Without it (before the answer) no endpoint name is checked.
+   */
+  endpoints?: readonly string[] | undefined;
 }
 
 function schemaDrafts(step: StepView, schema: JSONSchema): Draft[] {
@@ -177,10 +215,17 @@ function schemaDrafts(step: StepView, schema: JSONSchema): Draft[] {
       ? 'error'
       : 'warning';
     if (error.keyword === 'required') {
+      // The loader says what an agent step needs: the Model form shows it.
+      const agentProvider =
+        error.property === 'provider' &&
+        error.instancePath === '/with' &&
+        isAgentRunValue(step.value, step.action);
       drafts.push({
         step,
         severity,
-        message: `${error.property ?? 'The field'} is required.`,
+        message: agentProvider
+          ? AGENT_NEEDS_PROVIDER_MESSAGE
+          : `${error.property ?? 'The field'} is required.`,
         fieldPath,
       });
     } else if (error.keyword === 'additionalProperties') {
@@ -192,10 +237,17 @@ function schemaDrafts(step: StepView, schema: JSONSchema): Draft[] {
       });
     } else {
       const where = fieldPath.slice(step.key.length + 1) || 'The step';
+      // A rule with one allowed value says the value: a quick fix sets it.
+      const only =
+        (error.keyword === 'const' || error.keyword === 'enum') &&
+        !error.inChoice &&
+        error.allowedValues?.length === 1;
       drafts.push({
         step,
         severity,
-        message: `${where} ${error.message}.`,
+        message: only
+          ? mustBeMessage(where, error.allowedValues?.[0])
+          : `${where} ${error.message}.`,
         fieldPath,
       });
     }
@@ -242,6 +294,90 @@ function actionDrafts(step: StepView, known: Set<string> | null): Draft[] {
     return [{ step, severity: 'warning', message: NO_COMMAND_MESSAGE }];
   }
   return [];
+}
+
+/**
+ * The offset of the `with` key of a step: the first line `with:` of the
+ * entry with the least indent. Undefined for a flow-style step.
+ */
+function withKeyOffset(model: DagDocModel, step: StepView): number | undefined {
+  const text = model.text.slice(step.range.from, step.range.to);
+  let best: { indent: number; offset: number } | undefined;
+  for (const match of text.matchAll(/^([ \t]*)with[ \t]*:/gm)) {
+    const indent = (match[1] ?? '').length;
+    if (!best || indent < best.indent) {
+      best = { indent, offset: step.range.from + match.index + indent };
+    }
+  }
+  return best?.offset;
+}
+
+/**
+ * The checks of the endpoint of a step. The loader refuses an agent.run step
+ * of the CLI claude with no `with.endpoint`: an error on the `with` line. A
+ * name that the AI page does not list loads, and the step may fail when it
+ * starts: a warning on the line of the name. Nothing is claimed about a
+ * `${...}` name, or before the AI page has answered (`endpoints` undefined).
+ */
+function endpointDrafts(
+  model: DagDocModel,
+  step: StepView,
+  endpoints: readonly string[] | undefined
+): Draft[] {
+  const { value } = step;
+  const agent = isAgentRunValue(value, step.action);
+  const chat = (step.action ?? value.action) === 'chat.completion';
+  if (!agent && !chat) return [];
+  const drafts: Draft[] = [];
+  const block = isRecord(value.with) ? value.with : null;
+  if (
+    agent &&
+    block !== null &&
+    readAgentProvider(value) === 'claude' &&
+    !('endpoint' in block)
+  ) {
+    drafts.push({
+      step,
+      severity: 'error',
+      message: AGENT_NEEDS_ENDPOINT_MESSAGE,
+      fieldPath: `${step.key}.with.endpoint`,
+      // The key is not in the text: the issue goes to the `with:` line.
+      offset: withKeyOffset(model, step),
+    });
+  }
+  if (!endpoints) return drafts;
+  const rows =
+    (agent ? readAgentRunInfo(value) : readChatInfo(value)).edit?.rows ?? [];
+  for (const row of rows) {
+    if (row.endpoint === '' || row.endpoint.includes('${')) continue;
+    if (endpoints.includes(row.endpoint)) continue;
+    drafts.push({
+      step,
+      severity: 'warning',
+      message: missingEndpointMessage(row.endpoint),
+      fieldPath:
+        row.index === null
+          ? `${step.key}.with.endpoint.name`
+          : `${step.key}.with.model[${row.index}].endpoint`,
+    });
+  }
+  return drafts;
+}
+
+// A step that lists secrets in a DAG that has an agent step must say
+// `untrusted: false`: the DAG is refused when it loads (Spec 092).
+function trustDrafts(model: DagDocModel): Draft[] {
+  if (!dagHasAgentRun(model)) return [];
+  return everyStep(model)
+    .filter(
+      (step) => step.broken === undefined && secretsNeedOptOut(step, true)
+    )
+    .map((step) => ({
+      step,
+      severity: 'error' as const,
+      message: SECRETS_UNTRUSTED_MESSAGE,
+      fieldPath: `${step.key}.secrets`,
+    }));
 }
 
 // The server checks the names and ids of the steps only: a handler takes
@@ -508,6 +644,45 @@ function scheduleDrafts(model: DagDocModel): Draft[] {
   return drafts;
 }
 
+const RESTART_POLICIES = new Set(['', 'no', 'always', 'unless-stopped']);
+
+/**
+ * The rules of `restart_policy` that the loader checks in the file (Spec 080).
+ * The base configuration can give `restart_wait_sec`: a missing one is a
+ * warning, and the server error confirms it.
+ */
+function restartDrafts(model: DagDocModel): Draft[] {
+  const raw = scalarAtField(model, 'restart_policy')?.value;
+  if (typeof raw !== 'string') return [];
+  const at = (severity: Draft['severity'], message: string, field: string) => ({
+    step: null,
+    severity,
+    message,
+    fieldPath: field,
+  });
+  if (!RESTART_POLICIES.has(raw.trim().toLowerCase())) {
+    return [at('error', invalidRestartPolicyMessage(raw), 'restart_policy')];
+  }
+  const restart = readRestart(model.text);
+  if (!isServicePolicy(restart.policy)) return [];
+  const drafts: Draft[] = [];
+  if (restart.schedule) {
+    drafts.push(at('error', RESTART_WITH_SCHEDULE_MESSAGE, 'restart_policy'));
+  }
+  if (restart.retryPolicy) {
+    drafts.push(at('error', RESTART_WITH_RETRY_MESSAGE, 'restart_policy'));
+  }
+  const wait = scalarAtField(model, 'restart_wait_sec')?.value;
+  if (wait === undefined || wait === null) {
+    drafts.push(at('warning', RESTART_WAIT_MISSING_MESSAGE, 'restart_policy'));
+  } else if (typeof wait === 'number' && Number.isInteger(wait) && wait < 1) {
+    drafts.push(
+      at('error', restartWaitMessage(restart.policy), 'restart_wait_sec')
+    );
+  }
+  return drafts;
+}
+
 function toIssue(draft: Draft, input: ClientIssueInput): ValidationIssue {
   const { model, names } = input;
   const issue: ValidationIssue = {
@@ -565,12 +740,17 @@ export function collectClientIssues(
     if (schema && !own.some((draft) => draft.severity === 'error')) {
       drafts.push(...schemaDrafts(step, schema));
     }
+    if (!own.some((draft) => draft.severity === 'error')) {
+      drafts.push(...endpointDrafts(model, step, input.endpoints));
+    }
   }
   drafts.push(
     ...identityDrafts(model),
+    ...trustDrafts(model),
     ...dependencyDrafts(model),
     ...referenceDrafts(model, scope),
-    ...scheduleDrafts(model)
+    ...scheduleDrafts(model),
+    ...restartDrafts(model)
   );
   return drafts.map((draft) => toIssue(draft, input));
 }
@@ -585,6 +765,7 @@ const REQUIRED = /(?:^|[\s:])([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*) is required/;
  */
 function signatureOf(issue: ValidationIssue): string {
   const step = issue.stepPath ?? issue.stepName ?? '';
+  if (issue.message === SECRETS_UNTRUSTED_MESSAGE) return `trust|${step}`;
   if (
     EMPTY_COMMAND.test(issue.message) ||
     issue.message === EMPTY_ACTION_MESSAGE
@@ -643,11 +824,40 @@ export function mergeIssues(
   model: DagDocModel,
   names: StepNameMap,
   server: ValidationIssue[],
-  client: ValidationIssue[]
+  found: ValidationIssue[]
 ): ValidationIssue[] {
-  if (client.length === 0) return server;
-  const taken = new Set(server.map(signatureOf));
-  const merged = [...server];
+  if (found.length === 0) return server;
+  // The server error of a missing `restart_wait_sec` confirms the warning:
+  // one error, with its text, on the line of the warning.
+  const waitError = server.find(
+    (issue) =>
+      issue.stepPath === undefined &&
+      issue.stepName === undefined &&
+      RESTART_WAIT_SERVER_ERROR.test(plainIssueMessage(issue.message))
+  );
+  const client = waitError
+    ? found.map((issue) =>
+        issue.message === RESTART_WAIT_MISSING_MESSAGE
+          ? {
+              ...issue,
+              severity: waitError.severity,
+              source: waitError.source,
+              message: plainIssueMessage(waitError.message),
+            }
+          : issue
+      )
+    : found;
+  // A server error that names no step ("Workflow-level") and that a client
+  // issue says again, with its step and its line, gives way to that issue.
+  const clientMessages = new Set(client.map((issue) => issue.message));
+  const kept = server.filter(
+    (issue) =>
+      issue.stepPath !== undefined ||
+      issue.stepName !== undefined ||
+      !clientMessages.has(plainIssueMessage(issue.message))
+  );
+  const taken = new Set(kept.map(signatureOf));
+  const merged = [...kept];
   for (const issue of client) {
     const signature = signatureOf(issue);
     if (taken.has(signature) || coveredByServerReference(issue, server)) {

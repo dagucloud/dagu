@@ -32,6 +32,24 @@ describe('issueRows', () => {
     ]);
   });
 
+  // The loader wraps a build error in `field 'x': ` prefixes: the client issue
+  // that says the same text takes the row, with its step and its line.
+  it('gives a loader message with field prefixes the issue that says it plain', () => {
+    const own = issue({
+      message: 'agent.run needs an endpoint',
+      stepPath: 'steps[0]',
+    });
+    const rows = issueRows({
+      warnings: [],
+      errors: [
+        "field 'steps': field 'with.endpoint': agent.run needs an endpoint",
+      ],
+      issues: [own],
+    });
+    expect(rows.errors).toHaveLength(1);
+    expect(rows.errors[0]?.issue).toBe(own);
+  });
+
   it('adds the issues that no message says, after the messages', () => {
     const extra = issue({ message: 'found by the client' });
     const rows = issueRows({

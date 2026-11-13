@@ -3,6 +3,7 @@
 
 import {
   Boxes,
+  Bot,
   Box,
   Braces,
   Cloud,
@@ -58,6 +59,7 @@ const NAMESPACE_ICONS: Record<string, LucideIcon> = {
   router: Split,
   dag: Workflow,
   chat: MessageSquare,
+  agent: Bot,
   jq: Braces,
 };
 

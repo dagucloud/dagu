@@ -31,9 +31,13 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import { buildCanvasGraph, buildDetailsGraph, VisualCanvas } from './canvas';
-import { AgentRunContext } from './canvas/agentRunContext';
+import { RunContexts } from './canvas/RunContexts';
+import { ToolRunContext, type ToolRunInfo } from './canvas/toolRun';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
-import { useCanvasToolbarHost } from './canvas/toolbarHost';
+import {
+  useCanvasToolbarHost,
+  usePanelInToolbarRow,
+} from './canvas/toolbarHost';
 import { ghostLookOf } from './canvas/ghost';
 import {
   CanvasOverlayInsetContext,
@@ -52,6 +56,7 @@ import type {
   EditorCustomActionHint,
   EditorHostProps,
   EditResult,
+  FormSection,
   ReferenceScope,
   HandlerEvent,
   PaletteTarget,
@@ -59,6 +64,7 @@ import type {
   StepNameMap,
   ReferenceCandidate,
   StepView,
+  ToolSelection,
   ValidationIssue,
   VisualEditorHandle,
   VisualEditorState,
@@ -67,16 +73,18 @@ import {
   groupIssues,
   parseDagDoc,
   parseDagDocLenient,
+  readRestart,
   readSchedule,
   resolveStepNames,
 } from './doc';
 import { LauncherDataProbe, type LauncherData } from './launchers/LauncherData';
+import { useAlive } from './launchers/alive';
 import {
-  CronLauncherPanel,
   ManualLauncherPanel,
+  SlotLauncherPanel,
   WebhookLauncherPanel,
 } from './launchers/LauncherPanel';
-import type { LauncherId } from './launchers/model';
+import { drawnLauncher, type LauncherId } from './launchers/model';
 import {
   copyStepsYaml,
   duplicateStepsOp,
@@ -114,7 +122,14 @@ import {
 } from './run';
 import { buildAgentRunInfo } from './run/agentRun';
 import { buildRunOverlay } from './run/runOverlay';
+import { buildToolCalls, buildToolSubRuns } from './run/toolCalls';
 import { upstreamStepNames } from './run/upstreamSteps';
+import { PromptPanel } from './PromptPanel';
+import { DagViewPanel } from './DagViewPanel';
+import { SlotPanel } from './SlotPanel';
+import { ToolPanel } from './ToolPanel';
+import type { ToolPick } from './tools/pick';
+import { readStepTools } from './tools/parse';
 import { AddStepPanel } from './AddStepPanel';
 import {
   paletteAddOp,
@@ -143,6 +158,8 @@ export interface VisualEditorValidation {
 export interface VisualEditorProps extends EditorHostProps {
   fileName: string;
   dagName: string;
+  /** Workspace of the DAG, for the run permission. */
+  workspace?: string;
   /** The DAG YAML: the only state of the editor. */
   text: string;
   onTextChange(text: string): void;
@@ -193,6 +210,11 @@ export interface VisualEditorProps extends EditorHostProps {
   /** Controls before the canvas controls; see VisualCanvasProps.toolbarStart. */
   toolbarStart?: ReactNode;
   /**
+   * The text tools of the YAML panel of the file. In the row of a host, they
+   * stand at the start of the toolbar while that panel is open.
+   */
+  yamlTools?: ReactNode;
+  /**
    * Restores the text of the last save; the 'Revert to the last save' button
    * shows only with it, and is on only while the text is dirty. The host asks
    * for a confirmation when needed.
@@ -227,6 +249,33 @@ export interface VisualEditorProps extends EditorHostProps {
   /** The drawer shows the form of the step, not its YAML. */
   formVisible?: boolean;
   onFormVisibleChange?(visible: boolean): void;
+}
+
+/** The width that the Tools dock and the Skills dock ask for: the list and the detail fit side by side. */
+const SLOT_DOCK_MIN_WIDTH = 760;
+/** The width that the view of a DAG asks for: its canvas needs room to read the steps. */
+const DAG_DOCK_MIN_WIDTH = 640;
+
+/**
+ * What the tool dock shows for a step: the list that picks a DAG or a tool
+ * to add (`add`; `slot` tells which), the list that picks a skill to add
+ * (`skill`), the panel of one tool entry (`tool`), the panel of the system
+ * message and the prompt of an agent step (`prompt`), the panel of the whole
+ * list of its DAGs, of its Tools or of its Skills (`slot`), or the enlarged
+ * view of the DAG that a DAG tool calls (`dag`).
+ */
+type ToolDock =
+  | { view: 'add'; step: StepKey; slot: 'tools' | 'dags' }
+  | { view: 'skill'; step: StepKey }
+  | { view: 'prompt'; step: StepKey }
+  | { view: 'slot'; step: StepKey; slot: 'tools' | 'dags' | 'skills' }
+  | { view: 'tool'; tool: ToolSelection }
+  | { view: 'dag'; tool: ToolSelection };
+
+function toolDockStepOf(dock: ToolDock): StepKey {
+  return dock.view === 'tool' || dock.view === 'dag'
+    ? dock.tool.step
+    : dock.step;
 }
 
 interface EditNotice {
@@ -377,6 +426,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const {
     fileName,
     dagName,
+    workspace,
     text,
     onTextChange,
     validation,
@@ -392,6 +442,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onYamlIntent,
     onYamlModeChange,
     initialYamlMode = 'step',
+    yamlTools,
     initialWorkflowOpen = false,
     onWorkflowOpenChange,
     toolbarStart,
@@ -471,6 +522,46 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     : (ownRun.agent ??
       (isAgentDag && ownRun.runId && !ownRun.isLoading ? NO_AGENT_RUN : null));
   const resolvedRunId = runSource ? runSource.runId : ownRun.runId;
+  // The run that the tool satellites of the chat steps read.
+  const hostToolCalls = useMemo(
+    () => (hosted ? buildToolCalls(hostDetails) : null),
+    [hosted, hostDetails]
+  );
+  const hostSubRuns = useMemo(
+    () => (hosted ? buildToolSubRuns(hostDetails) : null),
+    [hosted, hostDetails]
+  );
+  const toolRun = useMemo<ToolRunInfo>(() => {
+    const info: ToolRunInfo = {
+      dagName: hostDetails?.name ?? dagName,
+      runId: resolvedRunId,
+      calls: hostToolCalls ?? ownRun.toolCalls ?? {},
+    };
+    const subRuns = hostSubRuns ?? ownRun.toolSubRuns;
+    if (subRuns) info.subRuns = subRuns;
+    // The page of a sub-run opens on the root run. The editor runs the file
+    // itself, so a run of its own is a root run of this file.
+    if (resolvedRunId) {
+      const rootId = hostDetails?.rootDAGRunId || resolvedRunId;
+      info.root = {
+        name: hostDetails?.rootDAGRunName || info.dagName,
+        id: rootId,
+        ...(rootId === resolvedRunId ? { fileName } : {}),
+      };
+    }
+    return info;
+  }, [
+    hostDetails?.name,
+    hostDetails?.rootDAGRunId,
+    hostDetails?.rootDAGRunName,
+    dagName,
+    fileName,
+    resolvedRunId,
+    hostToolCalls,
+    hostSubRuns,
+    ownRun.toolCalls,
+    ownRun.toolSubRuns,
+  ]);
   const followRun = useCallback(
     (id: string | null) => {
       setRunId(id);
@@ -632,10 +723,32 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     }
   }
   const [launcherData, setLauncherData] = useState<LauncherData | null>(null);
+  // A node of the Cron and Always on slot changes its id with the YAML: the
+  // panel and the lit node follow the one that is drawn.
+  const openNode = drawnLauncher(launcherOpen, launcherData?.states);
   const schedule = useMemo(
     () => (launcherHost ? readSchedule(text) : null),
     [launcherHost, text]
   );
+  const restart = useMemo(
+    () => (launcherHost ? readRestart(text) : null),
+    [launcherHost, text]
+  );
+  const launcherAlive = useAlive({
+    status: launcherHost?.latestRun
+      ? launcherHost.latestRun.status
+      : hosted
+        ? hostDetails?.status
+        : ownRun.status,
+    finishedAt: launcherHost?.latestRun
+      ? launcherHost.latestRun.finishedAt
+      : hosted
+        ? hostDetails?.finishedAt
+        : ownRun.finishedAt,
+    policy: restart?.policy ?? 'no',
+    waitSec: restart?.waitSec ?? null,
+    suspended: launcherHost?.suspended ?? false,
+  });
   const [ownFormOpen, setOwnFormOpen] = useState(false);
   const formOpen = formVisible ?? ownFormOpen;
   const setFormOpen = useCallback(
@@ -679,6 +792,18 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // Where the step that the user is adding goes; the list of steps shows in
   // the side drawer while this is set.
   const [addTarget, setAddTarget] = useState<PaletteTarget | null>(null);
+  // The tool dock shows in the side drawer, in the place of the list of
+  // steps: first the list that picks a tool to add to a step (`add`), then the
+  // panel of one tool entry (`tool`), which a click on a row of a Tools card
+  // opens too.
+  const [toolDock, setToolDock] = useState<ToolDock | null>(null);
+  // The section of the form that a double click on the Model node or on the
+  // Tools card asked to open: the form takes it once and clears it.
+  const [formReveal, setFormReveal] = useState<{
+    step: StepKey;
+    section: FormSection;
+    seq: number;
+  } | null>(null);
   // The choice that the list shows as active: the ghost on the canvas wears it.
   const [hoverEntry, setHoverEntry] = useState<ActionCatalogEntry | null>(null);
   const ghostLook = useMemo(
@@ -688,10 +813,43 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const [recentActions, setRecentActions] = useState(readRecentActions);
   const readOnly = !editable;
   const canEdit = editable && !frozen;
-  // A reader or a frozen canvas adds no step: the list closes.
+  // A reader or a frozen canvas adds no step and no tool: the lists close.
+  // The panel of a tool stays: it shows the tool, read-only.
   useEffect(() => {
-    if (!canEdit) setAddTarget(null);
+    if (!canEdit) {
+      setAddTarget(null);
+      setToolDock((current) =>
+        current?.view === 'tool' ||
+        current?.view === 'dag' ||
+        current?.view === 'prompt' ||
+        current?.view === 'slot'
+          ? current
+          : null
+      );
+    }
   }, [canEdit]);
+  // The dock shows for a step that is still in the file, and goes with its
+  // selection: the tool of a step is no tool of the next one.
+  const toolDockStepKey = toolDock ? toolDockStepOf(toolDock) : null;
+  const toolDockStep = toolDockStepKey
+    ? model.steps.find((step) => step.key === toolDockStepKey)
+    : undefined;
+  const toolDockOpen =
+    !!toolDock &&
+    !!toolDockStep &&
+    (toolDock.view === 'tool' ||
+      toolDock.view === 'dag' ||
+      toolDock.view === 'prompt' ||
+      toolDock.view === 'slot' ||
+      canEdit);
+  useEffect(() => {
+    setToolDock((current) =>
+      current !== null && toolDockStepOf(current) !== selected ? null : current
+    );
+    setFormReveal((current) =>
+      current !== null && current.step !== selected ? null : current
+    );
+  }, [selected]);
 
   // A host that keeps the selection and the view in the URL writes them
   // through the router, which renders in a transition. The step view opens
@@ -706,6 +864,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         if (!inColumn) setWorkflowOpen(false);
         setLauncherOpen(null);
         setAddTarget(null);
+        setToolDock(null);
         onYamlVisibleChange?.(true);
       });
     },
@@ -734,6 +893,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         if (!inColumn) setWorkflowOpen(false);
         setLauncherOpen(null);
         setAddTarget(null);
+        setToolDock(null);
         onYamlVisibleChange?.(inDrawer);
       });
     },
@@ -764,8 +924,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         if (closing === 'webhook' && launcherHost) launcherHost.guard(done);
         else done();
       }
-      if (formOpen) showFormFor(key);
-      else if (openNdvOn === 'open' || wholeFileShown) select(key);
+      // A click always shows the YAML of the step, never its form, even when
+      // the form was open: the form opens from the tab of the inspector.
+      if (!formOpen && (openNdvOn === 'open' || wholeFileShown)) select(key);
       else showYamlFor(key);
     },
     [
@@ -775,7 +936,6 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       formOpen,
       openNdvOn,
       wholeFileShown,
-      showFormFor,
       select,
       showYamlFor,
     ]
@@ -785,6 +945,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     (target: PaletteTarget) => {
       if (!canEdit) return;
       setAddTarget(target);
+      setToolDock(null);
       setLauncherOpen(null);
       if (inColumn) return;
       setWorkflowOpen(false);
@@ -822,8 +983,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             written === undefined
               ? null
               : { key: result.select, name: written, fresh: true };
-          // The new step shows where the last one did: its form or its YAML.
-          pickStep(result.select);
+          // A new step shows where the last one did: its form, to fill it in,
+          // or its YAML.
+          if (formOpen) showFormFor(result.select);
+          else pickStep(result.select);
           revealSoon(result.select);
         }
         return;
@@ -837,7 +1000,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         });
       }
     },
-    [ts, pickStep, revealSoon]
+    [ts, formOpen, showFormFor, pickStep, revealSoon]
   );
   const onEdit = useCallback(
     (op: DagEditOp) => afterEdit(session.apply(op)),
@@ -853,6 +1016,41 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     },
     [session, afterEdit]
   );
+
+  // A tool that the user picks joins the step, and its panel opens on it, to
+  // fill it in: the new entry is the last one of its list.
+  const addTool = (step: StepKey, pick: ToolPick) => {
+    const view = model.steps.find((item) => item.key === step);
+    if (!view) return;
+    let result: EditResult;
+    let tool: ToolSelection;
+    if (pick.category === 'builtin') {
+      // The shell tool needs a command pattern: the panel asks for it.
+      result = session.apply({
+        kind: 'setStepField',
+        step,
+        path: ['with', 'tools', 'builtin', pick.tool],
+        value: pick.tool === 'shell' ? { allow: [] } : true,
+      });
+      tool = { step, category: 'builtin', index: 0 };
+    } else {
+      const { category } = pick;
+      result = session.apply({
+        kind: 'editStepTools',
+        step,
+        change: { kind: 'add', category, entry: pick.entry },
+      });
+      tool = {
+        step,
+        category,
+        index: readStepTools(view.value).entries.filter(
+          (entry) => entry.category === category
+        ).length,
+      };
+    }
+    afterEdit(result);
+    if (result.ok) setToolDock({ view: 'tool', tool });
+  };
 
   const nameOf = (key: StepKey | null | undefined) =>
     graph.nodes.find((node) => node.key === key)?.label ?? '';
@@ -942,6 +1140,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (!result) return;
     if (!stay || !result.ok || !result.select) {
       afterEdit(result);
+      // The list closes under the focus, and the "+" that opened it may
+      // be gone: the canvas keeps the focus.
+      rootRef.current
+        ?.querySelector<HTMLElement>('[data-testid="ve-canvas"]')
+        ?.focus();
       return;
     }
     // Shift+Enter: the list stays open for a step after the new one.
@@ -1048,6 +1251,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     return applyResult((input) => duplicateStepsOp(parseDagDoc(input), steps));
   };
 
+  // The dock takes the place of the other panels of the drawer, for the step
+  // that it shows.
+  const openDock = (dock: ToolDock) => {
+    select(toolDockStepOf(dock));
+    setAddTarget(null);
+    setWorkflowOpen(false);
+    setLauncherOpen(null);
+    onYamlVisibleChange?.(false);
+    setToolDock(dock);
+  };
   const onCommand = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'runStep': {
@@ -1089,6 +1302,52 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         else showFormFor(command.step);
         return;
       }
+      // The Model node opens the form of the step on its section.
+      case 'openForm':
+        if (!hasForm(command.step)) return;
+        showFormFor(command.step);
+        setFormReveal((last) => ({
+          step: command.step,
+          section: command.section,
+          seq: (last?.seq ?? 0) + 1,
+        }));
+        return;
+      // The Add a DAG, Add a tool and Add a skill buttons open the dock of
+      // the choices of their list.
+      case 'openSlotDock':
+        if (!canEdit || !hasForm(command.step)) return;
+        openDock(
+          command.slot === 'skills'
+            ? { view: 'skill', step: command.step }
+            : { view: 'add', step: command.step, slot: command.slot }
+        );
+        return;
+      // The Prompt card opens the dock of the two texts, read-only in a view
+      // that only reads.
+      case 'openPromptDock':
+        if (!hasForm(command.step)) return;
+        openDock({ view: 'prompt', step: command.step });
+        return;
+      // A double click, or Enter, on the DAGs, the Tools or the Skills card
+      // opens the panel of the whole list at the right, read-only in a view
+      // that only reads. It is the dock that a click on a tool row opens: the
+      // edit does not go to the step view.
+      case 'openSlotPanel':
+        if (!hasForm(command.step)) return;
+        openDock({ view: 'slot', step: command.step, slot: command.slot });
+        return;
+      // A tool row selects the entry: the panel of the tool opens at the
+      // right, read-only in a view that only reads.
+      case 'openTool':
+        if (!hasForm(command.tool.step)) return;
+        openDock({ view: 'tool', tool: command.tool });
+        return;
+      // The miniature of a DAG tool opens the enlarged view of its DAG at the
+      // right, read-only in a view that only reads.
+      case 'openDagView':
+        if (!hasForm(command.tool.step)) return;
+        openDock({ view: 'dag', tool: command.tool });
+        return;
       // The name is the first field of the form, and the form holds the
       // run panel.
       case 'rename':
@@ -1258,9 +1517,12 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     />
   );
 
+  const stepInspectorDag = { name: dagName, workspace };
+
   const inspectorContent =
     formOpen &&
     !addTarget &&
+    !toolDockOpen &&
     selected &&
     selectedStep &&
     (!inDrawer || yamlVisible) ? (
@@ -1283,6 +1545,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             readOnly={readOnly || frozen}
             onEdit={onEdit}
             embedded={inDrawer}
+            dag={stepInspectorDag}
             onClose={() => {
               setFormOpen(false);
               select(null);
@@ -1291,6 +1554,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               onYamlVisibleChange && !inDrawer
                 ? () => showYamlFor(selected)
                 : undefined
+            }
+            reveal={
+              formReveal?.step === selected
+                ? { section: formReveal.section, seq: formReveal.seq }
+                : undefined
+            }
+            onRevealed={() => setFormReveal(null)}
+            onOpenTool={(tool) => onCommand({ kind: 'openTool', tool })}
+            onAddTool={(slot) =>
+              onCommand({ kind: 'openSlotDock', step: selected, slot })
             }
             runPanel={
               !serverName || outputColumnRoot
@@ -1318,6 +1591,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const columnsShown =
     selected !== null &&
     !addTarget &&
+    !toolDockOpen &&
     (!!inspectorContent || (yamlVisible && yamlMode === 'step'));
   // The run of 'Execute step' fills the OUTPUT column of its step.
   const followedExecute =
@@ -1403,6 +1677,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     select(null);
     setHighlighted(null);
     setAddTarget(null);
+    setToolDock(null);
     setFormOpen(false);
     if (!inColumn) {
       setWorkflowOpen(false);
@@ -1423,6 +1698,12 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const setSchedule = (expressions: string[]) => {
     if (!canEdit) return;
     afterEdit(session.apply({ kind: 'setSchedule', expressions }));
+  };
+  const setRestartPolicy = (
+    change: Omit<Extract<DagEditOp, { kind: 'setRestartPolicy' }>, 'kind'>
+  ) => {
+    if (!canEdit) return;
+    afterEdit(session.apply({ kind: 'setRestartPolicy', ...change }));
   };
   const toggleYaml = (open?: boolean) => {
     if (!onYamlVisibleChange) return;
@@ -1561,7 +1842,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // panel in the graph zone, else the window (a fixed panel).
   const panelBase =
     usePanelPlacement() === 'zone' ? zoneWidth : window.innerWidth;
-  const drawerWidth = effectivePanelWidth(useDrawerWidth(), panelBase);
+  // The Tools dock and the Skills dock have a list and a detail side by side:
+  // they ask for a wider drawer while they show.
+  const dockMinWidth =
+    toolDockOpen &&
+    (toolDock?.view === 'slot' ||
+      toolDock?.view === 'add' ||
+      toolDock?.view === 'skill')
+      ? SLOT_DOCK_MIN_WIDTH
+      : toolDockOpen && toolDock?.view === 'dag'
+        ? DAG_DOCK_MIN_WIDTH
+        : 0;
+  const drawerWidth = effectivePanelWidth(
+    Math.max(useDrawerWidth(), dockMinWidth),
+    panelBase
+  );
   const drawerShrinksCanvas =
     !chrome ||
     (band === 'wide' && panelBase - drawerWidth >= MIN_CANVAS_BESIDE_DRAWER);
@@ -1570,6 +1865,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const panelOpen =
     !!inspectorContent ||
     !!addTarget ||
+    toolDockOpen ||
     (!inColumn &&
       (yamlVisible ||
         launcherOpen !== null ||
@@ -1605,7 +1901,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   }, [compactNotices, onNotice, notice, readOnly]);
 
   const drawer: VisualEditorState['drawer'] =
-    addTarget && canEdit
+    (addTarget && canEdit) || toolDockOpen
       ? 'add-step'
       : launcherOpen !== null
         ? 'launcher'
@@ -1624,7 +1920,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     selectedStepName: serverNameOf(selected),
     drawer,
     direction,
-    launcher: launcherOpen,
+    launcher: openNode,
   };
   // Called after each commit, but only when a field changed.
   const reportedState = useRef<VisualEditorState | null>(null);
@@ -1636,8 +1932,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   });
 
   const yamlShown = yamlVisible && !(inDrawer && formOpen);
+  // In the row of a host (from md), the open Workflow and YAML panels have no
+  // title bar: their toggles show the name, and the YAML tools join the row.
+  const panelsInRow = usePanelInToolbarRow();
+  const inRow = panelsInRow && !compactTools;
+  const toolsInRow = inRow && wholeFileShown && !!yamlTools;
   const toolbarEnd = (
     <>
+      {toolsInRow && (
+        <div
+          data-testid="ve-yaml-tools"
+          className="mr-1 flex items-center gap-1"
+        >
+          {yamlTools}
+        </div>
+      )}
       {!chrome?.hideRunBar && (
         <RunBar
           dagName={dagName}
@@ -1646,6 +1955,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           onRunIdChange={followRun}
           actions={actions}
           isDirty={isDirty}
+          workspace={workspace}
         />
       )}
       {readOnly ? null : (
@@ -1828,13 +2138,19 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             compactTools && HIDE_CANVAS_TOOLBAR
           )}
         >
-          <AgentRunContext.Provider value={agentRun}>
+          <RunContexts agent={agentRun} tools={toolRun}>
             <CanvasOverlayInsetContext.Provider value={canvasInset}>
               <VisualCanvas
                 documentKey={fileName}
                 graph={graph}
                 direction={direction}
                 selected={selected}
+                selectedTool={
+                  toolDockOpen &&
+                  (toolDock?.view === 'tool' || toolDock?.view === 'dag')
+                    ? toolDock.tool
+                    : null
+                }
                 frozen={frozen}
                 unparsedLine={unparsedLine}
                 readOnly={readOnly}
@@ -1860,6 +2176,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                 }}
                 onEdit={onEdit}
                 onCommand={handleCommand}
+                dag={stepInspectorDag}
                 onDirectionChange={setDirection}
                 toolbarEnd={compactTools ? undefined : toolbarEnd}
                 toolbarStart={toolbarStart}
@@ -1877,7 +2194,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                   })
                 }
                 launchers={launcherHost ? launcherData?.states : undefined}
-                activeLauncher={launcherOpen}
+                activeLauncher={openNode}
+                launcherAlive={launcherAlive}
                 onLauncher={openLauncher}
                 onStepClick={(key, at) => {
                   const name = serverNameOf(key);
@@ -1885,7 +2203,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                 }}
               />
             </CanvasOverlayInsetContext.Provider>
-          </AgentRunContext.Provider>
+          </RunContexts>
           {canvasOverlay ? (
             <div
               ref={setOverlayBox}
@@ -1910,10 +2228,14 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           )}
         </div>
       </div>
-      {launcherHost && schedule && (
+      {launcherHost && schedule && restart && (
         <LauncherDataProbe
           fileName={fileName}
           scheduleCount={schedule.expressions.length + schedule.others}
+          schedulePresent={schedule.present}
+          restartPolicy={restart.policy}
+          restartWaitSec={restart.waitSec}
+          restartRetentionRuns={restart.histRetentionRuns}
           onData={setLauncherData}
         />
       )}
@@ -1957,6 +2279,126 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           />
         )}
       </StepSideDrawer>
+      <StepSideDrawer
+        isOpen={toolDockOpen}
+        onClose={() => setToolDock(null)}
+        hasContent={toolDockOpen}
+        modal={false}
+        label={
+          toolDock?.view === 'tool'
+            ? ts('Tool')
+            : toolDock?.view === 'dag'
+              ? ts('DAG')
+              : toolDock?.view === 'prompt'
+                ? ts('Prompt')
+                : toolDock?.view === 'slot'
+                  ? toolDock.slot === 'skills'
+                    ? ts('Skills')
+                    : toolDock.slot === 'dags'
+                      ? ts('DAGs')
+                      : ts('Tools')
+                  : toolDock?.view === 'skill'
+                    ? ts('Add a skill')
+                    : toolDock?.view === 'add' && toolDock.slot === 'dags'
+                      ? ts('Add a DAG')
+                      : ts('Add a tool')
+        }
+        panelId="add-step"
+        closeOnPageEscape
+        minWidth={dockMinWidth}
+      >
+        {toolDock &&
+          toolDockStep &&
+          toolDockOpen &&
+          toolDock.view === 'prompt' && (
+            <PromptPanel
+              // One panel for each step: it takes the focus when it opens.
+              key={toolDock.step}
+              model={model}
+              step={toolDockStep}
+              stepLabel={nameOf(toolDock.step)}
+              issues={issues.byStep[toolDock.step] ?? []}
+              candidates={candidates}
+              readOnly={readOnly || frozen}
+              onEdit={onEdit}
+              onBack={() => showFormFor(toolDock.step)}
+              onClose={() => setToolDock(null)}
+            />
+          )}
+        {toolDock &&
+          toolDockStep &&
+          toolDockOpen &&
+          (toolDock.view === 'slot' ||
+            toolDock.view === 'add' ||
+            toolDock.view === 'skill') && (
+            <SlotPanel
+              // One panel for each list and each way in: the search takes the focus when it opens.
+              key={`${toolDock.step}:${toolDock.view}:${toolDock.view === 'skill' ? '' : toolDock.slot}`}
+              model={model}
+              step={toolDockStep}
+              stepLabel={nameOf(toolDock.step)}
+              slot={toolDock.view === 'skill' ? 'skills' : toolDock.slot}
+              adding={toolDock.view !== 'slot'}
+              issues={issues.byStep[toolDock.step] ?? []}
+              readOnly={readOnly || frozen}
+              dag={stepInspectorDag}
+              onEdit={onEdit}
+              onOpenTool={(tool) => onCommand({ kind: 'openTool', tool })}
+              onOpenDag={(tool) => onCommand({ kind: 'openDagView', tool })}
+              onPickTool={(pick) => addTool(toolDock.step, pick)}
+              onBack={() => showFormFor(toolDock.step)}
+              onClose={() => setToolDock(null)}
+            />
+          )}
+        {toolDock &&
+          toolDockStep &&
+          toolDockOpen &&
+          toolDock.view === 'tool' && (
+            <ToolPanel
+              // One panel for each tool: it takes the focus when it opens.
+              key={`${toolDock.tool.step}:${toolDock.tool.category}:${toolDock.tool.index}`}
+              model={model}
+              step={toolDockStep}
+              stepLabel={nameOf(toolDock.tool.step)}
+              tool={toolDock.tool}
+              issues={issues.byStep[toolDock.tool.step] ?? []}
+              candidates={candidates}
+              readOnly={readOnly || frozen}
+              dag={stepInspectorDag}
+              onEdit={onEdit}
+              onShowTools={() =>
+                openDock({
+                  view: 'slot',
+                  step: toolDock.tool.step,
+                  slot: toolDock.tool.category === 'dags' ? 'dags' : 'tools',
+                })
+              }
+              onBack={() => showFormFor(toolDock.tool.step)}
+              onClose={() => setToolDock(null)}
+            />
+          )}
+        {toolDock &&
+          toolDockStep &&
+          toolDockOpen &&
+          toolDock.view === 'dag' && (
+            <ToolRunContext.Provider value={toolRun}>
+              <DagViewPanel
+                // One panel for each tool: its path of DAGs starts again.
+                key={`${toolDock.tool.step}:${toolDock.tool.category}:${toolDock.tool.index}`}
+                step={toolDockStep}
+                stepLabel={nameOf(toolDock.tool.step)}
+                stepName={runNameOf(toolDock.tool.step) ?? undefined}
+                tool={toolDock.tool}
+                host={dagName}
+                onShowTool={() =>
+                  openDock({ view: 'tool', tool: toolDock.tool })
+                }
+                onBack={() => showFormFor(toolDock.tool.step)}
+                onClose={() => setToolDock(null)}
+              />
+            </ToolRunContext.Provider>
+          )}
+      </StepSideDrawer>
       {launcherHost && (
         <StepSideDrawer
           isOpen={launcherOpen !== null}
@@ -1974,17 +2416,24 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               onClose={closeLauncher}
             />
           )}
-          {launcherOpen === 'cron' && schedule && (
-            <CronLauncherPanel
-              schedule={schedule}
-              editable={canEdit}
-              upcomingRuns={details?.upcomingRuns}
-              upcomingRunsHold={details?.upcomingRunsHold}
-              schedules={details?.schedule}
-              onChange={setSchedule}
-              onClose={closeLauncher}
-            />
-          )}
+          {(openNode === 'schedule' ||
+            openNode === 'cron' ||
+            openNode === 'always') &&
+            schedule &&
+            restart && (
+              <SlotLauncherPanel
+                open={openNode}
+                schedule={schedule}
+                restart={restart}
+                editable={canEdit}
+                upcomingRuns={details?.upcomingRuns}
+                upcomingRunsHold={details?.upcomingRunsHold}
+                schedules={details?.schedule}
+                onSchedule={setSchedule}
+                onRestart={setRestartPolicy}
+                onClose={closeLauncher}
+              />
+            )}
           {launcherOpen === 'webhook' && (
             <WebhookLauncherPanel
               fileName={fileName}

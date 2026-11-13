@@ -248,6 +248,19 @@ describe('IssuesPopover', () => {
     expect(status).toHaveTextContent('No issues');
   });
 
+  // The host closes its own panel on an Esc that reaches the page: the
+  // popover keeps the key for itself.
+  it('does not pass Escape to the page', () => {
+    const page = vi.fn();
+    document.addEventListener('keydown', page);
+    render(<IssuesPopover warnings={[]} errors={['a']} />);
+    openPopover();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    document.removeEventListener('keydown', page);
+    expect(screen.queryByRole('dialog', { name: 'Issues' })).toBeNull();
+    expect(page).not.toHaveBeenCalled();
+  });
+
   it('closes on Escape and on a click outside', () => {
     render(<IssuesPopover warnings={[]} errors={['a']} />);
     const button = screen.getByRole('button', { name: 'Issues (1)' });

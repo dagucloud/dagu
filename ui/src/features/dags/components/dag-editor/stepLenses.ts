@@ -13,8 +13,14 @@ export interface StepLensPoint {
 
 /** What the lenses of a whole-file editor need of their host. */
 export interface StepLensSource {
-  /** The steps of the text, in order. */
-  steps: readonly StepLensPoint[];
+  /**
+   * The steps of `text`, in order. The lenses ask for the steps of the text of
+   * the model at the time of the query: Monaco can query before the host has
+   * read an edit, and it drops the query that follows when the editor loses
+   * the focus. A list that the host kept from an older text would put the
+   * lenses on the wrong rows.
+   */
+  steps(text: string): readonly StepLensPoint[];
   /** The text of the lens. */
   label: string;
   /** Opens the step in the full-screen step view. */
@@ -23,7 +29,7 @@ export interface StepLensSource {
 
 /** The registration of the lenses of one editor. */
 export interface StepLensRegistration extends IDisposable {
-  /** Draws the lenses again: the steps or the label changed. */
+  /** Draws the lenses again: the names or the label changed. */
   refresh(): void;
 }
 
@@ -51,7 +57,8 @@ export function registerStepLenses(
       }
       const lines = model.getLineCount();
       return {
-        lenses: source.steps
+        lenses: source
+          .steps(model.getValue())
           .filter((step) => step.line >= 1 && step.line <= lines)
           .map((step) => ({
             range: {

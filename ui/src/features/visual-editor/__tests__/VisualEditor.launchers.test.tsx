@@ -1,12 +1,21 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { createRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Status } from '@/api/v1/schema';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type { LauncherHost, VisualEditorHandle } from '../contracts';
+import type { RestartPolicy } from '../doc';
 import { realSchema } from '../inspector/__tests__/realSchema';
 import type { LauncherData } from '../launchers/LauncherData';
 import { launcherStates } from '../launchers/model';
@@ -30,7 +39,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/ConfigContext', () => ({
   useConfig: () => ({ tz: 'UTC' }),
 }));
@@ -53,22 +65,41 @@ vi.mock('../launchers/LauncherData', async () => {
   return {
     LauncherDataProbe: ({
       scheduleCount,
+      schedulePresent,
+      restartPolicy,
+      restartWaitSec,
+      restartRetentionRuns,
       onData,
     }: {
       scheduleCount: number;
+      schedulePresent: boolean;
+      restartPolicy: RestartPolicy;
+      restartWaitSec: number | null;
+      restartRetentionRuns: number | null;
       onData(data: LauncherData): void;
     }) => {
       useEffect(() => {
         onData({
           states: launcherStates({
             scheduleCount,
+            schedulePresent,
+            restartPolicy,
+            restartWaitSec,
+            restartRetentionRuns,
             webhookCount: probe.webhookCount,
             webhooksAvailable: probe.webhooks,
           }),
           webhooksAvailable: probe.webhooks,
           reloadWebhook: () => undefined,
         });
-      }, [scheduleCount, onData]);
+      }, [
+        scheduleCount,
+        schedulePresent,
+        restartPolicy,
+        restartWaitSec,
+        restartRetentionRuns,
+        onData,
+      ]);
       return null;
     },
   };
@@ -139,13 +170,16 @@ beforeEach(() => {
 });
 
 describe('VisualEditor launchers', () => {
-  it('draws the three launchers as roots of the graph', () => {
+  it('draws the launchers as roots of the graph', () => {
     renderEditor();
     expect(screen.getByTestId('ve-launcher-manual')).toBeInTheDocument();
-    expect(screen.getByTestId('ve-launcher-cron')).toHaveAttribute(
+    // Neither Cron nor Always on is set: one dashed placeholder for both.
+    expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
       'data-status',
       'dashed'
     );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
     expect(screen.getByTestId('ve-launcher-webhook')).toHaveAttribute(
       'data-status',
       'dashed'
@@ -156,7 +190,7 @@ describe('VisualEditor launchers', () => {
     probe.webhooks = false;
     renderEditor();
     expect(screen.queryByTestId('ve-launcher-webhook')).toBeNull();
-    expect(screen.getByTestId('ve-launcher-cron')).toBeInTheDocument();
+    expect(screen.getByTestId('ve-launcher-schedule')).toBeInTheDocument();
   });
 
   it('opens no Webhook panel when the instance has no webhooks', () => {
@@ -164,8 +198,11 @@ describe('VisualEditor launchers', () => {
     const { handle } = renderEditor();
     act(() => handle().openLauncher('webhook'));
     expect(screen.queryByTestId('ve-launcher-panel-webhook')).toBeNull();
+    // The panel of the slot opens on the node that is drawn.
     act(() => handle().openLauncher('cron'));
-    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('ve-launcher-panel-schedule')
+    ).toBeInTheDocument();
   });
 
   it('draws Cron solid when the YAML has a schedule', () => {
@@ -191,9 +228,202 @@ describe('VisualEditor launchers', () => {
     expect(state.text).toContain(yamlArraySteps);
 
     fireEvent.click(
-      within(panel).getByRole('button', { name: 'Remove schedule' })
+      within(panel).getByRole('button', { name: 'Remove all cron expressions' })
     );
     expect(state.text).toBe(yamlArraySteps);
+  });
+
+  // Cron and Always on are one slot of the graph (spec 080).
+  it('draws Always on in place of Cron with a restart policy', () => {
+    renderEditor(
+      `restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 20\n${yamlArraySteps}`
+    );
+    expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+      'data-status',
+      'active'
+    );
+    expect(screen.getByTestId('ve-launcher-summary')).toHaveTextContent(
+      '5 s · 20 runs'
+    );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+  });
+
+  // The icon of Always on turns by the latest run of the workflow, which the
+  // host keeps live, and is still for a suspended workflow.
+  describe('Always on animation', () => {
+    const file = `restart_policy: always\nrestart_wait_sec: 5\n${yamlArraySteps}`;
+    const alive = () =>
+      screen.getByTestId('ve-launcher-always').getAttribute('data-alive');
+
+    it('is still when the latest run ended long ago, or the workflow is suspended', () => {
+      renderEditor(file, {
+        launcherHost: {
+          ...host,
+          latestRun: {
+            status: Status.Success,
+            finishedAt: '2020-01-01T00:00:00Z',
+          },
+        },
+      });
+      expect(alive()).toBeNull();
+      cleanup();
+      renderEditor(file, {
+        launcherHost: {
+          ...host,
+          suspended: true,
+          latestRun: { status: Status.Running, finishedAt: '-' },
+        },
+      });
+      expect(alive()).toBeNull();
+    });
+  });
+
+  it('draws Cron alone with a schedule', () => {
+    renderEditor(`schedule: "0 * * * *"\n${yamlArraySteps}`);
+    expect(screen.getByTestId('ve-launcher-cron')).toBeInTheDocument();
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
+  });
+
+  it('draws both solid for a file that has a policy and a schedule', () => {
+    renderEditor(
+      `restart_policy: always\nrestart_wait_sec: 5\nschedule: "0 * * * *"\n${yamlArraySteps}`
+    );
+    for (const id of ['cron', 'always']) {
+      expect(screen.getByTestId(`ve-launcher-${id}`)).toHaveAttribute(
+        'data-status',
+        'active'
+      );
+    }
+  });
+
+  it('swaps the slot as the author chooses, sets, switches and removes', () => {
+    renderEditor();
+    const open = (id: string) =>
+      fireEvent.click(
+        within(screen.getByTestId(`ve-launcher-${id}`)).getByRole('button')
+      );
+    const slot = () =>
+      ['schedule', 'cron', 'always'].filter((id) =>
+        screen.queryByTestId(`ve-launcher-${id}`)
+      );
+    expect(slot()).toEqual(['schedule']);
+
+    // The chooser writes nothing.
+    open('schedule');
+    const panel = () => screen.getByTestId(/^ve-launcher-panel-/);
+    fireEvent.click(within(panel()).getByRole('radio', { name: /^Cron/ }));
+    expect(state.text).toBe(yamlArraySteps);
+    expect(slot()).toEqual(['schedule']);
+
+    // The first expression turns the node into Cron: the panel follows it.
+    fireEvent.change(within(panel()).getByLabelText('New cron expression'), {
+      target: { value: '0 * * * *' },
+    });
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Add' }));
+    expect(slot()).toEqual(['cron']);
+    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    expect(screen.getByTestId('ve-launcher-cron')).toHaveAttribute(
+      'data-status',
+      'active'
+    );
+
+    // Switch: the schedule goes, the chooser is back with Always on chosen.
+    fireEvent.click(
+      within(panel()).getByRole('button', { name: 'Switch to Always on' })
+    );
+    expect(state.text).toBe(yamlArraySteps);
+    expect(slot()).toEqual(['schedule']);
+    expect(
+      within(panel()).getByRole('radio', { name: /^Always on/ })
+    ).toHaveAttribute('aria-checked', 'true');
+
+    // The first policy turns the node into Always on, with its second line.
+    fireEvent.click(within(panel()).getByRole('radio', { name: 'Always' }));
+    expect(slot()).toEqual(['always']);
+    expect(screen.getByTestId('ve-launcher-panel-always')).toBeInTheDocument();
+    expect(screen.getByTestId('ve-launcher-summary')).toHaveTextContent(
+      '5 s · 100 runs'
+    );
+    const wait = within(panel()).getByLabelText('Wait before a new run (s)');
+    fireEvent.change(wait, { target: { value: '30' } });
+    fireEvent.blur(wait);
+    fireEvent.click(
+      within(panel()).getByRole('radio', { name: 'Unless stopped' })
+    );
+    const runs = within(panel()).getByLabelText('Runs kept in the history');
+    fireEvent.change(runs, { target: { value: '20' } });
+    fireEvent.blur(runs);
+    expect(screen.getByTestId('ve-launcher-summary')).toHaveTextContent(
+      'unless stopped · 30 s'
+    );
+    // The runs kept are in the tooltip: the line has no room for them.
+    expect(
+      within(screen.getByTestId('ve-launcher-always')).getByRole('button')
+    ).toHaveAttribute('title', expect.stringContaining('keeps 20 runs'));
+
+    // Switch back to Cron.
+    fireEvent.click(
+      within(panel()).getByRole('button', { name: 'Switch to Cron' })
+    );
+    expect(state.text).not.toContain('restart_policy');
+    expect(slot()).toEqual(['schedule']);
+    expect(
+      within(panel()).getByRole('radio', { name: /^Cron/ })
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('sets, changes and removes the restart policy from its panel', () => {
+    renderEditor();
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
+    );
+    let panel = screen.getByTestId('ve-launcher-panel-schedule');
+    fireEvent.click(within(panel).getByRole('radio', { name: /^Always on/ }));
+    fireEvent.click(within(panel).getByRole('radio', { name: 'Always' }));
+    panel = screen.getByTestId('ve-launcher-panel-always');
+    expect(state.text).toContain(
+      'restart_policy: always\nrestart_wait_sec: 5\n'
+    );
+
+    fireEvent.click(
+      within(panel).getByRole('radio', { name: 'Unless stopped' })
+    );
+    const wait = within(panel).getByLabelText('Wait before a new run (s)');
+    fireEvent.change(wait, { target: { value: '30' } });
+    fireEvent.blur(wait);
+    expect(state.text).toContain('restart_policy: unless-stopped');
+    expect(state.text).toContain('restart_wait_sec: 30');
+
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Remove the restart policy' })
+    );
+    expect(state.text).not.toContain('restart_policy');
+    // The node is the placeholder again, and the panel the chooser.
+    expect(screen.getByTestId('ve-launcher-schedule')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('ve-launcher-panel-schedule')
+    ).toBeInTheDocument();
+  });
+
+  // A file with both keys is invalid: the panel names the conflict, and the
+  // switch of each form removes its own setting.
+  it('names the conflict when the YAML has a policy and a schedule', () => {
+    renderEditor(
+      `restart_policy: always\nrestart_wait_sec: 5\nschedule: "0 * * * *"\n${yamlArraySteps}`
+    );
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-always')).getByRole('button')
+    );
+    const panel = screen.getByTestId('ve-launcher-panel-always');
+    expect(within(panel).getByRole('note')).toHaveTextContent(
+      'A service DAG cannot have a schedule'
+    );
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Switch to Cron' })
+    );
+    expect(state.text).not.toContain('restart_policy');
+    expect(state.text).toContain('schedule');
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
   });
 
   // The YAML panel shows the file with a step in focus. A click on a launcher
@@ -218,12 +448,14 @@ describe('VisualEditor launchers', () => {
     expect(ring()).toContain('ring-primary');
 
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
 
     expect(onYamlVisibleChange).toHaveBeenLastCalledWith(false);
     expect(onSelectedStepNameChange).toHaveBeenLastCalledWith(null);
-    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('ve-launcher-panel-schedule')
+    ).toBeInTheDocument();
     expect(ring()).not.toContain('ring-primary');
   });
 
@@ -233,9 +465,9 @@ describe('VisualEditor launchers', () => {
     const onYamlVisibleChange = vi.fn();
     renderEditor(yamlArraySteps, { onYamlVisibleChange }, { panels: true });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    const panel = screen.getByTestId('ve-launcher-panel-cron');
+    const panel = screen.getByTestId('ve-launcher-panel-schedule');
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     expect(onYamlVisibleChange).not.toHaveBeenCalledWith(true, 'panel');
   });
@@ -244,11 +476,13 @@ describe('VisualEditor launchers', () => {
   it('closes the launcher panel on a click on the empty canvas', () => {
     renderEditor();
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('ve-launcher-panel-schedule')
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('flow'));
-    expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
+    expect(screen.queryByTestId('ve-launcher-panel-schedule')).toBeNull();
   });
 
   // The YAML of the file stays: a trigger shows its part of the file, as a
@@ -256,7 +490,7 @@ describe('VisualEditor launchers', () => {
   it('shows the YAML of the trigger while the YAML of the file shows', () => {
     const onYamlVisibleChange = vi.fn();
     const onRevealTrigger = vi.fn(() => true);
-    renderEditor(yamlArraySteps, {
+    renderEditor(`schedule: "0 * * * *"\n${yamlArraySteps}`, {
       yamlVisible: true,
       initialYamlMode: 'file',
       onYamlVisibleChange,
@@ -279,9 +513,11 @@ describe('VisualEditor launchers', () => {
       onRevealTrigger: () => false,
     });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('ve-launcher-panel-schedule')
+    ).toBeInTheDocument();
   });
 
   // A launcher panel and a step take turns: a click on a step closes the
@@ -290,13 +526,15 @@ describe('VisualEditor launchers', () => {
     const onSelectedStepNameChange = vi.fn();
     renderEditor(yamlArraySteps, { onSelectedStepNameChange });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    expect(screen.getByTestId('ve-launcher-panel-cron')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('ve-launcher-panel-schedule')
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('ve-canvas-node-steps[1]'));
 
-    expect(screen.queryByTestId('ve-launcher-panel-cron')).toBeNull();
+    expect(screen.queryByTestId('ve-launcher-panel-schedule')).toBeNull();
     expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('transform');
   });
 
@@ -308,7 +546,7 @@ describe('VisualEditor launchers', () => {
       onSelectedStepNameChange,
     });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
     expect(onSelectedStepNameChange).toHaveBeenCalledWith(null);
   });

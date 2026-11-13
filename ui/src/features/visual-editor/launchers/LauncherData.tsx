@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react';
 import { useCanManageWebhooks } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useWorkflowWebhook } from '@/hooks/useWorkflowWebhook';
+import type { RestartPolicy } from '../doc';
 import { launcherStates, type LauncherState } from './model';
 
 export interface LauncherData {
@@ -23,10 +24,18 @@ export interface LauncherData {
 export function LauncherDataProbe({
   fileName,
   scheduleCount,
+  schedulePresent,
+  restartPolicy,
+  restartWaitSec,
+  restartRetentionRuns,
   onData,
 }: {
   fileName: string;
   scheduleCount: number;
+  schedulePresent: boolean;
+  restartPolicy: RestartPolicy;
+  restartWaitSec: number | null;
+  restartRetentionRuns: number | null;
   onData(data: LauncherData): void;
 }): null {
   const remoteNode = useRemoteNode();
@@ -35,8 +44,25 @@ export function LauncherDataProbe({
   // The API gives one webhook for each workflow.
   const webhookCount = webhook === undefined ? null : webhook === null ? 0 : 1;
   const states = useMemo(
-    () => launcherStates({ scheduleCount, webhookCount, webhooksAvailable }),
-    [scheduleCount, webhookCount, webhooksAvailable]
+    () =>
+      launcherStates({
+        scheduleCount,
+        schedulePresent,
+        restartPolicy,
+        restartWaitSec,
+        restartRetentionRuns,
+        webhookCount,
+        webhooksAvailable,
+      }),
+    [
+      scheduleCount,
+      schedulePresent,
+      restartPolicy,
+      restartWaitSec,
+      restartRetentionRuns,
+      webhookCount,
+      webhooksAvailable,
+    ]
   );
   useEffect(() => {
     onData({ states, webhooksAvailable, reloadWebhook: reload });

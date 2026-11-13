@@ -57,6 +57,7 @@ export const DAG_KEY_ORDER: readonly string[] = [
   'worker_selector',
   'timeout_sec',
   'delay_sec',
+  'restart_policy',
   'restart_wait_sec',
   'max_clean_up_time_sec',
   'hist_retention_days',
@@ -140,6 +141,8 @@ export const STEP_KEY_ORDER: readonly string[] = [
   'mail_on_error',
   'pass_env',
   'worker_selector',
+  'secrets',
+  'untrusted',
   'llm',
   'approval',
   'messages',
@@ -301,6 +304,8 @@ export function isSameYaml(a: string, b: string): boolean {
     return !left && !right && looseText(a) === looseText(b);
   }
   if (left.length !== right.length) return false;
+  // A text with comments only has no document.
+  if (left.length === 0) return looseText(a) === looseText(b);
   try {
     for (let index = 0; index < left.length; index++) {
       const x = left[index]!;

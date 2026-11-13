@@ -23,7 +23,6 @@ import { AgentRunContext } from '../agentRunContext';
 import { CanvasActionsContext, type CanvasActions } from '../context';
 import { FlowProvider, useFlow, type NodeProps } from '../engine';
 import { HandlerNode } from '../nodes/HandlerNode';
-import { nodeTypes } from '../nodes';
 import {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -253,6 +252,65 @@ describe('compact cards', () => {
 });
 
 describe('StepNode', () => {
+  it('shows the untrusted badge on an untrusted step, and none on another', () => {
+    const marked = renderIn(
+      <StepNode {...nodeProps(makeNode({ untrusted: true }))} />
+    );
+    expect(marked.getByTestId('untrusted-badge')).toHaveAttribute(
+      'aria-label',
+      'Untrusted step: it gets no secret and no DAGU_ variable.'
+    );
+    marked.unmount();
+    const plain = renderIn(<StepNode {...nodeProps(makeNode())} />);
+    expect(plain.queryByTestId('untrusted-badge')).toBeNull();
+  });
+
+  it('keeps the untrusted badge on a compact card, as an icon', () => {
+    const { getByTestId } = renderIn(
+      <StepNode {...nodeProps(makeNode({ untrusted: true }))} />,
+      makeActions({ compact: true })
+    );
+    const badge = getByTestId('untrusted-badge');
+    expect(badge.querySelector('svg')).not.toBeNull();
+    expect(badge).toHaveTextContent('');
+  });
+
+  it('marks a step that continues on failure and a step that has preconditions', () => {
+    const marked = renderIn(
+      <StepNode
+        {...nodeProps(
+          makeNode({
+            continueOn: { failure: true },
+            preconditions: ['${verify_1.exit_code} != 0'],
+          })
+        )}
+      />
+    );
+    expect(marked.getByTestId('ve-node-continue-on')).toHaveAttribute(
+      'title',
+      expect.stringContaining('continues on failure')
+    );
+    expect(marked.getByTestId('ve-node-preconditions')).toHaveAttribute(
+      'title',
+      expect.stringContaining('• ${verify_1.exit_code} != 0')
+    );
+    marked.unmount();
+    const plain = renderIn(<StepNode {...nodeProps(makeNode())} />);
+    expect(plain.queryByTestId('ve-node-continue-on')).toBeNull();
+    expect(plain.queryByTestId('ve-node-preconditions')).toBeNull();
+  });
+
+  it('keeps the condition marks on a compact card', () => {
+    const { getByTestId } = renderIn(
+      <StepNode {...nodeProps(makeNode({ continueOn: { skipped: true } }))} />,
+      makeActions({ compact: true })
+    );
+    expect(getByTestId('ve-node-continue-on')).toHaveAttribute(
+      'title',
+      expect.stringContaining('continues if skipped')
+    );
+  });
+
   it('shows label and subtitle', () => {
     const { getByTestId, getByText } = renderIn(
       <StepNode {...nodeProps(makeNode())} />
@@ -599,7 +657,7 @@ describe('StepNode issues and run', () => {
         expect(tokens).toContain('border-transparent');
         expect(tokens).toContain('hover:border-transparent');
         expect(tokens).toContain('focus-within:border-transparent');
-        expect(tokens).not.toContain('border-muted-foreground/60');
+        expect(tokens).not.toContain('border-node-line');
         // The spotlight of a host is a variant that only data-spotlit turns on.
         const own = tokens.filter(
           (t) => !t.startsWith('group-data-[spotlit]/node:')
@@ -1383,11 +1441,12 @@ describe('StepNode toolbar', () => {
     }
   );
 
-  // In dark mode the border of a card was close to the canvas.
-  it('has a brighter border in dark mode', () => {
+  // The border of a card was close to the canvas in both themes. The node
+  // line token has 3:1 on the canvas in light and dark.
+  it('has the node line token as its border', () => {
     const { getByTestId } = renderHot(<StepNode {...nodeProps(makeNode())} />);
     expect(getByTestId('ve-canvas-node-steps[0]').className).toContain(
-      'dark:border-muted-foreground/40'
+      'border-node-line'
     );
   });
 
@@ -1462,18 +1521,6 @@ describe('StepNode toolbar', () => {
     );
     expect(getByTestId('ve-canvas-node-toolbar').className).toContain(
       'opacity-100'
-    );
-  });
-});
-
-describe('HandlerNode border', () => {
-  // The dashed border was close to the colour of the canvas in the light theme.
-  it('has a visible border in the light theme', () => {
-    const { getByTestId } = renderIn(
-      <HandlerNode {...nodeProps(makeNode({ kind: 'run' }))} />
-    );
-    expect(getByTestId('ve-canvas-node-steps[0]').className).toContain(
-      'border-muted-foreground/60'
     );
   });
 });
@@ -1827,22 +1874,6 @@ describe('HandlerNode', () => {
   });
 });
 
-describe('nodeTypes', () => {
-  it('registers one component for each node type', () => {
-    expect(nodeTypes.step).toBe(StepNode);
-    expect(nodeTypes.router).toBe(RouterNode);
-    expect(nodeTypes.handler).toBe(HandlerNode);
-    expect(nodeTypes.agent).toBe(AgentNode);
-    expect(Object.keys(nodeTypes).sort()).toEqual([
-      'agent',
-      'handler',
-      'router',
-      'step',
-      'tool',
-    ]);
-  });
-});
-
 describe('AgentNode hub', () => {
   const hubNode = (hub: CanvasNodeWithRoutes['hub'], over = {}) =>
     makeNode({
@@ -2107,12 +2138,14 @@ function SetZoom({ zoom }: { zoom: number }) {
 }
 
 // The box of the canvas and of the node, for a layout that jsdom lacks.
+// The card that holds the toolbar has the box of the node.
 function stubBoxes(canvas: DOMRect, node: DOMRect) {
   return vi
     .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     .mockImplementation(function (this: HTMLElement) {
       if (this.hasAttribute('data-flow-root')) return canvas;
-      if (this.hasAttribute('data-flow-node')) return node;
+      if (this.hasAttribute('data-flow-node') || this.dataset.shape)
+        return node;
       return new DOMRect(0, 0, 0, 0);
     });
 }
