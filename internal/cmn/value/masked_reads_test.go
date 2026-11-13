@@ -33,7 +33,8 @@ func TestMaskedRead(t *testing.T) {
 			"TOKEN":  "*******",
 			"REGION": "us",
 			"CONFIG": `{"token":"*******","region":"us"}`,
-		}, "fetch", "TOKEN", "CONFIG")
+			"PIN":    `{"pin":*******}`,
+		}, "fetch", "TOKEN", "CONFIG", "PIN")
 	workflow := WorkflowField("run")
 	shell := ShellCommandField("run", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
 
@@ -68,6 +69,8 @@ func TestMaskedRead(t *testing.T) {
 		{name: "executor config unmasked variable", raw: "region=${REGION}", field: ExecutorConfigField("with.message")},
 		{name: "path into a masked variable", raw: "deploy ${CONFIG.token}", field: workflow, want: "CONFIG"},
 		{name: "unmasked path into a masked variable", raw: "deploy ${CONFIG.region}", field: workflow},
+		// Masking a number leaves the text no longer JSON.
+		{name: "path into masked text that is no longer JSON", raw: "deploy ${PIN.pin}", field: workflow, want: "PIN"},
 		// A POSIX shell expands these itself from its environment.
 		{name: "shell variable", raw: `deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "shell parameter expansion", raw: `deploy "${TOKEN:-none}"`, field: shell, want: "TOKEN"},
