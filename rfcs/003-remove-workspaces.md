@@ -23,8 +23,9 @@ Each project has an ID that survives renames. Grants, audit entries, and
 distributed tasks refer to the ID; people refer to the name. Dagu Cloud tells
 projects apart by an explicit binding, never by name.
 
-`dagu migrate workspaces` moves each v2 workspace into a project. v3.0 refuses
-to start while unmigrated workspace items remain. Installs without workspaces
+`dagu migrate workspaces` moves each v2 workspace into a project. While
+unmigrated workspace items remain, v3.0 runs no workflows and serves the
+migration plan instead of failing to start. Installs without workspaces
 run unchanged as the default project.
 
 ## Problem statement
@@ -449,9 +450,21 @@ The plan also lists these items without refusing:
   time, a target found in neither the caller's project nor the library fails
   the step with a load error that names both.
 
-### Refusal message
+### Before migration
 
-v3.0 refuses to start while anything the migration would move remains.
+While anything the migration would move remains, v3.0 starts in a
+migration-required mode instead of exiting. An image upgrade then leaves a
+server that explains itself, not one that restarts in a loop.
+
+- The server serves the migration plan and the command that applies it. The
+  UI shows them on every page; other API calls fail with `503` and the
+  message below.
+- The scheduler schedules nothing, the coordinator dispatches nothing, and
+  CLI commands that start runs refuse with the message.
+- The health endpoint stays up and reports the mode, so orchestrators do not
+  restart the process.
+- After `--apply`, which still runs with every Dagu process stopped, the next
+  start runs normally.
 
 ```text
 dagu: workspaces became projects in v3.0, and these items are not migrated:
@@ -462,7 +475,8 @@ dagu: workspaces became projects in v3.0, and these items are not migrated:
 Run `dagu migrate workspaces` to review the plan, then apply it with --apply.
 ```
 
-The message lists every item, not the first one found.
+The log, the UI, and refused commands show this message. It lists every
+item, not the first one found.
 
 ## Compatibility and rollout
 
@@ -470,7 +484,7 @@ The message lists every item, not the first one found.
 | --- | --- |
 | v2.22 | Warnings and an admin notice that list workspace settings in use. |
 | Next v2 release | The warning and notice say that v3.0 moves workspaces into projects, and stop asking operators to move settings by hand. |
-| v3.0 | Projects, `dagu migrate workspaces`, and the startup refusal. |
+| v3.0 | Projects, `dagu migrate workspaces`, and the migration-required mode. |
 | v3.1 | Drops the `workspace_mappings` and `default_workspace_access` aliases. |
 
 v2 gets no new workspace features.
@@ -490,8 +504,8 @@ v2 gets no new workspace features.
 6. One scheduler process schedules every project. A new project directory
    starts scheduling without a restart.
 7. A distributed run of a project DAG records its status in that project.
-8. v3.0 refuses to start while workspace items remain, and the message lists
-   every item.
+8. While workspace items remain, v3.0 runs no workflows, serves the plan,
+   keeps its health endpoint up, and its message lists every item.
 9. Planning a migration changes nothing on disk.
 10. A library DAG called from project X runs with X's base config, secrets,
     and profiles, and only users with a role in X see its run.
@@ -538,6 +552,8 @@ v2 gets no new workspace features.
   barely improves.
 - **Migrate automatically at startup.** Moving DAG files and run history
   without review is hard to undo.
+- **Refuse to start until migrated.** An image upgrade would leave the
+  server restarting in a loop, with the reason only in its log.
 - **Copy shared child DAGs into each project.** Copies drift apart, and tests
   no longer run the files that production runs.
 - **Merge projects that share child DAGs.** Brings back the coarse access
