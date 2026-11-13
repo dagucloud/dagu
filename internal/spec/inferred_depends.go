@@ -43,10 +43,10 @@ func inferStepOutputDependencies(dag *ir.DAG, errs *ir.ErrorList) {
 		if !inferredDependencyField(field) {
 			continue
 		}
-		owner := &dag.Steps[field.topLevelStepIndex]
+		owner := &dag.Steps[field.TopLevelStepIndex]
 		for _, ref := range field.Field.StepOutputReferences(field.Value) {
 			producerIndex, ok := idToIndex[ref.StepName]
-			if !ok || producerIndex == field.topLevelStepIndex {
+			if !ok || producerIndex == field.TopLevelStepIndex {
 				continue
 			}
 			producer := dag.Steps[producerIndex].Name
@@ -60,7 +60,7 @@ func inferStepOutputDependencies(dag *ir.DAG, errs *ir.ErrorList) {
 			}
 			owner.InferredDepends = append(owner.InferredDepends, ir.InferredDependency{
 				Step:  producer,
-				Field: field.noticeFieldPath(),
+				Field: field.NoticeFieldPath(),
 			})
 		}
 	}
@@ -71,13 +71,13 @@ func inferStepOutputDependencies(dag *ir.DAG, errs *ir.ErrorList) {
 // step-output lookup scope, item-scoped foreach fields, and template executor
 // scripts rendered as written create no edge.
 func inferredDependencyField(field ReferenceField) bool {
-	if field.topLevelStepIndex < 0 || !strings.Contains(field.Value, "$") {
+	if field.TopLevelStepIndex < 0 || !strings.Contains(field.Value, "$") {
 		return false
 	}
 	if field.Field.IsTemplateScript() {
 		return false
 	}
-	return !isForeachItemFieldPath(field.noticeFieldPath())
+	return !isForeachItemFieldPath(field.NoticeFieldPath())
 }
 
 // reachesStep reports whether from depends on target directly or transitively

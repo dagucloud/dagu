@@ -11,7 +11,7 @@ import (
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/reffield"
 )
 
 // stepReads is what the value fields of a step read from other steps.
@@ -25,7 +25,7 @@ type stepReads struct {
 // stepReads returns what the fields of the node's step read.
 func (n *Node) stepReads() stepReads {
 	n.readsOnce.Do(func() {
-		for _, field := range spec.ReferenceFields(&ir.DAG{Steps: []ir.Step{n.Step()}}) {
+		for _, field := range reffield.ReferenceFields(&ir.DAG{Steps: []ir.Step{n.Step()}}) {
 			n.reads.text = append(n.reads.text, field.Field.StepTextReferences(field.Value)...)
 			n.reads.values = append(n.reads.values, field.Value)
 		}

@@ -67,9 +67,9 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 		if !strings.Contains(field.Value, "$") {
 			continue
 		}
-		foreachItemScopeField := isForeachItemScopeFieldPath(field.noticeFieldPath())
+		foreachItemScopeField := isForeachItemScopeFieldPath(field.NoticeFieldPath())
 		if !foreachItemScopeField {
-			stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.Field, field.OwnerStepName, field.OwnerStepID, sink)
+			stepOutputNotices.report(field.NoticeFieldPath(), field.Value, field.Field, field.OwnerStepName, field.OwnerStepID, sink)
 		}
 		fieldRuntimeScope := runtimeScope
 		fieldRuntimeScope.BuiltinContext = noticeBuiltinContext(dag.Name, field.OwnerStepName, field.OwnerStepID)
@@ -84,7 +84,7 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 			fieldRuntimeScope,
 			cmnvalue.WithValueReferenceNotices(valueReferenceNoticeFieldSink{
 				sink:                         sink,
-				fieldPath:                    field.noticeFieldPath(),
+				fieldPath:                    field.NoticeFieldPath(),
 				suppressStepOutputReferences: true,
 				suppressForeachReferences:    foreachItemScopeField,
 			}),
