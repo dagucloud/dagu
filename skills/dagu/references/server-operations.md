@@ -9,8 +9,8 @@ Do not ask whether the user means a server or local files. Decide in this order:
 1. The user names a context, URL, or "local": use it. If they name a remote server without a context or URL, ask for it.
 2. Dagu MCP tools (`dagu_read`, `dagu_change`, `dagu_execute`) are already connected: use them.
 3. `dagu context list` shows a current remote context: use it. If `local` is current and exactly one remote context exists, use that; if several remote contexts could apply (for example staging and production), ask which.
-4. A server answers `GET <url>/api/v1/health` at a configured URL, at the address of a listening `dagu` process (`ss -ltnp`), or at the default `localhost:8080`: use it. The port is often not 8080.
-5. A configured server that fails its health check is unavailable: report it and ask before any local change. Otherwise no server exists: use the local CLI and file edits as usual, saying once that no server was found.
+4. Probe `GET <url>/api/v1/health` on the first candidate that exists: a configured URL, else the address of a listening `dagu` process (`ss -ltnp`), else `localhost:8080`. The port is often not 8080. If it is healthy, use it. If it is not, report the server as unavailable and ask before any local change; do not move on to another candidate.
+5. No candidate exists: no server. Use the local CLI and file edits as usual, saying once that no server was found.
 
 Ask only if a server is detected and the request could equally mean local DAG files.
 
