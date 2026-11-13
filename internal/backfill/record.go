@@ -200,6 +200,9 @@ type Store interface {
 	// Update rewrites an existing record, as a resume does, and marks it
 	// open while it has not ended.
 	Update(ctx context.Context, record *Record) error
+	// Delete removes a backfill: its record, its progress, and its marks.
+	// A backfill without a record is no error.
+	Delete(ctx context.Context, id string) error
 }
 
 var (

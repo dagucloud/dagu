@@ -8,6 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Service submits backfills.
@@ -89,6 +93,10 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 	if req.Revision != "" && req.Revision != plan.Revision {
 		return result, ErrStalePlan
 	}
+	if err := s.removeExpired(ctx, req.Plan.DAG, req.Plan.Now); err != nil {
+		logger.Warn(ctx, "Failed to remove backfills past their retention",
+			tag.DAG(req.Plan.DAG.Name), tag.Error(err))
+	}
 	runs := plan.Runs()
 	if len(runs) == 0 {
 		return result, nil
@@ -114,6 +122,27 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 	}
 	result.Record = record
 	return result, nil
+}
+
+// removeExpired removes the DAG's backfills that ended more than its slot
+// retention ago: a backfill is kept as long as the slots it ran. Backfills
+// gather only as they are submitted, so a submit removes them.
+func (s *Service) removeExpired(ctx context.Context, dag *ir.DAG, now time.Time) error {
+	if dag.SlotRetentionDays <= 0 {
+		return nil
+	}
+	cutoff := now.AddDate(0, 0, -dag.SlotRetentionDays)
+	records, err := s.Store.List(ctx, dag.Name)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, record := range records {
+		if !record.Open() && record.EndedAt.Before(cutoff) {
+			errs = append(errs, s.Store.Delete(ctx, record.ID))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // plan makes the plan of a request. Runs named in ignore are left out of the

@@ -149,6 +149,41 @@ func TestStoreProgressAndEnd(t *testing.T) {
 	assert.Len(t, records, 1, "progress files are not records")
 }
 
+// A deleted backfill is gone with its progress, and is no error to delete
+// again.
+func TestStoreDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "etl", now)))
+	require.NoError(t, store.Append(ctx, "aaaaaaaa", backfill.Progress{Kind: backfill.ProgressEnqueued, RunID: "r1", At: now}))
+
+	require.NoError(t, store.Delete(ctx, "aaaaaaaa"))
+	_, err := store.Get(ctx, "aaaaaaaa")
+	require.ErrorIs(t, err, backfill.ErrNotFound)
+	events, err := store.Progress(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	assert.Empty(t, events)
+	for _, dag := range []string{"etl", ""} {
+		records, err := store.List(ctx, dag)
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		assert.Equal(t, "bbbbbbbb", records[0].ID)
+	}
+	open, err := store.Open(ctx)
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	require.NoError(t, store.Delete(ctx, "aaaaaaaa"))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.NotContains(t, entry.Name(), "aaaaaaaa")
+	}
+}
+
 // Progress appended after a crash cut the last event short is read back.
 func TestStoreAppendsAfterATornEvent(t *testing.T) {
 	t.Parallel()
