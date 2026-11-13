@@ -279,6 +279,10 @@ type DAG struct {
 	Kubernetes KubernetesConfig `json:"-"`
 	// Secrets contains references to external secrets to be resolved at runtime.
 	Secrets []secretref.Ref `json:"secrets,omitempty"`
+	// CredentialRefs lists the registry refs that SSH connections read their
+	// credentials from, each named by field path. They resolve at run start
+	// and never become environment variables.
+	CredentialRefs []secretref.Ref `json:"credentialRefs,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
 }
@@ -432,6 +436,9 @@ func (d *DAG) Clone() *DAG {
 	}
 	if d.Kubernetes != nil {
 		clone.Kubernetes = cloneKubernetesConfig(d.Kubernetes)
+	}
+	if d.SSH != nil {
+		clone.SSH = d.SSH.clone()
 	}
 	return &clone
 }
@@ -868,10 +875,8 @@ type SSHConfig struct {
 	Host string `json:"host,omitempty"`
 	// Port is the SSH port. Default is "22".
 	Port string `json:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `json:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `json:"password,omitempty"`
+	// SSHAuth holds the key, password, and passphrase.
+	SSHAuth
 	// StrictHostKey enables strict host key checking. Defaults to true.
 	StrictHostKey bool `json:"strictHostKey,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -895,10 +900,8 @@ type BastionConfig struct {
 	Port string `json:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `json:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `json:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `json:"password,omitempty"`
+	// SSHAuth holds the bastion's key, password, and passphrase.
+	SSHAuth
 }
 
 // S3Config contains the default S3 configuration for the DAG.

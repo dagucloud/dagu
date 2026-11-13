@@ -389,10 +389,12 @@ type ssh struct {
 	Host string `yaml:"host,omitempty"`
 	// Port is the SSH port (can be string or number).
 	Port types.PortValue `yaml:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 	// StrictHostKey enables strict host key checking. Defaults to true if not specified.
 	StrictHostKey *bool `yaml:"strict_host_key,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -415,10 +417,12 @@ type bastion struct {
 	Port types.PortValue `yaml:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `yaml:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 }
 
 // s3Config defines the default S3 configuration for the DAG.
@@ -3026,19 +3030,26 @@ func buildSSH(_ buildContext, d *dag) (*ir.SSHConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	auth, err := ir.ParseSSHAuth("ssh", d.SSH.Key, d.SSH.Password, d.SSH.Passphrase)
+	if err != nil {
+		return nil, err
+	}
+	bastion, err := buildBastionConfig(d.SSH.Bastion)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ir.SSHConfig{
 		User:          d.SSH.User,
 		Host:          d.SSH.Host,
 		Port:          defaultPort(d.SSH.Port.String(), "22"),
-		Key:           d.SSH.Key,
-		Password:      d.SSH.Password,
+		SSHAuth:       auth,
 		StrictHostKey: d.SSH.StrictHostKey == nil || *d.SSH.StrictHostKey,
 		KnownHostFile: d.SSH.KnownHostFile,
 		Shell:         shell,
 		ShellArgs:     shellArgs,
 		Timeout:       d.SSH.Timeout,
-		Bastion:       buildBastionConfig(d.SSH.Bastion),
+		Bastion:       bastion,
 	}, nil
 }
 
@@ -3065,17 +3076,20 @@ func parseSSHShell(shellVal types.ShellValue) (string, []string, error) {
 }
 
 // buildBastionConfig builds bastion configuration from spec.
-func buildBastionConfig(bastion *bastion) *ir.BastionConfig {
+func buildBastionConfig(bastion *bastion) (*ir.BastionConfig, error) {
 	if bastion == nil {
-		return nil
+		return nil, nil
+	}
+	auth, err := ir.ParseSSHAuth("ssh.bastion", bastion.Key, bastion.Password, bastion.Passphrase)
+	if err != nil {
+		return nil, err
 	}
 	return &ir.BastionConfig{
-		Host:     bastion.Host,
-		Port:     defaultPort(bastion.Port.String(), "22"),
-		User:     bastion.User,
-		Key:      bastion.Key,
-		Password: bastion.Password,
-	}
+		Host:    bastion.Host,
+		Port:    defaultPort(bastion.Port.String(), "22"),
+		User:    bastion.User,
+		SSHAuth: auth,
+	}, nil
 }
 
 // defaultPort returns the port if non-empty, otherwise returns the default value.
