@@ -10,13 +10,13 @@ Do not ask whether the user means a server or local files. Decide in this order:
 2. Dagu MCP tools (`dagu_read`, `dagu_change`, `dagu_execute`) are already connected: use them.
 3. `dagu context list` shows a current remote context: use it. If `local` is current and exactly one remote context exists, use that; if several remote contexts could apply (for example staging and production), ask which.
 4. A server answers `GET <url>/api/v1/health` at a configured URL, at the address of a listening `dagu` process (`ss -ltnp`), or at the default `localhost:8080`: use it. The port is often not 8080.
-5. Otherwise no server exists: use the local CLI and file edits as usual, saying once that no server was found.
+5. A configured server that fails its health check is unavailable: report it and ask before any local change. Otherwise no server exists: use the local CLI and file edits as usual, saying once that no server was found.
 
 Ask only if a server is detected and the request could equally mean local DAG files.
 
 ## Routing order
 
-Once a server is detected, use the first tier that supports the operation and reaches the selected target; a tier pointing at a different server (for example connected MCP tools for production when staging was named) is not eligible. Fall back only when it is unavailable, unauthorized, or unsupported (after a timed-out write, check the run list before retrying so it does not start twice), and say which tier was used when it affects the result.
+Once a server is detected, use the first tier that supports the operation and reaches the selected target; a tier pointing at a different server (for example connected MCP tools for production when staging was named) is not eligible. Fall back only when it is unavailable, unsupported, or its key is rejected for that whole surface (after a timed-out write, check the run list before retrying so it does not start twice), and say which tier was used when it affects the result.
 
 1. **MCP** (`<server>/mcp`): tools `dagu_read`, `dagu_change`, `dagu_execute`.
 2. **REST API** (`<server>/api/v1`).
@@ -64,7 +64,7 @@ Deleting DAGs, purging run history, editing the DAG directory by hand, or an unc
 
 - `dagu ls`, `validate`, `dry` and `rm` are local-only. Use them for local inspection or an intentionally managed DAG directory.
 - If tiers 1-3 are unavailable, say so and state that the action will be local before taking it; ask first if it changes anything.
-- On an authorization denial, report it. Do not look for a more privileged key.
+- On a denial of a specific operation, report it and stop. Do not look for a more privileged key.
 - `dagu start <path>` proves only that a file can run, not that the server discovered it.
 - Before local CLI use against the server's data, match its paths and verify with `dagu config`.
 - To schedule a DAG by file, place it in the directory the running scheduler reads, which can differ from the CLI's: check the server's `--dags` flag, `DAGU_HOME`, `DAGU_DAGS_DIR` and `dag_discovery.symlinks` (`dagu schema config`), and confirm the DAG shows a next run on the server.
