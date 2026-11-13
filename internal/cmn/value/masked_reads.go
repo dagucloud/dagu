@@ -52,6 +52,8 @@ type maskedReadsKey struct{}
 type maskedReads struct {
 	mu    sync.Mutex
 	first *MaskedReadError
+	// reject makes resolution fail at a masked read.
+	reject bool
 }
 
 // TrackMaskedReads returns a context that records each read of a masked
@@ -73,6 +75,30 @@ func MaskedRead(ctx context.Context) error {
 		return nil
 	}
 	return reads.first
+}
+
+// RejectMaskedReads makes resolution with ctx fail at a masked read from now
+// on. A step sets it once it starts, so that an executor resolving a field
+// while it runs stops before it uses the value.
+func RejectMaskedReads(ctx context.Context) {
+	if reads := maskedReadsFrom(ctx); reads != nil {
+		reads.mu.Lock()
+		defer reads.mu.Unlock()
+		reads.reject = true
+	}
+}
+
+// rejected returns the masked read that resolution fails at, or nil.
+func (m *maskedReads) rejected() error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.reject || m.first == nil {
+		return nil
+	}
+	return m.first
 }
 
 // AddMaskedRead records in ctx the masked read that err reports, if any.

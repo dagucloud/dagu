@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
@@ -84,6 +85,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		node.SetError(err)
 		return err
 	}
+	cmnvalue.RejectMaskedReads(ctx)
 
 	defer func() {
 		if closeErr := executor.CloseExecutor(cmd); closeErr != nil {

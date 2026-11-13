@@ -121,7 +121,8 @@ step replaces the recorded one. The check runs once the step's preconditions
 hold, so a step whose preconditions are not met is skipped as before; a
 precondition that reads a recorded output reads `*******`, and when it holds
 the step fails, since the precondition is one of its reads. A field that an
-executor resolves while the step runs fails the step when it ends. The failure
+executor resolves while the step runs, such as foreach items, fails the step at
+the read, before the executor uses the value. The failure
 is the same on every attempt, so it is not retried, repeated, or marked
 successful. A step that
 needs a secret after an approval or a human task reads the secret itself

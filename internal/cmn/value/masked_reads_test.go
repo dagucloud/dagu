@@ -115,3 +115,24 @@ func TestMaskedRead(t *testing.T) {
 		})
 	}
 }
+
+// Once a step starts, resolution fails at a masked read, so an executor that
+// resolves a field while it runs stops before it uses the value.
+func TestRejectMaskedReads(t *testing.T) {
+	t.Parallel()
+
+	scope := NewEnvScope(nil, false).
+		WithStepOutputs(map[string]string{"TOKEN": "*******", "REGION": "us"}, "fetch", "TOKEN")
+	ctx := TrackMaskedReads(WithEnvScope(context.Background(), scope))
+	resolver := NewResolver(StaticScope{}, RuntimeScope{Env: scope})
+	RejectMaskedReads(ctx)
+
+	got, err := resolver.String(ctx, "${REGION}", WorkflowField("items"))
+	require.NoError(t, err)
+	assert.Equal(t, "us", got)
+
+	_, err = resolver.String(ctx, "${TOKEN}", WorkflowField("items"))
+	var read *MaskedReadError
+	require.ErrorAs(t, err, &read)
+	assert.Equal(t, MaskedReadError{Step: "fetch", Output: "TOKEN"}, *read)
+}

@@ -86,6 +86,8 @@ func TestStepOutputMaskedOnRetry(t *testing.T) {
 		{fixture: "step_output_retry_escaped.yaml", output: "token"},
 		{fixture: "step_output_retry_property.yaml", output: "token"},
 		{fixture: "step_output_retry_env.yaml", output: "TOKEN"},
+		// foreach resolves its items while it runs.
+		{fixture: "step_output_retry_items.yaml", output: "TOKEN"},
 	} {
 		fixture := tc.fixture
 		t.Run(fixture, func(t *testing.T) {
