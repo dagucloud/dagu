@@ -57,6 +57,7 @@ import Title from '@/components/ui/title';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
+import { BackfillRunsScope } from '@/features/backfills/components/BackfillRunsScope';
 import { I18nProps } from '@/i18n/I18nProps';
 import { statusLabelText } from '@/lib/status-utils';
 
@@ -756,13 +757,29 @@ function DAGRuns() {
     }
   );
 
+  // A link from a backfill lists its runs, from the backfill's start on.
+  const backfillId = React.useMemo(
+    () => new URLSearchParams(location.search).get('backfillId') ?? '',
+    [location.search]
+  );
+  const clearBackfill = React.useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    params.delete('backfillId');
+    const search = params.toString();
+    navigate(
+      { pathname: location.pathname, search: search ? `?${search}` : '' },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate]);
+
   // A service DAG restarts without end, so its runs would fill an unfiltered
   // list. A search by name, run ID, status or labels shows them.
   const hideServiceDAGRuns =
     !apiSearchText &&
     !apiDagRunId &&
     apiStatus === 'all' &&
-    apiLabels.length === 0;
+    apiLabels.length === 0 &&
+    !backfillId;
   const dagRunQuery = React.useMemo(
     () => ({
       remoteNode: appBarContext.selectedRemoteNode || 'local',
@@ -775,8 +792,12 @@ function DAGRuns() {
       limit: 100,
       excludeServiceDAGRuns: hideServiceDAGRuns ? true : undefined,
       ...workspaceQuery,
+      ...(backfillId
+        ? { backfillId, fromDate: undefined, toDate: undefined }
+        : {}),
     }),
     [
+      backfillId,
       hideServiceDAGRuns,
       apiDagRunId,
       apiFromDate,
@@ -1554,6 +1575,9 @@ function DAGRuns() {
           onReplaceSelection={replaceSelection}
           onActionComplete={refreshDagRuns}
         />
+        {backfillId && (
+          <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
+        )}
         {/* A service DAG restarts without end, so its runs are not in this list.
             Each dag has a card that opens its latest runs instead. */}
         {hideServiceDAGRuns && (

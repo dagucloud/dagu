@@ -297,6 +297,26 @@ describe('DAGRuns page', () => {
     expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
   });
 
+  // A backfill links to its runs: the list asks for them from the backfill's
+  // start on, whatever the date filter, until the scope is cleared.
+  it('lists the runs of a backfill that the URL names', async () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
+
+    expect(lastRunQuery()).toMatchObject({ backfillId: 'bf123456' });
+    expect(lastRunQuery()['fromDate']).toBeUndefined();
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
+    expect(screen.getByRole('link', { name: 'bf123456' })).toHaveAttribute(
+      'href',
+      '/backfills/bf123456'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all runs' }));
+    await waitFor(() =>
+      expect(locationSearchParams().has('backfillId')).toBe(false)
+    );
+    expect(lastRunQuery()['backfillId']).toBeUndefined();
+  });
+
   it('shows no service DAG section when no DAG is one', () => {
     renderPage();
 
