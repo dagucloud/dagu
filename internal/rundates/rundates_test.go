@@ -90,3 +90,33 @@ func TestResolveWithoutDates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, dates)
 }
+
+// A run that names no slot gets the latest fire at or before its creation,
+// and only when the DAG has dates.
+func TestDefaultSlot(t *testing.T) {
+	t.Parallel()
+
+	monthly, err := spec.LoadYAML(t.Context(), []byte(`
+schedule: "CRON_TZ=UTC 0 2 1 * *"
+dates:
+  target_day: -1d
+steps:
+  - run: echo load
+`), spec.OnlyMetadata())
+	require.NoError(t, err)
+	fifteenth := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+
+	slot, ok := rundates.DefaultSlot(monthly, "", time.UTC, nil, fifteenth)
+	require.True(t, ok)
+	assert.Equal(t, "2026-11-01T02:00:00.000Z", slot.ScheduleTime)
+	dates, err := rundates.Resolve(rundates.Request{
+		DAG: monthly, ScheduleTime: slot.ScheduleTime, Window: slot.Window, CreatedAt: fifteenth, Location: time.UTC,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-10-31"}}, dates)
+
+	withoutDates := *monthly
+	withoutDates.Dates = nil
+	_, ok = rundates.DefaultSlot(&withoutDates, "", time.UTC, nil, fifteenth)
+	assert.False(t, ok, "a DAG without dates keeps a run without a slot")
+}

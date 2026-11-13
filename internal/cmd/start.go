@@ -310,10 +310,11 @@ func runStart(ctx *Context, args []string) error {
 	if slot.scheduleTime == "" {
 		slot = historicSlot
 	}
-	// A sub-DAG run may continue a run that recorded its dates, so the run
-	// resolves its own when it starts.
+	// A sub-DAG run may continue a run that recorded its slot and dates, so
+	// the run settles its own when it starts.
 	var dates []ir.DateValue
 	if !isSubDAGRun {
+		slot = withDefaultSlot(ctx, dag, profileName, slot)
 		if dates, err = slotDates(ctx, dag, profileName, slot); err != nil {
 			return err
 		}
@@ -334,6 +335,7 @@ func runStart(ctx *Context, args []string) error {
 		scheduleTime:    slot.scheduleTime,
 		scheduleWindow:  slot.window,
 		dates:           dates,
+		defaultSlot:     slot.isDefault,
 		profileName:     profileName,
 		definitionID:    dagDefinitionIDFromEnv(),
 		noReuse:         noReuse,
@@ -748,6 +750,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			ScheduleTime:             opts.scheduleTime,
 			ScheduleWindow:           opts.scheduleWindow,
 			Dates:                    opts.dates,
+			DefaultSlot:              opts.defaultSlot,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,

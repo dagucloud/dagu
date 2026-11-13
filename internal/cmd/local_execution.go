@@ -28,6 +28,7 @@ type runOptions struct {
 	scheduleTime      string
 	scheduleWindow    ir.ScheduleWindow
 	dates             []ir.DateValue
+	defaultSlot       bool
 	profileName       string
 	definitionID      string
 	step              string

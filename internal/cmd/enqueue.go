@@ -97,6 +97,7 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	slot = withDefaultSlot(ctx, dag, profileName, slot)
 	dates, err := slotDates(ctx, dag, profileName, slot)
 	if err != nil {
 		return err
@@ -112,6 +113,7 @@ func runEnqueue(ctx *Context, args []string) error {
 		scheduleTime:   slot.scheduleTime,
 		scheduleWindow: slot.window,
 		dates:          dates,
+		defaultSlot:    slot.isDefault,
 		profileName:    profileName,
 		definitionID:   dagDefinitionIDFromEnv(),
 		noReuse:        noReuse,
@@ -150,6 +152,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		ScheduleTime:            opts.scheduleTime,
 		ScheduleWindow:          opts.scheduleWindow,
 		Dates:                   opts.dates,
+		DefaultSlot:             opts.defaultSlot,
 		ProfileName:             opts.profileName,
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,

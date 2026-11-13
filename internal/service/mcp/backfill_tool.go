@@ -21,6 +21,7 @@ const (
 	executeFieldBackfillID     = "backfillId"
 	executeFieldFrom           = "from"
 	executeFieldTo             = "to"
+	executeFieldBy             = "by"
 	executeFieldSlots          = "slots"
 	executeFieldRerun          = "rerun"
 	executeFieldMaxConcurrency = "maxConcurrency"
@@ -35,6 +36,7 @@ type backfillInput struct {
 	ID             string
 	From           string
 	To             string
+	By             string
 	Slots          []string
 	Rerun          string
 	MaxConcurrency int
@@ -48,7 +50,7 @@ type backfillInput struct {
 // action and name.
 var backfillFields = map[string][]string{
 	executeActionBackfill: {
-		executeFieldFrom, executeFieldTo, executeFieldSlots, executeFieldRerun, executeFieldMaxConcurrency,
+		executeFieldFrom, executeFieldTo, executeFieldBy, executeFieldSlots, executeFieldRerun, executeFieldMaxConcurrency,
 		executeFieldOnFailure, executeFieldParams, executeFieldProfile, executeFieldDryRun, executeFieldRevision,
 	},
 	executeActionBackfillResume: {
@@ -66,7 +68,7 @@ func isBackfillAction(action string) bool {
 // only.
 func isBackfillField(field string) bool {
 	switch field {
-	case executeFieldBackfillID, executeFieldFrom, executeFieldTo, executeFieldSlots, executeFieldRerun,
+	case executeFieldBackfillID, executeFieldFrom, executeFieldTo, executeFieldBy, executeFieldSlots, executeFieldRerun,
 		executeFieldMaxConcurrency, executeFieldOnFailure, executeFieldDryRun, executeFieldRevision, executeFieldStopRunning:
 		return true
 	}
@@ -83,6 +85,8 @@ func parseBackfillField(input *backfillInput, field string, value json.RawMessag
 		input.From, err = executeStringField(field, value)
 	case executeFieldTo:
 		input.To, err = executeStringField(field, value)
+	case executeFieldBy:
+		input.By, err = executeStringField(field, value)
 	case executeFieldSlots:
 		if json.Unmarshal(value, &input.Slots) != nil {
 			err = executeInputError("Field slots must be an array of strings.", field)
@@ -145,6 +149,7 @@ func (svc *Service) executeBackfill(ctx context.Context, input executeInput) (*m
 		body := &daguapi.BackfillRequest{
 			From:     optionalString(in.From),
 			To:       optionalString(in.To),
+			By:       optionalString(in.By),
 			Params:   optionalString(input.Params),
 			Profile:  optionalString(input.Profile),
 			DryRun:   &in.DryRun,

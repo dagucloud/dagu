@@ -71,6 +71,14 @@ func WithScheduleWindow(window ScheduleWindow) StatusOption {
 	}
 }
 
+// WithDefaultSlot marks the run's slot as the default of a run started
+// without one.
+func WithDefaultSlot(isDefault bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.DefaultSlot = isDefault
+	}
+}
+
 // WithDates sets the run's dates.
 func WithDates(dates []DateValue) StatusOption {
 	return func(status *DAGRunStatus) {

@@ -40,7 +40,12 @@ type Options struct {
 	From  time.Time   `json:"from,omitzero"`
 	To    time.Time   `json:"to,omitzero"`
 	Slots []time.Time `json:"slots,omitempty"`
-	Rerun Rerun       `json:"rerun"`
+	// By names the dates entry a range selects by, and FromDate and ToDate
+	// are its dates in YYYY-MM-DD. ToDate is empty when it defaulted to now.
+	By       string `json:"by,omitempty"`
+	FromDate string `json:"fromDate,omitempty"`
+	ToDate   string `json:"toDate,omitempty"`
+	Rerun    Rerun  `json:"rerun"`
 	// MaxConcurrency bounds the runs of the backfill that are queued,
 	// running, or waiting at once.
 	MaxConcurrency int       `json:"maxConcurrency"`
@@ -53,6 +58,7 @@ type Options struct {
 func (o Options) Equal(other Options) bool {
 	return o.From.Equal(other.From) && o.To.Equal(other.To) &&
 		slices.EqualFunc(o.Slots, other.Slots, time.Time.Equal) &&
+		o.By == other.By && o.FromDate == other.FromDate && o.ToDate == other.ToDate &&
 		o.Rerun == other.Rerun && o.MaxConcurrency == other.MaxConcurrency &&
 		o.OnFailure == other.OnFailure && o.Params == other.Params && o.Profile == other.Profile
 }

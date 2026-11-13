@@ -89,6 +89,28 @@ function requestBody(
   };
 }
 
+/**
+ * The first and last date a plan's runs load: the values of the entry it
+ * selects by, else of the DAG's first date. Null when the DAG has no dates.
+ */
+export function loadsRange(
+  plan: BackfillPlan
+): { entry: string; from: string; to: string } | null {
+  const runs = plan.slots.filter(
+    (slot) => slot.action === BackfillPlanSlotAction.run
+  );
+  const entry =
+    plan.by ?? runs.find((slot) => slot.dates?.length)?.dates?.[0]?.name;
+  if (!entry) return null;
+  const values = runs.flatMap((slot) => {
+    const date = slot.dates?.find((d) => d.name === entry);
+    if (!date) return [];
+    return date.list ? (date.values ?? []) : date.value ? [date.value] : [];
+  });
+  if (values.length === 0) return null;
+  return { entry, from: values[0]!, to: values[values.length - 1]! };
+}
+
 /** The message of an API error, which a stale plan's answer lacks. */
 function messageOf(error: unknown, fallback: string): string {
   return error !== null &&
@@ -231,6 +253,7 @@ export function StartBackfillDialog({
   const redoConfirmed = confirmedRedo === redoKey;
   const first = plan?.slots[0]?.slot;
   const last = plan?.slots[plan.slots.length - 1]?.slot;
+  const loads = plan ? loadsRange(plan) : null;
 
   const start = async () => {
     if (!plan || !chosen) return;
@@ -460,6 +483,11 @@ export function StartBackfillDialog({
                         formatAbsoluteTime(first, { seconds: false }) ?? first,
                       to: formatAbsoluteTime(last, { seconds: false }) ?? last,
                     })}
+                  </span>
+                )}
+                {loads && (
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {ts('Loads {from} to {to} ({entry})', loads)}
                   </span>
                 )}
                 {(plan.warnings ?? []).map((warning) => (

@@ -112,12 +112,13 @@ func runRestart(ctx *Context, args []string) error {
 	if slot.scheduleTime == "" {
 		slot = runSlot{scheduleTime: dagStatus.ScheduleTime, window: dagStatus.ScheduleWindow()}
 	}
-	dates, err := slotDates(ctx, dag, dagStatus.ProfileName, slot)
+	// Without a slot, the restarted run settles its slot and dates when it
+	// starts, after the restart wait. They are checked now, so a restart
+	// whose dates cannot resolve is refused before the original run stops.
+	dates, err := slotDates(ctx, dag, dagStatus.ProfileName, withDefaultSlot(ctx, dag, dagStatus.ProfileName, slot))
 	if err != nil {
 		return err
 	}
-	// Without a slot, dates follow the clock, so the restarted run resolves
-	// them when it starts, after the restart wait.
 	if slot.scheduleTime == "" {
 		dates = nil
 	}

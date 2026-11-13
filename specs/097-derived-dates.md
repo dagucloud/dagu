@@ -2,12 +2,10 @@
 
 ## Status
 
-Partially implemented. Loading, validation, resolution for runs, and
-`${dates.NAME}` are implemented; conformance covers them through
-`dagu validate`, `dagu start`, sub-DAG runs, `parallel`, and `dagu retry`.
-Not yet implemented: the default slot of a run started without one, which
-until then resolves only the dates that need no window, and reading dates
-in `params[].eval`.
+Partially implemented. Loading, validation, resolution for runs,
+`${dates.NAME}`, and the default slot are implemented; conformance covers
+them through `dagu validate`, `dagu start`, sub-DAG runs, `parallel`, and
+`dagu retry`. Not yet implemented: reading dates in `params[].eval`.
 
 ## Scope
 
@@ -155,11 +153,17 @@ sub-DAG run, uses the DAG's `calendar`.
 
 ### A run without a slot
 
-A run without a slot resolves `scheduled_at` and `interval_end` against the
-time the run was created, cut to the minute. An entry that needs a window,
-one with `each` or one that starts from `interval_start` or
-`next_scheduled_at`, directly or through the entries it builds on, cannot
-resolve without a slot.
+A run that names no slot of a DAG with a recurring start schedule gets the
+default slot of [Spec 017](017-built-in-run-context.md): the latest fire at or
+before its creation. A monthly DAG fired on the 1st and started by hand on the
+15th resolves its dates as the run of the 1st did.
+
+A run that still has no slot, because its DAG has no recurring start
+schedule and no parent run gives it one, resolves `scheduled_at` and
+`interval_end` against the time the run was created, cut to the minute. An
+entry that needs a window, one with `each` or one that starts from
+`interval_start` or `next_scheduled_at`, directly or through the entries it
+builds on, cannot resolve without a slot.
 
 ### Resolution
 

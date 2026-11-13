@@ -8,6 +8,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -192,4 +193,54 @@ func TestResolveDatesAtStart(t *testing.T) {
 
 	require.NoError(t, a.resolveDates(context.Background()))
 	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-11-09"}}, a.dates)
+}
+
+// A queued run of a DAG with dates that names no slot, such as a webhook
+// run, takes the default slot of its creation, not of its start.
+func TestResolveDatesTakesDefaultSlot(t *testing.T) {
+	t.Parallel()
+
+	monthly, err := ir.NewCronSchedule("CRON_TZ=UTC 0 2 1 * *")
+	require.NoError(t, err)
+	created := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+	a := &Agent{
+		dag: &ir.DAG{
+			Schedule: []ir.Schedule{monthly},
+			Dates:    []ir.DateSpec{{Name: "target_day", Shift: []string{"-1d"}}},
+		},
+		retryTarget: &ir.DAGRunStatus{CreatedAt: created.UnixMilli()},
+	}
+
+	require.NoError(t, a.resolveDates(context.Background()))
+	assert.True(t, a.defaultSlot)
+	slot, err := time.Parse(time.RFC3339, a.scheduleTime)
+	require.NoError(t, err)
+	assert.True(t, slot.Equal(time.Date(2026, 11, 1, 2, 0, 0, 0, time.UTC)), a.scheduleTime)
+	assert.Equal(t, []ir.DateValue{{Name: "target_day", Value: "2026-10-31"}}, a.dates)
+}
+
+// A sub-DAG of a parent with no slot takes the default slot of its own
+// schedule, so business days follow that schedule's calendar, not the DAG's.
+func TestResolveDatesOwnDefaultSlotCalendar(t *testing.T) {
+	t.Parallel()
+
+	daily, err := ir.NewCronSchedule("CRON_TZ=UTC 0 2 * * *")
+	require.NoError(t, err)
+	daily.Calendar = ir.CalendarWeekdays
+	weekdays, _ := ir.BuiltinCalendar(ir.CalendarWeekdays)
+	require.NoError(t, daily.BindCalendar(weekdays))
+	monday := time.Date(2026, 11, 9, 9, 0, 0, 0, time.UTC)
+	a := &Agent{
+		dag: &ir.DAG{
+			Schedule: []ir.Schedule{daily},
+			Calendar: "missing",
+			Dates:    []ir.DateSpec{{Name: "last_open_day", Shift: []string{"-1bd"}}},
+		},
+		parentDAGRun: ir.NewDAGRunRef("parent", "run-1"),
+		retryTarget:  &ir.DAGRunStatus{CreatedAt: monday.UnixMilli()},
+	}
+
+	require.NoError(t, a.resolveDates(context.Background()))
+	assert.True(t, a.defaultSlot)
+	assert.Equal(t, []ir.DateValue{{Name: "last_open_day", Value: "2026-11-06"}}, a.dates)
 }

@@ -43,7 +43,10 @@ type QueueRequest struct {
 	ScheduleWindow ir.ScheduleWindow
 	// Dates are the run's dates. When nil, the run resolves them as it
 	// starts.
-	Dates        []ir.DateValue
+	Dates []ir.DateValue
+	// DefaultSlot marks ScheduleTime as the default slot of a run that
+	// named none.
+	DefaultSlot  bool
 	ProfileName  string
 	DefinitionID string
 	NoReuse      bool
@@ -206,7 +209,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 	if req.ScheduleTime != "" {
 		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))
 	}
-	opts = append(opts, ir.WithDates(req.Dates))
+	opts = append(opts, ir.WithDates(req.Dates), ir.WithDefaultSlot(req.DefaultSlot))
 
 	return ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Queued, 0, time.Time{}, opts...)
 }

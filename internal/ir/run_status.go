@@ -231,6 +231,9 @@ type DAGRunStatus struct {
 	// Dates are the run's dates, resolved from its DAG's dates block when
 	// the run was created.
 	Dates []DateValue `json:"dates,omitempty"`
+	// DefaultSlot reports that ScheduleTime is the default slot of a run
+	// started without one, rather than a slot it named or was fired for.
+	DefaultSlot bool `json:"defaultSlot,omitempty"`
 	// BackfillID names the backfill that started the run. Retries keep it.
 	BackfillID     string `json:"backfillId,omitempty"`
 	StartedAt      string `json:"startedAt,omitempty"`

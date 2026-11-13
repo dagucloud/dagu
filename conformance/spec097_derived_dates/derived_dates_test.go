@@ -4,9 +4,11 @@
 package spec097_derived_dates_test
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
@@ -171,4 +173,21 @@ func TestRetryKeepsDates(t *testing.T) {
 	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, "retry_dates")
 	retry.ExpectExitCode(0)
 	dagu.ExpectFileContent("attempts.txt", "2026-11-09\n2026-11-09\n")
+}
+
+// A run of a DAG with dates started without a slot gets the latest fire as
+// its slot, so a monthly load started mid-month loads what its 1st loaded.
+func TestDefaultSlot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	slot := time.Date(now.Year(), now.Month(), 1, 2, 0, 0, 0, time.UTC)
+	if slot.After(now) {
+		slot = slot.AddDate(0, -1, 0)
+	}
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(utcServer, "start", "monthly_default_slot.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("default-slot.txt", fmt.Sprintf("slot=%s target=%s\n",
+		slot.Format(time.RFC3339), slot.AddDate(0, 0, -1).Format(time.DateOnly)))
 }
