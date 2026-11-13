@@ -664,8 +664,12 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		return
 	}
 	if !met {
-		r.markBuildPrecondition(ctx, buildSession, node, ir.BuildReasonPreconditionNotMet,
-			"step precondition was not met", progressCh)
+		reason, detail := ir.BuildReasonPreconditionNotMet, "step precondition was not met"
+		if node.State().Status == ir.NodeFailed {
+			// A precondition that read a masked output failed the step.
+			reason, detail = ir.BuildReasonPreconditionError, ""
+		}
+		r.markBuildPrecondition(ctx, buildSession, node, reason, detail, progressCh)
 		return
 	}
 	// A skipped step reads nothing, so a masked read fails the step only once
@@ -2128,12 +2132,8 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 		node.SetStatus(ir.NodeAborted)
 
 	case isMaskedRead(execErr):
-		// A masked read fails the same way on every attempt, and the step
-		// did not run on its value, so it is neither retried nor marked
-		// successful.
-		node.SetStatus(ir.NodeFailed)
-		node.MarkError(execErr)
-		r.setLastError(execErr)
+		// A masked read fails the same way on every attempt.
+		r.finalizeFailedNode(ctx, node, execErr)
 
 	case node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {
@@ -2152,7 +2152,9 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 // succeeded when continueOn.markSuccess applies.
 func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
 	node.SetStatus(ir.NodeFailed)
-	if node.ShouldMarkSuccess(ctx) {
+	// A step failed by a masked read did not run on the value, so it is not
+	// marked successful.
+	if node.ShouldMarkSuccess(ctx) && !isMaskedRead(execErr) {
 		node.SetError(execErr)
 		node.SetStatus(ir.NodeSucceeded)
 		return
@@ -2210,8 +2212,11 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 		}
 		return false
 	}
+	if read, ok := errors.AsType[*cmnvalue.MaskedReadError](err); ok {
+		err = fmt.Errorf("step %q %w", node.Name(), read)
+	}
 	node.MarkError(err)
-	if node.ShouldMarkSuccess(ctx) {
+	if node.ShouldMarkSuccess(ctx) && !isMaskedRead(err) {
 		node.SetStatus(ir.NodeSucceeded)
 		return false
 	}

@@ -5371,6 +5371,19 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantRead: "TOKEN",
 		},
 		{
+			name: "RepeatConditionMarkSuccess",
+			use: []stepOption{
+				withCommand("true"),
+				withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true}),
+				func(step *ir.Step) {
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+					step.RepeatPolicy.Condition = &ir.Condition{Condition: "${TOKEN}", Expected: "real"}
+				},
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
 			name:     "MarkSuccess",
 			use:      []stepOption{withCommand(`echo "$TOKEN"`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},
 			wantNode: ir.NodeFailed,
