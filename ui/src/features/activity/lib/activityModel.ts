@@ -3,6 +3,7 @@
 
 import {
   type DAGRunActivityQueueBlockedReason,
+  ServiceDAGState,
   Status,
   type components,
 } from '@/api/v1/schema';
@@ -10,6 +11,7 @@ import {
 export type DAGRunActivity = components['schemas']['DAGRunActivity'];
 export type ActivityRun = components['schemas']['DAGRunActivityRun'];
 export type ActivityQueue = components['schemas']['DAGRunActivityQueue'];
+type ServiceDAG = components['schemas']['ServiceDAG'];
 
 /** A time range in Unix seconds. */
 export type TimeRange = { from: number; to: number };
@@ -44,6 +46,7 @@ const MIN_USUAL_SAMPLES = 3;
 
 export type AttentionItem =
   | { kind: 'failing'; name: string; run: ActivityRun }
+  | { kind: 'serviceFailing'; name: string; run: ActivityRun; dag: ServiceDAG }
   | { kind: 'waiting'; name: string; run: ActivityRun }
   | { kind: 'slow'; name: string; run: ActivityRun; usualSeconds: number };
 
@@ -106,15 +109,33 @@ function usualSeconds(runs: ActivityRun[]): Map<string, number> {
   return usual;
 }
 
+/** The latest run of a service DAG, as a run of the activity. */
+function serviceDAGRun(dag: ServiceDAG): ActivityRun | undefined {
+  const run = dag.latestRun;
+  if (!run) return undefined;
+  const startedAt = run.startedAt ? Date.parse(run.startedAt) : NaN;
+  return {
+    name: dag.name,
+    dagRunId: run.dagRunId,
+    status: run.status,
+    startedAt: Number.isNaN(startedAt)
+      ? undefined
+      : Math.floor(startedAt / 1000),
+  };
+}
+
 /**
  * Lists what needs a person: workflows whose latest run did not succeed,
  * runs waiting for input, and runs taking much longer than the loaded runs
- * of their workflow usually take.
+ * of their workflow usually take. The activity leaves out the runs of service
+ * DAGs, so the service DAGs that keep failing or wait for input come from the
+ * service DAG list.
  */
 export function attentionItems(
   activity: DAGRunActivity,
   runs: ActivityRun[],
-  nowSeconds: number
+  nowSeconds: number,
+  serviceDAGs: ServiceDAG[] = []
 ): AttentionItem[] {
   const failing = activity.attention.map<AttentionItem>((run) => ({
     kind: 'failing',
@@ -125,6 +146,19 @@ export function attentionItems(
   const waiting = activity.active
     .filter((run) => run.status === Status.Waiting)
     .map<AttentionItem>((run) => ({ kind: 'waiting', name: run.name, run }));
+  const serviceFailing: AttentionItem[] = [];
+  for (const dag of serviceDAGs) {
+    const run = serviceDAGRun(dag);
+    if (!run) continue;
+    if (dag.state === ServiceDAGState.waiting) {
+      waiting.push({ kind: 'waiting', name: dag.name, run });
+    } else if (
+      dag.state === ServiceDAGState.failing ||
+      dag.consecutiveFailures > 0
+    ) {
+      serviceFailing.push({ kind: 'serviceFailing', name: dag.name, run, dag });
+    }
+  }
 
   const usual = usualSeconds(runs);
   const slow: AttentionItem[] = [];
@@ -142,7 +176,7 @@ export function attentionItems(
     }
   }
 
-  return [...failing, ...waiting, ...slow];
+  return [...failing, ...serviceFailing, ...waiting, ...slow];
 }
 
 /**

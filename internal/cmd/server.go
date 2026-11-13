@@ -91,7 +91,9 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 		DAGRunLeaseStore:     ctx.Persistence.DAGRunLeaseStore,
 		WorkerHeartbeatStore: ctx.Persistence.WorkerHeartbeatStore,
 		SchedulerStateStore:  ctx.Persistence.SchedulerStateStore,
+		BackfillStore:        ctx.Persistence.BackfillStore,
 		SchedulerPauseStore:  ctx.Persistence.SchedulerPauseStore,
+		RestartBackoffStore:  ctx.Persistence.RestartBackoffStore,
 		Caches:               ctx.Caches,
 		LicenseManager:       ctx.LicenseManager,
 		ResourceService:      rs,
@@ -400,6 +402,7 @@ func newCloudAccess(ctx *Context) *cloudaccess.Service {
 		Settings:    newCloudAccessSettings(ctx.Config),
 		Key:         key,
 		Hello:       cloudrelay.Hello{Name: name, Version: config.Version},
+		LastCall:    filemonitor.NewStateStore(filepath.Join(ctx.Config.Paths.DataDir, "cloud", "access-last-call.json")),
 	})
 }
 

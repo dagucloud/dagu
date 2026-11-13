@@ -202,8 +202,9 @@ type LoadOptions struct {
 	Format string
 	// Columns selects and orders the fields, as for DecodeRows.
 	Columns any
-	// Encoding is the CSV file's encoding; empty means UTF-8, and a byte
-	// order mark is dropped either way.
+	// Encoding is the CSV file's encoding; empty detects it, UTF-8 or else
+	// Shift_JIS, as textenc.Detect does, and a byte order mark is dropped
+	// either way. Other formats are UTF-8.
 	Encoding Encoding
 	// Delimiter is the CSV field separator; zero means a comma.
 	Delimiter rune
@@ -227,7 +228,7 @@ func LoadTable(path string, opts LoadOptions) (Table, error) {
 	}
 	data, err := encoding.decode(raw)
 	if err != nil {
-		return Table{}, fmt.Errorf("input: %w", err)
+		return Table{}, fmt.Errorf("input: %s: %w", path, err)
 	}
 	switch format {
 	case "json":

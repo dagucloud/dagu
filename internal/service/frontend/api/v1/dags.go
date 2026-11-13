@@ -560,6 +560,7 @@ func (a *API) GetDAGDAGRunHistory(ctx context.Context, request api.GetDAGDAGRunH
 		Limit:            limit,
 		Cursor:           valueOf(request.Params.Cursor),
 		IncludeEphemeral: valueOf(request.Params.IncludeEphemeral),
+		ExcludeBackfill:  !valueOf(request.Params.IncludeBackfill),
 	})
 	if err != nil {
 		if apiErr := dagRunListBadRequest(err); apiErr != nil {
@@ -621,6 +622,13 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 			Message:    err.Error(),
 		}
 	}
+	// The live feed leaves the backfill out: reading it reads the run of
+	// every slot the backfill has queued.
+	latest, err := a.latestBackfill(ctx, request.FileName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the latest backfill of a DAG", slog.String("dagFile", request.FileName), tag.Error(err))
+	}
+	resp.LatestBackfill = latest
 	return resp, nil
 }
 
@@ -2328,7 +2336,12 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{Limit: defaultHistoryLimit})
+		// The live feed mirrors the default page, which leaves out backfill
+		// runs.
+		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{
+			Limit:           defaultHistoryLimit,
+			ExcludeBackfill: true,
+		})
 	})
 }
 

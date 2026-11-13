@@ -1122,6 +1122,15 @@ func TestFindQueueConfig(t *testing.T) {
 
 }
 
+func TestQueueLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{Queues: Queues{Enabled: true, Config: []QueueConfig{{Name: "shared", MaxActiveRuns: 3}, {Name: "unset"}}}}
+	assert.Equal(t, 3, cfg.QueueLimit("shared"))
+	assert.Equal(t, 1, cfg.QueueLimit("unset"), "a configured queue runs at least one")
+	assert.Equal(t, 1, cfg.QueueLimit("etl"), "a DAG's own queue runs one at a time")
+}
+
 func TestBrowserClientCertificateValidate(t *testing.T) {
 	t.Parallel()
 	valid := []BrowserClientCertificate{

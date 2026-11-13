@@ -162,3 +162,101 @@ func TestScheduleWindowAt(t *testing.T) {
 		})
 	}
 }
+
+func TestPreviousFire(t *testing.T) {
+	t.Parallel()
+
+	twiceYearly, err := ir.NewCronSchedule("0 0 1 1,7 *")
+	require.NoError(t, err)
+	hourly, err := ir.NewCronSchedule("0 * * * *")
+	require.NoError(t, err)
+	oneOff, err := ir.NewOneOffSchedule("2026-06-30T23:30:00Z")
+	require.NoError(t, err)
+	at := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	assert.Equal(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		ir.PreviousFire([]ir.Schedule{twiceYearly, oneOff}, at), "one-off schedules are not recurring fires")
+	assert.Equal(t, time.Date(2026, 6, 30, 23, 0, 0, 0, time.UTC),
+		ir.PreviousFire([]ir.Schedule{twiceYearly, hourly}, at), "the latest fire across schedules")
+	assert.True(t, ir.PreviousFire(nil, at).IsZero())
+}
+
+func TestFiringScheduleExpression(t *testing.T) {
+	t.Parallel()
+
+	cron := func(t *testing.T, expr, profile string) ir.Schedule {
+		t.Helper()
+		schedule, err := ir.NewCronSchedule(expr)
+		require.NoError(t, err)
+		schedule.Profile = profile
+		return schedule
+	}
+	unbound := func(t *testing.T) ir.Schedule {
+		t.Helper()
+		schedule, err := ir.ParseScheduleValue(
+			map[string]any{"expression": "0 2 * * *", "calendar": "jp-banking"},
+			ir.ScheduleParseOptions{AllowCalendar: true},
+		)
+		require.NoError(t, err)
+		return schedule
+	}
+	// 2027-01-02 is a Saturday and 2027-01-04 a Monday.
+	saturday := time.Date(2027, 1, 2, 2, 0, 0, 0, time.UTC)
+	monday := time.Date(2027, 1, 4, 2, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		schedules func(t *testing.T) []ir.Schedule
+		profile   string
+		at        time.Time
+		want      string
+	}{
+		{
+			name:      "fires",
+			schedules: func(t *testing.T) []ir.Schedule { return []ir.Schedule{cron(t, "0 2 * * *", "")} },
+			at:        monday,
+			want:      "0 2 * * *",
+		},
+		{
+			name:      "off schedule",
+			schedules: func(t *testing.T) []ir.Schedule { return []ir.Schedule{cron(t, "0 2 * * *", "")} },
+			at:        monday.Add(30 * time.Minute),
+		},
+		{
+			name: "skips another profile's schedule",
+			schedules: func(t *testing.T) []ir.Schedule {
+				return []ir.Schedule{cron(t, "0 2 * * *", "staging"), cron(t, "0 2 */1 * *", "")}
+			},
+			profile: "prod",
+			at:      monday,
+			want:    "0 2 */1 * *",
+		},
+		{
+			name: "bound calendar excludes a weekend",
+			schedules: func(t *testing.T) []ir.Schedule {
+				return []ir.Schedule{boundSchedule(t, jpBanking(), map[string]any{"expression": "0 2 * * *"})}
+			},
+			at: saturday,
+		},
+		{
+			name: "bound calendar includes a business day",
+			schedules: func(t *testing.T) []ir.Schedule {
+				return []ir.Schedule{boundSchedule(t, jpBanking(), map[string]any{"expression": "0 2 * * *"})}
+			},
+			at:   monday,
+			want: "0 2 * * *",
+		},
+		{
+			name:      "unbound calendar matches by cron",
+			schedules: func(t *testing.T) []ir.Schedule { return []ir.Schedule{unbound(t)} },
+			at:        saturday,
+			want:      "0 2 * * *",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, ir.FiringScheduleExpression(tc.schedules(t), tc.profile, time.UTC, tc.at))
+		})
+	}
+}
