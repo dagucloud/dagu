@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -148,7 +150,7 @@ func (m *maskedReads) noteEntry(entry EnvEntry) {
 func noteShellReads(ctx context.Context, text string) {
 	reads := maskedReadsFrom(ctx)
 	scope := GetEnvScope(ctx)
-	if reads == nil || !scope.hasMaskedOutput() {
+	if reads == nil || !scope.hasMaskedOutput() || !shellText(text) {
 		return
 	}
 	for _, name := range shellEnvReads(text) {
@@ -156,6 +158,21 @@ func noteShellReads(ctx context.Context, text string) {
 			reads.noteEntry(entry)
 		}
 	}
+}
+
+// shellText reports whether a POSIX shell runs text. A script whose shebang
+// names another interpreter, directly or through env, is not shell text.
+func shellText(text string) bool {
+	line, _, _ := strings.Cut(text, "\n")
+	interpreter, ok := strings.CutPrefix(strings.TrimSuffix(line, "\r"), "#!")
+	if !ok {
+		return true
+	}
+	words := strings.Fields(interpreter)
+	if len(words) > 0 && path.Base(words[0]) == "env" {
+		words = slices.DeleteFunc(words[1:], func(word string) bool { return strings.HasPrefix(word, "-") })
+	}
+	return len(words) == 0 || cmdutil.IsUnixLikeShell(words[0]) || cmdutil.IsNixShell(words[0])
 }
 
 // shellEnvReads returns the variables a POSIX shell reads from its

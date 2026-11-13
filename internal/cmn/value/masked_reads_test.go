@@ -37,6 +37,7 @@ func TestMaskedRead(t *testing.T) {
 		}, "fetch", "TOKEN", "CONFIG", "PIN")
 	workflow := WorkflowField("run")
 	shell := ShellCommandField("run", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
+	script := CommandScriptField("script", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
 
 	tests := []struct {
 		name  string
@@ -118,6 +119,11 @@ func TestMaskedRead(t *testing.T) {
 		// Dagu inserts a quoted reference in a single-quoted span itself.
 		{name: "quoted reference in single quotes", raw: `curl -d '{"token":"${TOKEN}"}'`, field: shell, want: "TOKEN"},
 		{name: "script passed on as written", raw: "console.log(`${TOKEN} ${fetch.output}`)", field: TemplateScriptField("script")},
+		{name: "shell script", raw: "#!/bin/bash\ndeploy \"$TOKEN\"", field: script, want: "TOKEN"},
+		{name: "shell script through env", raw: "#!/usr/bin/env -S bash -e\ndeploy \"$TOKEN\"", field: script, want: "TOKEN"},
+		// Another interpreter's variables are its own.
+		{name: "perl script", raw: "#!/usr/bin/perl\nmy $TOKEN = 'local'; print $TOKEN;", field: script},
+		{name: "python script through env", raw: "#!/usr/bin/env python3\nprint('$TOKEN')", field: script},
 	}
 
 	for _, tt := range tests {

@@ -111,7 +111,8 @@ subshell, in code that may not run, or as a function's local holds only
 there, and a value every branch of an `if` sets holds after it. A function
 body runs where the function first runs. `declare`, `export`, or `readonly`
 without a value keeps the inherited value. Text a script hands to another
-shell, as with `eval` or `sh -c`, is a program reading its environment.
+shell, as with `eval` or `sh -c`, and a script whose shebang names an
+interpreter other than a POSIX shell are programs reading their environment.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it,
