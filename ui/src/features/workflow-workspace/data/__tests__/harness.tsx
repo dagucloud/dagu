@@ -21,7 +21,7 @@ import { FILE_NAME } from './fixtures';
 
 export interface FakeServer {
   dag: DAGPageData;
-  /** Pinned runs by ID. A missing ID answers 404. */
+  /** Pinned runs by ID. A missing ID answers 404. A sub-run is read by its ID too. */
   runs: Record<string, ApiDAGRunDetails>;
   history: { dagRuns: ApiDAGRunDetails[]; gridData: unknown[] };
   subRuns: unknown[];
@@ -37,6 +37,16 @@ export function serve(server: FakeServer) {
         return { data: server.dag };
       case '/dag-runs/{name}/{dagRunId}': {
         const id = init?.params?.path?.dagRunId ?? '';
+        const found = server.runs[id];
+        return found
+          ? { data: { dagRunDetails: found } }
+          : {
+              error: { code: 'not_found', message: 'not found' },
+              response: { status: 404 },
+            };
+      }
+      case '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}': {
+        const id = init?.params?.path?.subDAGRunId ?? '';
         const found = server.runs[id];
         return found
           ? { data: { dagRunDetails: found } }
