@@ -651,9 +651,9 @@ steps:
     with:
       method: GET
       url: http://example.com
-      key: value
-      map:
-        foo: bar
+      silent: true
+      headers:
+        X-Test: value
 `)
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
@@ -663,9 +663,9 @@ steps:
 		assert.Equal(t, map[string]any{
 			"method": "GET",
 			"url":    "http://example.com",
-			"key":    "value",
-			"map": map[string]any{
-				"foo": "bar",
+			"silent": true,
+			"headers": map[string]any{
+				"X-Test": "value",
 			},
 		}, th.Steps[0].ExecutorConfig.Config)
 	})

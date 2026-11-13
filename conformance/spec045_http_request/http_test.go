@@ -143,6 +143,7 @@ func TestHTTPConfig(t *testing.T) {
 	for _, tc := range []struct{ file, field string }{
 		{"missing_method.yaml", "with.method"},
 		{"missing_url.yaml", "with.url"},
+		{"unknown_field.yaml", `unexpected additional properties ["header"]; did you mean "headers" instead of "header"?`},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()
