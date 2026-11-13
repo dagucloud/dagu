@@ -166,3 +166,99 @@ func valueOrEmpty(value *string) string {
 	}
 	return *value
 }
+
+// The API shows a slot's dates before a run exists: for a slot named or the
+// default one, beside each upcoming run, and on the run once it records them.
+func TestSlotDates(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dated := `
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+dates:
+  target_day: -1d
+  window_days: { each: 1d }
+steps:
+  - name: noop
+    run: "true"
+`
+	unscheduled := `
+dates:
+  since: { from: interval_start }
+steps:
+  - name: noop
+    run: "true"
+`
+	for name, spec := range map[string]string{"dated_dag": dated, "unscheduled_dag": unscheduled} {
+		_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: name, Spec: &spec}).
+			ExpectStatus(http.StatusCreated).Send(t)
+	}
+	targetDay := func(dates *[]api.RunDateValue) string {
+		t.Helper()
+		require.NotNil(t, dates)
+		for _, date := range *dates {
+			if date.Name == "target_day" {
+				return valueOrEmpty(date.Value)
+			}
+		}
+		t.Fatalf("no target_day in %+v", *dates)
+		return ""
+	}
+
+	t.Run("PreviewNamedSlot", func(t *testing.T) {
+		var preview api.PreviewDAGSlot200JSONResponse
+		server.Client().Get("/api/v1/dags/dated_dag/slot-preview?scheduledAt=2026-11-10").
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &preview)
+
+		require.NotNil(t, preview.ScheduledAt)
+		assert.True(t, preview.ScheduledAt.Equal(time.Date(2026, 11, 9, 17, 0, 0, 0, time.UTC)))
+		assert.Equal(t, "Asia/Tokyo", valueOrEmpty(preview.Timezone))
+		assert.False(t, preview.DefaultSlot)
+		assert.Equal(t, []api.RunDateValue{
+			{Name: "target_day", Value: new("2026-11-09")},
+			{Name: "window_days", List: new(true), Values: &[]string{"2026-11-09"}},
+		}, preview.Dates)
+	})
+
+	t.Run("PreviewDefaultSlot", func(t *testing.T) {
+		var preview api.PreviewDAGSlot200JSONResponse
+		server.Client().Get("/api/v1/dags/dated_dag/slot-preview").
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &preview)
+
+		assert.True(t, preview.DefaultSlot)
+		require.NotNil(t, preview.ScheduledAt)
+		assert.False(t, preview.ScheduledAt.After(time.Now()))
+	})
+
+	t.Run("PreviewRefusesADateWithoutAWindow", func(t *testing.T) {
+		server.Client().Get("/api/v1/dags/unscheduled_dag/slot-preview").
+			ExpectStatus(http.StatusBadRequest).Send(t)
+	})
+
+	t.Run("UpcomingRunsCarryDates", func(t *testing.T) {
+		var details api.GetDAGDetails200JSONResponse
+		server.Client().Get("/api/v1/dags/dated_dag").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+
+		require.NotNil(t, details.Dag)
+		require.NotNil(t, details.Dag.UpcomingRuns)
+		next := (*details.Dag.UpcomingRuns)[0]
+		tokyo, err := time.LoadLocation("Asia/Tokyo")
+		require.NoError(t, err)
+		assert.Equal(t, next.Time.In(tokyo).AddDate(0, 0, -1).Format(time.DateOnly), targetDay(next.Dates))
+	})
+
+	t.Run("RunRecordsItsDates", func(t *testing.T) {
+		slot := "2026-11-10"
+		var resp api.ExecuteDAG200JSONResponse
+		server.Client().Post("/api/v1/dags/dated_dag/start", api.ExecuteDAGJSONRequestBody{ScheduleTime: &slot}).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
+		waitForDAGRunStatus(t, server, "dated_dag", resp.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+			return status.Status == ir.Succeeded
+		})
+
+		var details api.GetDAGDAGRunDetails200JSONResponse
+		server.Client().Get(fmt.Sprintf("/api/v1/dags/dated_dag/dag-runs/%s", resp.DagRunId)).
+			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+		assert.Equal(t, "2026-11-09", targetDay(details.DagRun.Dates))
+		assert.Nil(t, details.DagRun.DefaultSlot)
+	})
+}

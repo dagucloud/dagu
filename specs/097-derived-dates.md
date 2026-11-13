@@ -5,7 +5,8 @@
 Partially implemented. Loading, validation, resolution for runs,
 `${dates.NAME}`, and the default slot are implemented; conformance covers
 them through `dagu validate`, `dagu start`, sub-DAG runs, `parallel`, and
-`dagu retry`. Not yet implemented: reading dates in `params[].eval`.
+`dagu retry`; the API previews are covered by API tests. Not yet implemented:
+reading dates in `params[].eval`, and the CLI and UI previews.
 
 ## Scope
 
@@ -174,6 +175,19 @@ run. Every attempt reads the recorded values.
 resolve the dates before the run exists, and refuse a run whose dates cannot
 resolve. A sub-DAG run resolves its own DAG's dates when it starts, and fails
 at start, naming the date, when one cannot resolve.
+
+### Previews
+
+A slot's dates can be read before a run exists, and after it records them:
+
+- The upcoming runs of a DAG's details, and of the MCP `dag` read as
+  `upcomingRunDates`, list the dates each fire's run gets.
+- `GET /api/v1/dags/{fileName}/slot-preview?scheduledAt=` returns the slot a
+  run would be started for, as the start API reads `scheduleTime`, with its
+  window and dates, and starts nothing. With no `scheduledAt` it previews the
+  default slot. A date that cannot resolve returns 400 with the reason.
+- A run's details, and the MCP `run` read, include the dates it recorded and
+  whether its slot was the default.
 
 ### References
 

@@ -2808,9 +2808,24 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 		if fire.ExtraBusinessDay {
 			run.ExtraBusinessDay = ptrOf(true)
 		}
+		run.Dates = a.fireDates(dag, fire.Time, location)
 		runs = append(runs, run)
 	}
 	return &runs
+}
+
+// fireDates resolves the dates the run of a fire gets, or returns nil when
+// the DAG has no dates or they do not resolve.
+func (a *API) fireDates(dag *ir.DAG, fire time.Time, location *time.Location) *[]api.RunDateValue {
+	if len(dag.Dates) == 0 {
+		return nil
+	}
+	window := ir.ScheduleWindowAt(dag.Schedule, "", location, fire)
+	dates, err := a.runDates(dag, "", stringutil.FormatTime(fire), window)
+	if err != nil {
+		return nil
+	}
+	return toAPIRunDates(dates)
 }
 
 // upcomingRunsHold reports why listed upcoming runs will not start: the

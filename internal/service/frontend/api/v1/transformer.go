@@ -511,6 +511,8 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		Ephemeral:              ephemeralFlag(s),
 		ReusedInputs:           toReusedInputs(s.ReusedInputs),
 		Log:                    s.Log,
+		Dates:                  toAPIRunDates(s.Dates),
+		DefaultSlot:            boolOrNil(s.DefaultSlot),
 		Name:                   s.Name,
 		Params:                 ptrOf(s.Params),
 		DagRunId:               s.DAGRunID,
@@ -1202,4 +1204,13 @@ func authoredOutputDeclarations(declarations []ir.StepOutputDeclaration) []api.S
 		outputs = append(outputs, output)
 	}
 	return outputs
+}
+
+// boolOrNil returns a pointer to b, or nil when b is false, so a false flag
+// is left out of a response.
+func boolOrNil(b bool) *bool {
+	if !b {
+		return nil
+	}
+	return &b
 }

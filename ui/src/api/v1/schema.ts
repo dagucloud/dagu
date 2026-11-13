@@ -449,6 +449,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/slot-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview a schedule slot
+         * @description Resolves the slot a run would be started for, with its window and the dates its run would get, without starting a run. With no scheduledAt, it previews the default slot a DAG with dates gives a run that names none.
+         */
+        get: operations["previewDAGSlot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backfills": {
         parameters: {
             query?: never;
@@ -5030,6 +5050,32 @@ export interface components {
             /** @description Dates the slot's run gets, in the order the DAG declares them */
             dates?: components["schemas"]["RunDateValue"][];
         };
+        /** @description A schedule slot a run would be started for, and what it would get */
+        SlotPreview: {
+            /**
+             * Format: date-time
+             * @description The slot; absent when the run would have none
+             */
+            scheduledAt?: string;
+            /**
+             * Format: date-time
+             * @description Start of the window the slot owns
+             */
+            windowStart?: string;
+            /**
+             * Format: date-time
+             * @description The next fire after the slot
+             */
+            nextScheduledAt?: string;
+            /** @description Zone of the slot's schedule */
+            timezone?: string;
+            /** @description No slot was named, and the run would take the default slot */
+            defaultSlot: boolean;
+            /** @description Set when the slot is not a fire time of the schedule */
+            warning?: string;
+            /** @description Dates the run would get, in declaration order */
+            dates: components["schemas"]["RunDateValue"][];
+        };
         /** @description A resolved entry of a DAG's dates block */
         RunDateValue: {
             name: string;
@@ -6323,6 +6369,8 @@ export interface components {
             businessDay?: number;
             /** @description Whether the fire falls on a business day only because the calendar lists it */
             extraBusinessDay?: boolean;
+            /** @description Dates the run of this fire gets from the DAG's dates block, in declaration order. Absent when the DAG has none. */
+            dates?: components["schemas"]["RunDateValue"][];
         };
         /**
          * @description Numeric status code indicating current DAG-run state:
@@ -6897,6 +6945,10 @@ export interface components {
             parentDAGRunId?: components["schemas"]["DAGRunId"] & unknown;
             /** @description Path to the log file */
             log: string;
+            /** @description Dates the run resolved from its DAG's dates block when it was created, in declaration order */
+            dates?: components["schemas"]["RunDateValue"][];
+            /** @description The run named no slot and took the default slot, the latest fire at or before its creation */
+            defaultSlot?: boolean;
             /** @description Status of individual steps within the DAG-run */
             nodes: components["schemas"]["Node"][];
             onInit?: components["schemas"]["Node"];
@@ -10819,6 +10871,63 @@ export interface operations {
                 };
             };
             /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    previewDAGSlot: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description The slot as the start API takes it: latest, a date, a time without an offset, or an RFC 3339 time */
+                scheduledAt?: string;
+                /** @description Runtime profile whose schedules own the slot */
+                profile?: string;
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The slot and its dates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlotPreview"];
+                };
+            };
+            /** @description The slot or its dates cannot be resolved; the message says why */
             400: {
                 headers: {
                     [name: string]: unknown;
