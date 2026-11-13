@@ -366,10 +366,14 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 Teams reorganize, so DAGs move between projects. In v2 a label change moved
 a DAG and kept its history; a move between projects keeps it too.
 
-- A user who can edit DAGs in both projects moves a DAG in the UI or API, or
-  with `dagu move`. Its file, runs, logs, artifacts, DAG state, suspend
-  flag, settings, and per-DAG webhooks move with it, and its webhook URLs
-  keep working.
+- An admin, or a user with the `manager` role in both projects, moves a DAG
+  in the UI or API, or with `dagu move`. Its file, runs, logs, artifacts,
+  DAG state, suspend flag, settings, and per-DAG webhooks move with it, and
+  its webhook URLs keep working. Runs in which it was a child stay with
+  their parent runs.
+- The target project's users then see the DAG's past runs and logs, which
+  can hold data the source project never shared. The move asks to confirm
+  that before it starts.
 - Before anything moves, the move lists the secrets, profiles, and
   notification routes the DAG uses that the target project lacks, so what
   the DAG runs with never changes silently.
@@ -542,13 +546,15 @@ v2 DAG names are unique on a server, so API clients, CLI scripts, MCP
 clients, and webhook URLs name a DAG without its workspace. Migration must
 not break them.
 
-- A request without `project` that names a DAG the default project lacks
-  resolves to the project that has a DAG of that name, when exactly one
-  project the caller can see has one. The response carries a deprecation
-  warning.
-- With no such project, or several, the request fails, and the error names
-  the projects the caller can see that have the DAG. Projects the caller
-  cannot see are never named or matched.
+- Migration records each DAG it moves: its v2 name and its project. A
+  request without `project` that names a DAG the default project lacks
+  resolves through that record, and only through it, when the caller can
+  see the recorded project. The response carries a deprecation warning.
+- DAGs created after migration never enter the record, so a new DAG in
+  another project never changes where an old client's call goes.
+- Otherwise the request fails, and the error names the projects the caller
+  can see that have a DAG of that name. Projects the caller cannot see are
+  never named.
 - CLI commands without `--project` and MCP tools without `project` resolve
   the same way and print the warning.
 - Per-DAG webhook URLs keep their paths and tokens, and reach the DAG in its
@@ -647,7 +653,8 @@ v2 gets no new workspace features.
     change them.
 25. After migration, an API call, CLI command, MCP call, or webhook URL that
     named a v2 DAG without its workspace still reaches the DAG, with a
-    deprecation warning, unless the caller cannot see its project.
+    deprecation warning, unless the caller cannot see its project. A DAG
+    created after migration never changes where such a call goes.
 26. Moving a DAG to another project keeps its runs, logs, state, and webhook
     URLs. It lists what the target project lacks before it moves, and is
     refused while a `dag.run` caller remains in the source project.
