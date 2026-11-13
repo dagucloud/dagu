@@ -966,8 +966,10 @@ func (tp *TickPlanner) shouldRun(ctx context.Context, dag *ir.DAG, scheduledTime
 		return false, schedulerstate.SlotFailed
 	}
 
-	// Also check status-based running (belt and suspenders)
-	if latestStatus.Status == ir.Running {
+	// Also check status-based running (belt and suspenders). A backfill run
+	// is the latest run only of a DAG without another run, and it holds no
+	// live slot back.
+	if latestStatus.Status == ir.Running && latestStatus.BackfillID == "" {
 		return false, schedulerstate.SlotRunning
 	}
 
