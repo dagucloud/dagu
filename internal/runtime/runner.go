@@ -1846,7 +1846,11 @@ func (r *Runner) GetMetrics() map[string]any {
 // shouldRetryNode handles the retry logic for a node based on exit codes and retry policy
 func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error) (shouldRetry bool) {
 	exitCode := 1
-	if code, found := exitCodeFromError(execErr); found {
+	// The recorded exit code is the one continue_on.exit_code sees, so prefer
+	// it over one parsed from the error text.
+	if code := node.State().ExitCode; code != 0 {
+		exitCode = code
+	} else if code, found := exitCodeFromError(execErr); found {
 		exitCode = code
 		logger.Debug(ctx, "Resolved exit code from error",
 			tag.Error(execErr),

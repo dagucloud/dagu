@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -125,6 +126,41 @@ func registerReportedStatusExecutor(t *testing.T, status ir.NodeStatus) string {
 		executorType,
 		func(context.Context, ir.Step) (runtimeexec.Executor, error) {
 			return reportedStatusExecutor{status: status}, nil
+		},
+		nil,
+		registry.ExecutorCapabilities{},
+	)
+	t.Cleanup(func() {
+		runtimeexec.UnregisterExecutor(executorType)
+	})
+
+	return executorType
+}
+
+// exitCodeExecutor fails and reports its exit code only through ExitCoder,
+// leaving no exit status in the error text.
+type exitCodeExecutor struct {
+	code int
+}
+
+func (exitCodeExecutor) SetStdout(io.Writer) {}
+
+func (exitCodeExecutor) SetStderr(io.Writer) {}
+
+func (exitCodeExecutor) Run(context.Context) error { return errors.New("request rejected") }
+
+func (exitCodeExecutor) Kill(os.Signal) error { return nil }
+
+func (e exitCodeExecutor) ExitCode() int { return e.code }
+
+func registerExitCodeExecutor(t *testing.T, code int) string {
+	t.Helper()
+
+	executorType := "test-exit-code-" + uuid.Must(uuid.NewV7()).String()
+	runtimeexec.RegisterExecutor(
+		executorType,
+		func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+			return exitCodeExecutor{code: code}, nil
 		},
 		nil,
 		registry.ExecutorCapabilities{},
@@ -3543,6 +3579,23 @@ func TestRunner_ComplexRetryScenarios(t *testing.T) {
 		node := result.nodeByName(t, "1")
 		// Should retry once (first failure with code 42, then fail with code 100)
 		assert.Equal(t, 1, node.State().RetryCount)
+	})
+
+	t.Run("RetryWithExecutorExitCode", func(t *testing.T) {
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("1",
+				withExecutorType(registerExitCodeExecutor(t, 75)),
+				withRetryPolicy(1, 20*time.Millisecond),
+				func(step *ir.Step) { step.RetryPolicy.ExitCodes = []int{75} },
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+		node := result.nodeByName(t, "1")
+		assert.Equal(t, 1, node.State().RetryCount)
+		assert.Equal(t, 75, node.State().ExitCode)
 	})
 
 	// Test cases for behaviors when neither condition nor exitCode are present
