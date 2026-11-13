@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
@@ -75,6 +76,8 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 	}
 
 	history := a.dagRunMgr.AllHistory()
+	backoff := a.restartBackoff(ctx)
+	hold := a.restartHold(ctx)
 	dags := make([]api.ServiceDAG, 0, len(result.Items))
 	for _, item := range result.Items {
 		latest, statusErr := history.ReadLatestStatus(ctx, item.DAG)
@@ -92,23 +95,78 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			message := readErr.Error()
 			readError = &message
 		}
+		var nextRestartAt *time.Time
+		var restartHold *api.ServiceDAGRestartHold
+		if readError == nil && (state == scheduler.ServiceDAGStateRestarting || state == scheduler.ServiceDAGStateFailing) {
+			if hold != nil {
+				restartHold = hold
+			} else if at, ok := scheduler.NextRestart(item.RestartWait, &latest, backoff[item.Name]); ok {
+				nextRestartAt = &at
+			}
+		}
 		dags = append(dags, api.ServiceDAG{
 			FileName:       item.ID,
 			Name:           item.Name,
 			RestartPolicy:  api.RestartPolicy(item.RestartPolicy),
 			RestartWaitSec: int(item.RestartWait.Seconds()),
+			Queue:          item.ProcGroup(),
 			State:          api.ServiceDAGState(state),
 			Suspended:      item.Suspended,
 			LatestRun:      toServiceDAGRun(latest),
 			ReadError:      readError,
+			NextRestartAt:  nextRestartAt,
+			RestartHold:    restartHold,
 
 			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
 		})
+	}
+	// A list of every service DAG tells which ones were deleted. A list of some
+	// workspaces does not, so it keeps the counts of the other DAGs.
+	if filter == nil || !filter.Enabled {
+		names := make(map[string]struct{}, len(result.Items))
+		for _, item := range result.Items {
+			names[item.Name] = struct{}{}
+		}
+		a.serviceDAGFailures.retain(names)
 	}
 	if errList == nil {
 		errList = []string{}
 	}
 	return api.ServiceDAGsResponse{Dags: dags, Errors: errList}, nil
+}
+
+// restartHold tells why the scheduler starts no run of a service DAG now, or
+// returns nil while it does: an operator paused it, or no scheduler runs. The
+// wake hold keeps restarts going, and a scheduler whose state is unknown may run.
+func (a *API) restartHold(ctx context.Context) *api.ServiceDAGRestartHold {
+	if a.schedulerPauseStore != nil {
+		pause, err := a.schedulerPauseStore.Get(ctx)
+		if err != nil {
+			logger.Warn(ctx, "Failed to read the scheduler pause state", tag.Error(err))
+		} else if pause.Paused && !pause.WakeHold() {
+			hold := api.ServiceDAGRestartHoldPaused
+			return &hold
+		}
+	}
+	if running, known := a.schedulerRunning(ctx); known && !running {
+		hold := api.ServiceDAGRestartHoldNoScheduler
+		return &hold
+	}
+	return nil
+}
+
+// restartBackoff returns what the scheduler shares of its restart backoff. It is
+// empty when that cannot be read, which shortens the times the list reports.
+func (a *API) restartBackoff(ctx context.Context) map[string]schedulerstate.RestartBackoff {
+	if a.restartBackoffStore == nil {
+		return nil
+	}
+	backoff, err := a.restartBackoffStore.Load(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the restart backoff", tag.Error(err))
+		return nil
+	}
+	return backoff
 }
 
 // serviceDAGFailureStreakLimit caps the failed runs in a row that the
@@ -146,6 +204,18 @@ func (s *failureStreaks) put(name string, latest ir.DAGRunStatus, count int) {
 		s.counts = make(map[string]failureStreak)
 	}
 	s.counts[name] = failureStreak{runID: latest.DAGRunID, status: latest.Status, count: count}
+}
+
+// retain forgets the counts of the DAGs that are not named, such as a deleted
+// one.
+func (s *failureStreaks) retain(names map[string]struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name := range s.counts {
+		if _, ok := names[name]; !ok {
+			delete(s.counts, name)
+		}
+	}
 }
 
 // failureStreak counts the newest ended runs of a service DAG in a row that

@@ -66,7 +66,9 @@ construct the file uses, and each warning must name the replacement.
 
 Rules:
 
-- The entrypoint document must not define `name`.
+- The entrypoint document must not define `name`. `dagu validate` rejects one.
+  Commands that run a DAG accept it and use it as the DAG name, so DAGs
+  written before this rule keep running.
 - Every later document must define `name`.
 - Later document names identify local sub-DAGs inside the same YAML file.
 - Later documents are not executed by `dagu start` unless an execution spec references them as sub-DAGs.

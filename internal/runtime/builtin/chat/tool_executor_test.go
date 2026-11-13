@@ -130,6 +130,16 @@ func TestFormatArgValue(t *testing.T) {
 			expected: "3.14",
 		},
 		{
+			name:     "SmallFloatInDecimalForm",
+			value:    0.00001,
+			expected: "0.00001",
+		},
+		{
+			name:     "LargeIntegerInDecimalForm",
+			value:    1e21,
+			expected: "1000000000000000000000",
+		},
+		{
 			name:     "BoolTrue",
 			value:    true,
 			expected: "true",

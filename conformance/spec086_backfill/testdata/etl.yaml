@@ -1,0 +1,5 @@
+schedule: "0 2 * * *"
+params:
+  - FAIL: "0"
+steps:
+  - run: exit ${FAIL}

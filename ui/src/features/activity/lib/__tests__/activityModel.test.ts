@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { DAGRunActivityQueueBlockedReason, Status } from '@/api/v1/schema';
+import {
+  DAGRunActivityQueueBlockedReason,
+  RestartPolicy,
+  ServiceDAGState,
+  Status,
+  type components,
+} from '@/api/v1/schema';
 import {
   type ActivityRun,
   attentionItems,
@@ -110,6 +116,66 @@ describe('attentionItems', () => {
       'slow:train',
     ]);
     expect(items[3]).toMatchObject({ usualSeconds: 600 });
+  });
+});
+
+describe('attentionItems for service DAGs', () => {
+  function serviceDAG(
+    name: string,
+    overrides: Partial<components['schemas']['ServiceDAG']>
+  ): components['schemas']['ServiceDAG'] {
+    return {
+      fileName: name,
+      name,
+      restartPolicy: RestartPolicy.always,
+      restartWaitSec: 5,
+      queue: name,
+      state: ServiceDAGState.running,
+      suspended: false,
+      consecutiveFailures: 0,
+      latestRun: { dagRunId: `${name}-1`, status: Status.Running },
+      ...overrides,
+    };
+  }
+
+  // The activity leaves out the runs of service DAGs, so the service DAG list
+  // tells which ones need a person.
+  it('lists the service DAGs that keep failing or wait for input', () => {
+    const items = attentionItems(
+      activity({
+        attention: [run('etl', 'e-1', Status.Failed, FROM)],
+        active: [{ name: 'approve', dagRunId: 'a-1', status: Status.Waiting }],
+      }),
+      [],
+      FROM,
+      [
+        serviceDAG('healthy', {}),
+        serviceDAG('crashed', {
+          state: ServiceDAGState.failing,
+          consecutiveFailures: 3,
+          latestRun: {
+            dagRunId: 'c-3',
+            status: Status.Failed,
+            startedAt: new Date(FROM * 1000).toISOString(),
+          },
+        }),
+        // Between two crashes a DAG that keeps failing is up again.
+        serviceDAG('flapping', { consecutiveFailures: 2 }),
+        serviceDAG('gated', {
+          state: ServiceDAGState.waiting,
+          latestRun: { dagRunId: 'g-1', status: Status.Waiting },
+        }),
+      ]
+    );
+
+    expect(items.map((item) => `${item.kind}:${item.name}`)).toEqual([
+      'failing:etl',
+      'serviceFailing:crashed',
+      'serviceFailing:flapping',
+      'waiting:approve',
+      'waiting:gated',
+    ]);
+    expect(items[1]!.run).toMatchObject({ dagRunId: 'c-3', startedAt: FROM });
   });
 });
 
