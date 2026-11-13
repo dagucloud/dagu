@@ -4,9 +4,9 @@
 - **Date:** 2026-10-09, revised 2026-10-24 and 2026-11-13
 - **Affected areas:** `workspace`, `auth`, `spec` (base config), `runtime`
   (`dag.run` resolution), `secret`, `profile`, notification routes, incident
-  policies, wiki, `audit`, `gitsync`, `service/scheduler`,
-  `service/coordinator`, `service/mcp`, `api/v1`, `proto`, `ui`, and
-  `cmn/config`
+  policies, wiki, `audit`, `gitsync`, `persis`, `cmn/crypto`,
+  `service/scheduler`, `service/coordinator`, `service/mcp`, `api/v1`,
+  `proto`, `ui`, and `cmn/config`
 
 ## Summary
 
@@ -146,8 +146,35 @@ Windows, and Linux.
 
 | Scope | Contents |
 | --- | --- |
-| Server | `config.yaml`, global `base.yaml`, library DAG files (`paths.alt_dags_dir`), users, API keys, OIDC and proxy authentication, license, Dagu Cloud connection, coordinator and worker state, audit log, queues defined in `config.yaml` |
-| Project | DAG files, project `base.yaml`, runs, logs, artifacts, DAG state, suspend flags, DAG settings, secrets, profiles, notification routes, incident policies, wiki, per-DAG webhooks, other queues |
+| Server | `config.yaml`, global `base.yaml`, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
+| Project | DAG files, project `base.yaml`, runs, logs, artifacts, run work directories, process heartbeats, run events, DAG state, suspend flags, DAG settings, pins, views, scheduler state and checkpoints, watch state, slot index, backfills, materializations, agent session cleanups, secrets, profiles, notification routes, incident policies and incidents, wiki, per-DAG webhooks and their public URLs, node inventories ([RFC 012](012-node-inventory.md)), other queues |
+
+A store added later is per project unless it holds identity, authentication,
+licensing, or the state of the processes and workers that serve every
+project.
+
+### Storage
+
+```text
+request, scheduler unit, or task ──▶ project ID ──▶ that project's stores
+                                                     (file backend: the
+                                                      project's directories)
+```
+
+- A project's stores are the stores the default project uses today, opened
+  on the project's paths. Store contracts take no project argument. The API,
+  MCP, and CLI edge, the scheduler supervisor, and the coordinator choose
+  which project's stores to use. A backend that is not file-based keys its
+  records by project ID instead.
+- **Encryption key.** Every project encrypts its secrets with the server's
+  key: `DAGU_ENCRYPTION_KEY`, or `auth/encryption_key` in `paths.data_dir`.
+  A project never creates its own key, so migrated secrets decrypt
+  unchanged. A project directory copied to another server decrypts there
+  only with the same key.
+- **Reads across projects.** Most pages show one project. Search, and any
+  page that spans projects, reads the stores of each project the user can
+  see, a few at a time, and merges the results. Its cost grows with the
+  number of projects.
 
 ### Base config
 
@@ -275,6 +302,8 @@ scheduler process   HA lock, health server, service registry, signals, license
 - The HA lock, health server, and service registration move out of the unit
   and exist once per process. Kept per unit, they would give each project its
   own lock and collide on the health port.
+- The pause flag and restart backoff also belong to the process. Pausing the
+  scheduler pauses every unit.
 - Queues defined in `config.yaml` are shared across units through one limiter,
   as they are shared across workspaces in v2. Other queues are per project.
 - One file watcher covers `projects/`, and `paths.projects_dags_dir` when
@@ -312,7 +341,7 @@ v2 install before the upgrade. Apply it with every Dagu process for that
 | DAG without a `workspace` label | Stays in the default project |
 | DAG under `paths.alt_dags_dir` | Stays in place as a library DAG |
 | `<dags>/workspaces/X/base.yaml` | `projects/X/base.yaml`, or `<projects_dags_dir>/X/base.yaml` when set |
-| Secrets and profile entries of `X` | Project `X`'s secrets and profiles |
+| Secrets and profile entries of `X` | Project `X`'s secrets and profiles, still encrypted with the server's key |
 | Notification routes and incident policies of `X` | Project `X`'s routes and policies |
 | Per-DAG wiki directory `<wiki>/X/<dag>`, pages under `<wiki>/X/` | Project `X`'s wiki |
 | User or API key with roles in `X` | Grants on project `X` |
@@ -406,6 +435,8 @@ v2 gets no new workspace features.
     waiting.
 17. A directory renamed outside Dagu registers as a new project without
     grants, and the old entry is listed as missing.
+18. Every project's secrets decrypt with the server's key, and no project
+    directory holds a key of its own.
 
 ## Alternatives considered
 
@@ -437,6 +468,9 @@ v2 gets no new workspace features.
 - **Directories named by project ID.** Makes a rename a registry update, but
   the layout and git checkouts become unreadable, and adding a directory no
   longer creates a project.
+- **An encryption key per project.** Keeps a copied directory's secrets
+  unreadable elsewhere, but migration must re-encrypt every secret, and each
+  key is one more file to back up.
 
 ## Consequences
 
@@ -452,6 +486,8 @@ v2 gets no new workspace features.
 - "Workspace" means only the Dagu Cloud account.
 - Each project has an ID, so a rename keeps its grants and history. Project
   names are valid directory names on macOS, Windows, and Linux.
+- Every store is either per project or server-wide, and stores added later
+  follow the same rule.
 
 ## Open questions
 
@@ -461,3 +497,6 @@ v2 gets no new workspace features.
    git sync also supports one repository per project.
 2. **A server-wide cap on concurrent runs** across projects, beyond queues
    defined in `config.yaml`.
+3. **An index for reads across projects.** Search reads every visible
+   project's stores. Open: whether servers with many projects need a
+   server-wide index.
