@@ -59,6 +59,11 @@ func (r *ReferenceResolver) lookup(ctx context.Context, ref secretref.Ref) (*Sec
 	if r == nil || r.store == nil {
 		return nil, fmt.Errorf("secret store is not configured")
 	}
+	// The gateway and the models reader read these secrets by ID, not through this
+	// resolver. Every DAG path ends here, so this is the single guard for them.
+	if secretref.IsReserved(ref.Ref) {
+		return nil, fmt.Errorf("%w: %q starts with %q and the resolver never returns it", ErrReservedRef, ref.Ref, secretref.ReservedPrefix)
+	}
 	sec, err := r.getByRef(ctx, ref.Ref)
 	if err != nil {
 		return nil, err

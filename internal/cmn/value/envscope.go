@@ -236,6 +236,24 @@ func (e *EnvScope) ToSliceWithoutOriginOrSources(origin string, sources ...EnvSo
 	return result
 }
 
+// Without returns a scope with one layer: the effective entries of this scope
+// except the entries that drop reports. The decision applies to the entry that
+// wins the scope chain, so a dropped name is absent, and no value that it
+// shadows takes its place. Each kept entry keeps its source and origin.
+func (e *EnvScope) Without(drop func(EnvEntry) bool) *EnvScope {
+	result := &EnvScope{entries: make(map[string]EnvEntry)}
+	if e == nil {
+		return result
+	}
+	for key, entry := range e.collectAllEntries() {
+		if drop(entry) {
+			continue
+		}
+		result.entries[key] = entry
+	}
+	return result
+}
+
 // WithEntriesOrigin returns a new scope with source and origin metadata.
 func (e *EnvScope) WithEntriesOrigin(entries map[string]string, source EnvSource, origin string) *EnvScope {
 	if len(entries) == 0 {
