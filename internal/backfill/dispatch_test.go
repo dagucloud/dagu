@@ -113,6 +113,22 @@ func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	require.NoError(f.t, attempt.Close(f.ctx))
 }
 
+// finishRetrying fails a queued run that the DAG's retry policy retries up
+// to limit times, after retries of them, as a run created at created.
+func (f *dispatchFixture) finishRetrying(runID string, retries, limit int, created time.Time) {
+	f.t.Helper()
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	require.NoError(f.t, err)
+	current, err := attempt.ReadStatusUncached(f.ctx)
+	require.NoError(f.t, err)
+	require.NoError(f.t, attempt.Open(f.ctx))
+	current.Status, current.FinishedAt = ir.Failed, f.clock.Format(time.RFC3339)
+	current.AutoRetryCount, current.AutoRetryLimit = retries, limit
+	current.CreatedAt = created.UnixMilli()
+	require.NoError(f.t, attempt.Write(f.ctx, *current))
+	require.NoError(f.t, attempt.Close(f.ctx))
+}
+
 // retry queues an ended run again, as a queued retry does.
 func (f *dispatchFixture) retry(runID string) {
 	f.t.Helper()
@@ -519,4 +535,39 @@ func TestRetryReopensAnEndedBackfill(t *testing.T) {
 		assert.Equal(t, backfill.StatusFailed, f.record(record.ID).Status, "two slots were not run")
 		assert.Len(t, f.queued, 1, "the stopped backfill queues nothing more")
 	})
+}
+
+// A failed run that the DAG's retry policy will retry is not yet a failed
+// slot: the backfill waits for the retry instead of stopping. Once the
+// retries run out, or the retry scan's window passes, the slot has failed.
+func TestDispatchWaitsForTheRetryPolicy(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		retries int
+		window  time.Duration
+		age     time.Duration
+		waits   bool
+	}{
+		"retries left":         {retries: 0, window: 24 * time.Hour, waits: true},
+		"retries spent":        {retries: 2, window: 24 * time.Hour},
+		"no retry scan":        {retries: 0, window: 0},
+		"past the scan window": {retries: 0, window: time.Hour, age: 2 * time.Hour},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newDispatchFixture(t)
+			f.dispatcher.RetryWindow = tc.window
+			record := f.submit(backfill.Options{})
+			f.tick()
+			f.finishRetrying(f.queued[0], tc.retries, 2, f.clock.Add(-tc.age))
+			f.tick()
+
+			if tc.waits {
+				assert.True(t, f.record(record.ID).Open(), "the retry may still fix the slot")
+				assert.Len(t, f.queued, 1, "the failed slot holds the backfill's one place")
+				return
+			}
+			assert.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+		})
+	}
 }
