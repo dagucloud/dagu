@@ -44,7 +44,7 @@ function outlineClass(
     '[stroke-width:1.5px] dark:[stroke-width:1px] group-data-[spotlit]/node:stroke-primary/60 group-data-[spotlit]/node:[stroke-width:2px]';
   return node.run
     ? `${statusStrokeClass(node.run.status)} ${width}`
-    : `stroke-muted-foreground/60 dark:stroke-muted-foreground/50 ${width}`;
+    : `stroke-node-line ${width}`;
 }
 
 /**
