@@ -108,7 +108,10 @@ a shell leaves in a comment, in single quotes, or in a quoted heredoc, a name
 a script expands after it sets or unsets its own value, and a `js` or
 `template` script, which is passed on as written. A value a script sets in a
 subshell, in code that may not run, or as a function's local holds only
-there, and a value every branch of an `if` sets holds after it.
+there, and a value every branch of an `if` sets holds after it. A function
+body runs where the function first runs. `declare`, `export`, or `readonly`
+without a value keeps the inherited value. Text a script hands to another
+shell, as with `eval` or `sh -c`, is a program reading its environment.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it,

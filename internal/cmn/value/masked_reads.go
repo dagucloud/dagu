@@ -249,6 +249,11 @@ func (s *shellScan) globalScope(scope int) int {
 	return scope
 }
 
+// inFunction reports whether scope is in a function body.
+func (s *shellScan) inFunction(scope int) bool {
+	return s.scopes[s.localScope(scope)].kind == scopeFunction
+}
+
 // localScope returns the scope a local declaration in scope sets: the
 // enclosing function body, or the scope itself outside a function.
 func (s *shellScan) localScope(scope int) int {
@@ -354,13 +359,17 @@ func (s *shellScan) walk(node syntax.Node, scope int, call *uint) {
 				set(name, n.End(), s.globalScope(scope))
 			}
 		case *syntax.DeclClause:
+			// declare and typeset in a function declare locals. Without a
+			// value, only a local starts empty; others keep the inherited
+			// value.
+			variant := n.Variant.Value
+			local := variant == "local" || ((variant == "declare" || variant == "typeset") && s.inFunction(scope))
 			target := s.globalScope(scope)
-			switch n.Variant.Value {
-			case "local", "declare", "typeset":
+			if local {
 				target = s.localScope(scope)
 			}
 			for _, a := range n.Args {
-				if a.Name == nil || (a.Naked && (n.Variant.Value == "export" || n.Variant.Value == "readonly")) {
+				if a.Name == nil || (a.Naked && !local) {
 					continue
 				}
 				if a.Append {
@@ -451,28 +460,58 @@ func assignedNames(args []*syntax.Word) []string {
 	return names
 }
 
-// firstCalls returns the offset where each function text defines is first
-// called.
+// firstCalls returns the offset where each function text defines first runs:
+// its first call outside a function, or the first run of the function whose
+// body calls it.
 func firstCalls(file *syntax.File) map[string]uint {
+	type callSite struct {
+		// caller is the function whose body holds the call, or empty.
+		caller string
+		offset uint
+	}
 	functions := make(map[string]bool)
-	syntax.Walk(file, func(node syntax.Node) bool {
-		if fn, ok := node.(*syntax.FuncDecl); ok {
-			functions[fn.Name.Value] = true
-		}
-		return true
-	})
-	calls := make(map[string]uint)
-	syntax.Walk(file, func(node syntax.Node) bool {
-		call, ok := node.(*syntax.CallExpr)
-		if !ok || len(call.Args) == 0 {
+	sites := make(map[string][]callSite)
+	var visit func(node syntax.Node, caller string)
+	visit = func(node syntax.Node, caller string) {
+		syntax.Walk(node, func(node syntax.Node) bool {
+			switch n := node.(type) {
+			case *syntax.FuncDecl:
+				functions[n.Name.Value] = true
+				visit(n.Body, n.Name.Value)
+				return false
+			case *syntax.CallExpr:
+				if len(n.Args) > 0 {
+					if name := n.Args[0].Lit(); name != "" {
+						sites[name] = append(sites[name], callSite{caller: caller, offset: n.Pos().Offset()})
+					}
+				}
+			}
 			return true
+		})
+	}
+	visit(file, "")
+	calls := make(map[string]uint)
+	// A call in a function body runs when that function first runs, so the
+	// offsets settle over passes.
+	for changed := true; changed; {
+		changed = false
+		for name := range functions {
+			for _, site := range sites[name] {
+				at := site.offset
+				if site.caller != "" {
+					first, ok := calls[site.caller]
+					if !ok {
+						continue
+					}
+					at = first
+				}
+				if prev, ok := calls[name]; !ok || at < prev {
+					calls[name] = at
+					changed = true
+				}
+			}
 		}
-		name := call.Args[0].Lit()
-		if prev, seen := calls[name]; functions[name] && (!seen || call.Pos().Offset() < prev) {
-			calls[name] = call.Pos().Offset()
-		}
-		return true
-	})
+	}
 	return calls
 }
 
