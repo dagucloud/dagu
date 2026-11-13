@@ -487,9 +487,13 @@ func (d *Data) StepInfo() cmnvalue.StepInfo {
 }
 
 // maskedFields returns the top-level fields of masked text, a JSON object,
-// that hold the mask, which is where masking changed it. Other text, or an
-// object that holds the mask only outside its values, is masked as a whole.
+// that hold the mask, which is where masking changed it. Other text that
+// holds the mask, or an object that holds it only outside its values, is
+// masked as a whole; text without the mask is not masked.
 func maskedFields(text string) ([]string, bool) {
+	if !strings.Contains(text, masking.DefaultMaskString) {
+		return nil, false
+	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal([]byte(text), &object) != nil {
 		return nil, true

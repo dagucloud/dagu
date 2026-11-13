@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,4 +102,33 @@ func TestDataStepInfoUsesStructuredOutputValue(t *testing.T) {
 	info := data.StepInfo()
 	require.NotNil(t, info.Output)
 	assert.Equal(t, value, *info.Output)
+}
+
+// A restored captured output that masking changed counts as masked in the
+// top-level fields that hold the mask, or as a whole when it is not a JSON
+// object. Text without the mask is not masked, since the record does not say
+// which captured output changed.
+func TestDataStepInfoMasksCapturedOutput(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		output string
+		want   cmnvalue.StepMasks
+	}{
+		{name: "object", output: `{"token":"*******","region":"us"}`, want: cmnvalue.StepMasks{Output: []string{"token"}}},
+		{name: "text", output: "Bearer *******", want: cmnvalue.StepMasks{AllOutput: true}},
+		{name: "mask in a key", output: `{"*******":"x"}`, want: cmnvalue.StepMasks{AllOutput: true}},
+		{name: "no mask", output: `{"region":"us"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := newSafeData(NodeData{
+				Step:  ir.Step{ID: "fetch", Name: "fetch"},
+				State: NodeState{OutputValue: &tc.output, MaskedOutputs: &ir.MaskedOutputs{Captured: true}},
+			})
+			assert.Equal(t, tc.want, data.StepInfo().Masked)
+		})
+	}
 }
