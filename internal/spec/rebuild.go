@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -32,25 +31,29 @@ func RebuildFromYAML(ctx context.Context, dag *ir.DAG, paramsOverride ...[]strin
 	if len(paramsOverride) > 0 {
 		params = paramsOverride[0]
 	}
-	return reloadFromYAML(ctx, dag, params, nil)
+	return reloadFromYAML(ctx, dag, params)
 }
 
 // EvaluateDeferredParams rebuilds dag with the run's dates and context, so
 // the params that dag.DeferredParams names get their values, and returns
-// dag. The env entries the DAG declares are resolved again, since they may
-// read those params. A DAG without deferred params is returned unchanged.
+// dag. A DAG without deferred params is returned unchanged.
 func EvaluateDeferredParams(ctx context.Context, dag *ir.DAG, dates []ir.DateValue, runContext cmnvalue.BuiltinContext) (*ir.DAG, error) {
 	if len(dag.DeferredParams) == 0 {
 		return dag, nil
 	}
-	return reloadFromYAML(ctx, dag, dag.Params, declaredEnvKeys(dag), WithRunValues(dates, runContext))
+	return reloadFromYAML(ctx, dag, dag.Params, WithRunValues(dates, runContext))
 }
 
 // reloadFromYAML reloads dag from its YamlData with params, reusing the
-// captured env except the keys in resolveAgain.
-func reloadFromYAML(ctx context.Context, dag *ir.DAG, params []string, resolveAgain map[string]struct{}, extra ...LoadOption) (*ir.DAG, error) {
+// captured env. When some params had no value as dag was built, the env
+// entries the DAG declares are resolved again, since they may read them.
+func reloadFromYAML(ctx context.Context, dag *ir.DAG, params []string, extra ...LoadOption) (*ir.DAG, error) {
 	if len(dag.YamlData) == 0 {
 		return dag, nil
+	}
+	var resolveAgain map[string]struct{}
+	if len(dag.DeferredParams) > 0 {
+		resolveAgain = declaredEnvKeys(dag.YamlData)
 	}
 
 	loadedEnv := append([]string{}, dag.Env...)
@@ -95,6 +98,7 @@ func reloadFromYAML(ctx context.Context, dag *ir.DAG, params []string, resolveAg
 	}
 
 	dag.RestoreUnpersistedFrom(fresh)
+	dag.DeferredParams = fresh.DeferredParams
 	// Env is the one restored field that is merged rather than replaced, so it is
 	// resolved after the wholesale copy.
 	dag.Env = buildenv.AppendMissing(fresh.Env, loadedEnv, buildenv.FromMap(dag.PresolvedBuildEnv), transportEnv)
@@ -104,18 +108,21 @@ func reloadFromYAML(ctx context.Context, dag *ir.DAG, params []string, resolveAg
 	return dag, nil
 }
 
-// declaredEnvKeys returns the keys of the env entries the DAG declares
-// itself, as opposed to those of its base config.
-func declaredEnvKeys(dag *ir.DAG) map[string]struct{} {
-	span := dag.RootEnvSpan
-	if span.Start < 0 || span.End > len(dag.Env) || span.Start >= span.End {
+// declaredEnvKeys returns the keys of the env entries the DAG's own YAML
+// declares, as opposed to those of its base config.
+func declaredEnvKeys(yamlData []byte) map[string]struct{} {
+	docs, err := decodeDocuments(yamlData)
+	if err != nil || len(docs) == 0 {
 		return nil
 	}
-	keys := make(map[string]struct{}, span.End-span.Start)
-	for _, entry := range dag.Env[span.Start:span.End] {
-		if key, _, ok := strings.Cut(entry, "="); ok {
-			keys[key] = struct{}{}
-		}
+	def, err := decode(docs[0].data)
+	if err != nil || def == nil {
+		return nil
+	}
+	entries := def.Env.Entries()
+	keys := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		keys[entry.Key] = struct{}{}
 	}
 	return keys
 }

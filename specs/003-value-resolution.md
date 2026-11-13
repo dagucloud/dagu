@@ -393,6 +393,7 @@ Rules:
 - A `params[].eval` expression cannot resolve its own computed value.
 - A `params[].eval` expression cannot resolve a later computed or default value that has not been selected yet.
 - A `params[].eval` expression that references the `dates` or `context` namespace waits for the run, and so does every `params[].eval` after it. Dagu evaluates them when the run starts, after its slot and dates resolve and before root `env`, with the run's dates (Spec 097) and the context it has at creation (Spec 017). Until then the parameter has no value: a load that starts no run leaves it unset.
+- A run the scheduler queues itself, a catch-up, webhook, watched-file, or backfill run, evaluates every `params[].eval` when it starts, in its own process. The scheduler runs no `eval`, and the queued run records only the params it was given.
 - Dagu does not topologically sort parameter declarations and does not retry preserved parameter references after later declarations are processed.
 - If parameter declarations form a reference cycle, at least one reference in that cycle cannot resolve under the source-order rule and follows the unresolved-reference rules.
 

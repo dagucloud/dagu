@@ -25,6 +25,8 @@ const maxSafeFloat64Integer = 1 << 53
 type ResolveRuntimeParamsOptions struct {
 	BaseConfig             string
 	WorkspaceBaseConfigDir string
+	// DeferEvals leaves every param's eval to the run: see DeferParamEvals.
+	DeferEvals bool
 }
 
 // QuoteRuntimeParams quotes persisted params so values containing spaces survive
@@ -137,6 +139,9 @@ func runtimeParamLoadOptions(dag *ir.DAG, params any, opts ResolveRuntimeParamsO
 	}
 	if opts.WorkspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, WithWorkspaceBaseConfigDir(opts.WorkspaceBaseConfigDir))
+	}
+	if opts.DeferEvals {
+		loadOpts = append(loadOpts, DeferParamEvals())
 	}
 	if len(dag.BaseConfigData) > 0 {
 		loadOpts = append(loadOpts, WithBaseConfigContent(dag.BaseConfigData))
@@ -530,13 +535,14 @@ func buildParamEvalScope(ctx buildContext) *cmnvalue.EnvScope {
 }
 
 // waitsForRun reports whether a param's eval waits for the run's values: it
-// reads the run's dates or context, or follows an eval that waits. It waits
-// only in a load that evaluates without them.
+// reads the run's dates or context, follows an eval that waits, or the load
+// defers every eval. It waits only in a load that evaluates without them.
 func waitsForRun(ctx buildContext, eval string, afterWaiting bool) bool {
 	if strings.TrimSpace(eval) == "" || ctx.opts.Has(buildFlagNoEval) || ctx.opts.Has(buildFlagRunValues) {
 		return false
 	}
-	return afterWaiting || cmnvalue.HasReferenceToNamespace(eval, "dates", "context")
+	return afterWaiting || ctx.opts.Has(buildFlagDeferParamEval) ||
+		cmnvalue.HasReferenceToNamespace(eval, "dates", "context")
 }
 
 func resolveLegacyEntry(

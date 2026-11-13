@@ -5,6 +5,7 @@ package spec_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -456,4 +457,39 @@ steps:
 	assert.JSONEq(t, `{"day":"2026-11-09","target":"/data/2026-11-09"}`, evaluated.ParamsJSON)
 	assert.Contains(t, evaluated.Env, "DAY=2026-11-09")
 	assert.Empty(t, evaluated.DeferredParams)
+}
+
+// A snapshot queued before its params were evaluated, as the scheduler
+// queues one, gets them when the run rebuilds it, and so does the env that
+// reads them.
+func TestRebuildFromYAML_EvaluatesParamsQueuedUnevaluated(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+params:
+  - name: mode
+    default: full
+  - name: stamp
+    eval: "${params.mode}-x"
+env:
+  - DERIVED: ${params.stamp}
+steps:
+  - run: echo ${params.stamp}
+`)
+	queued, err := spec.LoadYAML(context.Background(), yaml, spec.WithParams(""), spec.DeferParamEvals())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mode=full"}, queued.Params)
+	require.Equal(t, []string{"stamp"}, queued.DeferredParams)
+
+	data, err := json.Marshal(queued)
+	require.NoError(t, err)
+	var snapshot ir.DAG
+	require.NoError(t, json.Unmarshal(data, &snapshot))
+	require.Equal(t, []string{"stamp"}, snapshot.DeferredParams)
+
+	rebuilt, err := spec.RebuildFromYAML(context.Background(), &snapshot, queued.Params)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mode=full", "stamp=full-x"}, rebuilt.Params)
+	assert.Contains(t, rebuilt.Env, "DERIVED=full-x")
+	assert.Empty(t, rebuilt.DeferredParams)
 }

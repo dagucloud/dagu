@@ -118,6 +118,14 @@ func WithRunValues(dates []ir.DateValue, runContext cmnvalue.BuiltinContext) Loa
 	}
 }
 
+// DeferParamEvals makes every param's eval wait for the run, as one that
+// reads the run's values does, so the load runs no eval command.
+func DeferParamEvals() LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagDeferParamEval
+	}
+}
+
 // OnlyMetadata sets the flag to load only metadata.
 func OnlyMetadata() LoadOption {
 	return func(o *buildOpts) {
