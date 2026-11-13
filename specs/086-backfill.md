@@ -220,6 +220,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   `context.trigger.type` is `backfill`.
 - Each run evaluates its params' `eval` when it starts, from its own slot's
   dates, so a param with `eval: ${dates.target_day}` takes each slot's date.
+  A value given with `--params` replaces that `eval`, so the param holds that
+  value in every slot.
 - A backfill run's ID is `backfill-<backfill id>-<generation>-<slot>`, with
   the slot in UTC as `20060102T150405Z`. A scheduler that restarts finds the
   runs it queued before and queues none of them again.
