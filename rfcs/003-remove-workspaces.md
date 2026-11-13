@@ -330,9 +330,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   appears in the same discovery pass:
   - If it holds the same DAG file names as one missing project, and no other
     new directory does, the server finishes the rename itself and logs it,
-    so schedules keep running.
-    Whoever can rename the directory in the checkout can already change
-    those DAGs, so this grants nothing new.
+    so schedules keep running. Whoever can rename the directory in the
+    checkout can already change those DAGs, so this grants nothing new.
   - Otherwise the projects page asks an admin whether the project was
     renamed to it, and the new directory is not scheduled until the admin
     answers. Confirming finishes the rename; declining registers a new
@@ -597,7 +596,7 @@ v2 gets no new workspace features.
 9. Planning a migration changes nothing on disk.
 10. A library DAG called from project X runs with X's base config, secrets,
     and profiles, and only users with a role in X see its run.
-11. Library DAGs are not listed or scheduled.
+11. Library DAGs are not listed among a project's DAGs or scheduled.
 12. A `dag.run` inside a distributed run resolves only in the task's project
     and the library.
 13. With `paths.projects_dags_dir` set, DAG files and project base config
@@ -607,9 +606,8 @@ v2 gets no new workspace features.
 15. A project name that breaks the name rules is refused at creation and
     skipped at discovery, and the server logs it.
 16. Renaming a project keeps its ID, grants, Dagu Cloud binding, and run
-    history. Rename and
-    delete are refused while the project has runs queued, running, or
-    waiting.
+    history. Rename and delete are refused while the project has runs
+    queued, running, or waiting.
 17. A project directory renamed outside Dagu with its DAG files unchanged
     keeps its ID, grants, binding, run history, and schedules without an
     admin. Any other new directory that appears as a project goes missing
