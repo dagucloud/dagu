@@ -1343,7 +1343,7 @@ func TestCheckMaskedReads(t *testing.T) {
 		command     string
 		description string
 		env         []string // the reading step's own env
-		dir         string   // the reading step's working_dir
+		stdout      string   // the reading step's stdout path
 		noID        bool     // fetch has no id
 		published   string   // fetch's stored published outputs
 		captured    string   // fetch's stored captured text
@@ -1437,7 +1437,7 @@ func TestCheckMaskedReads(t *testing.T) {
 		{
 			name:    "output variable after a backslash in a path field",
 			command: "deploy",
-			dir:     `C:\${TOKEN}`,
+			stdout:  `C:\${TOKEN}\out.log`,
 			masked:  &ir.MaskedOutputs{Variables: []string{"TOKEN"}},
 			wantErr: `output "TOKEN" of step "fetch"`,
 		},
@@ -1488,7 +1488,7 @@ func TestCheckMaskedReads(t *testing.T) {
 			}
 			plan, err := NewPlan(
 				ir.Step{ID: fetchID, Name: "fetch", Output: "TOKEN"},
-				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description, Env: tt.env, Dir: tt.dir},
+				ir.Step{ID: "use", Name: "use", Depends: []string{"fetch"}, Command: tt.command, Description: tt.description, Env: tt.env, Stdout: tt.stdout},
 			)
 			require.NoError(t, err)
 			fetch := plan.GetNodeByName("fetch")
@@ -1521,12 +1521,15 @@ func TestCheckMaskedOutputsInHandler(t *testing.T) {
 	tests := []struct {
 		name      string
 		command   string
-		published string // fetch's stored published outputs
-		captured  string // fetch's stored captured text
+		env       []string // the handler's own env
+		published string   // fetch's stored published outputs
+		captured  string   // fetch's stored captured text
 		masked    *ir.MaskedOutputs
 		wantErr   bool
 	}{
 		{name: "output variable", command: "notify ${TOKEN}", masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}, wantErr: true},
+		// A handler layers output variables over its own env, so they win.
+		{name: "output variable over the handler's env", command: "notify ${TOKEN}", env: []string{"TOKEN=literal"}, masked: &ir.MaskedOutputs{Variables: []string{"TOKEN"}}, wantErr: true},
 		{name: "captured output", command: "notify ${fetch.output}", captured: "***", masked: &ir.MaskedOutputs{Captured: true}, wantErr: true},
 		{name: "published output through the step property", command: "notify ${fetch.outputs.token}", published: `{"token":"***"}`, masked: &ir.MaskedOutputs{Published: []string{"token"}}, wantErr: true},
 		{name: "step output reference", command: "notify ${steps.fetch.outputs.token}", masked: &ir.MaskedOutputs{Published: []string{"token"}}},
@@ -1550,7 +1553,7 @@ func TestCheckMaskedOutputsInHandler(t *testing.T) {
 			}
 			fetch.inner.State.MaskedOutputs = tt.masked
 
-			handler := NewNode(ir.Step{Name: "onExit", Command: tt.command}, NodeState{})
+			handler := NewNode(ir.Step{Name: "onExit", Command: tt.command, Env: tt.env}, NodeState{})
 			err = checkMaskedOutputs(plan.Nodes(), handler, true)
 			if !tt.wantErr {
 				require.NoError(t, err)

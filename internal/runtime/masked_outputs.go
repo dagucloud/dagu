@@ -5,7 +5,6 @@ package runtime
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -110,12 +109,15 @@ func maskedRead(reads stepReads, source *Node, masked *ir.MaskedOutputs, handler
 		}
 	}
 	variables := source.OutputVariablesMap()
-	for _, name := range slices.Sorted(maps.Keys(variables)) {
-		if !masked.HasVariable(name) {
+	for _, name := range masked.Variables {
+		if _, ok := variables[name]; !ok {
 			continue
 		}
 		fields := reads.fields
-		if _, shadowed := reads.ownEnv[name]; shadowed {
+		// A step's own env shadows the variable in its other fields. A handler
+		// resolves its env first and layers outputs over it, so there the
+		// output variable wins.
+		if _, shadowed := reads.ownEnv[name]; shadowed && !handler {
 			fields = reads.envFields
 		}
 		if slices.ContainsFunc(fields, func(field reffield.ReferenceField) bool {
