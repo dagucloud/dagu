@@ -150,7 +150,7 @@ func TestDAGRunInvalidatorWakesDAGFileTopics(t *testing.T) {
 		mux.SetRefreshMode(topicType, TopicRefreshModeOnDemand)
 	}
 
-	woken := []string{"dag:test", "dag:test.yaml", "daghistory:test.yaml", "daghistory:test.YML"}
+	woken := []string{"dag:test", "dag:test.yaml", "daghistory:test.yaml", "daghistory:test.YML", "daghistory:test?includeBackfill=true"}
 	other := []string{"dag:other.yaml", "daghistory:other"}
 	result, err := mux.createSession(context.Background(), httptest.NewRecorder(), append(woken, other...), 0)
 	require.NoError(t, err)

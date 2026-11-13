@@ -44,6 +44,7 @@ vi.mock('@/contexts/AuthContext', async (importOriginal) => ({
   useIsAdmin: () => true,
   useCanManageProfiles: () => state.canManageProfiles,
   useCanWriteForWorkspace: () => state.canWriteWiki,
+  useCanExecuteForWorkspace: () => true,
   useCanManageCommandChannels: () => true,
   useCommandChannelsEnabled: () => true,
 }));

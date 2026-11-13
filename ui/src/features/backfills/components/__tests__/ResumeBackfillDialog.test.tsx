@@ -61,7 +61,9 @@ function renderDialog(onResumed = vi.fn()) {
 }
 
 describe('ResumeBackfillDialog', () => {
-  beforeEach(() => post.mockReset());
+  beforeEach(() => {
+    post.mockReset();
+  });
 
   it('shows the plan, then resumes with its revision', async () => {
     post

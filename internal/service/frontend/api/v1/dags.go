@@ -2321,8 +2321,15 @@ func (a *API) GetDAGDetailsData(ctx context.Context, fileName string) (any, erro
 }
 
 // GetDAGHistoryData returns DAG execution history for SSE.
-// Identifier format: "fileName"
-func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, error) {
+// Identifier format: "fileName", or "fileName?includeBackfill=true" to list
+// the DAG's backfill runs too.
+func (a *API) GetDAGHistoryData(ctx context.Context, identifier string) (any, error) {
+	fileName, query, _ := strings.Cut(identifier, "?")
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DAG history query %q: %w", query, err)
+	}
+	includeBackfill := values.Get("includeBackfill") == "true"
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/dags/{fileName}/dag-runs",
 		dagName:  fileName,
@@ -2336,11 +2343,11 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		// The live feed mirrors the default page, which leaves out backfill
-		// runs.
+		// The live feed mirrors the first page, which leaves out backfill
+		// runs unless asked.
 		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{
 			Limit:           defaultHistoryLimit,
-			ExcludeBackfill: true,
+			ExcludeBackfill: !includeBackfill,
 		})
 	})
 }

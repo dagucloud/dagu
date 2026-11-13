@@ -200,6 +200,36 @@ func TestDAGHistoryReturnsRecentStatusStoreErrors(t *testing.T) {
 	require.ErrorContains(t, err, "list recent DAG runs for daily")
 }
 
+// The DAG history feed lists the backfill runs only when its topic asks.
+func TestDAGHistoryDataIncludesBackfillOnRequest(t *testing.T) {
+	t.Parallel()
+
+	for identifier, exclude := range map[string]bool{
+		"daily.yaml":                      true,
+		"daily.yaml?includeBackfill=true": false,
+	} {
+		store := &recordingHistoryDAGRunStore{}
+		a := &API{
+			dagRepository:    persis.NewDAGRepository(historyDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
+			dagRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
+		}
+		_, err := a.GetDAGHistoryData(context.Background(), identifier)
+		require.NoError(t, err)
+		require.NotEmpty(t, store.queries, identifier)
+		assert.Equal(t, exclude, store.queries[0].ExcludeBackfill, identifier)
+	}
+}
+
+type recordingHistoryDAGRunStore struct {
+	testutil.DAGRunStoreStub
+	queries []persis.DAGRunStatusQuery
+}
+
+func (s *recordingHistoryDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	s.queries = append(s.queries, query)
+	return persis.DAGRunStatusPage{}, nil
+}
+
 func TestStopAllDAGRunsProcessesBoundedPages(t *testing.T) {
 	t.Parallel()
 
