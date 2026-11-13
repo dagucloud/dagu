@@ -462,6 +462,7 @@ type SchedulerDef struct {
 	StaleThreshold          string `mapstructure:"stale_threshold"`           // Deprecated: use proc.stale_threshold
 	FailureThreshold        int    `mapstructure:"failure_threshold"`         // Default: 3
 	WakeHold                string `mapstructure:"wake_hold"`                 // Default: 0, no hold after the host wakes
+	BackfillMaxSlots        int    `mapstructure:"backfill_max_slots"`        // Default: 10000
 }
 
 // QueueConfigDef configures global queue settings.

@@ -319,6 +319,38 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	assert.Equal(t, map[string]map[string]string{"transform": {"rows": "3"}}, *body.Outputs)
 }
 
+// A remote start prints no summary, so it rejects the flag that expands one.
+func TestRemoteStartRejectsRecursiveOutput(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("recursive-output", "true"))
+	ctx := &Context{Context: context.Background(), Command: command, Remote: &remoteClient{}}
+
+	err := remoteRunStart(ctx, []string{"etl"})
+	require.ErrorContains(t, err, "--recursive-output is only supported in the local context")
+}
+
+// Once the budget has passed since the first lookup, later sub-runs are not
+// looked up at all.
+func TestSubRunLookupBudget(t *testing.T) {
+	t.Parallel()
+
+	lookups := 0
+	resolve := withSubRunLookupBudget(20*time.Millisecond, func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		lookups++
+		return &ir.DAGRunStatus{}, nil
+	})
+
+	_, err := resolve(ir.SubDAGRun{})
+	require.NoError(t, err)
+	time.Sleep(40 * time.Millisecond)
+	_, err = resolve(ir.SubDAGRun{})
+	require.ErrorIs(t, err, errSubRunLookupBudgetSpent)
+	require.Equal(t, 1, lookups)
+}
+
 // The server resolves the slot, so the CLI sends --scheduled-at as given and
 // prints the warnings the server returns.
 func TestRemoteStartSendsScheduledAt(t *testing.T) {

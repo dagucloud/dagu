@@ -207,7 +207,7 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 			stepName:            task.Step,
 			includeDownstream:   task.IncludeDownstream,
 			bypassPreconditions: task.BypassPreconditions,
-			triggerType:         queue.PreservedQueueTriggerType(status),
+			triggerType:         queue.ExecutionTriggerType(status),
 			retryPath:           retryPath,
 		},
 	}

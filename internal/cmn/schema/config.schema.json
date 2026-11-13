@@ -1623,6 +1623,11 @@
           "description": "Consecutive stale checks before declaring a zombie. Default: 3.",
           "minimum": 1
         },
+        "backfill_max_slots": {
+          "type": "integer",
+          "description": "Most slots one backfill may cover; a larger backfill is rejected. Default: 10000.",
+          "minimum": 1
+        },
         "heartbeat_interval": {
           "type": "string",
           "description": "Deprecated: use proc.heartbeat_interval. Heartbeat write interval for process liveness. Default: '5s'."

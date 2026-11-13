@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -1039,4 +1042,22 @@ func TestStartCommand_ServiceDAGFollowsCurrentDefinition(t *testing.T) {
 	require.ErrorContains(t, err, "restart_policy")
 	err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", "--from-run-id=ended", dag.Name}})
 	require.ErrorContains(t, err, "restart_policy")
+}
+
+// A run removes the build env file its launcher wrote for it, so the file
+// does not outlive a launcher that ends first.
+func TestStartRemovesItsBuildEnvFile(t *testing.T) {
+	th := test.SetupCommand(t, test.WithBuiltExecutable())
+	dag := th.DAG(t, "steps:\n  - command: echo ok\n")
+	env, cleanup, err := buildenv.Prepare(buildenv.NewSnapshot([]string{"KEY=value"}, false))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cleanup() })
+
+	start := exec.Command(th.Config.Paths.Executable, test.WithConfigFlag([]string{"start", "-q", dag.Location}, th.Config)...) //nolint:gosec // Test executes the repository binary.
+	start.Env = append(th.ChildEnv, env...)
+	output, err := start.CombinedOutput()
+	require.NoError(t, err, "output: %s", output)
+
+	_, err = os.Stat(strings.TrimPrefix(env[0], buildenv.PresolvedEnvFileKey+"="))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

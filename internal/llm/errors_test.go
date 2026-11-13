@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,36 @@ func TestAPIError(t *testing.T) {
 		err := &APIError{Err: inner}
 		assert.Equal(t, inner, err.Unwrap())
 	})
+}
+
+// A body without a usable message is returned as received: the text is not
+// re-encoded, collapsed, or cut, so a caller can mask it whole first.
+func TestAPIError_Reason(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, message, want string }{
+		{"empty", "", ""},
+		{"blank", " \n\t ", " \n\t "},
+		{"openai", `{"error":{"message":"Insufficient credits","code":402}}`, "Insufficient credits"},
+		{"trailing_text", `{"message":"bad request"} maximum context length`, `{"message":"bad request"} maximum context length`},
+		{"anthropic", `{"type":"error","error":{"type":"not_found_error","message":"model: no-such-model"}}`, "model: no-such-model"},
+		{"error_string", `{"error":"busy"}`, "busy"},
+		{"escaped_error_string", `{"error":"quoted-\"secret\""}`, `quoted-"secret"`},
+		{"top_level_message", `{"message":"quota exceeded"}`, "quota exceeded"},
+		{"blank_then_nested", `{"message":"","error":{"message":"Insufficient credits"}}`, "Insufficient credits"},
+		{"message_whitespace", `{"error":{"message":"  line one\n\n  line two  "}}`, "  line one\n\n  line two  "},
+		{"message_empty", `{"error":{"message":""}}`, `{"error":{"message":""}}`},
+		{"no_message", `{"state":"quoted-\"secret\"","code":402}`, `{"state":"quoted-\"secret\"","code":402}`},
+		{"overflow", `{"code":1e400,"state":"x"}`, `{"code":1e400,"state":"x"}`},
+		{"json_array", `["unexpected"]`, `["unexpected"]`},
+		{"text", "  <html>\n  Bad Gateway\t</html>  ", "  <html>\n  Bad Gateway\t</html>  "},
+		{"long", strings.Repeat("é", 300), strings.Repeat("é", 300)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := &APIError{Provider: "test", StatusCode: 400, Message: tc.message}
+			assert.Equal(t, tc.want, err.Reason())
+		})
+	}
 }
 
 func TestNewAPIError(t *testing.T) {
@@ -70,6 +101,9 @@ func TestNewAPIError_ClassifiesContextOverflow(t *testing.T) {
 		`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 120000 tokens > 100000 maximum"}}`,
 		`{"error":{"code":400,"message":"The input token count exceeds the maximum number of tokens allowed."}}`,
 		`{"error":"request exceeds the available context size"}`,
+		// Text after a JSON value makes the body plain text, matched whole.
+		`{"message":"bad request"} maximum context length`,
+		"<html>Request exceeds the available context size</html>",
 	}
 	for _, body := range tests {
 		err := NewAPIError("test", 400, body)
