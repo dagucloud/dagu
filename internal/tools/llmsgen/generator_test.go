@@ -40,6 +40,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Context References, Scoped Values, And Step Outputs",
 		"# Build Workflows",
 		"# External CLI Harnesses",
+		"# Operating a Running Dagu Server",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output missing %q\n%s", want, output)
@@ -69,6 +70,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Context References, Scoped Values, And Step Outputs",
 		"# Build Workflows",
 		"# External CLI Harnesses",
+		"# Operating a Running Dagu Server",
 	)
 }
 
