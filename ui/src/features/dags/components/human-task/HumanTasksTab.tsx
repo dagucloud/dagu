@@ -24,6 +24,7 @@ import { ArtifactFilePreview } from '../artifacts/ArtifactFilePreview';
 import PushBackHistory from '../common/PushBackHistory';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
 import { Tab, Tabs } from '@/components/ui/tabs';
 import { HumanTaskResumeAlert } from './HumanTaskResumeAlert';
 
@@ -189,6 +190,7 @@ function HumanTaskCard({
   const uiSchema = useTaskFormUiSchema(schema);
   const feedbackUiSchema = useTaskFormUiSchema(feedbackSchema);
   const stepKey = node.step.id ?? node.step.name;
+  const formId = React.useId();
 
   const send = async (
     input: FormData,
@@ -247,6 +249,21 @@ function HumanTaskCard({
     setError(null);
   };
 
+  // The push-back form opens below a prompt that can be long.
+  const pushBackPanel = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (mode === 'push-back') {
+      pushBackPanel.current?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [mode]);
+
+  // The actions stay at the bottom of the scrolling host while a long prompt
+  // is read above them.
+  const actionBar = cn(
+    'sticky bottom-0 z-10 flex flex-wrap justify-end gap-2 border-t border-border py-2',
+    bare ? 'bg-card' : '-mx-4 bg-surface px-4'
+  );
+
   const requestChangesButton = pushBack ? (
     <Button
       type="button"
@@ -288,10 +305,10 @@ function HumanTaskCard({
             </span>
           )}
         </div>
-        {/* A long prompt scrolls so the actions below it stay in view. */}
-        <div className="max-h-96 overflow-y-auto">
-          <Markdown content={task.prompt} className="text-sm" />
-        </div>
+        <Markdown
+          content={task.prompt}
+          className="text-sm [&_p]:whitespace-pre-line"
+        />
       </div>
 
       {artifacts.length > 0 && (
@@ -348,7 +365,10 @@ function HumanTaskCard({
       )}
 
       {mode === 'push-back' && pushBack ? (
-        <div className="space-y-3 rounded-md border border-border p-3">
+        <div
+          ref={pushBackPanel}
+          className="space-y-3 rounded-md border border-border p-3"
+        >
           <div className="space-y-1">
             <div className="text-sm font-semibold">
               <I18nText text={'Request changes'} />
@@ -432,7 +452,8 @@ function HumanTaskCard({
           )}
         </div>
       ) : choiceField ? (
-        <div className="space-y-2">
+        // The bar is a child of the card, so it can stick below the prompt.
+        <>
           {(choiceField.title || choiceField.description) && (
             <div className="space-y-0.5">
               {choiceField.title && (
@@ -450,7 +471,7 @@ function HumanTaskCard({
               )}
             </div>
           )}
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className={actionBar}>
             {requestChangesButton}
             <div
               role="group"
@@ -474,43 +495,52 @@ function HumanTaskCard({
               ))}
             </div>
           </div>
-        </div>
+        </>
       ) : hasForm ? (
-        <Form
-          tagName="form"
-          idPrefix={`human-task-${stepKey}`}
-          schema={schema as RJSFSchema}
-          validator={validator}
-          formData={formData}
-          uiSchema={uiSchema}
-          templates={schemaFormTemplates}
-          widgets={schemaFormWidgets}
-          disabled={actionsDisabled}
-          noHtml5Validate
-          showErrorList={false}
-          onChange={(event: IChangeEvent<FormData>) => {
-            setFormData((event.formData ?? {}) as FormData);
-            setError(null);
-          }}
-          onSubmit={(event: IChangeEvent<FormData>) =>
-            void complete((event.formData ?? {}) as FormData)
-          }
-          onError={() =>
-            setError(
-              'Fix the highlighted form errors before completing the task.'
-            )
-          }
-        >
-          <div className="flex justify-end gap-2 pt-2">
+        // The submit button sits in the bar outside the form, so the bar can
+        // stick below the prompt; the form attribute ties them together.
+        <>
+          <Form
+            tagName="form"
+            id={formId}
+            idPrefix={`human-task-${stepKey}`}
+            schema={schema as RJSFSchema}
+            validator={validator}
+            formData={formData}
+            uiSchema={uiSchema}
+            templates={schemaFormTemplates}
+            widgets={schemaFormWidgets}
+            disabled={actionsDisabled}
+            noHtml5Validate
+            showErrorList={false}
+            onChange={(event: IChangeEvent<FormData>) => {
+              setFormData((event.formData ?? {}) as FormData);
+              setError(null);
+            }}
+            onSubmit={(event: IChangeEvent<FormData>) =>
+              void complete((event.formData ?? {}) as FormData)
+            }
+            onError={() =>
+              setError(
+                'Fix the highlighted form errors before completing the task.'
+              )
+            }
+          />
+          <div className={actionBar}>
             {requestChangesButton}
-            <Button type="submit" variant="primary" disabled={actionsDisabled}>
+            <Button
+              type="submit"
+              form={formId}
+              variant="primary"
+              disabled={actionsDisabled}
+            >
               <Check className="h-4 w-4" />
               {completeButtonLabel}
             </Button>
           </div>
-        </Form>
+        </>
       ) : (
-        <div className="flex justify-end gap-2">
+        <div className={actionBar}>
           {requestChangesButton}
           <Button
             type="button"
