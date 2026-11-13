@@ -143,6 +143,9 @@ Invalid configurations fail with a nonzero exit status:
 
 - Any `archive.*` action without `with.source` fails `dagu validate`.
 - Negative `with.strip_components` fails `dagu validate`.
+- A `with` field the action does not define fails `dagu validate`; the error
+  names the field and, when a defined field is a likely misspelling of it,
+  suggests that field.
 - `archive.create` requires `with.destination` unless `with.dry_run: true`.
 - `with.password` is valid only for extract/list operations.
 
