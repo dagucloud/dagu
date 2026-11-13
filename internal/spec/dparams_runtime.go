@@ -509,15 +509,17 @@ func resolveLegacyEntry(
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
+	consts := cmnvalue.Values(inheritedConsts(ctx))
 	var runtimeScope cmnvalue.RuntimeScope
 	if *scope != nil {
 		runtimeScope.Env = *scope
 	}
+	runtimeScope.Consts = consts
 	runtimeScope.Params = params
 	fieldPath := fmt.Sprintf("params[%d].eval", index)
 	reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, fieldPath, base.Eval)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Params: paramDeclarations},
+		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
 		runtimeScope,
 		cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 	)

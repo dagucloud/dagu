@@ -7,14 +7,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // PresolvedEnvFileKey is the env var key used to reference a secure transport
 // file carrying pre-resolved DAG/base-config env values from a parent process
 // to a subprocess.
 const PresolvedEnvFileKey = "_DAGU_PRESOLVED_BUILD_ENV_FILE"
+
+// transportFilePrefix starts the name of a transport file, which goes on with
+// the ID of the process that wrote it.
+const transportFilePrefix = "dagu-buildenv-"
+
+var (
+	// parentPID reports the process that started this one.
+	parentPID = os.Getppid
+
+	claimMu sync.Mutex
+	claimed string
+)
 
 // Snapshot carries environment values and whether runtime resolution is complete.
 type Snapshot struct {
@@ -34,7 +49,7 @@ func Prepare(snapshot Snapshot) ([]string, func() error, error) {
 		return nil, nil, nil
 	}
 
-	file, err := os.CreateTemp("", "dagu-buildenv-*")
+	file, err := os.CreateTemp("", fmt.Sprintf("%s%d-*", transportFilePrefix, os.Getpid()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create presolved build env file: %w", err)
 	}
@@ -59,6 +74,37 @@ func Prepare(snapshot Snapshot) ([]string, func() error, error) {
 	}
 
 	return []string{PresolvedEnvFileKey + "=" + path}, cleanup, nil
+}
+
+// Claim takes over the transport file this process was started with, when
+// the process that wrote it started this one. Its launcher removes the file
+// once this process exits, but a launcher that ends first never does, so
+// Release removes a claimed file as this process ends. A process that only
+// inherited the file from its parent leaves it alone.
+func Claim() {
+	path := os.Getenv(PresolvedEnvFileKey)
+	rest, ok := strings.CutPrefix(filepath.Base(path), transportFilePrefix)
+	if path == "" || !ok {
+		return
+	}
+	writer, _, ok := strings.Cut(rest, "-")
+	if pid, err := strconv.Atoi(writer); !ok || err != nil || pid != parentPID() {
+		return
+	}
+	claimMu.Lock()
+	defer claimMu.Unlock()
+	claimed = path
+}
+
+// Release removes the transport file Claim took over, if any.
+func Release() {
+	claimMu.Lock()
+	path := claimed
+	claimed = ""
+	claimMu.Unlock()
+	if path != "" {
+		_ = os.Remove(path)
+	}
 }
 
 // Load returns the environment snapshot currently present in the process.

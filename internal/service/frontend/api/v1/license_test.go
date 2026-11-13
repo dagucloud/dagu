@@ -1120,6 +1120,45 @@ func TestLicenseRemoteAccess(t *testing.T) {
 }
 
 // A change that configuration refuses in part changes nothing.
+// The latest call from Dagu Cloud shows with the app and the person. A
+// record that cannot be read leaves the rest of remote access shown.
+func TestLicenseRemoteAccess_LastCall(t *testing.T) {
+	t.Parallel()
+
+	serve := func(t *testing.T, record []byte) api.LicenseRemoteAccess {
+		t.Helper()
+		lastCall := filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-last-call.json"))
+		require.NoError(t, lastCall.Save(context.Background(), record))
+		server := test.SetupServer(t, test.WithServerOptions(frontend.WithAPIOption(apiv1.WithCloudAccess(
+			cloudaccess.New(cloudaccess.Config{
+				Credentials: func() (license.CloudCredentials, bool) { return license.CloudCredentials{LicenseID: "lic-1"}, true },
+				Settings:    cloudaccess.NewSettings(config.CloudConfig{}, filemonitor.NewStateStore(filepath.Join(t.TempDir(), "access-settings.json"))),
+				LastCall:    lastCall,
+			}),
+		))))
+		var access api.LicenseRemoteAccess
+		server.Client().Get("/api/v1/license/remote-access").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &access)
+		return access
+	}
+
+	t.Run("recorded", func(t *testing.T) {
+		at := time.Date(2026, 11, 12, 9, 30, 0, 0, time.UTC)
+		record, err := json.Marshal(cloudaccess.LastCall{At: at, Client: "Claude", User: "ana@example.com", License: "lic-1"})
+		require.NoError(t, err)
+		access := serve(t, record)
+		require.NotNil(t, access.LastCall)
+		assert.True(t, at.Equal(access.LastCall.At))
+		assert.Equal(t, "Claude", *access.LastCall.Client)
+		assert.Equal(t, "ana@example.com", *access.LastCall.User)
+	})
+
+	t.Run("unreadable", func(t *testing.T) {
+		access := serve(t, []byte("not json"))
+		assert.Nil(t, access.LastCall)
+		assert.Equal(t, api.LicenseRemoteAccessLevelOff, access.Level)
+	})
+}
+
 func TestLicenseRemoteAccess_Configured(t *testing.T) {
 	t.Parallel()
 

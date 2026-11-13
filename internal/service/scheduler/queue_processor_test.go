@@ -1147,6 +1147,70 @@ func TestQueueProcessor_LeavesSchedulerManagedRunQueuedWhenSuspensionReadFails(t
 	assert.Equal(t, ir.Queued, status.Status)
 }
 
+// A queued retry of a backfill run is an operator's request: a suspended DAG
+// still dispatches it, and a paused scheduler holds it queued, neither
+// starting nor aborting it.
+func TestQueueDispatcher_BackfillRetryOutlastsSuspensionAndWaitsOutPause(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		paused     bool
+		dispatched bool
+	}{
+		{name: "suspended", dispatched: true},
+		{name: "paused", paused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dagName := "backfill-" + tc.name + "-dag"
+			f := newQueueFixture(t).withDAG(dagName, 1)
+			run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+			require.NoError(t, run.Open(f.ctx))
+			st := ir.InitialStatus(f.dag)
+			st.Status, st.DAGRunID, st.AttemptID = ir.Queued, "run-1", run.ID()
+			st.TriggerType, st.BackfillID = ir.TriggerTypeRetry, "bf123456"
+			require.NoError(t, run.Write(f.ctx, st))
+			require.NoError(t, run.Close(f.ctx))
+			runRef := ir.NewDAGRunRef(dagName, "run-1")
+			require.NoError(t, f.queueStore.Enqueue(f.ctx, dagName, queuedomain.QueuePriorityLow, runRef))
+			items, err := f.queueStore.List(f.ctx, dagName)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+
+			procRepository := &mockProcRepository{}
+			procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(false, nil).Once()
+			if tc.dispatched {
+				procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
+			}
+			dispatcher := &mockDispatcher{}
+			queueDispatcher := newQueueDispatcher(queueDispatchDeps{
+				queueStore:       f.queueStore,
+				dagRunRepository: f.dagRunRepository,
+				procRepository:   procRepository,
+				dagExecutor:      NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
+				isSuspended:      func(context.Context, string) (bool, error) { return true, nil },
+				isPaused:         func(context.Context) (bool, error) { return tc.paused, nil },
+				backoffConfig: BackoffConfig{
+					InitialInterval:    10 * time.Millisecond,
+					MaxInterval:        50 * time.Millisecond,
+					MaxRetries:         2,
+					StartupGracePeriod: time.Second,
+				},
+			})
+
+			dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, queueDispatchBatch{maxConcurrency: 1}, func() {}, func() {})
+
+			assert.Equal(t, tc.dispatched, dispatched)
+			assert.Equal(t, int32(map[bool]int{true: 1}[tc.dispatched]), dispatcher.callCount.Load())
+			attempt, err := f.dagRunRepository.FindAttempt(f.ctx, runRef)
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(f.ctx)
+			require.NoError(t, err)
+			assert.Equal(t, ir.Queued, status.Status, "the run is not aborted")
+			procRepository.AssertExpectations(t)
+		})
+	}
+}
+
 func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	dagName := "suspended-manual-dag"
 	f := newQueueFixture(t).withDAG(dagName, 1)

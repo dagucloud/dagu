@@ -16,3 +16,8 @@ steps:
   - id: check
     depends: fetch
     run: cat "$DAG_RUN_ARTIFACTS_DIR/browser/fetch/downloads/report.csv" > report.out
+  - id: published
+    depends: fetch
+    env:
+      DOWNLOADS: ${steps.fetch.outputs.downloads}
+    run: printf '%s' "$DOWNLOADS" > downloads.out

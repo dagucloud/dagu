@@ -31,6 +31,11 @@ func (s *runStateStore) BeginAttempt(ctx context.Context, req runstate.BeginAtte
 			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
 		}
 	}
+	if req.DAG != nil {
+		if err := s.repository.PruneSlots(ctx, req.DAG.Name, req.DAG.SlotRetentionDays); err != nil {
+			logger.Error(ctx, "Schedule slot record cleanup failed", tag.Error(err))
+		}
+	}
 
 	attempt := s.prepared
 	if attempt != nil {

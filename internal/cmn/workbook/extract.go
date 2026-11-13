@@ -89,6 +89,7 @@ func ReadCells(ctx context.Context, path string, opts ReadCellsOptions) (*ReadCe
 	result := &ReadCellsResult{Sheet: sheet, Values: map[string]any{}, Cells: map[string]string{}, Warnings: []string{}}
 	warn := func(msg string) { result.Warnings = append(result.Warnings, msg) }
 	readOpts := ReadOptions{Trim: opts.Trim, Formulas: opts.Formulas}
+	stale := w.staleChecker(sheet, opts.Formulas)
 	for _, field := range sortedKeys(opts.Cells) {
 		addr := strings.TrimSpace(opts.Cells[field])
 		if addr == "" {
@@ -115,7 +116,8 @@ func ReadCells(ctx context.Context, path string, opts ReadCellsOptions) (*ReadCe
 			return nil, &AddressError{Workbook: w.base, Field: field, Address: addr, Msg: "is outside " + bounds.String()}
 		}
 		col, row := merges.origin(reg.C1, reg.R1)
-		value, err := w.cellValue(sheet, col, row, cellAt(grid, col, row), readOpts, warn)
+		raw := cellAt(grid, col, row)
+		value, err := w.cellValue(sheet, col, row, raw, readOpts, warn)
 		if err != nil {
 			return nil, err
 		}
@@ -127,6 +129,8 @@ func ReadCells(ctx context.Context, path string, opts ReadCellsOptions) (*ReadCe
 		}
 		result.Values[field] = value
 		result.Cells[field] = sheet + "!" + cellName(col, row)
+		stale.check(col, row, raw)
 	}
+	stale.report(warn)
 	return result, nil
 }

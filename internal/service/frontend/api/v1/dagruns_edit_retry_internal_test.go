@@ -190,6 +190,34 @@ func TestEditRetryDAGRun_DispatchesSeededRetryWithSkippedOutputs(t *testing.T) {
 	require.True(t, previousStatus.Nodes[0].SkippedByRetry)
 }
 
+// An edit-retry of a backfill run is still the backfill's: it keeps the
+// backfill ID and the trigger type backfill.
+func TestEditRetryDAGRun_KeepsBackfillIdentity(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	api, dag := setupEditRetryAPI(t, tmpDir, editRetrySourceYAML())
+	seedEditRetrySourceAttemptWithProfileName(t, ctx, api.dagRunRepository, dag, "source-run", "",
+		ir.WithTriggerType(ir.TriggerTypeBackfill), ir.WithBackfillID("bf123456"))
+	api.coordinatorCli = &retryCoordinatorRecorder{}
+
+	_, err := api.EditRetryDAGRun(ctx, openapiv1.EditRetryDAGRunRequestObject{
+		Name:     dag.Name,
+		DagRunId: "source-run",
+		Body: &openapiv1.EditRetryDAGRunJSONRequestBody{
+			DagRunId: ptrOf("edit-run"),
+			Spec:     editRetryEditedYAMLWithWorkerSelector(),
+		},
+	})
+	require.NoError(t, err)
+
+	attempt, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "bf123456", status.BackfillID)
+	require.Equal(t, ir.TriggerTypeBackfill, status.TriggerType)
+}
+
 func TestEditRetryDAGRun_RejectsDistributedBuildWorkflow(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
@@ -552,16 +580,17 @@ func seedEditRetrySourceAttemptWithProfileName(
 	dag *ir.DAG,
 	dagRunID string,
 	profileName string,
+	extra ...ir.StatusOption,
 ) {
 	t.Helper()
 	attempt, err := repository.CreateAttempt(ctx, dag, time.Now().Add(-2*time.Minute), dagRunID, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 
-	opts := []ir.StatusOption{
+	opts := append([]ir.StatusOption{
 		ir.WithAttemptID(attempt.ID()),
 		ir.WithFinishedAt(time.Now().Add(-time.Minute)),
 		ir.WithError("consume failed"),
-	}
+	}, extra...)
 	if profileName != "" {
 		opts = append(opts, ir.WithRuntimeProfile(profileName, "", nil))
 	}

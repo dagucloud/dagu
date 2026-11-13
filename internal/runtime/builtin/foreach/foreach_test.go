@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -274,4 +276,30 @@ func TestBodyStepsKnowTheirItem(t *testing.T) {
 	}
 	assert.Len(t, distinct, 6, "each body has an item of its own: %q", first)
 	assert.ElementsMatch(t, first, run(), "a body keeps its item from run to run")
+}
+
+// A body step has a span of its own, so the trace context of the foreach
+// step's span must not reach it as a value the step set itself.
+func TestBodyStepsDropForeachTraceContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	parent := runtime.NewEnv(ctx, ir.Step{Name: "each"})
+	parent.Scope = parent.Scope.
+		WithEntry("REGION", "eu", cmnvalue.EnvSourceStepEnv).
+		WithEntry(runenv.EnvKeyTraceParent, "foreach-span", cmnvalue.EnvSourceStepEnv).
+		WithEntry(runenv.EnvKeyTraceState, "foreach-state", cmnvalue.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, parent)
+
+	itemCtx, err := contextWithItemScope(ctx, "each", "item", 0, "0", "a")
+	require.NoError(t, err)
+
+	body := runtime.NewEnv(itemCtx, ir.Step{Name: "body"})
+	region, ok := body.Scope.Get("REGION")
+	require.True(t, ok)
+	assert.Equal(t, "eu", region)
+	_, ok = body.Scope.Get(runenv.EnvKeyTraceParent)
+	assert.False(t, ok)
+	_, ok = body.Scope.Get(runenv.EnvKeyTraceState)
+	assert.False(t, ok)
 }

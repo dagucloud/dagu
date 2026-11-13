@@ -36,6 +36,7 @@ type queueDispatchDeps struct {
 	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
+	isPaused               IsPausedFunc
 	backoffConfig          BackoffConfig
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
@@ -55,6 +56,7 @@ type queueDispatcher struct {
 	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
+	isPaused               IsPausedFunc
 	backoffConfig          BackoffConfig
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
@@ -339,6 +341,9 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 	if deps.isSuspended == nil {
 		deps.isSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
+	if deps.isPaused == nil {
+		deps.isPaused = func(context.Context) (bool, error) { return false, nil }
+	}
 	if deps.isClosed == nil {
 		deps.isClosed = func() bool { return false }
 	}
@@ -361,6 +366,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		workerStaleAfter:       deps.workerStaleAfter,
 		dagExecutor:            deps.dagExecutor,
 		isSuspended:            deps.isSuspended,
+		isPaused:               deps.isPaused,
 		backoffConfig:          deps.backoffConfig,
 		leaseStaleThreshold:    deps.leaseStaleThreshold,
 		isClosed:               deps.isClosed,
@@ -760,7 +766,18 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		return false
 	}
 
-	if isSchedulerManagedTriggerType(status.TriggerType) {
+	if status.BackfillID != "" {
+		// A backfill run, its retries too, is an operator's request: a
+		// suspension does not stop it, and a pause holds it queued.
+		paused, err := d.isPaused(ctx)
+		if err != nil {
+			logger.Error(ctx, "Failed to check the scheduler pause; leaving queued run pending", tag.Error(err))
+			return false
+		}
+		if paused {
+			return false
+		}
+	} else if isSchedulerManagedTriggerType(status.TriggerType) {
 		suspended, err := isSuspendedDAG(ctx, d.isSuspended, status, dag, "")
 		if err != nil {
 			logger.Error(ctx, "Failed to check DAG suspension; leaving queued run pending", tag.Error(err))

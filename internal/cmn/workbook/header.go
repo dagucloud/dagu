@@ -248,8 +248,9 @@ func layoutHeader(reg region, spec HeaderSpec) (headerLayout, error) {
 }
 
 // headerNames builds column names for a region: multi-row headers are
-// joined with a space, line breaks become spaces, empty names fall back to
-// the column letter, and duplicates get a numeric suffix.
+// joined with a space, a cell merged over several header rows contributes
+// its text once, line breaks become spaces, empty names fall back to the
+// column letter, and duplicates get a numeric suffix.
 func headerNames(reg region, layout headerLayout, grid [][]string, merges mergeFill, warn func(string)) []string {
 	names := make([]string, 0, reg.C2-reg.C1+1)
 	// _row is reserved for the row number, so a header spelled that way is
@@ -260,8 +261,16 @@ func headerNames(reg region, layout headerLayout, grid [][]string, merges mergeF
 		name := ""
 		if len(layout.rows) > 0 {
 			var parts []string
+			// A cell merged down over several header rows shows in each of
+			// them; its text joins the name once. Header rows are sorted and
+			// a merge is a rectangle, so the previous origin is enough.
+			lastCol, lastRow := 0, 0
 			for _, r := range layout.rows {
 				oc, or := merges.origin(c, r)
+				if oc == lastCol && or == lastRow {
+					continue
+				}
+				lastCol, lastRow = oc, or
 				text := cleanHeader(cellAt(grid, oc, or))
 				if text != "" {
 					parts = append(parts, text)
