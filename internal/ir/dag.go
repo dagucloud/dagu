@@ -382,8 +382,8 @@ func (d *DAG) UnmarshalJSON(data []byte) error {
 // HasLabel checks if the DAG has a label matching the given filter.
 // Supports both simple labels ("production") and key-value filters ("env=prod").
 func (d *DAG) HasLabel(label string) bool {
-	filter := ParseLabelFilter(label)
-	return filter.MatchesLabels(d.Labels)
+	filter, err := ParseLabelFilter(label)
+	return err == nil && filter.MatchesLabels(d.Labels)
 }
 
 // HasTag checks if the DAG has a tag matching the given filter.

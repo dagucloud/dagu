@@ -153,6 +153,13 @@ type statusIterOptions struct {
 }
 
 func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunStatusQuery, iterOpts statusIterOptions) ([]*dagRunStatusIterator, error) {
+	// Parsed before any root is read, so an invalid filter fails even when
+	// no DAG has runs.
+	labelFilters, err := ir.ParseLabelFilters(opts.Labels)
+	if err != nil {
+		return nil, err
+	}
+
 	var roots []DataRoot
 	if opts.ExactName == "" {
 		listed, err := store.listRoot(ctx, "")
@@ -170,7 +177,7 @@ func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunSt
 		if _, skip := excluded[root.prefix]; skip {
 			continue
 		}
-		iterator, err := newDAGRunStatusIterator(store, root, opts, iterOpts)
+		iterator, err := newDAGRunStatusIterator(store, root, opts, iterOpts, labelFilters)
 		if err != nil {
 			return nil, err
 		}
@@ -244,7 +251,7 @@ var defaultStatusListTuning = statusListTuning{
 	rejectRatio:  4,
 }
 
-func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStatusQuery, iterOpts statusIterOptions) (*dagRunStatusIterator, error) {
+func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStatusQuery, iterOpts statusIterOptions, labelFilters []ir.LabelFilter) (*dagRunStatusIterator, error) {
 	// Days after the cursor's hold only runs that sort before it.
 	dayListEnd := opts.To
 	if iterOpts.hasSeek && (dayListEnd.IsZero() || iterOpts.seek.Before(dayListEnd.Time)) {
@@ -259,13 +266,6 @@ func newDAGRunStatusIterator(store *Store, root DataRoot, opts persis.DAGRunStat
 	statusesFilter := make(map[ir.Status]struct{}, len(opts.Statuses))
 	for _, status := range opts.Statuses {
 		statusesFilter[status] = struct{}{}
-	}
-
-	labelFilters := make([]ir.LabelFilter, 0, len(opts.Labels))
-	for _, label := range opts.Labels {
-		if trimmed := strings.TrimSpace(label); trimmed != "" {
-			labelFilters = append(labelFilters, ir.ParseLabelFilter(trimmed))
-		}
 	}
 
 	return &dagRunStatusIterator{

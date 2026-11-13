@@ -813,7 +813,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
+          description: "Filter DAGs by labels (comma-separated). Returns DAGs that match ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
         - name: "active"
           in: "query"
           required: false
@@ -2221,7 +2221,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels."
+          description: "Filter DAGs by labels (comma-separated). Returns DAGs that match ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400."
         - $ref: "#/components/parameters/SearchCursor"
         - $ref: "#/components/parameters/SearchLimit"
       responses:
@@ -2314,7 +2314,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Filter DAG matches by labels (comma-separated). Returns matches only when the DAG has ALL specified labels."
+          description: "Filter DAG matches by labels (comma-separated). Returns matches only when the DAG matches ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400."
         - $ref: "#/components/parameters/Workspace"
         - $ref: "#/components/parameters/SearchCursor"
         - $ref: "#/components/parameters/SearchMatchLimit"
@@ -2513,7 +2513,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Only include runs of DAGs that have ALL these comma-separated labels"
+          description: "Only include runs of DAGs that match ALL these comma-separated label terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400."
         - $ref: "#/components/parameters/DAGRunListCursor"
       responses:
         "200":
@@ -2563,7 +2563,7 @@ paths:
           required: false
           schema:
             type: "string"
-          description: "Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
+          description: "Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that match ALL terms. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
         - name: "tags"
           in: "query"
           required: false

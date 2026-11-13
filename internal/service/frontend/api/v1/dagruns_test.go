@@ -3409,6 +3409,15 @@ steps:
 	requireFilterEventually("nonexistent", nil, []string{"label_filter_prod", "label_filter_dev", "label_filter_test"})
 	requireFilterEventually("test", []string{"label_filter_test"}, []string{"label_filter_prod", "label_filter_dev"})
 	requireFilterEventually("CRITICAL", []string{"label_filter_prod", "label_filter_dev"}, []string{"label_filter_test"})
+	requireFilterEventually("critical,!dev", []string{"label_filter_prod"}, []string{"label_filter_dev", "label_filter_test"})
+
+	// A malformed term is rejected instead of silently matching nothing.
+	resp := server.Client().Get("/api/v1/dag-runs?labels=critical,env%3D%3Dprod").
+		ExpectStatus(http.StatusBadRequest).Send(t)
+	var errResp api.Error
+	resp.Unmarshal(t, &errResp)
+	require.Equal(t, api.ErrorCodeBadRequest, errResp.Code)
+	require.Contains(t, errResp.Message, `invalid label filter "env==prod"`)
 }
 
 func TestListDAGRunsFilterByPartialName(t *testing.T) {
