@@ -932,15 +932,17 @@ func TestJQExecutor_RelativeInputUsesWorkingDir(t *testing.T) {
 
 // TestJQRejectsUnknownWithKey verifies that the closed executor config schema
 // rejects an unknown `with` key at validation time instead of silently dropping
-// it (#3440).
+// it. jq.filter folds filter and data into the step before validation, so the
+// schema sees them only from `type: jq`, where the executor ignores them.
 func TestJQRejectsUnknownWithKey(t *testing.T) {
 	t.Parallel()
 
-	err := registry.ValidateExecutorConfig("jq", map[string]any{"raw": true, "inpout": "x.json"})
-	require.Error(t, err, "unknown with key must be rejected")
+	for _, key := range []string{"inpout", "filter", "data"} {
+		err := registry.ValidateExecutorConfig("jq", map[string]any{"raw": true, key: "x"})
+		require.ErrorContains(t, err, key)
+	}
 
-	// Accepted keys, including filter/data folded from the jq.filter action, pass.
 	require.NoError(t, registry.ValidateExecutorConfig("jq", map[string]any{
-		"raw": true, "input": "x.json", "filter": ".foo", "data": map[string]any{"a": 1},
+		"raw": true, "input": "x.json", "args": map[string]any{"name": "dagu"},
 	}))
 }
