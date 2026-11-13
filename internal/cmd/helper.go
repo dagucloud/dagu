@@ -172,6 +172,48 @@ func slotDates(ctx *Context, dag *ir.DAG, profile string, slot runSlot) ([]ir.Da
 	})
 }
 
+// reportRunDates tells, on stderr, the slot and dates a run was created
+// with, so a run for a past slot shows what it loads.
+func reportRunDates(ctx *Context, slot runSlot, dates []ir.DateValue) {
+	if len(dates) == 0 {
+		return
+	}
+	where := "no slot"
+	if slot.scheduleTime != "" {
+		where = "slot " + slot.scheduleTime
+		if at, err := stringutil.ParseTime(slot.scheduleTime); err == nil {
+			if zone, err := time.LoadLocation(slot.window.Timezone); err == nil {
+				where = "slot " + at.In(zone).Format(time.RFC3339)
+			}
+		}
+		if slot.isDefault {
+			where += " (default)"
+		}
+	}
+	_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Dates for %s: %s\n", where, formatDates(dates))
+}
+
+// formatDates shows a run's dates on one line: name=date for an entry, and
+// name=first..last for a list.
+func formatDates(dates []ir.DateValue) string {
+	parts := make([]string, 0, len(dates))
+	for _, date := range dates {
+		value := date.Value
+		if date.List {
+			switch len(date.Values) {
+			case 0:
+				value = "[]"
+			case 1:
+				value = date.Values[0]
+			default:
+				value = date.Values[0] + ".." + date.Values[len(date.Values)-1]
+			}
+		}
+		parts = append(parts, date.Name+"="+value)
+	}
+	return strings.Join(parts, " ")
+}
+
 // boundStartSchedules returns a copy of the DAG's start schedules with their
 // calendars bound, so they fire as the scheduler fires them.
 func boundStartSchedules(ctx *Context, dag *ir.DAG) []ir.Schedule {

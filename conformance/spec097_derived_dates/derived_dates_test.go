@@ -191,3 +191,41 @@ func TestDefaultSlot(t *testing.T) {
 	dagu.ExpectFileContent("default-slot.txt", fmt.Sprintf("slot=%s target=%s\n",
 		slot.Format(time.RFC3339), slot.AddDate(0, 0, -1).Format(time.DateOnly)))
 }
+
+// Every way of starting a slot shows what it loads: dry prints the dates the
+// real run records, calendar fires lists them beside each fire, and start
+// reports them as it creates the run.
+func TestDatePreviews(t *testing.T) {
+	t.Parallel()
+
+	fields := func(text string) string { return strings.Join(strings.Fields(text), " ") }
+
+	dagu := harness.NewRunner(t)
+	dry := dagu.RunWithEnv(utcServer, "dry", "--scheduled-at=2026-11-09", "run_dates.yaml")
+	dry.ExpectExitCode(0)
+	for _, want := range []string{
+		"Scheduled at: 2026-11-09T02:00:00+09:00 (Asia/Tokyo)",
+		"target_day 2026-11-08",
+		"last_open_day 2026-11-06",
+		"window_days [2026-11-06, 2026-11-07, 2026-11-08]",
+	} {
+		if !strings.Contains(fields(dry.Stdout()), want) {
+			t.Fatalf("dry output does not contain %q:\n%s", want, dry.Stdout())
+		}
+	}
+
+	fires := dagu.RunWithEnv(utcServer, "calendar", "fires", "run_dates.yaml", "--from", "2026-11-08T00:00:00+09:00", "--count", "2")
+	fires.ExpectExitCode(0)
+	for _, want := range []string{
+		"Mon 2026-11-09 02:00 +09:00 CRON_TZ=Asia/Tokyo 0 2 * * * target_day=2026-11-08",
+		"Tue 2026-11-10 02:00 +09:00 CRON_TZ=Asia/Tokyo 0 2 * * * target_day=2026-11-09",
+	} {
+		if !strings.Contains(fields(fires.Stdout()), want) {
+			t.Fatalf("calendar fires output does not contain %q:\n%s", want, fires.Stdout())
+		}
+	}
+
+	start := dagu.RunWithEnv(utcServer, "start", "--scheduled-at=2026-11-09", "run_dates.yaml")
+	start.ExpectExitCode(0)
+	start.ExpectStderrContains("Dates for slot 2026-11-09T02:00:00+09:00: target_day=2026-11-08")
+}

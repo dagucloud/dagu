@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
@@ -197,23 +198,51 @@ func runCalendarFires(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return renderCalendarFires(ctx.Command.OutOrStdout(), dag, dag.UpcomingFires(from, count))
+	var datesOf func(time.Time) string
+	if len(dag.Dates) > 0 {
+		calendars := spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir)
+		datesOf = func(fire time.Time) string {
+			dates, err := rundates.Resolve(rundates.Request{
+				DAG:          dag,
+				ScheduleTime: fire.Format(time.RFC3339),
+				Window:       ir.ScheduleWindowAt(dag.Schedule, "", ctx.Config.Core.Location, fire),
+				CreatedAt:    fire,
+				Location:     ctx.Config.Core.Location,
+				Calendars:    calendars,
+			})
+			if err != nil {
+				return err.Error()
+			}
+			return formatDates(dates)
+		}
+	}
+	return renderCalendarFires(ctx.Command.OutOrStdout(), dag, dag.UpcomingFires(from, count), datesOf)
 }
 
-func renderCalendarFires(out io.Writer, dag *ir.DAG, fires []ir.ScheduleFire) error {
+// renderCalendarFires lists fires with their schedule and note, and, when
+// datesOf is set, the dates each fire's run gets.
+func renderCalendarFires(out io.Writer, dag *ir.DAG, fires []ir.ScheduleFire, datesOf func(time.Time) string) error {
 	if len(fires) == 0 {
 		_, err := fmt.Fprintf(out, "%s has no upcoming runs\n", dag.Name)
 		return err
 	}
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-	if _, err := fmt.Fprintln(w, "TIME\tSCHEDULE\tNOTE"); err != nil {
+	header := "TIME\tSCHEDULE\tNOTE"
+	if datesOf != nil {
+		header += "\tDATES"
+	}
+	if _, err := fmt.Fprintln(w, header); err != nil {
 		return err
 	}
 	for _, fire := range fires {
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n",
+		row := fmt.Sprintf("%s\t%s\t%s",
 			fire.Time.Format(calendarFireTimeLayout),
 			dag.Schedule[fire.ScheduleIndex].DisplayValue(),
-			calendarFireNote(fire)); err != nil {
+			calendarFireNote(fire))
+		if datesOf != nil {
+			row += "\t" + datesOf(fire.Time)
+		}
+		if _, err := fmt.Fprintln(w, row); err != nil {
 			return err
 		}
 	}

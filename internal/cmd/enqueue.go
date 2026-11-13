@@ -102,6 +102,7 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	reportRunDates(ctx, slot, dates)
 	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
 	if err != nil {
 		return fmt.Errorf("failed to read no-reuse: %w", err)
