@@ -90,6 +90,7 @@ type DAGRunSummary struct {
 	AutoRetryMaxInterval time.Duration
 	ProcGroup            string
 	DefinitionID         string
+	BackfillID           string
 	ArchiveDir           string
 }
 

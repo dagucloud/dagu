@@ -105,8 +105,8 @@ func TestXlsxSheetModes(t *testing.T) {
 	require.Equal(t, 0, out.DataCount, "add with replace empties the sheet")
 }
 
-// Spec 077 "Converting": utf-8-bom, atomic: false, and the sheet and
-// warnings outputs.
+// Spec 077 "Converting": utf-8-bom and utf-8 named, atomic: false, and the
+// sheet and warnings outputs.
 func TestXlsxConvertOptions(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
@@ -114,6 +114,9 @@ func TestXlsxConvertOptions(t *testing.T) {
 	raw, err := os.ReadFile(dagu.ProjectPath("bom.csv"))
 	require.NoError(t, err)
 	require.Equal(t, "\xEF\xBB\xBFItem,Qty\npear,3\n", string(raw), "the file starts with the byte order mark")
+	plain, err := os.ReadFile(dagu.ProjectPath("plain.csv"))
+	require.NoError(t, err)
+	require.Equal(t, "Item,Qty\npear,3\n", string(plain), "utf-8 writes no byte order mark")
 	var result struct {
 		Sheet    string   `json:"sheet"`
 		Format   string   `json:"format"`

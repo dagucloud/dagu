@@ -1,0 +1,22 @@
+working_dir: .
+steps:
+  - id: total
+    run: printf '{"total":1045000,"count":1000000,"ratio":0.25}'
+    output:
+      total:
+        from: stdout
+        decode: json
+        select: .total
+      count:
+        from: stdout
+        decode: json
+        select: .count
+      ratio:
+        from: stdout
+        decode: json
+        select: .ratio
+
+  - id: report
+    depends: total
+    run: |
+      printf '%s\n' '${steps.total.outputs.total}' '${steps.total.outputs.count}' '${steps.total.outputs.ratio}' > number-output.txt

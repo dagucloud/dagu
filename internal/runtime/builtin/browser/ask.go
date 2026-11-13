@@ -4,11 +4,13 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
@@ -17,6 +19,43 @@ import (
 )
 
 const askQuestionHeader = "Browser input"
+
+// What a step waits for a person on, as askUnsupported names it.
+const (
+	askOperations = "ask operations are"
+	writeGateAsk  = "write_gate ask is"
+)
+
+// hasUnguardedAsk reports whether an ask operation certainly runs: one
+// without a when. A when-guarded ask may be skipped.
+func (r *run) hasUnguardedAsk() bool {
+	for _, op := range r.cfg.Do {
+		if op.Ask != nil && op.When == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// askUnsupported explains that what, askOperations or writeGateAsk, cannot
+// run where the browser cannot outlive the step process, as on Windows,
+// and names the alternative: signing the profile in once in a headed
+// browser session. The command quotes the URL, whose query a shell would
+// otherwise cut at its first &. The URL may hold a secret, so the message
+// is masked.
+func (r *run) askUnsupported(what string) error {
+	url := r.cfg.URL
+	for _, op := range r.cfg.Do {
+		if url != "" {
+			break
+		}
+		url = op.Goto
+	}
+	url = strings.ReplaceAll(cmp.Or(url, "<url>"), `"`, `\"`)
+	message := fmt.Sprintf("%s not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open \"%s\" --headed --profile %s",
+		what, url, cmp.Or(r.cfg.Browser.Profile, "<name>"))
+	return errors.New(r.masker.MaskString(message))
+}
 
 // waitForInput leaves the browser running, records where to resume, and
 // puts the step into Waiting until a person answers.
@@ -58,6 +97,7 @@ func (r *run) detachForAnswer(ctx context.Context, index, cursor int, kind strin
 	r.record.Deadline = deadline
 	r.record.Cursor = cursor
 	r.record.Outputs = r.outputs
+	r.record.Downloads = r.downloads
 	r.record.ReplayPending, r.record.ReplayUsed = r.cache.Held()
 	r.record.WriteGateSeq = r.writeSeq
 	r.record.OwnerPID = 0
@@ -125,6 +165,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	opts := launchOptions{
 		DownloadsDir:   record.DownloadsDir,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		DismissConfirm: r.cfg.dismissesConfirm(),
 		Generate:       r.bridge.generate,
 	}
 	eng, err := r.exec.launcher.Reattach(ctx, recordedHandle(record), opts)
@@ -145,6 +186,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 		return 0, err
 	}
 	maps.Copy(r.outputs, record.Outputs)
+	r.downloads = append(record.Downloads, r.downloads...)
 	r.cache.Hold(record.ReplayPending, record.ReplayUsed)
 	r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed browser after input")
 	return record.Cursor, nil

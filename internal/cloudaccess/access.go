@@ -45,6 +45,8 @@ type Config struct {
 	// Hello introduces the server to the relay; the service names its
 	// process.
 	Hello cloudrelay.Hello
+	// LastCall keeps the latest call the server served; nil keeps none.
+	LastCall StateStore
 }
 
 // State is how this process's connection for calls stands.
@@ -66,8 +68,8 @@ type timing struct {
 	// stable is how long a connection must have lasted for a failure after
 	// it to start the backoff afresh.
 	stable time.Duration
-	// refused is how long the service waits after Dagu Cloud refused a
-	// ticket, which asking again soon does not change.
+	// refused is how long the service waits to ask again with credentials
+	// Dagu Cloud refused, which asking again soon does not change.
 	refused time.Duration
 }
 
@@ -99,12 +101,27 @@ func New(cfg Config) *Service {
 	}
 	// The relay keeps one connection per process, by this name.
 	cfg.Hello.Instance = newInstance()
+	var last *lastCalls
+	if cfg.LastCall != nil {
+		last = &lastCalls{store: cfg.LastCall, now: time.Now}
+	}
 	return &Service{
 		Settings: cfg.Settings,
 		cfg:      cfg,
 		timing:   defaultTiming,
-		calls:    &calls{settings: cfg.Settings, credentials: cfg.Credentials, verifier: newVerifier(cfg.Key)},
+		calls: &calls{settings: cfg.Settings, credentials: cfg.Credentials, verifier: newVerifier(cfg.Key),
+			lastCalls: last},
 	}
+}
+
+// LastCall returns the latest call from Dagu Cloud the server served under
+// its current license, and false while there is none.
+func (s *Service) LastCall(ctx context.Context) (LastCall, bool, error) {
+	creds, connected := s.cfg.Credentials()
+	if s.calls.lastCalls == nil || !connected {
+		return LastCall{}, false, nil
+	}
+	return s.calls.lastCalls.get(ctx, creds.LicenseID)
 }
 
 // State returns how the connection stands.
@@ -120,10 +137,17 @@ func (s *Service) State() State {
 func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 	s.calls.mcp = mcp
 	backoff := s.timing.minBackoff
+	// After a refusal, the same credentials wait until heldUntil. Changed
+	// credentials, as when a trial starts, or changed settings connect at
+	// once.
+	var held license.CloudCredentials
+	var heldUntil time.Time
+	var heldState State
 	for {
 		// The read below sees any change made before it.
 		select {
 		case <-s.changes():
+			heldUntil = time.Time{}
 		default:
 		}
 		wait := s.timing.check
@@ -139,6 +163,10 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 			s.setState(State{})
 		case !connected:
 			s.setState(State{Error: stateNotConnected})
+		case creds == held && time.Now().Before(heldUntil):
+			// Dagu Cloud refused these credentials lately; asking again soon
+			// would not change its answer, which stays shown.
+			s.setState(heldState)
 		default:
 			started := time.Now()
 			err := s.connect(ctx, creds)
@@ -154,11 +182,13 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 				wait = 0
 				s.setState(State{})
 			case isRefused:
-				wait = s.timing.refused
-				s.setState(State{Error: refusalMessage(refused)})
+				held, heldUntil = creds, time.Now().Add(s.timing.refused)
+				heldState = State{Error: refusalMessage(refused)}
+				s.setState(heldState)
 			case errors.Is(err, cloudrelay.ErrDropped):
-				wait = s.timing.refused
-				s.setState(State{Error: err.Error()})
+				held, heldUntil = creds, time.Now().Add(s.timing.refused)
+				heldState = State{Error: err.Error()}
+				s.setState(heldState)
 			default:
 				if time.Since(started) >= s.timing.stable {
 					backoff = s.timing.minBackoff
@@ -174,6 +204,7 @@ func (s *Service) Run(ctx context.Context, mcp http.Handler) {
 			return
 		case <-time.After(wait):
 		case <-s.changes():
+			heldUntil = time.Time{}
 		}
 	}
 }

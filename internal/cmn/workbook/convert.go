@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/textenc"
 	"golang.org/x/text/transform"
 )
 
@@ -143,7 +144,7 @@ func Convert(ctx context.Context, path string, opts ConvertOptions) (*ConvertRes
 func writeCSV(ctx context.Context, out io.Writer, rows *ReadResult, enc Encoding, delimiter rune) error {
 	target := io.Writer(out)
 	if enc == EncodingUTF8BOM {
-		if _, err := out.Write([]byte("\xEF\xBB\xBF")); err != nil {
+		if _, err := io.WriteString(out, textenc.UTF8BOM); err != nil {
 			return err
 		}
 	}

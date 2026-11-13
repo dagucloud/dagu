@@ -15,21 +15,32 @@ import (
 )
 
 const (
-	targetTypePage   = "page"
-	dialogTypePrompt = "prompt"
+	targetTypePage    = "page"
+	dialogTypeConfirm = "confirm"
+	dialogTypePrompt  = "prompt"
 	// answerTimeout bounds the answer to a dialog, which holds the lock that
 	// Take waits for.
 	answerTimeout = 5 * time.Second
 )
 
-// Dialog is a JavaScript dialog a page opened and the watcher accepted.
+// Dialog is a JavaScript dialog a page opened and the watcher answered.
 type Dialog struct {
 	// Type is alert, confirm, prompt, or beforeunload.
 	Type    string
 	Message string
+	// Dismissed reports a confirm the watcher dismissed in place of
+	// accepting it.
+	Dismissed bool
 }
 
-// DialogWatcher accepts the JavaScript dialogs a browser's pages open. An
+// DialogOptions chooses how a DialogWatcher answers dialogs.
+type DialogOptions struct {
+	// DismissConfirm answers a confirm with cancel in place of OK. The
+	// other dialogs are accepted either way.
+	DismissConfirm bool
+}
+
+// DialogWatcher answers the JavaScript dialogs a browser's pages open. An
 // open dialog blocks its page until it is answered.
 type DialogWatcher struct {
 	conn   *websocket.Conn
@@ -39,21 +50,23 @@ type DialogWatcher struct {
 	// autoAttachID is the request whose reply confirms that pages are
 	// watched.
 	autoAttachID int64
+	opts         DialogOptions
 
 	mu       sync.Mutex
-	accepted []Dialog
+	answered []Dialog
 }
 
-// WatchDialogs accepts every dialog in the pages of the browser at cdpURL,
-// including pages opened later, until the watcher is closed. A prompt is
-// answered with its default text.
-func WatchDialogs(ctx context.Context, cdpURL string) (*DialogWatcher, error) {
+// WatchDialogs answers every dialog in the pages of the browser at cdpURL,
+// including pages opened later, until the watcher is closed. A dialog is
+// accepted, a prompt with its default text, except a confirm under
+// opts.DismissConfirm, which is dismissed.
+func WatchDialogs(ctx context.Context, cdpURL string, opts DialogOptions) (*DialogWatcher, error) {
 	conn, err := dialBrowser(ctx, cdpURL)
 	if err != nil {
 		return nil, err
 	}
 	readCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	w := &DialogWatcher{conn: conn, cancel: cancel, done: make(chan struct{})}
+	w := &DialogWatcher{conn: conn, cancel: cancel, done: make(chan struct{}), opts: opts}
 	w.autoAttachID = w.lastID.Add(1)
 	acknowledged := make(chan error, 1)
 	go w.read(readCtx, acknowledged)
@@ -77,13 +90,13 @@ func WatchDialogs(ctx context.Context, cdpURL string) (*DialogWatcher, error) {
 	return w, nil
 }
 
-// Take returns the dialogs accepted since the previous call.
+// Take returns the dialogs answered since the previous call.
 func (w *DialogWatcher) Take() []Dialog {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	accepted := w.accepted
-	w.accepted = nil
-	return accepted
+	answered := w.answered
+	w.answered = nil
+	return answered
 }
 
 // Close stops watching. Dialogs opened afterwards stay open.
@@ -94,7 +107,7 @@ func (w *DialogWatcher) Close() error {
 	return err
 }
 
-// answer accepts a dialog and records it. The answer and its record share
+// answer answers a dialog and records it. The answer and its record share
 // the lock, so a Take made once the page has gone on reports the dialog.
 func (w *DialogWatcher) answer(ctx context.Context, sessionID string, params map[string]any, dialog Dialog) {
 	ctx, cancel := context.WithTimeout(ctx, answerTimeout)
@@ -102,7 +115,7 @@ func (w *DialogWatcher) answer(ctx context.Context, sessionID string, params map
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if writeCommand(ctx, w.conn, w.lastID.Add(1), sessionID, "Page.handleJavaScriptDialog", params) == nil {
-		w.accepted = append(w.accepted, dialog)
+		w.answered = append(w.answered, dialog)
 	}
 }
 
@@ -150,11 +163,12 @@ func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 			if json.Unmarshal(message.Params, &event) != nil {
 				continue
 			}
-			params := map[string]any{"accept": true}
+			dismiss := event.Type == dialogTypeConfirm && w.opts.DismissConfirm
+			params := map[string]any{"accept": !dismiss}
 			if event.Type == dialogTypePrompt {
 				params["promptText"] = event.DefaultPrompt
 			}
-			w.answer(ctx, message.SessionID, params, Dialog{Type: event.Type, Message: event.Message})
+			w.answer(ctx, message.SessionID, params, Dialog{Type: event.Type, Message: event.Message, Dismissed: dismiss})
 		}
 	}
 }

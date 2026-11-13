@@ -51,6 +51,20 @@ func (s Status) IsActive() bool {
 	return s == Running || s == Queued || s == Waiting
 }
 
+// IsTerminal checks if the status is final: the run has finished and will not
+// change again. A waiting run is not final, since it resumes once its waiting
+// steps are resolved. Statuses not listed here are not terminal.
+func (s Status) IsTerminal() bool {
+	switch s {
+	case Failed, Aborted, Succeeded, PartiallySucceeded, Rejected:
+		return true
+	case NotStarted, Running, Queued, Waiting:
+		return false
+	default:
+		return false
+	}
+}
+
 // IsSuccess checks if the status indicates a successful execution.
 func (s Status) IsSuccess() bool {
 	return s == Succeeded || s == PartiallySucceeded
@@ -141,6 +155,9 @@ const (
 	// TriggerTypeFile is a run started by a file arriving in a watched folder.
 	TriggerTypeFile
 	TriggerTypeRestart
+	// TriggerTypeBackfill is a run a backfill started for a past slot. Its
+	// retries keep this type.
+	TriggerTypeBackfill
 )
 
 // String returns the canonical lowercase token for the trigger type.
@@ -164,6 +181,8 @@ func (t TriggerType) String() string {
 		return "file"
 	case TriggerTypeRestart:
 		return "restart"
+	case TriggerTypeBackfill:
+		return "backfill"
 	default:
 		return "unknown"
 	}
@@ -188,6 +207,8 @@ func ParseTriggerType(s string) TriggerType {
 		return TriggerTypeFile
 	case "restart":
 		return TriggerTypeRestart
+	case "backfill":
+		return TriggerTypeBackfill
 	default:
 		return TriggerTypeUnknown
 	}
