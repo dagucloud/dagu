@@ -105,6 +105,7 @@ const (
 	buildFlagDeferWorkerSelector
 	buildFlagBaseDefinition // Building a base config, before it merges into a DAG
 	buildFlagRunValues      // The run's dates and context are known
+	buildFlagDeferParamEval // Every params[].eval waits for the run
 )
 
 // buildOpts is used to control the behavior of the builder.

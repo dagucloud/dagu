@@ -718,3 +718,25 @@ steps:
 	assert.Empty(t, child.Params)
 	assert.Equal(t, []string{"day"}, child.DeferredParams)
 }
+
+// A map-form worker selector resolves as the DAG loads and routes the run,
+// so a load that defers evals still evaluates them when the selector reads
+// a value.
+func TestInlineParamDefs_WorkerSelectorKeepsEvalsAtLoad(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: eval-worker-selector
+worker_selector:
+  region: ${params.region}
+params:
+  - name: region
+    eval: "us-east-1"
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithParams(""), DeferParamEvals())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region=us-east-1"}, dag.Params)
+	assert.Empty(t, dag.DeferredParams)
+	assert.Equal(t, map[string]string{"region": "us-east-1"}, dag.WorkerSelector)
+}

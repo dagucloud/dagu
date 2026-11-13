@@ -22,7 +22,6 @@ var restoredFields = map[string]bool{
 	"Env":                true,
 	"Params":             true,
 	"ParamsJSON":         true,
-	"DeferredParams":     true,
 	"SMTP":               true,
 	"MailAccounts":       true,
 	"SSH":                true,
