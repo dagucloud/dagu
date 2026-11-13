@@ -44,10 +44,10 @@ var configSchema = &jsonschema.Schema{
 		"skip_tls_verify": {Type: "boolean", Description: "Skip TLS certificate verification"},
 		"status_exit_codes": {
 			Type: "object",
-			Description: "Map an HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). " +
-				"An exact code wins over a class. A status not in the map keeps the default behaviour (exit 1).",
-			// Keys are a status code (100-599) or a class (1xx-5xx).
-			PropertyNames: &jsonschema.Schema{Pattern: `^[1-5]([0-9]{2}|xx)$`},
+			Description: "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). " +
+				"An exact code wins over a class. A status mapped to 0 is a success; an unmapped one exits 1.",
+			// Keys are a status code (300-599) or a class (3xx-5xx).
+			PropertyNames: &jsonschema.Schema{Pattern: `^[3-5]([0-9]{2}|xx)$`},
 			AdditionalProperties: &jsonschema.Schema{
 				Type:    "integer",
 				Minimum: new(float64(0)),

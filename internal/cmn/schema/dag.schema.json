@@ -4156,9 +4156,9 @@
         },
         "status_exit_codes": {
           "type": "object",
-          "propertyNames": { "pattern": "^[1-5]([0-9]{2}|xx)$" },
+          "propertyNames": { "pattern": "^[3-5]([0-9]{2}|xx)$" },
           "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
-          "description": "Map an HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). An exact code wins over a class. A status not in the map keeps the default behaviour (exit 1)."
+          "description": "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). An exact code wins over a class. A status mapped to 0 is a success; an unmapped one exits 1."
         },
         "output": {
           "type": "string",

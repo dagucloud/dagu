@@ -27,15 +27,12 @@ Workflow authors can make an HTTP request and consume its result.
   `status_code` and `headers`; a non-success response keeps them.
 - An explicit `with.skip_tls_verify: false` rejects an untrusted server
   certificate. Setting it to `true` permits that certificate.
-- `with.status_exit_codes` maps an HTTP status code (`"404"`) or a class
-  (`"5xx"`) to the step exit code (0–255). An exact code wins over a class. The
-  status of a 2xx response is unaffected. For a non-2xx response covered by the
-  map, the step exits with the mapped code instead of the default `1`; a mapped
-  value of `0` makes the step succeed. `retry_policy.exit_code` and
-  `continue_on.exit_code` match the mapped code. A mapped status writes the
-  response like any other non-2xx response. A status not present in the map
-  exits `1`. Validation rejects keys outside `100`–`599` or `1xx`–`5xx` and
-  values outside `0`–`255`.
+- `with.status_exit_codes` maps a non-2xx status code (`"404"`) or class
+  (`"5xx"`) to the step exit code (0–255). An exact code wins over a class. A
+  status mapped to `0` is a success, and its response is written like a 2xx
+  response. Any other mapped status fails the step with the mapped code, which
+  `retry_policy.exit_code` and `continue_on.exit_code` match. A non-2xx status
+  not in the map exits `1`. Keys must be in `300`–`599` or `3xx`–`5xx`.
 
 ## Errors
 
@@ -45,7 +42,7 @@ validation. A `with` field the action does not define also fails validation;
 the error names the field and, when a defined field is a likely misspelling of
 it, suggests that field. A non-success HTTP response fails the step unless
 `status_exit_codes` maps its status to `0`. When `with.output` names an
-existing file, an error response preserves that file and writes the error body
+existing file, a failed response preserves that file and writes the error body
 to stdout.
 
 ## Examples

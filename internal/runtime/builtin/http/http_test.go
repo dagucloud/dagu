@@ -370,6 +370,9 @@ func TestHTTPExecutor_StatusExitCodesSchema(t *testing.T) {
 	}{
 		{name: "code and class", codes: map[string]any{"404": 0, "5xx": 3}},
 		{name: "code out of range", codes: map[string]any{"600": 1}, wantErr: true},
+		{name: "success code", codes: map[string]any{"204": 1}, wantErr: true},
+		{name: "success class", codes: map[string]any{"2xx": 1}, wantErr: true},
+		{name: "informational class", codes: map[string]any{"1xx": 1}, wantErr: true},
 		{name: "unknown class", codes: map[string]any{"6xx": 1}, wantErr: true},
 		{name: "partial class", codes: map[string]any{"40x": 1}, wantErr: true},
 		{name: "exit code too high", codes: map[string]any{"404": 256}, wantErr: true},
@@ -843,19 +846,19 @@ func (tw *testWriter) String() string {
 func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
 	t.Parallel()
 
+	// wantExit 0 means the step succeeds.
 	for _, tc := range []struct {
 		name     string
 		status   int
 		mapCfg   map[string]any
-		wantErr  bool
 		wantExit int
 	}{
-		{"ExactCodeMapsToZero", 409, map[string]any{"status_exit_codes": map[string]any{"409": 0}}, false, 0},
-		{"ExactCodeMapsToNonZero", 404, map[string]any{"status_exit_codes": map[string]any{"404": 23}}, true, 23},
-		{"ClassMapsToRetryable", 503, map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, true, 75},
-		{"ExactWinsOverClass", 404, map[string]any{"status_exit_codes": map[string]any{"404": 0, "4xx": 66}}, false, 0},
-		{"UnmappedKeepsDefault", 400, map[string]any{"status_exit_codes": map[string]any{"404": 0, "5xx": 75}}, true, 1},
-		{"NoMapKeepsDefault", 500, nil, true, 1},
+		{"ExactCodeMapsToZero", 409, map[string]any{"status_exit_codes": map[string]any{"409": 0}}, 0},
+		{"ExactCodeMapsToNonZero", 404, map[string]any{"status_exit_codes": map[string]any{"404": 23}}, 23},
+		{"ClassMapsToRetryable", 503, map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, 75},
+		{"ExactWinsOverClass", 404, map[string]any{"status_exit_codes": map[string]any{"404": 0, "4xx": 66}}, 0},
+		{"UnmappedKeepsDefault", 400, map[string]any{"status_exit_codes": map[string]any{"404": 0, "5xx": 75}}, 1},
+		{"NoMapKeepsDefault", 500, nil, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -882,21 +885,22 @@ func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
 			httpExec.SetStderr(&testWriter{})
 
 			err = httpExec.Run(context.Background())
-			if tc.wantErr {
-				require.ErrorIs(t, err, errHTTPStatusCode)
-			} else {
+			if tc.wantExit == 0 {
 				require.NoError(t, err)
+				return
 			}
+			require.ErrorIs(t, err, errHTTPStatusCode)
 			assert.Equal(t, tc.wantExit, httpExec.ExitCode())
 		})
 	}
 }
 
-// A mapped status changes only the exit code, so the response is written as
-// for any other non-2xx response.
-func TestHTTPExecutor_StatusExitCodesKeepOutput(t *testing.T) {
+// A status mapped to 0 is a success, so the response is written as for a 2xx
+// response and output receives the body.
+func TestHTTPExecutor_StatusMappedToZeroWritesResponse(t *testing.T) {
 	t.Parallel()
 
+	const body = `{"error":"not here"}`
 	for _, tc := range []struct {
 		name       string
 		format     string
@@ -911,7 +915,7 @@ func TestHTTPExecutor_StatusExitCodesKeepOutput(t *testing.T) {
 
 			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 				w.WriteHeader(nethttp.StatusNotFound)
-				_, _ = w.Write([]byte(`{"error":"not here"}`))
+				_, _ = w.Write([]byte(body))
 			}))
 			defer server.Close()
 
@@ -937,12 +941,13 @@ func TestHTTPExecutor_StatusExitCodesKeepOutput(t *testing.T) {
 			executor.SetStderr(&testWriter{})
 
 			require.NoError(t, executor.Run(context.Background()))
-			assert.Contains(t, out.String(), "not here")
 			if tc.outputFile {
 				data, err := os.ReadFile(output)
 				require.NoError(t, err)
-				assert.Equal(t, "previous", string(data))
+				assert.Equal(t, body, string(data))
+				return
 			}
+			assert.Contains(t, out.String(), "not here")
 		})
 	}
 }
@@ -951,15 +956,19 @@ func TestHTTPExecutor_StatusExitCodesValidation(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name  string
-		value map[string]any
-		ok    bool
+		name   string
+		value  map[string]any
+		script string
+		ok     bool
 	}{
-		{"ValidExact", map[string]any{"status_exit_codes": map[string]any{"404": 0}}, true},
-		{"ValidClass", map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, true},
-		{"InvalidKey", map[string]any{"status_exit_codes": map[string]any{"999": 0}}, false},
-		{"InvalidClass", map[string]any{"status_exit_codes": map[string]any{"9xx": 0}}, false},
-		{"ValueOutOfRange", map[string]any{"status_exit_codes": map[string]any{"404": 256}}, false},
+		{name: "ValidExact", value: map[string]any{"status_exit_codes": map[string]any{"404": 0}}, ok: true},
+		{name: "ValidClass", value: map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, ok: true},
+		{name: "InvalidKey", value: map[string]any{"status_exit_codes": map[string]any{"999": 0}}},
+		{name: "InvalidClass", value: map[string]any{"status_exit_codes": map[string]any{"9xx": 0}}},
+		{name: "SuccessKey", value: map[string]any{"status_exit_codes": map[string]any{"200": 1}}},
+		{name: "ValueOutOfRange", value: map[string]any{"status_exit_codes": map[string]any{"404": 256}}},
+		{name: "ScriptInvalidKey", script: `{"status_exit_codes": {"999": 0}}`},
+		{name: "ScriptValueOutOfRange", script: `{"status_exit_codes": {"404": 300}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -967,6 +976,7 @@ func TestHTTPExecutor_StatusExitCodesValidation(t *testing.T) {
 			step := ir.Step{
 				Commands:       []ir.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
 				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: tc.value},
+				Script:         tc.script,
 			}
 			_, err := newHTTP(context.Background(), step)
 			if tc.ok {
