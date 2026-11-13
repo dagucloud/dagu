@@ -3139,3 +3139,111 @@ steps: [{run: "true"}]
 		})
 	}
 }
+
+func TestDAGSchemaSSHCredentials(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "DAGLevelSecretsAndBastion",
+			spec: `
+ssh:
+  user: deploy
+  host: app.example.com
+  timeout: 30s
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+  bastion:
+    host: jump.example.com
+    user: ops
+    key: {file: /keys/jump}
+    password: {secret: ssh/jump-password}
+steps:
+  - run: hostname
+`,
+		},
+		{
+			name: "SSHRunCredentials",
+			spec: `
+steps:
+  - action: ssh.run
+    with:
+      command: hostname
+      host: app.example.com
+      key: ~/.ssh/id_ed25519
+      passphrase: literal
+      bastion: {host: jump.example.com, password: {secret: ssh/jump}}
+`,
+		},
+		{
+			name: "SFTPCredentials",
+			spec: `
+steps:
+  - action: sftp.download
+    with:
+      host: app.example.com
+      source: /srv/a
+      destination: ./a
+      password: {secret: ssh/password}
+      bastion: {host: jump.example.com, passphrase: {secret: ssh/jump-passphrase}}
+`,
+		},
+		{
+			name: "RejectBadRef",
+			spec: `
+steps:
+  - action: ssh.run
+    with: {command: hostname, host: app, key: {secret: Bad_Ref}}
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectUnknownField",
+			spec: `
+ssh:
+  user: deploy
+  host: app
+  password: {secrte: ssh/password}
+steps:
+  - run: hostname
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectSecretAndFile",
+			spec: `
+steps:
+  - action: sftp.upload
+    with: {host: app, source: a, destination: b, key: {secret: ssh/key, file: /k}}
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectFileForPassword",
+			spec: `
+steps:
+  - action: ssh.run
+    with: {command: hostname, host: app, password: {file: /pw}}
+`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
