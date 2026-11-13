@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatesValidation(t *testing.T) {
@@ -132,6 +133,22 @@ func TestParamEvalReadsDates(t *testing.T) {
 	override := dagu.RunWithEnv(env, "start", "--run-id=spec097-eval-override", "--scheduled-at=2026-11-10", "param_eval_dates.yaml", "--", "date=2026-11-01")
 	override.ExpectExitCode(0)
 	dagu.ExpectFileContent("param-dates.txt", "param=2026-11-01 env=2026-11-01 date=2026-11-09 run=spec097-eval-override\n")
+}
+
+// A param whose eval reads a date and fails fails the run before any step
+// starts, and the run records that it failed.
+func TestParamEvalFailureFailsTheRun(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedHome(t)
+	result := dagu.RunWithEnv(env, "start", "--run-id=spec097-eval-fails", "--scheduled-at=2026-11-10", "param_eval_fails.yaml")
+	result.ExpectNonZeroExitCode()
+	dagu.ExpectNoFile("ran.txt")
+
+	status := dagu.RunWithEnv(env, "status", "--run-id=spec097-eval-fails", "param_eval_fails.yaml")
+	status.ExpectExitCode(0)
+	require.Containsf(t, status.Stdout(), "Result: Failed", "expected the run to fail, got:\n%s", status.Stdout())
 }
 
 // A list feeds parallel, which runs one child per date.

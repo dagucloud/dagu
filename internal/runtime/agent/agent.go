@@ -621,11 +621,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	// The env resolved at startup may read the params that wait for the dates.
-	if err := a.evaluateDeferredParams(logger.WithValues(startupCtx, centralLogFields...)); err != nil {
-		if startupCtx.Err() != nil {
-			return a.abortStartup(ctx, nil)
-		}
-		return err
+	// A failed eval fails the run once its attempt is open.
+	paramsErr := a.evaluateDeferredParams(logger.WithValues(startupCtx, centralLogFields...))
+	if paramsErr != nil && startupCtx.Err() != nil {
+		return a.abortStartup(ctx, nil)
 	}
 
 	startup, err := a.resolveStartup(logger.WithValues(startupCtx, centralLogFields...))
@@ -897,6 +896,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	// Handle dry execution.
 	if a.dry {
+		a.noteDryRunStartup(ctx, "params", paramsErr)
 		if dotenvErr != nil {
 			a.noteDryRunStartup(ctx, "dotenv", fmt.Errorf("failed to load dotenv: %w", dotenvErr))
 		}
@@ -949,6 +949,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
+	if paramsErr != nil {
+		initErr = paramsErr
+		return initErr
+	}
 	if dotenvErr != nil {
 		initErr = fmt.Errorf("failed to load dotenv: %w", dotenvErr)
 		return initErr
