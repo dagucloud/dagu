@@ -4,7 +4,7 @@ Use this file when a request targets a running Dagu instance rather than local f
 
 ## Detect the target (once per session, without asking)
 
-Do not ask whether the user means a server or local files. Decide in this order:
+Do not ask whether the user means a server or local files. Finish this detection before running any list, run or change command; never run a local-only command (`dagu ls`, `validate`, `dry`, `rm`) alongside it. A remote context or a healthy server found here means the answer must come from the server (routing order below), not from local files; local results are allowed only through the no-key fallback in step 4. Decide in this order:
 
 1. The user names a context, URL, or "local": use it. If they name a remote server without a context or URL, ask for it.
 2. Dagu MCP tools (`dagu_read`, `dagu_change`, `dagu_execute`) are already connected: use them.
