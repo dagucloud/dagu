@@ -16648,6 +16648,7 @@ components:
             - unknown_context_field
             - unknown_env_binding
             - unknown_const_name
+            - unknown_date_name
         class:
           type: string
           description: >-
@@ -16725,6 +16726,11 @@ components:
         secrets:
           type: array
           description: "Secret names. Values are not included."
+          items:
+            $ref: "#/components/schemas/ReferenceScopeVariable"
+        dates:
+          type: array
+          description: "Names of the dates block in declaration order. A run resolves their values when it is created."
           items:
             $ref: "#/components/schemas/ReferenceScopeVariable"
         steps:

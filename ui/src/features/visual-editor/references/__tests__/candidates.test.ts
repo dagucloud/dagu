@@ -50,6 +50,7 @@ describe('REFERENCE_GROUP_ORDER', () => {
       'steps',
       'params',
       'consts',
+      'dates',
       'stepEnv',
       'env',
       'secrets',
@@ -81,6 +82,23 @@ describe('buildReferenceCandidates variables', () => {
       ['secrets', 'TOKEN', '${secrets.TOKEN}'],
     ]);
     expect(out.every((c) => c.known === 'static')).toBe(true);
+  });
+
+  // A run resolves its dates when it is created, so a date is known only at
+  // runtime.
+  it('lists the dates after the consts', () => {
+    const out = build({
+      ...variableScope,
+      dates: [{ name: 'target_day', reference: '${dates.target_day}' }],
+    });
+    expect(
+      out
+        .filter((c) => c.group === 'consts' || c.group === 'dates')
+        .map((c) => [c.group, c.token, c.known])
+    ).toEqual([
+      ['consts', '${consts.LIMIT}', 'static'],
+      ['dates', '${dates.target_day}', 'runtime'],
+    ]);
   });
 
   it('uses the description, then the default value, as detail', () => {
