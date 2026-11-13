@@ -113,13 +113,10 @@ An inventory is a JSON record in a collection-backed store
 - A default fills a field a node leaves unset. `defaults.labels` are added to
   each node's labels, and a node's label replaces a default label with the
   same key.
-- Every change is validated before it is stored, so a stored inventory is
-  always valid. A change based on an older version of the record fails.
 - Unknown fields are a validation error.
 
 An inventory belongs to a project, as defined in
-[RFC 003](003-remove-workspaces.md), and is stored in the project's data
-directory with its trusted host keys. It belongs to the server, not to the
+[RFC 003](003-remove-workspaces.md). It belongs to the server, not to the
 DAG files. A DAG is the same in every environment and names a role, such as
 `web`. Which hosts have that role differs between staging and production. So
 inventories never live in a DAG directory, and git sync never reads or writes
@@ -133,6 +130,34 @@ resolve in the global scope, and roles on its nodes are server-wide. A DAG
 in a workspace cannot target nodes: `dagu validate` and admission reject it.
 So RFC 003's migration moves no DAG that targets nodes, and needs no
 inventory step.
+
+### Storage
+
+Three collections hold the data, each one JSON file per record, as the
+file-backed collection lays them out (`internal/persis/file/collection.go`):
+
+| Collection | Location | One record per |
+| --- | --- | --- |
+| `inventories/` | The project's data directory: `<data dir>/` for the default project, `projects/<name>/data/` for a project | Inventory, keyed by its ID |
+| `host-keys/` | The project's data directory | Trusted host key, keyed by node name |
+| `worker-nodes/` | `<data dir>/`, since workers are server-wide | Worker node, keyed by worker ID |
+
+- **Writes.** Every write to a project's inventories holds one lock for the
+  project (`internal/cmn/dirlock`), checks the change against all of the
+  project's inventories, and then stores it. A stored inventory is therefore
+  always valid, and two changes that add the same node name to different
+  inventories never both succeed. A change based on an older version of the
+  record fails. Writes are rare, so one lock per project costs nothing.
+- **A trusted host key** holds the node name, the key, its fingerprint, and
+  who trusted it when. Removing or renaming a node deletes its key, so a new
+  node that takes the name does not inherit the old host's trust.
+- **A worker node** holds the worker ID, its host, its labels, and when it
+  was last seen. The coordinator writes it when a worker first connects,
+  changes its labels, or goes offline. Forget deletes it.
+- **History.** The server keeps only the current version of each inventory.
+  Earlier versions exist only with [Dagu Cloud sync](#dagu-cloud-sync) on.
+  Without it, a bad edit is undone from an export or a backup of the data
+  directory.
 
 ### Nodes
 
@@ -200,9 +225,10 @@ project (RFC 003), so every project lists them.
   the label.
 - A worker without `worker.id` gets `hostname@pid`, a new ID on every
   restart, so it is not a node.
-- The coordinator remembers each worker node it has seen. One that
-  disconnects stays listed as `offline`, with the time it was last seen, so a
-  step does not quietly run on only the workers that happen to be up.
+- The coordinator records each worker node it has seen in `worker-nodes/`.
+  One that disconnects stays listed as `offline`, with the time it was last
+  seen, so a step does not quietly run on only the workers that happen to be
+  up.
   **Forget** on the Nodes page, or `dagu nodes forget`, removes it until it
   connects again.
 - A worker's labels come from its configuration, so `disabled` does not apply
@@ -255,6 +281,10 @@ their IDs. `dagu nodes import` reads the same array:
   which replaces that inventory as a whole and keeps its ID.
 - An import that breaks any rule, such as a node name that another inventory
   holds, imports nothing and lists every error. `--dry-run` only checks.
+- An import is checked as a whole first, then written one inventory at a
+  time under the project's lock. If the server stops partway, the
+  inventories written so far stay. Running the same import again with
+  `--replace` finishes it.
 
 The Nodes page imports and exports the same JSON. Export and import move
 inventories between servers and take bulk edits made in a text editor.
@@ -467,7 +497,9 @@ The inventory is in the free tier.
 | --- | --- |
 | A change breaks a rule, such as a node name that another inventory holds | The change is refused, naming the rule and the other inventory |
 | A change is based on an older version of the inventory | The change is refused, and the UI shows the current inventory |
+| Two changes add the same node name to different inventories at once | The first stored wins. The second is refused, naming the other inventory |
 | An import breaks any rule | Nothing is imported, and every error is listed |
+| The server stops partway through an import | The inventories written so far stay. The same import with `--replace` finishes it |
 | A selector is invalid | The API, CLI, and UI report the term and the error. A step with that selector fails before any node starts |
 | A worker node is offline | It is listed as `offline`, and RFC 013 fails a run that targets it |
 | A worker's labels break the label rules | The worker does not start, and names the label |
@@ -482,8 +514,9 @@ it on part of the fleet.
 ## Compatibility and rollout
 
 - Additive. An install without inventories behaves as before.
-- Inventories are a new store in each project's data directory.
-  `cloud.inventory_sync` is a new setting in RFC 002's `cloud` section.
+- `inventories/`, `host-keys/`, and `worker-nodes/` are new collections, as
+  [Storage](#storage) lists. `cloud.inventory_sync` is a new setting in RFC
+  002's `cloud` section.
 - DAG list filters change as [Selecting nodes](#selecting-nodes) lists:
   `!key=value` excludes, and an invalid term is an error.
 - Worker labels change as [Workers](#workers) lists. `worker_selector` and
