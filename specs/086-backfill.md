@@ -166,7 +166,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   runs: they are neither started nor aborted, and start when the scheduler
   resumes. A suspended DAG's backfill runs still run.
 - These rules follow a backfill run's retries, by hand or by the DAG's retry
-  policy.
+  policy. A retry of a run of a backfill that ended `succeeded` or `failed`
+  opens the backfill again until the retry ends; the slots a stopped
+  backfill did not reach stay `not run`. A cancelled backfill stays
+  cancelled.
 - A backfill whose DAG is renamed or deleted ends `cancelled`, with the slots
   it had not queued cancelled. A rename of the file, or of the DAG inside
   it, counts as a rename.

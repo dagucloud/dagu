@@ -4,12 +4,17 @@
 package file
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 )
@@ -70,9 +75,13 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 	// listing, retention pass or index of the history reaches them.
 	ephemeralStore := filedagrun.NewStore(EphemeralDAGRunsDir(cfg.Paths.DAGRunsDir), storeOpts...)
 	workDirs := filedagrun.NewWorkDirStore(cfg.Paths.DAGRunWorkDir, cfg.Paths.DAGRunsDir)
-	var slots persis.SlotIndex
+	var (
+		slots   persis.SlotIndex
+		onRetry func(context.Context, *ir.DAGRunStatus) error
+	)
 	if cfg.Paths.DataDir != "" {
 		slots = slotindex.New(filepath.Join(cfg.Paths.DataDir, slotIndexDirName))
+		onRetry = followBackfillRetry(filebackfill.New(filebackfill.Dir(cfg.Paths.DataDir)))
 	}
 	return persis.NewDAGRunRepository(store, workDirs, persis.DAGRunRepositoryOptions{
 		LatestStatusToday: options.LatestStatusToday,
@@ -81,7 +90,18 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 		EphemeralStore:    ephemeralStore,
 		SlotIndex:         slots,
 		CalendarsDir:      cfg.Paths.CalendarsDir,
+		OnRetry:           onRetry,
 	})
+}
+
+// followBackfillRetry has the backfill of a retried run follow the retry.
+func followBackfillRetry(store backfill.Store) func(context.Context, *ir.DAGRunStatus) error {
+	return func(ctx context.Context, status *ir.DAGRunStatus) error {
+		if err := backfill.FollowRetry(ctx, store, status, time.Now()); err != nil {
+			return fmt.Errorf("queue the slot of backfill %s again: %w", status.BackfillID, err)
+		}
+		return nil
+	}
 }
 
 // EphemeralDAGRunsDir returns the directory that holds ephemeral runs. It is

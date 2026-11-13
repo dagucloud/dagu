@@ -165,6 +165,11 @@ type DAGRunRepositoryOptions struct {
 	// CalendarsDir holds the business calendars the schedules of a run's
 	// slot may name.
 	CalendarsDir string
+	// OnRetry learns that a retry is about to make an ended top-level run
+	// active again, with the status the run is about to get: before a retry
+	// queues the run, and before the first status write of a retry attempt.
+	// An error fails the retry.
+	OnRetry func(ctx context.Context, status *ir.DAGRunStatus) error
 }
 
 // DAGRunRemovalEnqueuer durably records resources before their DAG-run history is removed.

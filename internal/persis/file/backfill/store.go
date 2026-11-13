@@ -7,7 +7,10 @@
 //	├── <backfill id>.json             one record per backfill
 //	├── <backfill id>.progress.jsonl   its slots' progress, appended
 //	├── <backfill id>.open             present while the backfill is open
-//	└── .locks/<hex DAG name>/         the submit lock of a DAG
+//	├── .dags/<hex DAG name>/<id>      names each backfill of a DAG
+//	└── .locks/
+//	    ├── <hex DAG name>/            the submit lock of a DAG
+//	    └── record-<backfill id>/      the lock of one backfill
 package backfill
 
 import (
@@ -31,9 +34,13 @@ const (
 	recordSuffix   = ".json"
 	progressSuffix = ".progress.jsonl"
 	openSuffix     = ".open"
+	dagsDirName    = ".dags"
 	locksDirName   = ".locks"
-	dirPermissions = 0o750
-	filePerms      = 0o600
+	// recordLockPrefix keeps the lock of a backfill apart from the hex
+	// names of the DAG locks.
+	recordLockPrefix = "record-"
+	dirPermissions   = 0o750
+	filePerms        = 0o600
 	// lockStaleThreshold frees the lock of a process that died holding it.
 	lockStaleThreshold = 30 * time.Second
 	lockRetryInterval  = 50 * time.Millisecond
@@ -69,12 +76,19 @@ func (s *Store) Create(_ context.Context, record *backfill.Record) error {
 	if err := os.MkdirAll(s.dir, dirPermissions); err != nil {
 		return fmt.Errorf("backfill store: create %s: %w", s.dir, err)
 	}
-	// The marker comes first: one left by a crash names no record and is
-	// passed over, while a record without its marker would never run.
+	// The markers come first: one left by a crash names no record and is
+	// passed over, while a record without its markers would never run or be
+	// listed with its DAG.
 	if record.Open() {
 		if err := fileutil.WriteFileAtomic(s.openPath(record.ID), nil, filePerms); err != nil {
 			return fmt.Errorf("backfill store: mark %s open: %w", record.ID, err)
 		}
+	}
+	if err := os.MkdirAll(s.dagDir(record.DAGName), dirPermissions); err != nil {
+		return fmt.Errorf("backfill store: create %s: %w", s.dagDir(record.DAGName), err)
+	}
+	if err := fileutil.WriteFileAtomic(filepath.Join(s.dagDir(record.DAGName), record.ID), nil, filePerms); err != nil {
+		return fmt.Errorf("backfill store: list %s with its DAG: %w", record.ID, err)
 	}
 	err = fileutil.WriteFileAtomicExclusive(s.recordPath(record.ID), data, filePerms)
 	if errors.Is(err, os.ErrExist) {
@@ -94,21 +108,16 @@ func (s *Store) Get(_ context.Context, id string) (*backfill.Record, error) {
 	return s.read(s.recordPath(id))
 }
 
-// List reads the records of a DAG, or of every DAG, oldest first.
+// List reads the records of a DAG, or of every DAG, oldest first. The
+// records of one DAG are read without reading those of the others.
 func (s *Store) List(_ context.Context, dagName string) ([]*backfill.Record, error) {
-	entries, err := os.ReadDir(s.dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	paths, err := s.recordPaths(dagName)
 	if err != nil {
-		return nil, fmt.Errorf("backfill store: read %s: %w", s.dir, err)
+		return nil, err
 	}
 	var records []*backfill.Record
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), recordSuffix) || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		record, err := s.read(filepath.Join(s.dir, entry.Name()))
+	for _, path := range paths {
+		record, err := s.read(path)
 		if errors.Is(err, backfill.ErrNotFound) {
 			continue
 		}
@@ -149,7 +158,18 @@ func (s *Store) Open(_ context.Context) ([]*backfill.Record, error) {
 
 // LockDAG holds the submit lock of a DAG.
 func (s *Store) LockDAG(ctx context.Context, dagName string) (func(), error) {
-	dir := filepath.Join(s.dir, locksDirName, hex.EncodeToString([]byte(dagName)))
+	return s.lock(ctx, filepath.Join(s.dir, locksDirName, hex.EncodeToString([]byte(dagName))), dagName)
+}
+
+// LockRecord holds the lock of one backfill.
+func (s *Store) LockRecord(ctx context.Context, id string) (func(), error) {
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		return nil, backfill.ErrNotFound
+	}
+	return s.lock(ctx, filepath.Join(s.dir, locksDirName, recordLockPrefix+id), id)
+}
+
+func (s *Store) lock(ctx context.Context, dir, name string) (func(), error) {
 	if err := os.MkdirAll(dir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("backfill store: create %s: %w", dir, err)
 	}
@@ -158,7 +178,7 @@ func (s *Store) LockDAG(ctx context.Context, dagName string) (func(), error) {
 		RetryInterval:  lockRetryInterval,
 	})
 	if err := lock.Lock(ctx); err != nil {
-		return nil, fmt.Errorf("backfill store: lock %s: %w", dagName, err)
+		return nil, fmt.Errorf("backfill store: lock %s: %w", name, err)
 	}
 	return func() { _ = lock.Unlock() }, nil
 }
@@ -245,6 +265,36 @@ func (s *Store) Update(ctx context.Context, record *backfill.Record) error {
 		return fmt.Errorf("backfill store: write %s: %w", record.ID, err)
 	}
 	return nil
+}
+
+// recordPaths returns the paths of the records of a DAG, or of every DAG
+// when dagName is empty.
+func (s *Store) recordPaths(dagName string) ([]string, error) {
+	dir, suffix := s.dir, recordSuffix
+	if dagName != "" {
+		dir, suffix = s.dagDir(dagName), ""
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("backfill store: read %s: %w", dir, err)
+	}
+	var paths []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		paths = append(paths, s.recordPath(strings.TrimSuffix(name, suffix)))
+	}
+	return paths, nil
+}
+
+// dagDir holds a marker per backfill of a DAG.
+func (s *Store) dagDir(dagName string) string {
+	return filepath.Join(s.dir, dagsDirName, hex.EncodeToString([]byte(dagName)))
 }
 
 func (s *Store) openPath(id string) string {

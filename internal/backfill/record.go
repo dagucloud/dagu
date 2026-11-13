@@ -115,6 +115,10 @@ const (
 	// ProgressCancelled records that the backfill was cancelled before the
 	// slot's run started.
 	ProgressCancelled ProgressKind = "cancelled"
+	// ProgressSucceeded records that the slot's run ended successfully.
+	ProgressSucceeded ProgressKind = "succeeded"
+	// ProgressFailed records that the slot's run ended without success.
+	ProgressFailed ProgressKind = "failed"
 )
 
 // Progress is one event of a backfill's slots.
@@ -123,8 +127,15 @@ type Progress struct {
 	Kind  ProgressKind `json:"kind"`
 	RunID string       `json:"runId,omitempty"`
 	// Generation is the resume the event belongs to.
-	Generation int       `json:"generation,omitempty"`
-	At         time.Time `json:"at"`
+	Generation int `json:"generation,omitempty"`
+	// At is when the event happened. For an outcome, it is when the run's
+	// status was read; for a retry, when the retry queued the slot.
+	At time.Time `json:"at"`
+}
+
+// ended reports whether the event records how the slot's run ended.
+func (p Progress) ended() bool {
+	return p.Kind == ProgressSucceeded || p.Kind == ProgressFailed
 }
 
 // currentProgress returns the last event of each slot in the record's
@@ -137,9 +148,10 @@ func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
 		}
 	}
 	for _, event := range events {
-		if event.Generation == record.Generation {
-			byslot[event.Slot.UTC()] = event
+		if event.Generation != record.Generation {
+			continue
 		}
+		byslot[event.Slot.UTC()] = event
 	}
 	return byslot
 }
@@ -174,6 +186,11 @@ type Store interface {
 	// LockDAG holds a lock that serializes submits for a DAG across
 	// processes until unlock is called.
 	LockDAG(ctx context.Context, dagName string) (unlock func(), err error)
+	// LockRecord holds a lock on one backfill across processes until unlock
+	// is called. A retry that queues a slot again and the end of the
+	// backfill take it, so neither misses the other. Its holder takes no
+	// other lock.
+	LockRecord(ctx context.Context, id string) (unlock func(), err error)
 	// Append adds progress events to a backfill.
 	Append(ctx context.Context, id string, events ...Progress) error
 	// Progress returns a backfill's progress events in the order appended.
