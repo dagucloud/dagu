@@ -298,6 +298,7 @@ steps:
 		assert.Equal(t, time.Second*5, dag.MaxCleanUpTime)
 		assert.Equal(t, 30, dag.HistRetentionDays)
 		assert.Equal(t, 0, dag.HistRetentionRuns)
+		assert.Equal(t, 730, dag.SlotRetentionDays)
 
 		// Step level
 		require.Len(t, dag.Steps, 1)
@@ -318,6 +319,24 @@ steps:
 
 		assert.Equal(t, 0, dag.HistRetentionDays)
 		assert.Equal(t, 3, dag.HistRetentionRuns)
+	})
+	t.Run("SlotRetentionDays", func(t *testing.T) {
+		t.Parallel()
+
+		testDAG := createTempYAMLFile(t, `slot_retention_days: 90
+steps:
+  - run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG)
+		require.NoError(t, err)
+		assert.Equal(t, 90, dag.SlotRetentionDays)
+
+		testDAG = createTempYAMLFile(t, `slot_retention_days: 0
+steps:
+  - run: "true"
+`)
+		_, err = spec.Load(context.Background(), testDAG)
+		require.ErrorContains(t, err, "slot_retention_days must be > 0")
 	})
 	t.Run("RejectBothHistoryRetentionModesInSameDocument", func(t *testing.T) {
 		t.Parallel()

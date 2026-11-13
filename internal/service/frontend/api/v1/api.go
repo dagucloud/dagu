@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cloudaccess"
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -120,6 +121,7 @@ type API struct {
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
+	backfillStore        backfill.Store
 	schedulerPauseStore  schedulerstate.PauseStore
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
@@ -128,6 +130,7 @@ type API struct {
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
+	restartBackoffStore  schedulerstate.RestartBackoffStore
 }
 
 type processRepository interface {
@@ -188,6 +191,7 @@ type CloudAccessService interface {
 	Status(ctx context.Context) (cloudaccess.Status, error)
 	Set(ctx context.Context, level *config.RemoteAccessLevel, approvals *bool) error
 	State() cloudaccess.State
+	LastCall(ctx context.Context) (cloudaccess.LastCall, bool, error)
 }
 
 // AuthService defines the interface for authentication operations.
@@ -438,6 +442,13 @@ func WithOIDCRoleMapping(load func() config.OIDCRoleMapping) APIOption {
 }
 
 // WithSchedulerStateStore sets the scheduler state store used for next-run projections.
+// WithBackfillStore sets the store of backfill records.
+func WithBackfillStore(store backfill.Store) APIOption {
+	return func(a *API) {
+		a.backfillStore = store
+	}
+}
+
 func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 	return func(a *API) {
 		a.schedulerStateStore = store
@@ -449,6 +460,14 @@ func WithSchedulerStateStore(store schedulerstate.Store) APIOption {
 func WithSchedulerPauseStore(store schedulerstate.PauseStore) APIOption {
 	return func(a *API) {
 		a.schedulerPauseStore = store
+	}
+}
+
+// WithRestartBackoffStore sets the store through which the scheduler shares its
+// restart backoff.
+func WithRestartBackoffStore(store schedulerstate.RestartBackoffStore) APIOption {
+	return func(a *API) {
+		a.restartBackoffStore = store
 	}
 }
 

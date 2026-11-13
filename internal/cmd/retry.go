@@ -754,10 +754,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			return err
 		}
 	}
-	triggerType := queue.PreservedQueueTriggerType(status)
-	if triggerType == ir.TriggerTypeUnknown {
-		triggerType = ir.TriggerTypeRetry
-	}
+	triggerType := queue.ExecutionTriggerType(status)
 	extraEnvs, err := prepareDAGTools(ctx, dag)
 	if err != nil {
 		return err

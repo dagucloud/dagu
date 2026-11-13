@@ -252,7 +252,9 @@ func removesReplayCaches(opts rmOptions) bool {
 
 func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 	retentionDays := 0
-	var removeOptions persis.DAGRunRetentionOptions
+	// An operator's removal, unlike automatic retention, makes the removed
+	// runs stop counting for their schedule slots.
+	removeOptions := persis.DAGRunRetentionOptions{DropSlots: true}
 	if opts.dryRun {
 		removeOptions.DryRun = true
 	}

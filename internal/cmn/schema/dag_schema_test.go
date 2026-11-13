@@ -3047,6 +3047,16 @@ steps:
   - action: chat.completion
     with: {provider: openai, model: gpt-5, prompt: hi}
 `, true},
+		{"chat max_file_chars", `
+steps:
+  - action: chat.completion
+    with: {provider: openai, model: gpt-5, prompt: hi, files: logs/*.log, max_file_chars: 400000}
+`, true},
+		{"chat max_file_chars zero", `
+steps:
+  - action: chat.completion
+    with: {provider: openai, model: gpt-5, prompt: hi, files: logs/*.log, max_file_chars: 0}
+`, false},
 		{"chat unknown provider", `
 steps:
   - action: chat.completion
