@@ -2085,6 +2085,7 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
 	node.SetStatus(ir.NodeFailed)
 	if node.ShouldMarkSuccess(ctx) {
+		node.SetError(execErr)
 		node.SetStatus(ir.NodeSucceeded)
 		return
 	}
@@ -2102,6 +2103,9 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 
 	// Check the hard limit first - this overrides everything
 	if rp.Limit > 0 && node.State().DoneCount >= rp.Limit {
+		if rp.OnLimit == ir.RepeatOnLimitFail {
+			r.failRepeatLimit(ctx, node, rp, execErr)
+		}
 		return false
 	}
 
@@ -2196,6 +2200,39 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	}
 	// Unconditional until: repeat until the step succeeds
 	return execErr != nil, nil
+}
+
+// failRepeatLimit resolves the outcome of an "until" loop that reached its
+// limit with on_limit: fail. A met condition leaves the step's last result
+// untouched; a not-met condition, an evaluation error, or the attempt's own
+// error all fail the step. An interrupted check is left to the abort or
+// timeout that owns the outcome.
+func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPolicy, execErr error) {
+	// An exhausted "while" condition is a normal stop, not a failure.
+	if rp.RepeatMode != ir.RepeatModeUntil || rp.Condition == nil {
+		return
+	}
+	ctx = r.reloadNodeOutputs(ctx, node)
+	shell := GetEnv(ctx).Shell(ctx)
+	err := EvalCondition(ctx, shell, rp.Condition)
+	// Abort and timeout take precedence over the final condition result. A
+	// graceful stop does not cancel ctx, so the runner flag is checked too.
+	if r.isCanceled() || node.State().Status == ir.NodeAborted || ctx.Err() != nil {
+		return
+	}
+	switch {
+	case err == nil:
+		return // condition met on the final attempt
+	case errors.Is(err, ErrConditionNotMet):
+		err = fmt.Errorf("repeat limit %d reached; condition not met", rp.Limit)
+	}
+	if execErr != nil {
+		err = fmt.Errorf("%w: %w", err, execErr)
+	}
+	// Use the same failure path as a regular step failure so that
+	// continueOn.markSuccess still applies. An evaluation error is not a loop
+	// answer and must be reported instead of being swallowed.
+	r.finalizeFailedNode(ctx, node, err)
 }
 
 // setupRepeatEnv sets up the environment of the node's next repeat the same
