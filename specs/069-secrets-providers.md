@@ -88,8 +88,8 @@ outputs. Stored outputs stay masked, and stored status records which outputs
 masking changed. A step that reads a recorded output after such a restore
 fails before it runs, with an error that names the step and the output and
 says the producing step has to run again. A step reads an output where value
-resolution inserts it into one of the step's fields, or where a shell that
-runs the step's command or script expands it:
+resolution inserts it into one of the step's fields, or where a POSIX shell
+that runs the step's command or script expands it from its environment:
 
 - `${steps.<id>.outputs.<name>}` reads a published output.
 - `${<id>.outputs}` and any path under it read the published outputs when the
@@ -101,8 +101,9 @@ runs the step's command or script expands it:
 
 Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, a name
-a shell leaves in single quotes, and a `js` or `template` script, which is
-passed on as written. A variable the step's own `env:` defines takes the place
+a shell leaves in a comment, in single quotes, or in a quoted heredoc, a name
+a script expands after it sets its own value, and a `js` or `template` script,
+which is passed on as written. A variable the step's own `env:` defines takes the place
 of the output variable in its other fields and in the `env:` entries after the
 one that defines it, and of two predecessors that set the same variable, the
 one later in scope order does. A handler step resolves its `env:` before output

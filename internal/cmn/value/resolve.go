@@ -52,13 +52,24 @@ func (r *resolver) lookupScopeNonOS(name string) (string, bool) {
 	return entry.Value, true
 }
 
+// lookupScopeNonOSEntry returns the non-OS-sourced entry for name and
+// records it as read.
 func (r *resolver) lookupScopeNonOSEntry(name string) (EnvEntry, bool) {
+	entry, ok := r.peekScopeNonOSEntry(name)
+	if ok {
+		r.maskedReads.noteEntry(entry)
+	}
+	return entry, ok
+}
+
+// peekScopeNonOSEntry returns the non-OS-sourced entry for name without
+// recording a read.
+func (r *resolver) peekScopeNonOSEntry(name string) (EnvEntry, bool) {
 	if r.scope == nil {
 		return EnvEntry{}, false
 	}
 	entry, ok := r.scope.GetEntry(name)
 	if ok && entry.Source != EnvSourceOS {
-		r.maskedReads.noteEntry(entry)
 		return entry, true
 	}
 	return EnvEntry{}, false
@@ -84,7 +95,8 @@ func (r *resolver) resolveForReplace(name string) (string, bool) {
 	if r.deferShellVars && !isNumericVar(name) {
 		// A safe home-relative path is inlined so the shell expands its ~.
 		// A secret is never written into the command text.
-		if entry, ok := r.lookupScopeNonOSEntry(name); ok && entry.Source != EnvSourceSecret && isSafeHomeRelativeShellWord(entry.Value) {
+		if entry, ok := r.peekScopeNonOSEntry(name); ok && entry.Source != EnvSourceSecret && isSafeHomeRelativeShellWord(entry.Value) {
+			r.maskedReads.noteEntry(entry)
 			return entry.Value, true
 		}
 		return "", false

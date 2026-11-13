@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // StepMasks names the outputs of a step that were restored with a secret
@@ -72,8 +74,7 @@ func MaskedRead(ctx context.Context) error {
 
 // AddMaskedRead records in ctx the masked read that err reports, if any.
 func AddMaskedRead(ctx context.Context, err error) {
-	var read *MaskedReadError
-	if errors.As(err, &read) {
+	if read, ok := errors.AsType[*MaskedReadError](err); ok {
 		maskedReadsFrom(ctx).note(read.Step, read.Output)
 	}
 }
@@ -102,32 +103,129 @@ func (m *maskedReads) noteEntry(entry EnvEntry) {
 	}
 }
 
-// noteShellReads records the masked output variables that a shell reads from
-// its environment when it expands text. A shell leaves a name in single
-// quotes or after a backslash as written.
+// noteShellReads records the masked output variables that a POSIX shell
+// reads from its environment when it runs text.
 func noteShellReads(ctx context.Context, text string) {
 	reads := maskedReadsFrom(ctx)
 	scope := GetEnvScope(ctx)
 	if reads == nil || scope == nil {
 		return
 	}
-	for _, loc := range reVarSubstitution.FindAllStringSubmatchIndex(text, -1) {
-		if isSingleQuotedVar(text, loc[0], loc[1]) || isEscapedDollar(text, loc[0]) {
-			continue
-		}
-		var name string
-		switch {
-		case loc[2] >= 0:
-			name = extractPOSIXVarName(text[loc[2]:loc[3]])
-		case loc[4] >= 0:
-			name = text[loc[4]:loc[5]]
-		default:
-			continue
-		}
+	for _, name := range shellEnvReads(text) {
 		if entry, ok := scope.GetEntry(name); ok {
 			reads.noteEntry(entry)
 		}
 	}
+}
+
+// shellEnvReads returns the variables a POSIX shell reads from its
+// environment when it runs text: each one the script expands before it sets
+// a value of its own. Text the parser rejects counts every name outside
+// single quotes.
+func shellEnvReads(text string) []string {
+	file, err := syntax.NewParser().Parse(strings.NewReader(text), "")
+	if err != nil {
+		return unparsedShellReads(text)
+	}
+	type expansion struct {
+		name string
+		at   uint
+	}
+	var expansions []expansion
+	read := func(name string, at syntax.Pos) {
+		expansions = append(expansions, expansion{name: name, at: at.Offset()})
+	}
+	// set holds, for each variable the script sets, the earliest offset
+	// where its own value takes effect.
+	set := make(map[string]uint)
+	assign := func(name string, at syntax.Pos) {
+		if prev, ok := set[name]; !ok || at.Offset() < prev {
+			set[name] = at.Offset()
+		}
+	}
+	syntax.Walk(file, func(node syntax.Node) bool {
+		switch n := node.(type) {
+		case *syntax.ParamExp:
+			if n.Param != nil {
+				read(n.Param.Value, n.Pos())
+			}
+		case *syntax.CallExpr:
+			switch {
+			case len(n.Args) == 0:
+				// NAME=value without a command sets a shell variable;
+				// before a command it is only that command's environment.
+				for _, a := range n.Assigns {
+					if a.Name != nil {
+						assign(a.Name.Value, a.End())
+					}
+				}
+			case n.Args[0].Lit() == "read":
+				for _, arg := range n.Args[1:] {
+					if name := arg.Lit(); ValidEnvName(name) {
+						assign(name, n.End())
+					}
+				}
+			}
+		case *syntax.DeclClause:
+			for _, a := range n.Args {
+				if a.Name != nil && !a.Naked {
+					assign(a.Name.Value, a.End())
+				}
+			}
+		case *syntax.WordIter:
+			assign(n.Name.Value, n.End())
+		case *syntax.ArithmExp:
+			arithmReads(n.X, read)
+		case *syntax.ArithmCmd:
+			arithmReads(n.X, read)
+		case *syntax.LetClause:
+			for _, x := range n.Exprs {
+				arithmReads(x, read)
+			}
+		}
+		return true
+	})
+	var names []string
+	for _, e := range expansions {
+		if at, ok := set[e.name]; ok && at <= e.at {
+			continue
+		}
+		names = append(names, e.name)
+	}
+	return names
+}
+
+// arithmReads reports each variable that an arithmetic expression names
+// without a dollar.
+func arithmReads(x syntax.ArithmExpr, read func(string, syntax.Pos)) {
+	syntax.Walk(x, func(node syntax.Node) bool {
+		word, ok := node.(*syntax.Word)
+		if !ok {
+			return true
+		}
+		if name := word.Lit(); ValidEnvName(name) {
+			read(name, word.Pos())
+		}
+		return false
+	})
+}
+
+// unparsedShellReads returns every variable text names outside single quotes
+// and after no backslash.
+func unparsedShellReads(text string) []string {
+	var names []string
+	for _, loc := range reVarSubstitution.FindAllStringSubmatchIndex(text, -1) {
+		if isSingleQuotedVar(text, loc[0], loc[1]) || isEscapedDollar(text, loc[0]) {
+			continue
+		}
+		switch {
+		case loc[2] >= 0:
+			names = append(names, extractPOSIXVarName(text[loc[2]:loc[3]]))
+		case loc[4] >= 0:
+			names = append(names, text[loc[4]:loc[5]])
+		}
+	}
+	return names
 }
 
 // path returns the output that a step property path, such as ".output" or
