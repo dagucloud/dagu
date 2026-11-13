@@ -27,19 +27,33 @@ const useQueryState: {
   mutate: vi.fn(async () => {}),
 };
 
+// The query of the head page and the parameters of its live topic.
+const seen = vi.hoisted(() => ({
+  head: undefined as unknown,
+  topic: undefined as unknown,
+}));
+
+const sseState = vi.hoisted(() => ({
+  data: null,
+  error: null,
+  isConnected: false,
+  isConnecting: false,
+  shouldUseFallback: true,
+}));
+
 vi.mock('@/hooks/api', () => ({
   useClient: () => client,
-  useQuery: () => useQueryState,
+  useQuery: (_path: string, init: unknown) => {
+    seen.head = init;
+    return useQueryState;
+  },
 }));
 
 vi.mock('@/hooks/useDAGRunsListSSE', () => ({
-  useDAGRunsListSSE: () => ({
-    data: null,
-    error: null,
-    isConnected: false,
-    isConnecting: false,
-    shouldUseFallback: true,
-  }),
+  useDAGRunsListSSE: (params: unknown) => {
+    seen.topic = params;
+    return sseState;
+  },
 }));
 
 vi.mock('@/hooks/useSSECacheSync', () => ({
@@ -151,6 +165,63 @@ describe('usePaginatedDAGRuns', () => {
         query: expect.objectContaining({ cursor: 'cursor-3' }),
       },
     });
+  });
+
+  // The Runs page leaves out the runs of service DAGs. The head page, its
+  // live topic and each next page carry the same flag, and the cursor of the
+  // head page stays valid for it.
+  it('sends excludeServiceDAGRuns to the head, the topic and the next page', async () => {
+    useQueryState.data = {
+      dagRuns: [createRun('run-2')],
+      nextCursor: 'cursor-1',
+    };
+    getMock.mockResolvedValueOnce({
+      data: { dagRuns: [createRun('run-1')], nextCursor: null },
+    });
+    const query = createQuery({ excludeServiceDAGRuns: true });
+
+    const { result } = renderHook(() => usePaginatedDAGRuns({ query }));
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(seen.head).toMatchObject({
+      params: {
+        query: expect.objectContaining({ excludeServiceDAGRuns: true }),
+      },
+    });
+    expect(seen.topic).toMatchObject({ excludeServiceDAGRuns: true });
+    expect(getMock.mock.calls[0]?.[1]).toMatchObject({
+      params: {
+        query: expect.objectContaining({
+          excludeServiceDAGRuns: true,
+          cursor: 'cursor-1',
+        }),
+      },
+    });
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it('sends no excludeServiceDAGRuns when the query has none', async () => {
+    useQueryState.data = {
+      dagRuns: [createRun('run-2')],
+      nextCursor: 'cursor-1',
+    };
+    getMock.mockResolvedValueOnce({
+      data: { dagRuns: [createRun('run-1')], nextCursor: null },
+    });
+    const query = createQuery({ name: 'svc' });
+
+    const { result } = renderHook(() => usePaginatedDAGRuns({ query }));
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(JSON.stringify(seen.head)).not.toContain('excludeServiceDAGRuns');
+    expect(seen.topic).not.toHaveProperty('excludeServiceDAGRuns');
+    expect(getMock.mock.calls[0]?.[1].params.query).not.toHaveProperty(
+      'excludeServiceDAGRuns'
+    );
   });
 
   it('ignores an in-flight page when the head moves', async () => {

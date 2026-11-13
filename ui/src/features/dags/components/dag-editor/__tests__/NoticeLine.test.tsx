@@ -140,23 +140,23 @@ describe('NoticeLine', () => {
 
   it('hides a dismissed host notice until it leaves and comes back', () => {
     const host: NoticeLineItem = {
-      id: 'newer-run-active',
+      id: 'sub-run-waiting',
       tone: 'info',
-      message: 'A newer run is active',
+      message: 'A sub-run is waiting',
       dismissible: true,
       priority: 10,
     };
     const view = render(<NoticeLine notices={[host]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(screen.queryByText('A newer run is active')).toBeNull();
+    expect(screen.queryByText('A sub-run is waiting')).toBeNull();
 
     view.rerender(<NoticeLine notices={[host]} />);
-    expect(screen.queryByText('A newer run is active')).toBeNull();
+    expect(screen.queryByText('A sub-run is waiting')).toBeNull();
 
     view.rerender(<NoticeLine notices={[]} />);
     view.rerender(<NoticeLine notices={[host]} />);
-    expect(screen.getByText('A newer run is active')).toBeInTheDocument();
+    expect(screen.getByText('A sub-run is waiting')).toBeInTheDocument();
   });
 
   // The host persists the choice, as the monitoring offer does, or clears the

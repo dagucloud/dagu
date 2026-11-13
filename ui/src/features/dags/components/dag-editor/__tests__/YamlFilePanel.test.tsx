@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { PanelPlacementProvider } from '@/features/dags/components/step-details/PanelShell';
+import { CanvasToolbarHostContext } from '@/features/visual-editor/canvas/toolbarHost';
 import { useYamlSection, type YamlSectionHost } from '../useYamlSection';
 import { YamlFilePanel, type YamlFilePanelProps } from '../YamlFilePanel';
 
@@ -43,7 +44,10 @@ vi.mock('../DAGEditorWithDocs', () => ({
 
 const TEXT = 'name: demo\nsteps:\n  - name: a\n    command: echo\n';
 
-function renderPanel(extra: Partial<YamlFilePanelProps> = {}) {
+function renderPanel(
+  extra: Partial<YamlFilePanelProps> = {},
+  host?: HTMLElement | null
+) {
   const props: YamlFilePanelProps = {
     text: TEXT,
     readOnly: false,
@@ -63,7 +67,15 @@ function renderPanel(extra: Partial<YamlFilePanelProps> = {}) {
   const wrap = (children: ReactNode) => (
     <UserPreferencesProvider>
       <RightPanelProvider>
-        <PanelPlacementProvider value="zone">{children}</PanelPlacementProvider>
+        <PanelPlacementProvider value="zone">
+          {host === undefined ? (
+            children
+          ) : (
+            <CanvasToolbarHostContext.Provider value={host}>
+              {children}
+            </CanvasToolbarHostContext.Provider>
+          )}
+        </PanelPlacementProvider>
       </RightPanelProvider>
     </UserPreferencesProvider>
   );
@@ -119,6 +131,50 @@ describe('YamlFilePanel', () => {
     });
     expect(editorSlots).toEqual(['yaml-format']);
     expect(runSlots).toEqual(['yaml-run-ref', 'readonly-marker']);
+  });
+
+  // The toolbar row names the panel and holds its tools from md; below md the
+  // row is hidden, so the bar stays in the DOM and CSS shows it there.
+  it('drops the title bar from md when the zone has a toolbar row', () => {
+    const row = renderPanel({}, document.createElement('div'));
+    expect(
+      screen.getByTestId('ndv').querySelector('[data-panel-header]')
+    ).toHaveClass('md:hidden');
+    expect(screen.getByTestId('panel-row-title')).toHaveTextContent('YAML');
+    row.unmount();
+
+    renderPanel();
+    expect(
+      screen.getByTestId('ndv').querySelector('[data-panel-header]')
+    ).not.toHaveClass('md:hidden');
+  });
+
+  it('keeps the title bar of a read-only text, which has the lock', () => {
+    renderPanel({ readOnly: true }, document.createElement('div'));
+    const ndv = screen.getByTestId('ndv');
+    expect(ndv.querySelector('[data-panel-header]')).not.toHaveClass(
+      'md:hidden'
+    );
+    // The bar keeps the title with the lock; the row has the Close button,
+    // as for a text that can be edited, and the bar gives its own up from md.
+    expect(screen.queryByTestId('panel-row-title')).toBeNull();
+    expect(ndv.querySelector('[data-panel-close="row"]')).not.toBeNull();
+    expect(ndv.querySelector('[data-panel-header] h2')).not.toHaveClass(
+      'md:hidden'
+    );
+    expect(
+      within(ndv.querySelector<HTMLElement>('[data-panel-header]')!).getByRole(
+        'button',
+        { name: 'Close' }
+      )
+    ).toHaveClass('md:hidden');
+  });
+
+  // The zone keeps a slot free for the Close button only while the panel is
+  // open: a closed frame stays in the tree.
+  it('has the Close slot of the row only while it is open', () => {
+    renderPanel({ state: null }, document.createElement('div'));
+    expect(document.querySelector('[data-panel-close]')).toBeNull();
   });
 
   it('shows tools and the lock in the header only when the host needs them', () => {
