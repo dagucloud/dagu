@@ -6,6 +6,7 @@ import { UpcomingRunsHold, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ScheduleCalendarLinks } from '@/features/calendars/components/ScheduleCalendarLinks';
+import { dateText } from '@/features/dags/components/dag-execution/SlotDatesPreview';
 import dayjs from '@/lib/dayjs';
 import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
@@ -19,7 +20,8 @@ const COLLAPSED_UPCOMING_RUNS = 5;
 /**
  * The next times the start schedules fire, as the server computes them. A
  * time reads in the zone of its schedule; the zone heads the list when all
- * runs share it. A run placed by a business calendar says why.
+ * runs share it. A run placed by a business calendar says why, and a run of
+ * a DAG with dates tells the first date it loads.
  */
 export function UpcomingRuns({
   runs,
@@ -72,6 +74,17 @@ export function UpcomingRuns({
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
                 {!sharedZone && ` ${run.timezone}`}
+                {run.dates?.[0] && (
+                  <span
+                    className="text-foreground/80"
+                    title={run.dates
+                      .map((date) => `${date.name}: ${dateText(date)}`)
+                      .join('\n')}
+                  >
+                    {' · '}
+                    {ts('loads {date}', { date: dateText(run.dates[0]) })}
+                  </span>
+                )}
                 {schedules.length > 1 && schedule && (
                   <span className="text-muted-foreground/80">
                     {' · '}

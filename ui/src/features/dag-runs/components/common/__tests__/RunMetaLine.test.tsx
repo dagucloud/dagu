@@ -80,6 +80,41 @@ describe('RunMetaLine', () => {
     expect(screen.getByTitle('Duration')).not.toHaveTextContent('3s');
   });
 
+  // A run of a DAG with dates tells the slot it ran for and the date it
+  // loads, marked when the slot was the default or the dates came from the
+  // clock.
+  it('tells the slot and the date the run loads', () => {
+    const { rerender } = render(
+      <RunMetaLine
+        dagRun={{
+          ...run,
+          scheduleTime: '2026-11-10T02:00:00Z',
+          dates: [{ name: 'target_day', value: '2026-11-09' }],
+          defaultSlot: true,
+        }}
+      />
+    );
+    expect(screen.getByTitle('Slot')).toHaveTextContent(/, loads 2026-11-09/);
+    expect(screen.getByTitle('Slot')).toHaveTextContent('the latest fire');
+
+    rerender(
+      <RunMetaLine
+        dagRun={{
+          ...run,
+          dates: [{ name: 'target_day', value: '2026-11-09' }],
+        }}
+      />
+    );
+    expect(screen.getByTitle('Slot')).toHaveTextContent(
+      'Loads 2026-11-09 · from the clock'
+    );
+
+    rerender(
+      <RunMetaLine dagRun={{ ...run, scheduleTime: '2026-11-10T02:00:00Z' }} />
+    );
+    expect(screen.queryByTitle('Slot')).toBeNull();
+  });
+
   it('describes how, where, and how long the run went', () => {
     render(<RunMetaLine dagRun={run} />);
 

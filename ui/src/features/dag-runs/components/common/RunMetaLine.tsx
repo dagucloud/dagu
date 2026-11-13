@@ -3,6 +3,7 @@
 
 import {
   Calendar,
+  CalendarClock,
   Hash,
   Hourglass,
   type LucideIcon,
@@ -23,6 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { triggerTypeLabels } from '@/features/dags/components/common/TriggerTypeIndicator';
+import { dateText } from '@/features/dags/components/dag-execution/SlotDatesPreview';
 import { useClock } from '@/hooks/useClock';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -46,6 +48,8 @@ type RunFields = Pick<
   | 'workerId'
   | 'profileName'
   | 'params'
+  | 'dates'
+  | 'defaultSlot'
 >;
 
 /** The trigger of a run; a backfill run's links to its backfill. */
@@ -246,6 +250,51 @@ function RunDuration({ dagRun }: { dagRun: RunFields }) {
         </span>
       )}
     </Ticker>
+  );
+}
+
+/**
+ * The slot a run of a DAG with dates ran for and the first date it loads,
+ * such as "Nov 10 02:00, loads 2026-11-09", marked when the slot was the
+ * default or the dates came from the clock. Every date shows on hover.
+ */
+function SlotFact({ dagRun }: { dagRun: RunFields }) {
+  const { ts } = useI18n();
+  const dates = dagRun.dates ?? [];
+  const first = dates[0];
+  if (!first) return null;
+  const date = dateText(first);
+  const slot = formatAbsoluteTime(dagRun.scheduleTime, { seconds: false });
+  const text = slot
+    ? ts('{slot}, loads {date}', { slot, date })
+    : ts('Loads {date}', { date });
+  const mark = slot
+    ? dagRun.defaultSlot
+      ? ts('the latest fire')
+      : undefined
+    : ts('from the clock');
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="rounded-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {text}
+          {mark && <span className="text-muted-foreground"> · {mark}</span>}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start">
+        <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 text-left">
+          {dates.map((item) => (
+            <React.Fragment key={item.name}>
+              <dt className="font-mono text-muted-foreground">{item.name}</dt>
+              <dd className="font-mono tabular-nums">{dateText(item)}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -455,6 +504,15 @@ export function RunMetaLine({
                 · {dagRun.triggerActor}
               </span>
             )}
+          </MetaItem>
+        )}
+        {(dagRun.dates?.length ?? 0) > 0 && (
+          <MetaItem
+            icon={CalendarClock}
+            label="Slot"
+            className={compact && !keepSecondary ? SECONDARY : undefined}
+          >
+            <SlotFact dagRun={dagRun} />
           </MetaItem>
         )}
         {started && (

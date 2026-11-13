@@ -37,6 +37,25 @@ describe('UpcomingRuns', () => {
     expect(screen.getByText('Thu 2027-02-25 09:00')).toBeInTheDocument();
   });
 
+  // Each run of a DAG with dates tells the date it loads.
+  it('tells the date each run loads', () => {
+    render(
+      <UpcomingRuns
+        schedules={[{ expression: '0 2 * * *', kind: ScheduleKind.cron }]}
+        runs={[
+          {
+            time: '2027-01-25T02:00:00Z',
+            scheduleIndex: 0,
+            timezone: 'UTC',
+            dates: [{ name: 'target_day', value: '2027-01-24' }],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole('listitem')).toHaveTextContent('loads 2027-01-24');
+  });
+
   it('shows how many parameters the matching schedule overrides', () => {
     render(
       <UpcomingRuns
