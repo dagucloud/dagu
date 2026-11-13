@@ -157,6 +157,9 @@ type RecentStatusesPageOptions struct {
 	Cursor string
 	// IncludeEphemeral adds the ephemeral runs of the DAG to the first page.
 	IncludeEphemeral bool
+	// ExcludeBackfill leaves out backfill runs, unless the DAG has no other
+	// runs, so a long backfill does not push the live runs out of the page.
+	ExcludeBackfill bool
 }
 
 // RecentStatusesPage returns one page of the runs of a DAG, newest first,
@@ -169,13 +172,23 @@ func (r *DAGRunRepository) RecentStatusesPage(
 	options RecentStatusesPageOptions,
 ) (DAGRunStatusPage, error) {
 	limit := recentLimit(ctx, options.Limit)
-	page, err := r.ListStatusesPage(ctx, DAGRunListOptions{
-		ExactName:  name,
-		Limit:      limit,
-		Cursor:     options.Cursor,
-		AllHistory: true,
-		FullStatus: true,
-	})
+	list := DAGRunListOptions{
+		ExactName:       name,
+		Limit:           limit,
+		Cursor:          options.Cursor,
+		AllHistory:      true,
+		FullStatus:      true,
+		ExcludeBackfill: options.ExcludeBackfill,
+	}
+	page, err := r.ListStatusesPage(ctx, list)
+	switch {
+	case err == nil && options.ExcludeBackfill && options.Cursor == "" && len(page.Items) == 0,
+		errors.Is(err, ErrInvalidDAGRunQueryCursor) && options.ExcludeBackfill:
+		// A DAG whose only runs are backfill runs shows them. The cursor of
+		// such a page records that it lists them, so later pages do too.
+		list.ExcludeBackfill = false
+		page, err = r.ListStatusesPage(ctx, list)
+	}
 	if err != nil || options.Cursor != "" || !options.IncludeEphemeral || r.ephemeral == nil {
 		return page, err
 	}

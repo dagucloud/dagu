@@ -122,6 +122,7 @@ func EffectiveLLMConfig(cfg *ir.LLMConfig, model ir.ModelEntry) *ir.LLMConfig {
 		ObservationKeepRecent: cfg.ObservationKeepRecent,
 		WebSearch:             cfg.WebSearch,
 		Files:                 cfg.Files,
+		MaxFileChars:          cfg.MaxFileChars,
 		Temperature:           coalescePtr(model.Temperature, cfg.Temperature),
 		MaxTokens:             coalescePtr(model.MaxTokens, cfg.MaxTokens),
 		TopP:                  coalescePtr(model.TopP, cfg.TopP),

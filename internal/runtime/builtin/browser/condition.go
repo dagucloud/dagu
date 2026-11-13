@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
@@ -71,6 +72,12 @@ func (c condition) validate() error {
 	}
 	if set != 1 {
 		return errors.New("a condition is a statement, or an object with exactly one of text, selector, or url")
+	}
+	// The page text and the check text are compared after folding width and
+	// collapsing whitespace, so a text of only whitespace would match every
+	// page.
+	if c.Text != "" && stringutil.NormalizeText(c.Text) == "" {
+		return errors.New("text must contain a character other than whitespace")
 	}
 	return agentstep.ValidateDuration("within", c.Within)
 }

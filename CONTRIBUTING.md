@@ -137,6 +137,11 @@ Before submitting:
 
 - All PRs are reviewed by [maintainers](https://github.com/dagucloud/dagu/graphs/contributors).
 - Community members are encouraged to review and provide feedback.
+- CI runs lint and the Linux unit and integration tests on every push. The
+  Windows, conformance, and E2E checks run once a maintainer adds the
+  `full-ci` label, usually after review. The Windows tests also run when a PR
+  changes Go code built only for Windows, or with the `windows-ci` label.
+  Draft PRs run no checks.
 
 ## Issues
 

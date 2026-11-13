@@ -1,0 +1,5 @@
+name: deploy
+working_dir: .
+steps:
+  - name: record
+    run: printf '%s\n' '${context.dag.name}' > dag-name.txt

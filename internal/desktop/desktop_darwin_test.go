@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"io"
@@ -417,4 +418,67 @@ func TestValueText(t *testing.T) {
 	require.NotZero(t, text)
 	defer cfRelease(text)
 	assert.Equal(t, "保存しました", valueText(text))
+}
+
+// Typing switches the keyboard to an ASCII-capable input source and puts
+// the previous one back after; a keyboard already on one stays as it is.
+func TestASCIITyping(t *testing.T) {
+	require.NoError(t, load())
+	before := tisCopyCurrentKeyboardInputSource()
+	if before == 0 {
+		t.Skip("no keyboard input source")
+	}
+	t.Cleanup(func() { cfRelease(before) })
+
+	restore, err := (&darwinBackend{}).ASCIITyping(context.Background())
+	require.NoError(t, err)
+	during := tisCopyCurrentKeyboardInputSource()
+	require.NotZero(t, during)
+	t.Cleanup(func() { cfRelease(during) })
+	asciiCapable, ok := cfBool(tisGetInputSourceProperty(during, tisPropertyInputSourceIsASCIICapable))
+	require.True(t, ok)
+	assert.True(t, asciiCapable, inputSourceID(during))
+
+	require.NoError(t, restore())
+	after := tisCopyCurrentKeyboardInputSource()
+	require.NotZero(t, after)
+	t.Cleanup(func() { cfRelease(after) })
+	assert.Equal(t, inputSourceID(before), inputSourceID(after))
+}
+
+// A context done while the switch to the ASCII-capable input source
+// settles selects the previous input source again and releases it once.
+func TestASCIITypingCanceledWhileSettling(t *testing.T) {
+	const previous, ascii uintptr = 1, 2
+	var selected []uintptr
+	released := map[uintptr]int{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stub(t, &tisCopyCurrentKeyboardInputSource, func() uintptr { return previous })
+	stub(t, &tisCopyCurrentASCIICapableKeyboardInputSource, func() uintptr { return ascii })
+	// An input source whose ASCII-capable property cannot be read counts
+	// as an input method.
+	stub(t, &tisGetInputSourceProperty, func(uintptr, uintptr) uintptr { return 0 })
+	stub(t, &tisSelectInputSource, func(source uintptr) int32 {
+		selected = append(selected, source)
+		if source == ascii {
+			cancel()
+		}
+		return 0
+	})
+	stub(t, &cfRelease, func(ref uintptr) { released[ref]++ })
+
+	restore, err := (&darwinBackend{}).ASCIITyping(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, restore)
+	assert.Equal(t, []uintptr{ascii, previous}, selected)
+	assert.Equal(t, map[uintptr]int{previous: 1, ascii: 1}, released)
+}
+
+// stub replaces a bound library function for the test.
+func stub[T any](t *testing.T, bound *T, fake T) {
+	t.Helper()
+	saved := *bound
+	*bound = fake
+	t.Cleanup(func() { *bound = saved })
 }

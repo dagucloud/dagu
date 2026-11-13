@@ -1,0 +1,4 @@
+schedule: "0 2 * * *"
+hist_retention_runs: 1
+steps:
+  - run: exit 0

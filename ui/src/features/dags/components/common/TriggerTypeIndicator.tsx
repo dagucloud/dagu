@@ -11,6 +11,7 @@ export const triggerTypeLabels: Record<TriggerType, string> = {
   catchup: 'Catch-up',
   file: 'File',
   restart: 'Restart',
+  backfill: 'Backfill',
   unknown: 'Unknown',
 };
 
