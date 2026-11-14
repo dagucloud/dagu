@@ -1200,9 +1200,9 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 				}
 				cmdWithArgs = evaluated
 			}
-			// A shell runs the command text when one is configured; other
-			// executors may run either form.
-			if !command.ShellConfigured || cmdWithArgs == "" {
+			// A shell runs the command text when one is configured and the
+			// step has no script; otherwise the direct form may run.
+			if !command.ShellConfigured || cmdWithArgs == "" || step.Script != "" {
 				cmnvalue.AddMaskedRead(ctx, cmnvalue.MaskedRead(directCtx))
 			}
 			cmnvalue.AddMaskedRead(ctx, cmnvalue.MaskedRead(shellCtx))

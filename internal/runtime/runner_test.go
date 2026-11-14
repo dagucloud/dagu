@@ -5416,6 +5416,14 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// With a script, the command runs directly instead of through the
+		// shell.
+		{
+			name:     "CommandWithScript",
+			use:      []stepOption{withCommand("echo ${TOKEN}"), withScript("exit 0")},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		// An output field is resolved after the step runs.
 		{
 			name: "OutputFieldAfterRun",
