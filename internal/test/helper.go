@@ -56,6 +56,13 @@ var setupLock sync.Mutex
 var builtExecutableOnce sync.Once
 var builtExecutablePath string
 var builtExecutableErr error
+
+// builtExecutableDir is the temporary directory holding the executable this
+// process built.
+var builtExecutableDir string
+
+// mainRunning reports whether the package's tests run through Main.
+var mainRunning bool
 var removeStaleDirsOnce sync.Once
 
 const (
@@ -188,11 +195,22 @@ func WithWorkerWaitTimeout(timeout time.Duration) HelperOption {
 }
 
 // WithBuiltExecutable makes Setup build the current ./cmd binary once and use it
-// as cfg.Paths.Executable for subprocess-based tests.
+// as cfg.Paths.Executable for subprocess-based tests. A package using it must
+// call Main from its TestMain so the binary does not outlive the test process;
+// Setup fails the test otherwise.
 func WithBuiltExecutable() HelperOption {
 	return func(opts *Options) {
 		opts.UseBuiltExecutable = true
 	}
+}
+
+// Main runs the tests of a package and then removes the executable that
+// WithBuiltExecutable built for them.
+func Main(m *testing.M) {
+	mainRunning = true
+	code := m.Run()
+	removeBuiltExecutable()
+	os.Exit(code)
 }
 
 // Setup creates and returns a Helper preconfigured for tests.
@@ -1142,6 +1160,10 @@ func getProjectRoot(t *testing.T) string {
 func buildCurrentExecutable(t *testing.T, root string) string {
 	t.Helper()
 
+	if !mainRunning {
+		t.Fatal("tests using WithBuiltExecutable must run through test.Main; add a TestMain that calls it")
+	}
+
 	builtExecutableOnce.Do(func() {
 		// On CI the build step already compiles .local/bin/dagu[.exe] from the
 		// current commit before tests run. Reusing that binary avoids a redundant
@@ -1166,6 +1188,7 @@ func buildCurrentExecutable(t *testing.T, root string) string {
 			builtExecutableErr = fmt.Errorf("failed to create temp dir for test executable: %w", err)
 			return
 		}
+		builtExecutableDir = tmpDir
 
 		path := filepath.Join(tmpDir, "dagu")
 		if runtime.GOOS == "windows" {
@@ -1194,9 +1217,16 @@ func buildCurrentExecutable(t *testing.T, root string) string {
 	return builtExecutablePath
 }
 
+// removeBuiltExecutable removes the executable this process built.
+func removeBuiltExecutable() {
+	if builtExecutableDir != "" {
+		_ = os.RemoveAll(builtExecutableDir)
+	}
+}
+
 // removeStaleDirs removes what ended test processes left in the temporary
-// directory: the executable a process builds, which it cannot remove when it
-// exits, and the home of a test that was killed before its cleanup ran.
+// directory: the executable of a process that exited without Main removing
+// it, and the home of a test that was killed before its cleanup ran.
 func removeStaleDirs() {
 	for _, pattern := range []string{executableDirPattern, homeDirPattern} {
 		dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
