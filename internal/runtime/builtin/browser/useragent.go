@@ -181,7 +181,11 @@ func learnUserAgent(ctx context.Context, opts launchOptions, key string) (headed
 			ChromiumSandbox: new(!opts.NoSandbox),
 		})
 		if err != nil {
-			return startedBrowser{}, errors.Join(fmt.Errorf("start the browser: %w", err), endUnstartedBrowser(ctx, nil, cdpURL, dir))
+			err = errors.Join(fmt.Errorf("start the browser: %w", err), endUnstartedBrowser(ctx, nil, cdpURL, dir))
+			return startedBrowser{}, markPortTaken(err, port)
+		}
+		if err := confirmLaunched(ctx, browser, cdpURL, dir); err != nil {
+			return startedBrowser{}, err
 		}
 		return startedBrowser{browser: browser, cdpURL: cdpURL}, nil
 	})

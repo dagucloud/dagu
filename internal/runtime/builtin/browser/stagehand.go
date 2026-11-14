@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -405,7 +406,11 @@ func (l stagehandLauncher) startOnPort(ctx context.Context, opts launchOptions, 
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
 		launchErr := fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.NoSandbox))
-		return startedBrowser{}, errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL, opts.UserDataDir), killCertProxy(proxy))
+		err = errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL, opts.UserDataDir), killCertProxy(proxy))
+		return startedBrowser{}, markPortTaken(err, port)
+	}
+	if err := confirmLaunched(ctx, browser, cdpURL, opts.UserDataDir); err != nil {
+		return startedBrowser{}, errors.Join(err, killCertProxy(proxy))
 	}
 	return startedBrowser{browser: browser, cdpURL: cdpURL, proxy: proxy}, nil
 }
@@ -1863,9 +1868,12 @@ func messageText(content stagehand.LLMMessageContent) (string, error) {
 // each port between the launch picking it and the browser binding it.
 const portAttempts = 3
 
-// onFreePort calls launch with a free loopback port. A launch that finds its
-// port taken by then, as by a browser another run started at the same
-// moment, is called again with another port.
+// errPortTaken marks a launch whose debugging port another process took.
+var errPortTaken = errors.New("another process took the browser debugging port")
+
+// onFreePort calls launch with a free loopback port. A launch that fails
+// because another process took the port by then, as a browser another run
+// started at the same moment, is called again with another port.
 func onFreePort[T any](launch func(port int) (T, error)) (T, error) {
 	for attempt := 1; ; attempt++ {
 		port, err := freeLoopbackPort()
@@ -1874,10 +1882,47 @@ func onFreePort[T any](launch func(port int) (T, error)) (T, error) {
 			return zero, err
 		}
 		result, err := launch(port)
-		if err == nil || attempt == portAttempts || !netutil.IsAddrInUse(err) {
+		if err == nil || attempt == portAttempts || !(errors.Is(err, errPortTaken) || netutil.IsAddrInUse(err)) {
 			return result, err
 		}
 	}
+}
+
+// markPortTaken marks err with errPortTaken when another process holds port
+// after a launch on it failed. A browser that loses its port after the launch
+// checked it never answers there, and the launch then fails on its wait.
+func markPortTaken(err error, port int) error {
+	if err == nil || netutil.IsAddrInUse(err) {
+		return err
+	}
+	listener, listenErr := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if listenErr == nil {
+		_ = listener.Close()
+		return err
+	}
+	if !netutil.IsAddrInUse(listenErr) {
+		return err
+	}
+	return errors.Join(errPortTaken, err)
+}
+
+// confirmLaunched checks that the browser answering at cdpURL runs on
+// profileDir. When another browser took the port before the launched one
+// bound it, the launch reached that browser instead. The launched browser is
+// then closed, which ends only its own process, and the other is left alone.
+func confirmLaunched(ctx context.Context, browser *stagehand.Browser, cdpURL, profileDir string) error {
+	owned, err := boundCall(ctx, unstartedCallTimeout, func(ctx context.Context) (bool, error) {
+		return browserhost.UsesProfile(ctx, cdpURL, profileDir)
+	})
+	if err == nil && owned {
+		return nil
+	}
+	if err == nil {
+		err = errPortTaken
+	} else {
+		err = fmt.Errorf("identify the launched browser: %w", err)
+	}
+	return errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
 }
 
 func freeLoopbackPort() (int, error) {
