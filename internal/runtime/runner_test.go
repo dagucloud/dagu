@@ -5416,6 +5416,15 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// An output field is resolved after the step runs.
+		{
+			name: "OutputFieldAfterRun",
+			use: []stepOption{withCommand("true"), func(step *ir.Step) {
+				step.StructuredOutput = map[string]ir.StepOutputEntry{"fwd": {HasValue: true, Value: "${env.TOKEN}"}}
+			}},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		// A field that fails to parse the mask reports the masked read.
 		{
 			name:     "UnparsableField",

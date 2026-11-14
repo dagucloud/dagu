@@ -158,8 +158,9 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		}
 	}
 
+	// An output field is resolved after the run and can read a masked value.
 	if err := node.captureOutput(ctx); err != nil {
-		return err
+		return preferMaskedRead(ctx, node, err)
 	}
 	// An executor can resolve a field while it runs.
 	if err := maskedReadError(ctx, node); err != nil {

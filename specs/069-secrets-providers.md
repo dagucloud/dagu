@@ -140,8 +140,9 @@ nothing recorded is skipped as before. A field that an executor resolves while
 the step runs, such as foreach items, fails the step at the read, before the
 executor uses the value. A repeat condition runs after each execution, so one
 that reads a recorded output fails the step after the execution that evaluates
-it. The failure is the same on every attempt, so it is not retried, repeated, or
-marked successful.
+it, and so does a field of an object-form `output:`, which Dagu resolves once
+the step has produced its output. The failure is the same on every attempt, so
+it is not retried, repeated, or marked successful.
 
 Resume after an approval or a human task cannot run a step before the gate again
 without reopening it, so a step after the gate that reads a recorded output
