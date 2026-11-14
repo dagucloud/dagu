@@ -545,12 +545,12 @@ func (att *Attempt) statusForCompactionLocked(ctx context.Context) (*ir.DAGRunSt
 		if len(line) == 0 {
 			continue
 		}
-		status, err := ir.StatusFromJSON(string(line))
-		if err != nil {
+		var status ir.DAGRunStatus
+		if err := json.Unmarshal(line, &status); err != nil {
 			invalidLineSeen = true
 			continue
 		}
-		result = status
+		result = &status
 		validLineCount++
 	}
 }
@@ -636,11 +636,13 @@ func parseStatusFileWithContext(ctx context.Context, file string) (*ir.DAGRunSta
 		if !terminated || len(line) == 0 {
 			return false, nil
 		}
-		status, err := ir.StatusFromJSON(string(line))
-		if err != nil {
+		// The decoded status keeps no reference to line, which is valid
+		// only until this callback returns.
+		var status ir.DAGRunStatus
+		if err := json.Unmarshal(line, &status); err != nil {
 			return false, nil
 		}
-		result = status
+		result = &status
 		return true, nil
 	})
 	if err != nil {
