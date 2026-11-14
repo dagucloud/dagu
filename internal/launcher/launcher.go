@@ -113,6 +113,12 @@ func NewSubCmdBuilder(cfg *config.Config) *SubCmdBuilder {
 	}
 }
 
+// ExecutableMissing reports whether the executable the built commands run
+// does not exist.
+func (b *SubCmdBuilder) ExecutableMissing() bool {
+	return executableMissing(b.executable)
+}
+
 const daguHomeEnvKey = "DAGU_HOME"
 
 // envEntry returns the last KEY=value entry of env for key, or "".
@@ -487,10 +493,24 @@ func Run(ctx context.Context, spec CmdSpec) error {
 // markMissingExecutable marks a start failure of cmd with ErrExecutableMissing
 // when its executable does not exist.
 func markMissingExecutable(cmd *exec.Cmd, err error) error {
-	if _, statErr := os.Stat(cmd.Path); errors.Is(statErr, fs.ErrNotExist) {
+	if executableMissing(cmd.Path) {
 		return fmt.Errorf("%w: %w", ErrExecutableMissing, err)
 	}
 	return err
+}
+
+// executableMissing reports whether nothing exists at path and nothing is
+// found for it the way a command looks it up, through PATH for a bare name
+// or PATHEXT on Windows.
+func executableMissing(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	_, err := exec.LookPath(path)
+	return err != nil
 }
 
 // buildCommandError constructs an error that includes captured output for debugging.

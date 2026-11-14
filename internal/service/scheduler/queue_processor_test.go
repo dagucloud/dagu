@@ -142,8 +142,10 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 		WithBackoffConfig(BackoffConfig{InitialInterval: 10 * time.Millisecond, MaxInterval: 50 * time.Millisecond, MaxRetries: 2}),
 		WithDAGRunLeaseStore(f.leaseStore),
 	}, opts...)
+	// A directory exists but cannot be executed, so launches fail without
+	// reporting a missing executable.
 	f.processor = NewQueueProcessor(f.queueStore, f.dagRunRepository, f.procRepository,
-		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, ""),
+		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: f.t.TempDir()}}), config.ExecutionModeLocal, ""),
 		cfg, options...,
 	)
 	f.dispatchStore = store.NewDispatchTaskStore(
@@ -865,6 +867,53 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 	items, err := f.queueStore.List(f.ctx, dagName)
 	require.NoError(t, err)
 	assert.Empty(t, items)
+}
+
+// A local run skipped while the executable is missing is selected again on
+// the fallback scan once the executable exists.
+func TestQueueProcessorRetriesRunHeldByMissingExecutable(t *testing.T) {
+	dagName := "missing-executable-dag"
+	f := newQueueFixture(t).
+		withDAG(dagName, 1).
+		withProcessor(config.Queues{}).
+		simulateQueue(1, false)
+	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeManual)
+	executable := filepath.Join(t.TempDir(), "dagu")
+	f.processor.dagExecutor = NewDAGExecutor(
+		nil,
+		launcher.NewSubCmdBuilder(&config.Config{
+			Paths: config.PathsConfig{Executable: executable},
+		}),
+		config.ExecutionModeLocal,
+		"",
+	)
+
+	f.processor.ProcessQueueItems(f.ctx, dagName)
+	items, err := f.queueStore.List(f.ctx, dagName)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	// The executable exists again but cannot be executed, so the retried
+	// launch fails the run.
+	require.NoError(t, os.Mkdir(executable, 0o750))
+	q := f.getQueue(dagName)
+	q.mu.Lock()
+	generation := q.scanGeneration
+	retryAt := q.scanRetryAt
+	q.mu.Unlock()
+	require.False(t, retryAt.IsZero())
+	_, parked := q.scanPosition(generation, retryAt)
+	require.False(t, parked)
+
+	f.processor.ProcessQueueItems(f.ctx, dagName)
+	items, err = f.queueStore.List(f.ctx, dagName)
+	require.NoError(t, err)
+	assert.Empty(t, items)
+	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(dagName, "run-1"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Failed, status.Status)
 }
 
 type invalidatingCursorQueueStore struct {
