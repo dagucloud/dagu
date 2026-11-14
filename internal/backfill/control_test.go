@@ -139,6 +139,9 @@ func TestResumeOfAnEditedDAG(t *testing.T) {
 
 	f.tick()
 	f.finish(f.queued[2], ir.Succeeded)
+	// The tick records how the run ended, so the report reads its digest
+	// from the progress event rather than from the run.
+	f.tick()
 	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
 	require.NoError(t, err)
 	assert.True(t, report.Slots[0].OtherDefinition, "the active run runs the earlier definition")
