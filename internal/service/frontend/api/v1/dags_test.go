@@ -1440,8 +1440,8 @@ func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) erro
 	return nil
 }
 
-// A DAG's details give the latest span whose slots the scheduler recorded
-// as missed, which the DAG's page offers to backfill.
+// A DAG's details, read or streamed, give the latest span whose slots the
+// scheduler recorded as missed, which the DAG's page offers to backfill.
 func TestDAGDetailsMissedSlots(t *testing.T) {
 	t.Parallel()
 
@@ -1472,13 +1472,20 @@ steps:
 		localapi.WithSchedulerStateStore(stubSchedulerStateStore{state: state}),
 	)
 
+	want := &api.MissedSlots{
+		From: from, To: from.Add(12 * time.Hour), Reason: api.MissedSlotsReasonSuspended, Slots: 12,
+	}
 	respObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: dag.FileName()})
 	require.NoError(t, err)
 	resp, ok := respObj.(api.GetDAGDetails200JSONResponse)
 	require.True(t, ok)
-	assert.Equal(t, &api.MissedSlots{
-		From: from, To: from.Add(12 * time.Hour), Reason: api.MissedSlotsReasonSuspended, Slots: 12,
-	}, resp.MissedSlots)
+	assert.Equal(t, want, resp.MissedSlots)
+
+	live, err := apiImpl.GetDAGDetailsData(context.Background(), dag.FileName())
+	require.NoError(t, err)
+	streamed, ok := live.(api.GetDAGDetails200JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, want, streamed.MissedSlots, "a live update keeps the gap")
 }
 
 func TestListDAGsDataPreservesNextRunAcrossSSEPath(t *testing.T) {
