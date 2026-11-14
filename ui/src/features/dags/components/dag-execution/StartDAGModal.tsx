@@ -14,8 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import {
@@ -26,11 +24,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { IChangeEvent } from '@rjsf/core';
-import type RJSFForm from '@rjsf/core';
-import Form from '@rjsf/shadcn';
-import type { FormContextType, RJSFSchema, UiSchema } from '@rjsf/utils';
-import validator from '@rjsf/validator-ajv8';
 import {
   AlertTriangle,
   ListPlus,
@@ -41,56 +34,17 @@ import {
 } from 'lucide-react';
 import React from 'react';
 
-import {
-  components,
-  ParamDefType,
-  RuntimeProfileStatus,
-} from '../../../../api/v1/schema';
-import {
-  Parameter,
-  parseParams,
-  stringifyParams,
-} from '../../../../lib/parseParams';
-import type { JSONSchema } from '../../../../lib/schema-utils';
-import {
-  buildParamSchemaFormData,
-  buildParamSchemaUiSchema,
-  type ParamSchemaUiSchema,
-  stringifyParamSchemaFormData,
-} from './paramSchemaForm';
-import { ParamLabel } from './ParamLabel';
-import { paramFormTemplates } from './paramFormTemplates';
-import { paramFormWidgets } from './paramFormWidgets';
+import { components, RuntimeProfileStatus } from '../../../../api/v1/schema';
+import { DAGParamsFields, useDAGParamsForm } from './DAGParamsForm';
 import { SlotDatesPreview } from './SlotDatesPreview';
-import { autoGrowTextarea } from './textareaAutoGrow';
-import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
-type ScalarValue = components['schemas']['ParamScalar'];
-type ParamDef = components['schemas']['ParamDef'];
 type DAGLike =
   | components['schemas']['DAG']
   | components['schemas']['DAGDetails'];
-type SchemaFormData = Record<string, unknown>;
 
-type ParamField = {
-  key: string;
-  name?: string;
-  title?: string;
-  type: ParamDefType;
-  value: string;
-  hasValue: boolean;
-  hasDefault: boolean;
-  required: boolean;
-  description?: string;
-  enum?: ScalarValue[];
-  minimum?: number;
-  maximum?: number;
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-};
+const NO_PARAM_HINTS: Record<string, string> = {};
 
 type Props = {
   visible: boolean;
@@ -128,27 +82,6 @@ function formatRecentFire(fire: RecentFire): string {
   return `${fire.time.slice(0, 10)} ${fire.time.slice(11, 16)} (${fire.timezone})`;
 }
 
-const NO_PARAM_HINTS: Record<string, string> = {};
-
-// withSlotHints shows each hint in its param's field: as the placeholder,
-// and as help text, which also shows beside a widget without a placeholder,
-// such as a date.
-function withSlotHints(
-  uiSchema: ParamSchemaUiSchema,
-  hints: Record<string, string>,
-  help: (value: string) => string
-): ParamSchemaUiSchema {
-  const result = { ...uiSchema };
-  for (const [name, hint] of Object.entries(hints)) {
-    result[name] = {
-      ...result[name],
-      'ui:placeholder': hint,
-      'ui:help': help(hint),
-    };
-  }
-  return result;
-}
-
 function profileOverrideForSelection(
   selection: string,
   hasDefaultProfile: boolean
@@ -160,162 +93,6 @@ function profileOverrideForSelection(
     return hasDefaultProfile ? '' : undefined;
   }
   return selection;
-}
-
-function createParamFields(paramDefs: ParamDef[] = []): ParamField[] {
-  return paramDefs.map((def, index) => {
-    const hasDefault = def.default !== undefined;
-    return {
-      key: def.name ?? `__pos_${index}`,
-      name: def.name,
-      title: def.title,
-      type: def.type,
-      value: hasDefault ? scalarToString(def.default as ScalarValue) : '',
-      hasValue: hasDefault,
-      hasDefault,
-      required: def.required,
-      description: def.description,
-      enum: def.enum,
-      minimum: def.minimum,
-      maximum: def.maximum,
-      minLength: def.minLength,
-      maxLength: def.maxLength,
-      pattern: def.pattern,
-    };
-  });
-}
-
-function serializeParamFields(fields: ParamField[]): string {
-  const items = fields
-    .filter((field) => field.hasValue)
-    .map((field) => {
-      if (field.name) {
-        return { [field.name]: field.value };
-      }
-      return field.value;
-    });
-
-  if (items.length === 0) {
-    return '';
-  }
-  return JSON.stringify(items);
-}
-
-function scalarToString(value: ScalarValue): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-  return String(value);
-}
-
-function validateParamFields(fields: ParamField[]): Record<string, string> {
-  const errors: Record<string, string> = {};
-
-  for (const field of fields) {
-    if (!field.hasValue) {
-      if (field.required) {
-        errors[field.key] = 'Required';
-      }
-      continue;
-    }
-
-    const value = field.value;
-    switch (field.type) {
-      case ParamDefType.string:
-        if (field.minLength !== undefined && value.length < field.minLength) {
-          errors[field.key] = `Must be at least ${field.minLength} characters`;
-          continue;
-        }
-        if (field.maxLength !== undefined && value.length > field.maxLength) {
-          errors[field.key] = `Must be at most ${field.maxLength} characters`;
-          continue;
-        }
-        if (field.pattern) {
-          try {
-            const pattern = new RegExp(field.pattern);
-            if (!pattern.test(value)) {
-              errors[field.key] = 'Does not match the required pattern';
-              continue;
-            }
-          } catch {
-            errors[field.key] = 'Invalid validation pattern';
-            continue;
-          }
-        }
-        if (
-          field.enum &&
-          !field.enum.some((item) => typeof item === 'string' && item === value)
-        ) {
-          errors[field.key] = 'Must be one of the allowed values';
-        }
-        break;
-
-      case ParamDefType.integer: {
-        if (!/^-?\d+$/.test(value.trim())) {
-          errors[field.key] = 'Must be an integer';
-          continue;
-        }
-        const number = Number(value);
-        if (field.minimum !== undefined && number < field.minimum) {
-          errors[field.key] = `Must be at least ${field.minimum}`;
-          continue;
-        }
-        if (field.maximum !== undefined && number > field.maximum) {
-          errors[field.key] = `Must be at most ${field.maximum}`;
-          continue;
-        }
-        if (
-          field.enum &&
-          !field.enum.some(
-            (item) => typeof item === 'number' && Number(item) === number
-          )
-        ) {
-          errors[field.key] = 'Must be one of the allowed values';
-        }
-        break;
-      }
-
-      case ParamDefType.number: {
-        const trimmed = value.trim();
-        if (trimmed === '') {
-          if (field.required) {
-            errors[field.key] = 'Required';
-          }
-          continue;
-        }
-        const number = Number(trimmed);
-        if (Number.isNaN(number)) {
-          errors[field.key] = 'Must be a number';
-          continue;
-        }
-        if (field.minimum !== undefined && number < field.minimum) {
-          errors[field.key] = `Must be at least ${field.minimum}`;
-          continue;
-        }
-        if (field.maximum !== undefined && number > field.maximum) {
-          errors[field.key] = `Must be at most ${field.maximum}`;
-          continue;
-        }
-        if (
-          field.enum &&
-          !field.enum.some(
-            (item) => typeof item === 'number' && Number(item) === number
-          )
-        ) {
-          errors[field.key] = 'Must be one of the allowed values';
-        }
-        break;
-      }
-
-      case ParamDefType.boolean:
-        if (value !== 'true' && value !== 'false') {
-          errors[field.key] = 'Must be true or false';
-        }
-        break;
-    }
-  }
-
-  return errors;
 }
 
 function StartDAGModal({
@@ -333,55 +110,8 @@ function StartDAGModal({
   defaultProfileLoading = false,
 }: Props) {
   const canUseProtectedProfiles = useIsAdmin();
-  const { ts } = useI18n();
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
-  const paramSchema = React.useMemo(() => {
-    const schema = dagDetails?.paramSchema as JSONSchema | undefined;
-    if (!schema || Array.isArray(schema) || typeof schema !== 'object') {
-      return undefined;
-    }
-    if (
-      !schema.properties ||
-      Array.isArray(schema.properties) ||
-      typeof schema.properties !== 'object' ||
-      Object.keys(schema.properties).length === 0
-    ) {
-      return undefined;
-    }
-    return schema;
-  }, [dagDetails]);
-  const paramDefs = React.useMemo(
-    () => dagDetails?.paramDefs ?? [],
-    [dagDetails]
-  );
-  const useSchemaFields = !!paramSchema;
-  const useTypedFields = !useSchemaFields && paramDefs.length > 0;
-  const initialTypedFields = React.useMemo(
-    () => createParamFields(paramDefs),
-    [paramDefs]
-  );
-  const initialSchemaFormData = React.useMemo(
-    () =>
-      paramSchema
-        ? buildParamSchemaFormData(paramSchema, dag?.defaultParams)
-        : {},
-    [dag?.defaultParams, paramSchema]
-  );
-  const initialRawParams = React.useMemo(() => {
-    if (!dag?.defaultParams) {
-      return [] as Parameter[];
-    }
-    return parseParams(dag.defaultParams);
-  }, [dag?.defaultParams]);
-
-  const [schemaFormData, setSchemaFormData] = React.useState<SchemaFormData>(
-    {}
-  );
-  const [typedFields, setTypedFields] = React.useState<ParamField[]>([]);
-  const [rawParams, setRawParams] = React.useState<Parameter[]>([]);
-  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>(
-    {}
-  );
+  const paramsForm = useDAGParamsForm(dag, visible);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [dagRunId, setDAGRunId] = React.useState('');
@@ -443,11 +173,7 @@ function StartDAGModal({
     profilesLoading ||
     hasDefaultProfile ||
     activeProfiles.length > 0;
-  const parameterCount = useSchemaFields
-    ? Object.keys(paramSchema.properties ?? {}).length
-    : useTypedFields
-      ? paramDefs.length
-      : initialRawParams.length;
+  const parameterCount = paramsForm.count;
 
   React.useEffect(() => {
     if (visible) {
@@ -480,39 +206,11 @@ function StartDAGModal({
   ]);
 
   const dagWithRunConfig = dag as DAGLike & {
-    runConfig?: { disableParamEdit?: boolean; disableRunIdEdit?: boolean };
+    runConfig?: { disableRunIdEdit?: boolean };
   };
 
-  // A workflow without parameters has none to lock, so it gets no note.
-  const paramsReadOnly =
-    (dagWithRunConfig?.runConfig?.disableParamEdit ?? false) &&
-    parameterCount > 0;
+  const paramsReadOnly = paramsForm.locked;
   const runIdReadOnly = dagWithRunConfig?.runConfig?.disableRunIdEdit ?? false;
-  const schemaFormUiSchema = React.useMemo<
-    UiSchema<SchemaFormData> | undefined
-  >(
-    () =>
-      paramSchema
-        ? ({
-            ...withSlotHints(
-              buildParamSchemaUiSchema(paramSchema),
-              paramHints,
-              (value) =>
-                ts('Left empty, it takes {value} from the slot.', { value })
-            ),
-            'ui:order': paramDefs
-              .flatMap(({ name }) => (name ? [name] : []))
-              .concat('*'),
-            'ui:submitButtonOptions': { norender: true },
-          } as UiSchema<SchemaFormData>)
-        : undefined,
-    [paramDefs, paramSchema, paramHints, ts]
-  );
-  const schemaFormRef = React.useRef<RJSFForm<
-    SchemaFormData,
-    RJSFSchema,
-    FormContextType
-  > | null>(null);
   const submitErrorRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -525,10 +223,6 @@ function StartDAGModal({
     if (!visible) {
       return;
     }
-    setSchemaFormData(initialSchemaFormData);
-    setTypedFields(initialTypedFields);
-    setRawParams(initialRawParams);
-    setFieldErrors({});
     setSubmitError(null);
     setSubmitting(false);
     setDAGRunId('');
@@ -539,69 +233,20 @@ function StartDAGModal({
     setNoReuse(false);
     setSlotSelection(NO_SLOT_VALUE);
     setCustomSlot('');
-  }, [
-    defaultProfile,
-    visible,
-    initialSchemaFormData,
-    initialTypedFields,
-    initialRawParams,
-  ]);
+  }, [defaultProfile, visible]);
 
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
-
-  const handleTypedFieldChange = React.useCallback(
-    (fieldKey: string, patch: Partial<ParamField>) => {
-      setTypedFields((prev) =>
-        prev.map((field) =>
-          field.key === fieldKey
-            ? {
-                ...field,
-                ...patch,
-              }
-            : field
-        )
-      );
-      setFieldErrors((prev) => {
-        if (!prev[fieldKey]) {
-          return prev;
-        }
-        const next = { ...prev };
-        delete next[fieldKey];
-        return next;
-      });
-      setSubmitError(null);
-    },
-    []
-  );
 
   const handleSubmit = React.useCallback(async () => {
     if (!dag || loading || !!loadError || submitting || !!datesBlocked) {
       return;
     }
 
-    let paramsPayload = '';
-    if (useSchemaFields) {
-      const isValid = schemaFormRef.current?.validateForm() ?? true;
-      if (!isValid) {
-        setSubmitError(
-          'Fix the highlighted parameter errors before submitting.'
-        );
-        return;
-      }
-      paramsPayload = stringifyParamSchemaFormData(schemaFormData);
-    } else if (useTypedFields) {
-      const errors = validateParamFields(typedFields);
-      setFieldErrors(errors);
-      if (Object.keys(errors).length > 0) {
-        setSubmitError(
-          'Fix the highlighted parameter errors before submitting.'
-        );
-        return;
-      }
-      paramsPayload = serializeParamFields(typedFields);
-    } else {
-      paramsPayload = stringifyParams(rawParams);
+    if (!paramsForm.validate()) {
+      setSubmitError('Fix the highlighted parameter errors before submitting.');
+      return;
     }
+    const paramsPayload = paramsForm.serialize();
 
     let scheduleTime: string | undefined;
     if (slotSelection === OTHER_SLOT_VALUE) {
@@ -668,15 +313,11 @@ function StartDAGModal({
     isBuild,
     noReuse,
     onSubmit,
-    rawParams,
-    schemaFormData,
-    useSchemaFields,
+    paramsForm,
     submitting,
     datesBlocked,
     profileSelection,
     slotSelection,
-    typedFields,
-    useTypedFields,
   ]);
 
   React.useEffect(() => {
@@ -1080,163 +721,13 @@ function StartDAGModal({
                     </div>
                   )}
 
-                  {!loading && dag && paramSchema && (
-                    <Form
-                      ref={schemaFormRef}
-                      tagName="div"
-                      schema={paramSchema as RJSFSchema}
-                      validator={validator}
-                      formData={schemaFormData}
-                      uiSchema={schemaFormUiSchema}
-                      templates={paramFormTemplates}
-                      widgets={paramFormWidgets}
-                      disabled={paramsReadOnly || submitting}
-                      readonly={paramsReadOnly}
-                      noHtml5Validate
-                      showErrorList={false}
-                      onChange={(event: IChangeEvent<SchemaFormData>) => {
-                        setSchemaFormData(
-                          (event.formData ?? {}) as SchemaFormData
-                        );
-                        setSubmitError(null);
-                      }}
-                      onError={() =>
-                        setSubmitError(
-                          'Fix the highlighted parameter errors before submitting.'
-                        )
-                      }
+                  {!loading && dag && (
+                    <DAGParamsFields
+                      form={paramsForm}
+                      slotHints={paramHints}
+                      disabled={submitting}
+                      onEdit={() => setSubmitError(null)}
                     />
-                  )}
-
-                  {!loading && dag && useTypedFields && (
-                    <>
-                      {typedFields.map((field, index) => {
-                        const label =
-                          field.title || field.name || `Parameter ${index + 1}`;
-                        const error = fieldErrors[field.key];
-                        const descriptionId = `param-${field.key}-description`;
-                        const errorId = `param-${field.key}-error`;
-                        const describedBy =
-                          [field.description && descriptionId, error && errorId]
-                            .filter(Boolean)
-                            .join(' ') || undefined;
-                        const disableField = paramsReadOnly || submitting;
-                        const showUnsetButton =
-                          !field.required &&
-                          !field.hasDefault &&
-                          field.hasValue;
-
-                        return (
-                          <div key={field.key} className="space-y-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <ParamLabel
-                                htmlFor={`param-${field.key}`}
-                                name={field.name}
-                                label={label}
-                              >
-                                {label}
-                                {field.required ? ' *' : ''}
-                              </ParamLabel>
-                              {showUnsetButton && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  disabled={disableField}
-                                  onClick={() =>
-                                    handleTypedFieldChange(field.key, {
-                                      hasValue: false,
-                                      value: '',
-                                    })
-                                  }
-                                >
-                                  <I18nText text={'Unset'} />
-                                </Button>
-                              )}
-                            </div>
-
-                            {field.description && (
-                              <p
-                                id={descriptionId}
-                                className="text-xs text-muted-foreground"
-                              >
-                                {field.description}
-                              </p>
-                            )}
-
-                            {renderTypedField({
-                              field,
-                              hint: field.name
-                                ? paramHints[field.name]
-                                : undefined,
-                              disabled: disableField,
-                              describedBy,
-                              invalid: !!error,
-                              onChange: (patch) =>
-                                handleTypedFieldChange(field.key, patch),
-                            })}
-
-                            {error && (
-                              <p
-                                id={errorId}
-                                className="text-xs text-destructive"
-                              >
-                                {error}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {!loading && dag && !useSchemaFields && !useTypedFields && (
-                    <>
-                      {rawParams.map((param, index) => (
-                        <div
-                          key={`${param.Name ?? 'pos'}-${index}`}
-                          className="space-y-2"
-                        >
-                          <Label htmlFor={`param-${index}`}>
-                            {param.Name ?? `Parameter ${index + 1}`}
-                          </Label>
-                          <Textarea
-                            id={`param-${index}`}
-                            ref={(element) => {
-                              if (element) {
-                                autoGrowTextarea(element);
-                              }
-                            }}
-                            rows={1}
-                            value={rawParams[index]?.Value ?? ''}
-                            readOnly={paramsReadOnly}
-                            disabled={paramsReadOnly || submitting}
-                            className={
-                              paramsReadOnly
-                                ? 'bg-muted cursor-not-allowed'
-                                : ''
-                            }
-                            onInput={(event) =>
-                              autoGrowTextarea(event.currentTarget)
-                            }
-                            onChange={(event) => {
-                              if (paramsReadOnly) {
-                                return;
-                              }
-                              setRawParams((prev) =>
-                                prev.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, Value: event.target.value }
-                                    : item
-                                )
-                              );
-                              setSubmitError(null);
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </>
                   )}
                 </section>
               )}
@@ -1283,183 +774,6 @@ function StartDAGModal({
       </DialogContent>
     </Dialog>
   );
-}
-
-function renderTypedField({
-  field,
-  hint,
-  disabled,
-  describedBy,
-  invalid,
-  onChange,
-}: {
-  field: ParamField;
-  /** The value the param takes when left unset, shown as its placeholder. */
-  hint?: string;
-  disabled: boolean;
-  describedBy?: string;
-  invalid: boolean;
-  onChange: (patch: Partial<ParamField>) => void;
-}) {
-  const controlClass = 'w-full';
-
-  if (field.enum && field.enum.length > 0) {
-    const placeholder = field.hasValue ? field.value : 'Select a value';
-    return (
-      <Select
-        value={field.hasValue ? field.value : undefined}
-        disabled={disabled}
-        onValueChange={(value) => {
-          if (value === '__unset__') {
-            onChange({ value: '', hasValue: false });
-            return;
-          }
-          onChange({ value, hasValue: true });
-        }}
-      >
-        <SelectTrigger
-          id={`param-${field.key}`}
-          aria-describedby={describedBy}
-          aria-invalid={invalid || undefined}
-          className={controlClass}
-        >
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {!field.required && !field.hasDefault && (
-            <SelectItem value="__unset__">
-              <I18nText text={'Not set'} />
-            </SelectItem>
-          )}
-          {field.enum.map((item, index) => {
-            const value = scalarToString(item);
-            return (
-              <SelectItem key={`${field.key}-${index}-${value}`} value={value}>
-                {value}
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
-    );
-  }
-
-  switch (field.type) {
-    case ParamDefType.integer:
-    case ParamDefType.number:
-      return (
-        <I18nProps>
-          <Input
-            id={`param-${field.key}`}
-            aria-describedby={describedBy}
-            aria-invalid={invalid || undefined}
-            type="number"
-            className={controlClass}
-            min={field.minimum}
-            max={field.maximum}
-            step={field.type === ParamDefType.integer ? 1 : 'any'}
-            value={field.hasValue ? field.value : ''}
-            placeholder={field.hasValue ? undefined : (hint ?? 'Not set')}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange({
-                value: event.target.value,
-                hasValue: event.target.value !== '',
-              })
-            }
-          />
-        </I18nProps>
-      );
-
-    case ParamDefType.boolean:
-      if (!field.required && !field.hasDefault && !field.hasValue) {
-        return (
-          <Select
-            value={field.hasValue ? field.value : '__unset__'}
-            disabled={disabled}
-            onValueChange={(value) => {
-              if (value === '__unset__') {
-                onChange({ value: '', hasValue: false });
-                return;
-              }
-              onChange({ value, hasValue: true });
-            }}
-          >
-            <SelectTrigger
-              id={`param-${field.key}`}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              className={controlClass}
-            >
-              <I18nProps>
-                <SelectValue placeholder="Not set" />
-              </I18nProps>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__unset__">
-                <I18nText text={'Not set'} />
-              </SelectItem>
-              <SelectItem value="true">
-                <I18nText text={'true'} />
-              </SelectItem>
-              <SelectItem value="false">
-                <I18nText text={'false'} />
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        );
-      }
-      return (
-        <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
-          <Switch
-            id={`param-${field.key}`}
-            aria-describedby={describedBy}
-            aria-invalid={invalid || undefined}
-            checked={field.value === 'true'}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onChange({ value: checked ? 'true' : 'false', hasValue: true })
-            }
-          />
-          <span className="text-sm text-muted-foreground">
-            {field.value === 'true' ? (
-              <I18nText text={'true'} />
-            ) : (
-              <I18nText text={'false'} />
-            )}
-          </span>
-        </div>
-      );
-
-    case ParamDefType.string:
-    default:
-      return (
-        <I18nProps>
-          <Textarea
-            id={`param-${field.key}`}
-            aria-describedby={describedBy}
-            aria-invalid={invalid || undefined}
-            className={`${controlClass} h-7 min-h-7 py-1`}
-            rows={1}
-            ref={(element) => {
-              if (element) {
-                autoGrowTextarea(element);
-              }
-            }}
-            value={field.hasValue ? field.value : ''}
-            placeholder={field.hasValue ? undefined : (hint ?? 'Not set')}
-            disabled={disabled}
-            onInput={(event) => autoGrowTextarea(event.currentTarget)}
-            onChange={(event) =>
-              onChange({
-                value: event.target.value,
-                hasValue: true,
-              })
-            }
-          />
-        </I18nProps>
-      );
-  }
 }
 
 export default StartDAGModal;

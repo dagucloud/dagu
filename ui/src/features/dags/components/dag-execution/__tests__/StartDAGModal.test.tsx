@@ -599,6 +599,107 @@ describe('StartDAGModal', () => {
     );
   });
 
+  // A computed param's default is only the fallback for an eval that fails,
+  // so the form leaves it unset and the eval computes it.
+  it('leaves a computed typed param unset', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [
+              { name: 'region', type: 'string', default: 'us' },
+              {
+                name: 'stamp',
+                type: 'string',
+                default: 'fallback',
+                required: true,
+                computed: true,
+              },
+            ],
+          } as never
+        }
+      />
+    );
+
+    expect(screen.getByLabelText(/stamp/i)).toHaveAttribute(
+      'placeholder',
+      'Computed when the run starts'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        '[{"region":"us"}]',
+        undefined,
+        false
+      )
+    );
+  });
+
+  it('leaves a computed schema param unset', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={
+          {
+            name: 'schema-dag',
+            paramSchema: {
+              type: 'object',
+              properties: {
+                region: { type: 'string', default: 'us' },
+                stamp: { type: 'string', default: 'fallback' },
+              },
+              required: ['stamp'],
+            },
+            paramDefs: [
+              { name: 'region', type: 'string', default: 'us' },
+              {
+                name: 'stamp',
+                type: 'string',
+                default: 'fallback',
+                computed: true,
+              },
+            ],
+            defaultParams: 'region="us" stamp="fallback"',
+          } as never
+        }
+      />
+    );
+
+    expect(renderedFormProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        formData: { region: 'us' },
+        schema: expect.objectContaining({
+          properties: {
+            region: { type: 'string', default: 'us' },
+            stamp: { type: 'string' },
+          },
+          required: [],
+        }),
+        uiSchema: expect.objectContaining({
+          stamp: expect.objectContaining({
+            'ui:placeholder': 'Computed when the run starts',
+          }),
+        }),
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('{"region":"us"}', undefined, false)
+    );
+  });
+
   it('marks protected profiles unavailable for non-admin users', async () => {
     useIsAdminMock.mockReturnValue(false);
     const user = userEvent.setup();

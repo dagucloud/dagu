@@ -19,7 +19,12 @@ import {
 type BackfillPlan = components['schemas']['BackfillPlan'];
 
 const post = vi.hoisted(() => vi.fn());
-vi.mock('@/hooks/api', () => ({ useClient: () => ({ POST: post }) }));
+/** The DAG's details, which a test may set. */
+const details = vi.hoisted(() => ({ dag: undefined as unknown }));
+vi.mock('@/hooks/api', () => ({
+  useClient: () => ({ POST: post }),
+  useQuery: () => ({ data: details.dag ? { dag: details.dag } : undefined }),
+}));
 vi.mock('@/contexts/AuthContext', () => ({ useCanManageProfiles: () => true }));
 vi.mock('@/features/dags/hooks/useProfiles', () => ({
   useProfiles: () => ({ activeProfiles: [{ name: 'night' }] }),
@@ -61,6 +66,7 @@ const lastBody = () =>
 describe('StartBackfillDialog', () => {
   beforeEach(() => {
     post.mockReset();
+    details.dag = undefined;
   });
 
   it('offers what to run with counts, and starts the plan shown', async () => {
@@ -117,6 +123,49 @@ describe('StartBackfillDialog', () => {
     await waitFor(() =>
       expect(lastBody()).toMatchObject({ profile: 'night', dryRun: true })
     );
+  });
+
+  // Params sent with a backfill replace the schedule's params for every
+  // slot, so the form sends none until a value is changed.
+  it('sends params only once one is changed', async () => {
+    details.dag = {
+      name: 'etl',
+      paramDefs: [{ name: 'region', type: 'string', default: 'us' }],
+    };
+    post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Options/ }));
+    const region = screen.getByLabelText(/region/);
+    expect(region).toHaveValue('us');
+    await waitFor(() => expect(lastBody()).toMatchObject({ dryRun: true }));
+    expect(lastBody()).not.toHaveProperty('params');
+
+    fireEvent.change(region, { target: { value: 'eu' } });
+    await waitFor(() =>
+      expect(lastBody()).toMatchObject({
+        params: '[{"region":"eu"}]',
+        dryRun: true,
+      })
+    );
+  });
+
+  it('starts only once the params are valid', async () => {
+    details.dag = {
+      name: 'etl',
+      paramDefs: [{ name: 'region', type: 'string', required: true }],
+    };
+    post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Start 2 runs' })
+    );
+    expect(
+      await screen.findByText('Fix the highlighted params before starting.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Required')).toBeInTheDocument();
+    expect(lastBody()).toMatchObject({ dryRun: true });
   });
 
   it('asks before running slots that succeeded again', async () => {

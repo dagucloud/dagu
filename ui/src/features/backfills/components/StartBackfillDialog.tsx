@@ -21,8 +21,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useCanManageProfiles } from '@/contexts/AuthContext';
+import {
+  DAGParamsFields,
+  useDAGParamsForm,
+} from '@/features/dags/components/dag-execution/DAGParamsForm';
 import { useProfiles } from '@/features/dags/hooks/useProfiles';
-import { useClient } from '@/hooks/api';
+import { useClient, useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatRoughDurationMs } from '@/lib/formatDuration';
@@ -56,6 +60,13 @@ type Props = {
 
 /** How long the options rest before the plan is asked for again. */
 const REPLAN_DELAY_MS = 400;
+
+/** The DAG's details are read once a time the panel opens. */
+const READ_ONCE = {
+  revalidateOnFocus: false,
+  revalidateIfStale: false,
+  refreshInterval: 0,
+} as const;
 
 const RERUNS: readonly BackfillRerun[] = [
   BackfillRerun.none,
@@ -126,7 +137,8 @@ function messageOf(error: unknown, fallback: string): string {
  * it offers what to run with the count each choice runs; slots picked one by
  * one run as they are. Redoing slots that succeeded needs a confirmation
  * that names how many. A plan that changed in the meantime is shown instead
- * of starting.
+ * of starting. The DAG's params form sends params only once one is changed,
+ * so each run otherwise takes its schedule's params, defaults, and evals.
  */
 export function StartBackfillDialog({
   fileName,
@@ -151,7 +163,13 @@ export function StartBackfillDialog({
   const [rerun, setRerun] = useState(BackfillRerun.none);
   const [concurrency, setConcurrency] = useState(1);
   const [onFailure, setOnFailure] = useState(BackfillOnFailure.stop);
-  const [params, setParams] = useState('');
+  const { data: details } = useQuery(
+    '/dags/{fileName}',
+    open ? { params: { path: { fileName }, query: { remoteNode } } } : null,
+    READ_ONCE
+  );
+  const paramsForm = useDAGParamsForm(details?.dag, open);
+  const params = paramsForm.serialize(true);
   // The plan and count of succeeded slots a confirmation was given for: a
   // plan that runs other slots asks again.
   const [confirmedRedo, setConfirmedRedo] = useState<string | null>(null);
@@ -257,6 +275,11 @@ export function StartBackfillDialog({
 
   const start = async () => {
     if (!plan || !chosen) return;
+    if (!paramsForm.validate()) {
+      setShowOptions(true);
+      setError(ts('Fix the highlighted params before starting.'));
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -424,14 +447,12 @@ export function StartBackfillDialog({
                 ))}
               </fieldset>
 
-              <label className="flex flex-col gap-1">
-                <span className="font-medium">{ts('Params')}</span>
-                <Input
-                  value={params}
-                  placeholder={ts("The DAG's defaults")}
-                  onChange={(event) => setParams(event.target.value)}
-                />
-              </label>
+              {paramsForm.count > 0 && (
+                <fieldset className="flex flex-col gap-3">
+                  <legend className="mb-1 font-medium">{ts('Params')}</legend>
+                  <DAGParamsFields form={paramsForm} disabled={submitting} />
+                </fieldset>
+              )}
 
               {activeProfiles.length > 0 && (
                 <label className="flex flex-col gap-1">
