@@ -89,7 +89,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, recursiveOutputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, reuseFromFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -111,6 +111,11 @@ var outputFromFlag = commandLineFlag{
 	name:          "output-from",
 	usage:         "Take the outputs of ONE skipped step from a finished dag-run, as <step>=<run-id>; repeatable; wins over --outputs-from for that step",
 	isStringArray: true,
+}
+
+var reuseFromFlag = commandLineFlag{
+	name:  "reuse-from",
+	usage: "Finished dag-run ID of this DAG whose unchanged steps the run reuses instead of running; the changed steps and the steps after them run",
 }
 
 var outputFlag = commandLineFlag{
@@ -364,9 +369,10 @@ func runStart(ctx *Context, args []string) error {
 		}
 	}
 
-	if len(selection.steps) > 0 {
+	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		logger.Info(ctx, "Executing selected steps",
 			slog.Any("steps", selection.steps),
+			slog.String("reuse-from", selection.reuseFrom),
 			slog.String("params", params),
 		)
 		return runSelectedSteps(ctx, dag, dagRunID, params, opts, selection)

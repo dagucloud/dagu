@@ -6,12 +6,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 // selectedSteps is the step selection of a `dagu start --only` run.
@@ -23,6 +25,9 @@ type selectedSteps struct {
 	outputFrom map[string]string
 	// outputs are outputs of skipped steps, by step and then output name.
 	outputs map[string]map[string]string
+	// reuseFrom is the run whose unchanged steps the run reuses, choosing
+	// the steps to run itself.
+	reuseFrom string
 }
 
 // selectedStepsParams reads and validates --only, --outputs-from,
@@ -43,6 +48,19 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	outputEntries, err := ctx.Command.Flags().GetStringArray(outputFlag.name)
 	if err != nil {
 		return selectedSteps{}, fmt.Errorf("failed to get output: %w", err)
+	}
+	reuseFrom, err := ctx.StringParam(reuseFromFlag.name)
+	if err != nil {
+		return selectedSteps{}, fmt.Errorf("failed to get reuse-from: %w", err)
+	}
+	if reuseFrom = strings.TrimSpace(reuseFrom); reuseFrom != "" {
+		if len(steps) > 0 || outputsFrom != "" || len(entries) > 0 || len(outputEntries) > 0 || ctx.Command.Flags().Changed(fromRunIDFlag.name) {
+			return selectedSteps{}, fmt.Errorf("--reuse-from chooses the steps to run itself; it cannot be combined with --only, --outputs-from, --output-from, --output, or --from-run-id")
+		}
+		if err := validateRunID(reuseFrom); err != nil {
+			return selectedSteps{}, fmt.Errorf("invalid reuse-from: %w", err)
+		}
+		return selectedSteps{reuseFrom: reuseFrom}, nil
 	}
 	if len(steps) == 0 {
 		if outputsFrom != "" {
@@ -73,6 +91,43 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 		return selectedSteps{}, err
 	}
 	return selectedSteps{steps: steps, outputsFrom: outputsFrom, outputFrom: outputFrom, outputs: outputs}, nil
+}
+
+// reuseUnchangedSteps turns a selection reusing selection.reuseFrom into the
+// steps to run, which intake.StepsToRun chooses, each other step carrying its
+// outputs from that run, whose work directory the run takes too. When no step
+// can be reused, or none changed, every step runs, from nothing.
+func reuseUnchangedSteps(ctx context.Context, repo *persis.DAGRunRepository, dag *ir.DAG, selection selectedSteps) (selectedSteps, error) {
+	attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, selection.reuseFrom))
+	if err != nil {
+		return selection, fmt.Errorf("failed to find dag-run %s for DAG %s: %w", selection.reuseFrom, dag.Name, err)
+	}
+	source, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return selection, fmt.Errorf("failed to read status for dag-run %s: %w", selection.reuseFrom, err)
+	}
+	if source.Status.IsActive() || source.Status == ir.NotStarted {
+		return selection, fmt.Errorf("dag-run %s is %s; steps are reused only from a finished run", source.DAGRunID, source.Status)
+	}
+	sourceDAG, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return selection, fmt.Errorf("failed to read the definition of dag-run %s: %w", selection.reuseFrom, err)
+	}
+	all := make([]string, 0, len(dag.Steps))
+	for _, step := range dag.Steps {
+		all = append(all, step.Name)
+	}
+	steps, err := intake.StepsToRun(dag, sourceDAG, source)
+	if err != nil || len(steps) == 0 || len(steps) == len(all) {
+		return selectedSteps{steps: all}, nil
+	}
+	reused := make(map[string]string, len(all)-len(steps))
+	for _, name := range all {
+		if !slices.Contains(steps, name) {
+			reused[name] = selection.reuseFrom
+		}
+	}
+	return selectedSteps{steps: steps, outputsFrom: selection.reuseFrom, outputFrom: reused, reuseFrom: selection.reuseFrom}, nil
 }
 
 // parseOutputFrom parses --output-from entries of the form <step>=<run-id>.
@@ -134,6 +189,12 @@ func parseStepOutputs(entries []string) (map[string]map[string]string, error) {
 // retry path, which leaves the seeded skipped steps alone.
 func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts runOptions, selection selectedSteps) error {
 	repo := ctx.Persistence.DAGRunRepository
+	if selection.reuseFrom != "" {
+		var err error
+		if selection, err = reuseUnchangedSteps(ctx, repo, dag, selection); err != nil {
+			return err
+		}
+	}
 	var source *ir.DAGRunStatus
 	if selection.outputsFrom != "" {
 		attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, selection.outputsFrom))

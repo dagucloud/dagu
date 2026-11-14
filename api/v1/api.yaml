@@ -1154,6 +1154,10 @@ paths:
                     type: string
                     minLength: 1
                   description: "Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs."
+                reuseFrom:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "Finished DAG-run of the same DAG whose unchanged steps this run reuses instead of running. A step is reused, as a skipped step carrying its outputs, when its definition, the DAG's definition other than its steps, the base config, the parameters, and the steps it depends on are as they were in that run, and it succeeded there or carried outputs into it; every other step runs, with the steps after it. The work directory is carried from that run. When no step can be reused, or none changed, every step runs. Cannot be sent with steps, outputsFromRunId, outputsFromRuns, outputs, or outputsSources. Not supported for agent DAGs."
                 outputsFromRunId:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
@@ -2712,6 +2716,10 @@ paths:
                     type: string
                     minLength: 1
                   description: "Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs."
+                reuseFrom:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "Finished DAG-run of the same DAG whose unchanged steps this run reuses instead of running. A step is reused, as a skipped step carrying its outputs, when its definition, the DAG's definition other than its steps, the base config, the parameters, and the steps it depends on are as they were in that run, and it succeeded there or carried outputs into it; every other step runs, with the steps after it. The work directory is carried from that run. When no step can be reused, or none changed, every step runs. Cannot be sent with steps, outputsFromRunId, outputsFromRuns, outputs, or outputsSources. Not supported for agent DAGs."
                 outputsFromRunId:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"

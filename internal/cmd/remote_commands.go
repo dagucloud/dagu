@@ -323,6 +323,7 @@ func remoteRunStart(ctx *Context, args []string) error {
 		OutputsFromRunId: stringPtrOrNil(selection.outputsFrom),
 		OutputsFromRuns:  outputsFromRuns,
 		Outputs:          outputs,
+		ReuseFrom:        stringPtrOrNil(selection.reuseFrom),
 		WorkerSelector:   workerSelector,
 		ScheduleTime:     stringPtrOrNil(scheduledAt),
 	})

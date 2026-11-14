@@ -161,7 +161,7 @@ func TestStartStepsRejects(t *testing.T) {
 	}
 
 	t.Run("OutputsFromNeedsSteps", func(t *testing.T) {
-		_, err := selectedStepsFromBody(nil, ptrOf("source"), nil, nil, nil, nil)
+		_, err := selectedStepsFromBody(nil, ptrOf("source"), nil, nil, nil, nil, nil)
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
@@ -169,7 +169,7 @@ func TestStartStepsRejects(t *testing.T) {
 	})
 
 	t.Run("OutputsFromRunsNeedSteps", func(t *testing.T) {
-		_, err := selectedStepsFromBody(nil, nil, &map[string]string{"build": "run-1"}, nil, nil, nil)
+		_, err := selectedStepsFromBody(nil, nil, &map[string]string{"build": "run-1"}, nil, nil, nil, nil)
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
@@ -179,18 +179,18 @@ func TestStartStepsRejects(t *testing.T) {
 	t.Run("OutputsFromRunsRunIDs", func(t *testing.T) {
 		steps := []string{"consume"}
 		for name, runID := range map[string]string{"Empty": " ", "BadID": "bad/id"} {
-			_, err := selectedStepsFromBody(&steps, nil, &map[string]string{"build": runID}, nil, nil, nil)
+			_, err := selectedStepsFromBody(&steps, nil, &map[string]string{"build": runID}, nil, nil, nil, nil)
 			var apiErr *Error
 			require.ErrorAs(t, err, &apiErr, name)
 			require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus, name)
 		}
-		got, err := selectedStepsFromBody(&steps, nil, &map[string]string{"build": " run-1 "}, nil, nil, nil)
+		got, err := selectedStepsFromBody(&steps, nil, &map[string]string{"build": " run-1 "}, nil, nil, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, map[string]string{"build": "run-1"}, got.outputsFromRuns)
 	})
 
 	t.Run("OutputsSourcesNeedSteps", func(t *testing.T) {
-		_, err := selectedStepsFromBody(nil, nil, nil, nil, &map[string]gen.ReusedOutputSource{"build": {RunId: "run-1"}}, nil)
+		_, err := selectedStepsFromBody(nil, nil, nil, nil, &map[string]gen.ReusedOutputSource{"build": {RunId: "run-1"}}, nil, nil)
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
@@ -204,7 +204,7 @@ func TestStartStepsRejects(t *testing.T) {
 			"BadID":      {RunId: "bad/id"},
 			"BadCapture": {RunId: "run-1", CapturedAt: ptrOf("yesterday")},
 		} {
-			_, err := selectedStepsFromBody(&steps, nil, nil, nil, &map[string]gen.ReusedOutputSource{"build": source}, nil)
+			_, err := selectedStepsFromBody(&steps, nil, nil, nil, &map[string]gen.ReusedOutputSource{"build": source}, nil, nil)
 			var apiErr *Error
 			require.ErrorAs(t, err, &apiErr, name)
 			require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus, name)
@@ -213,26 +213,26 @@ func TestStartStepsRejects(t *testing.T) {
 		// A run that does not exist is a valid source.
 		got, err := selectedStepsFromBody(&steps, nil, nil, nil, &map[string]gen.ReusedOutputSource{
 			"build": {RunId: "gone-run", CapturedAt: ptrOf("2026-10-26T12:00:00+02:00")},
-		}, nil)
+		}, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, intake.OutputSource{RunID: "gone-run", CapturedAt: "2026-10-26T12:00:00+02:00"}, got.outputsSources["build"])
 	})
 
 	t.Run("EphemeralNeedsSteps", func(t *testing.T) {
 		yes := true
-		_, err := selectedStepsFromBody(nil, nil, nil, nil, nil, &yes)
+		_, err := selectedStepsFromBody(nil, nil, nil, nil, nil, &yes, nil)
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
 		require.Contains(t, apiErr.Message, "ephemeral requires steps")
 
 		no := false
-		_, err = selectedStepsFromBody(nil, nil, nil, nil, nil, &no)
+		_, err = selectedStepsFromBody(nil, nil, nil, nil, nil, &no, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("OutputsNeedSteps", func(t *testing.T) {
-		_, err := selectedStepsFromBody(nil, nil, nil, &map[string]map[string]string{"build": {"RESULT": "x"}}, nil, nil)
+		_, err := selectedStepsFromBody(nil, nil, nil, &map[string]map[string]string{"build": {"RESULT": "x"}}, nil, nil, nil)
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)

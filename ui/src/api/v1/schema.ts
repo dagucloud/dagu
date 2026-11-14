@@ -10561,6 +10561,7 @@ export interface operations {
                     labels?: components["schemas"]["Labels"];
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
                     steps?: string[];
+                    reuseFrom?: components["schemas"]["DAGRunId"] & unknown;
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
                     /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
                     outputsFromRuns?: {
@@ -12227,6 +12228,7 @@ export interface operations {
                     labels?: components["schemas"]["Labels"];
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
                     steps?: string[];
+                    reuseFrom?: components["schemas"]["DAGRunId"] & unknown;
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
                     /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
                     outputsFromRuns?: {

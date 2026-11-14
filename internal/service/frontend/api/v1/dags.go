@@ -1176,7 +1176,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		}
 	}
 
-	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom)
 	if err != nil {
 		return nil, err
 	}
@@ -1243,7 +1243,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		return nil, err
 	}
 
-	if len(selection.steps) > 0 {
+	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
 			params:         params,

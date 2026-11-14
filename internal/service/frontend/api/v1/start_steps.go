@@ -40,6 +40,9 @@ type selectedStepsStart struct {
 type stepSelection struct {
 	steps       []string
 	outputsFrom string
+	// reuseFrom is the run whose unchanged steps the run reuses, choosing
+	// the steps to run itself.
+	reuseFrom string
 	// outputsFromRuns names, by step, the run that the step carries its
 	// outputs from instead of outputsFrom.
 	outputsFromRuns map[string]string
@@ -54,8 +57,20 @@ type stepSelection struct {
 
 // selectedStepsFromBody validates the step selection fields of a start
 // request body. It returns no steps when the request runs the whole DAG.
-func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputsFromRuns *map[string]string, outputs *map[string]map[string]string, outputsSources *map[string]api.ReusedOutputSource, ephemeral *bool) (stepSelection, error) {
+func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputsFromRuns *map[string]string, outputs *map[string]map[string]string, outputsSources *map[string]api.ReusedOutputSource, ephemeral *bool, reuseFrom *string) (stepSelection, error) {
 	outputsFrom := strings.TrimSpace(valueOf(outputsFromRunID))
+	if reuse := strings.TrimSpace(valueOf(reuseFrom)); reuseFrom != nil {
+		if steps != nil || outputsFrom != "" || outputsFromRuns != nil || outputs != nil || outputsSources != nil {
+			return stepSelection{}, badSelectedStepsRequest("reuseFrom chooses the steps to run itself; send it without steps, outputsFromRunId, outputsFromRuns, outputs, or outputsSources")
+		}
+		if reuse == "" {
+			return stepSelection{}, badSelectedStepsRequest("reuseFrom must name a run")
+		}
+		if err := validateDAGRunID(reuse); err != nil {
+			return stepSelection{}, err
+		}
+		return stepSelection{reuseFrom: reuse, ephemeral: valueOf(ephemeral)}, nil
+	}
 	if steps == nil {
 		if valueOf(ephemeral) {
 			return stepSelection{}, badSelectedStepsRequest("ephemeral requires steps: a run that leaves no trace is for steps")
@@ -167,6 +182,13 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 	if err != nil {
 		return err
 	}
+	if req.selection.reuseFrom != "" {
+		plan, err := a.reuseUnchangedSteps(ctx, dag, req.selection)
+		if err != nil {
+			return err
+		}
+		req.selection, source, fromRuns = plan.selection, plan.source, plan.fromRuns
+	}
 	if err := intake.CheckOutputSources(dag, req.selection.outputs, req.selection.outputsSources); err != nil {
 		return badSelectedStepsRequest(err.Error())
 	}
@@ -196,6 +218,64 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 		slot:         req.slot,
 	})
 	return err
+}
+
+// reusePlan is what a run reusing an earlier one runs, and the run, with
+// the steps, it carries outputs from.
+type reusePlan struct {
+	selection stepSelection
+	source    *ir.DAGRunStatus
+	fromRuns  intake.RunStepSources
+}
+
+// reuseUnchangedSteps chooses the steps a run reusing selection.reuseFrom
+// runs: the steps StepsToRun names, with every other step carrying its
+// outputs from that run, whose work directory the run takes too. When no
+// step can be reused, or none changed, every step runs, from nothing.
+func (a *API) reuseUnchangedSteps(ctx context.Context, dag *ir.DAG, selection stepSelection) (reusePlan, error) {
+	all := make([]string, 0, len(dag.Steps))
+	for _, step := range dag.Steps {
+		all = append(all, step.Name)
+	}
+	source, sourceDAG, err := a.reuseSource(ctx, dag.Name, selection.reuseFrom)
+	if err != nil {
+		return reusePlan{}, err
+	}
+	if source.Status.IsActive() || source.Status == ir.NotStarted {
+		return reusePlan{}, badSelectedStepsRequest(fmt.Sprintf("dag-run %s is %s; steps are reused only from a finished run", source.DAGRunID, source.Status))
+	}
+	steps, err := intake.StepsToRun(dag, sourceDAG, source)
+	if err != nil || len(steps) == 0 || len(steps) == len(all) {
+		selection.steps = all
+		return reusePlan{selection: selection}, nil
+	}
+	fromRuns := make(intake.RunStepSources, len(all)-len(steps))
+	for _, name := range all {
+		if !slices.Contains(steps, name) {
+			fromRuns[name] = source
+		}
+	}
+	selection.steps = steps
+	selection.outputsFrom = source.DAGRunID
+	return reusePlan{selection: selection, source: source, fromRuns: fromRuns}, nil
+}
+
+// reuseSource reads the run a run reuses unchanged steps from, with the
+// definition it ran.
+func (a *API) reuseSource(ctx context.Context, dagName, dagRunID string) (*ir.DAGRunStatus, *ir.DAG, error) {
+	status, err := a.selectedStepsSource(ctx, dagName, dagRunID)
+	if err != nil {
+		return nil, nil, err
+	}
+	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to find dag-run %s: %w", dagRunID, err)
+	}
+	sourceDAG, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read the definition of dag-run %s: %w", dagRunID, err)
+	}
+	return status, sourceDAG, nil
 }
 
 // selectedStepsSource reads the run whose outputs a selected-steps run reuses.
@@ -239,6 +319,9 @@ func (a *API) selectedStepsFromRuns(ctx context.Context, dagName string, refs ma
 // credentials. The request is recorded as ephemeral when the run leaves no
 // trace, so the audit log stays the one record of it.
 func addSelectedStepsAudit(details map[string]any, selection stepSelection) {
+	if selection.reuseFrom != "" {
+		details["reuse_from_dag_run_id"] = selection.reuseFrom
+	}
 	if len(selection.steps) == 0 {
 		return
 	}
