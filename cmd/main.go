@@ -55,6 +55,7 @@ func init() {
 	rootCmd.AddCommand(cmd.CmdWorker())
 	rootCmd.AddCommand(cmd.Retry())
 	rootCmd.AddCommand(cmd.StartAll())
+	rootCmd.AddCommand(cmd.ServiceStop())
 	rootCmd.AddCommand(cmd.Cleanup())
 	rootCmd.AddCommand(cmd.PruneArtifacts())
 	rootCmd.AddCommand(cmd.Sync())

@@ -116,7 +116,13 @@ func runStartAll(ctx *Context, _ []string) error {
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
 	// SIGHUP and SIGQUIT end start-all as they end a standalone scheduler, so
 	// a closed terminal never leaves the server running without its scheduler.
-	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	// The Windows service stops start-all through service-stop, which leaves
+	// runs in progress running, as the service wrapper would not.
+	stopRequests, err := serviceStopRequests(ctx.Config.Paths.DataDir)
+	if err != nil {
+		logger.Warn(ctx, "Service stop requests are unavailable", tag.Error(err))
+	}
+	signalCtx, stop := notifyShutdownOrRequestContext(ctx.Context, stopRequests, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stop()
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
