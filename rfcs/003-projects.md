@@ -365,13 +365,16 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     starts with `.`, so it never reads `.dagu/` or `.git/`.
 
   The UI suggests the folder's name as the project name and display name.
-  An existing folder must lie under one of the directories that
-  `paths.allowed_project_folders` in `config.yaml` lists. With none listed,
-  only the default is offered, so an admin of the UI cannot expose files of
-  the server's machine that its operator did not allow. A folder already
-  used by a project, inside another project's directories, inside
-  `paths.projects_dir` or `paths.projects_dags_dir`, or inside the library
-  is refused. Paths are compared as the operating system compares them.
+  The path is on the server's machine, not the admin's browser's. An admin
+  may choose any folder that Dagu can read and write: an admin who can edit
+  DAGs can already run any command as Dagu's user, so a narrower rule would
+  protect nothing. When `permissions.write_dags` is off, editing DAGs is
+  off, and choosing a folder would let an admin run any YAML on the
+  machine, so only the default is offered. A filesystem root such as `/` or
+  `C:\`, a folder already used by a project, a folder inside another
+  project's directories, inside `paths.projects_dir` or
+  `paths.projects_dags_dir`, or inside the library is refused. Paths are
+  compared as the operating system compares them.
 - **Display name.** An admin changes it in the UI or API at any time. Only
   the registry changes.
 - **Rename.** An admin renames a project in the UI or API, or with `dagu
@@ -714,15 +717,15 @@ without an admin, apply from the release that ships the feature.
 28. A `.dagu.yaml` path that leads out of its project's DAG directory is a
     load error.
 29. A v3.0 coordinator gives no task to an older worker, and both say why.
-30. An admin can create a project on an existing folder under
-    `paths.allowed_project_folders`. Dagu reads its DAGs there, keeps the
-    project's runs, logs, and other state in the folder's `.dagu/`, and
+30. With default settings, an admin can create a project on any existing
+    folder that Dagu can read and write. Dagu reads its DAGs there, keeps
+    the project's runs, logs, and other state in the folder's `.dagu/`, and
     never moves or deletes the folder.
 31. `dagu start` inside such a folder shows and extends the same run
     history before and after the folder is added to a server.
-32. A folder outside `paths.allowed_project_folders`, already used by a
-    project, or inside another project's or Dagu's own directories is
-    refused.
+32. A filesystem root, a folder already used by a project, or a folder
+    inside another project's or Dagu's own directories is refused, and with
+    `permissions.write_dags` off no existing folder is offered.
 
 ## Alternatives considered
 
