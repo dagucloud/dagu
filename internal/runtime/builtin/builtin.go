@@ -27,6 +27,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/kubernetes"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/log"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/mail"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/mcp"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/noop"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/outputs"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/redis"

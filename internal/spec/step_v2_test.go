@@ -1669,3 +1669,39 @@ steps:
 		}
 	})
 }
+
+func TestStepSchemaV2_ActionMCPCall(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: scrape
+    action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments: {formats: [markdown]}
+      headers:
+        Authorization: Bearer abc
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	assert.Equal(t, "mcp", step.ExecutorConfig.Type)
+	assert.Equal(t, "scrape", step.ExecutorConfig.Config["tool"])
+	assert.Equal(t, "https://mcp.example.com/mcp", step.ExecutorConfig.Config["url"])
+}
+
+func TestStepSchemaV2_ActionMCPCallRejectsBadConfig(t *testing.T) {
+	t.Parallel()
+
+	for name, with := range map[string]string{
+		"missing tool": "url: https://x.example/mcp",
+		"stdio url":    "url: stdio://x\n      tool: t",
+		"credentials":  "url: https://u:p@x.example/mcp\n      tool: t",
+	} {
+		_, err := LoadYAML(context.Background(), []byte("steps:\n  - action: mcp.call\n    with:\n      "+with+"\n"))
+		assert.Error(t, err, name)
+	}
+}

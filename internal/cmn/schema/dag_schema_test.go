@@ -425,6 +425,41 @@ steps:
 `,
 		},
 		{
+			name: "ActionMCPCall",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments: {formats: [markdown]}
+      headers:
+        Authorization: Bearer ${TOKEN}
+`,
+		},
+		{
+			name: "RejectActionMCPCallMissingTool",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionMCPCallUnknownField",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      transport: stdio
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "ActionDagRunParallel",
 			spec: `
 steps:

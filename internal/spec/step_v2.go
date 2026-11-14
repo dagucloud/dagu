@@ -87,6 +87,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"mail.organize":       normalizeMailOrganizeAction,
 	"mail.search":         normalizeMailSearchAction,
 	"mail.send":           typedAction("mail"),
+	"mcp.call":            typedAction("mcp"),
 	"noop":                normalizeNoopAction,
 	"outputs.write":       operationAction("outputs", "write"),
 	"postgres.query":      commandAction("postgres", "query"),
