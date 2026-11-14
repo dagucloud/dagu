@@ -418,13 +418,12 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
-			// Recovery replays the slots after its boundary only, and the
-			// first tick runs its own.
-			through := missedBefore.Add(-time.Second)
-			if recovery > 0 {
-				through = missedBefore
+			tp.settleRestoredHold(ctx, entry, active, state.LastTick)
+			// With recovery, initBuffers records the gap, as it knows the
+			// slots recovery replays. Otherwise the first tick runs its own.
+			if recovery == 0 {
+				tp.recordDownGap(ctx, entry, active, state.LastTick, missedBefore, missedBefore.Add(-time.Second))
 			}
-			tp.recordDownGap(ctx, entry, active, state.LastTick, missedBefore, through)
 		}
 	}
 	tp.initBuffers(ctx, entries, activeByDAG, recovery)
@@ -595,10 +594,10 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 
 		wm := dagWatermarks[dag.Name]
 		replayFrom := ComputeReplayFrom(window, lastTick, wm.LastScheduledTime, now)
-		tp.recordClampedGap(ctx, entry, active, lastTick, wm.LastScheduledTime, replayFrom)
 		if recovery > 0 {
 			replayFrom = includeUnstartedSlot(replayFrom, wm.LastSlot, now.Add(-recovery))
 		}
+		tp.recordClampedGap(ctx, entry, active, lastTick, wm.LastScheduledTime, replayFrom)
 		replayTo := now
 		if dag.CatchupWindow <= 0 {
 			// The first tick runs the current minute's slots as usual.
@@ -716,7 +715,8 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		if !ok {
 			continue
 		}
-		tp.releaseDAG(dagName, active.start, now)
+		// The slots of this tick run.
+		tp.releaseDAG(dagName, active.start, now, now.Truncate(time.Minute).Add(-time.Second))
 		tp.reconcileNextRun(dagName, active.start, now.In(tp.cfg.Location), false)
 
 		// Check catchup buffer first (catchup has priority over live)

@@ -35,10 +35,10 @@ func (tp *TickPlanner) holdDAG(dagName string, reason schedulerstate.GapReason, 
 	tp.watermarkState.DAGs[dagName] = watermark
 }
 
-// releaseDAG ends a DAG's hold. The slots that came due while it was held,
-// from the tick that found it held to the one before now, make its missed
-// gap; the slots of this tick run.
-func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, now time.Time) {
+// releaseDAG ends a DAG's hold at to. The slots that came due while it was
+// held, from the tick that found it held through through, make its missed
+// gap.
+func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, to, through time.Time) {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 	if tp.watermarkState.DAGs[dagName].HeldSince == nil {
@@ -47,11 +47,28 @@ func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, now t
 	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[dagName])
 	since, reason := *watermark.HeldSince, watermark.HeldBy
 	watermark.HeldSince, watermark.HeldBy = nil, ""
-	slots := countSlots(schedules, since.Add(-time.Second).In(tp.cfg.Location), now.Truncate(time.Minute).Add(-time.Second))
+	slots := countSlots(schedules, since.Add(-time.Second).In(tp.cfg.Location), through)
 	if slots > 0 {
-		watermark.Missed = &schedulerstate.MissedGap{From: since, To: now, Reason: reason, Slots: slots}
+		watermark.Missed = &schedulerstate.MissedGap{From: since, To: to, Reason: reason, Slots: slots}
 	}
 	tp.watermarkState.DAGs[dagName] = watermark
+}
+
+// settleRestoredHold ends at startup the hold of a DAG that is no longer
+// held. Its hold lasted at least to the last tick, and catch-up and the
+// outage's gap take the slots after it.
+func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, active activeDAGSchedules, lastTick time.Time) {
+	tp.mu.RLock()
+	held := tp.watermarkState.DAGs[entry.DAG.Name].HeldSince != nil
+	tp.mu.RUnlock()
+	if !held || lastTick.IsZero() {
+		return
+	}
+	suspended, err := isSuspendedDAG(ctx, tp.cfg.IsSuspended, nil, entry.DAG, entry.DefinitionID)
+	if err != nil || suspended {
+		return
+	}
+	tp.releaseDAG(entry.DAG.Name, active.start, lastTick, lastTick)
 }
 
 // recordDownGap records as the gap from to to the slots of a DAG that is
@@ -64,11 +81,11 @@ func (tp *TickPlanner) recordDownGap(ctx context.Context, entry DAGEntry, active
 	tp.recordGap(ctx, entry, active.start, from, to, through)
 }
 
-// recordClampedGap records as missed the slots a DAG that is caught up left
-// behind: those after its last tick or slot and by replayFrom, where its
-// catch-up window starts.
+// recordClampedGap records as missed the slots a DAG that is caught up, or
+// recovered after a failover, left behind: those after its last tick or
+// slot and by replayFrom, where its replay starts.
 func (tp *TickPlanner) recordClampedGap(ctx context.Context, entry DAGEntry, active activeDAGSchedules, lastTick, lastScheduled, replayFrom time.Time) {
-	if !tp.cfg.QueuesEnabled || entry.DAG.CatchupWindow <= 0 {
+	if !tp.cfg.QueuesEnabled {
 		return
 	}
 	from := lastTick

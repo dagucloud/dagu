@@ -172,3 +172,59 @@ func TestTickPlanner_InitRecordsGapThroughRecoveryBoundary(t *testing.T) {
 		From: at(9, 0), To: at(11, 0), Reason: schedulerstate.GapDown, Slots: 2,
 	}, missedGap(tp, dag.Name))
 }
+
+// bufferedSlots returns the slots a DAG's catch-up buffer holds.
+func bufferedSlots(tp *TickPlanner, dagName string) []time.Time {
+	var slots []time.Time
+	if buffer := tp.buffers[dagName]; buffer != nil {
+		for _, item := range buffer.items {
+			slots = append(slots, item.ScheduledTime)
+		}
+	}
+	return slots
+}
+
+// A hold that ended while no scheduler ran lasted to the last tick: its gap
+// ends there, and catch-up takes the slots after it, so none is both.
+func TestTickPlanner_InitSettlesRestoredHold(t *testing.T) {
+	t.Parallel()
+	heldSince := at(10, 0)
+	state := newMockState(at(11, 0))
+	state.DAGs["caught-up"] = schedulerstate.DAGWatermark{
+		LastScheduledTime: at(11, 0), HeldSince: &heldSince, HeldBy: schedulerstate.GapSuspended,
+	}
+	tp, _ := newTestTickPlanner(&mockStateStore{state: state})
+	tp.cfg.Clock = func() time.Time { return at(14, 0) }
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
+	dag := newHourlyCatchupDAG(t, "caught-up")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	assert.Equal(t, &schedulerstate.MissedGap{
+		From: at(10, 0), To: at(11, 0), Reason: schedulerstate.GapSuspended, Slots: 2,
+	}, missedGap(tp, dag.Name))
+	for _, slot := range bufferedSlots(tp, dag.Name) {
+		assert.True(t, slot.After(at(11, 0)), "catch-up replays %s, which the gap counts", slot)
+	}
+	tp.mu.RLock()
+	assert.Nil(t, tp.watermarkState.DAGs[dag.Name].HeldSince)
+	tp.mu.RUnlock()
+}
+
+// Recovery replays a slot planned before the failover, so the gap leaves it
+// out.
+func TestTickPlanner_InitLeavesOutRecoveredPlannedSlot(t *testing.T) {
+	t.Parallel()
+	state := newMockState(at(10, 59))
+	state.DAGs["hourly"] = schedulerstate.DAGWatermark{
+		LastScheduledTime: at(10, 0),
+		LastSlot:          &schedulerstate.ScheduleSlot{At: at(11, 0), Outcome: schedulerstate.SlotPlanned},
+	}
+	tp, _ := newTestTickPlanner(&mockStateStore{state: state})
+	tp.cfg.RecoveryWindow = func() time.Duration { return time.Hour }
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
+	dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	assert.Contains(t, bufferedSlots(tp, dag.Name), at(11, 0))
+	assert.Nil(t, missedGap(tp, dag.Name))
+}
