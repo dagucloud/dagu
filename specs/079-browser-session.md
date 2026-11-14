@@ -152,7 +152,9 @@ labels, selects with their choice and options, file inputs, buttons,
 checkboxes, links with their addresses, messages, and tables and lists by
 their columns and rows. Each element an operation can act on shows its ID in
 brackets, and a link to the page's own site shows its path; a list item that
-is one link shows only the link. The page's own content comes first, and the
+is one link shows only the link, and a heading that is one link, as a list's
+entry titles often are, shows as that link. The links and buttons inside any
+other heading show under it. The page's own content comes first, and the
 site's header, menus, sidebars, and footer after it, so a limit on the
 outline leaves out menus rather than content. A run of more than five alike
 rows shows the first three and counts the rest. Text typed into fields is
