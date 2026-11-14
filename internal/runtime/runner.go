@@ -176,6 +176,9 @@ type Config struct {
 
 // Run runs the plan of steps.
 func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUpdate) error {
+	// A run started by a step, such as a sub-DAG run in process, checks its
+	// own reads instead of the step's.
+	ctx = cmnvalue.UntrackMaskedReads(ctx)
 	if err := r.setup(ctx); err != nil {
 		return err
 	}

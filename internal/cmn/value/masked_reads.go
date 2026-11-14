@@ -64,6 +64,12 @@ func TrackMaskedReads(ctx context.Context) context.Context {
 	return context.WithValue(ctx, maskedReadsKey{}, &maskedReads{})
 }
 
+// UntrackMaskedReads returns ctx without the masked-read tracking it carries,
+// for a run that starts inside a step, whose reads are its own.
+func UntrackMaskedReads(ctx context.Context) context.Context {
+	return context.WithValue(ctx, maskedReadsKey{}, (*maskedReads)(nil))
+}
+
 // MaskedRead returns a *MaskedReadError for the first masked output read
 // through ctx, or nil.
 func MaskedRead(ctx context.Context) error {

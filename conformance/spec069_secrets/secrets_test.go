@@ -144,6 +144,24 @@ func TestStepOutputMaskedOnParallelRetry(t *testing.T) {
 	dagu.ExpectTextFileContent("received.out", "filesecretvalue123\n")
 }
 
+// A child run that a step starts in process checks its own reads, so its
+// handler reads the masked output variable as it is and the retry succeeds.
+func TestStepOutputMaskedInChildHandler(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-child-handler"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_child_handler.yaml").ExpectNonZeroExitCode()
+	first := "use ran\nhandler [filesecretvalue123]\n"
+	dagu.ExpectTextFileContent("received.out", first)
+
+	dagu.WriteFile("ready", "")
+	dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_child_handler.yaml").ExpectExitCode(0)
+	dagu.ExpectTextFileContent("received.out", first+"use ran\nhandler [*******]\n")
+}
+
 // A foreach body step that defines the name of a masked output variable in its
 // own env reads its own value, so the retry runs.
 func TestStepOutputShadowedOnRetry(t *testing.T) {
