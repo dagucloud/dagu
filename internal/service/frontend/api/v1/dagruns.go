@@ -5149,14 +5149,15 @@ func detectArtifactMimeType(path string, previewBytes []byte) string {
 	return http.DetectContentType(previewBytes)
 }
 
-// zipMagic is the leading four bytes of a zip container (PK\x03\x04, PK\x05\x06,
-// or PK\x07\x08). Office Open XML packages and other zip-based artifacts carry
-// it, so a file whose type merely mentions "xml" is not text when its content
-// is a zip archive.
-var zipMagic = []byte("PK\x03\x04")
+// Office files report a MIME type that mentions "xml", but their content is
+// binary: a zip package, or an OLE compound file once password-protected.
+var (
+	zipMagic = []byte("PK\x03\x04")
+	oleMagic = []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+)
 
 func artifactPreviewKind(path, mimeType string, previewBytes []byte) api.ArtifactPreviewKind {
-	if bytes.HasPrefix(previewBytes, zipMagic) {
+	if bytes.HasPrefix(previewBytes, zipMagic) || bytes.HasPrefix(previewBytes, oleMagic) {
 		return api.ArtifactPreviewKindBinary
 	}
 	switch strings.ToLower(filepath.Ext(path)) {

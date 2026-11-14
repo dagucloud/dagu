@@ -84,23 +84,21 @@ func TestBuildArtifactPreviewAllowsLargerTextWithinTextLimit(t *testing.T) {
 	assert.NotEmpty(t, *preview.Content)
 }
 
-// TestBuildArtifactPreviewTreatsOfficePackagesAsBinary covers #3000: an Office
-// Open XML artifact (xlsx/docx/pptx) reports type "...openxmlformats-..."
-// whose MIME string contains "xml", so it must be classified as binary by its
-// zip magic rather than as text.
-func TestBuildArtifactPreviewTreatsOfficePackagesAsBinary(t *testing.T) {
+// Office files report a MIME type that mentions "xml". The type is passed in
+// directly because mime.TypeByExtension knows .xlsx only on hosts that ship a
+// MIME table.
+func TestArtifactPreviewKindTreatsOfficeFilesAsBinary(t *testing.T) {
 	t.Parallel()
 
-	archiveDir := t.TempDir()
-	// A minimal zip container: the PK\x03\x04 local-file-header magic is what
-	// the preview classifies as binary.
-	content := append([]byte("PK\x03\x04"), bytes.Repeat([]byte("a"), 64)...)
-	for _, name := range []string{"out.xlsx", "doc.docx", "slide.pptx"} {
-		path := filepath.Join(archiveDir, name)
-		require.NoError(t, os.WriteFile(path, content, 0o600))
-		preview, err := buildArtifactPreview(archiveDir, name)
-		require.NoError(t, err)
-		assert.Equal(t, openapiv1.ArtifactPreviewKindBinary, preview.Kind, "%s must be binary", name)
+	const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	for name, content := range map[string][]byte{
+		"ZipPackage": []byte("PK\x03\x04rest"),
+		"Encrypted":  []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, openapiv1.ArtifactPreviewKindBinary, artifactPreviewKind("out.xlsx", xlsxType, content))
+		})
 	}
 }
 
