@@ -134,8 +134,8 @@ config, not a DAG.
 
 A project can instead keep its DAG files in an existing folder that the
 admin chooses when creating it, such as a repository checkout elsewhere on
-the machine. Its runtime state stays under `projects/<name>/`. See
-[Lifecycle](#lifecycle).
+the machine. Its runtime state, such as run records, logs, and artifacts,
+then lives in the folder too, under `.dagu/`. See [Lifecycle](#lifecycle).
 
 ### Names
 
@@ -352,8 +352,17 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   - **An existing folder,** such as a repository checkout, by its absolute
     path. Dagu reads the DAG files and `base.yaml` there, and spec 001 rules
     when the folder holds `.dagu.yaml`. Dagu never moves or deletes the
-    folder. The project's runtime state still lives under
-    `projects/<name>/`, and the registry records the folder's path.
+    folder. The registry records the folder's path.
+  - The runtime state of a project on an existing folder, such as run
+    records, logs, artifacts, and DAG state, lives in the folder's
+    `.dagu/`, laid out as [spec 001](../specs/001-project.md#project-state)
+    lays out a checkout's state. Dagu creates `.dagu/` with a `.gitignore`
+    that ignores it. The folder then holds the whole project, and
+    `dagu start` inside it reads and writes the same history whether or not
+    the folder was added to a server, including runs made before it was
+    added. Dagu must be able to write to the folder.
+  - Discovery in an existing folder never enters a directory whose name
+    starts with `.`, so it never reads `.dagu/` or `.git/`.
 
   The UI suggests the folder's name as the project name and display name.
   An existing folder must lie under one of the directories that
@@ -380,15 +389,17 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   The ID, grants, Dagu Cloud binding, and run history stay. Clients that
   address the project by name use the new name. With
   `paths.projects_dags_dir` set, a git checkout shows the moved DAG
-  directory as a change to commit. A project on an existing folder keeps
-  its folder; only its runtime state moves.
+  directory as a change to commit. Renaming a project on an existing folder
+  moves nothing, since its state lives in the folder; only the registry
+  changes.
 - **Delete.** An admin deletes a project in the UI or API, or with `dagu
   project delete`. After the same first step as a rename, it removes the
   project's directories, registry entry, grants, and Dagu Cloud binding.
   With `paths.projects_dags_dir` set, it is refused while the project's DAG
   directory exists: the checkout owns that directory, so it is removed
-  there first. Deleting a project on an existing folder leaves the folder
-  as it is.
+  there first. Deleting a project on an existing folder removes its
+  registry entry, grants, and binding, and asks whether to remove the
+  folder's `.dagu/` too. The rest of the folder stays as it is.
 - Rename and delete are refused while the project has runs queued, running,
   or waiting.
 - **Changed on disk.** A project whose DAG directory disappears outside
@@ -410,7 +421,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   An admin can also relink a missing project to any unregistered directory,
   or delete it. A project on an existing folder that was moved or removed
   is listed as missing the same way, and the admin relinks it to the
-  folder's new path.
+  folder's new path. Its history moved with the folder, so nothing else
+  moves.
 - **The default project** cannot be renamed or deleted. Its display name
   can change.
 
@@ -704,9 +716,11 @@ without an admin, apply from the release that ships the feature.
 29. A v3.0 coordinator gives no task to an older worker, and both say why.
 30. An admin can create a project on an existing folder under
     `paths.allowed_project_folders`. Dagu reads its DAGs there, keeps the
-    project's runtime state under `projects/<name>/`, and never moves or
-    deletes the folder.
-31. A folder outside `paths.allowed_project_folders`, already used by a
+    project's runs, logs, and other state in the folder's `.dagu/`, and
+    never moves or deletes the folder.
+31. `dagu start` inside such a folder shows and extends the same run
+    history before and after the folder is added to a server.
+32. A folder outside `paths.allowed_project_folders`, already used by a
     project, or inside another project's or Dagu's own directories is
     refused.
 
