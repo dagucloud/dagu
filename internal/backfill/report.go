@@ -40,6 +40,9 @@ type SlotReport struct {
 	At    time.Time `json:"slot"`
 	State SlotState `json:"state"`
 	RunID string    `json:"runId,omitempty"`
+	// OtherDefinition reports that the slot's run ran another definition
+	// than the one the backfill pins now, as after a resume of an edited DAG.
+	OtherDefinition bool `json:"otherDefinition,omitempty"`
 }
 
 // Failure is a group of a backfill's failed slots whose runs failed alike:
@@ -82,6 +85,7 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 	byslot := currentProgress(record, progress)
 	now := time.Now()
 	report := Report{Record: record, Counts: make(map[SlotState]int)}
+	pinned := ir.DefinitionDigest(record.Definition)
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
 		item := SlotReport{At: slot.At, State: SlotStatePending, RunID: event.RunID}
@@ -107,8 +111,9 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 			}
 			// A run that failed since the last tick has no outcome recorded
 			// yet: the status just read tells how it failed.
-			event.Step, event.Error = read.step, read.err
+			event.Step, event.Error, event.Digest = read.step, read.err, read.digest
 		}
+		item.OtherDefinition = event.Digest != "" && pinned != "" && event.Digest != pinned
 		report.Slots = append(report.Slots, item)
 		report.Counts[item.State]++
 		if item.State == SlotStateFailed {
@@ -150,6 +155,8 @@ type runRead struct {
 	state     SlotState
 	queue     string
 	step, err string
+	// digest identifies the definition the run ran.
+	digest string
 }
 
 // runState reads the run that event queued.
@@ -161,7 +168,7 @@ func runState(ctx context.Context, readRun func(context.Context, ir.DAGRunRef) (
 	if err != nil {
 		return runRead{}, err
 	}
-	read := runRead{queue: cmp.Or(status.ProcGroup, dagName)}
+	read := runRead{queue: cmp.Or(status.ProcGroup, dagName), digest: status.DefinitionDigest}
 	switch {
 	case status.Status == ir.Queued:
 		read.state = SlotStateQueued

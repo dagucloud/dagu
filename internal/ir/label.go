@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Label represents a key-value label with optional value.
@@ -324,39 +325,41 @@ func (f LabelFilter) matches(labels Labels) bool {
 	}
 }
 
-// matchGlob performs simple glob matching with * and ? wildcards.
-// * matches zero or more characters (including slashes), ? matches exactly one character.
-// Uses regex internally to properly handle slashes in label values.
-// Returns false if the pattern is invalid.
+// matchGlob reports whether s matches pattern, where * matches any run of
+// characters, including none and "/", ? matches one character, and every
+// other character matches itself. It compiles nothing, since a filter is
+// matched against every label of every DAG, run, or node it lists.
 func matchGlob(pattern, s string) bool {
-	regexPattern := globToRegex(pattern)
-	re, err := regexp.Compile(regexPattern)
-	if err != nil {
-		return false
-	}
-	return re.MatchString(s)
-}
-
-// globToRegex converts a glob pattern to a regex pattern.
-// Escapes regex metacharacters and translates * to .* and ? to .
-func globToRegex(glob string) string {
-	var result strings.Builder
-	result.WriteString("^")
-	for _, ch := range glob {
-		switch ch {
-		case '*':
-			result.WriteString(".*")
-		case '?':
-			result.WriteString(".")
-		case '.', '+', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\':
-			result.WriteRune('\\')
-			result.WriteRune(ch)
-		default:
-			result.WriteRune(ch)
+	p, i := 0, 0
+	// The last * seen, and the position in s it has absorbed up to, so a
+	// mismatch can retry with that * taking one more character.
+	star, starI := -1, 0
+	for i < len(s) {
+		if p < len(pattern) {
+			pc, pw := utf8.DecodeRuneInString(pattern[p:])
+			sc, sw := utf8.DecodeRuneInString(s[i:])
+			switch pc {
+			case '*':
+				star, starI = p, i
+				p += pw
+				continue
+			case '?', sc:
+				p += pw
+				i += sw
+				continue
+			}
 		}
+		if star < 0 {
+			return false
+		}
+		_, sw := utf8.DecodeRuneInString(s[starI:])
+		starI += sw
+		p, i = star+1, starI
 	}
-	result.WriteString("$")
-	return result.String()
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+	return p == len(pattern)
 }
 
 // MatchesFilters checks if labels match all filters (AND logic).

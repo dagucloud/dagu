@@ -5,7 +5,12 @@ import { Layers, List, Search } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from '@/lib/dayjs';
-import { Status, ViewSpecType } from '../../api/v1/schema';
+import {
+  PathsDagRunsGetParametersQueryBackfill,
+  RunBackfillFilter,
+  Status,
+  ViewSpecType,
+} from '../../api/v1/schema';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -30,12 +35,14 @@ import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunT
 import { ServiceDAGStrip } from '../../features/service-dags/components/ServiceDAGStrip';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
 import {
+  asBackfillFilter,
   buildRunViewSpec,
   dagRunsFilterSetFromView,
   type DAGRunsFilterSet,
   type DAGRunsFilterView,
 } from '../../features/dag-runs/lib/runViews';
 import { ViewSelector } from '../../features/views/ViewSelector';
+import { BackfillRunsFilter } from '../../features/backfills/components/BackfillRunsFilter';
 import {
   viewMatchesScope,
   viewScopeForSelection,
@@ -65,10 +72,21 @@ type DAGRunsFilters = DAGRunsFilterSet;
 
 const ALL_RUNS_VIEW_PARAM = 'all';
 
+/** The run list's backfill parameter for each backfill filter. */
+const BACKFILL_QUERY: Record<
+  RunBackfillFilter,
+  PathsDagRunsGetParametersQueryBackfill | undefined
+> = {
+  [RunBackfillFilter.all]: undefined,
+  [RunBackfillFilter.exclude]: PathsDagRunsGetParametersQueryBackfill.exclude,
+  [RunBackfillFilter.only]: PathsDagRunsGetParametersQueryBackfill.only,
+};
+
 const RUN_FILTER_QUERY_KEYS = [
   'name',
   'dagRunId',
   'status',
+  'backfill',
   'labels',
   'tags',
   'fromDate',
@@ -117,6 +135,7 @@ const areFiltersEqual = (a: DAGRunsFilters, b: DAGRunsFilters): boolean =>
   a.searchText === b.searchText &&
   a.dagRunId === b.dagRunId &&
   a.status === b.status &&
+  a.backfill === b.backfill &&
   areLabelsEqual(a.labels, b.labels) &&
   a.fromDate === b.fromDate &&
   a.toDate === b.toDate &&
@@ -283,6 +302,7 @@ function DAGRuns() {
       searchText: '',
       dagRunId: '',
       status: 'all',
+      backfill: RunBackfillFilter.all,
       labels: [],
       fromDate: getDefaultFromDate(),
       toDate: undefined,
@@ -298,6 +318,9 @@ function DAGRuns() {
   const [searchText, setSearchText] = React.useState(defaultFilters.searchText);
   const [dagRunId, setDagRunId] = React.useState(defaultFilters.dagRunId);
   const [status, setStatus] = React.useState<string>(defaultFilters.status);
+  const [backfillFilter, setBackfillFilter] = React.useState(
+    defaultFilters.backfill
+  );
   const [selectedLabels, setSelectedLabels] = React.useState<string[]>(
     defaultFilters.labels
   );
@@ -314,6 +337,7 @@ function DAGRuns() {
   );
   const [apiDagRunId, setApiDagRunId] = React.useState(defaultFilters.dagRunId);
   const [apiStatus, setApiStatus] = React.useState(defaultFilters.status);
+  const [apiBackfill, setApiBackfill] = React.useState(defaultFilters.backfill);
   const [apiLabels, setApiLabels] = React.useState<string[]>(
     defaultFilters.labels
   );
@@ -364,6 +388,7 @@ function DAGRuns() {
       searchText,
       dagRunId,
       status,
+      backfill: backfillFilter,
       labels: selectedLabels,
       fromDate,
       toDate,
@@ -376,6 +401,7 @@ function DAGRuns() {
       searchText,
       dagRunId,
       status,
+      backfillFilter,
       selectedLabels,
       fromDate,
       toDate,
@@ -541,6 +567,11 @@ function DAGRuns() {
       hasUrlFilters = true;
     }
 
+    if (params.has('backfill')) {
+      urlFilters.backfill = asBackfillFilter(params.get('backfill'));
+      hasUrlFilters = true;
+    }
+
     if (params.has('labels') || params.has('tags')) {
       const labelsParam = params.get('labels') ?? params.get('tags') ?? '';
       urlFilters.labels = labelsParam
@@ -660,6 +691,7 @@ function DAGRuns() {
     setSearchText(resolved.searchText);
     setDagRunId(resolved.dagRunId);
     setStatus(resolved.status);
+    setBackfillFilter(asBackfillFilter(resolved.backfill));
     setSelectedLabels(resolved.labels);
     setFromDate(resolved.fromDate);
     setToDate(resolved.toDate);
@@ -671,6 +703,7 @@ function DAGRuns() {
     setAPISearchText(resolved.searchText);
     setApiDagRunId(resolved.dagRunId);
     setApiStatus(resolved.status);
+    setApiBackfill(asBackfillFilter(resolved.backfill));
     setApiLabels(resolved.labels);
     setApiFromDate(resolved.fromDate);
     setApiToDate(resolved.toDate);
@@ -806,6 +839,7 @@ function DAGRuns() {
             name: apiSearchText || undefined,
             dagRunId: apiDagRunId || undefined,
             status: apiStatus !== 'all' ? [parseInt(apiStatus)] : undefined,
+            backfill: BACKFILL_QUERY[apiBackfill],
             labels: apiLabels.length > 0 ? apiLabels.join(',') : undefined,
             fromDate: formatDateForApi(apiFromDate),
             toDate: formatDateForApi(apiToDate),
@@ -821,6 +855,7 @@ function DAGRuns() {
       apiFromDate,
       apiSearchText,
       apiStatus,
+      apiBackfill,
       apiLabels,
       apiToDate,
       appBarContext.selectedRemoteNode,
@@ -928,6 +963,7 @@ function DAGRuns() {
     setAPISearchText(searchText);
     setApiDagRunId(dagRunId);
     setApiStatus(statusToUse);
+    setApiBackfill(backfillFilter);
     setApiLabels(selectedLabels);
     setApiFromDate(fromDate);
     setApiToDate(toDate);
@@ -936,6 +972,7 @@ function DAGRuns() {
       name: searchOverrideKey(searchText),
       dagRunId: searchOverrideKey(dagRunId),
       status: statusToUse,
+      backfill: backfillParam(backfillFilter),
       labels: searchOverrideKey(selectedLabels.join(',')),
       fromDate,
       toDate,
@@ -950,6 +987,7 @@ function DAGRuns() {
     setSearchText(filters.searchText);
     setDagRunId(filters.dagRunId);
     setStatus(filters.status);
+    setBackfillFilter(asBackfillFilter(filters.backfill));
     setSelectedLabels(filters.labels);
     setFromDate(filters.fromDate);
     setToDate(filters.toDate);
@@ -960,6 +998,7 @@ function DAGRuns() {
     setAPISearchText(filters.searchText);
     setApiDagRunId(filters.dagRunId);
     setApiStatus(filters.status);
+    setApiBackfill(asBackfillFilter(filters.backfill));
     setApiLabels(filters.labels);
     setApiFromDate(filters.fromDate);
     setApiToDate(filters.toDate);
@@ -986,6 +1025,9 @@ function DAGRuns() {
       }
       if (filters.status && filters.status !== 'all') {
         params.set('status', filters.status);
+      }
+      if (filters.backfill && filters.backfill !== RunBackfillFilter.all) {
+        params.set('backfill', filters.backfill);
       }
       if (filters.labels.length > 0) {
         params.set('labels', filters.labels.join(','));
@@ -1174,6 +1216,19 @@ function DAGRuns() {
       );
       throw error;
     }
+  };
+
+  // A backfill filter left at all leaves the parameter out, unless a view
+  // is active, whose own value it overrides.
+  const backfillParam = (value: RunBackfillFilter): string | undefined =>
+    activeRunViewId !== null || value !== RunBackfillFilter.all
+      ? value
+      : undefined;
+
+  const updateBackfill = (value: RunBackfillFilter) => {
+    setBackfillFilter(value);
+    setApiBackfill(value);
+    updateSearchParams({ backfill: backfillParam(value) });
   };
 
   const handleStatusChange = (value: string) => {
@@ -1432,6 +1487,11 @@ function DAGRuns() {
                   ))}
                 </SelectContent>
               </Select>
+              <BackfillRunsFilter
+                value={backfillFilter}
+                onChange={updateBackfill}
+                className="w-[170px]"
+              />
               {/* Labels filter */}
               <I18nProps>
                 <LabelCombobox

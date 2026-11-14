@@ -5125,6 +5125,8 @@ export interface components {
             };
             /** @description Slots that run because their nearest run fired under a schedule of another cadence */
             otherCadence?: number;
+            /** @description For a resume, the DAG's definition changed since the backfill started: new runs run the current one */
+            definitionChanged?: boolean;
             /** @description Runs of the backfill at once: the lower of its max concurrency and the queue's limit */
             concurrency: number;
             /** @description Runs of the DAG's queue at once */
@@ -5144,6 +5146,8 @@ export interface components {
             slot: string;
             state: components["schemas"]["BackfillSlotState"];
             runId?: string;
+            /** @description The slot's run ran another definition than the one the backfill runs now */
+            otherDefinition?: boolean;
         };
         Backfill: {
             id: string;
@@ -8984,6 +8988,11 @@ export interface components {
          */
         ViewSortOrder: ViewSortOrder;
         /**
+         * @description Runs by whether a backfill queued them: every run (all), only those it did not (exclude), or only those it did (only)
+         * @enum {string}
+         */
+        RunBackfillFilter: RunBackfillFilter;
+        /**
          * @description Date range mode applied by an Executions page view.
          * @enum {string}
          */
@@ -9019,6 +9028,7 @@ export interface components {
             dagRunId?: string;
             /** @description Run status filter: 'all' or a status number. Empty matches any. */
             runStatus?: string;
+            backfill?: components["schemas"]["RunBackfillFilter"];
             dateMode?: components["schemas"]["RunDateMode"];
             datePreset?: components["schemas"]["RunDatePreset"];
             specificPeriod?: components["schemas"]["RunSpecificPeriod"];
@@ -9067,6 +9077,7 @@ export interface components {
             dagRunId?: string;
             /** @description Run status filter: 'all' or a status number. */
             runStatus?: string;
+            backfill?: components["schemas"]["RunBackfillFilter"];
             dateMode?: components["schemas"]["RunDateMode"];
             datePreset?: components["schemas"]["RunDatePreset"];
             specificPeriod?: components["schemas"]["RunSpecificPeriod"];
@@ -16110,6 +16121,8 @@ export interface operations {
                 limit?: components["parameters"]["QueueListLimit"];
                 /** @description Opaque cursor for loading the next page of queued DAG-runs */
                 cursor?: components["parameters"]["QueueListCursor"];
+                /** @description Leave out backfill runs (exclude), or list only them (only) */
+                backfill?: PathsQueuesNameItemsGetParametersQueryBackfill;
             };
             header?: never;
             path: {
@@ -24658,6 +24671,10 @@ export enum PathsDagRunsGetParametersQueryBackfill {
     exclude = "exclude",
     only = "only"
 }
+export enum PathsQueuesNameItemsGetParametersQueryBackfill {
+    exclude = "exclude",
+    only = "only"
+}
 export enum PathsWikiGetParametersQuerySort {
     name = "name",
     type = "type",
@@ -25264,6 +25281,11 @@ export enum ViewSortField {
 export enum ViewSortOrder {
     asc = "asc",
     desc = "desc"
+}
+export enum RunBackfillFilter {
+    all = "all",
+    exclude = "exclude",
+    only = "only"
 }
 export enum RunDateMode {
     preset = "preset",

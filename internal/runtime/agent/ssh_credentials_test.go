@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -124,4 +125,55 @@ steps:
 	for _, node := range dagAgent.Status(th.Context).Nodes {
 		require.Equal(t, ir.NodeNotStarted, node.Status, "step %q ran", node.Step.Name)
 	}
+}
+
+// Until node steps run on their nodes, a run that uses node targeting fails
+// before any step, rather than running remote commands on the Dagu host.
+func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name:    "NodesStep",
+			yaml:    "steps:\n  - id: local\n    run: echo started\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n",
+			wantErr: `step "clean" sets nodes, and running a step on inventory nodes is not available yet`,
+		},
+		{
+			name:    "NodeRequired",
+			yaml:    "node: required\nsteps:\n  - id: local\n    run: echo started\n",
+			wantErr: "declares node: required, and running a DAG bound to a node is not available yet",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t)
+			dag := th.DAG(t, tc.yaml)
+			dagAgent := dag.Agent()
+			dagAgent.RunCheckErr(t, tc.wantErr)
+			for _, node := range dagAgent.Status(th.Context).Nodes {
+				require.Equal(t, ir.NodeNotStarted, node.Status, "step %q ran", node.Step.Name)
+			}
+		})
+	}
+}
+
+// A dry run executes nothing, so it succeeds, and reports that the real run
+// would refuse node targeting.
+func TestAgent_NodeTargetingDryRunReportsRefusal(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, "steps:\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n")
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{Dry: true}))
+	dagAgent.RunSuccess(t)
+
+	require.Contains(t, dagAgent.DryRunChecks(), runtime.DryRunCheck{
+		Field:   "nodes",
+		Message: `step "clean" sets nodes, and running a step on inventory nodes is not available yet`,
+	})
 }

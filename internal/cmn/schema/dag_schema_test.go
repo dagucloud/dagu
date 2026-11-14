@@ -3247,3 +3247,36 @@ steps:
 		})
 	}
 }
+
+func TestDAGSchemaNodeTargeting(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{name: "SelectorString", spec: "steps:\n  - run: \"true\"\n    nodes: web,env=prod\n"},
+		{name: "SelectorList", spec: "steps:\n  - run: \"true\"\n    nodes: [web, \"!canary\"]\n"},
+		{name: "Object", spec: "steps:\n  - action: dag.run\n    with: {dag: deploy-one}\n    nodes: {labels: web, max_concurrent: 2, keep_going: true}\n"},
+		{name: "NodeRequired", spec: "node: required\nsteps:\n  - run: \"true\"\n"},
+		{name: "RejectUnknownObjectField", spec: "steps:\n  - run: \"true\"\n    nodes: {labels: web, rank_by: name}\n", wantErr: true},
+		{name: "RejectMissingLabels", spec: "steps:\n  - run: \"true\"\n    nodes: {max_concurrent: 2}\n", wantErr: true},
+		{name: "RejectMaxConcurrentZero", spec: "steps:\n  - run: \"true\"\n    nodes: {labels: web, max_concurrent: 0}\n", wantErr: true},
+		{name: "RejectNodeValue", spec: "node: optional\nsteps:\n  - run: \"true\"\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

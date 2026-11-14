@@ -147,6 +147,12 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   no terminal to ask on, or with `--format json`, it fails and names `--yes`.
 - A submit records the backfill, with the DAG's definition and each slot's
   window as they are at submit, and prints its 8-character ID.
+- Each open backfill also has a summary: its slot count and how many of its
+  slots ended and failed, which the dispatcher updates as runs end. A
+  backfill that ends failed keeps its summary until every slot it failed has
+  succeeded since, which the scheduler checks once a minute, or its DAG is
+  gone. Other ends remove it. A list of every DAG reads these summaries, not
+  the backfills' records or progress.
 - A submit with the same range and options as an open backfill of the DAG
   starts nothing and names that backfill. A submit that selects no slot
   creates no backfill.
@@ -213,6 +219,15 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
+- The scheduler keeps, per DAG, the latest gap whose start-schedule slots
+  passed without a run, with its span, its reason, and its slot count up to
+  10,000:
+  - `suspended` or `paused`: from the first tick that found the DAG
+    suspended or the scheduler paused to the tick that found it running
+    again, whose own slots run;
+  - `down`: the slots no scheduler ran, for a DAG without catch-up, or
+    before its catch-up window starts.
+  A newer gap replaces it. A gap without a slot is not kept.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
@@ -227,6 +242,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   its explicit params or the first matching recurring schedule's overrides.
   It has its slot's scheduled time and window. Its
   `context.trigger.type` is `backfill`.
+- Every run records a digest of the YAML it runs as `definitionDigest`.
 - Each run evaluates its params' `eval` when it starts, from its own slot's
   dates, so a param with `eval: ${dates.target_day}` takes each slot's date.
   A value given with `--params` replaces that `eval`, so the param holds that
@@ -278,6 +294,9 @@ dagu backfill status <backfill id> [--watch] [--format text|json]
   `Failed: 2 slots at step load: connection refused (first <slot>, run <id>)`.
   The dispatcher records the step and error when it sees a run fail, so
   reading them needs no run's status. The API gives them as `failures`.
+- `status` marks a slot whose run ran another definition than the one the
+  backfill runs now, as a run a resume of an edited DAG carries:
+  `running (older definition)`. The API gives it as `otherDefinition`.
 - `status --watch` prints a line each time the backfill's progress changes,
   then the status when the backfill ends. It exits 0 only when the backfill
   succeeded. With `--format json`, the progress lines go to stderr and stdout
@@ -302,7 +321,9 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   concurrency, and a failure among them fails it. `--max-concurrency` and
   `--on-failure` replace the backfill's.
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
-  run prints the plan the resume then runs. The backfill keeps its ID.
+  run prints the plan the resume then runs. The backfill keeps its ID. The
+  plan warns when the DAG's definition changed since the backfill started:
+  new runs run the current one, and active runs keep theirs.
 
 ### API
 
@@ -316,7 +337,8 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 | `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
 | `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
 | `GET /api/v1/dag-runs?backfillId={id}` | The runs of a backfill, from its submission on unless `fromDate` or `toDate` is set. Every run carries `backfillId`, which a retry keeps. |
-| `GET /api/v1/dag-runs?backfill=exclude` or `only` | The run list without backfill runs, or with only them. |
+| `GET /api/v1/dag-runs?backfill=exclude` or `only` | The run list without backfill runs, or with only them. A saved run view keeps the choice as `backfill`: `all`, `exclude`, or `only`. |
+| `GET /api/v1/queues/{name}/items?backfill=exclude` or `only` | A queue's queued runs without backfill runs, or with only them. |
 
 - A plan carries the number of slots each `rerun` value would run and a
   `revision`. A submit or resume that sends a `revision` the plan no longer

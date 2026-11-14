@@ -164,6 +164,9 @@ type dag struct {
 	// WorkerSelector specifies required worker labels for execution.
 	// Can be a map of label key-value pairs or the string "local" to force local execution.
 	WorkerSelector any `yaml:"worker_selector,omitempty"`
+	// Node set to "required" makes the DAG run only bound to one inventory
+	// node (RFC 013).
+	Node string `yaml:"node,omitempty"`
 	// Container is the container definition for the DAG.
 	// Can be a string (existing container name to exec into) or an object (container configuration).
 	Container any `yaml:"container,omitempty"`
@@ -636,6 +639,7 @@ var fullExecutionDefaultsStage = transformStage{
 	dagField("container", buildContainer, func(out *ir.DAG, v *ir.Container) { out.Container = v }),
 	dagField("registry_auths", buildRegistryAuths, func(out *ir.DAG, v map[string]*ir.AuthConfig) { out.RegistryAuths = v }),
 	dagField("ssh", buildSSH, func(out *ir.DAG, v *ir.SSHConfig) { out.SSH = v }),
+	dagField("node", buildNodeRequired, func(out *ir.DAG, v bool) { out.NodeRequired = v }),
 	dagField("s3", buildS3, func(out *ir.DAG, v *ir.S3Config) { out.S3 = v }),
 	dagField("mail_accounts", buildMailAccounts, func(out *ir.DAG, v ir.MailAccounts) { out.MailAccounts = v }),
 	dagField("llm", buildLLM, func(out *ir.DAG, v *ir.LLMConfig) { out.LLM = v }),
@@ -1246,6 +1250,7 @@ func (s *dagBuildState) validateResult() {
 		if err := validateAgent(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
+		s.errs = append(s.errs, validateNodeRequired(s.result)...)
 	}
 
 	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {

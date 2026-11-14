@@ -1,0 +1,5 @@
+steps:
+  - run: "true"
+    worker_selector:
+      gpu: "true"
+    nodes: web

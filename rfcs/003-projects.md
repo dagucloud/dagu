@@ -134,8 +134,9 @@ config, not a DAG.
 
 A project can instead keep its DAG files in an existing folder that the
 admin chooses when creating it, such as a repository checkout elsewhere on
-the machine. Its runtime state, such as run records, logs, and artifacts,
-then lives in the folder too, under `.dagu/`. See [Lifecycle](#lifecycle).
+the machine. Everything else it holds, such as run records, logs, secrets,
+and profiles, then lives in the folder too, under `.dagu/`. See
+[Lifecycle](#lifecycle).
 
 ### Names
 
@@ -365,15 +366,21 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     is not the admin's own. Before it creates the project, the UI shows the
     expanded path to confirm. The registry stores the path cleaned and
     absolute.
-  - The runtime state of a project on an existing folder, such as run
-    records, logs, artifacts, and DAG state, lives in the folder's
-    `.dagu/`, laid out as [spec 001](../specs/001-project.md#project-state)
-    lays out a checkout's state. Dagu creates `.dagu/` with a `.gitignore`
-    that ignores it. The folder then holds the whole project, and
-    `dagu start` anywhere inside it addresses the project, with or without
-    `.dagu.yaml`. When the folder holds `.dagu.yaml`, runs made in project
-    mode before it was added are part of the same history. Dagu must be
-    able to write to the folder.
+  - Every project store of a project on an existing folder lives in the
+    folder's `.dagu/`, laid out as
+    [spec 001](../specs/001-project.md#project-state) lays out a
+    checkout's state: run records, logs, artifacts, and DAG state, and the
+    project's secrets, profiles, notification routes, and incident
+    policies in `.dagu/settings/`. Dagu creates `.dagu/` with a
+    `.gitignore` that ignores it. The folder then holds the whole project,
+    and `dagu start` anywhere inside it addresses the project, with or
+    without `.dagu.yaml`. When the folder holds `.dagu.yaml`, the runs,
+    secrets, and profiles made in project mode before it was added are the
+    project's from the start. Dagu must be able to read and write the
+    folder and its `.dagu/`.
+  - Secrets set in project mode are encrypted with the key of that user's
+    Dagu home. When the server's key differs, the projects page lists the
+    secrets it cannot decrypt, for an admin to enter again.
   - Discovery in an existing folder never enters a directory whose name
     starts with `.`, so it never reads `.dagu/` or `.git/`.
 
@@ -734,11 +741,11 @@ admin, apply from the release that ships the feature.
 29. A v3.0 coordinator gives no task to an older worker, and both say why.
 30. With default settings, an admin can create a project on any existing
     folder that Dagu can read and write. Dagu reads its DAGs there, keeps
-    the project's runs, logs, and other state in the folder's `.dagu/`, and
-    never moves or deletes the folder.
+    the project's runs, logs, secrets, profiles, and other state in the
+    folder's `.dagu/`, and never moves or deletes the folder.
 31. `dagu start` inside such a folder that holds `.dagu.yaml` shows and
-    extends the same run history before and after the folder is added to a
-    server.
+    extends the same run history, and uses the same secrets and profiles,
+    before and after the folder is added to a server.
 32. A filesystem root, a folder already used by a project, or a folder
     inside another project's or Dagu's own directories is refused, and with
     `permissions.write_dags` off no existing folder is offered.
@@ -749,6 +756,9 @@ admin, apply from the release that ships the feature.
     project's DAG directory.
 35. A `.dagu.yaml` whose `project` differs from its server project's name
     loads, with a warning on the projects page.
+36. When a folder is added to a server whose key differs from the key its
+    secrets were set with, the projects page lists those secrets for an
+    admin to enter again.
 
 ## Alternatives considered
 

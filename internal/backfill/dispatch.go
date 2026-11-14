@@ -66,6 +66,11 @@ type Dispatcher struct {
 	// returns without waiting on slow work.
 	Ended func(ctx context.Context, record *Record)
 	Now   func() time.Time
+
+	// summariesCheckedAt is when clearResolved last read the summaries of
+	// failed backfills, and summaryChecks when it next checks each.
+	summariesCheckedAt time.Time
+	summaryChecks      map[string]summaryCheck
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer
@@ -85,6 +90,9 @@ func (d *Dispatcher) Tick(ctx context.Context) error {
 		if ended != nil && d.Ended != nil {
 			d.Ended(ctx, ended)
 		}
+	}
+	if err := d.clearResolved(ctx); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -146,6 +154,12 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		ended   []Progress
 	)
 	active, failed := 0, false
+	done, failedSlots := 0, 0
+	// A slot cancelled in this generation means a cancel began, one whose
+	// end failed after it cancelled the slots it had not reached, or a
+	// resume that failed after it withdrew them. Such a backfill ends
+	// cancelled, whatever its other slots did, and a resume runs them.
+	cancelled := false
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
 		outcome, status, err := d.outcome(ctx, record, event, observed)
@@ -159,14 +173,25 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 			active++
 		case slotFailed:
 			failed = true
+			done++
+			// A slot the backfill did not reach ends as failed, yet its
+			// run did not fail.
+			if event.Kind != ProgressNotRun {
+				failedSlots++
+			}
 		case slotSucceeded, slotSettled:
+			done++
 		}
+		cancelled = cancelled || event.Kind == ProgressCancelled
 		if event.Kind == ProgressEnqueued && (outcome == slotSucceeded || outcome == slotFailed) {
 			kind := ProgressSucceeded
 			if outcome == slotFailed {
 				kind = ProgressFailed
 			}
 			end := Progress{Slot: slot.At, Kind: kind, RunID: event.RunID, Generation: record.Generation, At: observed}
+			if status != nil {
+				end.Digest = status.DefinitionDigest
+			}
 			if outcome == slotFailed && status != nil {
 				end.Step, end.Error = runFailure(status)
 			}
@@ -181,6 +206,12 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		if err != nil || !recorded {
 			return err
 		}
+	}
+	if err := d.Store.SaveSummary(ctx, Summary{
+		ID: record.ID, DAGName: record.DAGName, Slots: len(record.Slots), Done: done, Failed: failedSlots,
+		CreatedAt: record.CreatedAt,
+	}); err != nil {
+		return err
 	}
 
 	if d.DAGExists != nil && len(pending) > 0 {
@@ -197,7 +228,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		if active > 0 {
 			return nil
 		}
-		return d.finish(ctx, record, seen, StatusFailed, pending)
+		return d.finish(ctx, record, seen, endStatus(failed, cancelled), pending)
 	}
 	if len(pending) > 0 && active < record.Options.MaxConcurrency {
 		target, err := d.Target(ctx, record)
@@ -217,13 +248,21 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		}
 	}
 	if len(pending) == 0 && active == 0 {
-		status := StatusSucceeded
-		if failed {
-			status = StatusFailed
-		}
-		return d.finish(ctx, record, seen, status, nil)
+		return d.finish(ctx, record, seen, endStatus(failed, cancelled), nil)
 	}
 	return nil
+}
+
+// endStatus is how a backfill whose slots all settled ends.
+func endStatus(failed, cancelled bool) Status {
+	switch {
+	case cancelled:
+		return StatusCancelled
+	case failed:
+		return StatusFailed
+	default:
+		return StatusSucceeded
+	}
 }
 
 // finish ends the backfill with status, after marking the slots it did not

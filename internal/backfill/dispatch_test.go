@@ -67,11 +67,17 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 			}
 			return attempt.ReadStatus(ctx)
 		},
-		Target: func(context.Context, *backfill.Record) (backfill.Target, error) {
-			return backfill.Target{DAG: f.dag, Schedule: f.sched}, nil
+		// The runs a backfill queues run the definition it pins, as the
+		// scheduler's do.
+		Target: func(ctx context.Context, record *backfill.Record) (backfill.Target, error) {
+			dag, err := spec.LoadYAML(ctx, record.Definition)
+			if err != nil {
+				return backfill.Target{}, err
+			}
+			return backfill.Target{DAG: dag, Schedule: f.sched}, nil
 		},
-		Enqueue: func(_ context.Context, record *backfill.Record, _ backfill.Target, slot backfill.RecordSlot, runID string) error {
-			if err := f.write(runID, slot.At, ir.Queued, ir.TriggerTypeBackfill, record.ID); err != nil {
+		Enqueue: func(_ context.Context, record *backfill.Record, target backfill.Target, slot backfill.RecordSlot, runID string) error {
+			if err := f.writeRun(target.DAG, runID, slot.At, ir.Queued, ir.TriggerTypeBackfill, record.ID); err != nil {
 				return err
 			}
 			f.queued = append(f.queued, runID)
@@ -83,7 +89,12 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 }
 
 func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, trigger ir.TriggerType, backfillID string) error {
-	attempt, err := f.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	return f.writeRun(f.dag, runID, slot, status, trigger, backfillID)
+}
+
+// writeRun writes a run of dag.
+func (f *dispatchFixture) writeRun(dag *ir.DAG, runID string, slot time.Time, status ir.Status, trigger ir.TriggerType, backfillID string) error {
+	attempt, err := f.repository.CreateAttempt(f.ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		return err
 	}
@@ -91,7 +102,7 @@ func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, 
 		return err
 	}
 	if err := attempt.Write(f.ctx, ir.DAGRunStatus{
-		Name: f.dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: status,
+		Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: status,
 		ScheduleTime: slot.Format(time.RFC3339), TriggerType: trigger, BackfillID: backfillID,
 		StartedAt: "2026-11-01T00:00:00Z",
 	}); err != nil {
@@ -100,7 +111,8 @@ func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, 
 	return attempt.Close(f.ctx)
 }
 
-// finish settles a queued run as the queue would.
+// finish settles a queued run as the queue would. Like a run's agent, it
+// records the digest of the definition the run runs.
 func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	f.t.Helper()
 	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
@@ -109,6 +121,9 @@ func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	require.NoError(f.t, err)
 	require.NoError(f.t, attempt.Open(f.ctx))
 	current.Status, current.FinishedAt = status, f.clock.Format(time.RFC3339)
+	dag, err := attempt.ReadDAG(f.ctx)
+	require.NoError(f.t, err)
+	current.DefinitionDigest = ir.DefinitionDigest(dag.YamlData)
 	require.NoError(f.t, attempt.Write(f.ctx, *current))
 	require.NoError(f.t, attempt.Close(f.ctx))
 }
@@ -189,6 +204,123 @@ func (f *dispatchFixture) record(id string) *backfill.Record {
 	record, err := f.store.Get(f.ctx, id)
 	require.NoError(f.t, err)
 	return record
+}
+
+// summary returns the summary the store keeps for a backfill, if any.
+func (f *dispatchFixture) summary(id string) (backfill.Summary, bool) {
+	f.t.Helper()
+	summaries, err := f.store.Summaries(f.ctx)
+	require.NoError(f.t, err)
+	for _, summary := range summaries {
+		if summary.ID == id {
+			return summary, true
+		}
+	}
+	return backfill.Summary{}, false
+}
+
+// The dispatcher keeps a backfill's summary: its counts while it is open,
+// and once it failed, until the slot it failed succeeds.
+func TestDispatchKeepsSummaries(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Succeeded)
+	f.tick()
+	summary, ok := f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, backfill.Summary{ID: record.ID, DAGName: "etl", Slots: 3, Done: 1, CreatedAt: record.CreatedAt}, summary)
+
+	f.finish(f.queued[1], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+	failed := backfill.Summary{
+		ID: record.ID, DAGName: "etl", Status: backfill.StatusFailed, Slots: 3, Done: 2, Failed: 1, CreatedAt: record.CreatedAt,
+	}
+	summary, ok = f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, failed, summary)
+
+	// The failed slot has not succeeded since, so a check keeps the summary.
+	f.clock = f.clock.Add(time.Minute)
+	f.tick()
+	summary, ok = f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, failed, summary)
+
+	require.NoError(t, f.write("live", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	f.tick()
+	_, ok = f.summary(record.ID)
+	assert.True(t, ok, "a check runs at most once a minute")
+	f.clock = f.clock.Add(time.Minute)
+	f.tick()
+	_, ok = f.summary(record.ID)
+	assert.False(t, ok, "the failed slot succeeded since")
+}
+
+// A slot a stopped backfill did not reach does not count as failed in its
+// summary once a retry opens the backfill again.
+func TestDispatchSummaryLeavesOutUnreachedSlots(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	f.retry(f.queued[0])
+	require.True(t, f.record(record.ID).Open(), "the retry opens the backfill again")
+	f.tick()
+	summary, ok := f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, 0, summary.Failed)
+	assert.Equal(t, 2, summary.Done, "the slots not reached ended")
+}
+
+// A check of a failed backfill reads its record, progress, and history, so
+// while its failures stay unresolved the checks grow apart: after one a
+// minute from the failure, then two, four, and eight minutes.
+func TestDispatchChecksAnUnresolvedFailureLessOften(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	var checks []int
+	target := f.dispatcher.Target
+	f.dispatcher.Target = func(ctx context.Context, record *backfill.Record) (backfill.Target, error) {
+		checks = append(checks, int(f.clock.Sub(at(20, 0))/time.Minute))
+		return target(ctx, record)
+	}
+	for range 16 {
+		f.clock = f.clock.Add(time.Minute)
+		f.tick()
+	}
+	assert.Equal(t, []int{1, 2, 4, 8, 16}, checks)
+}
+
+// A failed backfill whose DAG is gone needs no mention.
+func TestDispatchClearsSummaryOfAGoneDAG(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+	_, ok := f.summary(record.ID)
+	require.True(t, ok)
+
+	f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+	f.clock = f.clock.Add(time.Minute)
+	f.tick()
+	_, ok = f.summary(record.ID)
+	assert.False(t, ok)
 }
 
 // With a concurrency of one, each slot is queued only after the one before
@@ -590,6 +722,97 @@ func TestRetryOfARemovedBackfill(t *testing.T) {
 		require.NoError(t, f.store.Delete(f.ctx, record.ID))
 	}}
 	require.NoError(t, backfill.FollowRetry(f.ctx, store, status, f.clock))
+}
+
+// failingEnd fails the first end of a backfill, as a store whose write
+// failed.
+type failingEnd struct {
+	backfill.Store
+	failed *bool
+}
+
+func (s failingEnd) End(ctx context.Context, id string, status backfill.Status, at time.Time) error {
+	if !*s.failed {
+		*s.failed = true
+		return errors.New("disk full")
+	}
+	return s.Store.End(ctx, id, status, at)
+}
+
+// A cancel whose end failed after it cancelled the slots it had not reached
+// still ends the backfill cancelled on the next tick.
+func TestDispatchFinishesACancelWhoseEndFailed(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	var failed bool
+	f.dispatcher.Store = failingEnd{Store: f.store, failed: &failed}
+	f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+
+	require.Error(t, f.dispatcher.Tick(f.ctx))
+	require.True(t, f.record(record.ID).Open(), "the failed end left the backfill open")
+	f.tick()
+	assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+}
+
+// A cancel whose end failed ends cancelled also when a slot failed before
+// it, under either failure policy.
+func TestDispatchFinishesACancelAfterAFailure(t *testing.T) {
+	t.Parallel()
+	for _, onFailure := range []backfill.OnFailure{backfill.OnFailureContinue, backfill.OnFailureStop} {
+		t.Run(string(onFailure), func(t *testing.T) {
+			t.Parallel()
+			f := newDispatchFixture(t)
+			record := f.submit(backfill.Options{MaxConcurrency: 2, OnFailure: onFailure})
+			f.tick()
+			require.Len(t, f.queued, 2)
+			// One slot failed while another still runs, so the backfill
+			// stays open with a slot pending.
+			f.finish(f.queued[0], ir.Failed)
+			f.finish(f.queued[1], ir.Running)
+			var failed bool
+			f.dispatcher.Store = failingEnd{Store: f.store, failed: &failed}
+			f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+
+			require.Error(t, f.dispatcher.Tick(f.ctx))
+			f.finish(f.queued[1], ir.Succeeded)
+			f.tick()
+			assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+		})
+	}
+}
+
+// failingUpdate fails each rewrite of a record, as a store whose write
+// failed.
+type failingUpdate struct {
+	backfill.Store
+}
+
+func (failingUpdate) Update(context.Context, *backfill.Record) error {
+	return errors.New("disk full")
+}
+
+// A resume that failed after it withdrew the queued runs leaves those slots
+// cancelled: the backfill ends cancelled, and a resume runs them again.
+func TestDispatchAfterAResumeThatFailed(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{MaxConcurrency: 2})
+	f.tick()
+	require.Len(t, f.queued, 2)
+
+	var stopped []string
+	f.service.Store = failingUpdate{Store: f.store}
+	_, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.Error(t, err)
+	f.tick()
+	assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+
+	f.service.Store = f.store
+	_, err = f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	f.tick()
+	assert.Len(t, f.queued, 4, "the resume runs the withdrawn slots again")
 }
 
 // lockHook runs before each time a backfill's lock is taken.

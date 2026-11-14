@@ -201,3 +201,65 @@ func TestStoreAppendsAfterATornEvent(t *testing.T) {
 	require.Len(t, events, 1)
 	assert.Equal(t, backfill.ProgressSkipped, events[0].Kind)
 }
+
+// summaryOf returns the summary the store lists for id, if any.
+func summaryOf(t *testing.T, store *filebackfill.Store, id string) (backfill.Summary, bool) {
+	t.Helper()
+	summaries, err := store.Summaries(context.Background())
+	require.NoError(t, err)
+	for _, summary := range summaries {
+		if summary.ID == id {
+			return summary, true
+		}
+	}
+	return backfill.Summary{}, false
+}
+
+// An open backfill has a summary, and one that ended has it only when it
+// failed, with the counts last saved, until it is cleared.
+func TestStoreSummaries(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := filebackfill.New(t.TempDir())
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "etl", now)))
+
+	summary, ok := summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, CreatedAt: now}, summary)
+
+	saved := backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, Done: 1, Failed: 1, CreatedAt: now}
+	require.NoError(t, store.SaveSummary(ctx, saved))
+	require.NoError(t, store.End(ctx, "aaaaaaaa", backfill.StatusFailed, now))
+	summary, ok = summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	saved.Status = backfill.StatusFailed
+	assert.Equal(t, saved, summary)
+
+	require.NoError(t, store.End(ctx, "bbbbbbbb", backfill.StatusSucceeded, now))
+	_, ok = summaryOf(t, store, "bbbbbbbb")
+	assert.False(t, ok, "a backfill that succeeded needs no mention")
+
+	// A resume opens the failed backfill again and counts its slots anew.
+	reopened, err := store.Get(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	reopened.Status, reopened.EndedAt = "", time.Time{}
+	require.NoError(t, store.Update(ctx, reopened))
+	summary, ok = summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, CreatedAt: now}, summary)
+
+	// A create that finds the ID taken leaves the summary of the backfill
+	// that has it.
+	require.NoError(t, store.SaveSummary(ctx, saved))
+	require.ErrorIs(t, store.Create(ctx, record("aaaaaaaa", "other", now)), backfill.ErrExists)
+	summary, ok = summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	assert.Equal(t, saved, summary)
+
+	require.NoError(t, store.ClearSummary(ctx, "aaaaaaaa"))
+	_, ok = summaryOf(t, store, "aaaaaaaa")
+	assert.False(t, ok)
+	require.ErrorIs(t, store.ClearSummary(ctx, "../etl"), backfill.ErrNotFound)
+}
