@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -128,5 +129,46 @@ func TestTickPlanner_ResumeRecordsDownGap(t *testing.T) {
 
 	assert.Equal(t, &schedulerstate.MissedGap{
 		From: at(12, 0), To: at(12, 45), Reason: schedulerstate.GapDown, Slots: 2,
+	}, missedGap(tp, dag.Name))
+}
+
+// A tick that cannot tell a DAG's schedules keeps its hold, so a later tick
+// records the whole gap.
+func TestTickPlanner_HoldOutlastsUnresolvedSchedules(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(11, 59))})
+	resolver := &testProfileResolver{profile: "prod"}
+	tp.cfg.ProfileResolver = resolver
+	held := true
+	tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return held, nil }
+	dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseProfileSchedule(t, "0 * * * *", "prod")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	tp.Plan(t.Context(), at(12, 0))
+	tp.Plan(t.Context(), at(13, 0))
+	held = false
+	resolver.err = errors.New("profile store unavailable")
+	tp.Plan(t.Context(), at(14, 0))
+	assert.Nil(t, missedGap(tp, dag.Name))
+
+	resolver.err = nil
+	tp.Plan(t.Context(), at(15, 0))
+	assert.Equal(t, &schedulerstate.MissedGap{
+		From: at(12, 0), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 3,
+	}, missedGap(tp, dag.Name))
+}
+
+// Failover recovery replays the slots after its boundary, so the slot at
+// the boundary is part of the gap.
+func TestTickPlanner_InitRecordsGapThroughRecoveryBoundary(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(9, 0))})
+	tp.cfg.RecoveryWindow = func() time.Duration { return time.Hour }
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
+	dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	assert.Equal(t, &schedulerstate.MissedGap{
+		From: at(9, 0), To: at(11, 0), Reason: schedulerstate.GapDown, Slots: 2,
 	}, missedGap(tp, dag.Name))
 }

@@ -418,7 +418,13 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
-			tp.recordDownGap(ctx, entry, active, state.LastTick, missedBefore)
+			// Recovery replays the slots after its boundary only, and the
+			// first tick runs its own.
+			through := missedBefore.Add(-time.Second)
+			if recovery > 0 {
+				through = missedBefore
+			}
+			tp.recordDownGap(ctx, entry, active, state.LastTick, missedBefore, through)
 		}
 	}
 	tp.initBuffers(ctx, entries, activeByDAG, recovery)
@@ -707,10 +713,10 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			continue
 		}
 		active, ok := activeByDAG[dagName]
-		tp.releaseDAG(dagName, active.start, now)
 		if !ok {
 			continue
 		}
+		tp.releaseDAG(dagName, active.start, now)
 		tp.reconcileNextRun(dagName, active.start, now.In(tp.cfg.Location), false)
 
 		// Check catchup buffer first (catchup has priority over live)
@@ -1725,7 +1731,7 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 		}
 		if !tp.cfg.QueuesEnabled || dag.CatchupWindow <= 0 {
 			tp.recordMissedSlot(ctx, entry.DAGEntry, active, lastTick, now)
-			tp.recordDownGap(ctx, entry.DAGEntry, active, lastTick, now)
+			tp.recordDownGap(ctx, entry.DAGEntry, active, lastTick, now, now.Add(-time.Second))
 			continue
 		}
 		tp.mu.RLock()

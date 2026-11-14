@@ -54,14 +54,14 @@ func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, now t
 	tp.watermarkState.DAGs[dagName] = watermark
 }
 
-// recordDownGap records as missed the slots of a DAG that is not caught up
-// which came due after from, the last tick, and before to, while no tick
-// ran. The tick at to runs its own slots.
-func (tp *TickPlanner) recordDownGap(ctx context.Context, entry DAGEntry, active activeDAGSchedules, from, to time.Time) {
+// recordDownGap records as the gap from to to the slots of a DAG that is
+// not caught up which came due after from, the last tick, and by through,
+// while no tick ran.
+func (tp *TickPlanner) recordDownGap(ctx context.Context, entry DAGEntry, active activeDAGSchedules, from, to, through time.Time) {
 	if tp.cfg.QueuesEnabled && entry.DAG.CatchupWindow > 0 {
 		return
 	}
-	tp.recordGap(ctx, entry, active.start, from, to, to.Add(-time.Second))
+	tp.recordGap(ctx, entry, active.start, from, to, through)
 }
 
 // recordClampedGap records as missed the slots a DAG that is caught up left
