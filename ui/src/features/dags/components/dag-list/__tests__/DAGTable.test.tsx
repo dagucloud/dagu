@@ -577,6 +577,44 @@ describe('DAGTable', () => {
   });
 
   // A pinned workflow leaves its group so it stays visible at the top.
+  // A workflow that only ran under another workflow's dag.run shows that run,
+  // linked to its page under the root run.
+  it('shows a newer run another workflow started, with a link to it', () => {
+    const child = workflow({ name: 'child', status: Status.NotStarted });
+    renderTable('', {
+      dags: [
+        {
+          ...child,
+          latestSubDAGRun: {
+            run: {
+              name: 'child',
+              dagRunId: 'child-run',
+              status: Status.Success,
+              statusLabel: 'succeeded',
+              startedAt: '2026-11-14T09:00:00Z',
+              finishedAt: '2026-11-14T09:01:00Z',
+            },
+            rootDAGRunName: 'parent',
+            rootDAGRunId: 'parent-run',
+            parentDAGRunName: 'parent',
+            parentDAGRunId: 'parent-run',
+          },
+        } as never,
+      ],
+    });
+
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Succeeded')).toBeInTheDocument();
+    expect(
+      within(table).getByRole('link', { name: 'via parent' })
+    ).toHaveAttribute('href', expect.stringContaining('run=parent-run'));
+    expect(
+      within(table)
+        .getByRole('link', { name: 'via parent' })
+        .getAttribute('href')
+    ).toContain('subRun=child-run');
+  });
+
   it('lists pinned workflows first in their own section', () => {
     renderTable('', {
       dags: [

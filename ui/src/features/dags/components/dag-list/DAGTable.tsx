@@ -81,6 +81,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { PeekLink } from '@/features/peek/PeekLink';
+import { shownRun, SubRunLink } from './ShownRun';
 import {
   PEEK_SHOWN_ROW,
   usePeekOrOpen,
@@ -242,8 +243,9 @@ function DAGCard({
 }: DAGCardProps) {
   const fileName = dag.fileName;
   const title = dag.dag.name;
-  const status = dag.latestDAGRun?.status;
-  const statusLabel = dag.latestDAGRun?.statusLabel;
+  const { run, sub } = shownRun(dag);
+  const status = run.status;
+  const statusLabel = run.statusLabel;
   const labels = withoutWorkspaceLabels(dag.dag.labels ?? dag.dag.tags ?? []);
   const description = dag.dag.description;
   const hasSchedule = (dag.dag.schedule ?? []).length > 0;
@@ -292,7 +294,8 @@ function DAGCard({
           />
           <RunStatusChip
             name={title}
-            dagRunId={dag.latestDAGRun?.dagRunId}
+            // A sub-run is not found by this DAG's name.
+            dagRunId={sub ? undefined : run.dagRunId}
             status={status}
             size="xs"
           >
@@ -311,16 +314,17 @@ function DAGCard({
       {/* Schedule & Last Run */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
         <ScheduleLine dag={dag} emptyLabel={false} />
-        {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
+        {run.startedAt && run.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
             <RelativeTime
               className="text-xs"
-              timestamp={dag.latestDAGRun.startedAt}
-              absolute={dag.latestDAGRun.startedAt}
+              timestamp={run.startedAt}
+              absolute={run.startedAt}
             />
           </span>
         )}
+        {sub && <SubRunLink sub={sub} />}
       </div>
 
       {/* Labels */}
@@ -823,15 +827,16 @@ const defaultColumns = [
       // Use row
       const data = row.original!;
       if (data.kind === ItemKind.DAG) {
-        // Use the updated StatusChip component with xs size
+        const { run, sub } = shownRun(data.dag);
         return (
           <RunStatusChip
             name={data.dag.dag.name}
-            dagRunId={data.dag.latestDAGRun?.dagRunId}
-            status={data.dag.latestDAGRun.status}
+            // A sub-run is not found by this DAG's name.
+            dagRunId={sub ? undefined : run.dagRunId}
+            status={run.status}
             size="xs"
           >
-            {data.dag.latestDAGRun?.statusLabel}
+            {run.statusLabel}
           </RunStatusChip>
         );
       }
@@ -854,7 +859,8 @@ const defaultColumns = [
         return null;
       }
 
-      const { startedAt, finishedAt, status } = data.dag.latestDAGRun;
+      const { run, sub } = shownRun(data.dag);
+      const { startedAt, finishedAt, status } = run;
 
       if (!startedAt || startedAt === '-') {
         // If no start time, display nothing or a placeholder
@@ -892,6 +898,7 @@ const defaultColumns = [
             <RelativeTime timestamp={startedAt} absolute={startedAt} />
           </div>
           {durationContent}
+          {sub && <SubRunLink sub={sub} />}
         </div>
       );
     },
