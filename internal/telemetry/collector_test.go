@@ -451,6 +451,40 @@ func TestCollector_Collect_WithDAGRunStatus(t *testing.T) {
 	}
 }
 
+// Without recursive discovery, two files can declare the same DAG name. A
+// repeated series would fail the whole /metrics response, so the first wins.
+func TestCollector_Collect_DAGRunStatusDuplicateName(t *testing.T) {
+	dagRepository := &mockDAGLister{}
+	dagRunRepository := &mockDAGRunStore{
+		latestAttempts: map[string]dagrun.Attempt{
+			"shared": &testutil.MockAttempt{Status: &ir.DAGRunStatus{Name: "shared", Status: ir.Succeeded}},
+		},
+	}
+	queueStore := &mockQueueStore{}
+	dagRepository.On("List", mock.Anything, mock.Anything).Return(
+		pagination.PaginatedResult[persis.DAGListItem]{
+			Items: []persis.DAGListItem{
+				{DAG: &ir.DAG{Name: "shared"}},
+				{DAG: &ir.DAG{Name: "shared"}},
+			},
+			TotalCount: 2,
+		},
+		[]string{},
+		nil,
+	)
+	dagRunRepository.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
+	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(NewCollector("1.0.0", dagRepository, dagRunRepository.repository(), queueStore, nil))
+
+	metrics, err := registry.Gather()
+	require.NoError(t, err)
+	family, ok := metricFamilyMap(metrics)["dagu_dag_run_status"]
+	require.True(t, ok)
+	assertGaugeValue(t, family, map[string]string{"dag": "shared", "status": "succeeded"}, 1)
+}
+
 // A failed ListStatuses must not suppress the current-status gauge, which
 // reads through LatestAttempt instead.
 func TestCollector_Collect_DAGRunStatusSurvivesListStatusesFailure(t *testing.T) {

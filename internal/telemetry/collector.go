@@ -33,8 +33,8 @@ var (
 	// queueWaitBuckets defines buckets for queue wait time (shorter timescales)
 	queueWaitBuckets = []float64{1, 5, 10, 30, 60, 120, 300, 600}
 
-	// dagRunMetricStatuses is the status label set emitted by per-DAG metrics,
-	// matching the values dagu_dag_runs_total_by_dag reports via ir.Status.String.
+	// dagRunMetricStatuses is the fixed status label set of dagu_dag_run_status.
+	// A new ir.Status needs adding here, or the gauge never reports it.
 	dagRunMetricStatuses = []ir.Status{
 		ir.NotStarted,
 		ir.Running,
@@ -339,12 +339,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	// Collect DAG run metrics
 	c.collectDAGRunMetrics(ctx, ch)
 
-	// Current status of each DAG's latest run; independent of ListStatuses so
-	// a failed daily-status query cannot suppress current-health metrics.
-	c.collectDAGRunStatusMetrics(ctx, ch)
-
 	// Collect DAG metrics
-	c.collectDAGMetrics(ctx, ch)
+	dags := c.collectDAGMetrics(ctx, ch)
 
 	// Scheduler status
 	schedulerRunning := float64(0)
@@ -376,6 +372,11 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	// Collect cache metrics
 	c.collectCacheMetrics(ch)
+
+	// Current status of each DAG's latest run, independent of ListStatuses. It
+	// reads one run per DAG, so it runs last and cannot use up the timeout the
+	// metrics above share.
+	c.collectDAGRunStatusMetrics(ctx, ch, dags)
 }
 
 func (c *Collector) collectCacheMetrics(ch chan<- prometheus.Metric) {
@@ -491,18 +492,21 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 	c.collectQueueMetrics(ctx, ch)
 }
 
-func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
-	// List all DAGs; the default paginator only returns the first page.
-	pg := pagination.NewPaginator(1, int(^uint(0)>>1))
-	result, _, err := c.dagRepository.List(ctx, persis.DAGListOptions{Paginator: &pg})
-	if err != nil {
-		return
-	}
-
-	for _, item := range result.Items {
+func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- prometheus.Metric, dags []persis.DAGListItem) {
+	// Two files can declare the same name, and a repeated series fails the
+	// whole scrape, so the first DAG with a name wins.
+	seen := make(map[string]struct{}, len(dags))
+	for _, item := range dags {
+		if ctx.Err() != nil {
+			return
+		}
 		if item.DAG == nil || item.Name == "" {
 			continue
 		}
+		if _, ok := seen[item.Name]; ok {
+			continue
+		}
+		seen[item.Name] = struct{}{}
 		// AllHistory returns the true latest run regardless of the
 		// repository's optional today-only lookup window.
 		attempt, err := c.dagRunRepository.LatestAttempt(ctx, item.Name, persis.DAGRunLatestAttemptOptions{AllHistory: true})
@@ -513,10 +517,9 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 		if err != nil || status == nil {
 			continue
 		}
-		current := status.Status.String()
 		for _, s := range dagRunMetricStatuses {
 			value := float64(0)
-			if s.String() == current {
+			if s == status.Status {
 				value = 1
 			}
 			ch <- prometheus.MustNewConstMetric(
@@ -530,11 +533,14 @@ func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- pr
 	}
 }
 
-func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
-	// Get all DAGs using List with empty options to get all
-	result, _, err := c.dagRepository.List(ctx, persis.DAGListOptions{})
+// collectDAGMetrics reports the DAG count and returns every DAG, so the status
+// gauge reuses this listing.
+func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.Metric) []persis.DAGListItem {
+	// The default paginator returns only the first page.
+	pg := pagination.NewPaginator(1, int(^uint(0)>>1))
+	result, _, err := c.dagRepository.List(ctx, persis.DAGListOptions{Paginator: &pg})
 	if err != nil {
-		return
+		return nil
 	}
 
 	totalDAGs := float64(result.TotalCount)
@@ -544,6 +550,7 @@ func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.
 		prometheus.GaugeValue,
 		totalDAGs,
 	)
+	return result.Items
 }
 
 func (c *Collector) collectQueueMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
