@@ -7,7 +7,7 @@ steps:
     run: |
       trap 'printf TERM > /data/signal' TERM
       printf ready > /data/ready
-      sleep 4
+      while [ ! -f /data/release ]; do sleep 0.1; done
       printf done > /data/finished
     with:
       shell: /bin/sh

@@ -40,11 +40,26 @@ for ((attempt = 0; attempt < 60; attempt++)); do
 done
 test -f "$data_dir/ready"
 
-# The stop timeout leaves room for the drain; Dagu exits once the run ends.
-started=$(date +%s)
-timeout 120 docker stop --time 90 "$container"
-elapsed=$(($(date +%s) - started))
-test "$elapsed" -lt 60
+# The run waits for the release file, so it is still running when the stop
+# begins. It is released only once Dagu reports the drain, and Dagu exits
+# once the run ends; the stop timeout leaves room for that.
+draining() {
+  local logs
+  logs=$(timeout 10 docker logs "$container" 2>&1)
+  grep -q "Waiting for running DAG processes to finish" <<<"$logs"
+}
+
+timeout 120 docker stop --time 90 "$container" &
+stopper=$!
+for ((attempt = 0; attempt < 60; attempt++)); do
+  if draining; then
+    break
+  fi
+  sleep 1
+done
+draining
+touch "$data_dir/release"
+wait "$stopper"
 test "$(timeout 10 docker inspect --format '{{.State.ExitCode}}' "$container")" = 0
 test "$(cat "$data_dir/finished")" = done
 test ! -e "$data_dir/signal"
