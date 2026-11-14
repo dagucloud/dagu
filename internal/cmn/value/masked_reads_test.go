@@ -175,17 +175,3 @@ func TestRejectMaskedReads(t *testing.T) {
 	require.ErrorAs(t, err, &read)
 	assert.Equal(t, MaskedReadError{Step: "fetch", Output: "TOKEN"}, *read)
 }
-
-// A run that reuses outputs stored masked as they are records no reads.
-func TestIgnoreMaskedReads(t *testing.T) {
-	t.Parallel()
-
-	scope := NewEnvScope(nil, false).WithStepOutputs(map[string]string{"TOKEN": "*******"}, "fetch", "TOKEN")
-	ctx := TrackMaskedReads(IgnoreMaskedReads(WithEnvScope(context.Background(), scope)))
-	RejectMaskedReads(ctx)
-
-	got, err := NewResolver(StaticScope{}, RuntimeScope{Env: scope}).String(ctx, "${TOKEN}", WorkflowField("run"))
-	require.NoError(t, err)
-	assert.Equal(t, "*******", got)
-	require.NoError(t, MaskedRead(ctx))
-}

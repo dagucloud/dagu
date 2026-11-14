@@ -58,21 +58,10 @@ type maskedReads struct {
 	reject bool
 }
 
-type ignoreMaskedReadsKey struct{}
-
 // TrackMaskedReads returns a context that records each read of a masked
 // output made while resolving values with it. MaskedRead reports the first.
 func TrackMaskedReads(ctx context.Context) context.Context {
-	if ignored, _ := ctx.Value(ignoreMaskedReadsKey{}).(bool); ignored {
-		return ctx
-	}
 	return context.WithValue(ctx, maskedReadsKey{}, &maskedReads{})
-}
-
-// IgnoreMaskedReads returns a context in which TrackMaskedReads records
-// nothing, for a run that reuses outputs stored masked as they are.
-func IgnoreMaskedReads(ctx context.Context) context.Context {
-	return context.WithValue(ctx, ignoreMaskedReadsKey{}, true)
 }
 
 // MaskedRead returns a *MaskedReadError for the first masked output read

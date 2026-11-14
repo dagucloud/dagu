@@ -1256,14 +1256,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		return context.Canceled
 	}
 	executionStarted = true
-	runCtx := ctx
-	if a.resumingCheckpoint() {
-		// A checkpoint resume cannot run a step before its approval or human
-		// task again, so it reuses outputs stored masked as they are. Their
-		// record stays, so a later retry still checks them.
-		runCtx = cmnvalue.IgnoreMaskedReads(ctx)
-	}
-	lastErr := a.runner.Run(runCtx, a.plan, progressCh)
+	lastErr := a.runner.Run(ctx, a.plan, progressCh)
 	finishRunner()
 
 	// Drain the progress goroutine before computing the final status.
@@ -2707,18 +2700,12 @@ func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) (*runtime.Plan, error)
 // setupDefaultRetryPlan sets up the plan for the default retry behavior (all failed/canceled nodes and downstreams).
 func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node) (*runtime.Plan, error) {
 	plan, err := runtime.CreateRetryPlanWithOptions(ctx, a.dag, runtime.RetryPlanOptions{
-		Resume: a.resumingCheckpoint(),
+		Resume: a.retryTarget != nil && a.retryTarget.Status == ir.Queued && a.retryTarget.Resume,
 	}, nodes...)
 	if err != nil {
 		return nil, err
 	}
 	return plan, nil
-}
-
-// resumingCheckpoint reports whether the run resumes a queued checkpoint, such
-// as after an approval or a human task, rather than retrying.
-func (a *Agent) resumingCheckpoint() bool {
-	return a.retryTarget != nil && a.retryTarget.Status == ir.Queued && a.retryTarget.Resume
 }
 
 func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {
