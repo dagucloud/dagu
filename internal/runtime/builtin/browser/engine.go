@@ -176,6 +176,9 @@ type launchOptions struct {
 	// Waiting reports, once, that the launch waits for another browser to
 	// close.
 	Waiting func()
+	// StopWaiting, if set, is asked each time the launch looks again for a
+	// place, and the error it reports ends the wait.
+	StopWaiting func() error
 }
 
 // browserHandle locates a running browser.

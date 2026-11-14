@@ -980,6 +980,9 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		BrowserDir:         r.browser,
 		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
 		Waiting:            func() { r.timeline.Lifecycle(agentstep.StatusRunning, "Waiting for another browser to close") },
+		// A browser of another step of the run may start meanwhile and be
+		// shared, keeping its place until the run ends.
+		StopWaiting: func() error { return checkSharedSlots(ctx) },
 	}
 	if name := r.cfg.Browser.Profile; name != "" {
 		lease, err := r.lockProfile(ctx, name, recordID)

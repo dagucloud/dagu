@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,6 +146,40 @@ func TestSharedBrowsersFillingMaxOpenFailLaunch(t *testing.T) {
 	alone := run.executeStep("report", `{"url": "https://shop.example.com/report", "do": [{"act": "Open the report"}]}`, nil)
 	require.ErrorContains(t, alone.err, "browser.max_open allows 1 open browsers, and this run keeps 1 open until it ends for its shared browsers shop")
 	require.NoError(t, run.executeStep("orders", ordersStep, nil).err, "a step sharing the browser takes no new place")
+}
+
+// A launch waiting for a place stops waiting once a browser another step of
+// the run started meanwhile is shared and takes the last place.
+func TestSharedBrowserTakingLastPlaceEndsAWait(t *testing.T) {
+	t.Parallel()
+
+	run, closeBrowsers := shareRun(t)
+	t.Cleanup(func() { _ = closeBrowsers() })
+	run.maxOpen = 1
+	waiting := make(chan struct{})
+	var launches atomic.Int32
+	run.launcher.onLaunch = func(opts launchOptions) error {
+		if launches.Add(1) > 1 {
+			return nil
+		}
+		// The first launch finds every place taken and looks again until
+		// told to stop.
+		close(waiting)
+		for range 500 {
+			if err := opts.StopWaiting(); err != nil {
+				return err
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return errors.New("the wait did not stop")
+	}
+	report := make(chan *stepExecution, 1)
+	go func() {
+		report <- run.executeStep("report", `{"url": "https://shop.example.com/report", "do": [{"act": "Open the report"}]}`, nil)
+	}()
+	<-waiting
+	require.NoError(t, run.executeStep("sign_in", signInStep, nil).err)
+	require.ErrorContains(t, (<-report).err, "browser.max_open allows 1 open browsers, and this run keeps 1 open until it ends for its shared browsers shop")
 }
 
 // A step of a run waits for a profile another step of the run holds for a
