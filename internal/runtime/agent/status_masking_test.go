@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,6 +206,109 @@ func TestMaskNodeSecretsMasksEscapedSecret(t *testing.T) {
 			assert.JSONEq(t, `{"token":"Bearer *******"}`, *node.OutputsValue)
 			require.NotNil(t, node.StepOutputsValue)
 			assert.JSONEq(t, `{"token":"Bearer *******"}`, *node.StepOutputsValue)
+		})
+	}
+}
+
+// A retry cannot get the original text back, so masking records which outputs
+// it changed. An output it left alone is not listed.
+func TestMaskNodeSecretsRecordsMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	variables := &collections.SyncMap{}
+	variables.Store("TOKEN", "TOKEN=very-secret-token")
+	variables.Store("REGION", "REGION=us")
+	value := "very-secret-token"
+	outputs := `{"header":"Bearer very-secret-token","region":"us"}`
+	stepOutputs := `{"user":"alice","key":"very-secret-token"}`
+	node := &ir.Node{
+		Step:             ir.Step{Name: "fetch", Output: "TOKEN"},
+		OutputVariables:  variables,
+		OutputValue:      &value,
+		OutputsValue:     &outputs,
+		StepOutputsValue: &stepOutputs,
+	}
+
+	maskNodeSecrets(masker, node)
+
+	want := &ir.MaskedOutputs{Variables: []string{"TOKEN"}, Published: []string{"key"}, Captured: true}
+	assert.Equal(t, want, node.MaskedOutputs)
+
+	// A second pass sees only masked text and keeps what the first one found.
+	maskNodeSecrets(masker, node)
+	assert.Equal(t, want, node.MaskedOutputs)
+}
+
+func TestMaskNodeSecretsRecordsNothingForCleanOutputs(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	outputs := `{"region":"us"}`
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, OutputsValue: &outputs}
+
+	maskNodeSecrets(masker, node)
+
+	assert.Nil(t, node.MaskedOutputs)
+}
+
+// Keeping a document valid re-encodes it, which reorders and respaces the
+// values masking left alone. Only the value masking changed is recorded.
+func TestMaskNodeSecretsRecordsOnlyMaskedValuesAfterReencoding(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"SECRET=4242"})
+	require.NotNil(t, masker)
+	outputs := `{"count":4242,"region":{"zone": "b", "name": "us"}}`
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, StepOutputsValue: &outputs}
+
+	maskNodeSecrets(masker, node)
+
+	assert.Equal(t, &ir.MaskedOutputs{Published: []string{"count"}}, node.MaskedOutputs)
+}
+
+// An output_schema step captures output without an output: variable, so the
+// captured output is recorded even with no name to record.
+func TestMaskNodeSecretsRecordsCapturedOutputWithoutName(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	value := `"very-secret-token"`
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, OutputValue: &value}
+
+	maskNodeSecrets(masker, node)
+
+	assert.Equal(t, &ir.MaskedOutputs{Captured: true}, node.MaskedOutputs)
+}
+
+// A per-name list cannot be trusted when masking changed a key or masked the
+// document as text, so every published output is marked.
+func TestMaskNodeSecretsMarksWholeOutput(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{"secret in a key", `{"very-secret-token":"x","region":"us"}`},
+		{"not an object", `["very-secret-token"]`},
+		{"not JSON", `plain very-secret-token text`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			output := tt.output
+			node := &ir.Node{Step: ir.Step{Name: "fetch"}, StepOutputsValue: &output}
+
+			maskNodeSecrets(masker, node)
+
+			assert.Equal(t, &ir.MaskedOutputs{AllPublished: true}, node.MaskedOutputs)
+			assert.NotContains(t, *node.StepOutputsValue, "very-secret-token")
 		})
 	}
 }

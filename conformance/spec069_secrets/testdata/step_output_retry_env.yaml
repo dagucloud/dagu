@@ -1,0 +1,21 @@
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+steps:
+  - id: login
+    run: |
+      printf 'login\n' >> logins.out
+      printf '%s\n' "$API_TOKEN"
+    output: TOKEN
+
+  - id: use
+    depends: login
+    run: |
+      if [ '${env.TOKEN}' = "$API_TOKEN" ]; then
+        printf 'real\n' >> received.out
+      else
+        printf '%s\n' '${env.TOKEN}' >> received.out
+      fi
+      [ -f ready ]

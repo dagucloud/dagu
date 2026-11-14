@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 
@@ -5370,6 +5371,314 @@ func TestHumanTask(t *testing.T) {
 		assert.Equal(t, "night", strings.TrimSpace(string(output)))
 		require.NotNil(t, result.nodeByName(t, "review").State().StepOutputsValue)
 		assert.JSONEq(t, stepOutputs, *result.nodeByName(t, "review").State().StepOutputsValue)
+	})
+}
+
+// A retry restores fetch with its token stored masked. A step that resolves
+// the token fails instead of running on starred text, but only once its
+// preconditions hold, unless a field resolved before them, which a
+// precondition can decide on, reads the token.
+func TestRetryMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		use      []stepOption
+		wantNode ir.NodeStatus
+		wantRead string // the output named in the error; empty when none is read
+	}{
+		{name: "PublishedOutput", use: []stepOption{withCommand(`echo ${steps.fetch.outputs.token}`)}, wantNode: ir.NodeFailed, wantRead: "token"},
+		{name: "UnmaskedPublishedOutput", use: []stepOption{withCommand(`echo ${steps.fetch.outputs.region}`)}, wantNode: ir.NodeSucceeded},
+		{name: "EnvNamespace", use: []stepOption{withCommand(`echo ${env.TOKEN}`)}, wantNode: ir.NodeFailed, wantRead: "TOKEN"},
+		// The step's env resolves in order, so an entry after the one that
+		// defines TOKEN reads the step's own value.
+		{
+			name:     "OwnEnvShadows",
+			use:      []stepOption{withEnvVars("TOKEN=local", "BODY=${TOKEN}"), withCommand(`echo "$BODY $TOKEN"`)},
+			wantNode: ir.NodeSucceeded,
+		},
+		{
+			name:     "OwnEnvReadsBeforeShadowing",
+			use:      []stepOption{withEnvVars("BODY=${TOKEN}", "TOKEN=local"), withCommand(`echo "$BODY"`)},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name:     "PreconditionNotMet",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withPrecondition(&ir.Condition{Condition: "run", Expected: "skip"})},
+			wantNode: ir.NodeSkipped,
+		},
+		{
+			name: "EnvReadPreconditionNotMet",
+			use: []stepOption{
+				withEnvVars("LOCAL=${TOKEN}"), withCommand("true"),
+				withPrecondition(&ir.Condition{Condition: "${LOCAL}", Expected: "real"}),
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// The same read fails every attempt, so it is not retried or
+		// repeated, and the step that did not run is not marked successful.
+		{
+			name:     "RetryPolicy",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withRetryPolicy(3, time.Hour)},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name:     "RepeatPolicy",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), func(step *ir.Step) { step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil }},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name: "RepeatConditionMarkSuccess",
+			use: []stepOption{
+				withCommand("true"),
+				withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true}),
+				func(step *ir.Step) {
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+					step.RepeatPolicy.Condition = &ir.Condition{Condition: "${TOKEN}", Expected: "real"}
+				},
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// A repeat condition that reads one fails the step even when the
+		// execution failed in setup, before reads were rejected.
+		{
+			name: "RepeatConditionAfterSetupFailure",
+			use: []stepOption{
+				withCommand("true"),
+				func(step *ir.Step) {
+					step.Stdin = "${no_such_step.stdout}"
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil
+					step.RepeatPolicy.Condition = &ir.Condition{Condition: "${TOKEN}", Expected: "real"}
+					step.RepeatPolicy.Limit = 3
+				},
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name: "RepeatLimitAfterSetupFailure",
+			use: []stepOption{
+				withCommand("true"),
+				func(step *ir.Step) {
+					step.Stdin = "${no_such_step.stdout}"
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil
+					step.RepeatPolicy.Condition = &ir.Condition{Condition: "${TOKEN}", Expected: "real"}
+					step.RepeatPolicy.Limit = 1
+					step.RepeatPolicy.OnLimit = ir.RepeatOnLimitFail
+				},
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// Building an executor can use the values, so the read fails the
+		// step before an executor is built, here one that does not exist.
+		{
+			name:     "BeforeExecutorIsBuilt",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withExecutorType("no-such-executor")},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// A step that did not run has no exit code to continue on.
+		{
+			name:     "ContinueOnExitCode",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withContinueOn(ir.ContinueOn{ExitCode: []int{0, 3}})},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// A human task's precondition decides on the task's env too.
+		{
+			name: "HumanTaskEnvReadPrecondition",
+			use: []stepOption{
+				withHumanTask(&ir.HumanTaskConfig{Prompt: "Approve"}), withEnvVars("LOCAL=${TOKEN}"),
+				withPrecondition(&ir.Condition{Condition: "${LOCAL}", Expected: "real"}),
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// With a script, the command runs directly instead of through the
+		// shell.
+		{
+			name:     "CommandWithScript",
+			use:      []stepOption{withCommand("echo ${TOKEN}"), withScript("exit 0")},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// An output field is resolved after the step runs.
+		{
+			name: "OutputFieldAfterRun",
+			use: []stepOption{withCommand("true"), func(step *ir.Step) {
+				step.StructuredOutput = map[string]ir.StepOutputEntry{"fwd": {HasValue: true, Value: "${env.TOKEN}"}}
+			}},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// A field that fails to parse the mask reports the masked read.
+		{
+			name:     "UnparsableField",
+			use:      []stepOption{withCommand("true"), func(step *ir.Step) { step.RetryPolicy.LimitStr = "${env.TOKEN}" }},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name:     "MarkSuccess",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// A precondition decides on what it reads, so the step fails
+		// whatever it decides.
+		{
+			name:     "PreconditionReadNotMet",
+			use:      []stepOption{withCommand("true"), withPrecondition(&ir.Condition{Condition: "${TOKEN}", Expected: "real"})},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name:     "PreconditionRead",
+			use:      []stepOption{withCommand("true"), withPrecondition(&ir.Condition{Condition: "${TOKEN}", Expected: "*******"})},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := setupRunner(t)
+			fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
+			use := newStep("use", append([]stepOption{withDepends("fetch")}, tc.use...)...)
+			dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch, use}}
+			plan, err := runtime.CreateRetryPlan(r.Context, dag,
+				restoredNode(fetch, "*******", &ir.MaskedOutputs{Variables: []string{"TOKEN"}, Published: []string{"token"}}),
+				runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+			)
+			require.NoError(t, err)
+			wantRun := ir.Succeeded
+			if tc.wantNode == ir.NodeFailed {
+				wantRun = ir.Failed
+			}
+			result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, wantRun)
+
+			result.assertNodeStatus(t, "use", tc.wantNode)
+			if tc.wantRead != "" {
+				assert.ErrorContains(t, result.nodeByName(t, "use").Error(),
+					fmt.Sprintf(`step "use" reads output %q of step "fetch"`, tc.wantRead))
+			}
+		})
+	}
+}
+
+// A precondition command that reads a masked output fails the step without
+// running.
+func TestRetryMaskedOutputPreconditionCommand(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t)
+	ran := filepath.Join(t.TempDir(), "ran")
+	fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
+	use := newStep("use", withDepends("fetch"), withCommand("true"),
+		withPrecondition(&ir.Condition{Condition: "echo ${TOKEN} > " + ran}))
+	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch, use}}
+	plan, err := runtime.CreateRetryPlan(r.Context, dag,
+		restoredNode(fetch, "*******", &ir.MaskedOutputs{Variables: []string{"TOKEN"}}),
+		runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+	)
+	require.NoError(t, err)
+	result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, ir.Failed)
+	assert.ErrorContains(t, result.nodeByName(t, "use").Error(), `reads output "TOKEN" of step "fetch"`)
+	assert.NoFileExists(t, ran)
+}
+
+// The error names the producing step by its name, which retry selects it by,
+// though the reference names it by id.
+func TestRetryMaskedOutputNamesProducer(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t)
+	fetch := newStep("Fetch the token", withID("fetch"), withOutput("TOKEN"))
+	use := newStep("use", withDepends("Fetch the token"), withCommand(`echo ${steps.fetch.outputs.token}`))
+	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch, use}}
+	plan, err := runtime.CreateRetryPlan(r.Context, dag,
+		restoredNode(fetch, "*******", &ir.MaskedOutputs{Published: []string{"token"}}),
+		runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+	)
+	require.NoError(t, err)
+	result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir(), steps: dag.Steps}).assertRun(t, ir.Failed)
+	assert.ErrorContains(t, result.nodeByName(t, "use").Error(), `reads output "token" of step "Fetch the token"`)
+}
+
+// Predecessors' output variables enter scope nearest first, so of two that
+// set TOKEN, a step reads the farther one.
+func TestRetryMaskedOutputShadowed(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		masked   string // the predecessor whose TOKEN is masked
+		wantNode ir.NodeStatus
+	}{
+		{masked: "near", wantNode: ir.NodeSucceeded},
+		{masked: "far", wantNode: ir.NodeFailed},
+	} {
+		t.Run(tc.masked, func(t *testing.T) {
+			t.Parallel()
+			r := setupRunner(t)
+			far := newStep("far", withID("far"), withOutput("TOKEN"))
+			near := newStep("near", withID("near"), withDepends("far"), withOutput("TOKEN"))
+			use := newStep("use", withDepends("near"), withCommand(`echo ${env.TOKEN}`))
+			dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{far, near, use}}
+			record := func(name string) *ir.MaskedOutputs {
+				if name != tc.masked {
+					return nil
+				}
+				return &ir.MaskedOutputs{Variables: []string{"TOKEN"}}
+			}
+			plan, err := runtime.CreateRetryPlan(r.Context, dag,
+				restoredNode(far, "far", record("far")),
+				restoredNode(near, "near", record("near")),
+				runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+			)
+			require.NoError(t, err)
+			wantRun := ir.Succeeded
+			if tc.wantNode == ir.NodeFailed {
+				wantRun = ir.Failed
+			}
+			result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, wantRun)
+			result.assertNodeStatus(t, "use", tc.wantNode)
+		})
+	}
+}
+
+// A handler reports on the run, so it reads an output stored masked as it is
+// instead of failing the retry.
+func TestRetryMaskedOutputInHandler(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t, withOnExit(newStep("onExit", withCommand(`echo ${env.TOKEN}`))))
+	fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
+	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch}}
+	plan, err := runtime.CreateRetryPlan(r.Context, dag,
+		restoredNode(fetch, "*******", &ir.MaskedOutputs{Variables: []string{"TOKEN"}}),
+	)
+	require.NoError(t, err)
+	result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, ir.Succeeded)
+	result.assertNodeStatus(t, "onExit", ir.NodeSucceeded)
+}
+
+// restoredNode returns step as a retry restores it: succeeded, with its
+// output variable and published outputs, and the record of what masking
+// changed.
+func restoredNode(step ir.Step, token string, masked *ir.MaskedOutputs) *runtime.Node {
+	variables := &collections.SyncMap{}
+	variables.Store(step.Output, step.Output+"="+token)
+	outputs := fmt.Sprintf(`{"token":%q,"region":"us"}`, token)
+	return runtime.NewNode(step, runtime.NodeState{
+		Status:           ir.NodeSucceeded,
+		OutputVariables:  variables,
+		StepOutputsValue: &outputs,
+		MaskedOutputs:    masked,
 	})
 }
 

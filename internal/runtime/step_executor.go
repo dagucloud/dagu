@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
@@ -76,7 +77,12 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		}
 	}()
 	if err != nil {
-		err = wrapStepSetupError(err)
+		// Setup can fail on starred text, which the masked read explains.
+		if readErr := maskedReadError(ctx, node); readErr != nil {
+			err = readErr
+		} else {
+			err = wrapStepSetupError(err)
+		}
 		node.SetError(err)
 		return err
 	}
@@ -88,6 +94,11 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 				tag.Error(closeErr))
 		}
 	}()
+	if err := maskedReadError(ctx, node); err != nil {
+		node.SetError(err)
+		return err
+	}
+	cmnvalue.RejectMaskedReads(ctx)
 
 	// Notify after executor setup so SubRuns (set for subDAG steps) are
 	// persisted to storage before the executor starts running.
@@ -147,7 +158,13 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		}
 	}
 
+	// An output field is resolved after the run and can read a masked value.
 	if err := node.captureOutput(ctx); err != nil {
+		return preferMaskedRead(ctx, node, err)
+	}
+	// An executor can resolve a field while it runs.
+	if err := maskedReadError(ctx, node); err != nil {
+		node.SetError(err)
 		return err
 	}
 

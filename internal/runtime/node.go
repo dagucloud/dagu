@@ -948,6 +948,12 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		n.SetStdin(resolved)
 	}
 
+	// Building an executor can already use the values, such as to connect,
+	// so a masked read fails the step before.
+	if err := maskedReadError(ctx, n); err != nil {
+		return ctx, nil, err
+	}
+
 	// Create the executor
 	cmd, err := executor.NewExecutor(ctx, n.Step())
 	if err != nil {
@@ -963,6 +969,12 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	if subDAG := n.Step().SubDAG; subDAG != nil {
 		runParams, err := n.buildChildRunParams(ctx, subDAG)
 		if err != nil {
+			return ctx, nil, err
+		}
+		// A child run whose params read a masked output never starts, so it
+		// is not recorded.
+		if err := maskedReadError(ctx, n); err != nil {
+			_ = executor.CloseExecutor(cmd)
 			return ctx, nil, err
 		}
 		n.SetSubRuns(subRunsFromParams(runParams))
@@ -1037,7 +1049,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any, pathKeys []s
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, false)
 	}
-	scope = scope.WithEntries(templateConfigEvalVariables(env), cmnvalue.EnvSourceStepEnv)
+	scope = scope.WithEnvEntries(templateConfigEvalEntries(scope, templateConfigEvalVariables(env)))
 
 	config = maps.Clone(config)
 	rawRef, hasRef := config["template_ref"]
@@ -1154,9 +1166,13 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 		commands := make([]ir.CommandEntry, len(step.Commands))
 		for i, cmdEntry := range step.Commands {
 			fieldPath := commandEntryFieldPath(len(step.Commands), i)
+			// Each form records its masked reads apart, since only the form
+			// the executor runs reads anything.
+			directCtx := cmnvalue.TrackMaskedReads(ctx)
+			shellCtx := cmnvalue.TrackMaskedReads(ctx)
 			commandName := cmdEntry.Command
 			if commandName != "" {
-				evaluated, err := resolveRuntimeString(ctx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
+				evaluated, err := resolveRuntimeString(directCtx, commandName, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
 					return ir.Step{}, fmt.Errorf("failed to eval command: %w", err)
 				}
@@ -1165,7 +1181,7 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 
 			args := make([]string, len(cmdEntry.Args))
 			for j, arg := range cmdEntry.Args {
-				value, err := resolveRuntimeString(ctx, arg, cmnvalue.DirectCommandField(fieldPath, command))
+				value, err := resolveRuntimeString(directCtx, arg, cmnvalue.DirectCommandField(fieldPath, command))
 				if err != nil {
 					return ir.Step{}, fmt.Errorf("failed to eval command args: %w", err)
 				}
@@ -1175,7 +1191,7 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 			// Evaluate CmdWithArgs if present
 			cmdWithArgs := cmdEntry.CmdWithArgs
 			if cmdWithArgs != "" {
-				evaluated, err := resolveRuntimeString(ctx, cmdWithArgs, cmnvalue.ShellCommandField(fieldPath, command))
+				evaluated, err := resolveRuntimeString(shellCtx, cmdWithArgs, cmnvalue.ShellCommandField(fieldPath, command))
 				if err != nil {
 					return ir.Step{}, fmt.Errorf("failed to eval command with args: %w", err)
 				}
@@ -1184,6 +1200,12 @@ func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) 
 				}
 				cmdWithArgs = evaluated
 			}
+			// A shell runs the command text when one is configured and the
+			// step has no script; otherwise the direct form may run.
+			if !command.ShellConfigured || cmdWithArgs == "" || step.Script != "" {
+				cmnvalue.AddMaskedRead(ctx, cmnvalue.MaskedRead(directCtx))
+			}
+			cmnvalue.AddMaskedRead(ctx, cmnvalue.MaskedRead(shellCtx))
 
 			commands[i] = ir.CommandEntry{
 				Command:     commandName,

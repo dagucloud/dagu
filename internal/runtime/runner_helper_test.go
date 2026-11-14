@@ -366,12 +366,14 @@ type planHelper struct {
 	testHelper
 	*runtime.Plan
 	workDir string
+	// steps are the steps of the DAG the run context carries.
+	steps []ir.Step
 }
 
 func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult {
 	t.Helper()
 
-	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir}
+	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir, Steps: ph.steps}
 	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, ph.cfg.DAGRunID)
 	logFilePath := path.Join(ph.cfg.LogDir, logFilename)
 

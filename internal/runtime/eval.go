@@ -240,6 +240,20 @@ func templateConfigEvalVariables(env Env) map[string]string {
 	return cloned
 }
 
+// templateConfigEvalEntries returns vars as step env entries. An entry that
+// holds an output restored masked keeps its mark, so a read of it counts.
+func templateConfigEvalEntries(scope *cmnvalue.EnvScope, vars map[string]string) []cmnvalue.EnvEntry {
+	entries := make([]cmnvalue.EnvEntry, 0, len(vars))
+	for name, value := range vars {
+		entry := cmnvalue.EnvEntry{Key: name, Value: value, Source: cmnvalue.EnvSourceStepEnv}
+		if prev, ok := scope.GetEntry(name); ok && prev.Masked && prev.Value == value {
+			entry.Masked, entry.Origin = true, prev.Origin
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
 // isPositionalParamName reports whether a param name is a positional index rather
 // than a named parameter.
 func isPositionalParamName(name string) bool {

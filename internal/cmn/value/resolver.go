@@ -70,6 +70,9 @@ func (r Resolver) ResolveRef(ctx context.Context, token string, field Field) (st
 	}
 
 	value, err := bindingValue(ctx, ref.Expr, r.bindingScope(), true)
+	if err == nil {
+		err = maskedReadsFrom(ctx).rejected()
+	}
 	if err != nil {
 		return "", fieldError(field, fmt.Errorf("failed to resolve %s: %w", token, err))
 	}
@@ -125,6 +128,9 @@ func (r Resolver) Object(ctx context.Context, obj any, field Field) (any, error)
 	}
 
 	result, err := walkValue(ctx, v, transform)
+	if err == nil {
+		err = maskedReadsFrom(ctx).rejected()
+	}
 	if err != nil {
 		return obj, err
 	}
@@ -182,6 +188,9 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	evaluated, err := evalString(ctx, resolved, r.optionsFor(policy)...)
 	if err != nil {
 		return "", err
+	}
+	if err := maskedReadsFrom(ctx).rejected(); err != nil {
+		return "", fieldError(field, err)
 	}
 	return restoreProtectedReferences(evaluated, protected.all), nil
 }

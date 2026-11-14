@@ -496,7 +496,8 @@ Rules:
 - If all step-level preconditions pass, the step action may start.
 - If any step-level precondition is not met, the step action must not start.
 - If any step-level precondition is not met, the step reaches terminal status
-  `skipped`.
+  `skipped`, except when the step read an output stored masked, which fails it
+  as Spec 069 defines.
 - A step skipped by preconditions is not a step failure for DAG-run status
   calculation.
 - A step skipped by preconditions must not publish step outputs.

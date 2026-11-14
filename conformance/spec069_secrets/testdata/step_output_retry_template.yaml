@@ -1,0 +1,24 @@
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+steps:
+  - id: login
+    run: |
+      printf 'login\n' >> logins.out
+      printf '%s\n' "$API_TOKEN"
+    output: TOKEN
+
+  - id: gate
+    depends: login
+    run: "[ -f ready ]"
+
+  - id: use
+    depends: gate
+    action: template.render
+    with:
+      template: "{{ .token }}"
+      data:
+        token: ${TOKEN}
+      output: received.out

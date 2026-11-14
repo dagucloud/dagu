@@ -6,10 +6,10 @@ Partially implemented.
 
 Conformance covers direct provider references declared on a DAG's `secrets:`
 field, build-time validation of that field, live resolution for the
-`env`, `file`, and `aws` providers, and masking of stored step outputs as a
-retried run reads them. It does not cover the workspace-managed
-secret registry (`ref:`-style references), which requires a running Dagu
-server and its secrets management API.
+`env`, `file`, and `aws` providers, and a retry that fails a step reading an
+output stored masked while it reuses outputs the step does not read. It does
+not cover the workspace-managed secret registry (`ref:`-style references),
+which requires a running Dagu server and its secrets management API.
 
 ## Scope
 
@@ -79,11 +79,82 @@ form inside JSON text, such as a value containing `"`, `\`, `<`, `>`, `&`, or
 a newline, is masked too. The mask replaces the literal value with `*******`.
 
 Masking does not change the values steps exchange within a run. A later step
-of the same run reads a published output with the secret intact. A run that
-reuses a step's stored result instead of executing the step again reads the
-stored value, so each secret in a reused output reads as `*******`. This
-covers retry, resume after an approval or a human task, and runs that reuse
-another run's outputs.
+of the same run reads a published output with the secret intact.
+
+A run can instead restore a step's stored result without executing the step
+again: a retry of the run or of a step, a retry with an edited DAG, resume after
+an approval or a human task, a run that carries another run's outputs, and the
+retry of a step that starts a child run, including one in a `parallel:` step,
+which retries the child run and restores its steps. A step in a child run of a
+`parallel:` step that retries under its own retry policy is retried that way
+too, within the same run of the parent. Stored outputs stay masked, and stored
+status records which outputs masking changed. A step that reads a recorded
+output after such a restore fails, before it runs except where described below,
+with an error that names the step and the output and says the producing step has
+to run again, together with the steps after it. When both are steps of a child
+run, that takes a retry of the child run, not of the parent. A step reads an
+output where value resolution inserts it into one of the step's fields:
+
+- `${steps.<id>.outputs.<name>}` reads that published output.
+- `${<id>.outputs}` and any path or slice under it read the published outputs
+  when the step published any, and the captured output document otherwise.
+- `${<id>.output}` and any path or slice under it read the captured output
+  text, or the step's output variable when no captured text is stored.
+- `${NAME}`, `$NAME`, `${env.NAME}`, and `${NAME.path}` read an output variable
+  when the value under that name in the step's scope is the output variable.
+
+Each reference fails only when masking changed the output it reads: a published
+output by its name, or all of them when masking changed their names, and
+otherwise the stored output or output variable as a whole, whatever part a path
+or slice selects. A reference that resolution leaves as written reads nothing:
+an escaped reference, and a `js` or `template` script, which is passed on as
+written. In a step's command or script that a local POSIX shell runs, Dagu
+leaves `$NAME` and `${NAME}` to the shell, which reads them from its environment
+like any program, so they are not checked. Dagu inserts the value itself, so the
+read is checked, in a condition, with another shell, a direct command, SSH, or a
+container, and for a `"${NAME}"` inside a single-quoted span, which it quotes
+into place. `${env.NAME}` and the step-output forms are resolved by Dagu
+everywhere.
+
+A variable the step's own `env:` defines takes the place of the output variable
+in its other fields and in the `env:` entries after the one that defines it, and
+of two predecessors that set the same variable, the one later in scope order
+does. A foreach body step reads outputs in its own scope, which holds the
+foreach step's output variables under its own `env:`. A child run a step starts
+checks the reads of its own steps, not the starting step's.
+
+A shell or a program the step runs that reads an output variable from its
+environment, and an executor that takes a variable by name, such as through
+`pass_env`, receive `*******`; only the reads above are checked. A handler step
+and a human task report on the run rather than do its work, so they read an
+output stored masked as it is, as `*******`; only a human task's preconditions
+are checked, along with the fields resolved before them when it has any. When
+masking changed the name of a published output, or masked the published outputs
+as text, every published output of that step counts as masked. Outputs that
+masking did not change are reused unchanged, and a value supplied for an output
+of a carried step replaces the recorded one, including the captured output when
+it names the step's `output:` variable, unless the step also stores a legacy
+outputs payload, which keeps the captured output recorded. An approval input
+replaces the recorded output variable of the same name.
+
+A precondition decides on what it reads, including the fields Dagu resolves
+before it: the step's env, working directory, stdout and stderr paths, and retry
+and repeat settings. A step whose such field reads a recorded output fails
+before its preconditions run, and a precondition that reads one fails the step
+whatever it decides, without running a command it would pass the value to. A
+step whose preconditions are not met and that read nothing recorded is skipped
+as before. A field that an executor resolves while the step runs, such as
+foreach items, fails the step at the read, before the executor uses the value. A
+repeat condition runs after each execution, so one that reads a recorded output
+fails the step after the execution that evaluates it, and so does a field of an
+object-form `output:`, which Dagu resolves once the step has produced its
+output. The failure is the same on every attempt, so it is not retried,
+repeated, or marked successful.
+
+Resume after an approval or a human task cannot run a step before the gate again
+without reopening it, so a step after the gate that reads a recorded output
+fails on every resume. A step that needs a secret after an approval or a human
+task reads the secret itself instead of through an output.
 
 Provider-specific behavior covered here:
 

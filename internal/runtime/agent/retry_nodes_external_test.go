@@ -146,6 +146,35 @@ func TestRetryPlanReopensResetHumanTaskFromTemplate(t *testing.T) {
 	require.Equal(t, sourceStep.HumanTask, nodes[0].Step().HumanTask)
 }
 
+// Restored nodes keep the record of outputs stored masked, on a retry and on
+// a checkpoint resume alike, so a step either one runs fails on reading one.
+func TestRetryNodesMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "fetch", Output: "TOKEN"}}}
+	masked := &ir.MaskedOutputs{Variables: []string{"TOKEN"}}
+	for _, tt := range []struct {
+		name   string
+		status ir.Status
+	}{
+		{name: "Retry", status: ir.Failed},
+		{name: "QueuedCheckpoint", status: ir.Queued},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := &ir.DAGRunStatus{
+				Status: tt.status,
+				Resume: true,
+				Nodes:  []*ir.Node{{Step: dag.Steps[0], Status: ir.NodeSucceeded, MaskedOutputs: masked}},
+			}
+			nodes, err := agent.RetryNodesForTest(dag, status)
+			require.NoError(t, err)
+			assert.Equal(t, masked, nodes[0].State().MaskedOutputs)
+		})
+	}
+}
+
 // Resume intent applies only to a queued checkpoint. A flag left on a finished
 // run must not stop an explicit retry from rerunning partial work.
 func TestRetryPlanResumeIntent(t *testing.T) {

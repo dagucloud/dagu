@@ -21,9 +21,20 @@ type StepInfo struct {
 	Output          *string // nil = no output: configured; non-nil = captured value (may be "")
 	Outputs         *string // nil = no outputs published; non-nil = compact JSON object
 	DeclaredOutputs *string // nil = no declared file-based outputs published; non-nil = compact JSON object
+	// Masked names the outputs above that were restored with a secret masked.
+	Masked StepMasks
 }
 
+// resolveDeclaredStepOutput resolves a published output of a step and records
+// a read of it when a restore brought it back masked.
 func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
+	if info, ok := stepMap[stepName]; ok && info.DeclaredOutputs != nil && info.Masked.declared(outputName) {
+		maskedReadsFrom(ctx).note(stepName, outputName)
+	}
+	return declaredStepOutputValue(ctx, stepName, outputName, stepMap)
+}
+
+func declaredStepOutputValue(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
 	stepInfo, ok := stepMap[stepName]
 	if !ok {
 		logger.Debug(ctx, "Step not found in stepMap", tag.Step(stepName))
@@ -63,8 +74,16 @@ func jqPath(path string) string {
 	return path
 }
 
-// resolveStepProperty extracts a step's property value with optional slicing.
+// resolveStepProperty extracts a step's property value with optional slicing
+// and records a read of it when a restore brought it back masked.
 func resolveStepProperty(ctx context.Context, stepName, path string, stepMap map[string]StepInfo) (string, bool) {
+	if output, masked := stepMap[stepName].Masked.property(path); masked {
+		maskedReadsFrom(ctx).note(stepName, output)
+	}
+	return stepPropertyValue(ctx, stepName, path, stepMap)
+}
+
+func stepPropertyValue(ctx context.Context, stepName, path string, stepMap map[string]StepInfo) (string, bool) {
 	stepInfo, ok := stepMap[stepName]
 	if !ok {
 		logger.Debug(ctx, "Step not found in stepMap", tag.Step(stepName))

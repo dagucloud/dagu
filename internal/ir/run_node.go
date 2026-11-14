@@ -115,7 +115,10 @@ type Node struct {
 	OutputValue         *string              `json:"outputValue,omitempty"`
 	OutputsValue        *string              `json:"outputsValue,omitempty"`
 	StepOutputsValue    *string              `json:"stepOutputsValue,omitempty"`
-	HumanTaskInput      json.RawMessage      `json:"humanTaskInput,omitempty"`
+	// MaskedOutputs records which of the outputs above secret masking changed,
+	// so a retry does not feed the masked text to a step as if it were the value.
+	MaskedOutputs  *MaskedOutputs  `json:"maskedOutputs,omitempty"`
+	HumanTaskInput json.RawMessage `json:"humanTaskInput,omitempty"`
 	// AgentState stores the goal progress of an agent DAG's agent
 	// step, so a suspended run resumes with its task list intact.
 	AgentState json.RawMessage `json:"agentState,omitempty"`
@@ -167,6 +170,44 @@ type Node struct {
 	// Only StoredStatus sets them; reading a node restores the value.
 	outputsValueFrom     string
 	stepOutputsValueFrom string
+}
+
+// MaskedOutputs names the outputs of a node whose stored text secret masking
+// changed, by how a step reads them. The original text is not stored, so a run
+// that restores the node cannot use these outputs.
+type MaskedOutputs struct {
+	// Variables are the output variables changed, read as ${NAME}.
+	Variables []string `json:"variables,omitempty"`
+	// Published are the published outputs changed, read as
+	// ${steps.<id>.outputs.<name>}.
+	Published []string `json:"published,omitempty"`
+	// AllPublished is set when the published names cannot be trusted, because
+	// masking changed an output name or masked the outputs as text.
+	AllPublished bool `json:"allPublished,omitempty"`
+	// Captured is set when the captured output changed, read as ${<id>.output}
+	// or ${<id>.outputs...}.
+	Captured bool `json:"captured,omitempty"`
+}
+
+// HasVariable reports whether the output variable is masked.
+func (m *MaskedOutputs) HasVariable(name string) bool {
+	return m != nil && slices.Contains(m.Variables, name)
+}
+
+// HasCaptured reports whether the captured output is masked.
+func (m *MaskedOutputs) HasCaptured() bool {
+	return m != nil && m.Captured
+}
+
+// Clone returns a copy of m.
+func (m *MaskedOutputs) Clone() *MaskedOutputs {
+	if m == nil {
+		return nil
+	}
+	clone := *m
+	clone.Variables = slices.Clone(m.Variables)
+	clone.Published = slices.Clone(m.Published)
+	return &clone
 }
 
 // The output fields a stored node's other output fields may repeat.

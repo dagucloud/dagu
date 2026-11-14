@@ -94,6 +94,8 @@ type NodeState struct {
 	OutputsValue *string
 	// StepOutputsValue stores declared file-based outputs for ${steps.<id>.outputs.<name>} references.
 	StepOutputsValue *string
+	// MaskedOutputs names the outputs above that were stored masked.
+	MaskedOutputs *ir.MaskedOutputs
 	// HumanTaskInput stores the validated input submitted to complete a human task.
 	HumanTaskInput json.RawMessage
 	// AgentState stores the goal progress of an agent DAG. It is carried
@@ -422,6 +424,16 @@ func (d *Data) setHumanTask(prompt string, artifacts []string) {
 	d.inner.Step.HumanTask = &task
 }
 
+// maskedVariables names the output variables a restore brought back masked.
+func (d *Data) maskedVariables() []string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if masked := d.inner.State.MaskedOutputs; masked != nil {
+		return masked.Variables
+	}
+	return nil
+}
+
 func (d *Data) StepInfo() cmnvalue.StepInfo {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -432,26 +444,35 @@ func (d *Data) StepInfo() cmnvalue.StepInfo {
 		ExitCode: strconv.Itoa(d.inner.State.ExitCode),
 	}
 
+	masked := d.inner.State.MaskedOutputs
+
 	// Step-scoped references use OutputValue for both string-form and object-form output.
 	if d.inner.State.OutputValue != nil {
 		value := *d.inner.State.OutputValue
 		info.Output = &value
+		info.Masked.Output = masked.HasCaptured()
 	}
 
 	// Backward-compatible fallback for previously persisted string-form outputs.
 	if info.Output == nil {
 		if value, ok := d.inner.StringFormOutputValue(); ok {
 			info.Output = &value
+			info.Masked.Output = masked.HasVariable(d.inner.Step.Output)
 		}
 	}
 	if d.inner.State.StepOutputsValue != nil {
 		value := *d.inner.State.StepOutputsValue
 		info.Outputs = &value
 		info.DeclaredOutputs = &value
+		if masked != nil {
+			info.Masked.Outputs = masked.AllPublished || len(masked.Published) > 0
+			info.Masked.Declared, info.Masked.AllDeclared = masked.Published, masked.AllPublished
+		}
 	}
 	if info.Outputs == nil && d.inner.State.OutputsValue != nil {
 		value := *d.inner.State.OutputsValue
 		info.Outputs = &value
+		info.Masked.Outputs = masked.HasCaptured()
 	}
 
 	return info
@@ -605,12 +626,16 @@ func (d *Data) SetError(err error) {
 }
 
 // MatchExitCode reports whether the last attempt exited with one of exitCodes.
-// An attempt that failed during setup has no exit code and never matches.
+// An attempt that failed during setup or on a masked read has no exit code
+// and never matches.
 func (d *Data) MatchExitCode(exitCodes []int) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	if _, ok := errors.AsType[*stepSetupError](d.inner.State.Error); ok {
+		return false
+	}
+	if _, ok := errors.AsType[*cmnvalue.MaskedReadError](d.inner.State.Error); ok {
 		return false
 	}
 	return slices.Contains(exitCodes, d.inner.State.ExitCode)

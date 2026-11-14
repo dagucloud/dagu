@@ -1,0 +1,29 @@
+working_dir: .
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: secret-child
+
+---
+name: secret-child
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+handler_on:
+  exit:
+    run: |
+      printf 'handler [%s]\n' '${env.TOKEN}' >> received.out
+steps:
+  - id: login
+    run: |
+      printf '%s\n' "$API_TOKEN"
+    output: TOKEN
+
+  - id: use
+    depends: login
+    run: |
+      printf 'use ran\n' >> received.out
+      [ -f ready ]
