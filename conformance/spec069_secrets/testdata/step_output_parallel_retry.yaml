@@ -24,7 +24,7 @@ steps:
   - id: use
     depends: login
     run: |
-      printf '%s\n' "$TOKEN" >> received.out
+      printf '%s\n' '${env.TOKEN}' >> received.out
       if [ ! -f attempted ]; then touch attempted; exit 1; fi
     retry_policy:
       limit: 2

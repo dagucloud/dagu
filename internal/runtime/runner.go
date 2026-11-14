@@ -654,6 +654,17 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		return
 	}
 
+	// A precondition can decide on a value the step's env or working
+	// directory read, so a masked read there fails the step whatever the
+	// preconditions decide.
+	if err := maskedReadError(ctx, node); err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		reportPreparedNode()
+		return
+	}
+
 	// Check preconditions
 	logger.Debug(ctx, "Checking preconditions")
 	preconditionProgress := progressCh
@@ -673,15 +684,6 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 			reason, detail = ir.BuildReasonPreconditionError, ""
 		}
 		r.markBuildPrecondition(ctx, buildSession, node, reason, detail, progressCh)
-		return
-	}
-	// A skipped step reads nothing, so a masked read fails the step only once
-	// its preconditions hold.
-	if err := maskedReadError(ctx, node); err != nil {
-		r.setLastError(err)
-		node.MarkError(err)
-		node.SetStatus(ir.NodeFailed)
-		reportPreparedNode()
 		return
 	}
 	if r.evaluateBuildNode(ctx, node, buildSession, reportPreparedNode) {

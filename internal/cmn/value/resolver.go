@@ -185,15 +185,9 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 			ctx = context.WithValue(ctx, protectedReferencesKey{}, protected)
 		}
 	}
-	options := r.optionsFor(policy)
-	evaluated, err := evalString(ctx, resolved, options...)
+	evaluated, err := evalString(ctx, resolved, r.optionsFor(policy)...)
 	if err != nil {
 		return "", err
-	}
-	// A POSIX shell expands the variables Dagu leaves to it from its
-	// environment.
-	if buildOptions(options).DeferShellVars {
-		noteShellReads(ctx, evaluated)
 	}
 	if err := maskedReadsFrom(ctx).rejected(); err != nil {
 		return "", fieldError(field, err)

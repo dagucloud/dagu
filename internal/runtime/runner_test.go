@@ -5323,7 +5323,8 @@ func TestHumanTask(t *testing.T) {
 
 // A retry restores fetch with its token stored masked. A step that resolves
 // the token fails instead of running on starred text, but only once its
-// preconditions hold: a skipped step reads nothing.
+// preconditions hold, unless its env or working directory, which a
+// precondition can decide on, read the token.
 func TestRetryMaskedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -5335,9 +5336,10 @@ func TestRetryMaskedOutputs(t *testing.T) {
 	}{
 		{name: "PublishedOutput", use: []stepOption{withCommand(`echo ${steps.fetch.outputs.token}`)}, wantNode: ir.NodeFailed, wantRead: "token"},
 		{name: "UnmaskedPublishedOutput", use: []stepOption{withCommand(`echo ${steps.fetch.outputs.region}`)}, wantNode: ir.NodeSucceeded},
-		{name: "OutputVariable", use: []stepOption{withCommand(`echo "$TOKEN"`)}, wantNode: ir.NodeFailed, wantRead: "TOKEN"},
 		{name: "EnvNamespace", use: []stepOption{withCommand(`echo ${env.TOKEN}`)}, wantNode: ir.NodeFailed, wantRead: "TOKEN"},
-		{name: "SingleQuotedVariable", use: []stepOption{withCommand(`echo '$TOKEN'`)}, wantNode: ir.NodeSucceeded},
+		// A shell expands $TOKEN from its environment like any program, so it
+		// runs on the mask unchecked.
+		{name: "ShellVariable", use: []stepOption{withCommand(`echo "$TOKEN"`)}, wantNode: ir.NodeSucceeded},
 		// The step's env resolves in order, so an entry after the one that
 		// defines TOKEN reads the step's own value.
 		{
@@ -5353,20 +5355,29 @@ func TestRetryMaskedOutputs(t *testing.T) {
 		},
 		{
 			name:     "PreconditionNotMet",
-			use:      []stepOption{withCommand(`echo "$TOKEN"`), withPrecondition(&ir.Condition{Condition: "run", Expected: "skip"})},
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withPrecondition(&ir.Condition{Condition: "run", Expected: "skip"})},
 			wantNode: ir.NodeSkipped,
+		},
+		{
+			name: "EnvReadPreconditionNotMet",
+			use: []stepOption{
+				withEnvVars("LOCAL=${TOKEN}"), withCommand("true"),
+				withPrecondition(&ir.Condition{Condition: "${LOCAL}", Expected: "real"}),
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
 		},
 		// The same read fails every attempt, so it is not retried or
 		// repeated, and the step that did not run is not marked successful.
 		{
 			name:     "RetryPolicy",
-			use:      []stepOption{withCommand(`echo "$TOKEN"`), withRetryPolicy(3, time.Hour)},
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withRetryPolicy(3, time.Hour)},
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
 		{
 			name:     "RepeatPolicy",
-			use:      []stepOption{withCommand(`echo "$TOKEN"`), func(step *ir.Step) { step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil }},
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), func(step *ir.Step) { step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil }},
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
@@ -5387,13 +5398,13 @@ func TestRetryMaskedOutputs(t *testing.T) {
 		// step before an executor is built, here one that does not exist.
 		{
 			name:     "BeforeExecutorIsBuilt",
-			use:      []stepOption{withCommand(`echo "$TOKEN"`), withExecutorType("no-such-executor")},
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withExecutorType("no-such-executor")},
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
 		{
 			name:     "MarkSuccess",
-			use:      []stepOption{withCommand(`echo "$TOKEN"`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
@@ -5473,7 +5484,7 @@ func TestRetryMaskedOutputShadowed(t *testing.T) {
 			r := setupRunner(t)
 			far := newStep("far", withID("far"), withOutput("TOKEN"))
 			near := newStep("near", withID("near"), withDepends("far"), withOutput("TOKEN"))
-			use := newStep("use", withDepends("near"), withCommand(`echo "$TOKEN"`))
+			use := newStep("use", withDepends("near"), withCommand(`echo ${env.TOKEN}`))
 			dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{far, near, use}}
 			record := func(name string) *ir.MaskedOutputs {
 				if name != tc.masked {

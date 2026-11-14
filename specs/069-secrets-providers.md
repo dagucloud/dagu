@@ -82,16 +82,14 @@ Masking does not change the values steps exchange within a run. A later step
 of the same run reads a published output with the secret intact.
 
 A run can instead restore a step's stored result without executing the step
-again: a retry of the run or of a step, a retry with an edited DAG, resume
-after an approval or a human task, a run that carries another run's outputs,
-and the retry of a step in a child run of a `parallel:` step, which restores
-the child run. Stored outputs stay masked, and stored
-status records which outputs masking changed. A step that reads a recorded
-output after such a restore fails before it runs, with an error that names the
-step and the output and says the producing step has to run again, together
-with the steps after it. A step reads an output where value resolution inserts
-it into one of the step's fields, or where a POSIX shell that runs the step's
-command or script expands it from its environment:
+again: a retry of the run or of a step, a retry with an edited DAG, resume after
+an approval or a human task, a run that carries another run's outputs, and the
+retry of a step in a child run of a `parallel:` step, which restores the child
+run. Stored outputs stay masked, and stored status records which outputs masking
+changed. A step that reads a recorded output after such a restore fails before
+it runs, with an error that names the step and the output and says the producing
+step has to run again, together with the steps after it. A step reads an output
+where value resolution inserts it into one of the step's fields:
 
 - `${steps.<id>.outputs.<name>}` reads a published output.
 - `${<id>.outputs}` and any path under it read the published outputs when the
@@ -105,21 +103,11 @@ command or script expands it from its environment:
   because masking left the text no longer JSON counts as reading the variable.
 
 Each reference fails only when masking changed the output it reads. A reference
-that resolution leaves as written reads nothing: an escaped reference, a name a
-shell leaves in a comment, in single quotes, or in a quoted heredoc, a name a
-script expands after it sets or unsets its own value, and a `js` or `template`
-script, which is passed on as written. A value a script sets in a subshell or a
-background job, in code that may not run, or as a function's local holds only
-there, and a value every branch of an `if` sets holds after it. A function body
-runs where the function first runs, and the values it sets hold after that only
-when the call surely runs it in the script's own shell; a function no call
-names, such as one `trap` runs, runs at the end of the script. A `for` loop's
-variable holds after the loop only when its list is plain words. A function
-defined more than once sets nothing sure. `declare`, `export`, `readonly`, or
-`local` without a value keeps the inherited value, as dash does. Text a script
-hands to another shell, as with `eval`, `sh -c`, or a quoted `trap` action, and
-a script whose shebang names an interpreter other than a POSIX shell are
-programs reading their environment.
+that resolution leaves as written reads nothing: an escaped reference, and a
+`js` or `template` script, which is passed on as written. In a command or script
+that a shell runs, Dagu leaves `$NAME` and `${NAME}` to the shell, which reads
+them from its environment like any program, so they are not checked;
+`${env.NAME}` and the step-output forms are resolved by Dagu and are.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it, and
@@ -128,30 +116,32 @@ does. A foreach body step reads outputs in its own scope, which holds the
 foreach step's output variables under its own `env:`. A child run a step starts
 checks the reads of its own steps, not the starting step's.
 
-A program the step runs that reads an output variable from its environment, and
-an executor that takes a variable by name, such as through `pass_env`, receive
-`*******`; only the reads above are checked. A handler step and a human task
-report on the run rather than do its work, so they read an output stored masked
-as it is, as `*******`; only a human task's preconditions are checked. When
-masking changed the name of a published output, or masked the published outputs
-as text, every published output of that step counts as masked. Outputs that
-masking did not change are reused unchanged, and a value supplied for an output
-of a carried step replaces the recorded one, including the captured output when
-it names the step's `output:` variable.
+A shell or a program the step runs that reads an output variable from its
+environment, and an executor that takes a variable by name, such as through
+`pass_env`, receive `*******`; only the reads above are checked. A handler step
+and a human task report on the run rather than do its work, so they read an
+output stored masked as it is, as `*******`; only a human task's preconditions
+are checked. When masking changed the name of a published output, or masked the
+published outputs as text, every published output of that step counts as masked.
+Outputs that masking did not change are reused unchanged, and a value supplied
+for an output of a carried step replaces the recorded one, including the
+captured output when it names the step's `output:` variable.
 
-A step whose preconditions are not met is skipped as before, unless a
-precondition reads a recorded output: a precondition decides on what it reads,
-so the step then fails whatever the precondition decides. A field that an
-executor resolves while the step runs, such as foreach items, fails the step at
-the read, before the executor uses the value. A repeat condition runs after each
-execution, so one that reads a recorded output fails the step after the
-execution that evaluates it. The failure is the same on every attempt, so it is
-not retried, repeated, or marked successful.
+A precondition decides on what it reads, including the step's env and working
+directory, so a step whose env or working directory reads a recorded output
+fails before its preconditions run, and a precondition that reads one fails the
+step whatever it decides. A step whose preconditions are not met and that read
+nothing recorded is skipped as before. A field that an executor resolves while
+the step runs, such as foreach items, fails the step at the read, before the
+executor uses the value. A repeat condition runs after each execution, so one
+that reads a recorded output fails the step after the execution that evaluates
+it. The failure is the same on every attempt, so it is not retried, repeated, or
+marked successful.
 
-Resume after an approval or a human task cannot run a step before the gate
-again without reopening it, so a step after the gate that reads a recorded
-output fails on every resume. A step that needs a secret after an approval or
-a human task reads the secret itself instead of through an output.
+Resume after an approval or a human task cannot run a step before the gate again
+without reopening it, so a step after the gate that reads a recorded output
+fails on every resume. A step that needs a secret after an approval or a human
+task reads the secret itself instead of through an output.
 
 Provider-specific behavior covered here:
 

@@ -37,7 +37,6 @@ func TestMaskedRead(t *testing.T) {
 		}, "fetch", "TOKEN", "CONFIG", "PIN")
 	workflow := WorkflowField("run")
 	shell := ShellCommandField("run", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
-	script := CommandScriptField("script", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
 
 	tests := []struct {
 		name  string
@@ -73,82 +72,14 @@ func TestMaskedRead(t *testing.T) {
 		// Masking a number leaves the text no longer JSON.
 		{name: "path into masked text that is no longer JSON", raw: "deploy ${PIN.pin}", field: workflow, want: "PIN"},
 		{name: "missing path into a masked variable", raw: "deploy ${CONFIG.missing}", field: workflow},
-		// A POSIX shell expands these itself from its environment.
-		{name: "shell variable", raw: `deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "shell parameter expansion", raw: `deploy "${TOKEN:-none}"`, field: shell, want: "TOKEN"},
-		{name: "single-quoted shell variable", raw: `deploy '$TOKEN'`, field: shell},
-		{name: "escaped shell variable", raw: `deploy \$TOKEN`, field: shell},
-		{name: "shell comment", raw: "# $TOKEN is not needed\ndeploy", field: shell},
-		{name: "shell variable after the script sets it", raw: `TOKEN=$(echo local); deploy "$TOKEN"`, field: shell},
-		{name: "shell variable the script sets from itself", raw: `TOKEN="$TOKEN-x"; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "shell variable before the script sets it", raw: `deploy "$TOKEN"; TOKEN=local`, field: shell, want: "TOKEN"},
-		{name: "shell variable for a command only", raw: `TOKEN=local deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "shell loop variable", raw: `for TOKEN in a b; do deploy "$TOKEN"; done`, field: shell},
-		{name: "shell variable read from input", raw: `read -r TOKEN < file; deploy "$TOKEN"`, field: shell},
-		{name: "quoted heredoc", raw: "cat <<'EOF'\n$TOKEN\nEOF", field: shell},
-		{name: "heredoc", raw: "cat <<EOF\n$TOKEN\nEOF", field: shell, want: "TOKEN"},
-		{name: "apostrophe in a comment", raw: "# don't log it\ndeploy \"$TOKEN\"", field: shell, want: "TOKEN"},
-		{name: "shell arithmetic", raw: `deploy $((TOKEN + 1))`, field: shell, want: "TOKEN"},
-		{name: "c-style for loop", raw: `for ((i = 0; i < TOKEN; i++)); do :; done`, field: shell, want: "TOKEN"},
-		{name: "array index", raw: `deploy "${arr[TOKEN]}"`, field: shell, want: "TOKEN"},
-		{name: "name reference", raw: `declare -n ref=TOKEN; deploy "$ref"`, field: shell, want: "TOKEN"},
-		// A declaration without a value word, such as an array or an empty
-		// value, sets the variable.
-		{name: "array declaration", raw: `declare -a TOKEN=(a b); deploy "${TOKEN[0]}"`, field: shell},
-		{name: "associative array declaration", raw: `declare -A TOKEN=([a]=1); deploy "${TOKEN[a]}"`, field: shell},
-		{name: "local array", raw: `f() { local -a TOKEN=(a b); deploy "$TOKEN"; }; f`, field: shell},
-		{name: "empty local", raw: `f() { local TOKEN=; deploy "$TOKEN"; }; f`, field: shell},
-		{name: "empty export", raw: `export TOKEN=; deploy "$TOKEN"`, field: shell},
-		{name: "empty readonly", raw: `readonly TOKEN=; deploy "$TOKEN"`, field: shell},
-		{name: "mixed export", raw: `export A TOKEN=1 C=; deploy "$TOKEN"`, field: shell},
-		{name: "shell append", raw: `TOKEN+=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "shell variable after unset", raw: `unset TOKEN; deploy "${TOKEN:-none}"`, field: shell},
-		{name: "shell variable printf sets", raw: `printf -v TOKEN '%s' local; deploy "$TOKEN"`, field: shell},
-		{name: "function called after the script sets it", raw: `f() { deploy "$TOKEN"; }; TOKEN=local; f`, field: shell},
-		{name: "function called before the script sets it", raw: `f() { deploy "$TOKEN"; }; f; TOKEN=local`, field: shell, want: "TOKEN"},
-		// trap, command, or eval can run a function no call names.
-		{name: "function no call names", raw: `f() { deploy "$TOKEN"; }`, field: shell, want: "TOKEN"},
-		{name: "function a later call runs", raw: `show() { deploy "$TOKEN"; }; main() { show; }; TOKEN=local; main`, field: shell},
-		{name: "function called after its caller sets it", raw: `show() { deploy "$TOKEN"; }; main() { TOKEN=local; show; }; main`, field: shell},
-		{name: "function called before its caller sets it", raw: `show() { deploy "$TOKEN"; }; main() { show; TOKEN=local; }; main`, field: shell, want: "TOKEN"},
-		{name: "recursive function", raw: `f() { deploy "$TOKEN"; f; }; f`, field: shell, want: "TOKEN"},
-		{name: "after a function a branch calls", raw: `f() { TOKEN=x; }; if c; then f; fi; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a function a subshell calls", raw: `f() { TOKEN=x; }; (f); deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "function a trap runs", raw: `notify() { deploy "$TOKEN"; }; trap notify EXIT`, field: shell, want: "TOKEN"},
-		{name: "function a trap runs after the script sets it", raw: `notify() { deploy "$TOKEN"; }; trap notify EXIT; TOKEN=local`, field: shell},
-		{name: "after a loop that may not run", raw: `for TOKEN in $EMPTY; do :; done; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "local outside a function", raw: `local TOKEN=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "declare without a value", raw: `declare TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "export without a value", raw: `export TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		// dash keeps the inherited value for a local without one.
-		{name: "local without a value", raw: `f() { local TOKEN; deploy "$TOKEN"; }; f`, field: shell, want: "TOKEN"},
-		{name: "after a background job sets it", raw: `TOKEN=x & wait; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a function a background job runs", raw: `f() { TOKEN=x; }; f & wait; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a coprocess sets it", raw: `coproc { TOKEN=x; }; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a redefined function", raw: `f() { TOKEN=x; }; f() { :; }; f; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "function local", raw: `f() { local TOKEN=x; deploy "$TOKEN"; }; f`, field: shell},
-		{name: "after a function local", raw: `f() { local TOKEN=x; }; f; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a function sets it", raw: `f() { TOKEN=x; }; f; deploy "$TOKEN"`, field: shell},
-		{name: "after a subshell sets it", raw: `(TOKEN=x); deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "inside the subshell that sets it", raw: `(TOKEN=x; deploy "$TOKEN")`, field: shell},
-		{name: "after a command substitution sets it", raw: `x=$(TOKEN=x; echo); deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a branch sets it", raw: `if false; then TOKEN=x; fi; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "inside the branch that sets it", raw: `if true; then TOKEN=x; deploy "$TOKEN"; fi`, field: shell},
-		{name: "after every branch sets it", raw: `if c; then TOKEN=a; elif d; then TOKEN=b; else TOKEN=c; fi; deploy "$TOKEN"`, field: shell},
-		{name: "after an elif without else sets it", raw: `if c; then TOKEN=a; elif d; then TOKEN=b; fi; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after an && sets it", raw: `false && TOKEN=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after a pipeline reads it", raw: `echo x | read TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "after mapfile sets it", raw: `mapfile -t TOKEN < file; deploy "${TOKEN[0]}"`, field: shell},
-		{name: "after getopts sets it", raw: `getopts t TOKEN; deploy "$TOKEN"`, field: shell},
-		{name: "single-quoted braced shell variable", raw: `deploy '${TOKEN}'`, field: shell},
-		// Dagu inserts a quoted reference in a single-quoted span itself.
+		// A POSIX shell expands these itself, like any program reading its
+		// environment, so Dagu sees no read.
+		{name: "shell variable", raw: `deploy "$TOKEN"`, field: shell},
+		{name: "braced shell variable", raw: `deploy "${TOKEN}"`, field: shell},
+		// Dagu inserts these into the command itself.
+		{name: "env namespace in a shell command", raw: `deploy "${env.TOKEN}"`, field: shell, want: "TOKEN"},
 		{name: "quoted reference in single quotes", raw: `curl -d '{"token":"${TOKEN}"}'`, field: shell, want: "TOKEN"},
 		{name: "script passed on as written", raw: "console.log(`${TOKEN} ${fetch.output}`)", field: TemplateScriptField("script")},
-		{name: "shell script", raw: "#!/bin/bash\ndeploy \"$TOKEN\"", field: script, want: "TOKEN"},
-		{name: "shell script through env", raw: "#!/usr/bin/env -S bash -e\ndeploy \"$TOKEN\"", field: script, want: "TOKEN"},
-		// Another interpreter's variables are its own.
-		{name: "perl script", raw: "#!/usr/bin/perl\nmy $TOKEN = 'local'; print $TOKEN;", field: script},
-		{name: "python script through env", raw: "#!/usr/bin/env python3\nprint('$TOKEN')", field: script},
 	}
 
 	for _, tt := range tests {
@@ -199,22 +130,4 @@ func TestRejectMaskedReads(t *testing.T) {
 	var read *MaskedReadError
 	require.ErrorAs(t, err, &read)
 	assert.Equal(t, MaskedReadError{Step: "fetch", Output: "TOKEN"}, *read)
-}
-
-// The shell scan runs on every POSIX shell step of a restored run, so it must
-// not fail on any script text.
-func FuzzShellEnvReads(f *testing.F) {
-	for _, seed := range []string{
-		`deploy "$TOKEN"`,
-		`declare -a arr=(1 2); local x=; export A B=1 C=`,
-		`f() { local -n ref=TOKEN; }; trap f EXIT; f &`,
-		`for ((i = 0; i < N; i++)); do echo "${arr[i]:1:2}"; done`,
-		`if a; then X=1; elif b; then X=2; else X=3; fi | cat; coproc { :; }`,
-		"cat <<'EOF'\n$X\nEOF",
-	} {
-		f.Add(seed)
-	}
-	f.Fuzz(func(_ *testing.T, text string) {
-		_ = shellEnvReads(text)
-	})
 }
