@@ -19,12 +19,12 @@ It does not define workflow YAML semantics, step execution, or output formats.
 Let a repository keep its workflows next to its code, and run them with no
 server and no setup beyond `dagu init`.
 
-A project is a directory that contains `.dagu.yaml`. That directory is
+A project is a directory that contains `.dagu.json`. That directory is
 `project_root`.
 
 ## Project file
 
-`.dagu.yaml` must be a YAML mapping. An empty file is valid.
+`.dagu.json` must be a JSON object. An empty object, `{}`, is valid.
 
 Fields defined by this spec:
 
@@ -43,17 +43,19 @@ Rules:
 
 Example:
 
-```text
-workflows: workflows
-working_dir: .
-project: billing
+```json
+{
+  "workflows": "workflows",
+  "working_dir": ".",
+  "project": "billing"
+}
 ```
 
 Default layout:
 
 ```text
 project/
-  .dagu.yaml
+  .dagu.json
   base.yaml
   workflows/
     deploy.yaml
@@ -66,11 +68,11 @@ project/
 
 ## Finding the project
 
-- The CLI looks for `.dagu.yaml` in the current directory, then in each parent
+- The CLI looks for `.dagu.json` in the current directory, then in each parent
   directory, and stops at the first one it finds. That directory is
   `project_root`.
 - A project nested inside another project hides the outer one.
-- Without `.dagu.yaml` in the current directory or above it, commands do not
+- Without `.dagu.json` in the current directory or above it, commands do not
   run in project mode. A folder that a server project uses is still found
   without it; see [Server projects](#server-projects).
 
@@ -87,10 +89,10 @@ project/
 
 Rules:
 
-- `dagu init` writes `.dagu.yaml`, `workflows/hello.yaml`, and
-  `.dagu/.gitignore`, then prints `dagu start hello` as the next command. It
-  refuses when `.dagu.yaml` already exists in the current directory, and it
-  never overwrites a file.
+- `dagu init` writes `.dagu.json` containing `{}`, `workflows/hello.yaml`,
+  and `.dagu/.gitignore`, then prints `dagu start hello` as the next
+  command. It refuses when `.dagu.json` already exists in the current
+  directory, and it never overwrites a file.
 - `dagu list` prints targets in lexicographic order, one per line.
 - `dagu validate` without `<target>` validates the project file and every
   discovered workflow.
@@ -117,7 +119,7 @@ steps:
 
 ## Workflow discovery
 
-Dagu resolves the workflow directory from `.dagu.yaml`.
+Dagu resolves the workflow directory from `.dagu.json`.
 
 Rules:
 
@@ -165,7 +167,7 @@ The process working directory is the directory from which step commands run.
 Rules:
 
 - The default process working directory is `project_root`, or the
-  `working_dir` of `.dagu.yaml` resolved from `project_root`.
+  `working_dir` of `.dagu.json` resolved from `project_root`.
 - A relative workflow root `working_dir` is resolved from the project default
   process working directory.
 - An absolute workflow root `working_dir` is used as written.
@@ -177,7 +179,7 @@ Example:
 
 ```text
 project/
-  .dagu.yaml
+  .dagu.json
   workflows/
     deploy.yaml
   scripts/
@@ -234,9 +236,10 @@ Rules:
   entries.
 - Secrets are encrypted with the key of the user's Dagu home, as on a
   server.
-- A server project on an existing folder ([RFC 003](../rfcs/003-projects.md))
-  uses the same layout, so the CLI and the server read one history and one
-  set of secrets and profiles.
+- A server project ([RFC 003](../rfcs/003-projects.md#layout)) lays out its
+  state the same way. On an existing folder it uses the folder's `.dagu/`,
+  so the CLI and the server read one history and one set of secrets and
+  profiles. Elsewhere its state is in the server's data directory.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs, so people rarely need to open `.dagu/`.
 - Project loading and workflow discovery do not write workflow events, run
@@ -250,20 +253,18 @@ project's DAG directory may be a checkout.
 
 Rules:
 
-- A server project's DAG directory may hold `.dagu.yaml`. The server then
+- A server project's DAG directory may hold `.dagu.json`. The server then
   discovers workflows, applies base config, and sets working directories as
   this spec says, whatever the server's `dag_discovery` settings are.
 - On a server, a `project` field that differs from the server project's name
-  is a warning on the projects page, not a loading error, so renaming a
-  project never stops it from loading. The rename asks the admin to update
-  the field.
+  is a warning on the projects page, not a loading error.
 - A command runs in the first of these that applies:
   1. The server project named by `--project` or `DAGU_PROJECT`.
   2. The server project of the configured Dagu home whose DAG directory
-     contains the current directory, with or without `.dagu.yaml`. This
+     contains the current directory, with or without `.dagu.json`. This
      includes a project on an existing folder. The command uses that
      project's rules, base config, secrets, and run history.
-  3. Project mode, when `.dagu.yaml` is found from the current directory,
+  3. Project mode, when `.dagu.json` is found from the current directory,
      with its state in `.dagu/`.
   4. The default project of the configured Dagu home, as without projects.
 - Inside a server project's DAG directory, as in step 2, `dagu server` and
@@ -282,9 +283,9 @@ Step stdout, stderr, exit code, and runtime outputs belong to execution specs.
 
 Project loading must fail when:
 
-- `.dagu.yaml` exists but is not a file.
-- `.dagu.yaml` is not valid YAML, or is not a mapping.
-- `.dagu.yaml` contains an invalid field defined by this spec.
+- `.dagu.json` exists but is not a file.
+- `.dagu.json` is not valid JSON, or is not an object.
+- `.dagu.json` contains an invalid field defined by this spec.
 - A configured workflow directory is missing or is not a directory.
 - The workflow directory resolves outside `project_root`.
 - Two workflow files have targets that match without regard to case.
@@ -305,7 +306,7 @@ Configured workflow directory:
 
 ```text
 project/
-  .dagu.yaml
+  .dagu.json
   pipelines/
     deploy.yaml
     etl/
@@ -314,10 +315,10 @@ project/
     backup.yaml
 ```
 
-`.dagu.yaml`:
+`.dagu.json`:
 
-```text
-workflows: pipelines
+```json
+{ "workflows": "pipelines" }
 ```
 
 `dagu list` prints:
