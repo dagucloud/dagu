@@ -103,6 +103,7 @@ func TestResolveRejects(t *testing.T) {
 		{"InventoryNameRequired", `[{"name": " "}]`, `inventory " ": name: is required`},
 		{"InventoryNameTooLong", `[{"name": "` + strings.Repeat("x", 201) + `"}]`, "name: is longer than 200 characters"},
 		{"InventoryNameClashIgnoresCase", `[{"name": "Tokyo"}, {"name": "TOKYO"}]`, `inventory "TOKYO": name: is also the name of inventory "Tokyo"`},
+		{"InventoryNameClashIgnoresUnicodeCase", `[{"name": "Σ"}, {"name": "ς"}]`, `inventory "ς": name: is also the name of inventory "Σ"`},
 		{"NodeName", `[{"name": "a", "nodes": [{"name": "-web", "host": "h"}]}]`, `inventory "a": node "-web": name: "-web" must match`},
 		{"NodeNameClashAcrossInventories", `[{"name": "a", "nodes": [{"name": "web", "host": "h"}]}, {"name": "b", "nodes": [{"name": "WEB", "host": "h"}]}]`, `inventory "b": node "WEB": name: is also a node of inventory "a"`},
 		{"HostRequired", `[{"name": "a", "nodes": [{"name": "web"}]}]`, `node "web": host: is required`},
@@ -151,14 +152,18 @@ func TestResolveAcceptsAddressesAndNames(t *testing.T) {
 func TestResolveReportsEveryError(t *testing.T) {
 	t.Parallel()
 
+	// The db node's key fails to parse, and its literal password is still
+	// reported.
 	list, err := inventory.DecodeList([]byte(`[{"name": "a", "nodes": [
 		{"name": "web", "host": "", "user": "a b"},
-		{"name": "db", "host": "h", "password": "x"}
+		{"name": "db", "host": "h", "key": 42, "password": "x"}
 	]}]`))
 	require.NoError(t, err)
 	_, err = inventory.Resolve(list)
 	require.Error(t, err)
-	assert.Len(t, err.(interface{ Unwrap() []error }).Unwrap(), 3)
+	assert.Len(t, err.(interface{ Unwrap() []error }).Unwrap(), 4)
+	assert.ErrorContains(t, err, `node "db": key: must be a path`)
+	assert.ErrorContains(t, err, `node "db": password: takes only`)
 }
 
 func TestResolveDefaults(t *testing.T) {

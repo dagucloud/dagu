@@ -66,10 +66,7 @@ func (e *Error) Unwrap() []error { return []error{ErrInvalid, e.Err} }
 // Resolve checks a project's inventories against every rule and returns their
 // nodes with defaults applied, in name order. It reports every broken rule.
 func Resolve(inventories []Inventory) ([]ResolvedNode, error) {
-	r := resolver{
-		inventoryNames: make(map[string]string),
-		nodeOwners:     make(map[string]string),
-	}
+	r := resolver{nodeOwners: make(map[string]string)}
 	var nodes []ResolvedNode
 	for _, inv := range inventories {
 		nodes = append(nodes, r.inventory(inv)...)
@@ -82,11 +79,13 @@ func Resolve(inventories []Inventory) ([]ResolvedNode, error) {
 }
 
 type resolver struct {
-	// inventoryNames and nodeOwners map a lowercased name to the inventory
-	// that holds it, so a clash can name the other inventory.
-	inventoryNames map[string]string
-	nodeOwners     map[string]string
-	errs           []error
+	// inventoryNames lists the names seen so far. Inventory names may hold
+	// any text, so they are compared with strings.EqualFold.
+	inventoryNames []string
+	// nodeOwners maps a lowercased node name to the inventory that holds it,
+	// so a clash can name the other inventory. Node names are ASCII.
+	nodeOwners map[string]string
+	errs       []error
 }
 
 func (r *resolver) fail(inv, node, field string, err error) {
@@ -101,11 +100,11 @@ func (r *resolver) inventory(inv Inventory) []ResolvedNode {
 	case utf8.RuneCountInString(name) > MaxNameLength:
 		r.fail(name, "", "name", fmt.Errorf("is longer than %d characters", MaxNameLength))
 	default:
-		folded := strings.ToLower(name)
-		if other, ok := r.inventoryNames[folded]; ok {
-			r.fail(name, "", "name", fmt.Errorf("is also the name of inventory %q", other))
+		i := slices.IndexFunc(r.inventoryNames, func(other string) bool { return strings.EqualFold(other, name) })
+		if i >= 0 {
+			r.fail(name, "", "name", fmt.Errorf("is also the name of inventory %q", r.inventoryNames[i]))
 		} else {
-			r.inventoryNames[folded] = name
+			r.inventoryNames = append(r.inventoryNames, name)
 		}
 	}
 
@@ -160,11 +159,12 @@ func (r *resolver) connection(inv, node, prefix string, c Connection) (resolvedC
 		fail(e.field, e.err)
 	}
 	// Literal passwords are rejected, so an exported inventory holds no
-	// secret and is safe to share.
-	if auth.Password != "" {
+	// secret and is safe to share. The raw values are checked, so this is
+	// reported even when another credential fails to parse.
+	if s, isString := c.Password.(string); isString && s != "" {
 		fail("password", errors.New(`takes only {"secret": <ref>}`))
 	}
-	if auth.Passphrase != "" {
+	if s, isString := c.Passphrase.(string); isString && s != "" {
 		fail("passphrase", errors.New(`takes only {"secret": <ref>}`))
 	}
 	return resolvedConnection{Connection: c, auth: auth}, ok
