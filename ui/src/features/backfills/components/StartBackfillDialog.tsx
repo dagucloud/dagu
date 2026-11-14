@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BackfillOnFailure,
   BackfillPlanSlotAction,
@@ -180,6 +180,11 @@ export function StartBackfillDialog({
   const [stale, setStale] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A message below a long form is scrolled into view when it appears.
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [error]);
   const validConcurrency = Number.isInteger(concurrency) && concurrency >= 1;
   const named = chosen?.kind === 'slots';
   // The target as text, so that a new object with the same slots plans
@@ -562,7 +567,7 @@ export function StartBackfillDialog({
             </p>
           )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p ref={errorRef} role="alert" className="text-sm text-destructive">
               {error}
             </p>
           )}
