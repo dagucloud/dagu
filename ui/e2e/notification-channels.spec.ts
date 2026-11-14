@@ -1,9 +1,24 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { createServer } from 'node:http';
 import { loadStack, loginViaAPI, loginViaUI, uniqueName } from './helpers/e2e';
+
+// Scrolls a long dialog form with the mouse wheel, as a user does. Locator
+// actions scroll their target into view on their own, even when the form body
+// cannot scroll, so they would hide a broken scroll area. The target starts
+// clipped below the visible part of the form.
+async function expectWheelScrollsTo(
+  page: Page,
+  pointer: Locator,
+  target: Locator
+): Promise<void> {
+  await expect(target).not.toBeInViewport();
+  await pointer.hover();
+  await page.mouse.wheel(0, 2000);
+  await expect(target).toBeInViewport();
+}
 
 test('manages and tests notification channels on desktop and mobile', async ({
   page,
@@ -44,6 +59,11 @@ test('manages and tests notification channels on desktop and mobile', async ({
     await page
       .getByRole('option', { name: 'Generic Webhook', exact: true })
       .click();
+    await expectWheelScrollsTo(
+      page,
+      editor.getByLabel('Channel name'),
+      editor.getByRole('switch', { name: 'Enabled', exact: true })
+    );
     await editor.getByLabel('Channel name').fill(name);
     await editor
       .getByLabel('Webhook endpoint URL')
@@ -111,6 +131,15 @@ test('manages and tests notification channels on desktop and mobile', async ({
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Configure', exact: true }).click();
     await expect(editor.getByPlaceholder('SMTP host')).toBeVisible();
+    await editor
+      .getByRole('combobox', { name: 'SMTP authentication', exact: true })
+      .click();
+    await page.getByRole('option', { name: 'OAuth 2.0', exact: true }).click();
+    await expectWheelScrollsTo(
+      page,
+      editor.getByPlaceholder('SMTP host'),
+      editor.getByPlaceholder('Client secret')
+    );
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(
       await page.evaluate(
