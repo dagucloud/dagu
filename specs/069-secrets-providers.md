@@ -131,7 +131,9 @@ masking changed the name of a published output, or masked the published outputs
 as text, every published output of that step counts as masked. Outputs that
 masking did not change are reused unchanged, and a value supplied for an output
 of a carried step replaces the recorded one, including the captured output when
-it names the step's `output:` variable.
+it names the step's `output:` variable, unless the step also stores a legacy
+outputs payload, which keeps the captured output recorded. An approval input
+replaces the recorded output variable of the same name.
 
 A precondition decides on what it reads, including the fields Dagu resolves
 before it: the step's env, working directory, stdout and stderr paths, and retry
