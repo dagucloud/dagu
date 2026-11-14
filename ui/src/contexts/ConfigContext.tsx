@@ -73,6 +73,7 @@ export type Config = {
   restartCommand: string;
   restartStopsRuns: boolean;
   restartCanKeepRuns: boolean;
+  webUpgradeAvailable: boolean;
   permissions: {
     writeDags: boolean;
     runDags: boolean;

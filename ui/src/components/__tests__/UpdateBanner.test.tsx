@@ -4,8 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 
-const { isAdmin } = vi.hoisted(() => ({ isAdmin: vi.fn(() => true) }));
+const { isAdmin, client } = vi.hoisted(() => ({
+  isAdmin: vi.fn(() => true),
+  client: { GET: vi.fn(), POST: vi.fn() },
+}));
 vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: isAdmin }));
+vi.mock('@/hooks/api', () => ({ useClient: () => client }));
 
 const updateConfig = {
   version: '2.0.0',
@@ -17,6 +21,7 @@ const updateConfig = {
   restartCommand: '',
   restartStopsRuns: false,
   restartCanKeepRuns: false,
+  webUpgradeAvailable: false,
 } satisfies Partial<Config>;
 
 // The banner reads only the update fields, so the rest of Config is omitted.
@@ -33,6 +38,8 @@ describe('UpdateBanner', () => {
   beforeEach(() => {
     localStorage.clear();
     isAdmin.mockReturnValue(true);
+    client.GET.mockReset();
+    client.POST.mockReset();
   });
 
   // Only an administrator can upgrade or restart the server.
@@ -192,5 +199,108 @@ describe('UpdateBanner', () => {
     expect(
       screen.getByText(/A new Dagu binary is installed/)
     ).toBeInTheDocument();
+  });
+
+  describe('update from the web UI', () => {
+    // startUpdate confirms the update the banner offers.
+    async function startUpdate(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole('button', { name: 'Update now' }));
+      await user.click(screen.getByRole('button', { name: 'Update' }));
+    }
+
+    it('offers to update in place of the command', () => {
+      renderBanner({ webUpgradeAvailable: true });
+
+      expect(
+        screen.getByRole('button', { name: 'Update now' })
+      ).toBeInTheDocument();
+      expect(screen.queryByText('dagu upgrade')).not.toBeInTheDocument();
+    });
+
+    it('warns before an update whose restart ends runs', async () => {
+      const user = userEvent.setup();
+      renderBanner({ webUpgradeAvailable: true, restartStopsRuns: true });
+
+      await user.click(screen.getByRole('button', { name: 'Update now' }));
+
+      expect(
+        screen.getByText(/The restart also ends runs in progress/)
+      ).toBeInTheDocument();
+    });
+
+    it('shows the progress of the update it started', async () => {
+      const user = userEvent.setup();
+      client.POST.mockResolvedValue({
+        data: {
+          available: true,
+          state: 'downloading',
+          targetVersion: 'v2.1.0',
+          downloadedBytes: 25,
+          totalBytes: 100,
+        },
+      });
+      renderBanner({ webUpgradeAvailable: true });
+
+      await startUpdate(user);
+
+      expect(client.POST).toHaveBeenCalledWith('/system/upgrade', {
+        params: { query: { remoteNode: 'local' } },
+      });
+      expect(
+        await screen.findByText('Downloading v2.1.0… 25%')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Dismiss update notification' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows the restart', async () => {
+      const user = userEvent.setup();
+      client.POST.mockResolvedValue({
+        data: { available: true, state: 'restarting' },
+      });
+      client.GET.mockReturnValue(new Promise(() => {}));
+      renderBanner({ webUpgradeAvailable: true });
+
+      await startUpdate(user);
+
+      expect(await screen.findByText('Restarting Dagu…')).toBeInTheDocument();
+    });
+
+    it('offers to try a failed update again', async () => {
+      const user = userEvent.setup();
+      client.POST.mockResolvedValue({
+        data: {
+          available: true,
+          state: 'failed',
+          error: 'checksum mismatch',
+        },
+      });
+      renderBanner({ webUpgradeAvailable: true });
+
+      await startUpdate(user);
+      expect(
+        await screen.findByText('Update failed: checksum mismatch')
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(client.POST).toHaveBeenCalledTimes(2);
+    });
+
+    it('says why the update did not start', async () => {
+      const user = userEvent.setup();
+      client.POST.mockResolvedValue({
+        error: { message: 'an upgrade is already in progress' },
+      });
+      renderBanner({ webUpgradeAvailable: true });
+
+      await startUpdate(user);
+
+      expect(
+        await screen.findByText(
+          'The update did not start: an upgrade is already in progress'
+        )
+      ).toBeInTheDocument();
+    });
   });
 });

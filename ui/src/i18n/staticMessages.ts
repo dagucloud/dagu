@@ -3135,6 +3135,22 @@ const baseEnglish = {
     'Update available: v{current} → {latest} {guideLink}',
   'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
     'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}',
+  'Update available: v{current} → {latest} {guideLink} · {updateNow}':
+    'Update available: v{current} → {latest} {guideLink} · {updateNow}',
+  'Update now': 'Update now',
+  'The update did not start: {error}': 'The update did not start: {error}',
+  'Update Dagu': 'Update Dagu',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.':
+    'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.':
+    'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.',
+  'Update failed: {error}': 'Update failed: {error}',
+  'Dagu has not come back yet. Check the Dagu service on the server.':
+    'Dagu has not come back yet. Check the Dagu service on the server.',
+  'Restarting Dagu…': 'Restarting Dagu…',
+  'Installing {version}…': 'Installing {version}…',
+  'Downloading {version}… {percent}%': 'Downloading {version}… {percent}%',
+  'Downloading {version}…': 'Downloading {version}…',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     'A new Dagu binary is installed. Run {command} to restart and use it.',
   'A new Dagu binary is installed. Restart Dagu to use it.':
@@ -6322,6 +6338,22 @@ const baseChinese = {
     '有可用更新：v{current} → {latest} {guideLink}',
   'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
     '有可用更新：v{current} → {latest} {guideLink} · 将容器镜像更新为 {latest}',
+  'Update available: v{current} → {latest} {guideLink} · {updateNow}':
+    '有可用更新：v{current} → {latest} {guideLink} · {updateNow}',
+  'Update now': '立即更新',
+  'The update did not start: {error}': '更新未能开始：{error}',
+  'Update Dagu': '更新 Dagu',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.':
+    'Dagu 将下载 {latest}，校验其校验和，替换二进制文件并重启。重启也会结束正在进行的运行。',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.':
+    'Dagu 将下载 {latest}，校验其校验和，替换二进制文件并重启。正在进行的运行会继续。',
+  'Update failed: {error}': '更新失败：{error}',
+  'Dagu has not come back yet. Check the Dagu service on the server.':
+    'Dagu 尚未恢复。请检查服务器上的 Dagu 服务。',
+  'Restarting Dagu…': '正在重启 Dagu…',
+  'Installing {version}…': '正在安装 {version}…',
+  'Downloading {version}… {percent}%': '正在下载 {version}… {percent}%',
+  'Downloading {version}…': '正在下载 {version}…',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
@@ -9608,6 +9640,23 @@ const baseJapanese = {
     '更新があります：v{current} → {latest} {guideLink}',
   'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
     '更新があります：v{current} → {latest} {guideLink} · コンテナイメージを {latest} に更新',
+  'Update available: v{current} → {latest} {guideLink} · {updateNow}':
+    '更新があります：v{current} → {latest} {guideLink} · {updateNow}',
+  'Update now': '今すぐ更新',
+  'The update did not start: {error}': '更新を開始できませんでした：{error}',
+  'Update Dagu': 'Dagu を更新',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.':
+    'Dagu は {latest} をダウンロードし、チェックサムを検証してバイナリを置き換え、再起動します。再起動すると、進行中の実行も終了します。',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.':
+    'Dagu は {latest} をダウンロードし、チェックサムを検証してバイナリを置き換え、再起動します。進行中の実行はそのまま続きます。',
+  'Update failed: {error}': '更新に失敗しました：{error}',
+  'Dagu has not come back yet. Check the Dagu service on the server.':
+    'Dagu がまだ戻っていません。サーバー上の Dagu サービスを確認してください。',
+  'Restarting Dagu…': 'Dagu を再起動しています…',
+  'Installing {version}…': '{version} をインストールしています…',
+  'Downloading {version}… {percent}%':
+    '{version} をダウンロードしています… {percent}%',
+  'Downloading {version}…': '{version} をダウンロードしています…',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
