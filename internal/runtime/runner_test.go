@@ -5438,6 +5438,24 @@ func TestRetryMaskedOutputs(t *testing.T) {
 	}
 }
 
+// The error names the producing step by its name, which retry selects it by,
+// though the reference names it by id.
+func TestRetryMaskedOutputNamesProducer(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t)
+	fetch := newStep("Fetch the token", withID("fetch"), withOutput("TOKEN"))
+	use := newStep("use", withDepends("Fetch the token"), withCommand(`echo ${steps.fetch.outputs.token}`))
+	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch, use}}
+	plan, err := runtime.CreateRetryPlan(r.Context, dag,
+		restoredNode(fetch, "*******", &ir.MaskedOutputs{Published: []string{"token"}}),
+		runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+	)
+	require.NoError(t, err)
+	result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir(), steps: dag.Steps}).assertRun(t, ir.Failed)
+	assert.ErrorContains(t, result.nodeByName(t, "use").Error(), `reads output "token" of step "Fetch the token"`)
+}
+
 // Predecessors' output variables enter scope nearest first, so of two that
 // set TOKEN, a step reads the farther one.
 func TestRetryMaskedOutputShadowed(t *testing.T) {

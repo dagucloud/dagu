@@ -2027,10 +2027,24 @@ func evalPreconditions(ctx context.Context, node *Node) (err, readErr error) {
 // node read through ctx, or nil. The original value is gone, so the step
 // would run on starred text.
 func maskedReadError(ctx context.Context, node *Node) error {
-	if err := cmnvalue.MaskedRead(ctx); err != nil {
-		return fmt.Errorf("step %q %w", node.Name(), err)
+	return stepMaskedRead(ctx, node, cmnvalue.MaskedRead(ctx))
+}
+
+// stepMaskedRead returns the masked read err reports as the node's error, or
+// nil when err reports none.
+func stepMaskedRead(ctx context.Context, node *Node, err error) error {
+	read, ok := errors.AsType[*cmnvalue.MaskedReadError](err)
+	if !ok {
+		return nil
 	}
-	return nil
+	// A reference names the producing step by id; retry selects it by name.
+	named := *read
+	if rCtx, ok := LookupDAGContext(ctx); ok && rCtx.DAG != nil {
+		if i := slices.IndexFunc(rCtx.DAG.Steps, func(step ir.Step) bool { return step.ID == read.Step }); i >= 0 {
+			named.Step = rCtx.DAG.Steps[i].Name
+		}
+	}
+	return fmt.Errorf("step %q %w", node.Name(), &named)
 }
 
 func isMaskedRead(err error) bool {
@@ -2200,8 +2214,8 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 		}
 		return false
 	}
-	if read, ok := errors.AsType[*cmnvalue.MaskedReadError](err); ok {
-		err = fmt.Errorf("step %q %w", node.Name(), read)
+	if readErr := stepMaskedRead(ctx, node, err); readErr != nil {
+		err = readErr
 	}
 	node.MarkError(err)
 	if node.ShouldMarkSuccess(ctx) && !isMaskedRead(err) {
