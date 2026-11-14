@@ -48,4 +48,24 @@ describe('DAGBackfillChip', () => {
     renderChip(BackfillStatus.failed, 3);
     expect(screen.queryByRole('link')).toBeNull();
   });
+
+  // The DAG list keeps its card and table views mounted, each with a chip.
+  it('hides every mounted chip of a dismissed backfill', () => {
+    const backfill = {
+      id: 'bf123456',
+      status: BackfillStatus.failed,
+      slots: 28,
+      done: 12,
+      failed: 3,
+    };
+    render(
+      <MemoryRouter>
+        <DAGBackfillChip backfill={backfill} />
+        <DAGBackfillChip backfill={backfill} />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Dismiss' })[0]!);
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+  });
 });

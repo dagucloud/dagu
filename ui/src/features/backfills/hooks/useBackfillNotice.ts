@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { useHref, useNavigate } from 'react-router-dom';
 import { BackfillSlotState, BackfillStatus } from '@/api/v1/schema';
 import type { WorkspaceNotice } from '@/features/dags/components/dag-editor/hostTypes';
@@ -19,11 +19,17 @@ import { useLiveBackfill } from './useBackfill';
 export const DISMISSED_BACKFILLS_KEY = 'dagu.backfills.dismissedNotices';
 const DISMISSED_KEEP = 20;
 
-function readDismissed(): string[] {
+function storedDismissed(): string | null {
   try {
-    const parsed: unknown = JSON.parse(
-      localStorage.getItem(DISMISSED_BACKFILLS_KEY) ?? '[]'
-    );
+    return localStorage.getItem(DISMISSED_BACKFILLS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function parseDismissed(raw: string | null): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw ?? '[]');
     return Array.isArray(parsed)
       ? parsed.filter((id): id is string => typeof id === 'string')
       : [];
@@ -32,15 +38,39 @@ function readDismissed(): string[] {
   }
 }
 
-function writeDismissed(ids: string[]): void {
+// Every mounted consumer reads one snapshot, so a dismissal hides the
+// backfill everywhere at once. The snapshot follows the stored value, and
+// keeps a dismissal in memory when storage refuses the write.
+const dismissedListeners = new Set<() => void>();
+let dismissedRaw: string | null | undefined;
+let dismissedSnapshot: readonly string[] = [];
+
+function dismissedBackfills(): readonly string[] {
+  const raw = storedDismissed();
+  if (raw !== dismissedRaw) {
+    dismissedRaw = raw;
+    dismissedSnapshot = parseDismissed(raw);
+  }
+  return dismissedSnapshot;
+}
+
+function subscribeDismissed(listener: () => void): () => void {
+  dismissedListeners.add(listener);
+  return () => {
+    dismissedListeners.delete(listener);
+  };
+}
+
+function dismissBackfill(id: string): void {
+  const next = [...dismissedBackfills(), id].slice(-DISMISSED_KEEP);
   try {
-    localStorage.setItem(
-      DISMISSED_BACKFILLS_KEY,
-      JSON.stringify(ids.slice(-DISMISSED_KEEP))
-    );
+    localStorage.setItem(DISMISSED_BACKFILLS_KEY, JSON.stringify(next));
   } catch {
     // The notice then shows again on the next visit.
   }
+  dismissedRaw = storedDismissed();
+  dismissedSnapshot = next;
+  dismissedListeners.forEach((listener) => listener());
 }
 
 /**
@@ -51,13 +81,11 @@ export function useDismissedBackfills(): {
   dismissed: readonly string[];
   dismiss: (id: string) => void;
 } {
-  const [dismissed, setDismissed] = useState(readDismissed);
-  const dismiss = useCallback((id: string) => {
-    const next = [...readDismissed(), id];
-    writeDismissed(next);
-    setDismissed(next);
-  }, []);
-  return { dismissed, dismiss };
+  const dismissed = useSyncExternalStore(
+    subscribeDismissed,
+    dismissedBackfills
+  );
+  return { dismissed, dismiss: dismissBackfill };
 }
 
 /**
