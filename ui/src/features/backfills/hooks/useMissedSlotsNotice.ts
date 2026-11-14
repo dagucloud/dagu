@@ -26,7 +26,12 @@ const MESSAGES: Record<MissedSlotsReason, string> = {
   [MissedSlotsReason.down]: '{count} slots passed while the scheduler was down',
 };
 
-const gapKey = (gap: MissedSlots) => `${gap.from}/${gap.to}`;
+/** The most slots the scheduler counts in a gap. */
+const MAX_GAP_SLOTS = 10000;
+
+/** A gap's dismissal holds for its DAG on its node only. */
+const gapKey = (gap: MissedSlots, dagName: string, remoteNode: string) =>
+  `${remoteNode}/${dagName}/${gap.from}/${gap.to}`;
 
 function readDismissed(): string[] {
   try {
@@ -59,7 +64,9 @@ function writeDismissed(keys: string[]): void {
  * another gap is missed.
  */
 export function useMissedSlotsNotice(
-  gap: MissedSlots | undefined
+  gap: MissedSlots | undefined,
+  dagName: string,
+  remoteNode: string
 ): WorkspaceNotice | null {
   const { ts } = useI18n();
   const navigate = useNavigate();
@@ -67,19 +74,26 @@ export function useMissedSlotsNotice(
   const [dismissed, setDismissed] = useState(readDismissed);
   const dismiss = useCallback(() => {
     if (!gap) return;
-    const next = [...readDismissed(), gapKey(gap)];
+    const next = [...readDismissed(), gapKey(gap, dagName, remoteNode)];
     writeDismissed(next);
     setDismissed(next);
-  }, [gap]);
+  }, [gap, dagName, remoteNode]);
 
   return useMemo(() => {
-    if (!gap || gap.slots === 0 || dismissed.includes(gapKey(gap))) {
+    if (
+      !gap ||
+      gap.slots === 0 ||
+      dismissed.includes(gapKey(gap, dagName, remoteNode))
+    ) {
       return null;
     }
+    // A gap at the cap may hold more slots than it counts.
+    const count =
+      gap.slots >= MAX_GAP_SLOTS ? `${MAX_GAP_SLOTS}+` : String(gap.slots);
     return {
       id: 'missed-slots',
       tone: 'warning',
-      message: ts(MESSAGES[gap.reason], { count: gap.slots }),
+      message: ts(MESSAGES[gap.reason], { count }),
       action: {
         label: ts('Backfill'),
         run: () => {
@@ -95,5 +109,5 @@ export function useMissedSlotsNotice(
       dismiss,
       priority: MISSED_SLOTS_NOTICE_PRIORITY,
     };
-  }, [gap, dismissed, dismiss, navigate, location, ts]);
+  }, [gap, dagName, remoteNode, dismissed, dismiss, navigate, location, ts]);
 }

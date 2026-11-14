@@ -75,7 +75,11 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { dismiss: dismissOffer } = offer;
   const waitingSubRun = useWaitingSubRun();
   const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
-  const missedSlotsNotice = useMissedSlotsNotice(dagData.missedSlots);
+  const missedSlotsNotice = useMissedSlotsNotice(
+    dagData.missedSlots,
+    dagData.dag?.name ?? '',
+    remoteNode
+  );
 
   return useMemo(() => {
     const notices: WorkspaceNotice[] = [];

@@ -23,8 +23,11 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function useNoticeAndLocation(missed: typeof gap | undefined) {
-  return { notice: useMissedSlotsNotice(missed), location: useLocation() };
+function useNoticeAndLocation(missed: typeof gap | undefined, dag = 'etl') {
+  return {
+    notice: useMissedSlotsNotice(missed, dag, 'local'),
+    location: useLocation(),
+  };
 }
 
 describe('useMissedSlotsNotice', () => {
@@ -57,6 +60,34 @@ describe('useMissedSlotsNotice', () => {
     expect(search.get('wtab')).toBe('backfills');
     expect(search.get('gapFrom')).toBe(gap.from);
     expect(search.get('gapTo')).toBe(gap.to);
+  });
+
+  // The scheduler counts up to 10,000 slots, so a gap at the cap may hold
+  // more.
+  it('tells a count at the cap as a lower bound', () => {
+    const { result } = renderHook(
+      () => useNoticeAndLocation({ ...gap, slots: 10000 }),
+      { wrapper }
+    );
+
+    expect(result.current.notice?.message).toBe(
+      '10000+ slots passed while this DAG was suspended'
+    );
+  });
+
+  // An outage makes the same gap for every DAG; dismissing it for one
+  // leaves the others.
+  it('stays dismissed for that DAG only', () => {
+    const { result, rerender } = renderHook(
+      ({ dag }) => useNoticeAndLocation(gap, dag),
+      { wrapper, initialProps: { dag: 'etl' } }
+    );
+
+    act(() => result.current.notice?.dismiss?.());
+    expect(result.current.notice).toBeNull();
+
+    rerender({ dag: 'report' });
+    expect(result.current.notice).not.toBeNull();
   });
 
   it('stays dismissed for that gap only', () => {

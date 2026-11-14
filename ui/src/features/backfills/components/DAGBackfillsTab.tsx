@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LoadErrorState } from '@/components/PageStates';
 import { RefreshButton } from '@/components/ui/refresh-button';
@@ -57,7 +58,10 @@ export function DAGBackfillsTab({
   const search = new URLSearchParams(location.search);
   const gapFrom = search.get(GAP_FROM_PARAM);
   const gapTo = search.get(GAP_TO_PARAM);
+  // A start opens the backfill's page, which closing the panel must keep.
+  const started = useRef(false);
   const closeGap = () => {
+    if (started.current) return;
     search.delete(GAP_FROM_PARAM);
     search.delete(GAP_TO_PARAM);
     const rest = search.toString();
@@ -77,9 +81,10 @@ export function DAGBackfillsTab({
           onOpenChange={(open) => {
             if (!open) closeGap();
           }}
-          onStarted={(backfill) =>
-            navigate(backfillPath(backfill.id, remoteNode))
-          }
+          onStarted={(backfill) => {
+            started.current = true;
+            navigate(backfillPath(backfill.id, remoteNode));
+          }}
         />
       )}
       <DAGSlotsView fileName={fileName} canExecute={canExecute} />
