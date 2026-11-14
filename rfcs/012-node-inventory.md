@@ -116,7 +116,7 @@ An inventory is a JSON record in a collection-backed store
 - Unknown fields are a validation error.
 
 An inventory belongs to a project, as defined in
-[RFC 003](003-remove-workspaces.md). It belongs to the server, not to the
+[RFC 003](003-projects.md). It belongs to the server, not to the
 DAG files. A DAG is the same in every environment and names a role, such as
 `web`. Which hosts have that role differs between staging and production. So
 inventories never live in a DAG directory, and git sync never reads or writes
