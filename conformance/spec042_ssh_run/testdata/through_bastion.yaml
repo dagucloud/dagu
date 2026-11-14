@@ -1,0 +1,29 @@
+params:
+  - name: port
+    type: string
+  - name: bastion_port
+    type: string
+ssh:
+  host: 127.0.0.1
+  port: ${params.port}
+  user: tester
+  key: id_ed25519
+  strict_host_key: false
+  bastion:
+    host: 127.0.0.1
+    port: ${params.bastion_port}
+    user: tester
+    key: id_ed25519
+working_dir: .
+steps:
+  - id: remote
+    action: ssh.run
+    with:
+      command: echo spec042-through-bastion
+    output: REMOTE
+  - id: record
+    depends: [remote]
+    action: file.write
+    with:
+      path: remote.out
+      content: ${env.REMOTE}
