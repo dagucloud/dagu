@@ -208,7 +208,7 @@ jobs:
           $markerDir = "$env:RUNNER_TEMP\dagu-restart-run"
           New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
           $dagFile = "$env:RUNNER_TEMP\restart-run.yaml"
-          Set-Content -Path $dagFile -Encoding UTF8 -Value @"
+          Set-Content -Path $dagFile -Encoding ascii -Value @"
           steps:
             - id: work
               run: |
