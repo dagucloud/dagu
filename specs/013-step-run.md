@@ -328,7 +328,7 @@ Shell selection order is:
 
 - A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
 
-- Every other step runs, and so does every step after a step that runs, so it reads what that step does now.
+- Every other step runs, and so does every step after a step that runs, so it reads what that step does now. Every step that gives the same `browser.share` as a step that runs runs too, since each starts on the page the step before it left.
 
 - When no step can be reused, or no step changed, every step runs and nothing is carried.
 

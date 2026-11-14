@@ -115,7 +115,7 @@ var outputFromFlag = commandLineFlag{
 
 var reuseFromFlag = commandLineFlag{
 	name:  "reuse-from",
-	usage: "Finished dag-run ID of this DAG whose unchanged steps the run reuses instead of running; the changed steps and the steps after them run",
+	usage: "Finished dag-run ID of this DAG whose unchanged steps the run reuses instead of running; the changed steps, the steps after them, and the steps sharing a browser with them run",
 }
 
 var outputFlag = commandLineFlag{
