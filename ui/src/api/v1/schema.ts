@@ -2282,6 +2282,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/system/upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the web upgrade state
+         * @description Returns whether an administrator can upgrade Dagu from the web UI, and the state of an upgrade started there. Admin only.
+         */
+        get: operations["getSelfUpgrade"];
+        put?: never;
+        /**
+         * Upgrade Dagu to the latest release
+         * @description Starts upgrading this Dagu to the latest stable release. Admin only.
+         *
+         *     Dagu downloads the release, verifies its checksum, replaces its binary, and then exits so that the service the installer set up restarts it. Poll the GET endpoint for progress and /health for the new version. Offered only for a binary install run by that service, with allow_web_upgrade on.
+         *
+         */
+        post: operations["startSelfUpgrade"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/services/scheduler/pause": {
         parameters: {
             query?: never;
@@ -6560,6 +6587,37 @@ export interface components {
             /** @description Whether the tunnel provides public internet access */
             isPublic?: boolean;
         };
+        /** @description Whether Dagu can upgrade itself from the web UI, and the state of an upgrade started there */
+        SelfUpgradeStatus: {
+            /** @description An administrator can upgrade Dagu from the web UI */
+            available: boolean;
+            state: components["schemas"]["SelfUpgradeState"];
+            /** @description Release the upgrade installs, once known */
+            targetVersion?: string;
+            /**
+             * Format: int64
+             * @description Bytes of the release downloaded so far
+             */
+            downloadedBytes?: number;
+            /**
+             * Format: int64
+             * @description Size of the release download
+             */
+            totalBytes?: number;
+            /** @description Why the last upgrade failed, with state failed */
+            error?: string;
+        };
+        /**
+         * @description Progress of an upgrade started from the web UI:
+         *     - idle: no upgrade has started.
+         *     - downloading: the release is downloading.
+         *     - installing: the release is verified and replaces the binary.
+         *     - restarting: Dagu exits so its service restarts it with the new binary.
+         *     - failed: the upgrade stopped; error says why, and the binary is unchanged.
+         *
+         * @enum {string}
+         */
+        SelfUpgradeState: SelfUpgradeState;
         /**
          * @description Health status of the worker based on heartbeat recency
          * @enum {string}
@@ -16231,6 +16289,70 @@ export interface operations {
             };
         };
     };
+    getSelfUpgrade: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelfUpgradeStatus"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startSelfUpgrade: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upgrade started */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelfUpgradeStatus"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getSchedulerPauseState: {
         parameters: {
             query?: {
@@ -24961,6 +25083,13 @@ export enum TunnelStatusResponseStatus {
     connected = "connected",
     reconnecting = "reconnecting",
     error = "error"
+}
+export enum SelfUpgradeState {
+    idle = "idle",
+    downloading = "downloading",
+    installing = "installing",
+    restarting = "restarting",
+    failed = "failed"
 }
 export enum WorkerHealthStatus {
     healthy = "healthy",
