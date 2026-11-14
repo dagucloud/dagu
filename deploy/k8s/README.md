@@ -306,8 +306,8 @@ For production-like testing with TLS:
 3. Update configmap:
    ```yaml
    DAGU_PEER_INSECURE: "false"
-   DAGU_PEER_TLS_CERT_FILE: "/etc/tls/tls.crt"
-   DAGU_PEER_TLS_KEY_FILE: "/etc/tls/tls.key"
+   DAGU_PEER_CERT_FILE: "/etc/tls/tls.crt"
+   DAGU_PEER_KEY_FILE: "/etc/tls/tls.key"
    ```
 4. Mount secret in deployments
 
