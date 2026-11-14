@@ -28,6 +28,7 @@ import (
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
+	"github.com/dagucloud/dagu/v2/internal/cmn/netutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/sysproxy"
 )
@@ -351,10 +352,13 @@ func (l stagehandLauncher) launch(ctx context.Context, opts launchOptions) (*sta
 // start launches the browser opts describe, with the certificate proxy it
 // needs, sending userAgent when it is set.
 func (l stagehandLauncher) start(ctx context.Context, opts launchOptions, userAgent string) (startedBrowser, error) {
-	port, err := freeLoopbackPort()
-	if err != nil {
-		return startedBrowser{}, err
-	}
+	return onFreePort(func(port int) (startedBrowser, error) {
+		return l.startOnPort(ctx, opts, userAgent, port)
+	})
+}
+
+// startOnPort launches the browser of start with its debugging server on port.
+func (l stagehandLauncher) startOnPort(ctx context.Context, opts launchOptions, userAgent string, port int) (startedBrowser, error) {
 	launch := &stagehand.LocalBrowserLaunchOptions{
 		ExecutablePath: opts.Executable,
 		Headless:       opts.Headless,
@@ -384,7 +388,10 @@ func (l stagehandLauncher) start(ctx context.Context, opts launchOptions, userAg
 			return startedBrowser{}, fmt.Errorf("clear the profile's service workers: %w", err)
 		}
 	}
-	var proxy *certproxy.Handle
+	var (
+		proxy *certproxy.Handle
+		err   error
+	)
 	if len(opts.ClientCertificates) > 0 || len(opts.TrustedCAs) > 0 || opts.Guard {
 		if proxy, err = l.startCertProxy(ctx, cdpURL, opts); err != nil {
 			return startedBrowser{}, err
@@ -1850,6 +1857,27 @@ func messageText(content stagehand.LLMMessageContent) (string, error) {
 		}
 	}
 	return text.String(), nil
+}
+
+// portAttempts bounds how many ports a launch tries when another process takes
+// each port between the launch picking it and the browser binding it.
+const portAttempts = 3
+
+// onFreePort calls launch with a free loopback port. A launch that finds its
+// port taken by then, as by a browser another run started at the same
+// moment, is called again with another port.
+func onFreePort[T any](launch func(port int) (T, error)) (T, error) {
+	for attempt := 1; ; attempt++ {
+		port, err := freeLoopbackPort()
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		result, err := launch(port)
+		if err == nil || attempt == portAttempts || !netutil.IsAddrInUse(err) {
+			return result, err
+		}
+	}
 }
 
 func freeLoopbackPort() (int, error) {

@@ -171,25 +171,27 @@ func learnUserAgent(ctx context.Context, opts launchOptions, key string) (headed
 	// A browser that just exited can still hold profile files open for a
 	// moment on Windows.
 	defer func() { _ = fileutil.RemoveAll(dir) }()
-	port, err := freeLoopbackPort()
+	started, err := onFreePort(func(port int) (startedBrowser, error) {
+		cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+		browser, err := stagehand.LaunchLocalBrowser(ctx, &stagehand.LocalBrowserLaunchOptions{
+			ExecutablePath:  opts.Executable,
+			Headless:        true,
+			Port:            port,
+			UserDataDir:     dir,
+			ChromiumSandbox: new(!opts.NoSandbox),
+		})
+		if err != nil {
+			return startedBrowser{}, errors.Join(fmt.Errorf("start the browser: %w", err), endUnstartedBrowser(ctx, nil, cdpURL, dir))
+		}
+		return startedBrowser{browser: browser, cdpURL: cdpURL}, nil
+	})
 	if err != nil {
 		return headedUserAgent{}, err
 	}
-	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	browser, err := stagehand.LaunchLocalBrowser(ctx, &stagehand.LocalBrowserLaunchOptions{
-		ExecutablePath:  opts.Executable,
-		Headless:        true,
-		Port:            port,
-		UserDataDir:     dir,
-		ChromiumSandbox: new(!opts.NoSandbox),
-	})
-	if err != nil {
-		return headedUserAgent{}, errors.Join(fmt.Errorf("start the browser: %w", err), endUnstartedBrowser(ctx, nil, cdpURL, dir))
-	}
 	version, err := boundCall(ctx, unstartedCallTimeout, func(ctx context.Context) (browserhost.Version, error) {
-		return browserhost.BrowserVersion(ctx, cdpURL)
+		return browserhost.BrowserVersion(ctx, started.cdpURL)
 	})
-	if endErr := (startedBrowser{browser: browser, cdpURL: cdpURL}).end(ctx); endErr != nil && opts.Warn != nil {
+	if endErr := started.end(ctx); endErr != nil && opts.Warn != nil {
 		opts.Warn("end the browser that told its user agent: " + endErr.Error())
 	}
 	if err != nil {

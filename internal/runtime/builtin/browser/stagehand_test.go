@@ -2606,3 +2606,58 @@ func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"AnkenName":"道路","DateFrom":"","DateTo":"2026/04/30","Mojiretu":"","Tantoka":"","FreeWord":"舗装","Slotted":""}`, string(typed))
 }
+
+// A launch whose port another process takes before the browser binds it, as
+// a browser another run starts at the same moment, tries another port. Other
+// failures end the launch at once.
+func TestOnFreePort(t *testing.T) {
+	t.Parallel()
+
+	// bind binds port as the browser does, after take when take is set, as
+	// another process taking the port first.
+	bind := func(t *testing.T, port int, take bool) error {
+		t.Helper()
+		address := fmt.Sprintf("127.0.0.1:%d", port)
+		if take {
+			taken, err := net.Listen("tcp4", address)
+			require.NoError(t, err)
+			defer func() { _ = taken.Close() }()
+		}
+		listener, err := net.Listen("tcp4", address)
+		if err != nil {
+			return fmt.Errorf("launch browser: %w", err)
+		}
+		return listener.Close()
+	}
+
+	t.Run("port taken once", func(t *testing.T) {
+		attempts := 0
+		port, err := onFreePort(func(port int) (int, error) {
+			attempts++
+			return port, bind(t, port, attempts == 1)
+		})
+		require.NoError(t, err)
+		assert.NotZero(t, port)
+		assert.Equal(t, 2, attempts)
+	})
+
+	t.Run("port taken every time", func(t *testing.T) {
+		attempts := 0
+		_, err := onFreePort(func(port int) (int, error) {
+			attempts++
+			return port, bind(t, port, true)
+		})
+		require.Error(t, err)
+		assert.Equal(t, portAttempts, attempts)
+	})
+
+	t.Run("other failure", func(t *testing.T) {
+		attempts := 0
+		_, err := onFreePort(func(int) (int, error) {
+			attempts++
+			return 0, errors.New("executable not found")
+		})
+		require.Error(t, err)
+		assert.Equal(t, 1, attempts)
+	})
+}
