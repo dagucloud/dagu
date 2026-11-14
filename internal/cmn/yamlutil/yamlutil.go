@@ -5,6 +5,7 @@
 package yamlutil
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/goccy/go-yaml/lexer"
@@ -46,4 +47,15 @@ func ClearEmptyDocumentSeparators(data []byte) []byte {
 		}
 	}
 	return []byte(strings.Join(lines, "\n"))
+}
+
+// utf8ByteOrderMark is what Windows editors such as Notepad and PowerShell 5
+// write at the start of a UTF-8 file.
+var utf8ByteOrderMark = []byte("\xef\xbb\xbf")
+
+// TrimByteOrderMark removes a leading UTF-8 byte order mark. YAML allows one
+// at the start of a stream, but the YAML parser reads it as part of the first
+// key.
+func TrimByteOrderMark(data []byte) []byte {
+	return bytes.TrimPrefix(data, utf8ByteOrderMark)
 }
