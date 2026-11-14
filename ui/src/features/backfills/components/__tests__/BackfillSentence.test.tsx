@@ -27,7 +27,7 @@ const running: Backfill = {
 function renderSentence(backfill: Backfill) {
   render(
     <MemoryRouter>
-      <BackfillSentence backfill={backfill} />
+      <BackfillSentence backfill={backfill} remoteNode="edge" />
     </MemoryRouter>
   );
 }
@@ -51,7 +51,7 @@ describe('BackfillSentence', () => {
       screen.getByRole('link', { name: /waiting for a person/ })
     ).toHaveAttribute(
       'href',
-      '/dag-runs/etl/backfill-bf123456-0-20261005T020000Z'
+      '/dag-runs/etl/backfill-bf123456-0-20261005T020000Z?remoteNode=edge'
     );
   });
 });

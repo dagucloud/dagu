@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { backfillPath, backfillRunsPath, workflowPath } from '../backfillLinks';
+import {
+  backfillPath,
+  backfillRunsPath,
+  runPath,
+  workflowPath,
+} from '../backfillLinks';
 
 describe('backfill links', () => {
   // A page without the node takes the one the app bar selects, which may be
@@ -16,6 +21,9 @@ describe('backfill links', () => {
     );
     expect(workflowPath('my etl', 'edge')).toBe(
       '/dags/my%20etl?remoteNode=edge'
+    );
+    expect(runPath('etl', 'run-1', 'edge')).toBe(
+      '/dag-runs/etl/run-1?remoteNode=edge'
     );
   });
 });

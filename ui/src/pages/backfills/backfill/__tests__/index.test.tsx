@@ -166,7 +166,7 @@ describe('BackfillPage', () => {
 
     expect(screen.getByRole('link', { name: /· Failed$/ })).toHaveAttribute(
       'href',
-      '/dag-runs/etl/run-1'
+      '/dag-runs/etl/run-1?remoteNode=local'
     );
     expect(screen.getByRole('img', { name: /· Pending$/ })).toBeInTheDocument();
   });

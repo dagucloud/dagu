@@ -21,6 +21,16 @@ export function backfillRunsPath(id: string, remoteNode: string): string {
   return `/dag-runs?backfillId=${encodeURIComponent(id)}${query ? `&${query}` : ''}`;
 }
 
+/** The page of a run on a node. */
+export function runPath(
+  dagName: string,
+  runId: string,
+  remoteNode: string
+): string {
+  const query = nodeQuery(remoteNode);
+  return `/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(runId)}${query ? `?${query}` : ''}`;
+}
+
 /** The page of a workflow on a node, by its file. */
 export function workflowPath(fileName: string, remoteNode: string): string {
   const query = nodeQuery(remoteNode);

@@ -431,7 +431,9 @@ func writeBackfillStatus(ctx *Context, out io.Writer, format string, status back
 	}
 	fmt.Fprintf(&b, "%d slots: %s\n", len(report.Slots), backfillSlotCounts(report))
 	if report.Estimate > 0 {
-		fmt.Fprintf(&b, "About %s left, at the pace of its runs so far\n", formatDurationHuman(report.Estimate.Round(time.Minute)))
+		// The estimate is rough, so it is told to the minute, at least one.
+		left := max(report.Estimate.Round(time.Minute), time.Minute)
+		fmt.Fprintf(&b, "About %s left, at the pace of its runs so far\n", formatDurationHuman(left))
 	}
 	b.WriteString("\n")
 	if _, err := io.WriteString(out, b.String()); err != nil {

@@ -11,9 +11,12 @@ import {
   groupSlots,
   SLOT_STATE_LOOK,
 } from '../lib/backfillState';
+import { runPath } from '../lib/backfillLinks';
 
 type Props = {
   dagName: string;
+  /** The node of the backfill, which the links to runs keep. */
+  remoteNode: string;
   slots: readonly BackfillSlot[];
 };
 
@@ -25,7 +28,7 @@ const slotKey = (slot: BackfillSlot, unit: 'day' | 'month') =>
  * shows its state by icon and color, names its time and state, and opens
  * the slot's run when it has one.
  */
-export function BackfillSlotGrid({ dagName, slots }: Props) {
+export function BackfillSlotGrid({ dagName, remoteNode, slots }: Props) {
   const groups = useMemo(() => groupSlots(slots, slotKey), [slots]);
   return (
     <div className="flex flex-col gap-1.5">
@@ -36,7 +39,12 @@ export function BackfillSlotGrid({ dagName, slots }: Props) {
           </span>
           <div className="flex min-w-0 flex-wrap gap-1">
             {group.slots.map((slot) => (
-              <SlotCell key={slot.slot} dagName={dagName} slot={slot} />
+              <SlotCell
+                key={slot.slot}
+                dagName={dagName}
+                remoteNode={remoteNode}
+                slot={slot}
+              />
             ))}
           </div>
         </div>
@@ -45,7 +53,15 @@ export function BackfillSlotGrid({ dagName, slots }: Props) {
   );
 }
 
-function SlotCell({ dagName, slot }: { dagName: string; slot: BackfillSlot }) {
+function SlotCell({
+  dagName,
+  remoteNode,
+  slot,
+}: {
+  dagName: string;
+  remoteNode: string;
+  slot: BackfillSlot;
+}) {
   const { ts } = useI18n();
   const look = SLOT_STATE_LOOK[slot.state];
   const Icon = look.icon;
@@ -75,7 +91,7 @@ function SlotCell({ dagName, slot }: { dagName: string; slot: BackfillSlot }) {
   }
   return (
     <Link
-      to={`/dag-runs/${encodeURIComponent(dagName)}/${encodeURIComponent(slot.runId)}`}
+      to={runPath(dagName, slot.runId, remoteNode)}
       title={label}
       aria-label={label}
       className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
