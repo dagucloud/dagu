@@ -195,6 +195,16 @@
       "type": "object",
       "additionalProperties": true
     },
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drainTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "config": {
       "type": "object",
       "additionalProperties": false,

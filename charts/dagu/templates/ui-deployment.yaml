@@ -31,6 +31,8 @@ spec:
       # Disable Kubernetes Service env var injection to avoid overriding
       # dagu config values (e.g., scheduler.port) with Service URLs
       enableServiceLinks: false
+      # Room for the drain, then for runs' abort and exit handlers.
+      terminationGracePeriodSeconds: {{ add (int $.Values.shutdown.drainTimeoutSeconds) 60 }}
       serviceAccountName: {{ include "dagu.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
@@ -80,6 +82,8 @@ spec:
                   name: {{ .Values.auth.oidc.clientSecret.existingSecret | quote }}
                   key: {{ .Values.auth.oidc.clientSecret.secretKey | quote }}
 {{- end }}
+            - name: DAGU_SIGNAL_DRAIN_TIMEOUT
+              value: {{ printf "%ds" (int $.Values.shutdown.drainTimeoutSeconds) | quote }}
 {{- with include "dagu.extraEnv" . }}
 {{ . | nindent 12 }}
 {{- end }}
