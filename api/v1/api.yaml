@@ -5906,6 +5906,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /system/upgrade:
+    get:
+      summary: "Get the web upgrade state"
+      description: "Returns whether an administrator can upgrade Dagu from the web UI, and the state of an upgrade started there. Admin only."
+      operationId: "getSelfUpgrade"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfUpgradeStatus"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Upgrade Dagu to the latest release"
+      description: |
+        Starts upgrading this Dagu to the latest stable release. Admin only.
+
+        Dagu downloads the release, verifies its checksum, replaces its binary, and then exits so that the service the installer set up restarts it. Poll the GET endpoint for progress and /health for the new version. Offered only for a binary install run by that service, with allow_web_upgrade on.
+      operationId: "startSelfUpgrade"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "202":
+          description: "The upgrade started"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfUpgradeStatus"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /services/scheduler/pause:
     get:
       summary: "Get scheduler pause state"
@@ -16747,6 +16794,44 @@ components:
       required:
         - enabled
         - status
+
+    SelfUpgradeStatus:
+      type: object
+      description: "Whether Dagu can upgrade itself from the web UI, and the state of an upgrade started there"
+      properties:
+        available:
+          type: boolean
+          description: "An administrator can upgrade Dagu from the web UI"
+        state:
+          $ref: "#/components/schemas/SelfUpgradeState"
+        targetVersion:
+          type: string
+          description: "Release the upgrade installs, once known"
+        downloadedBytes:
+          type: integer
+          format: int64
+          description: "Bytes of the release downloaded so far"
+        totalBytes:
+          type: integer
+          format: int64
+          description: "Size of the release download"
+        error:
+          type: string
+          description: "Why the last upgrade failed, with state failed"
+      required:
+        - available
+        - state
+
+    SelfUpgradeState:
+      type: string
+      description: |
+        Progress of an upgrade started from the web UI:
+        - idle: no upgrade has started.
+        - downloading: the release is downloading.
+        - installing: the release is verified and replaces the binary.
+        - restarting: Dagu exits so its service restarts it with the new binary.
+        - failed: the upgrade stopped; error says why, and the binary is unchanged.
+      enum: ["idle", "downloading", "installing", "restarting", "failed"]
 
     WorkerHealthStatus:
       type: string
