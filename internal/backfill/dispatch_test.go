@@ -710,6 +710,66 @@ func TestDispatchFinishesACancelWhoseEndFailed(t *testing.T) {
 	assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
 }
 
+// A cancel whose end failed ends cancelled also when a slot failed before
+// it, under either failure policy.
+func TestDispatchFinishesACancelAfterAFailure(t *testing.T) {
+	t.Parallel()
+	for _, onFailure := range []backfill.OnFailure{backfill.OnFailureContinue, backfill.OnFailureStop} {
+		t.Run(string(onFailure), func(t *testing.T) {
+			t.Parallel()
+			f := newDispatchFixture(t)
+			record := f.submit(backfill.Options{MaxConcurrency: 2, OnFailure: onFailure})
+			f.tick()
+			require.Len(t, f.queued, 2)
+			// One slot failed while another still runs, so the backfill
+			// stays open with a slot pending.
+			f.finish(f.queued[0], ir.Failed)
+			f.finish(f.queued[1], ir.Running)
+			var failed bool
+			f.dispatcher.Store = failingEnd{Store: f.store, failed: &failed}
+			f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+
+			require.Error(t, f.dispatcher.Tick(f.ctx))
+			f.finish(f.queued[1], ir.Succeeded)
+			f.tick()
+			assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+		})
+	}
+}
+
+// failingUpdate fails each rewrite of a record, as a store whose write
+// failed.
+type failingUpdate struct {
+	backfill.Store
+}
+
+func (failingUpdate) Update(context.Context, *backfill.Record) error {
+	return errors.New("disk full")
+}
+
+// A resume that failed after it withdrew the queued runs leaves those slots
+// cancelled: the backfill ends cancelled, and a resume runs them again.
+func TestDispatchAfterAResumeThatFailed(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{MaxConcurrency: 2})
+	f.tick()
+	require.Len(t, f.queued, 2)
+
+	var stopped []string
+	f.service.Store = failingUpdate{Store: f.store}
+	_, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.Error(t, err)
+	f.tick()
+	assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+
+	f.service.Store = f.store
+	_, err = f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	f.tick()
+	assert.Len(t, f.queued, 4, "the resume runs the withdrawn slots again")
+}
+
 // lockHook runs before each time a backfill's lock is taken.
 type lockHook struct {
 	backfill.Store

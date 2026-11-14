@@ -154,8 +154,10 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	)
 	active, failed := 0, false
 	done, failedSlots := 0, 0
-	// A slot cancelled in this generation means a cancel began: one whose
-	// end failed after it cancelled the slots it had not reached.
+	// A slot cancelled in this generation means a cancel began, one whose
+	// end failed after it cancelled the slots it had not reached, or a
+	// resume that failed after it withdrew them. Such a backfill ends
+	// cancelled, whatever its other slots did, and a resume runs them.
 	cancelled := false
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
@@ -221,7 +223,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		if active > 0 {
 			return nil
 		}
-		return d.finish(ctx, record, seen, StatusFailed, pending)
+		return d.finish(ctx, record, seen, endStatus(failed, cancelled), pending)
 	}
 	if len(pending) > 0 && active < record.Options.MaxConcurrency {
 		target, err := d.Target(ctx, record)
@@ -241,16 +243,21 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		}
 	}
 	if len(pending) == 0 && active == 0 {
-		status := StatusSucceeded
-		switch {
-		case failed:
-			status = StatusFailed
-		case cancelled:
-			status = StatusCancelled
-		}
-		return d.finish(ctx, record, seen, status, nil)
+		return d.finish(ctx, record, seen, endStatus(failed, cancelled), nil)
 	}
 	return nil
+}
+
+// endStatus is how a backfill whose slots all settled ends.
+func endStatus(failed, cancelled bool) Status {
+	switch {
+	case cancelled:
+		return StatusCancelled
+	case failed:
+		return StatusFailed
+	default:
+		return StatusSucceeded
+	}
 }
 
 // finish ends the backfill with status, after marking the slots it did not
