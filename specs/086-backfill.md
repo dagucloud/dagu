@@ -147,6 +147,12 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   no terminal to ask on, or with `--format json`, it fails and names `--yes`.
 - A submit records the backfill, with the DAG's definition and each slot's
   window as they are at submit, and prints its 8-character ID.
+- Each open backfill also has a summary: its slot count and how many of its
+  slots ended and failed, which the dispatcher updates as runs end. A
+  backfill that ends failed keeps its summary until every slot it failed has
+  succeeded since, which the scheduler checks once a minute, or its DAG is
+  gone. Other ends remove it. A list of every DAG reads these summaries, not
+  the backfills' records or progress.
 - A submit with the same range and options as an open backfill of the DAG
   starts nothing and names that backfill. A submit that selects no slot
   creates no backfill.

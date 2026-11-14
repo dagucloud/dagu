@@ -223,6 +223,16 @@ type Store interface {
 	// A backfill without a record is no error. The caller holds the
 	// backfill's lock.
 	Delete(ctx context.Context, id string) error
+	// Summaries returns the summary of each open backfill and of each that
+	// ended failed and was not cleared, without reading their records.
+	// Create and Update keep the summary of an open backfill, and End
+	// keeps it for a backfill that failed only.
+	Summaries(ctx context.Context) ([]Summary, error)
+	// SaveSummary records how far an open backfill has come. A summary
+	// that did not change is not written.
+	SaveSummary(ctx context.Context, summary Summary) error
+	// ClearSummary removes a backfill's summary.
+	ClearSummary(ctx context.Context, id string) error
 }
 
 var (
