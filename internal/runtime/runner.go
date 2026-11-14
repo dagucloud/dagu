@@ -2210,6 +2210,8 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 
 	// Reload output variables into context before evaluating conditions
 	ctx = r.reloadNodeOutputs(ctx, node)
+	// The execution may have failed before it rejected masked reads.
+	cmnvalue.RejectMaskedReads(ctx)
 	shell := GetEnv(ctx).Shell(ctx)
 
 	var repeat bool
@@ -2315,6 +2317,7 @@ func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPo
 		return
 	}
 	ctx = r.reloadNodeOutputs(ctx, node)
+	cmnvalue.RejectMaskedReads(ctx)
 	shell := GetEnv(ctx).Shell(ctx)
 	err := EvalCondition(ctx, shell, rp.Condition)
 	// Abort and timeout take precedence over the final condition result. A

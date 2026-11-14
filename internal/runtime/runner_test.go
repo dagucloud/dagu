@@ -5391,6 +5391,37 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// A repeat condition that reads one fails the step even when the
+		// execution failed in setup, before reads were rejected.
+		{
+			name: "RepeatConditionAfterSetupFailure",
+			use: []stepOption{
+				withCommand("true"),
+				func(step *ir.Step) {
+					step.Stdin = "${no_such_step.stdout}"
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil
+					step.RepeatPolicy.Condition = &ir.Condition{Condition: "${TOKEN}", Expected: "real"}
+					step.RepeatPolicy.Limit = 3
+				},
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		{
+			name: "RepeatLimitAfterSetupFailure",
+			use: []stepOption{
+				withCommand("true"),
+				func(step *ir.Step) {
+					step.Stdin = "${no_such_step.stdout}"
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeUntil
+					step.RepeatPolicy.Condition = &ir.Condition{Condition: "${TOKEN}", Expected: "real"}
+					step.RepeatPolicy.Limit = 1
+					step.RepeatPolicy.OnLimit = ir.RepeatOnLimitFail
+				},
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		// Building an executor can use the values, so the read fails the
 		// step before an executor is built, here one that does not exist.
 		{
