@@ -105,6 +105,54 @@ Review generated diffs with the source change that caused them.
 - Keep comments current and impersonal. Godoc describes caller-visible contracts.
 - Keep Go test names short; explain complex intent in a comment above the test.
 
+## Performance
+
+Dagu runs on small hosts and keeps state in files, so cost grows with the
+number of DAGs, stored runs, running steps, open browser tabs, and workers.
+
+Every pull request body has a `Performance` section. It states either that
+the change has no performance risk, with a one-line reason, or the risk and
+its cost as listed below. A bare "None" is not enough.
+
+A change has performance risk when it:
+
+- adds or shortens UI polling, or changes SSE topics, payloads, or refetch
+  frequency
+- adds a ticker, file watcher, or periodic scan
+- reads run or DAG directories on a request or tick path
+- adds data to persisted run status, logs, outputs, or indexes
+- bumps an index version or adds a migration
+- changes how often workers, the coordinator, or heartbeats send messages
+
+For such a change, the `Performance` section states:
+
+- how often it runs and what multiplies it: tabs, subscribers, runs,
+  steps, or workers
+- when it stops: hidden tab, terminal run status, or closed stream
+- how its cost grows with total DAGs and stored runs
+- bytes sent per update and bytes stored per run
+- one-time cost on upgrade, such as an index rebuild or migration
+
+Defaults:
+
+- UI: subscribe to SSE and poll only as a fallback when the stream is
+  unavailable. Stop polling when the tab is hidden or the run is terminal.
+  Fetch a list once instead of polling per row.
+- SSE: fetch once per topic regardless of subscriber count, rate-limit
+  refetches, and send invalidations instead of full state when the client
+  can refetch.
+- Persistence: read through the DAG and run indexes and paginate. Do not
+  walk run history on a request or tick path.
+- Memory: bound caches and maps keyed by run or DAG. Tie each goroutine to
+  a context that ends.
+- Idle cost: a new periodic task must justify the CPU and disk I/O it
+  spends when no DAG is running.
+
+Assume several thousand DAGs and up to 100,000 runs per day, about one run
+per second, with stored history growing by that much each day. Estimate
+cost against that load. Run a benchmark only when the estimate is unclear
+for a request, tick, or SSE path; most changes need no measurement.
+
 ## Testing
 
 - For bug fixes, add a focused regression test first and confirm it fails.

@@ -11,6 +11,12 @@ Brief description of the changes in this PR.
 
 Closes #issue_number (if applicable)
 
+## Performance
+
+No risk: one-line reason. Or describe the risk: frequency and what
+multiplies it, stop condition, growth with DAG and run counts, bytes sent
+and stored, and upgrade cost. See the Performance section in AGENTS.md.
+
 ## Checklist
 
 - [ ] Code follows the project style guidelines
