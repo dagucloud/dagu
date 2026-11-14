@@ -121,6 +121,16 @@ func TestDataStepInfoMarksMaskedOutputs(t *testing.T) {
 	})
 	assert.Equal(t, cmnvalue.StepMasks{Output: true, Outputs: true, Declared: []string{"key"}}, masked.StepInfo().Masked)
 
+	// Masking changed an output name, so every published output is masked.
+	renamed := newSafeData(NodeData{
+		Step: ir.Step{ID: "fetch", Name: "fetch"},
+		State: NodeState{
+			StepOutputsValue: &published,
+			MaskedOutputs:    &ir.MaskedOutputs{AllPublished: true},
+		},
+	})
+	assert.Equal(t, cmnvalue.StepMasks{Outputs: true, AllDeclared: true}, renamed.StepInfo().Masked)
+
 	clean := newSafeData(NodeData{Step: ir.Step{ID: "fetch", Name: "fetch"}, State: NodeState{OutputValue: &captured}})
 	assert.Equal(t, cmnvalue.StepMasks{}, clean.StepInfo().Masked)
 }

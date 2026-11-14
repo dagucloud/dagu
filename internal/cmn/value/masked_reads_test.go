@@ -21,6 +21,7 @@ func TestMaskedRead(t *testing.T) {
 	captured := "*******"
 	published := `{"token":"*******","region":"us"}`
 	config := `{"token":"*******","region":"us"}`
+	renamedOutputs := `{"pin_*******":"x"}`
 	steps := map[string]StepInfo{
 		"fetch": {
 			Output:          &captured,
@@ -29,6 +30,12 @@ func TestMaskedRead(t *testing.T) {
 			Masked:          StepMasks{Output: true, Outputs: true, Declared: []string{"token"}},
 		},
 		"config": {Output: &config, Masked: StepMasks{Output: true}},
+		// Masking changed an output name, here pin_1234.
+		"renamed": {
+			Outputs:         &renamedOutputs,
+			DeclaredOutputs: &renamedOutputs,
+			Masked:          StepMasks{Outputs: true, AllDeclared: true},
+		},
 	}
 	restored := NewEnvScope(nil, false).
 		WithStepOutputs(map[string]string{
@@ -68,6 +75,8 @@ func TestMaskedRead(t *testing.T) {
 		// A declared output is read by its exact name.
 		{name: "declared output", raw: "deploy ${steps.fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked declared output", raw: "deploy ${steps.fetch.outputs.region}", field: workflow},
+		{name: "declared output under a changed name", raw: "deploy ${steps.renamed.outputs.pin_1234}", field: workflow, want: "pin_1234", step: "renamed"},
+		{name: "published outputs under a changed name", raw: "deploy ${renamed.outputs.pin_1234}", field: workflow, want: "outputs", step: "renamed"},
 		// Executor config reads variables from a copy of the scope.
 		{name: "executor config variable", raw: "token=${TOKEN}", field: ExecutorConfigField("with.message"), want: "TOKEN"},
 		{name: "executor config unmasked variable", raw: "region=${REGION}", field: ExecutorConfigField("with.message")},
