@@ -72,6 +72,7 @@ func TestMaskedRead(t *testing.T) {
 		{name: "unmasked path into a masked variable", raw: "deploy ${CONFIG.region}", field: workflow},
 		// Masking a number leaves the text no longer JSON.
 		{name: "path into masked text that is no longer JSON", raw: "deploy ${PIN.pin}", field: workflow, want: "PIN"},
+		{name: "missing path into a masked variable", raw: "deploy ${CONFIG.missing}", field: workflow},
 		// A POSIX shell expands these itself from its environment.
 		{name: "shell variable", raw: `deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "shell parameter expansion", raw: `deploy "${TOKEN:-none}"`, field: shell, want: "TOKEN"},
