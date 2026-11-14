@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -110,6 +111,35 @@ func TestResumeRunsSlotsThatDidNotSucceed(t *testing.T) {
 	require.Len(t, f.queued, 2)
 	assert.Equal(t, backfill.RunID(resumed.Record, at(1, 2)), f.queued[1], "the slot gets a new run")
 	assert.NotEqual(t, f.queued[0], f.queued[1])
+}
+
+// A resume of a DAG edited since the backfill started says so, and marks the
+// slot whose run, still active, runs the earlier definition. The slots it
+// queues again run the current one.
+func TestResumeOfAnEditedDAG(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{MaxConcurrency: 2})
+	f.tick()
+	require.Len(t, f.queued, 2)
+	f.finish(f.queued[0], ir.Running)
+
+	edited, err := spec.LoadYAML(f.ctx, []byte("name: etl\nschedule: \"0 2 * * *\"\nsteps:\n  - run: echo edited\n"))
+	require.NoError(t, err)
+	var stopped []string
+	resumed, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: edited, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	assert.True(t, resumed.Plan.DefinitionChanged)
+	assert.Contains(t, resumed.Plan.Warnings(backfill.WarningInput{SchedulerRunning: true}),
+		"The DAG's definition changed since the backfill started: the slots resumed run the current one.")
+
+	f.tick()
+	f.finish(f.queued[2], ir.Succeeded)
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	assert.True(t, report.Slots[0].OtherDefinition, "the active run runs the earlier definition")
+	assert.Equal(t, backfill.SlotStateSucceeded, report.Slots[1].State)
+	assert.False(t, report.Slots[1].OtherDefinition, "the slot queued again runs the current definition")
 }
 
 // Resume on an open backfill withdraws its queued runs and continues with the

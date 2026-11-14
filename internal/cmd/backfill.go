@@ -466,7 +466,11 @@ func writeBackfillStatus(ctx *Context, out io.Writer, format string, status back
 	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "SLOT\tSTATE\tRUN ID")
 	for _, slot := range report.Slots {
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", formatBackfillTime(slot.At.In(ctx.Config.Core.Location)), slot.State, slot.RunID)
+		state := string(slot.State)
+		if slot.OtherDefinition {
+			state += " (older definition)"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", formatBackfillTime(slot.At.In(ctx.Config.Core.Location)), state, slot.RunID)
 	}
 	return w.Flush()
 }

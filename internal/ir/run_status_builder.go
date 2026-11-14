@@ -210,6 +210,15 @@ func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) 
 	}
 }
 
+// WithDefinitionDigest sets the digest of the YAML the run ran.
+func WithDefinitionDigest(digest string) StatusOption {
+	return func(status *DAGRunStatus) {
+		if digest != "" {
+			status.DefinitionDigest = digest
+		}
+	}
+}
+
 // WithDAGDefinitionID records the stable identity of the persisted DAG definition.
 func WithDAGDefinitionID(id string) StatusOption {
 	return func(status *DAGRunStatus) {

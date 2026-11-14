@@ -5144,6 +5144,8 @@ export interface components {
             slot: string;
             state: components["schemas"]["BackfillSlotState"];
             runId?: string;
+            /** @description The slot's run ran another definition than the one the backfill runs now */
+            otherDefinition?: boolean;
         };
         Backfill: {
             id: string;

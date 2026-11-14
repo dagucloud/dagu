@@ -34,6 +34,9 @@ type dispatchFixture struct {
 	dag        *ir.DAG
 	sched      backfill.SlotSchedule
 	queued     []string
+	// digests holds, by run, the digest of the definition the backfill
+	// queued the run with.
+	digests map[string]string
 	// clock is the time the dispatcher and the retries see.
 	clock time.Time
 }
@@ -42,7 +45,7 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
-	f := &dispatchFixture{t: t, ctx: ctx, clock: at(20, 0)}
+	f := &dispatchFixture{t: t, ctx: ctx, clock: at(20, 0), digests: make(map[string]string)}
 	f.store = filebackfill.New(filepath.Join(dir, "backfills"))
 	now := func() time.Time { return f.clock }
 	f.repository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{
@@ -75,6 +78,7 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 				return err
 			}
 			f.queued = append(f.queued, runID)
+			f.digests[runID] = ir.DefinitionDigest(record.Definition)
 			return nil
 		},
 		Now: now,
@@ -100,7 +104,8 @@ func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, 
 	return attempt.Close(f.ctx)
 }
 
-// finish settles a queued run as the queue would.
+// finish settles a queued run as the queue would, as a run of the definition
+// it was queued with.
 func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	f.t.Helper()
 	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
@@ -109,6 +114,7 @@ func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	require.NoError(f.t, err)
 	require.NoError(f.t, attempt.Open(f.ctx))
 	current.Status, current.FinishedAt = status, f.clock.Format(time.RFC3339)
+	current.DefinitionDigest = f.digests[runID]
 	require.NoError(f.t, attempt.Write(f.ctx, *current))
 	require.NoError(f.t, attempt.Close(f.ctx))
 }

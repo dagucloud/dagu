@@ -26,7 +26,8 @@ const slotKey = (slot: BackfillSlot, unit: 'day' | 'month') =>
 /**
  * The slots of a backfill as cells, a row per day or per month. Each cell
  * shows its state by icon and color, names its time and state, and opens
- * the slot's run when it has one.
+ * the slot's run when it has one. A dashed border marks a slot whose run
+ * ran another definition than the one the backfill runs now.
  */
 export function BackfillSlotGrid({ dagName, remoteNode, slots }: Props) {
   const groups = useMemo(() => groupSlots(slots, slotKey), [slots]);
@@ -65,14 +66,21 @@ function SlotCell({
   const { ts } = useI18n();
   const look = SLOT_STATE_LOOK[slot.state];
   const Icon = look.icon;
-  const label = `${ts('Slot {time}', {
-    time: formatAbsoluteTime(slot.slot, { seconds: false }) ?? slot.slot,
-  })} · ${ts(look.label)}`;
+  const label = [
+    ts('Slot {time}', {
+      time: formatAbsoluteTime(slot.slot, { seconds: false }) ?? slot.slot,
+    }),
+    ts(look.label),
+    ...(slot.otherDefinition ? [ts('Older definition')] : []),
+  ].join(' · ');
   const cell = (
     <span
-      className="flex h-5 w-5 items-center justify-center rounded"
+      className={`flex h-5 w-5 items-center justify-center rounded${
+        slot.otherDefinition ? ' border border-dashed' : ''
+      }`}
       style={{
         backgroundColor: `color-mix(in srgb, ${look.color} 16%, transparent)`,
+        borderColor: slot.otherDefinition ? look.color : undefined,
       }}
     >
       <Icon

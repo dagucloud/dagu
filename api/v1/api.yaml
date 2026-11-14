@@ -14057,6 +14057,9 @@ components:
           $ref: "#/components/schemas/BackfillSlotState"
         runId:
           type: string
+        otherDefinition:
+          type: boolean
+          description: "The slot's run ran another definition than the one the backfill runs now"
       required:
         - slot
         - state

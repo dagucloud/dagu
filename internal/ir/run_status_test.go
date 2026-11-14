@@ -567,3 +567,14 @@ func TestDAGRunStatusTimestampsJSON(t *testing.T) {
 		assert.Equal(t, 2*time.Second, finished.Sub(started))
 	})
 }
+
+// The same YAML has the same digest, and other YAML another.
+func TestDefinitionDigest(t *testing.T) {
+	t.Parallel()
+
+	a := ir.DefinitionDigest([]byte("steps:\n  - run: echo a\n"))
+	assert.Len(t, a, 16)
+	assert.Equal(t, a, ir.DefinitionDigest([]byte("steps:\n  - run: echo a\n")))
+	assert.NotEqual(t, a, ir.DefinitionDigest([]byte("steps:\n  - run: echo b\n")))
+	assert.Empty(t, ir.DefinitionDigest(nil))
+}

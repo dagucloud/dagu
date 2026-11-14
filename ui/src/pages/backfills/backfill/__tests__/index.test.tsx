@@ -70,6 +70,7 @@ const SLOTS: BackfillSlot[] = [
     slot: '2026-10-02T02:00:00Z',
     state: BackfillSlotState.running,
     runId: 'run-2',
+    otherDefinition: true,
   },
   { slot: '2026-10-03T02:00:00Z', state: BackfillSlotState.pending },
 ];
@@ -169,6 +170,17 @@ describe('BackfillPage', () => {
       '/dag-runs/etl/run-1?remoteNode=local'
     );
     expect(screen.getByRole('img', { name: /· Pending$/ })).toBeInTheDocument();
+  });
+
+  it('marks a slot whose run ran an older definition', () => {
+    renderPage(backfill());
+
+    expect(
+      screen.getByRole('link', { name: /· Running · Older definition$/ })
+    ).toHaveAttribute('href', '/dag-runs/etl/run-2?remoteNode=local');
+    expect(
+      screen.queryByRole('link', { name: /· Failed · Older definition$/ })
+    ).not.toBeInTheDocument();
   });
 
   it('lists the slots of a state picked in the legend', () => {

@@ -93,6 +93,10 @@ type Plan struct {
 	// OtherCadence counts slots that run because their nearest run fired
 	// under a schedule of another cadence.
 	OtherCadence int
+	// DefinitionChanged reports, for a resume, that the DAG's definition
+	// changed since the backfill started: the slots it runs take the
+	// current one.
+	DefinitionChanged bool
 	// Revision identifies the plan, so a submit can refuse a plan that
 	// changed after it was shown.
 	Revision string

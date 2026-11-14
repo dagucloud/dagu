@@ -4,6 +4,7 @@
 package backfill
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -128,6 +129,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest, control RunCont
 		if result.Plan, err = s.plan(ctx, plan, pending, withdrawn); err != nil {
 			return SubmitResult{}, err
 		}
+		result.Plan.DefinitionChanged = !bytes.Equal(record.Definition, req.DAG.YamlData)
 	}
 	if req.DryRun {
 		return result, nil

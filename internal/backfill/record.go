@@ -141,6 +141,8 @@ type Progress struct {
 	// and that step's error, or the run's own error when no step failed.
 	Step  string `json:"step,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Digest identifies the definition an ended run ran.
+	Digest string `json:"digest,omitempty"`
 }
 
 // ended reports whether the event records how the slot's run ended.
