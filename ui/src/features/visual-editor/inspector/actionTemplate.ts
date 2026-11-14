@@ -88,6 +88,11 @@ const STARTER: Record<string, Record<string, unknown>> = {
   'dag.enqueue': { dag: 'child-workflow' },
   'dag.run': { dag: 'child-workflow' },
   'data.convert': { from: 'json', to: 'yaml', input: '{}' },
+  'data.filter': {
+    from: 'json',
+    input: 'rows.json',
+    where: { status: { is: 'TODO' } },
+  },
   'data.pick': { from: 'json', select: '$.a', input: '{}' },
   'decision.evaluate': {
     provider: 'openrouter',
