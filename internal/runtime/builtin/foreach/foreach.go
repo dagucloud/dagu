@@ -164,13 +164,27 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		// A cancelled run is aborted; a run that hit its deadline failed.
 		outcome.cancelled = errors.Is(dispatchErr, context.Canceled)
 		outcome.err = dispatchErr
-	case outcome.total > 0 && outcome.failed == outcome.total && firstErr != nil:
-		outcome.err = fmt.Errorf("all %d item bodies failed; first error: %w", outcome.total, firstErr)
 	case outcome.total > 0 && outcome.failed == outcome.total:
-		outcome.err = fmt.Errorf("all %d item bodies failed; first error: %s", outcome.total, first)
+		err := &bodiesError{msg: fmt.Sprintf("all %d item bodies failed; first error: %s", outcome.total, first)}
+		if read, ok := errors.AsType[*cmnvalue.MaskedReadError](firstErr); ok {
+			err.read = read
+		}
+		outcome.err = err
 	}
 	return outcome
 }
+
+// bodiesError reports that every item body failed. It wraps a masked read
+// in the first body, which fails the step the same way on every attempt, but
+// no other body error: a body's timeout or cancellation is not the step's.
+type bodiesError struct {
+	msg  string
+	read error
+}
+
+func (e *bodiesError) Error() string { return e.msg }
+
+func (e *bodiesError) Unwrap() error { return e.read }
 
 // DetermineNodeStatus implements NodeStatusDeterminer: a run some item
 // bodies failed is partially succeeded, so the steps after the loop run

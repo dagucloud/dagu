@@ -73,15 +73,20 @@ func TestSummarizeLeavesUnstartedItemsOutOfTheFailedCount(t *testing.T) {
 	assert.EqualError(t, allFailed.err, "all 1 item bodies failed; first error: exit status 1")
 }
 
-// The step's error keeps the body's error, so a masked read in a body is
-// neither retried nor marked successful.
-func TestSummarizeKeepsTheBodyError(t *testing.T) {
+// The step's error keeps a masked read in a body, so it is neither retried
+// nor marked successful, but no other body error: a body's timeout is not the
+// step's own.
+func TestSummarizeKeepsOnlyAMaskedRead(t *testing.T) {
 	t.Parallel()
 
 	read := &cmnvalue.MaskedReadError{Step: "login", Output: "TOKEN"}
-	results := []itemResult{{Index: 0, Status: ir.NodeFailed.String(), Error: read.Error(), err: read}}
-	outcome := summarize(results, nil)
-	assert.ErrorIs(t, outcome.err, read)
+	masked := summarize([]itemResult{{Status: ir.NodeFailed.String(), Error: read.Error(), err: read}}, nil)
+	assert.ErrorIs(t, masked.err, read)
+
+	timedOut := summarize([]itemResult{{Status: ir.NodeFailed.String(), Error: "deadline", err: context.DeadlineExceeded}}, nil)
+	require.Error(t, timedOut.err)
+	assert.NotErrorIs(t, timedOut.err, context.DeadlineExceeded)
+	assert.EqualError(t, timedOut.err, "all 1 item bodies failed; first error: deadline")
 }
 
 // A run without a log directory keeps body logs in a scratch directory that
