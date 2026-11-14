@@ -167,6 +167,9 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 				kind = ProgressFailed
 			}
 			end := Progress{Slot: slot.At, Kind: kind, RunID: event.RunID, Generation: record.Generation, At: observed}
+			if status != nil {
+				end.Digest = status.DefinitionDigest
+			}
 			if outcome == slotFailed && status != nil {
 				end.Step, end.Error = runFailure(status)
 			}

@@ -273,6 +273,8 @@ type Agent struct {
 
 	// definitionID identifies the persisted DAG definition that started this run.
 	definitionID string
+	// definitionDigest identifies the YAML the run runs.
+	definitionDigest string
 	// profileResolvedAt records when the selected runtime profile was resolved.
 	profileResolvedAt string
 	// profileEntries records non-secret injected key metadata for status/history.
@@ -498,6 +500,7 @@ func New(
 		workspaceSeed:            opts.WorkspaceSeed,
 		profileName:              opts.ProfileName,
 		definitionID:             opts.DAGDefinitionID,
+		definitionDigest:         ir.DefinitionDigest(dag.YamlData),
 		stepRetry:                opts.StepRetry,
 		includeDownstream:        opts.IncludeDownstream,
 		bypassPreconditions:      opts.BypassPreconditions,
@@ -1684,6 +1687,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 			ir.WithDAGDefinitionID(a.definitionID),
+			ir.WithDefinitionDigest(a.definitionDigest),
 			ir.WithNoReuse(a.noReuse),
 			ir.WithFinishedAt(a.startupFinishedAt),
 		}
@@ -1744,6 +1748,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 		ir.WithDAGDefinitionID(a.definitionID),
+		ir.WithDefinitionDigest(a.definitionDigest),
 		ir.WithNoReuse(a.noReuse),
 	}
 

@@ -13997,6 +13997,9 @@ components:
         otherCadence:
           type: integer
           description: "Slots that run because their nearest run fired under a schedule of another cadence"
+        definitionChanged:
+          type: boolean
+          description: "For a resume, the DAG's definition changed since the backfill started: new runs run the current one"
         concurrency:
           type: integer
           description: "Runs of the backfill at once: the lower of its max concurrency and the queue's limit"
@@ -14057,6 +14060,9 @@ components:
           $ref: "#/components/schemas/BackfillSlotState"
         runId:
           type: string
+        otherDefinition:
+          type: boolean
+          description: "The slot's run ran another definition than the one the backfill runs now"
       required:
         - slot
         - state

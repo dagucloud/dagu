@@ -227,6 +227,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   its explicit params or the first matching recurring schedule's overrides.
   It has its slot's scheduled time and window. Its
   `context.trigger.type` is `backfill`.
+- Every run records a digest of the YAML it runs as `definitionDigest`.
 - Each run evaluates its params' `eval` when it starts, from its own slot's
   dates, so a param with `eval: ${dates.target_day}` takes each slot's date.
   A value given with `--params` replaces that `eval`, so the param holds that
@@ -278,6 +279,9 @@ dagu backfill status <backfill id> [--watch] [--format text|json]
   `Failed: 2 slots at step load: connection refused (first <slot>, run <id>)`.
   The dispatcher records the step and error when it sees a run fail, so
   reading them needs no run's status. The API gives them as `failures`.
+- `status` marks a slot whose run ran another definition than the one the
+  backfill runs now, as a run a resume of an edited DAG carries:
+  `running (older definition)`. The API gives it as `otherDefinition`.
 - `status --watch` prints a line each time the backfill's progress changes,
   then the status when the backfill ends. It exits 0 only when the backfill
   succeeded. With `--format json`, the progress lines go to stderr and stdout
@@ -302,7 +306,9 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   concurrency, and a failure among them fails it. `--max-concurrency` and
   `--on-failure` replace the backfill's.
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
-  run prints the plan the resume then runs. The backfill keeps its ID.
+  run prints the plan the resume then runs. The backfill keeps its ID. The
+  plan warns when the DAG's definition changed since the backfill started:
+  new runs run the current one, and active runs keep theirs.
 
 ### API
 

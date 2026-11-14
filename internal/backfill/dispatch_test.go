@@ -67,11 +67,17 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 			}
 			return attempt.ReadStatus(ctx)
 		},
-		Target: func(context.Context, *backfill.Record) (backfill.Target, error) {
-			return backfill.Target{DAG: f.dag, Schedule: f.sched}, nil
+		// The runs a backfill queues run the definition it pins, as the
+		// scheduler's do.
+		Target: func(ctx context.Context, record *backfill.Record) (backfill.Target, error) {
+			dag, err := spec.LoadYAML(ctx, record.Definition)
+			if err != nil {
+				return backfill.Target{}, err
+			}
+			return backfill.Target{DAG: dag, Schedule: f.sched}, nil
 		},
-		Enqueue: func(_ context.Context, record *backfill.Record, _ backfill.Target, slot backfill.RecordSlot, runID string) error {
-			if err := f.write(runID, slot.At, ir.Queued, ir.TriggerTypeBackfill, record.ID); err != nil {
+		Enqueue: func(_ context.Context, record *backfill.Record, target backfill.Target, slot backfill.RecordSlot, runID string) error {
+			if err := f.writeRun(target.DAG, runID, slot.At, ir.Queued, ir.TriggerTypeBackfill, record.ID); err != nil {
 				return err
 			}
 			f.queued = append(f.queued, runID)
@@ -83,7 +89,12 @@ func newDispatchFixture(t *testing.T) *dispatchFixture {
 }
 
 func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, trigger ir.TriggerType, backfillID string) error {
-	attempt, err := f.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	return f.writeRun(f.dag, runID, slot, status, trigger, backfillID)
+}
+
+// writeRun writes a run of dag.
+func (f *dispatchFixture) writeRun(dag *ir.DAG, runID string, slot time.Time, status ir.Status, trigger ir.TriggerType, backfillID string) error {
+	attempt, err := f.repository.CreateAttempt(f.ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		return err
 	}
@@ -91,7 +102,7 @@ func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, 
 		return err
 	}
 	if err := attempt.Write(f.ctx, ir.DAGRunStatus{
-		Name: f.dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: status,
+		Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), Status: status,
 		ScheduleTime: slot.Format(time.RFC3339), TriggerType: trigger, BackfillID: backfillID,
 		StartedAt: "2026-11-01T00:00:00Z",
 	}); err != nil {
@@ -100,7 +111,8 @@ func (f *dispatchFixture) write(runID string, slot time.Time, status ir.Status, 
 	return attempt.Close(f.ctx)
 }
 
-// finish settles a queued run as the queue would.
+// finish settles a queued run as the queue would. Like a run's agent, it
+// records the digest of the definition the run runs.
 func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	f.t.Helper()
 	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
@@ -109,6 +121,9 @@ func (f *dispatchFixture) finish(runID string, status ir.Status) {
 	require.NoError(f.t, err)
 	require.NoError(f.t, attempt.Open(f.ctx))
 	current.Status, current.FinishedAt = status, f.clock.Format(time.RFC3339)
+	dag, err := attempt.ReadDAG(f.ctx)
+	require.NoError(f.t, err)
+	current.DefinitionDigest = ir.DefinitionDigest(dag.YamlData)
 	require.NoError(f.t, attempt.Write(f.ctx, *current))
 	require.NoError(f.t, attempt.Close(f.ctx))
 }

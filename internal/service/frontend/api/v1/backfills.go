@@ -223,7 +223,11 @@ func (a *API) ListBackfillSlots(ctx context.Context, request api.ListBackfillSlo
 	page := matching[offset:min(offset+limit, len(matching))]
 	slots := make([]api.BackfillSlot, 0, len(page))
 	for _, slot := range page {
-		slots = append(slots, api.BackfillSlot{Slot: slot.At, State: api.BackfillSlotState(slot.State), RunId: stringOrNil(slot.RunID)})
+		item := api.BackfillSlot{Slot: slot.At, State: api.BackfillSlotState(slot.State), RunId: stringOrNil(slot.RunID)}
+		if slot.OtherDefinition {
+			item.OtherDefinition = ptrOf(true)
+		}
+		slots = append(slots, item)
 	}
 	return api.ListBackfillSlots200JSONResponse{Slots: slots, Total: len(matching)}, nil
 }
@@ -602,6 +606,9 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 	out.RunCounts.All = plan.RunCounts[backfill.RerunAll]
 	if plan.OtherCadence > 0 {
 		out.OtherCadence = &plan.OtherCadence
+	}
+	if plan.DefinitionChanged {
+		out.DefinitionChanged = ptrOf(true)
 	}
 	if len(warnings) > 0 {
 		out.Warnings = &warnings

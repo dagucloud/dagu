@@ -2196,6 +2196,22 @@ steps:
 	require.Contains(t, string(latestStatusJSON), "*******")
 }
 
+// A run records the digest of the YAML it runs.
+func TestAgent_RecordsDefinitionDigest(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+	dag := th.DAG(t, `
+steps:
+  - run: echo hi`)
+
+	dagAgent := dag.Agent()
+	dagAgent.RunSuccess(t)
+
+	digest := dagAgent.Status(th.Context).DefinitionDigest
+	require.NotEmpty(t, digest)
+	require.Equal(t, ir.DefinitionDigest(dag.YamlData), digest)
+}
+
 func TestAgent_RuntimeConfigVarsUseRuntimeProfilePrecedence(t *testing.T) {
 	t.Parallel()
 
