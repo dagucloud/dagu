@@ -1,0 +1,4 @@
+steps:
+  - action: dag.run
+    with:
+      dag: child

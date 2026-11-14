@@ -88,6 +88,7 @@ It must not be treated as product behavior until implementation catches up.
 | [086: Backfill](086-backfill.md) | Partially implemented |
 | [087: Label Filters](087-label-filters.md) | Implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
+| [098: Sub DAG-Run Visibility](098-sub-dag-run-visibility.md) | Implemented |
 
 **Writing guidelines:**
 

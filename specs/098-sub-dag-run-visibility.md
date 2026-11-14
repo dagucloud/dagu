@@ -1,0 +1,43 @@
+# Spec: Sub DAG-Run Visibility
+
+## Status
+
+Implemented. Conformance covers `dagu ls --last` and `dagu status` after a
+parent runs a child with `dag.run`.
+
+## Scope
+
+This spec defines where a run that one DAG starts in another with `dag.run`
+is reported for the child DAG. It does not define how the child run executes
+or where its data is stored.
+
+## Goal
+
+A DAG that runs only under a parent does not look as if it never ran, while
+everything that acts on a DAG's runs keeps acting on its own runs.
+
+## Behavior
+
+A child run is stored under its root run. For the child DAG, its latest sub
+DAG-run is the newest such run that is not hidden and whose root run still
+exists.
+
+- `dagu ls --last` reports, for a DAG, the newer by start time of its own
+  latest run and its latest sub DAG-run.
+- The DAG list and DAG details APIs return the DAG's own latest run as
+  `latestDAGRun` and its latest sub DAG-run as `latestSubDAGRun`, with the
+  root and parent runs that open it. The list sorts by the newer of the two.
+- The Workflows list shows the newer of the two, and a sub DAG-run with a
+  link to it under its root run.
+- Scheduling, `skip_if_successful`, overlap policies, restart policies, the
+  service-run guard, `dagu status`, run history, and run actions such as stop
+  and retry consider only the DAG's own runs.
+- When the root run is removed, the DAG has no latest sub DAG-run until
+  another parent runs it.
+- A run under an ephemeral root run is not reported.
+
+## Conformance
+
+`conformance/spec098_sub_dag_run_visibility/` runs a parent that runs a child
+with `dag.run`, then checks that `dagu ls --last` reports the child's run and
+that `dagu status` finds no run of the child's own.
