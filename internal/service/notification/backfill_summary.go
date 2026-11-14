@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -163,7 +164,7 @@ func (s *Service) deliverBackfillSummary(ctx context.Context, target notificatio
 			return errors.New("slack webhook url is not configured")
 		}
 		return s.withRetry(ctx, func() error {
-			return s.postSummaryJSON(ctx, target.Slack.WebhookURL, map[string]string{"text": text}, nil)
+			return s.postSummaryJSON(ctx, target.Slack.WebhookURL, map[string]string{"text": slackTextEscaper.Replace(text)}, nil)
 		})
 	case notificationmodel.ProviderTeams:
 		if target.Teams == nil || target.Teams.WebhookURL == "" {
@@ -174,7 +175,7 @@ func (s *Service) deliverBackfillSummary(ctx context.Context, target notificatio
 			"@context": "http://schema.org/extensions",
 			"summary":  title,
 			"title":    title,
-			"text":     text,
+			"text":     html.EscapeString(text),
 		})
 		if err != nil {
 			return err
@@ -295,6 +296,6 @@ func (s *Service) sendSummaryEmail(ctx context.Context, target notificationmodel
 		return fmt.Errorf("invalid SMTP configuration: %w", err)
 	}
 	return mailer.New(mailerConfig).SendWithRecipients(
-		ctx, from, target.Email.To, target.Email.Cc, target.Email.Bcc, title, text, nil,
+		ctx, from, target.Email.To, target.Email.Cc, target.Email.Bcc, title, html.EscapeString(text), nil,
 	)
 }

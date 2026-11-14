@@ -5,8 +5,12 @@ package notification
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
+	"net/mail"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -124,4 +128,63 @@ func TestService_SendBackfillSummaryWebhook(t *testing.T) {
 			"succeededSlots": 3, "failedSlots": 0, "skippedSlots": 0, "notRunSlots": 0, "durationSeconds": 90},
 		"message": "Backfill bf123456 of daily-report succeeded: 3 slots, 3 succeeded, in 2m\n"
 	}`, got)
+}
+
+// markupError is a failure's error that Slack would read as a mention and a
+// link, and a mail client as markup.
+const markupError = `<!channel> <b>bad</b> & <https://example.com|click>`
+
+// A failure's error reaches Slack as text: it cannot mention or link.
+func TestService_SendBackfillSummaryEscapesSlackText(t *testing.T) {
+	t.Parallel()
+
+	var bodies atomic.Value
+	var sent atomic.Int32
+	svc := newSummaryService(t, &bodies, &sent)
+
+	require.NoError(t, svc.SendBackfillSummary(context.Background(), BackfillSummary{
+		ID: "bf123456", DAGName: "daily-report", Slots: 1, FailedSlots: 1,
+		Failures: []BackfillFailure{{Step: "load", Error: markupError, Slots: 1}},
+	}))
+	body, _ := bodies.Load().(string)
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal([]byte(body), &payload))
+	assert.Contains(t, payload["text"], "&lt;!channel&gt; &lt;b&gt;bad&lt;/b&gt; &amp; &lt;https://example.com|click&gt;")
+	assert.NotContains(t, payload["text"], "<!channel>")
+}
+
+// A failure's error reaches an email as text, not as markup.
+func TestService_SendBackfillSummaryEscapesEmailBody(t *testing.T) {
+	t.Parallel()
+
+	smtpServer := newRecordingSMTPServer(t)
+	store := newMemoryStore(mustNormalizeSettings(t, &notificationmodel.Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []notificationmodel.Target{{
+			ID:      "email-1",
+			Type:    notificationmodel.ProviderEmail,
+			Enabled: true,
+			Email:   &notificationmodel.EmailTarget{To: []string{"ops@example.com"}},
+		}},
+	}))
+	workspace, err := notificationmodel.NormalizeWorkspaceSettings(&notificationmodel.WorkspaceSettings{
+		SMTP: &notificationmodel.SMTPConfig{Host: smtpServer.host, Port: smtpServer.port, From: "dagu@example.com"},
+	}, "tester")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveWorkspaceSettings(context.Background(), workspace))
+	svc := New(store, nil)
+
+	require.NoError(t, svc.SendBackfillSummary(context.Background(), BackfillSummary{
+		ID: "bf123456", DAGName: "daily-report", Slots: 1, FailedSlots: 1,
+		Failures: []BackfillFailure{{Step: "load", Error: markupError, Slots: 1}},
+	}))
+	data, _ := smtpServer.data.Load().(string)
+	message, err := mail.ReadMessage(strings.NewReader(data))
+	require.NoError(t, err)
+	body, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, message.Body))
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "&lt;!channel&gt; &lt;b&gt;bad&lt;/b&gt; &amp; &lt;https://example.com|click&gt;")
+	assert.NotContains(t, string(body), "<b>bad</b>")
 }

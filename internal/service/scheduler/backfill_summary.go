@@ -19,12 +19,19 @@ type backfillNotifier interface {
 }
 
 // notifyBackfillEnded sends one summary of a backfill that succeeded or
-// failed. A cancelled backfill sends none, and its runs sent none.
+// failed. A cancelled backfill sends none, and its runs sent none. The
+// summary is sent in the background, since a target can take long to
+// answer and the dispatch loop must not wait on it.
 func (s *Scheduler) notifyBackfillEnded(ctx context.Context, record *backfill.Record) {
 	if s.backfillNotifier == nil || s.backfills == nil ||
 		(record.Status != backfill.StatusSucceeded && record.Status != backfill.StatusFailed) {
 		return
 	}
+	go s.sendBackfillSummary(ctx, record)
+}
+
+// sendBackfillSummary describes an ended backfill and sends its summary.
+func (s *Scheduler) sendBackfillSummary(ctx context.Context, record *backfill.Record) {
 	report, err := backfill.Describe(ctx, s.backfills.Store, s.backfills.ReadRun, record)
 	if err != nil {
 		logger.Warn(ctx, "Failed to describe an ended backfill", slog.String("backfill", record.ID), tag.Error(err))

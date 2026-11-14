@@ -62,7 +62,8 @@ type Dispatcher struct {
 	// it under its DAG's retry policy. Zero retries no run.
 	RetryWindow time.Duration
 	// Ended, when set, is called with each backfill that ended in a tick,
-	// once its DAG's lock is released.
+	// once its DAG's lock is released. It runs on the dispatch loop, so it
+	// returns without waiting on slow work.
 	Ended func(ctx context.Context, record *Record)
 	Now   func() time.Time
 }
