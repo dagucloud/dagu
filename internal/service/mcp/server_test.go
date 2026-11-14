@@ -1468,6 +1468,34 @@ func TestNormalizeRunDetailsFlagsPendingHumanTaskResume(t *testing.T) {
 	require.NotContains(t, steps[0], "humanTask")
 }
 
+// A run that fails before any step starts records why only on the run, so
+// the run details must carry that error.
+func TestNormalizeRunDetailsReportsRunError(t *testing.T) {
+	t.Parallel()
+
+	runErr := "command failed: fork/exec /tmp/dagu: no such file or directory"
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:        "release",
+			DagRunId:    "run-3",
+			Status:      daguapi.StatusFailed,
+			StatusLabel: "failed",
+			Error:       &runErr,
+			Nodes: []daguapi.Node{
+				{
+					Step:        daguapi.Step{Name: "build"},
+					Status:      daguapi.NodeStatusNotStarted,
+					StatusLabel: "not_started",
+				},
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, runAddress{})
+	require.NoError(t, err)
+	require.Equal(t, runErr, data["error"])
+}
+
 func TestHasWaitingStep(t *testing.T) {
 	t.Parallel()
 
