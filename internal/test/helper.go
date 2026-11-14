@@ -60,6 +60,9 @@ var builtExecutableErr error
 // builtExecutableDir is the temporary directory holding the executable this
 // process built.
 var builtExecutableDir string
+
+// mainRunning reports whether the package's tests run through Main.
+var mainRunning bool
 var removeStaleDirsOnce sync.Once
 
 const (
@@ -192,8 +195,9 @@ func WithWorkerWaitTimeout(timeout time.Duration) HelperOption {
 }
 
 // WithBuiltExecutable makes Setup build the current ./cmd binary once and use it
-// as cfg.Paths.Executable for subprocess-based tests. A package using it calls
-// Main from its TestMain so the binary does not outlive the test process.
+// as cfg.Paths.Executable for subprocess-based tests. A package using it must
+// call Main from its TestMain so the binary does not outlive the test process;
+// Setup fails the test otherwise.
 func WithBuiltExecutable() HelperOption {
 	return func(opts *Options) {
 		opts.UseBuiltExecutable = true
@@ -203,6 +207,7 @@ func WithBuiltExecutable() HelperOption {
 // Main runs the tests of a package and then removes the executable that
 // WithBuiltExecutable built for them.
 func Main(m *testing.M) {
+	mainRunning = true
 	code := m.Run()
 	removeBuiltExecutable()
 	os.Exit(code)
@@ -1154,6 +1159,10 @@ func getProjectRoot(t *testing.T) string {
 
 func buildCurrentExecutable(t *testing.T, root string) string {
 	t.Helper()
+
+	if !mainRunning {
+		t.Fatal("tests using WithBuiltExecutable must run through test.Main; add a TestMain that calls it")
+	}
 
 	builtExecutableOnce.Do(func() {
 		// On CI the build step already compiles .local/bin/dagu[.exe] from the
