@@ -5416,6 +5416,13 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// A field that fails to parse the mask reports the masked read.
+		{
+			name:     "UnparsableField",
+			use:      []stepOption{withCommand("true"), func(step *ir.Step) { step.RetryPolicy.LimitStr = "${env.TOKEN}" }},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		{
 			name:     "MarkSuccess",
 			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},

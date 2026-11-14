@@ -484,6 +484,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				var err error
 				ctx, err = r.setupVariables(ctx, plan, n)
 				if err != nil {
+					err = preferMaskedRead(ctx, n, err)
 					r.setLastError(err)
 					n.MarkError(err)
 					n.SetStatus(ir.NodeFailed)
@@ -496,6 +497,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				}
 				if !r.dry {
 					if err := validateBuildRuntimeRedirectAliases(ctx, plan, n); err != nil {
+						err = preferMaskedRead(ctx, n, err)
 						r.setLastError(err)
 						n.MarkError(err)
 						n.SetStatus(ir.NodeFailed)
@@ -504,6 +506,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				}
 
 				if err := r.prepareNode(ctx, n); err != nil {
+					err = preferMaskedRead(ctx, n, err)
 					r.setLastError(err)
 					n.MarkError(err)
 					n.SetStatus(ir.NodeFailed)
@@ -2043,6 +2046,15 @@ func maskedReadError(ctx context.Context, node *Node) error {
 	return stepMaskedRead(ctx, node, cmnvalue.MaskedRead(ctx))
 }
 
+// preferMaskedRead returns the node's masked read in place of err, which the
+// starred value can cause, such as by failing to parse; otherwise err.
+func preferMaskedRead(ctx context.Context, node *Node, err error) error {
+	if readErr := maskedReadError(ctx, node); readErr != nil {
+		return readErr
+	}
+	return err
+}
+
 // stepMaskedRead returns the masked read err reports as the node's error, or
 // nil when err reports none.
 func stepMaskedRead(ctx context.Context, node *Node, err error) error {
@@ -2313,6 +2325,9 @@ func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPo
 		return // condition met on the final attempt
 	case errors.Is(err, ErrConditionNotMet):
 		err = fmt.Errorf("repeat limit %d reached; condition not met", rp.Limit)
+	}
+	if readErr := stepMaskedRead(ctx, node, err); readErr != nil {
+		err = readErr
 	}
 	if execErr != nil {
 		err = fmt.Errorf("%w: %w", err, execErr)
