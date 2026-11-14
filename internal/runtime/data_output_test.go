@@ -119,7 +119,7 @@ func TestDataStepInfoMarksMaskedOutputs(t *testing.T) {
 			MaskedOutputs:    &ir.MaskedOutputs{Captured: true, Published: []string{"key"}},
 		},
 	})
-	assert.Equal(t, cmnvalue.StepMasks{Output: true, Outputs: true}, masked.StepInfo().Masked)
+	assert.Equal(t, cmnvalue.StepMasks{Output: true, Outputs: true, Declared: []string{"key"}}, masked.StepInfo().Masked)
 
 	clean := newSafeData(NodeData{Step: ir.Step{ID: "fetch", Name: "fetch"}, State: NodeState{OutputValue: &captured}})
 	assert.Equal(t, cmnvalue.StepMasks{}, clean.StepInfo().Masked)

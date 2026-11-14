@@ -464,7 +464,10 @@ func (d *Data) StepInfo() cmnvalue.StepInfo {
 		value := *d.inner.State.StepOutputsValue
 		info.Outputs = &value
 		info.DeclaredOutputs = &value
-		info.Masked.Outputs = masked != nil && (masked.AllPublished || len(masked.Published) > 0)
+		if masked != nil {
+			info.Masked.Outputs = masked.AllPublished || len(masked.Published) > 0
+			info.Masked.Declared, info.Masked.AllDeclared = masked.Published, masked.AllPublished
+		}
 	}
 	if info.Outputs == nil && d.inner.State.OutputsValue != nil {
 		value := *d.inner.State.OutputsValue

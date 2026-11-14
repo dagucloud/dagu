@@ -213,12 +213,9 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 	if !ok {
 		return "", false
 	}
-	value, ok := resolveJSONPath(ctx, varName, jsonStr, path)
-	// A path reads only the part of the variable it selects.
-	if readsMask(jsonStr, value, ok) {
-		r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
-	}
-	return value, ok
+	// Any path into a masked variable counts, whatever part it selects.
+	r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
+	return resolveJSONPath(ctx, varName, jsonStr, path)
 }
 
 // resolveJSONSource looks up a variable's raw value for JSON path resolution.

@@ -5,13 +5,11 @@ package value
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
-
-	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
 // StepMasks marks the outputs of a step that were restored with a secret
@@ -19,8 +17,13 @@ import (
 type StepMasks struct {
 	// Output marks StepInfo.Output.
 	Output bool
-	// Outputs marks StepInfo.Outputs and StepInfo.DeclaredOutputs.
+	// Outputs marks StepInfo.Outputs.
 	Outputs bool
+	// Declared names the masked entries of StepInfo.DeclaredOutputs.
+	Declared []string
+	// AllDeclared marks every entry of StepInfo.DeclaredOutputs, as when
+	// masking changed their names.
+	AllDeclared bool
 }
 
 // MaskedReadError reports a read of an output that was restored with a
@@ -131,37 +134,21 @@ func (m *maskedReads) noteEntry(entry EnvEntry) {
 	}
 }
 
-// maskedText returns the stored text that a step property path, such as
-// ".output" or ".outputs.token", reads, the output to name for it, and
-// whether a restore brought that text back masked.
-func (s StepInfo) maskedText(path string) (text, output string, masked bool) {
-	field, ok := stepTextPathField(path)
-	switch {
-	case !ok:
-		return "", "", false
-	case strings.HasPrefix(path, ".outputs"):
-		if !s.Masked.Outputs || s.Outputs == nil {
-			return "", "", false
-		}
-		text, output = *s.Outputs, "outputs"
-	default:
-		if !s.Masked.Output || s.Output == nil {
-			return "", "", false
-		}
-		text, output = *s.Output, "output"
+// property returns the output that a step property path, such as ".output"
+// or ".outputs.token", reads, and whether a restore brought it back masked.
+// Any path into a masked output counts, whatever part it selects.
+func (s StepMasks) property(path string) (string, bool) {
+	if _, ok := stepTextPathField(path); !ok {
+		return "", false
 	}
-	if field = strings.Trim(field, `"'?`); field != "" {
-		output = field
+	if strings.HasPrefix(path, ".outputs") {
+		return "outputs", s.Outputs
 	}
-	return text, output, true
+	return "output", s.Output
 }
 
-// readsMask reports whether resolving a reference into masked text read the
-// mask: the value it resolved holds it, or the reference failed on text that
-// masking left no longer JSON.
-func readsMask(text, value string, ok bool) bool {
-	if !strings.Contains(text, masking.DefaultMaskString) {
-		return false
-	}
-	return strings.Contains(value, masking.DefaultMaskString) || (!ok && !json.Valid([]byte(text)))
+// declared reports whether a restore brought the named declared output back
+// masked.
+func (s StepMasks) declared(name string) bool {
+	return s.AllDeclared || slices.Contains(s.Declared, name)
 }

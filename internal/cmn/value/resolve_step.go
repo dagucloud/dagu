@@ -26,13 +26,12 @@ type StepInfo struct {
 }
 
 // resolveDeclaredStepOutput resolves a published output of a step and records
-// a read of the mask.
+// a read of it when a restore brought it back masked.
 func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
-	value, ok := declaredStepOutputValue(ctx, stepName, outputName, stepMap)
-	if info := stepMap[stepName]; info.Masked.Outputs && info.DeclaredOutputs != nil && readsMask(*info.DeclaredOutputs, value, ok) {
+	if info, ok := stepMap[stepName]; ok && info.DeclaredOutputs != nil && info.Masked.declared(outputName) {
 		maskedReadsFrom(ctx).note(stepName, outputName)
 	}
-	return value, ok
+	return declaredStepOutputValue(ctx, stepName, outputName, stepMap)
 }
 
 func declaredStepOutputValue(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
@@ -76,13 +75,12 @@ func jqPath(path string) string {
 }
 
 // resolveStepProperty extracts a step's property value with optional slicing
-// and records a read of the mask.
+// and records a read of it when a restore brought it back masked.
 func resolveStepProperty(ctx context.Context, stepName, path string, stepMap map[string]StepInfo) (string, bool) {
-	value, ok := stepPropertyValue(ctx, stepName, path, stepMap)
-	if text, output, masked := stepMap[stepName].maskedText(path); masked && readsMask(text, value, ok) {
+	if output, masked := stepMap[stepName].Masked.property(path); masked {
 		maskedReadsFrom(ctx).note(stepName, output)
 	}
-	return value, ok
+	return stepPropertyValue(ctx, stepName, path, stepMap)
 }
 
 func stepPropertyValue(ctx context.Context, stepName, path string, stepMap map[string]StepInfo) (string, bool) {

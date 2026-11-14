@@ -25,7 +25,7 @@ func TestMaskedRead(t *testing.T) {
 			Output:          &captured,
 			Outputs:         &published,
 			DeclaredOutputs: &published,
-			Masked:          StepMasks{Output: true, Outputs: true},
+			Masked:          StepMasks{Output: true, Outputs: true, Declared: []string{"token"}},
 		},
 		"config": {Output: &config, Masked: StepMasks{Output: true}},
 	}
@@ -34,8 +34,7 @@ func TestMaskedRead(t *testing.T) {
 			"TOKEN":  "*******",
 			"REGION": "us",
 			"CONFIG": `{"token":"*******","region":"us"}`,
-			"PIN":    `{"pin":*******}`,
-		}, "fetch", "TOKEN", "CONFIG", "PIN")
+		}, "fetch", "TOKEN", "CONFIG")
 	workflow := WorkflowField("run")
 	shell := ShellCommandField("run", CommandContext{Target: CommandTargetLocal, Shell: []string{"sh"}, ShellConfigured: true})
 
@@ -58,27 +57,20 @@ func TestMaskedRead(t *testing.T) {
 			field: workflow,
 			scope: restored.WithEntry("TOKEN", "local", EnvSourceStepEnv),
 		},
+		// Any path into a masked stored output reads it, whatever part it
+		// selects.
 		{name: "captured output", raw: "deploy ${fetch.output}", field: workflow, want: "output"},
-		{name: "masked field of a captured object", raw: "deploy ${config.output.token}", field: workflow, want: "token", step: "config"},
-		{name: "unmasked field of a captured object", raw: "deploy ${config.output.region}", field: workflow},
-		{name: "unmasked field of a captured object in brackets", raw: `deploy ${config.output["region"]}`, field: workflow},
-		{name: "published output", raw: "deploy ${fetch.outputs.token}", field: workflow, want: "token"},
-		{name: "unmasked published output", raw: "deploy ${fetch.outputs.region}", field: workflow},
-		{name: "published output in brackets", raw: `deploy ${fetch.outputs["token"]}`, field: workflow, want: "outputs"},
-		{name: "unmasked published output in brackets", raw: `deploy ${fetch.outputs["region"]}`, field: workflow},
-		{name: "published output by a quoted name", raw: `deploy ${fetch.outputs."token"}`, field: workflow, want: "token"},
-		{name: "published output by an optional path", raw: `deploy ${fetch.outputs.token?}`, field: workflow, want: "token"},
-		{name: "unmasked published output by a quoted name", raw: `deploy ${fetch.outputs."region"}`, field: workflow},
+		{name: "slice of a captured output", raw: "deploy ${fetch.output:0:3}", field: workflow, want: "output"},
+		{name: "field of a captured object", raw: "deploy ${config.output.region}", field: workflow, want: "output", step: "config"},
+		{name: "published outputs", raw: "deploy ${fetch.outputs.token}", field: workflow, want: "outputs"},
+		{name: "other published output", raw: `deploy ${fetch.outputs["region"]}`, field: workflow, want: "outputs"},
+		// A declared output is read by its exact name.
 		{name: "declared output", raw: "deploy ${steps.fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked declared output", raw: "deploy ${steps.fetch.outputs.region}", field: workflow},
 		// Executor config reads variables from a copy of the scope.
 		{name: "executor config variable", raw: "token=${TOKEN}", field: ExecutorConfigField("with.message"), want: "TOKEN"},
 		{name: "executor config unmasked variable", raw: "region=${REGION}", field: ExecutorConfigField("with.message")},
-		{name: "path into a masked variable", raw: "deploy ${CONFIG.token}", field: workflow, want: "CONFIG"},
-		{name: "unmasked path into a masked variable", raw: "deploy ${CONFIG.region}", field: workflow},
-		// Masking a number leaves the text no longer JSON.
-		{name: "path into masked text that is no longer JSON", raw: "deploy ${PIN.pin}", field: workflow, want: "PIN"},
-		{name: "missing path into a masked variable", raw: "deploy ${CONFIG.missing}", field: workflow},
+		{name: "path into a masked variable", raw: "deploy ${CONFIG.region}", field: workflow, want: "CONFIG"},
 		// A POSIX shell expands these itself, like any program reading its
 		// environment, so Dagu sees no read.
 		{name: "shell variable", raw: `deploy "$TOKEN"`, field: shell},

@@ -91,25 +91,20 @@ it runs, with an error that names the step and the output and says the producing
 step has to run again, together with the steps after it. A step reads an output
 where value resolution inserts it into one of the step's fields:
 
-- `${steps.<id>.outputs.<name>}` reads a published output.
-- `${<id>.outputs}` and any path under it read the published outputs when the
-  step published any, and the captured output document otherwise.
-- `${<id>.output}` reads the captured output text, or the step's output
-  variable when no captured text is stored. A path under it reads that field
-  of a JSON object.
-- `${NAME}`, `$NAME`, and `${env.NAME}` read an output variable when the value
-  under that name in the step's scope is the output variable. `${NAME.path}`
-  reads the part of it the path selects, and a path that no longer resolves
-  because masking left the text no longer JSON counts as reading the variable.
+- `${steps.<id>.outputs.<name>}` reads that published output.
+- `${<id>.outputs}` and any path or slice under it read the published outputs
+  when the step published any, and the captured output document otherwise.
+- `${<id>.output}` and any path or slice under it read the captured output
+  text, or the step's output variable when no captured text is stored.
+- `${NAME}`, `$NAME`, `${env.NAME}`, and `${NAME.path}` read an output variable
+  when the value under that name in the step's scope is the output variable.
 
-Each reference fails only when masking changed the output it reads. A path into
-a JSON output reads what it resolves to, however it is written, such as
-`.token`, `["token"]`, or `.token?`: it reads a masked output when the value it
-selects holds the mask, `*******`, or when it fails on text that masking left no
-longer JSON. A field that held seven or more asterisks of its own therefore
-counts as masked too. A reference that resolution leaves as written reads
-nothing: an escaped reference, and a `js` or `template` script, which is passed
-on as written. In a step's command or script that a local POSIX shell runs, Dagu
+Each reference fails only when masking changed the output it reads: a published
+output by its name, or all of them when masking changed their names, and
+otherwise the stored output or output variable as a whole, whatever part a path
+or slice selects. A reference that resolution leaves as written reads nothing:
+an escaped reference, and a `js` or `template` script, which is passed on as
+written. In a step's command or script that a local POSIX shell runs, Dagu
 leaves `$NAME` and `${NAME}` to the shell, which reads them from its environment
 like any program, so they are not checked. Dagu inserts the value itself, so the
 read is checked, in a condition, with another shell, a direct command, SSH, or a
