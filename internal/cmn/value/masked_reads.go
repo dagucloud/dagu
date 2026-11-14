@@ -402,6 +402,24 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 			if n.Param != nil {
 				read(n.Param.Value, n.Pos())
 			}
+			// An index or a slice is arithmetic, which names variables
+			// without a dollar.
+			if n.Index != nil {
+				arithmReads(n.Index, read)
+			}
+			if n.Slice != nil {
+				for _, x := range []syntax.ArithmExpr{n.Slice.Offset, n.Slice.Length} {
+					if x != nil {
+						arithmReads(x, read)
+					}
+				}
+			}
+		case *syntax.CStyleLoop:
+			for _, x := range []syntax.ArithmExpr{n.Init, n.Cond, n.Post} {
+				if x != nil {
+					arithmReads(x, read)
+				}
+			}
 		case *syntax.CallExpr:
 			if len(n.Args) == 0 {
 				// NAME=value without a command sets a shell variable;
@@ -433,9 +451,15 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 			if local {
 				target = s.localScope(scope)
 			}
+			// A name reference reads the variable it names wherever it is
+			// used, so naming one counts as reading it.
+			nameref := variant == "nameref" || slices.ContainsFunc(n.Args, isNamerefFlag)
 			for _, a := range n.Args {
 				if a.Name == nil || a.Naked {
 					continue
+				}
+				if referred := a.Value.Lit(); nameref && ValidEnvName(referred) {
+					read(referred, a.Pos())
 				}
 				if a.Append {
 					read(a.Name.Value, a.Pos())
@@ -496,6 +520,16 @@ func (s *shellScan) setIn(scope int) map[string]bool {
 		}
 	}
 	return names
+}
+
+// isNamerefFlag reports whether a declaration argument is an option that
+// includes -n.
+func isNamerefFlag(a *syntax.Assign) bool {
+	if a.Name != nil || a.Value == nil {
+		return false
+	}
+	flag := a.Value.Lit()
+	return strings.HasPrefix(flag, "-") && strings.Contains(flag, "n")
 }
 
 // assignedNames returns the variables a builtin call sets or unsets: read,

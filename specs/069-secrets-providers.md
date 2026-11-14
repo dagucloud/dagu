@@ -117,9 +117,9 @@ names, such as one `trap` runs, runs at the end of the script. A `for` loop's
 variable holds after the loop only when its list is plain words. A function
 defined more than once sets nothing sure. `declare`, `export`, `readonly`, or
 `local` without a value keeps the inherited value, as dash does. Text a script
-hands to another shell, as with `eval` or `sh -c`, and a script whose shebang
-names an interpreter other than a POSIX shell are programs reading their
-environment.
+hands to another shell, as with `eval`, `sh -c`, or a quoted `trap` action, and
+a script whose shebang names an interpreter other than a POSIX shell are
+programs reading their environment.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it, and
