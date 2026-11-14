@@ -28,9 +28,9 @@ unmigrated workspace items remain, v3.0 runs no workflows and serves the
 migration plan instead of failing to start. Installs without workspaces
 run unchanged as the default project.
 
-v3.0 ships the core. Moving DAGs between projects, the All projects view,
-renames on disk that finish without an admin, Dagu Cloud bindings, and
-checkouts follow, as [Compatibility and rollout](#compatibility-and-rollout)
+v3.0 ships the core, with checkouts. Moving DAGs between projects, the All
+projects view, renames on disk that finish without an admin, and Dagu Cloud
+bindings follow, as [Compatibility and rollout](#compatibility-and-rollout)
 lists.
 
 ## Problem statement
@@ -254,8 +254,8 @@ first discovered. The ID never changes; the name can.
   library. A path target must lie inside the caller's project DAG directory
   or the library. A target in another project is a load error.
 - A CLI command addresses the project named by `--project`, else by
-  `DAGU_PROJECT`, else `default`. Once [checkouts](#checkouts) ship, a
-  checkout found from the current directory comes before `default`.
+  `DAGU_PROJECT`, else the project whose DAG directory contains the current
+  directory, else `default`, as [Checkouts](#checkouts) details.
 - API paths and MCP tools that address DAGs, runs, secrets, profiles, routes,
   policies, or wiki pages take `project`. The default is `default`, so
   existing clients keep working against the default project. Clients that
@@ -275,7 +275,7 @@ first discovered. The ID never changes; the name can.
 [Spec 001](../specs/001-project.md) calls a directory that holds
 `.dagu.yaml` a project and runs its workflows from the CLI. That is the same
 project seen from a checkout, not a second concept. Checkouts ship with spec
-001, after v3.0.
+001 in v3.0, since projects on existing folders rely on them.
 
 - A project's DAG directory may hold `.dagu.yaml`. The server then discovers
   workflows, applies base config, and sets working directories as spec 001
@@ -286,11 +286,15 @@ project seen from a checkout, not a second concept. Checkouts ship with spec
   DAGs.
 - The `project` field of `.dagu.yaml` names the server project a checkout
   belongs to. On a server, a `project` that differs from the project's name
-  is a load error.
+  is a warning on the projects page, not a load error, so a rename never
+  stops a project from loading.
 - [Spec 001](../specs/001-project.md#server-projects) defines which project
-  a command addresses from inside a checkout: `--project`, then
-  `DAGU_PROJECT`, then the server project whose DAG directory is the
-  checkout, then the checkout on its own, then `default`.
+  a command addresses: `--project`, then `DAGU_PROJECT`, then the server
+  project whose DAG directory contains the current directory, with or
+  without `.dagu.yaml`, then the checkout on its own, then `default`.
+- Inside a server project's DAG directory, `dagu server` and
+  `dagu start-all` refuse to start, so one project never has two
+  schedulers.
 
 ### Library
 
@@ -366,13 +370,15 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     `.dagu/`, laid out as [spec 001](../specs/001-project.md#project-state)
     lays out a checkout's state. Dagu creates `.dagu/` with a `.gitignore`
     that ignores it. The folder then holds the whole project, and
-    `dagu start` inside it reads and writes the same history whether or not
-    the folder was added to a server, including runs made before it was
-    added. Dagu must be able to write to the folder.
+    `dagu start` anywhere inside it addresses the project, with or without
+    `.dagu.yaml`. When the folder holds `.dagu.yaml`, runs made in project
+    mode before it was added are part of the same history. Dagu must be
+    able to write to the folder.
   - Discovery in an existing folder never enters a directory whose name
     starts with `.`, so it never reads `.dagu/` or `.git/`.
 
-  The UI suggests the folder's name as the project name and display name.
+  The UI suggests the folder's name as the display name, and a valid
+  project name made from it, such as `my-app` for `My App`.
   The path is on the server's machine, not the admin's browser's. An admin
   may choose any folder that Dagu can read and write: an admin who can edit
   DAGs can already run any command as Dagu's user, so a narrower rule would
@@ -402,7 +408,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   `paths.projects_dags_dir` set, a git checkout shows the moved DAG
   directory as a change to commit. Renaming a project on an existing folder
   moves nothing, since its state lives in the folder; only the registry
-  changes.
+  changes. When the project's `.dagu.yaml` names the old project, the
+  rename asks the admin to update its `project` field.
 - **Delete.** An admin deletes a project in the UI or API, or with `dagu
   project delete`. After the same first step as a rename, it removes the
   project's directories, registry entry, grants, and Dagu Cloud binding.
@@ -652,16 +659,16 @@ item, not the first one found.
 | --- | --- |
 | v2.22 | Warnings and an admin notice that list workspace settings in use. |
 | Next v2 release | The warning and notice say that v3.0 moves workspaces into projects, and stop asking operators to move settings by hand. |
-| v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create, on the default directory or an existing folder, rename, and delete, with an admin confirming each rename made on disk; `dagu migrate workspaces`, the migration-required mode, and the fallback for existing clients; report protocol 3 (RFC 002). |
+| v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create, on the default directory or an existing folder, rename, and delete, with an admin confirming each rename made on disk; `dagu migrate workspaces`, the migration-required mode, and the fallback for existing clients; report protocol 3 (RFC 002); checkouts, with spec 001. |
 | v3.1 | Drops the `workspace_mappings` and `default_workspace_access` aliases. |
-| After v3.0 | Moving DAGs between projects; the All projects view; renames made on disk that finish without an admin when the DAG files match; Dagu Cloud bindings (RFC 002); checkouts, with spec 001. |
+| After v3.0 | Moving DAGs between projects; the All projects view; renames made on disk that finish without an admin when the DAG files match; Dagu Cloud bindings (RFC 002). |
 
 v2 gets no new workspace features.
 
 ## Verification and acceptance criteria
 
-Criteria 24, 25, 26, and 28, and the part of 17 that finishes a rename
-without an admin, apply from the release that ships the feature.
+Criteria 24 and 25, and the part of 17 that finishes a rename without an
+admin, apply from the release that ships the feature.
 
 1. A v2 data directory with no workspaces starts on v3.0 unchanged, as the
    default project.
@@ -717,9 +724,9 @@ without an admin, apply from the release that ships the feature.
     refused while a `dag.run` caller remains in the source project.
 25. All projects shows the runs and failures of every project the user can
     see, and of no other.
-26. A `dagu` command run anywhere inside a checkout of a project's DAG
-    directory, without `--project` or `DAGU_PROJECT`, addresses that
-    project.
+26. A `dagu` command run anywhere inside a project's DAG directory, with or
+    without `.dagu.yaml`, and without `--project` or `DAGU_PROJECT`,
+    addresses that project.
 27. After migration, a rename, or a move, the logs, step output, and
     artifacts of every moved run open as before.
 28. A `.dagu.yaml` path that leads out of its project's DAG directory is a
@@ -729,14 +736,19 @@ without an admin, apply from the release that ships the feature.
     folder that Dagu can read and write. Dagu reads its DAGs there, keeps
     the project's runs, logs, and other state in the folder's `.dagu/`, and
     never moves or deletes the folder.
-31. `dagu start` inside such a folder shows and extends the same run
-    history before and after the folder is added to a server.
+31. `dagu start` inside such a folder that holds `.dagu.yaml` shows and
+    extends the same run history before and after the folder is added to a
+    server.
 32. A filesystem root, a folder already used by a project, or a folder
     inside another project's or Dagu's own directories is refused, and with
     `permissions.write_dags` off no existing folder is offered.
 33. A relative folder path, or a Windows path without a drive, is refused.
     A leading `~` expands to the home directory of Dagu's user, and the
     registry stores the cleaned absolute path.
+34. `dagu server` and `dagu start-all` refuse to start inside a server
+    project's DAG directory.
+35. A `.dagu.yaml` whose `project` differs from its server project's name
+    loads, with a warning on the projects page.
 
 ## Alternatives considered
 
