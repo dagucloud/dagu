@@ -84,12 +84,14 @@ of the same run reads a published output with the secret intact.
 A run can instead restore a step's stored result without executing the step
 again: a retry of the run or of a step, a retry with an edited DAG, resume after
 an approval or a human task, a run that carries another run's outputs, and the
-retry of a step in a child run of a `parallel:` step, which restores the child
-run. Stored outputs stay masked, and stored status records which outputs masking
-changed. A step that reads a recorded output after such a restore fails before
-it runs, with an error that names the step and the output and says the producing
-step has to run again, together with the steps after it. A step reads an output
-where value resolution inserts it into one of the step's fields:
+retry of a step that starts a child run, including one in a `parallel:` step,
+which retries the child run and restores its steps. Stored outputs stay masked,
+and stored status records which outputs masking changed. A step that reads a
+recorded output after such a restore fails before it runs, with an error that
+names the step and the output and says the producing step has to run again,
+together with the steps after it. When both are steps of a child run, that
+takes a retry of the child run, not of the parent. A step reads an output where
+value resolution inserts it into one of the step's fields:
 
 - `${steps.<id>.outputs.<name>}` reads that published output.
 - `${<id>.outputs}` and any path or slice under it read the published outputs
