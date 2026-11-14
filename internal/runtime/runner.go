@@ -948,6 +948,17 @@ func (r *Runner) prepareNode(ctx context.Context, node *Node) error {
 
 func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progressCh chan ProgressUpdate) {
 	ctx = r.setupNodeExecutionEnv(ctx, node)
+	// A precondition can decide on the task's env, so a masked read there
+	// fails a task that has preconditions whatever they decide.
+	if len(node.Step().Preconditions) > 0 {
+		if err := maskedReadError(ctx, node); err != nil {
+			r.setLastError(err)
+			node.MarkError(err)
+			node.SetStatus(ir.NodeFailed)
+			r.report(ctx, progressCh, node)
+			return
+		}
+	}
 	met, err := r.meetsPreconditions(ctx, node, progressCh)
 	if err != nil {
 		r.handlePreconditionError(plan, err)

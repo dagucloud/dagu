@@ -658,12 +658,16 @@ func (d *Data) SetError(err error) {
 }
 
 // MatchExitCode reports whether the last attempt exited with one of exitCodes.
-// An attempt that failed during setup has no exit code and never matches.
+// An attempt that failed during setup or on a masked read has no exit code
+// and never matches.
 func (d *Data) MatchExitCode(exitCodes []int) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	if _, ok := errors.AsType[*stepSetupError](d.inner.State.Error); ok {
+		return false
+	}
+	if _, ok := errors.AsType[*cmnvalue.MaskedReadError](d.inner.State.Error); ok {
 		return false
 	}
 	return slices.Contains(exitCodes, d.inner.State.ExitCode)

@@ -104,12 +104,13 @@ where value resolution inserts it into one of the step's fields:
 
 Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, and a
-`js` or `template` script, which is passed on as written. In a command or script
-that a local POSIX shell runs, Dagu leaves `$NAME` and `${NAME}` to the shell,
-which reads them from its environment like any program, so they are not checked.
-With another shell, a direct command, SSH, or a container, Dagu inserts the
-value itself, so the read is checked, and `${env.NAME}` and the step-output
-forms are resolved by Dagu everywhere.
+`js` or `template` script, which is passed on as written. In a step's command or
+script that a local POSIX shell runs, Dagu leaves `$NAME` and `${NAME}` to the
+shell, which reads them from its environment like any program, so they are not
+checked. Dagu inserts the value itself, so the read is checked, in a condition,
+with another shell, a direct command, SSH, or a container, and for a `"${NAME}"`
+inside a single-quoted span, which it quotes into place. `${env.NAME}` and the
+step-output forms are resolved by Dagu everywhere.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it, and
@@ -123,11 +124,12 @@ environment, and an executor that takes a variable by name, such as through
 `pass_env`, receive `*******`; only the reads above are checked. A handler step
 and a human task report on the run rather than do its work, so they read an
 output stored masked as it is, as `*******`; only a human task's preconditions
-are checked. When masking changed the name of a published output, or masked the
-published outputs as text, every published output of that step counts as masked.
-Outputs that masking did not change are reused unchanged, and a value supplied
-for an output of a carried step replaces the recorded one, including the
-captured output when it names the step's `output:` variable.
+are checked, along with the fields resolved before them when it has any. When
+masking changed the name of a published output, or masked the published outputs
+as text, every published output of that step counts as masked. Outputs that
+masking did not change are reused unchanged, and a value supplied for an output
+of a carried step replaces the recorded one, including the captured output when
+it names the step's `output:` variable.
 
 A precondition decides on what it reads, including the fields Dagu resolves
 before it: the step's env, working directory, stdout and stderr paths, and retry

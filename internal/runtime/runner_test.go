@@ -5399,6 +5399,23 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// A step that did not run has no exit code to continue on.
+		{
+			name:     "ContinueOnExitCode",
+			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withContinueOn(ir.ContinueOn{ExitCode: []int{0, 3}})},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
+		// A human task's precondition decides on the task's env too.
+		{
+			name: "HumanTaskEnvReadPrecondition",
+			use: []stepOption{
+				withHumanTask(&ir.HumanTaskConfig{Prompt: "Approve"}), withEnvVars("LOCAL=${TOKEN}"),
+				withPrecondition(&ir.Condition{Condition: "${LOCAL}", Expected: "real"}),
+			},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		{
 			name:     "MarkSuccess",
 			use:      []stepOption{withCommand(`echo ${env.TOKEN}`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},
