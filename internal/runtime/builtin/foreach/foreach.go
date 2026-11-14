@@ -68,6 +68,9 @@ type itemResult struct {
 	Status  string            `json:"status"`
 	Outputs map[string]string `json:"outputs,omitempty"`
 	Error   string            `json:"error,omitempty"`
+	// err is the body run's error behind Error, so the step's error keeps
+	// what kind of failure it was.
+	err error
 }
 
 type aggregateOutput struct {
@@ -141,6 +144,7 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 func summarize(results []itemResult, dispatchErr error) runOutcome {
 	outcome := runOutcome{total: len(results)}
 	var first string
+	var firstErr error
 	for _, result := range results {
 		// An item a cancellation kept from starting neither succeeded nor
 		// failed; the cancellation itself decides the outcome.
@@ -149,7 +153,7 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		}
 		outcome.failed++
 		if first == "" {
-			first = result.Error
+			first, firstErr = result.Error, result.err
 			if first == "" {
 				first = result.Status
 			}
@@ -160,6 +164,8 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		// A cancelled run is aborted; a run that hit its deadline failed.
 		outcome.cancelled = errors.Is(dispatchErr, context.Canceled)
 		outcome.err = dispatchErr
+	case outcome.total > 0 && outcome.failed == outcome.total && firstErr != nil:
+		outcome.err = fmt.Errorf("all %d item bodies failed; first error: %w", outcome.total, firstErr)
 	case outcome.total > 0 && outcome.failed == outcome.total:
 		outcome.err = fmt.Errorf("all %d item bodies failed; first error: %s", outcome.total, first)
 	}
@@ -408,7 +414,7 @@ func (e *foreachExecutor) itemResult(ctx context.Context, plan *runtime.Plan, it
 		if runErr != nil {
 			message = runErr.Error()
 		}
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: message}
+		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: message, err: runErr}
 	}
 
 	outputs, err := e.collectOutputs(ctx, plan)

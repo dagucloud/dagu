@@ -73,6 +73,17 @@ func TestSummarizeLeavesUnstartedItemsOutOfTheFailedCount(t *testing.T) {
 	assert.EqualError(t, allFailed.err, "all 1 item bodies failed; first error: exit status 1")
 }
 
+// The step's error keeps the body's error, so a masked read in a body is
+// neither retried nor marked successful.
+func TestSummarizeKeepsTheBodyError(t *testing.T) {
+	t.Parallel()
+
+	read := &cmnvalue.MaskedReadError{Step: "login", Output: "TOKEN"}
+	results := []itemResult{{Index: 0, Status: ir.NodeFailed.String(), Error: read.Error(), err: read}}
+	outcome := summarize(results, nil)
+	assert.ErrorIs(t, outcome.err, read)
+}
+
 // A run without a log directory keeps body logs in a scratch directory that
 // must not outlive the item: nothing records its path, so nothing else
 // could ever remove it.
