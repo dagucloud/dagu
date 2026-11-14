@@ -74,6 +74,7 @@ function makeConfig(licenseOverrides: Partial<LicenseStatus> = {}): Config {
     updateAvailable: false,
     latestVersion: '',
     upgradeCommand: '',
+    installMethod: 'binary',
     restartRequired: false,
     restartCommand: '',
     restartStopsRuns: false,

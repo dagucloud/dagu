@@ -67,6 +67,8 @@ export type Config = {
   updateAvailable: boolean;
   latestVersion: string;
   upgradeCommand: string;
+  /** How Dagu was installed, such as binary, homebrew, or container. */
+  installMethod: string;
   restartRequired: boolean;
   restartCommand: string;
   restartStopsRuns: boolean;

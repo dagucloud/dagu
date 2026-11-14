@@ -86,6 +86,7 @@ const config: Config = {
   updateAvailable: false,
   latestVersion: '',
   upgradeCommand: '',
+  installMethod: 'binary',
   restartRequired: false,
   restartCommand: '',
   restartStopsRuns: false,

@@ -2157,7 +2157,7 @@ const baseEnglish = {
     'View license status and activate a Dagu license or trial key.',
   'View mode': 'View mode',
   'View raw': 'View raw',
-  'View release': 'View release',
+  'Upgrade guide': 'Upgrade guide',
   'View run →': 'View run →',
   'View scheduler log': 'View scheduler log',
   'View stderr': 'View stderr',
@@ -2473,8 +2473,8 @@ const baseEnglish = {
   Untracked: 'Untracked',
   'Context field is not defined': 'Context field is not defined',
   'Update “{name}”': 'Update “{name}”',
-  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
-    'Update available: v{current} → {latest} {releaseLink} · Run {command} to update',
+  'Update available: v{current} → {latest} {guideLink} · Run {command} to update':
+    'Update available: v{current} → {latest} {guideLink} · Run {command} to update',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.',
   'Value is unavailable in this context':
@@ -3130,8 +3130,10 @@ const baseEnglish = {
   'Config key': 'Config key',
   'API key': 'API key',
   'Wiki directory': 'Wiki directory',
-  'Update available: v{current} → {latest} {releaseLink}':
-    'Update available: v{current} → {latest} {releaseLink}',
+  'Update available: v{current} → {latest} {guideLink}':
+    'Update available: v{current} → {latest} {guideLink}',
+  'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
+    'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     'A new Dagu binary is installed. Run {command} to restart and use it.',
   'A new Dagu binary is installed. Restart Dagu to use it.':
@@ -5371,7 +5373,7 @@ const baseChinese = {
     '查看许可证状态并激活 Dagu 许可证或试用密钥。',
   'View mode': '查看模式',
   'View raw': '查看原始数据',
-  'View release': '查看发布',
+  'Upgrade guide': '升级指南',
   'View run →': '查看运行 →',
   'View scheduler log': '查看调度器日志',
   'View stderr': '查看 stderr',
@@ -5678,8 +5680,8 @@ const baseChinese = {
   Untracked: '未跟踪',
   'Context field is not defined': '上下文字段未定义',
   'Update “{name}”': '更新“{name}”',
-  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
-    '有可用更新：v{current} → {latest} {releaseLink} · 运行 {command} 进行更新',
+  'Update available: v{current} → {latest} {guideLink} · Run {command} to update':
+    '有可用更新：v{current} → {latest} {guideLink} · 运行 {command} 进行更新',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     '用户管理功能（创建、编辑、删除）需要{licenseLink}。所有管理员均可重置密码。',
   'Value is unavailable in this context': '该值在此上下文中不可用',
@@ -6314,8 +6316,10 @@ const baseChinese = {
   'Config key': '配置键',
   'API key': 'API 密钥',
   'Wiki directory': '百科目录',
-  'Update available: v{current} → {latest} {releaseLink}':
-    '有可用更新：v{current} → {latest} {releaseLink}',
+  'Update available: v{current} → {latest} {guideLink}':
+    '有可用更新：v{current} → {latest} {guideLink}',
+  'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
+    '有可用更新：v{current} → {latest} {guideLink} · 将容器镜像更新为 {latest}',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
@@ -8616,7 +8620,7 @@ const baseJapanese = {
     'ライセンスのステータスを表示し、Dagu ライセンスまたはトライアルキーを有効化します。',
   'View mode': '表示モード',
   'View raw': '生データを表示',
-  'View release': 'リリースを表示',
+  'Upgrade guide': 'アップグレードガイド',
   'View run →': '実行を表示 →',
   'View scheduler log': 'スケジューラログを表示',
   'View stderr': 'stderr を表示',
@@ -8933,8 +8937,8 @@ const baseJapanese = {
   Untracked: '未追跡',
   'Context field is not defined': 'コンテキストフィールドが定義されていません',
   'Update “{name}”': '「{name}」を更新',
-  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
-    '更新があります：v{current} → {latest} {releaseLink} · {command} を実行して更新',
+  'Update available: v{current} → {latest} {guideLink} · Run {command} to update':
+    '更新があります：v{current} → {latest} {guideLink} · {command} を実行して更新',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     'ユーザー管理機能（作成・編集・削除）には{licenseLink}が必要です。すべての管理者がパスワードをリセットできます。',
   'Value is unavailable in this context':
@@ -9597,8 +9601,10 @@ const baseJapanese = {
   'Config key': '設定キー',
   'API key': 'API キー',
   'Wiki directory': 'Wiki ディレクトリ',
-  'Update available: v{current} → {latest} {releaseLink}':
-    '更新があります：v{current} → {latest} {releaseLink}',
+  'Update available: v{current} → {latest} {guideLink}':
+    '更新があります：v{current} → {latest} {guideLink}',
+  'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
+    '更新があります：v{current} → {latest} {guideLink} · コンテナイメージを {latest} に更新',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
