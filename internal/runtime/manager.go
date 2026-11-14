@@ -483,9 +483,17 @@ func (m *Manager) LatestSubRunStatus(ctx context.Context, dag *ir.DAG) *ir.DAGRu
 	return status
 }
 
-// NewerRunStatus returns sub when it started after own, and own otherwise.
-func NewerRunStatus(own ir.DAGRunStatus, sub *ir.DAGRunStatus) ir.DAGRunStatus {
+// ShownRunStatus returns the run a listing shows for a DAG: own, its own
+// latest run, or sub, its latest sub DAG-run. A run that is still active wins
+// over one that has finished, and otherwise the later start wins.
+func ShownRunStatus(own ir.DAGRunStatus, sub *ir.DAGRunStatus) ir.DAGRunStatus {
 	if sub == nil {
+		return own
+	}
+	if own.Status.IsActive() != sub.Status.IsActive() {
+		if sub.Status.IsActive() {
+			return *sub
+		}
 		return own
 	}
 	ownStart, _ := stringutil.ParseTime(own.StartedAt)

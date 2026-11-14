@@ -192,7 +192,7 @@ func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) error {
 		st, err := ctx.DAGRunMgr.GetLatestStatus(ctx, row.dag)
 		if err == nil {
 			// The last run includes one another DAG started with dag.run.
-			st = runtime.NewerRunStatus(st, ctx.DAGRunMgr.LatestSubRunStatus(ctx, row.dag))
+			st = runtime.ShownRunStatus(st, ctx.DAGRunMgr.LatestSubRunStatus(ctx, row.dag))
 		}
 		if err == nil && st.Status != ir.NotStarted {
 			row.lastStatus = formatStatusText(st.Status)

@@ -5,6 +5,8 @@ package dagrun
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -138,5 +140,38 @@ func TestLatestSubAttemptSkipsEphemeralRuns(t *testing.T) {
 	f.runParent("parent", time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), "run", "child-run", true)
 
 	_, err := f.latestSub(time.Time{})
+	require.ErrorIs(t, err, dagrun.ErrNoStatusData)
+}
+
+// A DAG that runs itself under its own root run keeps no sub-run pointer: its
+// own run already shows that run.
+func TestLatestSubAttemptSkipsSelfRuns(t *testing.T) {
+	t.Parallel()
+
+	f := newSubRunFixture(t)
+	f.runParent(f.child.Name, time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), "run", "child-run", false)
+
+	_, err := f.latestSub(time.Time{})
+	require.ErrorIs(t, err, dagrun.ErrNoStatusData)
+}
+
+// Two DAG names can share a run directory, so a pointer written for one DAG
+// is not reported for the other.
+func TestLatestSubAttemptChecksDAGName(t *testing.T) {
+	t.Parallel()
+
+	f := newSubRunFixture(t)
+	f.runParent("parent", time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), "run", "child-run", false)
+	path := latestSubAttemptPointerPath(f.store.dataRoot(f.child.Name).dagRunsDir)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var ptr latestSubAttemptPointer
+	require.NoError(t, json.Unmarshal(data, &ptr))
+	ptr.DAGName = "other"
+	data, err = json.Marshal(ptr)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	_, err = f.latestSub(time.Time{})
 	require.ErrorIs(t, err, dagrun.ErrNoStatusData)
 }

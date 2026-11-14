@@ -26,6 +26,9 @@ import (
 const latestSubAttemptFileName = ".dagrun.latest-sub"
 
 type latestSubAttemptPointer struct {
+	// DAGName is the DAG the run belongs to. Directory names can be shared
+	// by DAG names, so a reader checks it.
+	DAGName string `json:"dagName"`
 	// StatusFile is relative to the store base directory, because the run
 	// lives in another DAG's tree.
 	StatusFile string `json:"statusFile"`
@@ -37,6 +40,7 @@ type latestSubAttemptPointer struct {
 //
 // The legacy layout uses "children/child_<id>" in place of "sub/<id>".
 type subAttemptStatusFileInfo struct {
+	dagName        string
 	baseDir        string
 	statusFile     string
 	attemptDirName string
@@ -48,7 +52,8 @@ type subAttemptStatusFileInfo struct {
 // than the one the pointer names. Like the latest attempt pointer, the update
 // is skipped while another process holds the DAG's lock.
 func updateLatestSubAttemptPointer(ctx context.Context, statusFile string, status ir.DAGRunStatus) error {
-	if status.Ephemeral || status.Name == "" {
+	// A DAG that runs itself under its own root run already shows that run.
+	if status.Ephemeral || status.Name == "" || status.Root.Name == status.Name {
 		return nil
 	}
 	candidate, ok := parseSubAttemptStatusFile(statusFile)
@@ -70,7 +75,8 @@ func updateLatestSubAttemptPointer(ctx context.Context, statusFile string, statu
 		return err
 	}
 	current, err := latestSubAttemptInfoFromPointer(candidate.baseDir, dagRunsDir)
-	if err == nil && !attemptDirOlder(current.attemptDirName, candidate.attemptDirName) {
+	if err == nil && current.dagName == status.Name &&
+		!attemptDirOlder(current.attemptDirName, candidate.attemptDirName) {
 		return nil
 	}
 
@@ -78,7 +84,7 @@ func updateLatestSubAttemptPointer(ctx context.Context, statusFile string, statu
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(latestSubAttemptPointer{StatusFile: relative})
+	data, err := json.Marshal(latestSubAttemptPointer{DAGName: status.Name, StatusFile: relative})
 	if err != nil {
 		return err
 	}
@@ -93,7 +99,7 @@ func (store *Store) LatestSubAttempt(ctx context.Context, query persis.DAGRunLat
 		return nil, err
 	}
 	info, err := latestSubAttemptInfoFromPointer(store.baseDir, store.dataRoot(query.Name).dagRunsDir)
-	if err != nil {
+	if err != nil || info.dagName != query.Name {
 		return nil, dagrun.ErrNoStatusData
 	}
 	if !query.NotBefore.IsZero() && info.attemptTime.Before(query.NotBefore.Time) {
@@ -128,6 +134,7 @@ func latestSubAttemptInfoFromPointer(baseDir, dagRunsDir string) (subAttemptStat
 	if _, err := os.Stat(info.statusFile); err != nil {
 		return subAttemptStatusFileInfo{}, err
 	}
+	info.dagName = ptr.DAGName
 	return info, nil
 }
 

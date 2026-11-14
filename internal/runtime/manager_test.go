@@ -1367,3 +1367,32 @@ func TestCheckServiceRun(t *testing.T) {
 		require.NoError(t, th.DAGRunMgr.CheckServiceRun(th.Context, dag.DAG, "run-1"))
 	})
 }
+
+// A listing shows a run that is still going over one that has finished, so a
+// later sub DAG-run never hides a DAG's own running run.
+func TestShownRunStatus(t *testing.T) {
+	t.Parallel()
+
+	run := func(id string, status ir.Status, startedAt string) ir.DAGRunStatus {
+		return ir.DAGRunStatus{DAGRunID: id, Status: status, StartedAt: startedAt}
+	}
+	early, late := "2026-11-14T10:00:00Z", "2026-11-14T10:05:00Z"
+	for _, tc := range []struct {
+		name string
+		own  ir.DAGRunStatus
+		sub  *ir.DAGRunStatus
+		want string
+	}{
+		{"NoSubRun", run("own", ir.Succeeded, early), nil, "own"},
+		{"LaterSubRun", run("own", ir.Succeeded, early), new(run("sub", ir.Failed, late)), "sub"},
+		{"EarlierSubRun", run("own", ir.Succeeded, late), new(run("sub", ir.Failed, early)), "own"},
+		{"OwnRunStillRunning", run("own", ir.Running, early), new(run("sub", ir.Succeeded, late)), "own"},
+		{"SubRunStillRunning", run("own", ir.Failed, late), new(run("sub", ir.Running, early)), "sub"},
+		{"OwnNeverRan", ir.DAGRunStatus{Status: ir.NotStarted}, new(run("sub", ir.Succeeded, early)), "sub"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, runtime.ShownRunStatus(tc.own, tc.sub).DAGRunID)
+		})
+	}
+}

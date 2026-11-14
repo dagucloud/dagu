@@ -2609,10 +2609,10 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 	for _, item := range result.Items {
 		dagStatus, statusErr := a.dagRunMgr.GetLatestStatus(ctx, item.DAG)
 		subStatus := a.dagRunMgr.LatestSubRunStatus(ctx, item.DAG)
-		// The list shows the newer of the DAG's own run and its sub DAG-run,
-		// so it sorts by that run. An empty or unparseable start time yields
-		// the zero time, which sorts as "never ran".
-		shown := runtime.NewerRunStatus(dagStatus, subStatus)
+		// The list sorts by the run it shows, the DAG's own run or its sub
+		// DAG-run. An empty or unparseable start time yields the zero time,
+		// which sorts as "never ran".
+		shown := runtime.ShownRunStatus(dagStatus, subStatus)
 		lastRun, _ := stringutil.ParseTime(shown.StartedAt)
 		keyed = append(keyed, keyedItem{
 			item:      item,
