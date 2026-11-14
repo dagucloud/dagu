@@ -1003,6 +1003,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		initErr = profileErr
 		return initErr
 	}
+	if err := unsupportedNodeTargeting(a.dag); err != nil {
+		initErr = err
+		return initErr
+	}
 
 	a.writeStatus(ctx, attempt, a.Status(ctx))
 
