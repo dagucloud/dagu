@@ -6,6 +6,7 @@ package harness
 import (
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -99,6 +100,10 @@ func TestSSHServerCloseRacingAccept(t *testing.T) {
 
 	accepted := make(chan struct{})
 	release := make(chan struct{})
+	releaseAccept := sync.OnceFunc(func() { close(release) })
+	// Released on every exit, so a failed assertion cannot leave the hook,
+	// and with it the server's cleanup, blocked.
+	defer releaseAccept()
 	server := StartSSHServer(t, SSHServerOptions{
 		User:     "tester",
 		Password: "secret",
@@ -122,7 +127,7 @@ func TestSSHServerCloseRacingAccept(t *testing.T) {
 		defer server.mu.Unlock()
 		return server.closed
 	}, 5*time.Second, 10*time.Millisecond)
-	close(release)
+	releaseAccept()
 
 	select {
 	case <-closed:
