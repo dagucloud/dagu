@@ -70,7 +70,8 @@ describe('StartBackfillDialog', () => {
   });
 
   // A missed span opens with its bounds as fire times, sent unchanged until
-  // one is edited.
+  // one is edited. An edited bound keeps the offset the span was recorded
+  // in, which may differ from the schedule's zone.
   it('starts a picked range on a target with both bounds', async () => {
     post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
     render(
@@ -93,6 +94,7 @@ describe('StartBackfillDialog', () => {
     expect(screen.getByLabelText('First fire time')).toHaveValue(
       '2026-11-01T09:00'
     );
+    expect(screen.getByText('Times are in UTC+09:00.')).toBeInTheDocument();
     await waitFor(() =>
       expect(lastBody()).toMatchObject({
         from: '2026-11-01T09:00:00+09:00',
@@ -106,7 +108,7 @@ describe('StartBackfillDialog', () => {
     await waitFor(() =>
       expect(lastBody()).toMatchObject({
         from: '2026-11-01T09:00:00+09:00',
-        to: '2026-11-01T12:00',
+        to: '2026-11-01T12:00:00+09:00',
       })
     );
   });

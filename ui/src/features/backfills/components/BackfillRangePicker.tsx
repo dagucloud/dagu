@@ -30,6 +30,12 @@ export function daysBack(days: number): BackfillTarget {
 /** The leading wall time of an RFC 3339 time, as a time input shows it. */
 const WALL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
+/** The offset an RFC 3339 time ends with, such as Z or +09:00. */
+const OFFSET = /(Z|[+-]\d{2}:\d{2})$/;
+
+/** A time input's value, which has no seconds. */
+const MINUTE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
 /**
  * A bound as a time input shows it. A bound with an offset shows its wall
  * time in that offset.
@@ -38,12 +44,19 @@ function inputValue(bound: string): string {
   return WALL_TIME.exec(bound)?.[0] ?? bound;
 }
 
+/** A typed time read in the given offset, or in the schedule's zone. */
+function inOffset(value: string, offset: string | undefined): string {
+  if (!value || !offset) return value;
+  return `${MINUTE_TIME.test(value) ? `${value}:00` : value}${offset}`;
+}
+
 /**
  * Picks the range of a backfill: the last 7 or 30 days, since the last
  * success, or fire times typed in. Times typed without an offset are read in
  * the schedule's zone. A given initial range starts as fire times, and each
- * of its bounds is kept as given until edited. The DAG's slots are read
- * once, to find the last success, when the panel opens.
+ * of its bounds is kept as given until edited; a bound typed then is read
+ * in the offset the initial range carries. The DAG's slots are read once,
+ * to find the last success, when the panel opens.
  */
 export function BackfillRangePicker({
   fileName,
@@ -60,6 +73,9 @@ export function BackfillRangePicker({
   const [choice, setChoice] = useState<Choice>(initial ? 'custom' : '7d');
   const [from, setFrom] = useState(initial?.from ?? '');
   const [to, setTo] = useState(initial?.to ?? '');
+  const [offset] = useState(() =>
+    initial ? OFFSET.exec(initial.from)?.[1] : undefined
+  );
   const lookback = useMemo(
     () => dayjs().subtract(SUCCESS_LOOKBACK_DAYS, 'day').toISOString(),
     []
@@ -178,7 +194,9 @@ export function BackfillRangePicker({
             aria-label={ts('First fire time')}
             className="w-52"
             value={inputValue(from)}
-            onChange={(event) => typed(event.target.value, to)}
+            onChange={(event) =>
+              typed(inOffset(event.target.value, offset), to)
+            }
           />
           <span aria-hidden="true" className="text-muted-foreground">
             –
@@ -188,8 +206,17 @@ export function BackfillRangePicker({
             aria-label={ts('Last fire time')}
             className="w-52"
             value={inputValue(to)}
-            onChange={(event) => typed(from, event.target.value)}
+            onChange={(event) =>
+              typed(from, inOffset(event.target.value, offset))
+            }
           />
+          {offset && (
+            <span className="text-xs text-muted-foreground">
+              {ts('Times are in {zone}.', {
+                zone: offset === 'Z' ? 'UTC' : `UTC${offset}`,
+              })}
+            </span>
+          )}
         </div>
       )}
     </fieldset>

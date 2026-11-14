@@ -40,6 +40,7 @@ export const backfillMessages = defineMessages({
       'No slot succeeded in the last {days} days.',
     'First fire time': 'First fire time',
     'Last fire time': 'Last fire time',
+    'Times are in {zone}.': 'Times are in {zone}.',
     Options: 'Options',
     '{count} at a time, stop after a failed slot':
       '{count} at a time, stop after a failed slot',
@@ -189,6 +190,7 @@ export const backfillMessages = defineMessages({
       '最近 {days} 天内没有成功的时段。',
     'First fire time': '起始触发时间',
     'Last fire time': '结束触发时间',
+    'Times are in {zone}.': '时间按 {zone} 计。',
     Options: '选项',
     '{count} at a time, stop after a failed slot':
       '每次 {count} 个，时段失败后停止',
@@ -336,6 +338,7 @@ export const backfillMessages = defineMessages({
       '過去 {days} 日間に成功したスロットはありません。',
     'First fire time': '最初の実行時刻',
     'Last fire time': '最後の実行時刻',
+    'Times are in {zone}.': '時刻は {zone} です。',
     Options: 'オプション',
     '{count} at a time, stop after a failed slot':
       '同時に {count} 件、スロットが失敗したら停止',
