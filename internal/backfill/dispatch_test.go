@@ -679,6 +679,37 @@ func TestRetryOfARemovedBackfill(t *testing.T) {
 	require.NoError(t, backfill.FollowRetry(f.ctx, store, status, f.clock))
 }
 
+// failingEnd fails the first end of a backfill, as a store whose write
+// failed.
+type failingEnd struct {
+	backfill.Store
+	failed *bool
+}
+
+func (s failingEnd) End(ctx context.Context, id string, status backfill.Status, at time.Time) error {
+	if !*s.failed {
+		*s.failed = true
+		return errors.New("disk full")
+	}
+	return s.Store.End(ctx, id, status, at)
+}
+
+// A cancel whose end failed after it cancelled the slots it had not reached
+// still ends the backfill cancelled on the next tick.
+func TestDispatchFinishesACancelWhoseEndFailed(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	var failed bool
+	f.dispatcher.Store = failingEnd{Store: f.store, failed: &failed}
+	f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+
+	require.Error(t, f.dispatcher.Tick(f.ctx))
+	require.True(t, f.record(record.ID).Open(), "the failed end left the backfill open")
+	f.tick()
+	assert.Equal(t, backfill.StatusCancelled, f.record(record.ID).Status)
+}
+
 // lockHook runs before each time a backfill's lock is taken.
 type lockHook struct {
 	backfill.Store

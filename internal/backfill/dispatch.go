@@ -154,6 +154,9 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	)
 	active, failed := 0, false
 	done, failedSlots := 0, 0
+	// A slot cancelled in this generation means a cancel began: one whose
+	// end failed after it cancelled the slots it had not reached.
+	cancelled := false
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
 		outcome, status, err := d.outcome(ctx, record, event, observed)
@@ -172,6 +175,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		case slotSucceeded, slotSettled:
 			done++
 		}
+		cancelled = cancelled || event.Kind == ProgressCancelled
 		if event.Kind == ProgressEnqueued && (outcome == slotSucceeded || outcome == slotFailed) {
 			kind := ProgressSucceeded
 			if outcome == slotFailed {
@@ -238,8 +242,11 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	}
 	if len(pending) == 0 && active == 0 {
 		status := StatusSucceeded
-		if failed {
+		switch {
+		case failed:
 			status = StatusFailed
+		case cancelled:
+			status = StatusCancelled
 		}
 		return d.finish(ctx, record, seen, status, nil)
 	}
