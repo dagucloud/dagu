@@ -130,14 +130,14 @@ checks the reads of its own steps, not the starting step's.
 
 A program the step runs that reads an output variable from its environment, and
 an executor that takes a variable by name, such as through `pass_env`, receive
-`*******`; only the reads above are checked. A handler step and the prompt of a
-human task report on the run rather than do its work, so they read an output
-stored masked as it is, as `*******`. When masking changed the name of a
-published output, or masked the published outputs as text, every published
-output of that step counts as masked. Outputs that masking did not change are
-reused unchanged, and a value supplied for an output of a carried step replaces
-the recorded one, including the captured output when it names the step's
-`output:` variable.
+`*******`; only the reads above are checked. A handler step and a human task
+report on the run rather than do its work, so they read an output stored masked
+as it is, as `*******`; only a human task's preconditions are checked. When
+masking changed the name of a published output, or masked the published outputs
+as text, every published output of that step counts as masked. Outputs that
+masking did not change are reused unchanged, and a value supplied for an output
+of a carried step replaces the recorded one, including the captured output when
+it names the step's `output:` variable.
 
 A step whose preconditions are not met is skipped as before, unless a
 precondition reads a recorded output: a precondition decides on what it reads,
