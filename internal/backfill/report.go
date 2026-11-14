@@ -46,6 +46,10 @@ type Report struct {
 	Record *Record
 	Slots  []SlotReport
 	Counts map[SlotState]int
+	// Estimate is about how long the slots left take, from the pace of the
+	// runs that ended since the slots were last planned. It is zero until
+	// one has, and once nothing is left.
+	Estimate time.Duration
 	// queue is the queue of the backfill's oldest queued run.
 	queue string
 }
@@ -88,7 +92,32 @@ func Describe(ctx context.Context, store Store, readRun func(context.Context, ir
 		report.Slots = append(report.Slots, item)
 		report.Counts[item.State]++
 	}
+	report.Estimate = estimateLeft(record, progress, report.Counts)
 	return report, nil
+}
+
+// estimateLeft is the time the slots left take at the pace of the runs that
+// ended in the backfill's current generation.
+func estimateLeft(record *Record, progress []Progress, counts map[SlotState]int) time.Duration {
+	left := counts[SlotStatePending] + counts[SlotStateQueued] + counts[SlotStateRunning] + counts[SlotStateWaiting]
+	if !record.Open() || left == 0 {
+		return 0
+	}
+	ended := 0
+	var last time.Time
+	for _, event := range progress {
+		if event.Generation == record.Generation && event.ended() {
+			ended++
+			if event.At.After(last) {
+				last = event.At
+			}
+		}
+	}
+	elapsed := last.Sub(record.PlannedAt)
+	if ended == 0 || elapsed <= 0 {
+		return 0
+	}
+	return elapsed / time.Duration(ended) * time.Duration(left)
 }
 
 // runState returns the state of the run that event queued and the queue it

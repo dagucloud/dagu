@@ -189,7 +189,8 @@ func (a *API) backfillDetails(ctx context.Context, id string) (api.Backfill, err
 		if err != nil {
 			return api.Backfill{}, err
 		}
-		item.Waiting = stringOrNil(wait)
+		item.Waiting = stringOrNil(wait.Reason)
+		item.WaitingRunId = stringOrNil(wait.RunID)
 	}
 	return item, nil
 }
@@ -545,7 +546,16 @@ func toAPIBackfill(report backfill.Report, schedulerRunning bool) api.Backfill {
 		OnFailure:      api.BackfillOnFailure(record.Options.OnFailure),
 		SlotCount:      len(record.Slots),
 		Counts:         counts,
+		SecondsLeft:    secondsOrNil(report.Estimate),
 	}
+}
+
+// secondsOrNil is d in whole seconds, or nil when it is zero.
+func secondsOrNil(d time.Duration) *int {
+	if d <= 0 {
+		return nil
+	}
+	return new(int(d.Round(time.Second) / time.Second))
 }
 
 func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []string) api.BackfillPlan {

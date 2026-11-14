@@ -51,13 +51,13 @@ func TestWaitReason(t *testing.T) {
 		t.Helper()
 		report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
 		require.NoError(t, err)
-		reason, err := backfill.WaitReason(f.ctx, report, backfill.QueueView{
+		wait, err := backfill.WaitReason(f.ctx, report, backfill.QueueView{
 			Items: q,
 			Procs: q,
 			Limit: func(string) int { return 1 },
 		}, time.UTC)
 		require.NoError(t, err)
-		return reason
+		return wait.Reason
 	}
 
 	assert.Equal(t, "Waiting: queue at limit, 2 runs ahead",
@@ -69,6 +69,12 @@ func TestWaitReason(t *testing.T) {
 
 	f.finish(runID, ir.Waiting)
 	assert.Equal(t, "Blocked: the run of slot 2026-10-01 02:00 is waiting for a person", reason(fixedQueue{}))
+	// A blocked backfill names the run that waits, so the page links to it.
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	wait, err := backfill.WaitReason(f.ctx, report, backfill.QueueView{Items: fixedQueue{}, Procs: fixedQueue{}, Limit: func(string) int { return 1 }}, time.UTC)
+	require.NoError(t, err)
+	assert.Equal(t, runID, wait.RunID)
 
 	f.finish(runID, ir.Succeeded)
 	assert.Empty(t, reason(fixedQueue{}), "nothing waits")

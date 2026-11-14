@@ -164,7 +164,7 @@ export default function BackfillPage() {
 
       <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
         <section className="card-obsidian space-y-3 px-4 py-3">
-          <BackfillSentence backfill={backfill} />
+          <BackfillSentence backfill={backfill} remoteNode={remoteNode} />
           <BackfillProgress
             backfill={backfill}
             selected={state}
@@ -254,6 +254,7 @@ export default function BackfillPage() {
             ) : (
               <BackfillSlotGrid
                 dagName={backfill.dag}
+                remoteNode={remoteNode}
                 slots={slots.data?.slots ?? []}
               />
             )}

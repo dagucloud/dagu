@@ -408,19 +408,20 @@ func readBackfillStatus(ctx *Context, id string) (backfillStatus, error) {
 	if err != nil {
 		return backfillStatus{}, err
 	}
-	return backfillStatus{report: report, label: backfillStatusLabel(ctx, record), wait: wait}, nil
+	return backfillStatus{report: report, label: backfillStatusLabel(ctx, record), wait: wait.Reason}, nil
 }
 
 func writeBackfillStatus(ctx *Context, out io.Writer, format string, status backfillStatus) error {
 	record, report := status.report.Record, status.report
 	if format == backfillFormatJSON {
 		return json.NewEncoder(out).Encode(map[string]any{
-			"id":      record.ID,
-			"dag":     record.DAGName,
-			"status":  status.label,
-			"waiting": status.wait,
-			"counts":  report.Counts,
-			"slots":   report.Slots,
+			"id":          record.ID,
+			"dag":         record.DAGName,
+			"status":      status.label,
+			"waiting":     status.wait,
+			"counts":      report.Counts,
+			"slots":       report.Slots,
+			"secondsLeft": int(report.Estimate.Round(time.Second) / time.Second),
 		})
 	}
 	var b strings.Builder
@@ -428,7 +429,13 @@ func writeBackfillStatus(ctx *Context, out io.Writer, format string, status back
 	if status.wait != "" {
 		fmt.Fprintln(&b, status.wait)
 	}
-	fmt.Fprintf(&b, "%d slots: %s\n\n", len(report.Slots), backfillSlotCounts(report))
+	fmt.Fprintf(&b, "%d slots: %s\n", len(report.Slots), backfillSlotCounts(report))
+	if report.Estimate > 0 {
+		// The estimate is rough, so it is told to the minute, at least one.
+		left := max(report.Estimate.Round(time.Minute), time.Minute)
+		fmt.Fprintf(&b, "About %s left, at the pace of its runs so far\n", formatDurationHuman(left))
+	}
+	b.WriteString("\n")
 	if _, err := io.WriteString(out, b.String()); err != nil {
 		return err
 	}
