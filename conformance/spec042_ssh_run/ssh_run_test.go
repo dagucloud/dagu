@@ -64,5 +64,6 @@ func TestSSHRunThroughBastion(t *testing.T) {
 
 	dagu.ExpectFileContains("remote.out", "spec042-through-bastion")
 	require.Len(t, target.Commands(), 1)
+	require.Positive(t, bastion.AuthAttempts(), "the client must log in to the bastion")
 	require.Empty(t, bastion.Commands(), "the bastion only forwards the connection")
 }

@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -37,6 +36,7 @@ type SSHServer struct {
 	wg       sync.WaitGroup
 
 	mu           sync.Mutex
+	conns        map[net.Conn]struct{}
 	authAttempts int
 	commands     []string
 }
@@ -78,6 +78,7 @@ func StartSSHServer(t *testing.T, opts SSHServerOptions) *SSHServer {
 		HostKey:  hostSigner.PublicKey(),
 		listener: listener,
 		shell:    shell,
+		conns:    make(map[net.Conn]struct{}),
 	}
 	s.config = &ssh.ServerConfig{
 		PasswordCallback: func(meta ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
@@ -107,11 +108,20 @@ func StartSSHServer(t *testing.T, opts SSHServerOptions) *SSHServer {
 	s.config.AddHostKey(hostSigner)
 
 	s.wg.Go(s.serve)
-	t.Cleanup(func() {
-		_ = listener.Close()
-		s.wg.Wait()
-	})
+	t.Cleanup(s.close)
 	return s
+}
+
+// close stops the server. Open connections are closed too, so a client that
+// never finishes its handshake cannot hold the test's cleanup.
+func (s *SSHServer) close() {
+	_ = s.listener.Close()
+	s.mu.Lock()
+	for conn := range s.conns {
+		_ = conn.Close()
+	}
+	s.mu.Unlock()
+	s.wg.Wait()
 }
 
 // HostKeyLine returns the host key in authorized_keys form, as a node's
@@ -169,12 +179,20 @@ func (s *SSHServer) serve() {
 		if err != nil {
 			return
 		}
+		s.mu.Lock()
+		s.conns[conn] = struct{}{}
+		s.mu.Unlock()
 		s.wg.Go(func() { s.handle(conn) })
 	}
 }
 
 func (s *SSHServer) handle(conn net.Conn) {
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		_ = conn.Close()
+		s.mu.Lock()
+		delete(s.conns, conn)
+		s.mu.Unlock()
+	}()
 	server, channels, requests, err := ssh.NewServerConn(conn, s.config)
 	if err != nil {
 		return
@@ -239,15 +257,25 @@ func (s *SSHServer) run(channel ssh.Channel, command string) {
 		args = append(args, "-c", command)
 	}
 	cmd := exec.Command(s.shell, args...) //nolint:gosec // The test chooses the command.
-	cmd.Stdin = channel
 	cmd.Stdout = channel
 	cmd.Stderr = channel.Stderr()
-	// A client that never closes stdin must not hold the session open after
-	// the command exits.
-	cmd.WaitDelay = time.Second
+	// Stdin is copied apart from the command, so a client that never closes
+	// stdin still gets the exit status once the command exits. Closing the
+	// channel afterwards ends the copy.
+	stdin, err := cmd.StdinPipe()
+	if err == nil {
+		err = cmd.Start()
+	}
+	if err == nil {
+		go func() {
+			_, _ = io.Copy(stdin, channel)
+			_ = stdin.Close()
+		}()
+		err = cmd.Wait()
+	}
 
 	status := uint32(0)
-	if err := cmd.Run(); err != nil {
+	if err != nil {
 		status = 255
 		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			status = uint32(exitErr.ExitCode()) //nolint:gosec // Exit codes fit.
