@@ -115,6 +115,7 @@ const STARTER: Record<string, Record<string, unknown>> = {
   'kubernetes.run': { image: 'alpine' },
   'log.write': { message: 'TODO' },
   'mail.send': { message: 'TODO' },
+  'mcp.call': { url: 'https://example.com/mcp', tool: 'TODO' },
   'mail.organize': { mailbox: 'INBOX', emails: ['1'], mark: 'read' },
   'mail.search': { mailbox: 'INBOX' },
   'outputs.write': { values: { result: 'TODO' } },
