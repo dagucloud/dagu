@@ -43,11 +43,12 @@ Each operation sets exactly one of:
   with `instruction` and optional `ai` or `cache`.
 - `upload`: `{files, into, ai, cache}` gives local files to a file input (see
   Uploads).
-- `extract`: `{instruction, schema}`. The schema must be a JSON Schema with
-  `type: object`. A string field with `format: uri` or `format: uri-reference`
-  gets the address of the element the model picks, such as a link's target;
-  any other string field gets what the model writes, which for a link is its
-  element id, such as `0-11`.
+- `extract`: `{instruction, schema, pages}`. The schema must be a JSON Schema
+  with `type: object`. A string field with `format: uri` or
+  `format: uri-reference` gets the address of the element the model picks,
+  such as a link's target; any other string field gets what the model
+  writes, which for a link is its element id, such as `0-11`. `pages` reads
+  a list across the pages a button turns (see Lists across pages).
 - `expect`: a condition that must hold; otherwise the step fails with the
   reason.
 - `wait`: `{selector}` waits until the element is visible; `{duration}` pauses.
@@ -592,6 +593,25 @@ request and records again.
 
 `dagu browser session export` writes the recordings of the acts and uploads a
 browser session ran for a step that has not run yet (Spec 079).
+
+### Lists across pages
+
+An `extract` with `pages: {next, max, within}` reads a list whose pages a
+button turns. It extracts the page, performs `next`, an act such as "Click
+the Next page button", waits for the page to change, and extracts again,
+collecting the items of the schema's top-level array properties from every
+page in order; its other properties keep the first page's values. A schema
+without a top-level array property fails validation with `pages`. The list
+ends when `next` finds nothing to click, when the page does not change
+within `within` (default `10s`), or when a page gives the items the page
+before gave, and at `max` pages (default 20, at most 100), which the step
+warns about.
+
+`next` is recorded and replayed as an act is, once per run: the click the
+model makes on the first page turns the later ones. Once a page has
+turned, a replay whose element is gone ends the list without a model
+request; on the first page it asks the model, which replaces the recording
+only when it finds the element.
 
 ### Profiles
 

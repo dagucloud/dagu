@@ -8395,7 +8395,32 @@
           "required": ["instruction", "schema"],
           "properties": {
             "instruction": { "type": "string", "minLength": 1 },
-            "schema": { "$ref": "#/definitions/extractSchema" }
+            "schema": { "$ref": "#/definitions/extractSchema" },
+            "pages": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["next"],
+              "properties": {
+                "next": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The act that turns to the next page, such as 'Click the Next page button'. It is recorded and replayed like an act."
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 100,
+                  "default": 20,
+                  "description": "The most pages read, the first included."
+                },
+                "within": {
+                  "type": "string",
+                  "default": "10s",
+                  "description": "How long a page gets to change after next before the list counts as ended."
+                }
+              },
+              "description": "Read a list across the pages a button turns: the items of the schema's top-level array properties are collected from every page, in order. The list ends when next finds nothing to click, the page does not change, or a page gives the items the page before gave."
+            }
           },
           "description": "Extract structured data from the page into step outputs."
         },

@@ -53,6 +53,29 @@ const signinPage = `<!doctype html><html><head><title>Sign in</title>
 <p id="status">Signing in</p>
 </body></html>`
 
+// listPage shows five rows two to a page, turning its pages in place with a
+// Next page button that is gone on the last page.
+const listPage = `<!doctype html><html><head><title>Rows</title></head><body>
+<ul id="rows"></ul>
+<div id="pager"></div>
+<script>
+const rows = ["L-1", "L-2", "L-3", "L-4", "L-5"];
+let page = 0;
+function show() {
+  document.getElementById("rows").innerHTML = rows.slice(page * 2, page * 2 + 2).map(row => "<li>Row " + row + "</li>").join("");
+  const pager = document.getElementById("pager");
+  pager.innerHTML = "";
+  if ((page + 1) * 2 < rows.length) {
+    const next = document.createElement("button");
+    next.textContent = "Next page";
+    next.onclick = () => { page++; show(); };
+    pager.appendChild(next);
+  }
+}
+show();
+</script>
+</body></html>`
+
 // orderPage shows its order number in full-width characters, as Japanese
 // sites often do, with the ideographic space around it.
 const orderPage = `<!doctype html><html><head><meta charset="utf-8"><title>Order</title></head><body>
@@ -171,6 +194,7 @@ var (
 	buttonPattern    = regexp.MustCompile(`\[(\d+-\d+)\] (?:button|link|checkbox): ([^\n]+)`)
 	quotedPattern    = regexp.MustCompile(`'([^']+)'`)
 	orderPattern     = regexp.MustCompile(`Order confirmed: (\S+)`)
+	rowPattern       = regexp.MustCompile(`Row (L-\d+)`)
 	headingPattern   = regexp.MustCompile(`heading: ([^\n]+)`)
 	pageMarkerPrefix = regexp.MustCompile(`(?s)^(.*?)(Accessibility Tree:|DOM:)(.*)$`)
 )
@@ -265,6 +289,14 @@ func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
 			holds = strings.Contains(page, quoted[1])
 		}
 		answer = `{"answer":` + map[bool]string{true: "true", false: "false"}[holds] + `,"reason":"judged from the page text"}`
+	case strings.Contains(schema, `"rows"`):
+		kind = kindExtract
+		rows := []string{}
+		for _, match := range rowPattern.FindAllStringSubmatch(page, -1) {
+			rows = append(rows, match[1])
+		}
+		data, _ := json.Marshal(map[string][]string{"rows": rows})
+		answer = string(data)
 	case strings.Contains(schema, "order_number"):
 		kind = kindExtract
 		value := ""
@@ -296,6 +328,11 @@ func startShop(t *testing.T) string {
 		if r.URL.Path == "/rows" {
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, rowsPage)
+			return
+		}
+		if r.URL.Path == "/list" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, listPage)
 			return
 		}
 		if r.URL.Path == "/order" {
@@ -786,6 +823,23 @@ func TestBrowserShare(t *testing.T) {
 
 	b := newBrowserEnv(t)
 	b.dagu.RunWithEnv(b.env, "start", "share.yaml").ExpectExitCode(0)
+}
+
+// An extract with pages reads every page of a list that turns its pages in
+// place, and ends where the next button is gone. The model is asked to
+// turn a page only on the first run.
+func TestBrowserExtractPages(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	env := append(b.env, "DAGU_HOME="+t.TempDir())
+	b.dagu.RunWithEnv(env, "start", "pages.yaml").ExpectExitCode(0)
+	b.dagu.ExpectTextFileContent("rows.out", `["L-1","L-2","L-3","L-4","L-5"]`+"\n")
+	require.Equal(t, 1, b.model.count(kindAct))
+
+	b.dagu.RunWithEnv(env, "start", "pages.yaml").ExpectExitCode(0)
+	b.dagu.ExpectTextFileContent("rows.out", `["L-1","L-2","L-3","L-4","L-5"]`+"\n")
+	require.Equal(t, 1, b.model.count(kindAct), "the second run replays the click")
 }
 
 func TestBrowserExtract(t *testing.T) {
