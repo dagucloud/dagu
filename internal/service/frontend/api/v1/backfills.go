@@ -607,6 +607,9 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 	if plan.OtherCadence > 0 {
 		out.OtherCadence = &plan.OtherCadence
 	}
+	if plan.DefinitionChanged {
+		out.DefinitionChanged = ptrOf(true)
+	}
 	if len(warnings) > 0 {
 		out.Warnings = &warnings
 	}

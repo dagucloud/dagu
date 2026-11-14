@@ -5125,6 +5125,8 @@ export interface components {
             };
             /** @description Slots that run because their nearest run fired under a schedule of another cadence */
             otherCadence?: number;
+            /** @description For a resume, the DAG's definition changed since the backfill started: new runs run the current one */
+            definitionChanged?: boolean;
             /** @description Runs of the backfill at once: the lower of its max concurrency and the queue's limit */
             concurrency: number;
             /** @description Runs of the DAG's queue at once */

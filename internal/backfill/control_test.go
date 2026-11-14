@@ -5,6 +5,7 @@ package backfill_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -130,8 +131,11 @@ func TestResumeOfAnEditedDAG(t *testing.T) {
 	resumed, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: edited, Schedule: f.sched}, f.control(&stopped))
 	require.NoError(t, err)
 	assert.True(t, resumed.Plan.DefinitionChanged)
+	planJSON, err := json.Marshal(resumed.Plan)
+	require.NoError(t, err)
+	assert.Contains(t, string(planJSON), `"definitionChanged":true`)
 	assert.Contains(t, resumed.Plan.Warnings(backfill.WarningInput{SchedulerRunning: true}),
-		"The DAG's definition changed since the backfill started: the slots resumed run the current one.")
+		"The DAG's definition changed since the backfill started: new runs run the current one, and active runs keep theirs.")
 
 	f.tick()
 	f.finish(f.queued[2], ir.Succeeded)

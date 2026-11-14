@@ -184,7 +184,7 @@ func (p Plan) Warnings(in WarningInput) []string {
 		warnings = append(warnings, fmt.Sprintf("handler_on steps run once per slot: %s.", strings.Join(handlers, ", ")))
 	}
 	if p.DefinitionChanged {
-		warnings = append(warnings, "The DAG's definition changed since the backfill started: the slots resumed run the current one.")
+		warnings = append(warnings, "The DAG's definition changed since the backfill started: new runs run the current one, and active runs keep theirs.")
 	}
 	if p.OtherCadence > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d slots run because the schedule's cadence changed since their runs.", p.OtherCadence))

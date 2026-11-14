@@ -307,7 +307,8 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   `--on-failure` replace the backfill's.
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
   run prints the plan the resume then runs. The backfill keeps its ID. The
-  plan warns when the DAG's definition changed since the backfill started.
+  plan warns when the DAG's definition changed since the backfill started:
+  new runs run the current one, and active runs keep theirs.
 
 ### API
 

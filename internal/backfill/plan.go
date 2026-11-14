@@ -369,21 +369,24 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 		Rerun        Rerun         `json:"rerun"`
 		RunCounts    map[Rerun]int `json:"runCounts"`
 		OtherCadence int           `json:"otherCadence,omitempty"`
-		Revision     string        `json:"revision"`
-		Slots        []slotJSON    `json:"slots"`
+		// DefinitionChanged is set for a resume of an edited DAG.
+		DefinitionChanged bool       `json:"definitionChanged,omitempty"`
+		Revision          string     `json:"revision"`
+		Slots             []slotJSON `json:"slots"`
 	}{
-		DAG:          p.DAGName,
-		From:         formatOptional(p.From),
-		To:           formatOptional(p.To),
-		Clamped:      p.Clamped,
-		By:           p.By,
-		FromDate:     dateOrEmpty(p.FromDate),
-		ToDate:       dateOrEmpty(p.ToDate),
-		Rerun:        p.Rerun,
-		RunCounts:    p.RunCounts,
-		OtherCadence: p.OtherCadence,
-		Revision:     p.Revision,
-		Slots:        slots,
+		DAG:               p.DAGName,
+		From:              formatOptional(p.From),
+		To:                formatOptional(p.To),
+		Clamped:           p.Clamped,
+		By:                p.By,
+		FromDate:          dateOrEmpty(p.FromDate),
+		ToDate:            dateOrEmpty(p.ToDate),
+		Rerun:             p.Rerun,
+		RunCounts:         p.RunCounts,
+		OtherCadence:      p.OtherCadence,
+		DefinitionChanged: p.DefinitionChanged,
+		Revision:          p.Revision,
+		Slots:             slots,
 	})
 }
 
