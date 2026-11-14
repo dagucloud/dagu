@@ -71,3 +71,42 @@ func TestSSHServerCloseDoesNotWaitForIdleConnections(t *testing.T) {
 
 	within(t, 10*time.Second, "closing the server", server.close)
 }
+
+// A connection accepted just before the server closes, but registered after
+// close has closed the open connections, is closed too.
+func TestSSHServerCloseRacingAccept(t *testing.T) {
+	t.Parallel()
+
+	accepted := make(chan struct{})
+	release := make(chan struct{})
+	server := StartSSHServer(t, SSHServerOptions{
+		User:     "tester",
+		Password: "secret",
+		afterAccept: func() {
+			close(accepted)
+			<-release
+		},
+	})
+	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", server.Port))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	<-accepted
+
+	closed := make(chan struct{})
+	go func() {
+		server.close()
+		close(closed)
+	}()
+	require.Eventually(t, func() bool {
+		server.mu.Lock()
+		defer server.mu.Unlock()
+		return server.closed
+	}, 5*time.Second, 10*time.Millisecond)
+	close(release)
+
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("closing the server waited for a connection accepted while it closed")
+	}
+}

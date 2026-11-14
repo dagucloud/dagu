@@ -35,7 +35,10 @@ type SSHServer struct {
 	shell    string
 	wg       sync.WaitGroup
 
+	afterAccept func()
+
 	mu           sync.Mutex
+	closed       bool
 	conns        map[net.Conn]struct{}
 	authAttempts int
 	commands     []string
@@ -48,6 +51,10 @@ type SSHServerOptions struct {
 	Password string
 	// AuthorizedKeys are the public keys accepted for User.
 	AuthorizedKeys []ssh.PublicKey
+
+	// afterAccept, when set, runs between accepting a connection and
+	// registering it, so a test can stop the server in that window.
+	afterAccept func()
 }
 
 // StartSSHServer starts a server on a loopback port and stops it when the
@@ -79,6 +86,8 @@ func StartSSHServer(t *testing.T, opts SSHServerOptions) *SSHServer {
 		listener: listener,
 		shell:    shell,
 		conns:    make(map[net.Conn]struct{}),
+
+		afterAccept: opts.afterAccept,
 	}
 	s.config = &ssh.ServerConfig{
 		PasswordCallback: func(meta ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
@@ -117,6 +126,7 @@ func StartSSHServer(t *testing.T, opts SSHServerOptions) *SSHServer {
 func (s *SSHServer) close() {
 	_ = s.listener.Close()
 	s.mu.Lock()
+	s.closed = true
 	for conn := range s.conns {
 		_ = conn.Close()
 	}
@@ -179,7 +189,17 @@ func (s *SSHServer) serve() {
 		if err != nil {
 			return
 		}
+		if s.afterAccept != nil {
+			s.afterAccept()
+		}
+		// A connection accepted while the server was closing is closed here,
+		// since close has already closed the ones it knew about.
 		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			_ = conn.Close()
+			continue
+		}
 		s.conns[conn] = struct{}{}
 		s.mu.Unlock()
 		s.wg.Go(func() { s.handle(conn) })
