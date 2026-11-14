@@ -8,8 +8,10 @@ import {
   type LucideIcon,
   XCircle,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { BackfillStatus } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
+import { formatRoughDurationMs } from '@/lib/formatDuration';
 import {
   type Backfill,
   summarizeBackfill,
@@ -24,8 +26,9 @@ const TONE: Record<SummaryTone, { icon: LucideIcon; color: string }> = {
 };
 
 /**
- * Where a backfill stands in one sentence, and why an open one makes no
- * progress when something holds it.
+ * Where a backfill stands in one sentence, with about how long a running
+ * one has left, and why an open one makes no progress when something holds
+ * it, linked to the run that blocks it.
  */
 export function BackfillSentence({ backfill }: { backfill: Backfill }) {
   const { ts } = useI18n();
@@ -45,8 +48,29 @@ export function BackfillSentence({ backfill }: { backfill: Backfill }) {
           aria-hidden="true"
         />
         {ts(summary.message, summary.values)}
+        {backfill.status === BackfillStatus.running &&
+          !!backfill.secondsLeft && (
+            <span className="font-normal text-muted-foreground">
+              {ts('about {left} left', {
+                left: formatRoughDurationMs(backfill.secondsLeft * 1000),
+              })}
+            </span>
+          )}
       </p>
-      {why && <p className="pl-6 text-xs text-muted-foreground">{why}</p>}
+      {why && (
+        <p className="pl-6 text-xs text-muted-foreground">
+          {backfill.waitingRunId ? (
+            <Link
+              to={`/dag-runs/${encodeURIComponent(backfill.dag)}/${encodeURIComponent(backfill.waitingRunId)}`}
+              className="underline-offset-2 hover:underline"
+            >
+              {why}
+            </Link>
+          ) : (
+            why
+          )}
+        </p>
+      )}
     </div>
   );
 }

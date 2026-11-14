@@ -259,6 +259,10 @@ dagu backfill status <backfill id> [--watch] [--format text|json]
   person`. Otherwise, the backfill's oldest queued run gives `Waiting: queue
   at limit, <n> runs ahead` when the queue runs its limit, `Waiting: <n> runs
   ahead in the queue`, or `Waiting: next in the queue`.
+- `status` gives about how long an open backfill's slots left take, from the
+  pace of the runs that ended since its slots were last planned:
+  `About 1h 40m left, at the pace of its runs so far`. The API gives it as
+  `secondsLeft`, and the run that blocks a backfill as `waitingRunId`.
 - `status --watch` prints a line each time the backfill's progress changes,
   then the status when the backfill ends. It exits 0 only when the backfill
   succeeded. With `--format json`, the progress lines go to stderr and stdout

@@ -5168,6 +5168,10 @@ export interface components {
             };
             /** @description Why an open backfill makes no progress: a run waits for a person, or its next run waits in the queue. Set only when one backfill is read. */
             waiting?: string;
+            /** @description The run that waits for a person, when one blocks the backfill. Set only when one backfill is read. */
+            waitingRunId?: string;
+            /** @description About how long an open backfill's slots left take, from the pace of the runs that ended since its slots were last planned. Absent until one has. */
+            secondsLeft?: number;
         };
         /** @description The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since */
         LatestBackfill: components["schemas"]["Backfill"];
