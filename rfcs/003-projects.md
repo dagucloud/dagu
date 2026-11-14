@@ -249,8 +249,8 @@ first discovered. The ID never changes; the name can.
   library. A path target must lie inside the caller's project DAG directory
   or the library. A target in another project is a load error.
 - A CLI command addresses the project named by `--project`, else by
-  `DAGU_PROJECT`, else the project whose DAG directory holds the current
-  directory once [checkouts](#checkouts) ship, else `default`.
+  `DAGU_PROJECT`, else `default`. Once [checkouts](#checkouts) ship, a
+  checkout found from the current directory comes before `default`.
 - API paths and MCP tools that address DAGs, runs, secrets, profiles, routes,
   policies, or wiki pages take `project`. The default is `default`, so
   existing clients keep working against the default project. Clients that
@@ -268,18 +268,24 @@ first discovered. The ID never changes; the name can.
 ### Checkouts
 
 [Spec 001](../specs/001-project.md) calls a directory that holds
-`.dagu.json` a project and runs its workflows from the CLI. That is the same
+`.dagu.yaml` a project and runs its workflows from the CLI. That is the same
 project seen from a checkout, not a second concept. Checkouts ship with spec
 001, after v3.0.
 
-- A project's DAG directory may hold `.dagu.json`. The server then reads the
-  project's DAG files where `.dagu.json` says, so one checkout runs on a
-  laptop and as a server project. A path in `.dagu.json` that leads out of
-  the project's DAG directory, such as `../billing`, is a load error, so one
-  project never reads another's DAGs.
-- A `dagu` command run inside a project's DAG directory without
-  `--project` or `DAGU_PROJECT` addresses that project.
-- Spec 001 adopts these rules before either ships.
+- A project's DAG directory may hold `.dagu.yaml`. The server then discovers
+  workflows, applies base config, and sets working directories as spec 001
+  says, whatever `dag_discovery` says, so one checkout behaves the same on a
+  laptop and as a server project.
+- A path in `.dagu.yaml` that leads out of the project's DAG directory, such
+  as `../billing`, is a load error, so one project never reads another's
+  DAGs.
+- The `project` field of `.dagu.yaml` names the server project a checkout
+  belongs to. On a server, a `project` that differs from the project's name
+  is a load error.
+- [Spec 001](../specs/001-project.md#server-projects) defines which project
+  a command addresses from inside a checkout: `--project`, then
+  `DAGU_PROJECT`, then the server project whose DAG directory is the
+  checkout, then the checkout on its own, then `default`.
 
 ### Library
 
@@ -662,11 +668,12 @@ without an admin, apply from the release that ships the feature.
     refused while a `dag.run` caller remains in the source project.
 25. All projects shows the runs and failures of every project the user can
     see, and of no other.
-26. A `dagu` command run inside a project's DAG directory without
-    `--project` or `DAGU_PROJECT` addresses that project.
+26. A `dagu` command run anywhere inside a checkout of a project's DAG
+    directory, without `--project` or `DAGU_PROJECT`, addresses that
+    project.
 27. After migration, a rename, or a move, the logs, step output, and
     artifacts of every moved run open as before.
-28. A `.dagu.json` path that leads out of its project's DAG directory is a
+28. A `.dagu.yaml` path that leads out of its project's DAG directory is a
     load error.
 29. A v3.0 coordinator gives no task to an older worker, and both say why.
 
@@ -756,6 +763,3 @@ without an admin, apply from the release that ships the feature.
 3. **An index for reads across projects.** Search and the All projects view
    read every visible project's stores. Open: whether servers with many
    projects need a server-wide index.
-4. **A checkout's project on another machine.** A checkout outside the
-   server's directories does not say which server project it is. Open:
-   whether `.dagu.json` names the project, or the directory name does.
