@@ -66,6 +66,10 @@ type Dispatcher struct {
 	// returns without waiting on slow work.
 	Ended func(ctx context.Context, record *Record)
 	Now   func() time.Time
+
+	// summariesCheckedAt is when clearResolved last checked the summaries
+	// of failed backfills.
+	summariesCheckedAt time.Time
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer
@@ -85,6 +89,9 @@ func (d *Dispatcher) Tick(ctx context.Context) error {
 		if ended != nil && d.Ended != nil {
 			d.Ended(ctx, ended)
 		}
+	}
+	if err := d.clearResolved(ctx); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -146,6 +153,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		ended   []Progress
 	)
 	active, failed := 0, false
+	done, failedSlots := 0, 0
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
 		outcome, status, err := d.outcome(ctx, record, event, observed)
@@ -159,7 +167,10 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 			active++
 		case slotFailed:
 			failed = true
+			done++
+			failedSlots++
 		case slotSucceeded, slotSettled:
+			done++
 		}
 		if event.Kind == ProgressEnqueued && (outcome == slotSucceeded || outcome == slotFailed) {
 			kind := ProgressSucceeded
@@ -184,6 +195,11 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		if err != nil || !recorded {
 			return err
 		}
+	}
+	if err := d.Store.SaveSummary(ctx, Summary{
+		ID: record.ID, DAGName: record.DAGName, Slots: len(record.Slots), Done: done, Failed: failedSlots,
+	}); err != nil {
+		return err
 	}
 
 	if d.DAGExists != nil && len(pending) > 0 {

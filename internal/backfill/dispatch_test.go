@@ -206,6 +206,76 @@ func (f *dispatchFixture) record(id string) *backfill.Record {
 	return record
 }
 
+// summary returns the summary the store keeps for a backfill, if any.
+func (f *dispatchFixture) summary(id string) (backfill.Summary, bool) {
+	f.t.Helper()
+	summaries, err := f.store.Summaries(f.ctx)
+	require.NoError(f.t, err)
+	for _, summary := range summaries {
+		if summary.ID == id {
+			return summary, true
+		}
+	}
+	return backfill.Summary{}, false
+}
+
+// The dispatcher keeps a backfill's summary: its counts while it is open,
+// and once it failed, until the slot it failed succeeds.
+func TestDispatchKeepsSummaries(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Succeeded)
+	f.tick()
+	summary, ok := f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, backfill.Summary{ID: record.ID, DAGName: "etl", Slots: 3, Done: 1}, summary)
+
+	f.finish(f.queued[1], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+	failed := backfill.Summary{ID: record.ID, DAGName: "etl", Status: backfill.StatusFailed, Slots: 3, Done: 2, Failed: 1}
+	summary, ok = f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, failed, summary)
+
+	// The failed slot has not succeeded since, so a check keeps the summary.
+	f.clock = f.clock.Add(time.Minute)
+	f.tick()
+	summary, ok = f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, failed, summary)
+
+	require.NoError(t, f.write("live", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	f.tick()
+	_, ok = f.summary(record.ID)
+	assert.True(t, ok, "a check runs at most once a minute")
+	f.clock = f.clock.Add(time.Minute)
+	f.tick()
+	_, ok = f.summary(record.ID)
+	assert.False(t, ok, "the failed slot succeeded since")
+}
+
+// A failed backfill whose DAG is gone needs no mention.
+func TestDispatchClearsSummaryOfAGoneDAG(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+	_, ok := f.summary(record.ID)
+	require.True(t, ok)
+
+	f.dispatcher.DAGExists = func(context.Context, *backfill.Record) (bool, error) { return false, nil }
+	f.clock = f.clock.Add(time.Minute)
+	f.tick()
+	_, ok = f.summary(record.ID)
+	assert.False(t, ok)
+}
+
 // With a concurrency of one, each slot is queued only after the one before
 // it finishes, and the backfill succeeds after the last.
 func TestDispatchRunsSlotsInOrder(t *testing.T) {
