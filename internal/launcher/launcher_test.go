@@ -961,3 +961,35 @@ func exitingCommandSpec() launcher.CmdSpec {
 		Args:       []string{"-c", "exit 0"},
 	}
 }
+
+// A launch whose executable is gone, as when the running binary was deleted,
+// is told apart from any other launch failure.
+func TestLaunchMarksMissingExecutable(t *testing.T) {
+	t.Parallel()
+
+	missing := launcher.CmdSpec{Executable: filepath.Join(t.TempDir(), "missing-dagu")}
+	// A directory exists but cannot be executed.
+	unlaunchable := launcher.CmdSpec{Executable: t.TempDir()}
+
+	launches := map[string]func(launcher.CmdSpec) error{
+		"Run": func(spec launcher.CmdSpec) error {
+			return launcher.Run(context.Background(), spec)
+		},
+		"StartProcess": func(spec launcher.CmdSpec) error {
+			_, err := launcher.StartProcess(context.Background(), spec)
+			return err
+		},
+	}
+	for name, launch := range launches {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := launch(missing)
+			require.ErrorIs(t, err, launcher.ErrExecutableMissing)
+
+			err = launch(unlaunchable)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, launcher.ErrExecutableMissing)
+		})
+	}
+}

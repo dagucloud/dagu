@@ -5,8 +5,10 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -26,6 +28,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
+
+// ErrExecutableMissing marks a launch that failed because the executable does
+// not exist, such as when the binary of a running process was deleted.
+var ErrExecutableMissing = errors.New("executable does not exist")
 
 // CommandError wraps a command execution error with captured output.
 // It preserves the original error for unwrapping (e.g., for exit code extraction).
@@ -105,6 +111,12 @@ func NewSubCmdBuilder(cfg *config.Config) *SubCmdBuilder {
 		baseEnv:    cfg.Core.BaseEnv,
 		homeEnv:    envEntry(cfg.Core.BaseEnv.AsSlice(), daguHomeEnvKey),
 	}
+}
+
+// ExecutableMissing reports whether the executable the built commands run
+// does not exist.
+func (b *SubCmdBuilder) ExecutableMissing() bool {
+	return executableMissing(b.executable)
 }
 
 const daguHomeEnvKey = "DAGU_HOME"
@@ -469,13 +481,36 @@ func Run(ctx context.Context, spec CmdSpec) error {
 
 	untrack, err := startTracked(ctx, cmd)
 	if err != nil {
-		return buildCommandError(err, stdout, stderr)
+		return buildCommandError(markMissingExecutable(cmd, err), stdout, stderr)
 	}
 	defer untrack()
 	if err := cmd.Wait(); err != nil {
 		return buildCommandError(err, stdout, stderr)
 	}
 	return nil
+}
+
+// markMissingExecutable marks a start failure of cmd with ErrExecutableMissing
+// when its executable does not exist.
+func markMissingExecutable(cmd *exec.Cmd, err error) error {
+	if executableMissing(cmd.Path) {
+		return fmt.Errorf("%w: %w", ErrExecutableMissing, err)
+	}
+	return err
+}
+
+// executableMissing reports whether nothing exists at path and nothing is
+// found for it the way a command looks it up, through PATH for a bare name
+// or PATHEXT on Windows.
+func executableMissing(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	_, err := exec.LookPath(path)
+	return err != nil
 }
 
 // buildCommandError constructs an error that includes captured output for debugging.
@@ -526,7 +561,7 @@ func StartProcess(ctx context.Context, spec CmdSpec) (*StartResult, error) {
 	untrack, err := startTracked(ctx, cmd)
 	if err != nil {
 		cleanupTransport(cleanup)
-		return nil, fmt.Errorf("failed to start command: %w", err)
+		return nil, fmt.Errorf("failed to start command: %w", markMissingExecutable(cmd, err))
 	}
 
 	pid := cmd.Process.Pid

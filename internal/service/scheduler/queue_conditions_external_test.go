@@ -789,7 +789,7 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+			executable: unlaunchableExecutable(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -821,7 +821,9 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 	require.Empty(t, items)
 }
 
-func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+// A missing executable fails every launch until the scheduler restarts, so
+// the run stays queued instead of failing.
+func TestQueueProcessorKeepsRunQueuedWhenExecutableMissing(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueConditionFixtureWithConfig(
@@ -831,6 +833,61 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
 			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+		},
+	)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	requireQueuedConditions(t, status, executableMissingConditions()...)
+	require.Empty(t, status.Error)
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+}
+
+// A local run held by a missing executable does not take the slot of a
+// distributed run queued behind it.
+func TestQueueProcessorDispatchesPastRunsHeldByMissingExecutable(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &queueConditionDispatcher{}
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		dispatcher,
+		queueConditionFixtureConfig{
+			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+		},
+	)
+	localDAG := &ir.DAG{
+		Name:       "queue-condition-local",
+		ForceLocal: true,
+		YamlData:   []byte("name: queue-condition-local\nsteps:\n  - name: test\n    command: echo hello\n"),
+		Steps:      []ir.Step{{Name: "test", Command: "echo hello"}},
+	}
+	ir.InitializeDefaults(localDAG)
+	f.enqueueRunOf(localDAG, "local-run", nil)
+	f.enqueueRun("remote-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	require.Equal(t, []string{"remote-run"}, dispatcher.dispatchedRunIDs())
+	requireQueuedConditions(t, f.readStatusOf(localDAG, "local-run"), executableMissingConditions()...)
+}
+
+func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeLocal,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{
+			executable: unlaunchableExecutable(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -1040,7 +1097,7 @@ func newQueueConditionFixtureWithConfig(
 	}
 	executable := fixtureConfig.executable
 	if executable == "" {
-		executable = "/usr/bin/dagu"
+		executable = unlaunchableExecutable(t)
 	}
 	executor := scheduler.NewDAGExecutor(
 		dispatcher,
@@ -1086,14 +1143,18 @@ func newQueueConditionFixtureWithConfig(
 }
 
 func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
-	attempt, err := f.dagRunRepository.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	return f.createQueuedAttemptOf(f.dag, runID, conditions)
+}
+
+func (f *queueConditionFixture) createQueuedAttemptOf(dag *ir.DAG, runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
+	attempt, err := f.dagRunRepository.repository.CreateAttempt(f.ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		panic(err)
 	}
 	if err := attempt.Open(f.ctx); err != nil {
 		panic(err)
 	}
-	status := ir.InitialStatus(f.dag)
+	status := ir.InitialStatus(dag)
 	status.DAGRunID = runID
 	status.AttemptID = attempt.ID()
 	status.Status = ir.Queued
@@ -1108,15 +1169,25 @@ func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []i
 }
 
 func (f *queueConditionFixture) enqueueRun(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
-	attempt := f.createQueuedAttempt(runID, conditions)
-	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, ir.NewDAGRunRef(f.dag.Name, runID)); err != nil {
+	return f.enqueueRunOf(f.dag, runID, conditions)
+}
+
+// enqueueRunOf queues a run of dag in the fixture's queue, which the
+// fixture's DAG names.
+func (f *queueConditionFixture) enqueueRunOf(dag *ir.DAG, runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
+	attempt := f.createQueuedAttemptOf(dag, runID, conditions)
+	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, ir.NewDAGRunRef(dag.Name, runID)); err != nil {
 		panic(err)
 	}
 	return attempt
 }
 
 func (f *queueConditionFixture) readStatus(runID string) *ir.DAGRunStatus {
-	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	return f.readStatusOf(f.dag, runID)
+}
+
+func (f *queueConditionFixture) readStatusOf(dag *ir.DAG, runID string) *ir.DAGRunStatus {
+	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(dag.Name, runID))
 	if err != nil {
 		panic(err)
 	}
@@ -1326,6 +1397,30 @@ func workerDispatchUnavailableConditions() []expectedQueuedCondition {
 			message:       "Worker dispatch is temporarily unavailable.",
 		},
 	}
+}
+
+func executableMissingConditions() []expectedQueuedCondition {
+	return []expectedQueuedCondition{
+		{
+			conditionType: "Runnable",
+			status:        "False",
+			reason:        "ExecutableMissing",
+			message:       "The DAG-run cannot start because the Dagu executable that launches it does not exist. Restart the scheduler.",
+		},
+		{
+			conditionType: "StartObserved",
+			status:        "False",
+			reason:        "ExecutableMissing",
+			message:       "The Dagu executable that launches DAG-runs does not exist.",
+		},
+	}
+}
+
+// unlaunchableExecutable returns a path that exists but cannot be executed,
+// so a launch fails for a reason other than a missing executable.
+func unlaunchableExecutable(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
 }
 
 func startupNotObservedConditions() []expectedQueuedCondition {

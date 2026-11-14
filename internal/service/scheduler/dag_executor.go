@@ -386,6 +386,13 @@ func (e *DAGExecutor) shouldUseDistributedExecution(dag *ir.DAG) bool {
 	return dispatch.ShouldDispatchToCoordinator(dag, e.coordinatorCli != nil, e.defaultExecMode)
 }
 
+// executableMissing reports whether the Dagu executable that launches local
+// runs does not exist. An executor without a command builder launches no
+// local runs, so nothing is missing.
+func (e *DAGExecutor) executableMissing() bool {
+	return e != nil && e.subCmdBuilder != nil && e.subCmdBuilder.ExecutableMissing()
+}
+
 // IsDistributed returns whether the given DAG would use distributed execution.
 func (e *DAGExecutor) IsDistributed(dag *ir.DAG) bool {
 	return e.shouldUseDistributedExecution(dag)
