@@ -90,3 +90,17 @@ func TestRemoveStaleDirs(t *testing.T) {
 	assert.DirExists(t, freshBin)
 	assert.DirExists(t, other)
 }
+
+// The executable a test process built is removed once its tests finish.
+func TestRemoveBuiltExecutable(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "dagu-test-bin-123")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dagu"), nil, 0o600))
+	prev := builtExecutableDir
+	builtExecutableDir = dir
+	t.Cleanup(func() { builtExecutableDir = prev })
+
+	removeBuiltExecutable()
+
+	assert.NoDirExists(t, dir)
+}
