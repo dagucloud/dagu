@@ -213,6 +213,15 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
+- The scheduler keeps, per DAG, the latest gap whose start-schedule slots
+  passed without a run, with its span, its reason, and its slot count up to
+  10,000:
+  - `suspended` or `paused`: from the first tick that found the DAG
+    suspended or the scheduler paused to the tick that found it running
+    again, whose own slots run;
+  - `down`: the slots no scheduler ran, for a DAG without catch-up, or
+    before its catch-up window starts.
+  A newer gap replaces it. A gap without a slot is not kept.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs

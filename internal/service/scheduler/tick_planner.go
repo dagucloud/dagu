@@ -90,8 +90,11 @@ type RecordSkippedSlotFunc func(ctx context.Context, dagName string, slot time.T
 
 // TickPlannerConfig holds the dependencies for creating a TickPlanner.
 type TickPlannerConfig struct {
-	StateStore      schedulerstate.Store
-	IsSuspended     IsSuspendedFunc
+	StateStore  schedulerstate.Store
+	IsSuspended IsSuspendedFunc
+	// IsPaused tells an operator's pause, which IsSuspended also reports,
+	// from a DAG's own suspension. Nil reports none.
+	IsPaused        IsPausedFunc
 	GetLatestStatus GetLatestStatusFunc
 	IsRunning       IsRunningFunc
 	Dispatch        DispatchFunc
@@ -415,6 +418,12 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
+			tp.settleRestoredHold(ctx, entry, active, state.LastTick)
+			// With recovery, initBuffers records the gap, as it knows the
+			// slots recovery replays. Otherwise the first tick runs its own.
+			if recovery == 0 {
+				tp.recordDownGap(ctx, entry, active, state.LastTick, missedBefore, missedBefore.Add(-time.Second))
+			}
 		}
 	}
 	tp.initBuffers(ctx, entries, activeByDAG, recovery)
@@ -588,6 +597,7 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 		if recovery > 0 {
 			replayFrom = includeUnstartedSlot(replayFrom, wm.LastSlot, now.Add(-recovery))
 		}
+		tp.recordClampedGap(ctx, entry, active, lastTick, wm.LastScheduledTime, replayFrom)
 		replayTo := now
 		if dag.CatchupWindow <= 0 {
 			// The first tick runs the current minute's slots as usual.
@@ -676,6 +686,8 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 	defer tp.entryMu.Unlock()
 
 	var candidates []PlannedRun
+	// holdReason is read once, when the first held DAG needs it.
+	var holdReason schedulerstate.GapReason
 
 	for _, snapshot := range snapshots {
 		dagName := snapshot.dagName
@@ -691,14 +703,27 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			continue
 		}
 		if suspended {
+			if holdReason == "" {
+				holdReason = tp.holdReason(ctx)
+			}
 			tp.reconcileNextRun(dagName, nil, now, true)
 			tp.dropSuspendedCatchupState(dagName, entry.DAG, now)
+			tp.holdDAG(dagName, holdReason, now)
 			continue
 		}
 		active, ok := activeByDAG[dagName]
 		if !ok {
 			continue
 		}
+		// The slots of this tick run, and so do those catch-up queued at
+		// startup, before a tick found the DAG held.
+		through := now.Truncate(time.Minute).Add(-time.Second)
+		if buf := tp.buffers[dagName]; buf != nil && buf.Len() > 0 {
+			if queued := buf.items[0].ScheduledTime.Add(-time.Second); queued.Before(through) {
+				through = queued
+			}
+		}
+		tp.releaseDAG(dagName, active.start, now, through)
 		tp.reconcileNextRun(dagName, active.start, now.In(tp.cfg.Location), false)
 
 		// Check catchup buffer first (catchup has priority over live)
@@ -1713,12 +1738,14 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 		}
 		if !tp.cfg.QueuesEnabled || dag.CatchupWindow <= 0 {
 			tp.recordMissedSlot(ctx, entry.DAGEntry, active, lastTick, now)
+			tp.recordDownGap(ctx, entry.DAGEntry, active, lastTick, now, now.Add(-time.Second))
 			continue
 		}
 		tp.mu.RLock()
-		from := ComputeReplayFrom(dag.CatchupWindow, tp.watermarkState.LastTick,
-			tp.watermarkState.DAGs[name].LastScheduledTime, now)
+		lastScheduled := tp.watermarkState.DAGs[name].LastScheduledTime
+		from := ComputeReplayFrom(dag.CatchupWindow, tp.watermarkState.LastTick, lastScheduled, now)
 		tp.mu.RUnlock()
+		tp.recordClampedGap(ctx, entry.DAGEntry, active, lastTick, lastScheduled, from)
 		buffer := tp.buffers[name]
 		if buffer != nil && buffer.Len() > 0 {
 			// Pending buffers already cover their interval, including gaps between cron slots.

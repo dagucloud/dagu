@@ -356,6 +356,7 @@ func newScheduler(
 	planner := NewTickPlanner(TickPlannerConfig{
 		StateStore:      stateStore,
 		IsSuspended:     isSuspended,
+		IsPaused:        newPauseChecker(pauseStore),
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning:       isRunning,
 		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
