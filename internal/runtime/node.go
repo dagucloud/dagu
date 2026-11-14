@@ -971,6 +971,12 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		if err != nil {
 			return ctx, nil, err
 		}
+		// A child run whose params read a masked output never starts, so it
+		// is not recorded.
+		if err := maskedReadError(ctx, n); err != nil {
+			_ = executor.CloseExecutor(cmd)
+			return ctx, nil, err
+		}
 		n.SetSubRuns(subRunsFromParams(runParams))
 
 		if err := n.configureSubDAGExecutor(cmd, runParams); err != nil {
