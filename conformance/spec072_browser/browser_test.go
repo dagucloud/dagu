@@ -303,6 +303,10 @@ func startShop(t *testing.T) string {
 			_, _ = io.WriteString(w, orderPage)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/session/") {
+			serveSession(w, r)
+			return
+		}
 		if r.URL.Path == "/signin" {
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, signinPage)
@@ -407,6 +411,24 @@ func (p *itemPages) serve(w http.ResponseWriter, r *http.Request) {
 		if err != nil || index > 0 && !p.served[strconv.Itoa(index-1)] {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
+	}
+}
+
+// serveSession signs the browser in at /session/login with a cookie that
+// lasts only as long as the browser, as many sites do, and tells at
+// /session/orders whether the browser is signed in.
+func serveSession(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	switch r.URL.Path {
+	case "/session/login":
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "signed-in", Path: "/"})
+		_, _ = io.WriteString(w, "<!doctype html><title>Account</title><p>Welcome back</p>")
+	case "/session/orders":
+		if _, err := r.Cookie("session"); err != nil {
+			_, _ = io.WriteString(w, "<!doctype html><title>Sign in</title><p>Please sign in</p>")
+			return
+		}
+		_, _ = io.WriteString(w, "<!doctype html><title>Orders</title><p>Signed in</p>")
 	}
 }
 
@@ -754,6 +776,16 @@ func TestBrowserForeachItemsKeepTheirBrowsers(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(data, &aggregate))
 	require.Equal(t, 2, aggregate.Summary.Succeeded, "items: %+v", aggregate.Items)
+}
+
+// Steps that share a browser use one browser in turn: the second starts on
+// the page the first left, signed in with a cookie that lasts only as long
+// as the browser, which a step sharing no browser does not have.
+func TestBrowserShare(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "share.yaml").ExpectExitCode(0)
 }
 
 func TestBrowserExtract(t *testing.T) {

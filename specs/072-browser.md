@@ -209,13 +209,14 @@ progress is written to stderr.
 
 `with.browser` accepts `headless` (default `true`), `executable` (otherwise
 `CHROME_PATH` or an installed Chrome), `viewport` `{width, height}`, `proxy`
-(unauthenticated), `allowed_domains`, `screenshots`, `profile`, and
-`client_certificates`.
+(unauthenticated), `allowed_domains`, `screenshots`, `profile`, `share`,
+and `client_certificates`.
 
-Each execution of a step drives a browser of its own. The items of a
-`foreach` whose body runs the step each have their own browser, and an item
-starting never closes the browser of an item still running. A new attempt
-of the step closes a browser its earlier attempt left open.
+Each execution of a step drives a browser of its own, unless the step shares
+one (see Shared browsers). The items of a `foreach` whose body runs the step
+each have their own browser, and an item starting never closes the browser
+of an item still running. A new attempt of the step closes a browser its
+earlier attempt left open.
 
 A browser without a window sends the user agent its executable sends with
 one, never `HeadlessChrome`, so a site treats the step as it treats a person.
@@ -598,6 +599,31 @@ browser session ran for a step that has not run yet (Spec 079).
 host. Cookies and storage survive across runs on that host. Runs that use the
 same profile run one at a time; a run fails immediately when another run
 waiting for input, or a browser session (Spec 079), holds the profile.
+
+### Shared browsers
+
+`browser.share` names a browser the steps of one DAG run share. The first
+step that gives the name starts the browser; when it ends, the browser stays
+open, and the next step that gives the name continues in it, on the page the
+step before left, with its cookies, session cookies included, and storage.
+A step without `url` starts on that page. The steps take turns, foreach
+items included: a step waits while another uses the browser. A step that
+fails leaves the browser open too, unless the browser stopped answering or
+its write gate is gone; a shared browser that no longer answers is replaced
+by a new one. Each step keeps its own `allowed_domains`, `on_confirm`,
+`screenshots`, downloads, replay cache, and model.
+
+The steps sharing a browser give the same `headless`, `executable`,
+`viewport`, `proxy`, `profile`, `client_certificates`, and `write_gate`; a
+step that gives others fails and names the step that started the browser.
+
+The browser closes when the run ends, including a run that waits for a
+person between the steps, and with it the profile it holds. While it is
+open it keeps its profile, so a step of the same run that names the profile
+without sharing the browser fails at once instead of waiting for its own
+run. A step sharing a browser that waits for an `ask` keeps the browser
+apart until it resumes and ends; meanwhile, the next step that shares the
+name starts a new browser.
 
 ### Human input
 

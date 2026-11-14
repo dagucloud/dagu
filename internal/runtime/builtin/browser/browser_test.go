@@ -103,11 +103,17 @@ type stepExecution struct {
 
 func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecution {
 	r.t.Helper()
+	return r.executeStep("shop", withJSON, session)
+}
+
+// executeStep runs the browser step named name.
+func (r *testRun) executeStep(name, withJSON string, session *ir.AgentSession) *stepExecution {
+	r.t.Helper()
 	var with map[string]any
 	require.NoError(r.t, json.Unmarshal([]byte(withJSON), &with))
 	step := ir.Step{
-		ID:             "shop",
-		Name:           "shop",
+		ID:             name,
+		Name:           name,
 		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: with},
 		LLM:            &ir.LLMConfig{Provider: "openai", Model: "test-model"},
 	}

@@ -8201,6 +8201,11 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
           "description": "Persistent profile name. Cookies and storage are kept across runs; runs sharing a profile wait for each other."
         },
+        "share": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Shared browser name. The steps of a run that give the same name use one browser in turn, each starting on the page the step before left, signed in as it left it; it closes when the run ends. They give the same headless, executable, viewport, proxy, profile, client_certificates, and write_gate."
+        },
         "write_gate": {
           "type": "string",
           "enum": ["off", "record", "ask", "rehearse"],

@@ -134,6 +134,13 @@ func RecordID(dagRunID, item, stepName string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// SharedRecordID returns the record identifier for the browser the steps of
+// a DAG run share under name.
+func SharedRecordID(dagRunID, name string) string {
+	sum := sha256.Sum256([]byte("share\x00" + dagRunID + "\x00" + name))
+	return hex.EncodeToString(sum[:16])
+}
+
 // Store persists browser session records as private files.
 type Store struct {
 	dir string

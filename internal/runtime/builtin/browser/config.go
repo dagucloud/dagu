@@ -91,6 +91,9 @@ type browserOptions struct {
 	// dismiss, or fail, which dismisses it and fails the operation.
 	OnConfirm string `json:"on_confirm,omitempty"`
 	Profile   string `json:"profile,omitempty"`
+	// Share names a browser the steps of a run that give the same name
+	// use one after another, each starting on the page the one before left.
+	Share string `json:"share,omitempty"`
 	// ClientCertificates are presented to the hosts they name, before
 	// those configured for the host.
 	ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates,omitempty"`
@@ -271,6 +274,21 @@ func (c config) headless() bool {
 	return c.Browser.Headless == nil || *c.Browser.Headless
 }
 
+// launchSettings returns the settings a browser takes when it starts,
+// which the steps sharing a browser give alike.
+func (c config) launchSettings() string {
+	data, _ := json.Marshal(struct {
+		Headless           bool                                 `json:"headless"`
+		Executable         string                               `json:"executable"`
+		Viewport           *viewport                            `json:"viewport"`
+		Proxy              string                               `json:"proxy"`
+		Profile            string                               `json:"profile"`
+		ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates"`
+		WriteGate          string                               `json:"write_gate"`
+	}{c.headless(), c.Browser.Executable, c.Browser.Viewport, c.Browser.Proxy, c.Browser.Profile, c.Browser.ClientCertificates, c.Browser.WriteGate})
+	return string(data)
+}
+
 // choice returns the step's choice of how much AI decides. cache: false,
 // from before the choice existed, means every run.
 func (c config) choice() string {
@@ -411,6 +429,9 @@ func (c config) validate() error {
 	}
 	if profile := c.Browser.Profile; profile != "" && !agentstep.FileNamePattern.MatchString(profile) {
 		return fmt.Errorf("browser: profile %q must match %s", profile, agentstep.FileNamePattern)
+	}
+	if share := c.Browser.Share; share != "" && !agentstep.FileNamePattern.MatchString(share) {
+		return fmt.Errorf("browser: share %q must match %s", share, agentstep.FileNamePattern)
 	}
 	if _, err := writegate.ParseMode(c.Browser.WriteGate); err != nil {
 		return fmt.Errorf("browser: write_gate: %w", err)
@@ -675,6 +696,7 @@ var configSchema = &jsonschema.Schema{
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 				"on_confirm":      {Type: "string", Enum: []any{onConfirmAccept, onConfirmDismiss, onConfirmFail}},
 				"profile":         agentstep.NonEmptyString(),
+				"share":           agentstep.NonEmptyString(),
 				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeAsk, writegate.ModeRehearse}},
 				"client_certificates": {
 					Type: "array",
