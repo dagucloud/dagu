@@ -143,6 +143,7 @@ func (s StepMasks) path(path string) (string, bool) {
 	if field == "" {
 		field = bracketField(path)
 	}
+	field = unquoteField(field)
 	switch {
 	case !ok:
 		return "", false
@@ -171,10 +172,19 @@ func bracketField(path string) string {
 		return ""
 	}
 	inner, _, ok = strings.Cut(inner, "]")
-	if !ok || len(inner) < 2 || (inner[0] != '"' && inner[0] != '\'') || inner[len(inner)-1] != inner[0] {
+	if !ok || unquoteField(inner) == inner {
 		return ""
 	}
-	return inner[1 : len(inner)-1]
+	return unquoteField(inner)
+}
+
+// unquoteField returns a field name a path writes in quotes, such as "token",
+// without them.
+func unquoteField(name string) string {
+	if len(name) >= 2 && (name[0] == '"' || name[0] == '\'') && name[len(name)-1] == name[0] {
+		return name[1 : len(name)-1]
+	}
+	return name
 }
 
 // field reports whether masking changed the named published output.
