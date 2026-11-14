@@ -2565,6 +2565,82 @@ steps:
 	require.Equal(t, "sort-lastrun-0", listResp.Dags[2].Dag.Name)
 }
 
+// A run that another DAG started with dag.run is listed beside the child DAG's
+// own runs, with the root run that opens it, and the list sorts by it when it
+// is newer. The child's own latest run is unchanged.
+func TestListDAGsShowsLatestSubDAGRun(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t, test.WithStatusPersistence())
+	now := time.Now().UTC()
+	dags := map[string]*ir.DAG{}
+	for _, name := range []string{"sub-parent", "sub-child", "sub-other"} {
+		dags[name] = helper.DAG(t, fmt.Sprintf("name: %s\nsteps:\n  - run: echo hi\n", name)).DAG
+	}
+	writeRun := func(dag *ir.DAG, at time.Time, runID string, root ir.DAGRunRef) {
+		t.Helper()
+		attempt, err := helper.DAGRunRepository.CreateAttempt(helper.Context, dag, at, runID, persis.DAGRunCreateAttemptOptions{RootDAGRun: root})
+		require.NoError(t, err)
+		status := ir.InitialStatus(dag)
+		status.DAGRunID = runID
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		status.StartedAt = at.Format(time.RFC3339)
+		if !root.Zero() {
+			status.Root = root
+			status.Parent = root
+		}
+		require.NoError(t, attempt.Open(helper.Context))
+		require.NoError(t, attempt.Write(helper.Context, status))
+		require.NoError(t, attempt.Close(helper.Context))
+	}
+	writeRun(dags["sub-other"], now.Add(-3*time.Minute), "other-run", ir.DAGRunRef{})
+	rootRef := ir.NewDAGRunRef("sub-parent", "parent-run")
+	writeRun(dags["sub-parent"], now.Add(-2*time.Minute), rootRef.ID, ir.DAGRunRef{})
+	writeRun(dags["sub-child"], now.Add(-time.Minute), "child-run", rootRef)
+
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+	)
+
+	order := api.ListDAGsParamsOrderDesc
+	sortField := api.ListDAGsParamsSortLastRun
+	listRespObj, err := apiImpl.ListDAGs(context.Background(), api.ListDAGsRequestObject{
+		Params: api.ListDAGsParams{Sort: &sortField, Order: &order},
+	})
+	require.NoError(t, err)
+	listResp, ok := listRespObj.(*api.ListDAGs200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, listResp.Dags, 3)
+	assert.Equal(t, []string{"sub-child", "sub-parent", "sub-other"},
+		[]string{listResp.Dags[0].Dag.Name, listResp.Dags[1].Dag.Name, listResp.Dags[2].Dag.Name})
+
+	child := listResp.Dags[0]
+	assert.Equal(t, api.Status(ir.NotStarted), child.LatestDAGRun.Status, "the child's own latest run is unchanged")
+	require.NotNil(t, child.LatestSubDAGRun)
+	assert.Equal(t, "child-run", child.LatestSubDAGRun.Run.DagRunId)
+	assert.Equal(t, api.Status(ir.Succeeded), child.LatestSubDAGRun.Run.Status)
+	assert.Equal(t, rootRef.Name, child.LatestSubDAGRun.RootDAGRunName)
+	assert.Equal(t, rootRef.ID, child.LatestSubDAGRun.RootDAGRunId)
+	assert.Nil(t, listResp.Dags[1].LatestSubDAGRun)
+
+	detailsObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: dags["sub-child"].FileName()})
+	require.NoError(t, err)
+	details, ok := detailsObj.(api.GetDAGDetails200JSONResponse)
+	require.True(t, ok)
+	require.NotNil(t, details.LatestSubDAGRun)
+	assert.Equal(t, "child-run", details.LatestSubDAGRun.Run.DagRunId)
+}
+
 // TestListDAGsSortsByStatusServerSide verifies that sorting the DAG list by
 // status happens on the server. In ascending order the lowest status value
 // comes first.

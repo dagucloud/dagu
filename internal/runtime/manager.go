@@ -464,6 +464,38 @@ func (m *Manager) GetLatestStatus(ctx context.Context, dag *ir.DAG) (ir.DAGRunSt
 	return status, nil
 }
 
+// LatestSubRunStatus returns the newest run of dag that another DAG started
+// with dag.run, or nil when there is none. It is for display beside the DAG's
+// own latest run: scheduling and run actions use GetLatestStatus, which does
+// not include it.
+func (m *Manager) LatestSubRunStatus(ctx context.Context, dag *ir.DAG) *ir.DAGRunStatus {
+	if m.dagRunRepository == nil || dag == nil {
+		return nil
+	}
+	attempt, err := m.dagRunRepository.LatestSubAttempt(ctx, dag.Name, m.latestAttemptOptions)
+	if err != nil {
+		return nil
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil || status == nil || status.Name != dag.Name || status.Root.Zero() {
+		return nil
+	}
+	return status
+}
+
+// NewerRunStatus returns sub when it started after own, and own otherwise.
+func NewerRunStatus(own ir.DAGRunStatus, sub *ir.DAGRunStatus) ir.DAGRunStatus {
+	if sub == nil {
+		return own
+	}
+	ownStart, _ := stringutil.ParseTime(own.StartedAt)
+	subStart, _ := stringutil.ParseTime(sub.StartedAt)
+	if subStart.After(ownStart) {
+		return *sub
+	}
+	return own
+}
+
 // ReadLatestStatus is GetLatestStatus for a caller that must tell a DAG
 // without a run from a latest run that cannot be read: it returns the initial
 // status only for the first, and the read error for the second.

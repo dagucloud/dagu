@@ -420,6 +420,25 @@ func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 	}
 }
 
+// toSubDAGRunSummary describes a run of a DAG that another DAG started, with
+// the root and parent runs needed to open it. A nil status yields nil.
+func toSubDAGRunSummary(s *ir.DAGRunStatus) *api.SubDAGRunSummary {
+	if s == nil {
+		return nil
+	}
+	parent := s.Parent
+	if parent.Zero() {
+		parent = s.Root
+	}
+	return &api.SubDAGRunSummary{
+		Run:              toDAGRunSummary(*s),
+		RootDAGRunName:   s.Root.Name,
+		RootDAGRunId:     s.Root.ID,
+		ParentDAGRunName: parent.Name,
+		ParentDAGRunId:   parent.ID,
+	}
+}
+
 // ephemeralFlag reports the ephemeral flag of a run, absent for a normal run.
 func ephemeralFlag(s ir.DAGRunStatus) *bool {
 	if !s.Ephemeral {

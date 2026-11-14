@@ -799,8 +799,9 @@ steps:
 }
 
 // TestChildRunUpdatesChildDAGLatestStatus covers dagucloud/dagu#2470: a child
-// run started by dag.run must appear in the child DAG's own latest status and
-// history, not only nested under the parent run.
+// run started by dag.run is reported as the child DAG's latest sub DAG-run,
+// while the child's own latest status and history stay its own runs, which
+// scheduling and run actions read.
 func TestChildRunUpdatesChildDAGLatestStatus(t *testing.T) {
 	t.Parallel()
 
@@ -820,15 +821,19 @@ func TestChildRunUpdatesChildDAGLatestStatus(t *testing.T) {
 	parent.Agent().RunSuccess(t)
 
 	require.Eventually(t, func() bool {
-		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, childDAG)
-		return err == nil && status.Status == ir.Succeeded && !status.Parent.Zero()
-	}, 5*time.Second, 100*time.Millisecond, "child DAG latest status should show the finished child run")
+		status := th.DAGRunMgr.LatestSubRunStatus(th.Context, childDAG)
+		return status != nil && status.Status == ir.Succeeded
+	}, 5*time.Second, 100*time.Millisecond, "the child DAG's latest sub DAG-run should be the finished child run")
+	sub := th.DAGRunMgr.LatestSubRunStatus(th.Context, childDAG)
+	require.NotNil(t, sub)
+	assert.Equal(t, parent.Name, sub.Root.Name)
 
+	own, err := th.DAGRunMgr.GetLatestStatus(th.Context, childDAG)
+	require.NoError(t, err)
+	assert.Equal(t, ir.NotStarted, own.Status)
 	recent, err := th.DAGRunRepository.RecentStatuses(th.Context, childDAG.Name, 10)
 	require.NoError(t, err)
-	require.Len(t, recent, 1)
-	assert.Equal(t, ir.Succeeded, recent[0].Status)
-	assert.Equal(t, parent.Name, recent[0].Root.Name)
+	assert.Empty(t, recent)
 }
 
 // TestSkippedPreconditions verifies that steps with unmet preconditions are skipped.

@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
 )
@@ -189,6 +190,8 @@ func sortLsRowsByLastRun(rows []lsRow, reverse bool) {
 func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) error {
 	if wantLast {
 		st, err := ctx.DAGRunMgr.GetLatestStatus(ctx, row.dag)
+		// The last run includes one another DAG started with dag.run.
+		st = runtime.NewerRunStatus(st, ctx.DAGRunMgr.LatestSubRunStatus(ctx, row.dag))
 		if err == nil && st.Status != ir.NotStarted {
 			row.lastStatus = formatStatusText(st.Status)
 			row.lastStarted = formatTimestamp(st.StartedAt)

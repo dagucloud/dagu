@@ -6167,6 +6167,7 @@ export interface components {
             fileName: string;
             dag: components["schemas"]["DAG"];
             latestDAGRun: components["schemas"]["DAGRunSummary"];
+            latestSubDAGRun?: components["schemas"]["SubDAGRunSummary"];
             /**
              * Format: date-time
              * @description Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed.
@@ -6951,6 +6952,16 @@ export interface components {
              * @description Deprecated alias for labels. List of labels for categorizing and filtering DAG runs
              */
             tags?: string[];
+        };
+        /** @description The newest run of a DAG that another DAG started with dag.run. It is not one of the DAG's own runs: open it through its root DAG-run. */
+        SubDAGRunSummary: {
+            run: components["schemas"]["DAGRunSummary"];
+            /** @description Name of the root DAG-run */
+            rootDAGRunName: string;
+            rootDAGRunId: components["schemas"]["DAGRunId"] & unknown;
+            /** @description Name of the parent DAG-run */
+            parentDAGRunName: string;
+            parentDAGRunId: components["schemas"]["DAGRunId"] & unknown;
         };
         /** @description The run that a step's supplied outputs were captured from. */
         ReusedOutputSource: {
@@ -10441,6 +10452,7 @@ export interface operations {
                         /** @description List of local DAGs that are part of this DAG */
                         localDags: components["schemas"]["LocalDag"][];
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
+                        latestSubDAGRun?: components["schemas"]["SubDAGRunSummary"];
                         latestBackfill?: components["schemas"]["LatestBackfill"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;

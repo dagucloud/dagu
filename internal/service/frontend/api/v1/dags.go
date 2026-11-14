@@ -37,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -677,15 +678,16 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	}
 
 	return api.GetDAGDetails200JSONResponse{
-		Dag:          details,
-		LatestDAGRun: ToDAGRunDetails(dagStatus),
-		Suspended:    suspended,
-		Pinned:       a.isDAGPinned(ctx, fileName),
-		LocalDags:    localDAGs,
-		Errors:       extractBuildErrors(dag.BuildErrors),
-		Warnings:     dag.BuildWarnings,
-		Spec:         &yamlSpec,
-		EditorHints:  a.buildDAGEditorHints(ctx, dag, fileName),
+		Dag:             details,
+		LatestDAGRun:    ToDAGRunDetails(dagStatus),
+		LatestSubDAGRun: toSubDAGRunSummary(a.dagRunMgr.LatestSubRunStatus(ctx, dag)),
+		Suspended:       suspended,
+		Pinned:          a.isDAGPinned(ctx, fileName),
+		LocalDags:       localDAGs,
+		Errors:          extractBuildErrors(dag.BuildErrors),
+		Warnings:        dag.BuildWarnings,
+		Spec:            &yamlSpec,
+		EditorHints:     a.buildDAGEditorHints(ctx, dag, fileName),
 	}, nil
 }
 
@@ -2513,13 +2515,14 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 
 		_, pinned := pinnedIDs[item.ID]
 		dagFile := api.DAGFile{
-			FileName:     item.ID,
-			LatestDAGRun: toDAGRunSummary(dagStatus),
-			Suspended:    item.Suspended,
-			Pinned:       pinned,
-			Dag:          toDAG(item.DAG),
-			NextRun:      nextRunAt,
-			Errors:       extractBuildErrors(item.BuildErrors),
+			FileName:        item.ID,
+			LatestDAGRun:    toDAGRunSummary(dagStatus),
+			LatestSubDAGRun: toSubDAGRunSummary(a.dagRunMgr.LatestSubRunStatus(ctx, item.DAG)),
+			Suspended:       item.Suspended,
+			Pinned:          pinned,
+			Dag:             toDAG(item.DAG),
+			NextRun:         nextRunAt,
+			Errors:          extractBuildErrors(item.BuildErrors),
 		}
 		if statusErr != nil {
 			errList = append(errList, statusErr.Error())
@@ -2597,6 +2600,7 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 	type keyedItem struct {
 		item      persis.DAGListItem
 		dagStatus ir.DAGRunStatus
+		subStatus *ir.DAGRunStatus
 		statusErr error
 		status    ir.Status
 		lastRun   time.Time
@@ -2604,14 +2608,18 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 	keyed := make([]keyedItem, 0, len(result.Items))
 	for _, item := range result.Items {
 		dagStatus, statusErr := a.dagRunMgr.GetLatestStatus(ctx, item.DAG)
-		// An empty or unparseable start time yields the zero time, which
-		// sorts as "never ran".
-		lastRun, _ := stringutil.ParseTime(dagStatus.StartedAt)
+		subStatus := a.dagRunMgr.LatestSubRunStatus(ctx, item.DAG)
+		// The list shows the newer of the DAG's own run and its sub DAG-run,
+		// so it sorts by that run. An empty or unparseable start time yields
+		// the zero time, which sorts as "never ran".
+		shown := runtime.NewerRunStatus(dagStatus, subStatus)
+		lastRun, _ := stringutil.ParseTime(shown.StartedAt)
 		keyed = append(keyed, keyedItem{
 			item:      item,
 			dagStatus: dagStatus,
+			subStatus: subStatus,
 			statusErr: statusErr,
-			status:    dagStatus.Status,
+			status:    shown.Status,
 			lastRun:   lastRun,
 		})
 	}
@@ -2671,13 +2679,14 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 		}
 		_, pinned := pinnedIDs[item.ID]
 		dagFile := api.DAGFile{
-			FileName:     item.ID,
-			LatestDAGRun: toDAGRunSummary(k.dagStatus),
-			Suspended:    item.Suspended,
-			Pinned:       pinned,
-			Dag:          toDAG(item.DAG),
-			NextRun:      nextRunAt,
-			Errors:       extractBuildErrors(item.BuildErrors),
+			FileName:        item.ID,
+			LatestDAGRun:    toDAGRunSummary(k.dagStatus),
+			LatestSubDAGRun: toSubDAGRunSummary(k.subStatus),
+			Suspended:       item.Suspended,
+			Pinned:          pinned,
+			Dag:             toDAG(item.DAG),
+			NextRun:         nextRunAt,
+			Errors:          extractBuildErrors(item.BuildErrors),
 		}
 		if k.statusErr != nil {
 			errList = append(errList, k.statusErr.Error())

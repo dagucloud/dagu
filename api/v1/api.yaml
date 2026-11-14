@@ -1037,6 +1037,8 @@ paths:
                       $ref: "#/components/schemas/LocalDag"
                   latestDAGRun:
                     $ref: "#/components/schemas/DAGRunDetails"
+                  latestSubDAGRun:
+                    $ref: "#/components/schemas/SubDAGRunSummary"
                   latestBackfill:
                     $ref: "#/components/schemas/LatestBackfill"
                   suspended:
@@ -15987,6 +15989,8 @@ components:
           $ref: "#/components/schemas/DAG"
         latestDAGRun:
           $ref: "#/components/schemas/DAGRunSummary"
+        latestSubDAGRun:
+          $ref: "#/components/schemas/SubDAGRunSummary"
         nextRun:
           type: string
           format: date-time
@@ -17468,6 +17472,33 @@ components:
         - finishedAt
         - artifactsAvailable
         - autoRetryCount
+
+    SubDAGRunSummary:
+      type: object
+      description: "The newest run of a DAG that another DAG started with dag.run. It is not one of the DAG's own runs: open it through its root DAG-run."
+      properties:
+        run:
+          $ref: "#/components/schemas/DAGRunSummary"
+        rootDAGRunName:
+          type: string
+          description: "Name of the root DAG-run"
+        rootDAGRunId:
+          allOf:
+            - $ref: "#/components/schemas/DAGRunId"
+            - description: "ID of the root DAG-run"
+        parentDAGRunName:
+          type: string
+          description: "Name of the parent DAG-run"
+        parentDAGRunId:
+          allOf:
+            - $ref: "#/components/schemas/DAGRunId"
+            - description: "ID of the parent DAG-run"
+      required:
+        - run
+        - rootDAGRunName
+        - rootDAGRunId
+        - parentDAGRunName
+        - parentDAGRunId
 
     ReusedOutputSource:
       type: object
