@@ -147,7 +147,7 @@ func (dr *DataRoot) FindByDAGRunID(ctx context.Context, dagRunID string) (*DAGRu
 }
 
 func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string) (*DAGRun, error) {
-	entries, err := fileutil.ReadDir(dayPath)
+	entries, err := readDirUnsorted(dayPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -155,20 +155,38 @@ func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string)
 		return nil, err
 	}
 
-	for _, entry := range slices.Backward(entries) {
+	// A run directory name starts with the run's creation time, so the
+	// greatest matching name is the newest run with this ID.
+	var newest string
+	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !entry.IsDir() {
+		if !entry.IsDir() || !isMatchingDAGRunDir(entry.Name(), dagRunID) {
 			continue
 		}
-		if !isMatchingDAGRunDir(entry.Name(), dagRunID) {
-			continue
-		}
-		return newDAGRun(filepath.Join(dayPath, entry.Name()), artifactDir)
+		newest = max(newest, entry.Name())
 	}
+	if newest == "" {
+		return nil, nil
+	}
+	return newDAGRun(filepath.Join(dayPath, newest), artifactDir)
+}
 
-	return nil, nil
+// readDirUnsorted lists a directory in the order the file system returns it,
+// so a scan that does not depend on order skips sorting a large day. A
+// transient Windows error falls back to fileutil.ReadDir, which retries it.
+func readDirUnsorted(dir string) ([]os.DirEntry, error) {
+	f, err := fileutil.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := f.ReadDir(-1)
+	_ = f.Close()
+	if fileutil.IsTransientFileError(err) {
+		return fileutil.ReadDir(dir)
+	}
+	return entries, err
 }
 
 func isMatchingDAGRunDir(dirName, dagRunID string) bool {
