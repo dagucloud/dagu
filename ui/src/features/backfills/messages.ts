@@ -40,6 +40,7 @@ export const backfillMessages = defineMessages({
       'No slot succeeded in the last {days} days.',
     'First fire time': 'First fire time',
     'Last fire time': 'Last fire time',
+    'Times are in {zone}.': 'Times are in {zone}.',
     Options: 'Options',
     '{count} at a time, stop after a failed slot':
       '{count} at a time, stop after a failed slot',
@@ -96,6 +97,12 @@ export const backfillMessages = defineMessages({
     'About {duration}': 'About {duration}',
     'Backfill running: {done} of {total} slots done':
       'Backfill running: {done} of {total} slots done',
+    '{count} slots passed while this DAG was suspended':
+      '{count} slots passed while this DAG was suspended',
+    '{count} slots passed while the scheduler was paused':
+      '{count} slots passed while the scheduler was paused',
+    '{count} slots passed while the scheduler was down':
+      '{count} slots passed while the scheduler was down',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'Backfill running: {done} of {total} slots done, {failed} failed',
     'Backfill failed: {failed} slots did not succeed':
@@ -183,6 +190,7 @@ export const backfillMessages = defineMessages({
       '最近 {days} 天内没有成功的时段。',
     'First fire time': '起始触发时间',
     'Last fire time': '结束触发时间',
+    'Times are in {zone}.': '时间按 {zone} 计。',
     Options: '选项',
     '{count} at a time, stop after a failed slot':
       '每次 {count} 个，时段失败后停止',
@@ -239,6 +247,12 @@ export const backfillMessages = defineMessages({
     'About {duration}': '约 {duration}',
     'Backfill running: {done} of {total} slots done':
       '回填运行中：{total} 个时段中已完成 {done} 个',
+    '{count} slots passed while this DAG was suspended':
+      'DAG 暂停期间错过了 {count} 个时段',
+    '{count} slots passed while the scheduler was paused':
+      '调度器暂停期间错过了 {count} 个时段',
+    '{count} slots passed while the scheduler was down':
+      '调度器停止期间错过了 {count} 个时段',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       '回填运行中：{total} 个时段中已完成 {done} 个，{failed} 个失败',
     'Backfill failed: {failed} slots did not succeed':
@@ -324,6 +338,7 @@ export const backfillMessages = defineMessages({
       '過去 {days} 日間に成功したスロットはありません。',
     'First fire time': '最初の実行時刻',
     'Last fire time': '最後の実行時刻',
+    'Times are in {zone}.': '時刻は {zone} です。',
     Options: 'オプション',
     '{count} at a time, stop after a failed slot':
       '同時に {count} 件、スロットが失敗したら停止',
@@ -380,6 +395,12 @@ export const backfillMessages = defineMessages({
     'About {duration}': '約 {duration}',
     'Backfill running: {done} of {total} slots done':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了',
+    '{count} slots passed while this DAG was suspended':
+      'DAG の一時停止中に {count} スロットが過ぎました',
+    '{count} slots passed while the scheduler was paused':
+      'スケジューラーの一時停止中に {count} スロットが過ぎました',
+    '{count} slots passed while the scheduler was down':
+      'スケジューラーの停止中に {count} スロットが過ぎました',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了、{failed} 件が失敗',
     'Backfill failed: {failed} slots did not succeed':

@@ -630,7 +630,31 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 		logger.Warn(ctx, "Failed to read the latest backfill of a DAG", slog.String("dagFile", request.FileName), tag.Error(err))
 	}
 	resp.LatestBackfill = latest
+	resp.MissedSlots = a.missedSlots(ctx, resp.Dag)
 	return resp, nil
+}
+
+// missedSlots reports the latest span whose slots the DAG missed, as the
+// scheduler recorded it, or nil.
+func (a *API) missedSlots(ctx context.Context, dag *api.DAGDetails) *api.MissedSlots {
+	if a.schedulerStateStore == nil || dag == nil {
+		return nil
+	}
+	state, err := a.schedulerStateStore.Load(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the slots a DAG missed", slog.String("dag", dag.Name), tag.Error(err))
+		return nil
+	}
+	if state == nil {
+		return nil
+	}
+	gap := state.DAGs[dag.Name].Missed
+	if gap == nil {
+		return nil
+	}
+	return &api.MissedSlots{
+		From: gap.From, To: gap.To, Reason: api.MissedSlotsReason(gap.Reason), Slots: gap.Slots,
+	}
 }
 
 // getDAGDetailsData returns DAG details data. Used by both HTTP handler and SSE fetcher.
