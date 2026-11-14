@@ -107,7 +107,12 @@ func TestMaskedRead(t *testing.T) {
 		{name: "local outside a function", raw: `local TOKEN=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "declare without a value", raw: `declare TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "export without a value", raw: `export TOKEN; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
-		{name: "local without a value", raw: `f() { local TOKEN; deploy "$TOKEN"; }; f`, field: shell},
+		// dash keeps the inherited value for a local without one.
+		{name: "local without a value", raw: `f() { local TOKEN; deploy "$TOKEN"; }; f`, field: shell, want: "TOKEN"},
+		{name: "after a background job sets it", raw: `TOKEN=x & wait; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
+		{name: "after a function a background job runs", raw: `f() { TOKEN=x; }; f & wait; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
+		{name: "after a coprocess sets it", raw: `coproc { TOKEN=x; }; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
+		{name: "after a redefined function", raw: `f() { TOKEN=x; }; f() { :; }; f; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "function local", raw: `f() { local TOKEN=x; deploy "$TOKEN"; }; f`, field: shell},
 		{name: "after a function local", raw: `f() { local TOKEN=x; }; f; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "after a function sets it", raw: `f() { TOKEN=x; }; f; deploy "$TOKEN"`, field: shell},

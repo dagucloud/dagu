@@ -324,6 +324,21 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 			}
 			s.walk(n.Body, s.newScope(parent, scopeFunction), run.at)
 			return false
+		case *syntax.Stmt:
+			// A background job or a coprocess runs in a subshell.
+			if n.Background || n.Coprocess {
+				inner := s.newScope(scope, scopeContained)
+				for _, redirect := range n.Redirs {
+					s.walk(redirect, inner, call)
+				}
+				if n.Cmd != nil {
+					s.walk(n.Cmd, inner, call)
+				}
+				return false
+			}
+		case *syntax.CoprocClause:
+			nested([]*syntax.Stmt{n.Stmt}, scopeContained)
+			return false
 		case *syntax.Subshell:
 			nested(n.Stmts, scopeContained)
 			return false
@@ -406,8 +421,8 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 			}
 		case *syntax.DeclClause:
 			// declare and typeset in a function declare locals. Without a
-			// value, only a local starts empty; others keep the inherited
-			// value.
+			// value, a declaration keeps the inherited value, as dash does
+			// even for a local.
 			variant := n.Variant.Value
 			if variant == "local" && !s.inFunction(scope) {
 				// bash rejects local outside a function.
@@ -419,7 +434,7 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 				target = s.localScope(scope)
 			}
 			for _, a := range n.Args {
-				if a.Name == nil || (a.Naked && !local) {
+				if a.Name == nil || a.Naked {
 					continue
 				}
 				if a.Append {
@@ -545,7 +560,10 @@ func functionRuns(file *syntax.File, end uint) map[string]functionRun {
 		// may not run.
 		sure bool
 	}
-	functions := make(map[string]bool)
+	// functions counts the definitions of each function. Which definition a
+	// call runs depends on the order they run in, so a redefined function's
+	// values are not sure to hold after its call.
+	functions := make(map[string]int)
 	sites := make(map[string][]callSite)
 	var visit func(node syntax.Node, caller string, sure bool)
 	visitAll := func(stmts []*syntax.Stmt, caller string, sure bool) {
@@ -557,8 +575,21 @@ func functionRuns(file *syntax.File, end uint) map[string]functionRun {
 		syntax.Walk(node, func(node syntax.Node) bool {
 			switch n := node.(type) {
 			case *syntax.FuncDecl:
-				functions[n.Name.Value] = true
+				functions[n.Name.Value]++
 				visit(n.Body, n.Name.Value, true)
+				return false
+			case *syntax.Stmt:
+				if n.Background || n.Coprocess {
+					for _, redirect := range n.Redirs {
+						visit(redirect, caller, false)
+					}
+					if n.Cmd != nil {
+						visit(n.Cmd, caller, false)
+					}
+					return false
+				}
+			case *syntax.CoprocClause:
+				visit(n.Stmt, caller, false)
 				return false
 			case *syntax.CallExpr:
 				if len(n.Args) > 0 {
@@ -623,7 +654,7 @@ func functionRuns(file *syntax.File, end uint) map[string]functionRun {
 				}
 				at := append(slices.Clip(caller.at), site.offset)
 				if prev, ok := runs[name]; !ok || at.before(prev.at) {
-					runs[name] = functionRun{at: at, sure: site.sure && caller.sure}
+					runs[name] = functionRun{at: at, sure: site.sure && caller.sure && functions[name] == 1}
 					changed = true
 				}
 			}
