@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BackfillOnFailure,
   BackfillPlanSlotAction,
@@ -21,8 +21,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useCanManageProfiles } from '@/contexts/AuthContext';
+import {
+  DAGParamsFields,
+  useDAGParamsForm,
+} from '@/features/dags/components/dag-execution/DAGParamsForm';
 import { useProfiles } from '@/features/dags/hooks/useProfiles';
-import { useClient } from '@/hooks/api';
+import { useClient, useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatRoughDurationMs } from '@/lib/formatDuration';
@@ -56,6 +60,13 @@ type Props = {
 
 /** How long the options rest before the plan is asked for again. */
 const REPLAN_DELAY_MS = 400;
+
+/** The DAG's details are read once each time the panel opens. */
+const READ_ON_OPEN = {
+  revalidateOnFocus: false,
+  revalidateIfStale: true,
+  refreshInterval: 0,
+} as const;
 
 const RERUNS: readonly BackfillRerun[] = [
   BackfillRerun.none,
@@ -126,7 +137,8 @@ function messageOf(error: unknown, fallback: string): string {
  * it offers what to run with the count each choice runs; slots picked one by
  * one run as they are. Redoing slots that succeeded needs a confirmation
  * that names how many. A plan that changed in the meantime is shown instead
- * of starting.
+ * of starting. The DAG's params form sends params only once one is changed,
+ * so each run otherwise takes its schedule's params, defaults, and evals.
  */
 export function StartBackfillDialog({
   fileName,
@@ -151,7 +163,13 @@ export function StartBackfillDialog({
   const [rerun, setRerun] = useState(BackfillRerun.none);
   const [concurrency, setConcurrency] = useState(1);
   const [onFailure, setOnFailure] = useState(BackfillOnFailure.stop);
-  const [params, setParams] = useState('');
+  const { data: details } = useQuery(
+    '/dags/{fileName}',
+    open ? { params: { path: { fileName }, query: { remoteNode } } } : null,
+    READ_ON_OPEN
+  );
+  const paramsForm = useDAGParamsForm(details?.dag, open);
+  const params = paramsForm.serialize(true);
   // The plan and count of succeeded slots a confirmation was given for: a
   // plan that runs other slots asks again.
   const [confirmedRedo, setConfirmedRedo] = useState<string | null>(null);
@@ -162,6 +180,11 @@ export function StartBackfillDialog({
   const [stale, setStale] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A message below a long form is scrolled into view when it appears.
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [error]);
   const validConcurrency = Number.isInteger(concurrency) && concurrency >= 1;
   const named = chosen?.kind === 'slots';
   // The target as text, so that a new object with the same slots plans
@@ -257,6 +280,13 @@ export function StartBackfillDialog({
 
   const start = async () => {
     if (!plan || !chosen) return;
+    // Params left as they were are not sent: each run then takes its
+    // schedule's params, defaults, and evals, which the form cannot check.
+    if (params && !paramsForm.validate()) {
+      setShowOptions(true);
+      setError(ts('Fix the highlighted params before starting.'));
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -297,7 +327,7 @@ export function StartBackfillDialog({
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="sm:max-w-[540px]">
+      <DialogContent className="max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-[540px]">
         <DialogHeader>
           <DialogTitle>{ts('Backfill')}</DialogTitle>
           <DialogDescription>
@@ -309,7 +339,7 @@ export function StartBackfillDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 text-sm">
+        <div className="-mx-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-1 text-sm">
           {pickRange && (
             <BackfillRangePicker
               fileName={fileName}
@@ -372,86 +402,86 @@ export function StartBackfillDialog({
               </span>
             )}
           </button>
-          {showOptions && (
-            <div className="flex flex-col gap-4 border-l pl-4">
-              <label className="flex flex-col gap-1">
-                <span className="font-medium">{ts('Runs at once')}</span>
-                <Input
-                  type="number"
-                  min={1}
-                  className="w-28"
-                  value={Number.isNaN(concurrency) ? '' : concurrency}
-                  onChange={(event) =>
-                    setConcurrency(Number.parseInt(event.target.value, 10))
-                  }
-                />
-                {plan && (
-                  <span className="text-xs text-muted-foreground">
-                    {ts('The queue runs {limit} at a time.', {
-                      limit: plan.queueLimit,
-                    })}
-                  </span>
-                )}
-              </label>
-
-              <fieldset className="flex flex-col gap-1.5">
-                <legend className="mb-1 font-medium">
-                  {ts('After a slot fails')}
-                </legend>
-                {[
-                  {
-                    value: BackfillOnFailure.stop,
-                    label: 'Stop: for loads that build on the slot before',
-                  },
-                  {
-                    value: BackfillOnFailure.continue,
-                    label:
-                      'Continue: for slots that do not depend on each other',
-                  },
-                ].map((option) => (
-                  <label
-                    key={option.value}
-                    className="flex cursor-pointer items-center gap-2"
-                  >
-                    <input
-                      type="radio"
-                      name="backfill-start-on-failure"
-                      checked={onFailure === option.value}
-                      onChange={() => setOnFailure(option.value)}
-                    />
-                    {ts(option.label)}
-                  </label>
-                ))}
-              </fieldset>
-
-              <label className="flex flex-col gap-1">
-                <span className="font-medium">{ts('Params')}</span>
-                <Input
-                  value={params}
-                  placeholder={ts("The DAG's defaults")}
-                  onChange={(event) => setParams(event.target.value)}
-                />
-              </label>
-
-              {activeProfiles.length > 0 && (
-                <label className="flex flex-col gap-1">
-                  <span className="font-medium">{ts('Profile')}</span>
-                  <select
-                    className="h-8 w-56 rounded-md border bg-background px-2"
-                    value={profile}
-                    onChange={(event) => setProfile(event.target.value)}
-                  >
-                    <option value="">{ts("The DAG's default profile")}</option>
-                    {activeProfiles.map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+          {/* Folded options stay mounted, so the params form keeps checking
+              the values it holds. */}
+          <div
+            className="flex flex-col gap-4 border-l pl-4"
+            hidden={!showOptions}
+          >
+            <label className="flex flex-col gap-1">
+              <span className="font-medium">{ts('Runs at once')}</span>
+              <Input
+                type="number"
+                min={1}
+                className="w-28"
+                value={Number.isNaN(concurrency) ? '' : concurrency}
+                onChange={(event) =>
+                  setConcurrency(Number.parseInt(event.target.value, 10))
+                }
+              />
+              {plan && (
+                <span className="text-xs text-muted-foreground">
+                  {ts('The queue runs {limit} at a time.', {
+                    limit: plan.queueLimit,
+                  })}
+                </span>
               )}
-            </div>
-          )}
+            </label>
+
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="mb-1 font-medium">
+                {ts('After a slot fails')}
+              </legend>
+              {[
+                {
+                  value: BackfillOnFailure.stop,
+                  label: 'Stop: for loads that build on the slot before',
+                },
+                {
+                  value: BackfillOnFailure.continue,
+                  label: 'Continue: for slots that do not depend on each other',
+                },
+              ].map((option) => (
+                <label
+                  key={option.value}
+                  className="flex cursor-pointer items-center gap-2"
+                >
+                  <input
+                    type="radio"
+                    name="backfill-start-on-failure"
+                    checked={onFailure === option.value}
+                    onChange={() => setOnFailure(option.value)}
+                  />
+                  {ts(option.label)}
+                </label>
+              ))}
+            </fieldset>
+
+            {paramsForm.count > 0 && (
+              <fieldset className="flex flex-col gap-3">
+                <legend className="mb-1 font-medium">{ts('Params')}</legend>
+                <DAGParamsFields form={paramsForm} disabled={submitting} />
+              </fieldset>
+            )}
+
+            {activeProfiles.length > 0 && (
+              <label className="flex flex-col gap-1">
+                <span className="font-medium">{ts('Profile')}</span>
+                <select
+                  className="h-8 w-56 rounded-md border bg-background px-2"
+                  value={profile}
+                  onChange={(event) => setProfile(event.target.value)}
+                >
+                  <option value="">{ts("The DAG's default profile")}</option>
+                  {activeProfiles.map((item) => (
+                    <option key={item.name} value={item.name}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
 
           <div className="rounded-md border bg-muted/30 px-3 py-2">
             {!plan ? (
@@ -537,7 +567,7 @@ export function StartBackfillDialog({
             </p>
           )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p ref={errorRef} role="alert" className="text-sm text-destructive">
               {error}
             </p>
           )}

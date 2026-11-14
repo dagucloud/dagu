@@ -262,6 +262,34 @@ steps:
 	assert.Equal(t, "Region the instances are launched in.", *def.Description)
 }
 
+// A param with an eval is marked computed, so start forms leave it unset
+// and its default stays the fallback for an eval that fails.
+func TestDAGDetailsComputedParam(t *testing.T) {
+	server := test.SetupServer(t)
+	definition := `params:
+  - name: region
+    default: us
+  - name: stamp
+    eval: "` + "`date +%s`" + `"
+    default: fallback
+steps:
+  - command: echo ${stamp}
+`
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "param_computed", Spec: &definition,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var details api.GetDAGDetails200JSONResponse
+	server.Client().Get("/api/v1/dags/param_computed").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	require.NotNil(t, details.Dag.ParamDefs)
+	require.Len(t, *details.Dag.ParamDefs, 2)
+	assert.Nil(t, (*details.Dag.ParamDefs)[0].Computed)
+	stamp := (*details.Dag.ParamDefs)[1]
+	require.NotNil(t, stamp.Computed)
+	assert.True(t, *stamp.Computed)
+}
+
 func TestDAGSpecWarnings(t *testing.T) {
 	server := test.SetupServer(t)
 	for _, tc := range []struct {

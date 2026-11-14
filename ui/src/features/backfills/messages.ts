@@ -122,7 +122,8 @@ export const backfillMessages = defineMessages({
     'Runs the past slots of the range, oldest first.':
       'Runs the past slots of the range, oldest first.',
     'What to run': 'What to run',
-    "The DAG's defaults": "The DAG's defaults",
+    'Fix the highlighted params before starting.':
+      'Fix the highlighted params before starting.',
     'Nothing to run: every slot is done or held.':
       'Nothing to run: every slot is done or held.',
     'Slots {from} to {to}': 'Slots {from} to {to}',
@@ -259,7 +260,7 @@ export const backfillMessages = defineMessages({
     'Runs the past slots of the range, oldest first.':
       '从最早的开始，运行该范围内过去的时段。',
     'What to run': '运行内容',
-    "The DAG's defaults": 'DAG 的默认值',
+    'Fix the highlighted params before starting.': '请先修正标出的参数再开始。',
     'Nothing to run: every slot is done or held.':
       '没有要运行的内容：所有时段均已完成或被占用。',
     'Slots {from} to {to}': '时段 {from} 至 {to}',
@@ -397,7 +398,8 @@ export const backfillMessages = defineMessages({
     'Runs the past slots of the range, oldest first.':
       '範囲内の過去のスロットを古い順に実行します。',
     'What to run': '実行するもの',
-    "The DAG's defaults": 'DAG の既定値',
+    'Fix the highlighted params before starting.':
+      '開始する前に、示されたパラメーターを直してください。',
     'Nothing to run: every slot is done or held.':
       '実行するものはありません: すべてのスロットが完了済みか保留中です。',
     'Slots {from} to {to}': 'スロット {from} から {to}',

@@ -1026,6 +1026,9 @@ func toParamDefs(defs []ir.ParamDef) []api.ParamDef {
 				paramDef.Default = &value
 			}
 		}
+		if def.Eval != "" {
+			paramDef.Computed = ptrOf(true)
+		}
 		if def.Title != "" {
 			paramDef.Title = ptrOf(def.Title)
 		}
