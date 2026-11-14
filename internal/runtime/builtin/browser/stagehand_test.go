@@ -2698,11 +2698,12 @@ func TestStagehandLaunchLeavesABrowserThatTookItsPort(t *testing.T) {
 		err    error
 	}
 	started := make(chan other, 1)
+	otherProfile := t.TempDir()
 	go func() {
 		// The wrapper waits for the go file even when the race cannot be set
 		// up, so the launch ends and the test reports why.
 		defer func() { _ = os.WriteFile(wrapper+".go", nil, 0o600) }()
-		cdpURL, err := startBrowserOnRacedPort(t, path, wrapper+".port")
+		cdpURL, err := startBrowserOnRacedPort(t.Context(), path, wrapper+".port", otherProfile)
 		started <- other{cdpURL: cdpURL, err: err}
 	}()
 
@@ -2719,40 +2720,48 @@ func TestStagehandLaunchLeavesABrowserThatTookItsPort(t *testing.T) {
 	assert.NoError(t, err, "the browser that took the port still runs")
 }
 
-// startBrowserOnRacedPort waits for portFile, starts a browser of its own on
-// the port it names, and returns that browser's CDP URL once it answers.
-func startBrowserOnRacedPort(t *testing.T, path, portFile string) (string, error) {
-	deadline := time.Now().Add(time.Minute)
+// racedBrowserStartLimit only guards against a browser that hangs. A loaded
+// CI host can take long to start one.
+const racedBrowserStartLimit = 2 * time.Minute
+
+// startBrowserOnRacedPort waits for portFile, starts a browser on profile at
+// the port it names, and returns that browser's CDP URL once it answers. The
+// wait for portFile lasts as long as ctx, as the launch can first wait for
+// other tests' browsers to start. The browser ends with ctx.
+func startBrowserOnRacedPort(ctx context.Context, path, portFile, profile string) (string, error) {
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
 	var port string
 	for {
-		data, err := os.ReadFile(portFile) //nolint:gosec // test-owned file
-		if err == nil {
+		if data, err := os.ReadFile(portFile); err == nil { //nolint:gosec // test-owned file
 			port = strings.TrimSpace(string(data))
 			break
 		}
-		if time.Now().After(deadline) {
-			return "", fmt.Errorf("the launch never reported its port: %w", err)
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("the launch never reported its port: %w", ctx.Err())
+		case <-tick.C:
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-	cmd := exec.Command(path, "--headless", "--no-sandbox", "--no-first-run", "--no-default-browser-check", //nolint:gosec // test Chrome
+	cmd := exec.CommandContext(ctx, path, "--headless", "--no-sandbox", "--no-first-run", "--no-default-browser-check", //nolint:gosec // test Chrome
 		"--remote-allow-origins=*", "--password-store=basic", "--use-mock-keychain",
-		"--remote-debugging-port="+port, "--user-data-dir="+t.TempDir(), "about:blank")
+		"--remote-debugging-port="+port, "--user-data-dir="+profile, "about:blank")
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
+	go func() { _ = cmd.Wait() }()
 	cdpURL := "http://127.0.0.1:" + port
+	limit := time.After(racedBrowserStartLimit)
 	for {
-		if _, err := browserhost.BrowserVersion(t.Context(), cdpURL); err == nil {
+		if _, err := browserhost.BrowserVersion(ctx, cdpURL); err == nil {
 			return cdpURL, nil
 		}
-		if time.Now().After(deadline) {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-limit:
 			return "", errors.New("the browser on the raced port never answered")
+		case <-tick.C:
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
