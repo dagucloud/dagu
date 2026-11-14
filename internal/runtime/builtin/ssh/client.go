@@ -363,7 +363,7 @@ func keySigner(ctx context.Context, auth ir.SSHAuth, prefix string) (ssh.Signer,
 		if err != nil {
 			return nil, err
 		}
-		signer, err := parseSigner([]byte(pem), passphrase)
+		signer, err := cachedSigner(ctx, []byte(pem), passphrase)
 		if err != nil {
 			return nil, fmt.Errorf("%skey: secret %q: %w", prefix, auth.KeySecret, secretKeyError(err))
 		}
@@ -378,11 +378,20 @@ func keySigner(ctx context.Context, auth ir.SSHAuth, prefix string) (ssh.Signer,
 	if err != nil {
 		return nil, fmt.Errorf("failed to load SSH key from %s: %w", resolvedPath, err)
 	}
-	signer, err := parseSigner(pem, passphrase)
+	signer, err := cachedSigner(ctx, pem, passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load SSH key from %s: %w", resolvedPath, err)
 	}
 	return signer, nil
+}
+
+// cachedSigner parses a private key once per run (see WithSecretValues), or
+// on every call outside a run.
+func cachedSigner(ctx context.Context, pem []byte, passphrase string) (ssh.Signer, error) {
+	if creds := credentialsFromContext(ctx); creds != nil {
+		return creds.signers.signer(pem, passphrase, parseSigner)
+	}
+	return parseSigner(pem, passphrase)
 }
 
 // parseSigner parses a private key. The passphrase is used only when the key

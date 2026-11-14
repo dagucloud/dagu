@@ -689,6 +689,18 @@ func TestMatchGlob(t *testing.T) {
 		{"test{name}", "test{name}", true},
 		{"test|name", "test|name", true},
 		{"test\\name", "test\\name", true},
+
+		// A * that must give characters back to a later literal
+		{"a*b*c", "axxbyyc", true},
+		{"a*b*c", "axxbyy", false},
+		{"*a*", "bab", true},
+		{"*/bar/*", "foo/bar/baz", true},
+		{"**", "x", true},
+		{"a*", "", false},
+
+		// ? matches one character, not one byte
+		{"caf?", "café", true},
+		{"?", "é", true},
 	}
 
 	for _, tt := range tests {
