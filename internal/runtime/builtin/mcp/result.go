@@ -5,9 +5,11 @@ package mcp
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"io"
 	"net/url"
+	"slices"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -72,10 +74,8 @@ func writeJSON(w io.Writer, v any) error {
 // redactor masks header values, and the credential part of scheme-prefixed
 // values such as "Bearer <token>", at any length. URL query values are masked
 // only above minQuerySecretLen to avoid hitting ubiquitous short substrings.
-type redactor struct {
-	headers []string
-	query   []string
-}
+// Secrets are applied longest first so a short secret cannot split a longer one.
+type redactor []string
 
 const minQuerySecretLen = 4
 
@@ -85,28 +85,28 @@ func newRedactor(headers map[string]string, rawURL string) redactor {
 		if v == "" {
 			continue
 		}
-		r.headers = append(r.headers, v)
+		r = append(r, v)
 		if _, rest, ok := strings.Cut(v, " "); ok && rest != "" {
-			r.headers = append(r.headers, rest)
+			r = append(r, rest)
 		}
 	}
 	if u, err := url.Parse(rawURL); err == nil {
 		for _, vals := range u.Query() {
 			for _, v := range vals {
 				if len(v) >= minQuerySecretLen {
-					r.query = append(r.query, v)
+					r = append(r, v)
 				}
 			}
 		}
 	}
+	slices.SortFunc(r, func(a, b string) int {
+		return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(a, b))
+	})
 	return r
 }
 
 func (r redactor) apply(s string) string {
-	for _, secret := range r.headers {
-		s = strings.ReplaceAll(s, secret, "***")
-	}
-	for _, secret := range r.query {
+	for _, secret := range r {
 		s = strings.ReplaceAll(s, secret, "***")
 	}
 	return s

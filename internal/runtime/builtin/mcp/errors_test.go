@@ -223,3 +223,13 @@ func TestLargeIntegerArgumentsKeepPrecision(t *testing.T) {
 	_, err = newCaller(t.Context(), ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "mcp", Config: f.cfg("echo", map[string]any{"arguments": `{"a":1} {"b":2}`})}})
 	assert.Error(t, err)
 }
+
+func TestRedactorOverlappingSecrets(t *testing.T) {
+	t.Parallel()
+	headers := map[string]string{"X-Tenant": "acme", "Authorization": "Bearer acme_live_0123456789abcdef"}
+	for range 50 {
+		r := newRedactor(headers, "https://h/mcp?k=acme_live")
+		got := r.apply("a acme_live_0123456789abcdef b acme c Bearer acme_live_0123456789abcdef")
+		assert.Equal(t, "a *** b *** c ***", got)
+	}
+}
