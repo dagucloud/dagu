@@ -131,6 +131,12 @@ type UpdateStatus struct {
 	RestartRequired bool
 	// RestartCommand restarts the installer-managed service; empty when none is found.
 	RestartCommand string
+	// RestartStopsRuns reports that restarting the installer-managed service
+	// also ends runs in progress.
+	RestartStopsRuns bool
+	// RestartCanKeepRuns reports that the service can be reconfigured so a
+	// restart leaves runs in progress running.
+	RestartCanKeepRuns bool
 }
 
 type funcsConfig struct {

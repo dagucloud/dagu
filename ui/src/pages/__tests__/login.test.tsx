@@ -63,6 +63,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     upgradeCommand: '',
     restartRequired: false,
     restartCommand: '',
+    restartStopsRuns: false,
+    restartCanKeepRuns: false,
     permissions: { writeDags: false, runDags: false },
     license: {
       valid: true,

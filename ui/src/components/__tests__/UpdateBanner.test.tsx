@@ -11,6 +11,8 @@ const updateConfig = {
   upgradeCommand: 'dagu upgrade',
   restartRequired: false,
   restartCommand: '',
+  restartStopsRuns: false,
+  restartCanKeepRuns: false,
 } satisfies Partial<Config>;
 
 // The banner reads only the update fields, so the rest of Config is omitted.
@@ -73,6 +75,41 @@ describe('UpdateBanner', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('sudo systemctl restart dagu')).toBeInTheDocument();
     expect(screen.queryByText('dagu upgrade')).not.toBeInTheDocument();
+    expect(screen.queryByText(/ends runs in progress/)).not.toBeInTheDocument();
+  });
+
+  it('warns that the restart ends runs and links how to keep them', () => {
+    renderBanner({
+      restartRequired: true,
+      restartCommand: 'sudo systemctl restart dagu',
+      restartStopsRuns: true,
+      restartCanKeepRuns: true,
+    });
+
+    expect(
+      screen.getByText(/The restart also ends runs in progress/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Keep them running' })
+    ).toHaveAttribute(
+      'href',
+      'https://docs.dagu.sh/server-admin/upgrades#keep-runs-across-restarts'
+    );
+  });
+
+  it('warns without a link when the service cannot keep runs', () => {
+    renderBanner({
+      restartRequired: true,
+      restartCommand: 'Restart-Service Dagu',
+      restartStopsRuns: true,
+    });
+
+    expect(
+      screen.getByText(/The restart also ends runs in progress/)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Keep them running' })
+    ).not.toBeInTheDocument();
   });
 
   it('asks for a restart without a command when no service is known', () => {

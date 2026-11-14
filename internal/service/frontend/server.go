@@ -778,7 +778,6 @@ type updateChecker struct {
 	store          upgrade.CacheStore // nil when update checks are disabled
 	binary         *upgrade.RunningBinary
 	upgradeCommand string
-	restartCommand string
 }
 
 func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChecker {
@@ -790,7 +789,6 @@ func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChec
 		store:          store,
 		binary:         binary,
 		upgradeCommand: upgrade.DetectInstallMethod().UpgradeCommand(),
-		restartCommand: upgrade.RestartCommand(),
 	}
 }
 
@@ -798,7 +796,15 @@ func (u *updateChecker) UpdateStatus() UpdateStatus {
 	status := UpdateStatus{
 		UpgradeCommand:  u.upgradeCommand,
 		RestartRequired: u.binary != nil && u.binary.Replaced(),
-		RestartCommand:  u.restartCommand,
+	}
+	// The service is read only once a restart is due, so the notice reflects
+	// changes made to it after the upgrade, such as keeping runs.
+	if status.RestartRequired {
+		if service := upgrade.DetectService(); service != nil {
+			status.RestartCommand = service.RestartCommand
+			status.RestartStopsRuns = service.StopsRuns
+			status.RestartCanKeepRuns = service.KeepRunsCommand != ""
+		}
 	}
 	if u.store == nil {
 		return status

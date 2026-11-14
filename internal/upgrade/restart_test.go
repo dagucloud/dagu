@@ -82,82 +82,42 @@ func TestRunningBinaryReplacedMissingFile(t *testing.T) {
 	assert.False(t, binary.Replaced())
 }
 
-func TestRestartCommand(t *testing.T) {
+func TestFormatRestartHint(t *testing.T) {
 	tests := []struct {
-		name       string
-		goos       string
-		definition func(execDir, homeDir, systemUnitDir string) string
-		want       string
+		name    string
+		service *Service
+		want    string
 	}{
 		{
-			name: "macOS launch agent",
-			goos: "darwin",
-			definition: func(_, homeDir, _ string) string {
-				return filepath.Join(homeDir, "Library", "LaunchAgents", "local.dagu.server.plist")
-			},
-			want: "launchctl kickstart -k gui/$(id -u)/local.dagu.server",
+			name:    "no service",
+			service: nil,
+			want:    "Restart any running Dagu processes to use the new version.\n",
 		},
 		{
-			name: "Linux system unit",
-			goos: "linux",
-			definition: func(_, _, systemUnitDir string) string {
-				return filepath.Join(systemUnitDir, "dagu.service")
-			},
-			want: "sudo systemctl restart dagu",
+			name:    "restart keeps runs",
+			service: &Service{RestartCommand: "sudo systemctl restart dagu"},
+			want:    "Restart Dagu to use the new version:\n  sudo systemctl restart dagu\n",
 		},
 		{
-			name: "Linux user unit",
-			goos: "linux",
-			definition: func(_, homeDir, _ string) string {
-				return filepath.Join(homeDir, ".config", "systemd", "user", "dagu.service")
+			name: "restart ends runs and can be reconfigured",
+			service: &Service{
+				RestartCommand:  "sudo systemctl restart dagu",
+				StopsRuns:       true,
+				KeepRunsCommand: "keep-runs",
 			},
-			want: "systemctl --user restart dagu",
+			want: "Restart Dagu to use the new version:\n  sudo systemctl restart dagu\n" +
+				"\nThe restart also ends runs in progress. To keep them running, first run:\n  keep-runs\n",
 		},
 		{
-			name: "Windows service wrapper",
-			goos: "windows",
-			definition: func(execDir, _, _ string) string {
-				return filepath.Join(execDir, "dagu-service.xml")
-			},
-			want: "Restart-Service Dagu",
-		},
-		{
-			name: "definition from another platform",
-			goos: "linux",
-			definition: func(_, homeDir, _ string) string {
-				return filepath.Join(homeDir, "Library", "LaunchAgents", "local.dagu.server.plist")
-			},
-			want: "",
-		},
-		{
-			name:       "no service installed",
-			goos:       "darwin",
-			definition: nil,
-			want:       "",
+			name:    "restart ends runs",
+			service: &Service{RestartCommand: "Restart-Service Dagu", StopsRuns: true},
+			want: "Restart Dagu to use the new version:\n  Restart-Service Dagu\n" +
+				"\nThe restart also ends runs in progress.\n",
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			execDir, homeDir, systemUnitDir := t.TempDir(), t.TempDir(), t.TempDir()
-			if tt.definition != nil {
-				path := tt.definition(execDir, homeDir, systemUnitDir)
-				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-				require.NoError(t, os.WriteFile(path, nil, 0o600))
-			}
-
-			assert.Equal(t, tt.want, restartCommand(tt.goos, execDir, homeDir, systemUnitDir))
+			assert.Equal(t, tt.want, FormatRestartHint(tt.service))
 		})
 	}
-}
-
-func TestFormatRestartHint(t *testing.T) {
-	assert.Equal(t,
-		"Restart Dagu to use the new version:\n  sudo systemctl restart dagu\n",
-		FormatRestartHint("sudo systemctl restart dagu"),
-	)
-	assert.Equal(t,
-		"Restart any running Dagu processes to use the new version.\n",
-		FormatRestartHint(""),
-	)
 }

@@ -1684,6 +1684,8 @@ EnvironmentFile=${SERVICE_ENV_FILE}
 EnvironmentFile=-${SERVICE_BOOTSTRAP_FILE}
 Restart=always
 RestartSec=10
+# Stop only Dagu itself, so runs in progress keep going across restarts.
+KillMode=process
 EOF
     if [[ "$SERVICE_SCOPE" == "system" ]]; then
         cat >>"${tmp}" <<EOF

@@ -69,6 +69,8 @@ export type Config = {
   upgradeCommand: string;
   restartRequired: boolean;
   restartCommand: string;
+  restartStopsRuns: boolean;
+  restartCanKeepRuns: boolean;
   permissions: {
     writeDags: boolean;
     runDags: boolean;
