@@ -1440,6 +1440,47 @@ func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) erro
 	return nil
 }
 
+// A DAG's details give the latest span whose slots the scheduler recorded
+// as missed, which the DAG's page offers to backfill.
+func TestDAGDetailsMissedSlots(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t)
+	dag := helper.DAG(t, `
+name: missed-slots-dag
+schedule: "0 * * * *"
+steps:
+  - run: echo hi
+`)
+	from := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	state := &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
+		dag.Name: {Missed: &schedulerstate.MissedGap{
+			From: from, To: from.Add(12 * time.Hour), Reason: schedulerstate.GapSuspended, Slots: 12,
+		}},
+	}}
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+		localapi.WithSchedulerStateStore(stubSchedulerStateStore{state: state}),
+	)
+
+	respObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: dag.FileName()})
+	require.NoError(t, err)
+	resp, ok := respObj.(api.GetDAGDetails200JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, &api.MissedSlots{
+		From: from, To: from.Add(12 * time.Hour), Reason: api.MissedSlotsReasonSuspended, Slots: 12,
+	}, resp.MissedSlots)
+}
+
 func TestListDAGsDataPreservesNextRunAcrossSSEPath(t *testing.T) {
 	t.Parallel()
 

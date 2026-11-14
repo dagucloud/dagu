@@ -19,11 +19,18 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 vi.mock('../DAGSlotsView', () => ({
   DAGSlotsView: () => <section aria-label="Slots" />,
 }));
+vi.mock('../StartBackfillDialog', () => ({
+  StartBackfillDialog: ({ target }: { target: unknown }) => (
+    <div role="dialog" aria-label="Backfill">
+      {JSON.stringify(target)}
+    </div>
+  ),
+}));
 
-function renderTab(canExecute: boolean, cache = new Map()) {
+function renderTab(canExecute: boolean, cache = new Map(), url = '/dags/etl') {
   return render(
     <SWRConfig value={{ provider: () => cache }}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[url]}>
         <DAGBackfillsTab dagName="etl" fileName="etl" canExecute={canExecute} />
       </MemoryRouter>
     </SWRConfig>
@@ -44,6 +51,29 @@ describe('DAGBackfillsTab', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'backfills unavailable'
     );
+  });
+
+  // The notice of missed slots links the tab with the gap to backfill.
+  it('opens the start panel on a gap the link names', () => {
+    renderTab(
+      true,
+      new Map(),
+      '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z'
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Backfill' })).toHaveTextContent(
+      '{"kind":"range","from":"2026-11-01T09:00:00Z","to":"2026-11-01T21:00:00Z"}'
+    );
+  });
+
+  it('opens no start panel for a user who may not run the workflow', () => {
+    renderTab(
+      false,
+      new Map(),
+      '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z'
+    );
+
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('points a user who may run the workflow to the slots', async () => {

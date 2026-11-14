@@ -1039,6 +1039,8 @@ paths:
                     $ref: "#/components/schemas/DAGRunDetails"
                   latestBackfill:
                     $ref: "#/components/schemas/LatestBackfill"
+                  missedSlots:
+                    $ref: "#/components/schemas/MissedSlots"
                   suspended:
                     type: boolean
                     description: "Whether the DAG is suspended"
@@ -14067,6 +14069,32 @@ components:
         - slots
         - done
         - failed
+
+    MissedSlots:
+      type: object
+      description: "The latest span whose start-schedule slots passed without a run, as the scheduler recorded it"
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          description: "Why the slots did not run: the DAG was suspended, the scheduler paused, or no scheduler ran"
+          enum:
+            - "suspended"
+            - "paused"
+            - "down"
+        slots:
+          type: integer
+          description: "Slots that passed, up to 10,000"
+      required:
+        - from
+        - to
+        - reason
+        - slots
 
     BackfillStatus:
       type: string

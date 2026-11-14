@@ -96,6 +96,12 @@ export const backfillMessages = defineMessages({
     'About {duration}': 'About {duration}',
     'Backfill running: {done} of {total} slots done':
       'Backfill running: {done} of {total} slots done',
+    '{count} slots passed while this DAG was suspended':
+      '{count} slots passed while this DAG was suspended',
+    '{count} slots passed while the scheduler was paused':
+      '{count} slots passed while the scheduler was paused',
+    '{count} slots passed while the scheduler was down':
+      '{count} slots passed while the scheduler was down',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'Backfill running: {done} of {total} slots done, {failed} failed',
     'Backfill failed: {failed} slots did not succeed':
@@ -239,6 +245,12 @@ export const backfillMessages = defineMessages({
     'About {duration}': '约 {duration}',
     'Backfill running: {done} of {total} slots done':
       '回填运行中：{total} 个时段中已完成 {done} 个',
+    '{count} slots passed while this DAG was suspended':
+      'DAG 暂停期间错过了 {count} 个时段',
+    '{count} slots passed while the scheduler was paused':
+      '调度器暂停期间错过了 {count} 个时段',
+    '{count} slots passed while the scheduler was down':
+      '调度器停止期间错过了 {count} 个时段',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       '回填运行中：{total} 个时段中已完成 {done} 个，{failed} 个失败',
     'Backfill failed: {failed} slots did not succeed':
@@ -380,6 +392,12 @@ export const backfillMessages = defineMessages({
     'About {duration}': '約 {duration}',
     'Backfill running: {done} of {total} slots done':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了',
+    '{count} slots passed while this DAG was suspended':
+      'DAG の一時停止中に {count} スロットが過ぎました',
+    '{count} slots passed while the scheduler was paused':
+      'スケジューラーの一時停止中に {count} スロットが過ぎました',
+    '{count} slots passed while the scheduler was down':
+      'スケジューラーの停止中に {count} スロットが過ぎました',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了、{failed} 件が失敗',
     'Backfill failed: {failed} slots did not succeed':

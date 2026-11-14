@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import { useMonitoringOfferState } from '@/components/MonitoringOffer';
 import { useBackfillNotice } from '@/features/backfills/hooks/useBackfillNotice';
+import { useMissedSlotsNotice } from '@/features/backfills/hooks/useMissedSlotsNotice';
 import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -74,6 +75,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { dismiss: dismissOffer } = offer;
   const waitingSubRun = useWaitingSubRun();
   const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
+  const missedSlotsNotice = useMissedSlotsNotice(dagData.missedSlots);
 
   return useMemo(() => {
     const notices: WorkspaceNotice[] = [];
@@ -164,6 +166,9 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     if (backfillNotice) {
       notices.push(backfillNotice);
     }
+    if (missedSlotsNotice) {
+      notices.push(missedSlotsNotice);
+    }
     if (offerVisible) {
       notices.push({
         id: 'monitoring-offer',
@@ -194,6 +199,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     waitingSubRun,
     newerRunActive,
     backfillNotice,
+    missedSlotsNotice,
     offerVisible,
   ]);
 }
