@@ -5,10 +5,7 @@ package value
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
-
-	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
 // resolver provides unified variable resolution across explicit variable maps,
@@ -217,11 +214,8 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 		return "", false
 	}
 	value, ok := resolveJSONPath(ctx, varName, jsonStr, path)
-	// A path reads only the part of the variable it selects, which masking
-	// changed only where it holds the mask. Masking can leave the text no
-	// longer JSON, so a path that fails on such text may read the mask.
-	if strings.Contains(value, masking.DefaultMaskString) ||
-		(!ok && strings.Contains(jsonStr, masking.DefaultMaskString) && !json.Valid([]byte(jsonStr))) {
+	// A path reads only the part of the variable it selects.
+	if readsMask(jsonStr, value, ok) {
 		r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
 	}
 	return value, ok

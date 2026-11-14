@@ -25,9 +25,9 @@ func TestMaskedRead(t *testing.T) {
 			Output:          &captured,
 			Outputs:         &published,
 			DeclaredOutputs: &published,
-			Masked:          StepMasks{AllOutput: true, Outputs: []string{"token"}},
+			Masked:          StepMasks{Output: true, Outputs: true},
 		},
-		"config": {Output: &config, Masked: StepMasks{Output: []string{"token"}}},
+		"config": {Output: &config, Masked: StepMasks{Output: true}},
 	}
 	restored := NewEnvScope(nil, false).
 		WithStepOutputs(map[string]string{
@@ -64,9 +64,10 @@ func TestMaskedRead(t *testing.T) {
 		{name: "unmasked field of a captured object in brackets", raw: `deploy ${config.output["region"]}`, field: workflow},
 		{name: "published output", raw: "deploy ${fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked published output", raw: "deploy ${fetch.outputs.region}", field: workflow},
-		{name: "published output in brackets", raw: `deploy ${fetch.outputs["token"]}`, field: workflow, want: "token"},
+		{name: "published output in brackets", raw: `deploy ${fetch.outputs["token"]}`, field: workflow, want: "outputs"},
 		{name: "unmasked published output in brackets", raw: `deploy ${fetch.outputs["region"]}`, field: workflow},
 		{name: "published output by a quoted name", raw: `deploy ${fetch.outputs."token"}`, field: workflow, want: "token"},
+		{name: "published output by an optional path", raw: `deploy ${fetch.outputs.token?}`, field: workflow, want: "token"},
 		{name: "unmasked published output by a quoted name", raw: `deploy ${fetch.outputs."region"}`, field: workflow},
 		{name: "declared output", raw: "deploy ${steps.fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked declared output", raw: "deploy ${steps.fetch.outputs.region}", field: workflow},

@@ -25,7 +25,17 @@ type StepInfo struct {
 	Masked StepMasks
 }
 
+// resolveDeclaredStepOutput resolves a published output of a step and records
+// a read of the mask.
 func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
+	value, ok := declaredStepOutputValue(ctx, stepName, outputName, stepMap)
+	if info := stepMap[stepName]; info.Masked.Outputs && info.DeclaredOutputs != nil && readsMask(*info.DeclaredOutputs, value, ok) {
+		maskedReadsFrom(ctx).note(stepName, outputName)
+	}
+	return value, ok
+}
+
+func declaredStepOutputValue(ctx context.Context, stepName, outputName string, stepMap map[string]StepInfo) (string, bool) {
 	stepInfo, ok := stepMap[stepName]
 	if !ok {
 		logger.Debug(ctx, "Step not found in stepMap", tag.Step(stepName))
@@ -34,9 +44,6 @@ func resolveDeclaredStepOutput(ctx context.Context, stepName, outputName string,
 	if stepInfo.DeclaredOutputs == nil {
 		logger.Debug(ctx, "Step has no declared outputs published", tag.Step(stepName))
 		return "", false
-	}
-	if stepInfo.Masked.field(outputName) {
-		maskedReadsFrom(ctx).note(stepName, outputName)
 	}
 	raw, ok := parseJSONValue(ctx, stepName, *stepInfo.DeclaredOutputs)
 	if !ok {
@@ -68,15 +75,21 @@ func jqPath(path string) string {
 	return path
 }
 
-// resolveStepProperty extracts a step's property value with optional slicing.
+// resolveStepProperty extracts a step's property value with optional slicing
+// and records a read of the mask.
 func resolveStepProperty(ctx context.Context, stepName, path string, stepMap map[string]StepInfo) (string, bool) {
+	value, ok := stepPropertyValue(ctx, stepName, path, stepMap)
+	if text, output, masked := stepMap[stepName].maskedText(path); masked && readsMask(text, value, ok) {
+		maskedReadsFrom(ctx).note(stepName, output)
+	}
+	return value, ok
+}
+
+func stepPropertyValue(ctx context.Context, stepName, path string, stepMap map[string]StepInfo) (string, bool) {
 	stepInfo, ok := stepMap[stepName]
 	if !ok {
 		logger.Debug(ctx, "Step not found in stepMap", tag.Step(stepName))
 		return "", false
-	}
-	if output, masked := stepInfo.Masked.path(path); masked {
-		maskedReadsFrom(ctx).note(stepName, output)
 	}
 
 	if strings.HasPrefix(path, ".output.") || strings.HasPrefix(path, ".output[") {

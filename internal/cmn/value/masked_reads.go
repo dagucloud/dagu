@@ -5,27 +5,22 @@ package value
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
-// StepMasks names the outputs of a step that were restored with a secret
+// StepMasks marks the outputs of a step that were restored with a secret
 // masked. Their original values are gone, so a read gets starred text.
 type StepMasks struct {
-	// Output names the masked top-level fields of StepInfo.Output, a JSON
-	// object.
-	Output []string
-	// AllOutput marks all of StepInfo.Output.
-	AllOutput bool
-	// Outputs names the masked top-level fields of StepInfo.Outputs and
-	// StepInfo.DeclaredOutputs.
-	Outputs []string
-	// AllOutputs marks every field of StepInfo.Outputs and
-	// StepInfo.DeclaredOutputs.
-	AllOutputs bool
+	// Output marks StepInfo.Output.
+	Output bool
+	// Outputs marks StepInfo.Outputs and StepInfo.DeclaredOutputs.
+	Outputs bool
 }
 
 // MaskedReadError reports a read of an output that was restored with a
@@ -136,58 +131,37 @@ func (m *maskedReads) noteEntry(entry EnvEntry) {
 	}
 }
 
-// path returns the output that a step property path, such as ".output" or
-// ".outputs.token", reads, and whether masking changed it.
-func (s StepMasks) path(path string) (string, bool) {
+// maskedText returns the stored text that a step property path, such as
+// ".output" or ".outputs.token", reads, the output to name for it, and
+// whether a restore brought that text back masked.
+func (s StepInfo) maskedText(path string) (text, output string, masked bool) {
 	field, ok := stepTextPathField(path)
-	if field == "" {
-		field = bracketField(path)
-	}
-	field = unquoteField(field)
 	switch {
 	case !ok:
-		return "", false
-	case !strings.HasPrefix(path, ".outputs"):
-		if field == "" {
-			return "output", s.AllOutput || len(s.Output) > 0
+		return "", "", false
+	case strings.HasPrefix(path, ".outputs"):
+		if !s.Masked.Outputs || s.Outputs == nil {
+			return "", "", false
 		}
-		return field, s.AllOutput || slices.Contains(s.Output, field)
-	case field == "":
-		return "outputs", s.AllOutputs || len(s.Outputs) > 0
+		text, output = *s.Outputs, "outputs"
 	default:
-		return field, s.field(field)
+		if !s.Masked.Output || s.Output == nil {
+			return "", "", false
+		}
+		text, output = *s.Output, "output"
 	}
+	if field = strings.Trim(field, `"'?`); field != "" {
+		output = field
+	}
+	return text, output, true
 }
 
-// bracketField returns the top-level field a step property path selects in
-// brackets, such as region in .outputs["region"], or "" when it selects none
-// by name.
-func bracketField(path string) string {
-	rest, ok := strings.CutPrefix(path, ".outputs")
-	if !ok {
-		rest = strings.TrimPrefix(path, ".output")
+// readsMask reports whether resolving a reference into masked text read the
+// mask: the value it resolved holds it, or the reference failed on text that
+// masking left no longer JSON.
+func readsMask(text, value string, ok bool) bool {
+	if !strings.Contains(text, masking.DefaultMaskString) {
+		return false
 	}
-	inner, ok := strings.CutPrefix(rest, "[")
-	if !ok {
-		return ""
-	}
-	inner, _, ok = strings.Cut(inner, "]")
-	if !ok || unquoteField(inner) == inner {
-		return ""
-	}
-	return unquoteField(inner)
-}
-
-// unquoteField returns a field name a path writes in quotes, such as "token",
-// without them.
-func unquoteField(name string) string {
-	if len(name) >= 2 && (name[0] == '"' || name[0] == '\'') && name[len(name)-1] == name[0] {
-		return name[1 : len(name)-1]
-	}
-	return name
-}
-
-// field reports whether masking changed the named published output.
-func (s StepMasks) field(name string) bool {
-	return s.AllOutputs || slices.Contains(s.Outputs, name)
+	return strings.Contains(value, masking.DefaultMaskString) || (!ok && !json.Valid([]byte(text)))
 }

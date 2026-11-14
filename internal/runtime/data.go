@@ -4,7 +4,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -452,62 +450,29 @@ func (d *Data) StepInfo() cmnvalue.StepInfo {
 	if d.inner.State.OutputValue != nil {
 		value := *d.inner.State.OutputValue
 		info.Output = &value
-		if masked.HasCaptured() {
-			info.Masked.Output, info.Masked.AllOutput = maskedFields(value)
-		}
+		info.Masked.Output = masked.HasCaptured()
 	}
 
 	// Backward-compatible fallback for previously persisted string-form outputs.
 	if info.Output == nil {
 		if value, ok := d.inner.StringFormOutputValue(); ok {
 			info.Output = &value
-			if masked.HasVariable(d.inner.Step.Output) {
-				info.Masked.Output, info.Masked.AllOutput = maskedFields(value)
-			}
+			info.Masked.Output = masked.HasVariable(d.inner.Step.Output)
 		}
 	}
 	if d.inner.State.StepOutputsValue != nil {
 		value := *d.inner.State.StepOutputsValue
 		info.Outputs = &value
 		info.DeclaredOutputs = &value
-		if masked != nil {
-			info.Masked.Outputs = masked.Published
-			info.Masked.AllOutputs = masked.AllPublished
-		}
+		info.Masked.Outputs = masked != nil && (masked.AllPublished || len(masked.Published) > 0)
 	}
 	if info.Outputs == nil && d.inner.State.OutputsValue != nil {
 		value := *d.inner.State.OutputsValue
 		info.Outputs = &value
-		if masked.HasCaptured() {
-			info.Masked.Outputs, info.Masked.AllOutputs = maskedFields(value)
-		}
+		info.Masked.Outputs = masked.HasCaptured()
 	}
 
 	return info
-}
-
-// maskedFields returns the top-level fields of masked text, a JSON object,
-// that hold the mask, which is where masking changed it. Other text that
-// holds the mask, or an object that holds it only outside its values, is
-// masked as a whole; text without the mask is not masked.
-func maskedFields(text string) ([]string, bool) {
-	if !strings.Contains(text, masking.DefaultMaskString) {
-		return nil, false
-	}
-	var object map[string]json.RawMessage
-	if json.Unmarshal([]byte(text), &object) != nil {
-		return nil, true
-	}
-	var names []string
-	for name, raw := range object {
-		if bytes.Contains(raw, []byte(masking.DefaultMaskString)) {
-			names = append(names, name)
-		}
-	}
-	if len(names) == 0 {
-		return nil, true
-	}
-	return names, false
 }
 
 // OutputsValueMap returns the step's published outputs as name and value
