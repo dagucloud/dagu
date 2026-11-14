@@ -92,17 +92,17 @@ func (s *Store) Create(_ context.Context, record *backfill.Record) error {
 	if err := fileutil.WriteFileAtomic(filepath.Join(s.dagDir(record.DAGName), record.ID), nil, filePerms); err != nil {
 		return fmt.Errorf("backfill store: list %s with its DAG: %w", record.ID, err)
 	}
-	if record.Open() {
-		if err := s.writeSummary(openSummary(record)); err != nil {
-			return err
-		}
-	}
 	err = fileutil.WriteFileAtomicExclusive(s.recordPath(record.ID), data, filePerms)
 	if errors.Is(err, os.ErrExist) {
 		return backfill.ErrExists
 	}
 	if err != nil {
 		return fmt.Errorf("backfill store: write %s: %w", record.ID, err)
+	}
+	// The summary follows the record, so a taken ID leaves the summary of
+	// the backfill that has it. The dispatcher writes a missing one.
+	if record.Open() {
+		return s.writeSummary(openSummary(record))
 	}
 	return nil
 }
@@ -245,17 +245,27 @@ func (s *Store) End(ctx context.Context, id string, status backfill.Status, at t
 	if err != nil {
 		return fmt.Errorf("backfill store: encode %s: %w", id, err)
 	}
+	// The summary ends first: while the record is still open, the next
+	// tick ends it again.
+	if err := s.endSummary(ctx, record); err != nil {
+		return err
+	}
 	if err := fileutil.WriteFileAtomic(s.recordPath(id), data, filePerms); err != nil {
 		return fmt.Errorf("backfill store: write %s: %w", id, err)
 	}
 	if err := os.Remove(s.openPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("backfill store: clear the open mark of %s: %w", id, err)
 	}
-	if status != backfill.StatusFailed {
-		return s.ClearSummary(ctx, id)
+	return nil
+}
+
+// endSummary keeps the summary of a backfill that ended failed, with the
+// counts its dispatcher saved last, and removes that of any other end.
+func (s *Store) endSummary(ctx context.Context, record *backfill.Record) error {
+	if record.Status != backfill.StatusFailed {
+		return s.ClearSummary(ctx, record.ID)
 	}
-	// A failed backfill keeps the counts its dispatcher saved last.
-	summary, err := s.readSummary(id)
+	summary, err := s.readSummary(record.ID)
 	if errors.Is(err, os.ErrNotExist) {
 		summary = openSummary(record)
 	} else if err != nil {
@@ -274,10 +284,6 @@ func (s *Store) Update(ctx context.Context, record *backfill.Record) error {
 		if err := fileutil.WriteFileAtomic(s.openPath(record.ID), nil, filePerms); err != nil {
 			return fmt.Errorf("backfill store: mark %s open: %w", record.ID, err)
 		}
-		// The dispatcher counts the slots of the reopened backfill again.
-		if err := s.writeSummary(openSummary(record)); err != nil {
-			return err
-		}
 	}
 	data, err := json.Marshal(record)
 	if err != nil {
@@ -285,6 +291,12 @@ func (s *Store) Update(ctx context.Context, record *backfill.Record) error {
 	}
 	if err := fileutil.WriteFileAtomic(s.recordPath(record.ID), data, filePerms); err != nil {
 		return fmt.Errorf("backfill store: write %s: %w", record.ID, err)
+	}
+	// The dispatcher counts the slots of a reopened backfill again. The
+	// summary follows the record, so a failed write leaves the summary of
+	// the record as it was; the dispatcher writes a missing one.
+	if record.Open() {
+		return s.writeSummary(openSummary(record))
 	}
 	return nil
 }
