@@ -107,9 +107,11 @@ type Scheduler struct {
 	wakeHold            wakeHold // The hold on the ticks after the host wakes (wake_hold.go)
 	eventCollector      func(context.Context)
 	notificationMonitor *chatbridge.NotificationMonitor
-	incidentMonitor     *chatbridge.NotificationMonitor
-	publicWebhooks      *publicwebhook.Service
-	folderWatcher       *folderWatcher // Starts runs for files arriving in watched folders
+	// backfillNotifier sends the summary of each backfill that ends.
+	backfillNotifier backfillNotifier
+	incidentMonitor  *chatbridge.NotificationMonitor
+	publicWebhooks   *publicwebhook.Service
+	folderWatcher    *folderWatcher // Starts runs for files arriving in watched folders
 }
 
 type schedulerHooks struct {
@@ -198,6 +200,10 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.backfills = scheduler.newBackfillDispatcher(deps.BackfillStore)
 	if scheduler.backfills != nil {
 		scheduler.planner.cfg.BackfillGuard = scheduler.guardCatchupSlot
+		if deps.NotificationStore != nil {
+			scheduler.backfillNotifier = newNotificationService(cfg, deps.NotificationStore, deps.DAGRepository, deps.DAGRunRepository)
+			scheduler.backfills.Ended = scheduler.notifyBackfillEnded
+		}
 	}
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)

@@ -35,6 +35,7 @@ type BackfillSummary struct {
 	SucceededSlots int           `json:"succeededSlots"`
 	FailedSlots    int           `json:"failedSlots"`
 	SkippedSlots   int           `json:"skippedSlots"`
+	NotRunSlots    int           `json:"notRunSlots"`
 	Duration       time.Duration `json:"-"`
 	// Failures groups the failed slots by how their runs failed, the
 	// largest group first.
@@ -98,6 +99,7 @@ func backfillSummaryText(summary BackfillSummary, publicURL string) (string, str
 		{summary.SucceededSlots, "succeeded"},
 		{summary.FailedSlots, "failed"},
 		{summary.SkippedSlots, "skipped"},
+		{summary.NotRunSlots, "not run"},
 	} {
 		if part.n > 0 {
 			counts = append(counts, fmt.Sprintf("%d %s", part.n, part.word))
@@ -186,8 +188,11 @@ func (s *Service) deliverBackfillSummary(ctx context.Context, target notificatio
 		return s.sendSummaryWebhook(ctx, target, summary, text)
 	case notificationmodel.ProviderEmail:
 		return s.sendSummaryEmail(ctx, target, title, text)
-	default:
+	case notificationmodel.ProviderCommand:
+		// A command runs with the values of one run, which a summary has not.
 		return nil
+	default:
+		return notificationmodel.ErrUnsupportedTarget
 	}
 }
 

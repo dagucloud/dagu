@@ -121,7 +121,7 @@ func TestService_SendBackfillSummaryWebhook(t *testing.T) {
 	assert.JSONEq(t, `{
 		"type": "backfill.ended",
 		"backfill": {"id": "bf123456", "dag": "daily-report", "succeeded": true, "slots": 3,
-			"succeededSlots": 3, "failedSlots": 0, "skippedSlots": 0, "durationSeconds": 90},
+			"succeededSlots": 3, "failedSlots": 0, "skippedSlots": 0, "notRunSlots": 0, "durationSeconds": 90},
 		"message": "Backfill bf123456 of daily-report succeeded: 3 slots, 3 succeeded, in 2m\n"
 	}`, got)
 }
