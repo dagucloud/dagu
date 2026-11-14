@@ -595,6 +595,7 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
+		SkipDirs:  skipDirectories(l.v.Get("dag_discovery.skip_directories")),
 	}
 
 	if err := setTimezone(&cfg.Core); err != nil {
@@ -2310,6 +2311,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("skip_examples", false)
 	l.v.SetDefault("dag_discovery.recursive", false)
 	l.v.SetDefault("dag_discovery.symlinks", false)
+	l.v.SetDefault("dag_discovery.skip_directories", []string{})
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
 	l.v.SetDefault("paths.log_dir", paths.LogsDir)
@@ -2444,6 +2446,7 @@ var envBindings = []envBinding{
 	{key: "skip_examples", env: "SKIP_EXAMPLES"},
 	{key: "dag_discovery.recursive", env: "DAG_DISCOVERY_RECURSIVE"},
 	{key: "dag_discovery.symlinks", env: "DAG_DISCOVERY_SYMLINKS"},
+	{key: "dag_discovery.skip_directories", env: "DAG_DISCOVERY_SKIP_DIRECTORIES"},
 	{key: "env_passthrough", env: "ENV_PASSTHROUGH"},
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
@@ -2793,4 +2796,14 @@ func getHomeDir() (string, error) {
 		return "", fmt.Errorf("could not determine home directory: %w", err)
 	}
 	return dir, nil
+}
+
+// skipDirectories reads dag_discovery.skip_directories as directory names,
+// so "./jobs" and "jobs/" name the jobs directory.
+func skipDirectories(input any) []string {
+	dirs := parseStringList(input)
+	for i, dir := range dirs {
+		dirs[i] = filepath.Clean(dir)
+	}
+	return dirs
 }

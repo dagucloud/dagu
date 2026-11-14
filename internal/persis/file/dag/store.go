@@ -53,6 +53,7 @@ type Options struct {
 	SkipExamples           bool                     // Skip creating example DAGs
 	Recursive              bool                     // Discover DAG definitions in subdirectories
 	Symlinks               bool                     // Include recursive file symlinks and external targets
+	SkipDirs               []string                 // Root-level directories recursive discovery omits
 	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	legacyFlagsBaseDir     string
 	indexDir               string
@@ -69,6 +70,13 @@ func WithRecursiveDiscovery(recursive bool) Option {
 func WithSymlinks(enabled bool) Option {
 	return func(o *Options) {
 		o.Symlinks = enabled
+	}
+}
+
+// WithSkipDirs sets the root-level directories recursive discovery omits.
+func WithSkipDirs(dirs []string) Option {
+	return func(o *Options) {
+		o.SkipDirs = dirs
 	}
 }
 
@@ -177,6 +185,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 		skipExamples:           options.SkipExamples,
 		recursive:              options.Recursive,
 		symlinks:               options.Symlinks,
+		skipDirs:               options.SkipDirs,
 		skipDirectoryCreation:  options.SkipDirectoryCreation,
 	}
 }
@@ -198,6 +207,7 @@ type Store struct {
 	skipExamples           bool                     // Skip creating example DAGs
 	recursive              bool                     // Discover DAG definitions in subdirectories
 	symlinks               bool                     // Include recursive file symlinks and external targets
+	skipDirs               []string                 // Root-level directories recursive discovery omits
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
@@ -893,6 +903,7 @@ func (store *Store) stemExists(name, exceptPath string) bool {
 	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: true,
 		Symlinks:  store.symlinks,
+		SkipDirs:  store.skipDirs,
 	})
 	if err != nil {
 		return false

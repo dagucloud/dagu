@@ -59,6 +59,24 @@ dag_discovery:
 		assert.True(t, cfg.DAGDiscovery.Recursive)
 		assert.True(t, cfg.DAGDiscovery.Symlinks)
 	})
+
+	t.Run("SkipDirectories", func(t *testing.T) {
+		t.Run("YAML", func(t *testing.T) {
+			cfg := loadFromYAML(t, `
+dag_discovery:
+  recursive: true
+  skip_directories:
+    - jobs
+    - builds
+`)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
+		})
+		t.Run("Environment", func(t *testing.T) {
+			t.Setenv("DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES", "./jobs, builds/")
+			cfg := testLoad(t)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
+		})
+	})
 }
 
 func preserveTZEnv(t *testing.T) {

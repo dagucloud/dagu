@@ -883,6 +883,13 @@
           "type": "boolean",
           "description": "Include file symlinks in recursive DAG discovery and allow file symlinks whose targets are outside the configured DAG directory.",
           "default": false
+        },
+        "skip_directories": {
+          "type": "array",
+          "description": "Names of directories directly under the DAG directory that recursive discovery skips. Their DAGs are not listed, scheduled, or watched, but stay loadable by path.",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

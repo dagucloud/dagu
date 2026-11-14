@@ -142,8 +142,9 @@ type BrowserTrustedCADef struct {
 
 // DAGDiscoveryDef configures DAG definition discovery.
 type DAGDiscoveryDef struct {
-	Recursive *bool `mapstructure:"recursive"`
-	Symlinks  *bool `mapstructure:"symlinks"`
+	Recursive *bool    `mapstructure:"recursive"`
+	Symlinks  *bool    `mapstructure:"symlinks"`
+	SkipDirs  []string `mapstructure:"skip_directories"`
 }
 
 // -----------------------------------------------------------------------------

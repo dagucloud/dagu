@@ -25,6 +25,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 	scan, err := Discover(store.baseDir, DiscoveryOptions{
 		Recursive: store.recursive,
 		Symlinks:  store.symlinks,
+		SkipDirs:  store.skipDirs,
 	})
 	if err != nil {
 		return nil, err
@@ -45,6 +46,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 			altScan, err := Discover(searchPath, DiscoveryOptions{
 				Recursive: store.recursive,
 				Symlinks:  store.symlinks,
+				SkipDirs:  store.skipDirs,
 			})
 			if err != nil {
 				return nil, err

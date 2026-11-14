@@ -161,6 +161,8 @@ func (c BrowserClientCertificate) Validate() error {
 type DAGDiscoveryConfig struct {
 	Recursive bool
 	Symlinks  bool
+	// SkipDirs names root-level directories recursive discovery omits.
+	SkipDirs []string
 }
 
 const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024

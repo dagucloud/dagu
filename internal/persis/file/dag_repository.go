@@ -93,6 +93,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithSkipExamples(skipExamples),
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
 		filedag.WithSymlinks(options.Symlinks),
+		filedag.WithSkipDirs(cfg.DAGDiscovery.SkipDirs),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 	)
 	if err := dagStore.Initialize(); err != nil {
