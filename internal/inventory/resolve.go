@@ -23,6 +23,10 @@ const (
 	// MaxNameLength is the longest inventory name, in characters.
 	MaxNameLength = 200
 
+	// maxNodeNameLength keeps a node name short enough to name the file of
+	// its trusted host key, with room for a temporary file's suffix.
+	maxNodeNameLength = 200
+
 	defaultPort    = 22
 	defaultTimeout = 30 * time.Second
 	maxHostLength  = 253
@@ -66,7 +70,7 @@ func (e *Error) Unwrap() []error { return []error{ErrInvalid, e.Err} }
 // Resolve checks a project's inventories against every rule and returns their
 // nodes with defaults applied, in name order. It reports every broken rule.
 func Resolve(inventories []Inventory) ([]ResolvedNode, error) {
-	r := resolver{nodeOwners: make(map[string]string)}
+	r := resolver{nodeOwners: make(map[string]nodeOwner)}
 	var nodes []ResolvedNode
 	for _, inv := range inventories {
 		nodes = append(nodes, r.inventory(inv)...)
@@ -84,8 +88,15 @@ type resolver struct {
 	inventoryNames []string
 	// nodeOwners maps a lowercased node name to the inventory that holds it,
 	// so a clash can name the other inventory. Node names are ASCII.
-	nodeOwners map[string]string
-	errs       []error
+	nodeOwners map[string]nodeOwner
+	// position counts the inventories resolved so far.
+	position int
+	errs     []error
+}
+
+type nodeOwner struct {
+	inventory string
+	position  int
 }
 
 func (r *resolver) fail(inv, node, field string, err error) {
@@ -93,6 +104,7 @@ func (r *resolver) fail(inv, node, field string, err error) {
 }
 
 func (r *resolver) inventory(inv Inventory) []ResolvedNode {
+	r.position++
 	name := inv.Name
 	switch {
 	case strings.TrimSpace(name) == "":
@@ -108,20 +120,26 @@ func (r *resolver) inventory(inv Inventory) []ResolvedNode {
 		}
 	}
 
-	defaults, defaultsOK := r.connection(name, "", "defaults.", inv.Defaults.Connection)
-	defaultLabels, labelsOK := r.labels(name, "", "defaults.labels", inv.Defaults.Labels)
+	defaults := r.connection(name, "", "defaults.", inv.Defaults.Connection)
+	defaultLabels := r.labels(name, "", "defaults.labels", inv.Defaults.Labels)
 
+	// A bastion names its node exactly as written. Only the uniqueness of
+	// node names ignores case.
 	local := make(map[string]Node, len(inv.Nodes))
 	for _, n := range inv.Nodes {
 		local[n.Name] = n
 	}
-
-	var nodes []ResolvedNode
-	for _, n := range inv.Nodes {
-		node, ok := r.node(inv, n, local, defaults, defaultLabels)
-		if ok && defaultsOK && labelsOK {
-			nodes = append(nodes, node)
+	// The default bastion is one setting, so it is checked once rather than
+	// for every node that uses it.
+	if b := defaults.Bastion; b != "" {
+		if err := bastionError(local, b, b); err != nil {
+			r.fail(name, "", "defaults.bastion", err)
 		}
+	}
+
+	nodes := make([]ResolvedNode, 0, len(inv.Nodes))
+	for _, n := range inv.Nodes {
+		nodes = append(nodes, r.node(inv, n, local, defaults, defaultLabels))
 	}
 	return nodes
 }
@@ -132,12 +150,9 @@ type resolvedConnection struct {
 	auth ir.SSHAuth
 }
 
-func (r *resolver) connection(inv, node, prefix string, c Connection) (resolvedConnection, bool) {
-	ok := true
-	fail := func(field string, err error) {
-		r.fail(inv, node, prefix+field, err)
-		ok = false
-	}
+func (r *resolver) connection(inv, node, prefix string, c Connection) resolvedConnection {
+	fail := func(field string, err error) { r.fail(inv, node, prefix+field, err) }
+	// Port 0 leaves the port unset, so the default applies.
 	if c.Port < 0 || c.Port > 65535 {
 		fail("port", fmt.Errorf("%d is not between 1 and 65535", c.Port))
 	}
@@ -167,7 +182,7 @@ func (r *resolver) connection(inv, node, prefix string, c Connection) (resolvedC
 	if s, isString := c.Passphrase.(string); isString && s != "" {
 		fail("passphrase", errors.New(`takes only {"secret": <ref>}`))
 	}
-	return resolvedConnection{Connection: c, auth: auth}, ok
+	return resolvedConnection{Connection: c, auth: auth}
 }
 
 type fieldError struct {
@@ -201,38 +216,38 @@ func credentialErrors(err error) []fieldError {
 	return out
 }
 
-func (r *resolver) labels(inv, node, field string, raw []string) (ir.Labels, bool) {
-	ok := true
+func (r *resolver) labels(inv, node, field string, raw []string) ir.Labels {
 	labels := make(ir.Labels, 0, len(raw))
 	for _, s := range raw {
 		label := ir.ParseLabel(s)
 		if err := ir.ValidateLabel(label); err != nil {
 			r.fail(inv, node, field, err)
-			ok = false
 			continue
 		}
 		labels = append(labels, label)
 	}
-	return labels, ok
+	return labels
 }
 
-func (r *resolver) node(inv Inventory, n Node, local map[string]Node, defaults resolvedConnection, defaultLabels ir.Labels) (ResolvedNode, bool) {
-	ok := true
-	fail := func(field string, err error) {
-		r.fail(inv.Name, n.Name, field, err)
-		ok = false
-	}
+func (r *resolver) node(inv Inventory, n Node, local map[string]Node, defaults resolvedConnection, defaultLabels ir.Labels) ResolvedNode {
+	fail := func(field string, err error) { r.fail(inv.Name, n.Name, field, err) }
 
-	if !nodeNamePattern.MatchString(n.Name) {
+	switch {
+	case !nodeNamePattern.MatchString(n.Name):
 		fail("name", fmt.Errorf("%q must match %s", n.Name, nodeNamePattern))
-	} else {
+	case len(n.Name) > maxNodeNameLength:
+		fail("name", fmt.Errorf("is longer than %d characters", maxNodeNameLength))
+	default:
 		// Names are compared without case, since trusted host keys are stored
 		// by node name and some file systems ignore case.
 		folded := strings.ToLower(n.Name)
-		if other, dup := r.nodeOwners[folded]; dup {
-			fail("name", fmt.Errorf("is also a node of inventory %q", other))
-		} else {
-			r.nodeOwners[folded] = inv.Name
+		switch owner, dup := r.nodeOwners[folded]; {
+		case !dup:
+			r.nodeOwners[folded] = nodeOwner{inventory: inv.Name, position: r.position}
+		case owner.position == r.position:
+			fail("name", errors.New("is also the name of another node of this inventory"))
+		default:
+			fail("name", fmt.Errorf("is also a node of inventory %q", owner.inventory))
 		}
 	}
 	switch {
@@ -242,23 +257,22 @@ func (r *resolver) node(inv Inventory, n Node, local map[string]Node, defaults r
 		fail("host", fmt.Errorf("%q is not a DNS name, an IPv4 address, or an IPv6 address", n.Host))
 	}
 
-	own, connOK := r.connection(inv.Name, n.Name, "", n.Connection)
-	labels, labelsOK := r.labels(inv.Name, n.Name, "labels", n.Labels)
-	ok = ok && connOK && labelsOK
+	own := r.connection(inv.Name, n.Name, "", n.Connection)
+	labels := r.labels(inv.Name, n.Name, "labels", n.Labels)
 
 	c := merge(defaults, own)
-	// A node is never its own bastion, even through the defaults.
-	if c.Bastion == n.Name && n.Bastion == "" {
-		c.Bastion = ""
-	}
-	if c.Bastion != "" {
-		switch hop, found := local[c.Bastion]; {
-		case !found:
-			fail("bastion", fmt.Errorf("%q is not a node of this inventory", c.Bastion))
-		case c.Bastion == n.Name:
-			fail("bastion", errors.New("names the node itself"))
-		case hop.Bastion != "" || (defaults.Bastion != "" && defaults.Bastion != hop.Name):
-			fail("bastion", fmt.Errorf("%q connects through a bastion itself; only one hop is allowed", c.Bastion))
+	switch n.Bastion {
+	case "":
+		// The default bastion was checked with the defaults. A node is never
+		// its own bastion.
+		if c.Bastion == n.Name {
+			c.Bastion = ""
+		}
+	case n.Name:
+		fail("bastion", errors.New("names the node itself"))
+	default:
+		if err := bastionError(local, defaults.Bastion, n.Bastion); err != nil {
+			fail("bastion", err)
 		}
 	}
 
@@ -282,7 +296,21 @@ func (r *resolver) node(inv Inventory, n Node, local map[string]Node, defaults r
 		Labels:        mergeLabels(defaultLabels, labels),
 		Description:   n.Description,
 		Disabled:      n.Disabled,
-	}, ok
+	}
+}
+
+// bastionError reports why bastion cannot be a hop in its inventory, given
+// the inventory's default bastion. A bastion must connect directly.
+func bastionError(local map[string]Node, defaultBastion, bastion string) error {
+	hop, found := local[bastion]
+	if !found {
+		return fmt.Errorf("%q is not a node of this inventory", bastion)
+	}
+	// The hop uses its own bastion, or the default one unless that is itself.
+	if hop.Bastion != "" || (defaultBastion != "" && defaultBastion != hop.Name) {
+		return fmt.Errorf("%q connects through a bastion itself; only one hop is allowed", bastion)
+	}
+	return nil
 }
 
 // merge applies a node's own connection fields over the defaults. Credentials

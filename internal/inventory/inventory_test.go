@@ -105,6 +105,8 @@ func TestResolveRejects(t *testing.T) {
 		{"InventoryNameClashIgnoresCase", `[{"name": "Tokyo"}, {"name": "TOKYO"}]`, `inventory "TOKYO": name: is also the name of inventory "Tokyo"`},
 		{"InventoryNameClashIgnoresUnicodeCase", `[{"name": "Σ"}, {"name": "ς"}]`, `inventory "ς": name: is also the name of inventory "Σ"`},
 		{"NodeName", `[{"name": "a", "nodes": [{"name": "-web", "host": "h"}]}]`, `inventory "a": node "-web": name: "-web" must match`},
+		{"NodeNameTooLong", `[{"name": "a", "nodes": [{"name": "` + strings.Repeat("n", 201) + `", "host": "h"}]}]`, `": name: is longer than 200 characters`},
+		{"NodeNameClashInOneInventory", `[{"name": "a", "nodes": [{"name": "web", "host": "h"}, {"name": "Web", "host": "h"}]}]`, `inventory "a": node "Web": name: is also the name of another node of this inventory`},
 		{"NodeNameClashAcrossInventories", `[{"name": "a", "nodes": [{"name": "web", "host": "h"}]}, {"name": "b", "nodes": [{"name": "WEB", "host": "h"}]}]`, `inventory "b": node "WEB": name: is also a node of inventory "a"`},
 		{"HostRequired", `[{"name": "a", "nodes": [{"name": "web"}]}]`, `node "web": host: is required`},
 		{"HostNotADNSName", `[{"name": "a", "nodes": [{"name": "web", "host": "web;rm -rf /"}]}]`, `host: "web;rm -rf /" is not a DNS name`},
@@ -120,6 +122,7 @@ func TestResolveRejects(t *testing.T) {
 		{"BastionMissing", `[{"name": "a", "nodes": [{"name": "web", "host": "h", "bastion": "jump"}]}]`, `bastion: "jump" is not a node of this inventory`},
 		{"BastionInOtherInventory", `[{"name": "a", "nodes": [{"name": "jump", "host": "h"}]}, {"name": "b", "nodes": [{"name": "web", "host": "h", "bastion": "jump"}]}]`, `inventory "b": node "web": bastion: "jump" is not a node of this inventory`},
 		{"BastionItself", `[{"name": "a", "nodes": [{"name": "web", "host": "h", "bastion": "web"}]}]`, "bastion: names the node itself"},
+		{"DefaultBastionTwoHops", `[{"name": "a", "defaults": {"bastion": "jump"}, "nodes": [{"name": "jump", "host": "h", "bastion": "outer"}, {"name": "outer", "host": "h"}]}]`, `inventory "a": defaults.bastion: "jump" connects through a bastion itself`},
 		{"BastionTwoHops", `[{"name": "a", "nodes": [{"name": "web", "host": "h", "bastion": "jump"}, {"name": "jump", "host": "h", "bastion": "outer"}, {"name": "outer", "host": "h"}]}]`, `node "web": bastion: "jump" connects through a bastion itself`},
 	}
 	for _, tt := range tests {
@@ -164,6 +167,20 @@ func TestResolveReportsEveryError(t *testing.T) {
 	assert.Len(t, err.(interface{ Unwrap() []error }).Unwrap(), 4)
 	assert.ErrorContains(t, err, `node "db": key: must be a path`)
 	assert.ErrorContains(t, err, `node "db": password: takes only`)
+}
+
+// A default bastion is one setting, so a broken one is reported once rather
+// than for every node that uses it.
+func TestResolveReportsDefaultBastionOnce(t *testing.T) {
+	t.Parallel()
+
+	list, err := inventory.DecodeList([]byte(`[{"name": "a", "defaults": {"bastion": "jump"}, "nodes": [
+		{"name": "web01", "host": "h"},
+		{"name": "web02", "host": "h"}
+	]}]`))
+	require.NoError(t, err)
+	_, err = inventory.Resolve(list)
+	require.EqualError(t, err, `inventory "a": defaults.bastion: "jump" is not a node of this inventory`)
 }
 
 func TestResolveDefaults(t *testing.T) {

@@ -186,9 +186,10 @@ node, and `password` and `passphrase` take only secret refs.
 
 Rules:
 
-- Node names match `^[A-Za-z0-9][A-Za-z0-9_.-]*$` and are unique across all
-  of a project's inventories. RFC 013's node lists, `${node.name}`, and
-  trusted host keys each name one node.
+- Node names match `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, are at most 200
+  characters, so a trusted host key's file name fits, and are unique across
+  all of a project's inventories, compared without case. RFC 013's node
+  lists, `${node.name}`, and trusted host keys each name one node.
 - Labels follow the rules of DAG labels (`internal/ir/label.go`). Their keys
   and values are lowercased. Fields and labels are separate, so a label may
   have any valid key, including `host` or `name`.
