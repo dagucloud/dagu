@@ -21,7 +21,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const closeTimeout = 5 * time.Second
+var closeTimeout = 5 * time.Second
 
 var _ executor.Executor = (*caller)(nil)
 
@@ -35,7 +35,7 @@ type caller struct {
 }
 
 func newCaller(_ context.Context, step ir.Step) (executor.Executor, error) {
-	cfg, err := decodeConfig(step)
+	cfg, err := decodeConfig(step, false)
 	if err != nil {
 		return nil, err
 	}

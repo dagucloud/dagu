@@ -2,7 +2,6 @@
 # For an authenticated endpoint, add a header that reads a Dagu secret:
 #   headers:
 #     Authorization: Bearer ${FIRECRAWL_API_KEY}
-name: scrape-public-page
 
 params:
   - PAGE_URL: https://example.com
@@ -22,4 +21,6 @@ steps:
 
   - id: consume
     depends: scrape
-    run: echo '${PAGE.content}'
+    env:
+      - CONTENT: ${PAGE.content}
+    run: printf '%s\n' "$CONTENT"

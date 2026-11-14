@@ -4,6 +4,8 @@
 package mcp
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"sync"
 )
@@ -22,11 +24,21 @@ type observingTransport struct {
 }
 
 func (t *observingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
+	ctx := req.Context()
+	cancel := func() {}
+	if req.Method == http.MethodDelete {
+		ctx, cancel = context.WithTimeout(ctx, closeTimeout)
+	}
+	req = req.Clone(ctx)
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
 	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		cancel()
+	} else {
+		resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel}
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch {
@@ -57,4 +69,15 @@ func (t *observingTransport) redirectStatus() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.redir
+}
+
+// cancelBody releases the per-request context when the body is closed.
+type cancelBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
 }

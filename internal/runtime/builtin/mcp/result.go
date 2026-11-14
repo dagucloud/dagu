@@ -98,9 +98,33 @@ func newRedactor(headers map[string]string, rawURL string) redactor {
 
 func (r redactor) apply(s string) string {
 	for _, secret := range r {
+		if len(secret) < minSecretLen {
+			continue
+		}
 		s = strings.ReplaceAll(s, secret, "***")
 	}
 	return s
+}
+
+// minSecretLen avoids masking ubiquitous short substrings.
+const minSecretLen = 4
+
+// walk masks secrets in decoded string values only, so JSON syntax, numbers,
+// booleans and keys are never altered.
+func (r redactor) walk(v any) any {
+	switch t := v.(type) {
+	case string:
+		return r.apply(t)
+	case []any:
+		for i := range t {
+			t[i] = r.walk(t[i])
+		}
+	case map[string]any:
+		for k := range t {
+			t[k] = r.walk(t[k])
+		}
+	}
+	return v
 }
 
 func writeRedacted(w io.Writer, v any, r redactor) error {
@@ -108,6 +132,11 @@ func writeRedacted(w io.Writer, v any, r redactor) error {
 	if err := writeJSON(&buf, v); err != nil {
 		return err
 	}
-	_, err := io.WriteString(w, r.apply(buf.String()))
-	return err
+	dec := json.NewDecoder(&buf)
+	dec.UseNumber()
+	var tree any
+	if err := dec.Decode(&tree); err != nil {
+		return err
+	}
+	return writeJSON(w, r.walk(tree))
 }

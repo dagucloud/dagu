@@ -4,10 +4,15 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -96,4 +101,82 @@ func TestRedactor(t *testing.T) {
 	r := newRedactor(map[string]string{"Authorization": "Bearer abc123", "X-Key": "k-999"}, "")
 	got := r.apply("failed with Bearer abc123 / abc123 / k-999")
 	assert.Equal(t, "failed with *** / *** / ***", got)
+}
+
+func TestRedactorPreservesJSONSyntax(t *testing.T) {
+	t.Parallel()
+	r := newRedactor(map[string]string{"X-Key": `q"u\ote`}, "https://h/mcp?v=1&api_key=longsecret")
+	var buf bytes.Buffer
+	val := map[string]any{"n": 1, "ok": true, "s": `has q"u\ote and longsecret`}
+	require.NoError(t, writeRedacted(&buf, val, r))
+	got := decode(t, buf.String())
+	assert.Equal(t, float64(1), got["n"])
+	assert.Equal(t, true, got["ok"])
+	assert.Equal(t, "has *** and ***", got["s"])
+}
+
+func TestNoRetryWhenResponseDropped(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	var calls atomic.Int32
+	inner := f.srv.Config.Handler
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !bytes.Contains(body, []byte("tools/call")) {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			inner.ServeHTTP(w, r)
+			return
+		}
+		calls.Add(1)
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	})
+
+	_, err := run(t.Context(), t, f.cfg("echo", nil))
+	require.Error(t, err)
+	assert.EqualValues(t, 1, calls.Load())
+}
+
+func TestCloseDoesNotHang(t *testing.T) {
+	old := closeTimeout
+	closeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { closeTimeout = old })
+	f := newFixture(t)
+	var canceled atomic.Bool
+	inner := f.srv.Config.Handler
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			inner.ServeHTTP(w, r)
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			canceled.Store(true)
+		case <-time.After(10 * time.Second):
+		}
+	})
+
+	start := time.Now()
+	_, err := run(t.Context(), t, f.cfg("echo", nil))
+	require.NoError(t, err)
+	assert.Less(t, time.Since(start), 3*time.Second)
+	assert.Eventually(t, canceled.Load, 2*time.Second, 20*time.Millisecond, "DELETE request must be aborted")
+}
+
+func TestArgumentsReference(t *testing.T) {
+	t.Parallel()
+	step := func(args any) ir.Step {
+		return ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "mcp", Config: map[string]any{
+			"url": "http://x", "tool": "t", "arguments": args,
+		}}}
+	}
+	require.NoError(t, validateStep(step("${params.args}")))
+	assert.Error(t, validateStep(step("plain")))
+	cfg, err := decodeConfig(step(`{"a":1}`), false)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"a": float64(1)}, cfg.Arguments)
+	_, err = decodeConfig(step("not json"), false)
+	assert.Error(t, err)
 }

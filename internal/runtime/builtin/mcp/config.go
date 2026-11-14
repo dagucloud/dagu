@@ -4,9 +4,12 @@
 package mcp
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
+	"reflect"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -25,16 +28,38 @@ type config struct {
 	IncludeRaw bool              `mapstructure:"include_raw"`
 }
 
-func decodeConfig(step ir.Step) (config, error) {
+// argumentsHook lets a whole-value reference such as ${params.args} resolve to
+// a JSON object string at runtime.
+func argumentsHook(from, to reflect.Type, data any) (any, error) {
+	str, ok := data.(string)
+	if !ok || from.Kind() != reflect.String || to.Kind() != reflect.Map {
+		return data, nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(str), &obj); err != nil || obj == nil {
+		return nil, errors.New("arguments must be a JSON object")
+	}
+	return obj, nil
+}
+
+// decodeConfig decodes with.*; at load time an unresolved reference in
+// arguments is accepted and checked once resolved at runtime.
+func decodeConfig(step ir.Step, loadTime bool) (config, error) {
 	var cfg config
+	raw := step.ExecutorConfig.Config
+	if args, ok := raw["arguments"].(string); ok && loadTime && strings.Contains(args, "$") {
+		raw = maps.Clone(raw)
+		delete(raw, "arguments")
+	}
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		ErrorUnused: true,
+		DecodeHook:  argumentsHook,
 		Result:      &cfg,
 	})
 	if err != nil {
 		return cfg, err
 	}
-	if err := dec.Decode(step.ExecutorConfig.Config); err != nil {
+	if err := dec.Decode(raw); err != nil {
 		return cfg, fmt.Errorf("mcp.call: invalid with: %w", err)
 	}
 	return cfg, cfg.validate()
@@ -61,7 +86,7 @@ func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
-	_, err := decodeConfig(step)
+	_, err := decodeConfig(step, true)
 	return err
 }
 
@@ -70,9 +95,12 @@ var configSchema = &jsonschema.Schema{
 	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Required:             []string{"url", "tool"},
 	Properties: map[string]*jsonschema.Schema{
-		"url":         {Type: "string", Description: "Streamable HTTP MCP endpoint (http or https). Must not contain credentials."},
-		"tool":        {Type: "string", Description: "Name of the MCP tool to call."},
-		"arguments":   {Type: "object", Description: "JSON arguments passed to the tool.", AdditionalProperties: &jsonschema.Schema{}},
+		"url":  {Type: "string", Description: "Streamable HTTP MCP endpoint (http or https). Must not contain credentials."},
+		"tool": {Type: "string", Description: "Name of the MCP tool to call."},
+		"arguments": {AnyOf: []*jsonschema.Schema{
+			{Type: "object", AdditionalProperties: &jsonschema.Schema{}},
+			{Type: "string", Description: "Whole-value reference resolving to a JSON object."},
+		}, Description: "JSON arguments passed to the tool."},
 		"headers":     {Type: "object", Description: "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}.", AdditionalProperties: &jsonschema.Schema{Type: "string"}},
 		"include_raw": {Type: "boolean", Description: "Also emit the unmodified MCP tool result under raw."},
 	},

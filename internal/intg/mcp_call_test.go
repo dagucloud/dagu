@@ -29,6 +29,13 @@ func newMCPServer(t *testing.T) string {
 				StructuredContent: map[string]any{"pages": 3},
 			}, nil
 		})
+	server.AddTool(&sdk.Tool{Name: "leak", InputSchema: schema},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return &sdk.CallToolResult{
+				Content:           []sdk.Content{&sdk.TextContent{Text: "key " + mcpToken}},
+				StructuredContent: map[string]any{"pages": 3},
+			}, nil
+		})
 	server.AddTool(&sdk.Tool{Name: "explode", InputSchema: schema},
 		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 			return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: "bad"}}}, nil
@@ -92,6 +99,26 @@ func TestMCPCall(t *testing.T) {
 		require.Contains(t, string(log), "# Example")
 		require.Contains(t, string(log), "pages=3 err=false")
 		require.NotContains(t, string(log), mcpToken)
+	})
+
+	t.Run("RedactsTokenFromOutputs", func(t *testing.T) {
+		t.Parallel()
+		th := test.Setup(t)
+		dag := mcpDAG(t, th, newMCPServer(t), "leak")
+
+		dag.Agent().RunSuccess(t)
+
+		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+		require.NoError(t, err)
+		for i, want := range []string{"***", "key ***"} {
+			log, err := os.ReadFile(status.Nodes[i].Stdout)
+			require.NoError(t, err)
+			require.NotContains(t, string(log), mcpToken)
+			require.Contains(t, string(log), want)
+			errLog, err := os.ReadFile(status.Nodes[i].Stderr)
+			require.NoError(t, err)
+			require.NotContains(t, string(errLog), mcpToken)
+		}
 	})
 
 	t.Run("ToolErrorFailsStep", func(t *testing.T) {
