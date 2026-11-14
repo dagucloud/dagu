@@ -80,6 +80,7 @@ export function UpdateBanner() {
           status={upgrade.status}
           latest={config.latestVersion}
           slowRestart={upgrade.slowRestart}
+          retryError={upgrade.requestError}
           onRetry={upgrade.start}
         />
       </BannerFrame>
@@ -223,11 +224,13 @@ function UpgradeProgress({
   status,
   latest,
   slowRestart,
+  retryError,
   onRetry,
 }: {
   status: SelfUpgradeStatus;
   latest: string;
   slowRestart: boolean;
+  retryError: string | null;
   onRetry: () => void;
 }) {
   const version = status.targetVersion ?? latest;
@@ -247,6 +250,14 @@ function UpgradeProgress({
           >
             <I18nText text="Try again" />
           </Button>
+          {retryError && (
+            <span className="ml-2 text-destructive">
+              <I18nTemplate
+                text="The update did not start: {error}"
+                values={{ error: retryError }}
+              />
+            </span>
+          )}
         </>
       );
     case SelfUpgradeState.restarting:

@@ -283,8 +283,16 @@ describe('UpdateBanner', () => {
         await screen.findByText('Update failed: checksum mismatch')
       ).toBeInTheDocument();
 
+      client.POST.mockResolvedValue({
+        error: { message: 'an upgrade is already in progress' },
+      });
       await user.click(screen.getByRole('button', { name: 'Try again' }));
       expect(client.POST).toHaveBeenCalledTimes(2);
+      expect(
+        await screen.findByText(
+          'The update did not start: an upgrade is already in progress'
+        )
+      ).toBeInTheDocument();
     });
 
     it('says why the update did not start', async () => {

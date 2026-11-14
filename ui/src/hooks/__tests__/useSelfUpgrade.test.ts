@@ -89,4 +89,38 @@ describe('useSelfUpgrade', () => {
 
     expect(result.current.status?.downloadedBytes).toBe(60);
   });
+
+  // An install that fails after one missed poll is still reported by the
+  // server that keeps running.
+  it('reports a failure the running server reports while restarting', async () => {
+    const onRestarted = vi.fn();
+    client.POST.mockResolvedValue({
+      data: { available: true, state: 'restarting' },
+    });
+    client.GET.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/health'
+          ? { data: { version: '2.0.0' } }
+          : { data: { available: true, state: 'failed', error: 'disk full' } }
+      )
+    );
+    const { result } = renderHook(() => useSelfUpgrade('2.0.0', onRestarted));
+
+    await act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+
+    expect(result.current.status?.state).toBe('failed');
+    expect(result.current.status?.error).toBe('disk full');
+    expect(onRestarted).not.toHaveBeenCalled();
+  });
+
+  it('reports a start request that cannot reach the server', async () => {
+    client.POST.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { result } = renderHook(() => useSelfUpgrade('2.0.0', vi.fn()));
+
+    await act(() => result.current.start());
+
+    expect(result.current.requestError).toBe('Failed to fetch');
+    expect(result.current.status).toBeNull();
+  });
 });

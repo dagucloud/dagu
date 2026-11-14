@@ -9,6 +9,7 @@
 import * as React from 'react';
 import { SelfUpgradeState, type components } from '@/api/v1/schema';
 import { useClient } from './api';
+import { subscribeClock } from './useClock';
 
 /** How often an upgrade in progress is polled, in milliseconds. */
 const UPGRADE_POLL_INTERVAL = 1000;
@@ -16,6 +17,12 @@ const UPGRADE_POLL_INTERVAL = 1000;
 const RESTART_POLL_INTERVAL = 2000;
 /** How long a restart may take before the UI says it is taking long. */
 const SLOW_RESTART = 120_000;
+/** States a server that still answers can report while the UI waits. */
+const RESUMED_STATES = new Set<SelfUpgradeState>([
+  SelfUpgradeState.downloading,
+  SelfUpgradeState.installing,
+  SelfUpgradeState.failed,
+]);
 
 export type SelfUpgradeStatus = components['schemas']['SelfUpgradeStatus'];
 
@@ -40,14 +47,20 @@ export function useSelfUpgrade(
 
   const start = React.useCallback(async () => {
     setRequestError(null);
-    const { data, error } = await client.POST('/system/upgrade', {
-      params: { query: { remoteNode: 'local' } },
-    });
-    if (error || !data) {
-      setRequestError(error?.message || 'Failed to start the update');
-      return;
+    try {
+      const { data, error } = await client.POST('/system/upgrade', {
+        params: { query: { remoteNode: 'local' } },
+      });
+      if (error || !data) {
+        setRequestError(error?.message || 'Failed to start the update');
+        return;
+      }
+      setStatus(data);
+    } catch (err) {
+      setRequestError(
+        err instanceof Error ? err.message : 'Failed to start the update'
+      );
     }
-    setStatus(data);
   }, [client]);
 
   const state = status?.state;
@@ -76,20 +89,38 @@ export function useSelfUpgrade(
       return () => window.clearTimeout(timer);
     }
     if (state === SelfUpgradeState.restarting) {
-      const slow = window.setTimeout(() => setSlowRestart(true), SLOW_RESTART);
-      const probe = window.setInterval(async () => {
+      // probe asks whether the restarted server is back, and otherwise
+      // whether the server that still answers reports the upgrade failed or
+      // still running, as after one missed poll.
+      const probe = async () => {
         try {
-          const { data } = await client.GET('/health');
-          if (data && data.version !== currentVersion) {
+          const { data: health } = await client.GET('/health');
+          if (health && health.version !== currentVersion) {
             onRestarted();
+            return;
+          }
+          const { data } = await client.GET('/system/upgrade', {
+            params: { query: { remoteNode: 'local' } },
+          });
+          if (data && RESUMED_STATES.has(data.state)) {
+            setStatus(data);
           }
         } catch {
           // The server is still restarting.
         }
-      }, RESTART_POLL_INTERVAL);
+      };
+      let probing = false;
+      const stop = subscribeClock(RESTART_POLL_INTERVAL, () => {
+        if (probing) return;
+        probing = true;
+        void probe().finally(() => {
+          probing = false;
+        });
+      });
+      const slow = window.setTimeout(() => setSlowRestart(true), SLOW_RESTART);
       return () => {
         window.clearTimeout(slow);
-        window.clearInterval(probe);
+        stop();
       };
     }
     return undefined;
