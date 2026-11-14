@@ -48,8 +48,9 @@ type Props = {
   remoteNode: string;
   target: BackfillTarget;
   /**
-   * Lets the user pick the range, starting from target, as when the panel
-   * opens from the Run menu rather than from slots already chosen.
+   * Lets the user pick the range, as when the panel opens from the Run menu
+   * rather than from slots already chosen. A target range with both bounds,
+   * such as a span of missed slots, starts the picker on those bounds.
    */
   pickRange?: boolean;
   open: boolean;
@@ -344,6 +345,9 @@ export function StartBackfillDialog({
             <BackfillRangePicker
               fileName={fileName}
               remoteNode={remoteNode}
+              initial={
+                target.kind === 'range' && target.to ? target : undefined
+              }
               onChange={(next) => {
                 setPicked(next);
                 setConfirmedRedo(null);

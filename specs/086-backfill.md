@@ -245,8 +245,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
 - `GET /api/v1/dags/{fileName}` returns the DAG's latest missed gap as
   `missedSlots`. The DAG's page then says `12 slots passed while this DAG was
   suspended` (or while the scheduler was paused or down), with a Backfill
-  action that opens the start panel on that span. A dismissed gap stays
-  hidden in that browser until another is missed.
+  action that opens the start panel on that span, with its bounds editable,
+  since a span may hold more slots than one backfill may run. A dismissed
+  gap stays hidden in that browser until another is missed.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and
   its explicit params or the first matching recurring schedule's overrides.

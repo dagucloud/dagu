@@ -69,6 +69,48 @@ describe('StartBackfillDialog', () => {
     details.dag = undefined;
   });
 
+  // A missed span opens with its bounds as fire times, sent unchanged until
+  // one is edited.
+  it('starts a picked range on a target with both bounds', async () => {
+    post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
+    render(
+      <StartBackfillDialog
+        fileName="etl"
+        remoteNode="local"
+        target={{
+          kind: 'range',
+          from: '2026-11-01T09:00:00+09:00',
+          to: '2026-11-01T21:00:00+09:00',
+        }}
+        pickRange
+        open
+        onOpenChange={vi.fn()}
+        onStarted={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('radio', { name: 'Fire times' })).toBeChecked();
+    expect(screen.getByLabelText('First fire time')).toHaveValue(
+      '2026-11-01T09:00'
+    );
+    await waitFor(() =>
+      expect(lastBody()).toMatchObject({
+        from: '2026-11-01T09:00:00+09:00',
+        to: '2026-11-01T21:00:00+09:00',
+      })
+    );
+
+    fireEvent.change(screen.getByLabelText('Last fire time'), {
+      target: { value: '2026-11-01T12:00' },
+    });
+    await waitFor(() =>
+      expect(lastBody()).toMatchObject({
+        from: '2026-11-01T09:00:00+09:00',
+        to: '2026-11-01T12:00',
+      })
+    );
+  });
+
   it('offers what to run with counts, and starts the plan shown', async () => {
     post.mockImplementation(
       async (_path: string, { body }: { body: { dryRun: boolean } }) =>

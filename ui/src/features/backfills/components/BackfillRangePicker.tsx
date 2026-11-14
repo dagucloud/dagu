@@ -27,25 +27,39 @@ export function daysBack(days: number): BackfillTarget {
   return { kind: 'range', from: dayjs().subtract(days, 'day').toISOString() };
 }
 
+/** The leading wall time of an RFC 3339 time, as a time input shows it. */
+const WALL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
 /**
- * Picks the range of a backfill started from the Run menu: the last 7 or 30
- * days, since the last success, or fire times typed in. Times typed without
- * an offset are read in the schedule's zone. The DAG's slots are read once,
- * to find the last success, when the panel opens.
+ * A bound as a time input shows it. A bound with an offset shows its wall
+ * time in that offset.
+ */
+function inputValue(bound: string): string {
+  return WALL_TIME.exec(bound)?.[0] ?? bound;
+}
+
+/**
+ * Picks the range of a backfill: the last 7 or 30 days, since the last
+ * success, or fire times typed in. Times typed without an offset are read in
+ * the schedule's zone. A given initial range starts as fire times, and each
+ * of its bounds is kept as given until edited. The DAG's slots are read
+ * once, to find the last success, when the panel opens.
  */
 export function BackfillRangePicker({
   fileName,
   remoteNode,
+  initial,
   onChange,
 }: {
   fileName: string;
   remoteNode: string;
+  initial?: { from: string; to?: string };
   onChange: (target: BackfillTarget | null) => void;
 }) {
   const { ts } = useI18n();
-  const [choice, setChoice] = useState<Choice>('7d');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [choice, setChoice] = useState<Choice>(initial ? 'custom' : '7d');
+  const [from, setFrom] = useState(initial?.from ?? '');
+  const [to, setTo] = useState(initial?.to ?? '');
   const lookback = useMemo(
     () => dayjs().subtract(SUCCESS_LOOKBACK_DAYS, 'day').toISOString(),
     []
@@ -163,7 +177,7 @@ export function BackfillRangePicker({
             type="datetime-local"
             aria-label={ts('First fire time')}
             className="w-52"
-            value={from}
+            value={inputValue(from)}
             onChange={(event) => typed(event.target.value, to)}
           />
           <span aria-hidden="true" className="text-muted-foreground">
@@ -173,7 +187,7 @@ export function BackfillRangePicker({
             type="datetime-local"
             aria-label={ts('Last fire time')}
             className="w-52"
-            value={to}
+            value={inputValue(to)}
             onChange={(event) => typed(from, event.target.value)}
           />
         </div>

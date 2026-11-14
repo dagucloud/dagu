@@ -77,6 +77,8 @@ export function DAGBackfillsTab({
           fileName={fileName}
           remoteNode={remoteNode}
           target={{ kind: 'range', from: gapFrom, to: gapTo }}
+          // A gap may hold more slots than one backfill may run.
+          pickRange
           open
           onOpenChange={(open) => {
             if (!open) closeGap();

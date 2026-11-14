@@ -23,14 +23,20 @@ vi.mock('../StartBackfillDialog', () => ({
   // A start calls onStarted, then closes the panel, as the dialog does.
   StartBackfillDialog: ({
     target,
+    pickRange,
     onStarted,
     onOpenChange,
   }: {
     target: unknown;
+    pickRange?: boolean;
     onStarted: (backfill: { id: string }) => void;
     onOpenChange: (open: boolean) => void;
   }) => (
-    <div role="dialog" aria-label="Backfill">
+    <div
+      role="dialog"
+      aria-label="Backfill"
+      data-pick-range={String(pickRange)}
+    >
       {JSON.stringify(target)}
       <button
         type="button"
@@ -77,7 +83,9 @@ describe('DAGBackfillsTab', () => {
     );
   });
 
-  // The notice of missed slots links the tab with the gap to backfill.
+  // The notice of missed slots links the tab with the gap to backfill. The
+  // range stays editable, since a gap may hold more slots than one backfill
+  // may run.
   it('opens the start panel on a gap the link names', () => {
     renderTab(
       true,
@@ -85,9 +93,11 @@ describe('DAGBackfillsTab', () => {
       '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z'
     );
 
-    expect(screen.getByRole('dialog', { name: 'Backfill' })).toHaveTextContent(
+    const dialog = screen.getByRole('dialog', { name: 'Backfill' });
+    expect(dialog).toHaveTextContent(
       '{"kind":"range","from":"2026-11-01T09:00:00Z","to":"2026-11-01T21:00:00Z"}'
     );
+    expect(dialog).toHaveAttribute('data-pick-range', 'true');
   });
 
   // Closing the panel after a start keeps the backfill's page open.
