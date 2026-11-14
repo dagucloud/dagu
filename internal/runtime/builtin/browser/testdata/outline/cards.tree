@@ -11,3 +11,6 @@
       [0-30] heading: 資料請求のご案内
         [0-31] StaticText: 資料請求のご案内
         [0-32] button: 資料を請求する
+      [0-40] heading: Home
+        [0-41] group
+          [0-42] link: Home

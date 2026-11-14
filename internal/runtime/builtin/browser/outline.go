@@ -298,7 +298,7 @@ func (b outlineBuilder) heading(n *outlineNode) *outlineEntry {
 	if len(controls) > 0 {
 		shape += shapeOf(controls)
 	}
-	if links := descendants(n, "link"); len(controls) == 1 && len(links) == 1 && links[0].name == n.name {
+	if links := descendants(n, "link"); len(controls) == 1 && controls[0].shape == "link" && len(links) == 1 && links[0].name == n.name {
 		return &outlineEntry{line: "heading " + controls[0].line, shape: shape}
 	}
 	return &outlineEntry{line: "heading: " + clip(n.name, outlineTextRunes), shape: shape, children: controls}

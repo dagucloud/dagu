@@ -84,7 +84,10 @@ text: 4,280万円
 heading [0-21] link "ライオンズマンション本町" -> https://homes.example.com/ms/chuko/osaka/sc_osaka/nc_70020002/
 text: 6,800万円
 heading: 資料請求のご案内
-  [0-32] button "資料を請求する"`},
+  [0-32] button "資料を請求する"
+heading: Home
+  group
+    [0-42] link "Home" -> https://homes.example.com/`},
 		{"frame", `heading: Outer
 iframe "login frame"
   heading: 取引先ポータル
