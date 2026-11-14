@@ -1648,6 +1648,9 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	if run.AttemptId != nil && *run.AttemptId != "" {
 		out["attemptId"] = *run.AttemptId
 	}
+	if run.Error != nil && *run.Error != "" {
+		out["error"] = *run.Error
+	}
 	if isSetTimestamp(run.StartedAt) {
 		out["startedAt"] = run.StartedAt
 	}
