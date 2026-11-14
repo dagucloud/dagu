@@ -353,6 +353,14 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     path. Dagu reads the DAG files and `base.yaml` there, and spec 001 rules
     when the folder holds `.dagu.yaml`. Dagu never moves or deletes the
     folder. The registry records the folder's path.
+  - The path must be absolute, such as `/home/dagu/code/myapp`,
+    `C:\code\myapp`, or `\\server\share\myapp`. A relative path, or a
+    Windows path without a drive such as `\code\myapp`, is refused, since it
+    would depend on the directory Dagu started in. A leading `~` expands to
+    the home directory of the user Dagu runs as, which on a remote server
+    is not the admin's own. Before it creates the project, the UI shows the
+    expanded path to confirm. The registry stores the path cleaned and
+    absolute.
   - The runtime state of a project on an existing folder, such as run
     records, logs, artifacts, and DAG state, lives in the folder's
     `.dagu/`, laid out as [spec 001](../specs/001-project.md#project-state)
@@ -726,6 +734,9 @@ without an admin, apply from the release that ships the feature.
 32. A filesystem root, a folder already used by a project, or a folder
     inside another project's or Dagu's own directories is refused, and with
     `permissions.write_dags` off no existing folder is offered.
+33. A relative folder path, or a Windows path without a drive, is refused.
+    A leading `~` expands to the home directory of Dagu's user, and the
+    registry stores the cleaned absolute path.
 
 ## Alternatives considered
 
