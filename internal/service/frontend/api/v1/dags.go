@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -2527,6 +2528,7 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 		dagFiles = append(dagFiles, dagFile)
 	}
 
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,
@@ -2685,11 +2687,56 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 		dagFiles = append(dagFiles, dagFile)
 	}
 
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,
 		Pagination: toPagination(paged),
 	}, nil
+}
+
+// attachBackfills gives each listed DAG the summary of the backfill it
+// mentions: its newest open backfill, else its newest that ended failed and
+// still needs attention. It reads the backfill summaries once, whatever the
+// number of DAGs. A failed read is reported in errs.
+func (a *API) attachBackfills(ctx context.Context, files []api.DAGFile, errs []string) []string {
+	if a.backfillStore == nil || len(files) == 0 {
+		return errs
+	}
+	summaries, err := a.backfillStore.Summaries(ctx)
+	if err != nil {
+		return append(errs, fmt.Sprintf("read backfill summaries: %v", err))
+	}
+	byDAG := make(map[string]backfill.Summary, len(summaries))
+	for _, summary := range summaries {
+		current, ok := byDAG[summary.DAGName]
+		if !ok || mentionsBefore(summary, current) {
+			byDAG[summary.DAGName] = summary
+		}
+	}
+	for i := range files {
+		summary, ok := byDAG[files[i].Dag.Name]
+		if !ok {
+			continue
+		}
+		status := api.BackfillStatusRunning
+		if summary.Status == backfill.StatusFailed {
+			status = api.BackfillStatusFailed
+		}
+		files[i].Backfill = &api.DAGBackfillSummary{
+			Id: summary.ID, Status: status, Slots: summary.Slots, Done: summary.Done, Failed: summary.Failed,
+		}
+	}
+	return errs
+}
+
+// mentionsBefore reports whether a DAG's list mentions backfill a rather
+// than b: an open one before a failed one, then the newer.
+func mentionsBefore(a, b backfill.Summary) bool {
+	if (a.Status == "") != (b.Status == "") {
+		return a.Status == ""
+	}
+	return a.CreatedAt.After(b.CreatedAt)
 }
 
 // runStatusRank is the ascending order of the status sort: live runs first,

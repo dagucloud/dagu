@@ -49,6 +49,10 @@ export const backfillMessages = defineMessages({
     'No slots in this state.': 'No slots in this state.',
     'Slot {time}': 'Slot {time}',
     'Older definition': 'Older definition',
+    'Backfill {done}/{total}': 'Backfill {done}/{total}',
+    'Backfill {done}/{total}, {failed} failed':
+      'Backfill {done}/{total}, {failed} failed',
+    'Backfill failed: {failed} slots': 'Backfill failed: {failed} slots',
     'Page {page} of {pages}': 'Page {page} of {pages}',
     'Submitted {time}': 'Submitted {time}',
     'Submitted {time} by {actor}': 'Submitted {time} by {actor}',
@@ -188,6 +192,10 @@ export const backfillMessages = defineMessages({
     'No slots in this state.': '没有处于此状态的时段。',
     'Slot {time}': '时段 {time}',
     'Older definition': '较早的定义',
+    'Backfill {done}/{total}': '回填 {done}/{total}',
+    'Backfill {done}/{total}, {failed} failed':
+      '回填 {done}/{total}，{failed} 个失败',
+    'Backfill failed: {failed} slots': '回填失败：{failed} 个时段',
     'Page {page} of {pages}': '第 {page} 页，共 {pages} 页',
     'Submitted {time}': '提交于 {time}',
     'Submitted {time} by {actor}': '由 {actor} 提交于 {time}',
@@ -325,6 +333,10 @@ export const backfillMessages = defineMessages({
     'No slots in this state.': 'この状態のスロットはありません。',
     'Slot {time}': 'スロット {time}',
     'Older definition': '以前の定義',
+    'Backfill {done}/{total}': 'バックフィル {done}/{total}',
+    'Backfill {done}/{total}, {failed} failed':
+      'バックフィル {done}/{total}、失敗 {failed}',
+    'Backfill failed: {failed} slots': 'バックフィル失敗: {failed} スロット',
     'Page {page} of {pages}': '{pages} ページ中 {page} ページ',
     'Submitted {time}': '{time} に開始',
     'Submitted {time} by {actor}': '{actor} が {time} に開始',

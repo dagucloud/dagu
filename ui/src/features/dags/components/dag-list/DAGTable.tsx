@@ -100,6 +100,7 @@ import {
   withoutWorkspaceLabels,
 } from '../../../../lib/workspace';
 import { ViewSelector } from '@/features/views/ViewSelector';
+import { DAGBackfillChip } from '@/features/backfills/components/DAGBackfillChip';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -341,6 +342,12 @@ function DAGCard({
                 {label}
               </Badge>
             ))}
+        </div>
+      )}
+
+      {dag.backfill && (
+        <div className="mb-1.5">
+          <DAGBackfillChip backfill={dag.backfill} />
         </div>
       )}
 
@@ -756,6 +763,10 @@ const defaultColumns = [
                     );
                   })}
               </div>
+            )}
+
+            {data.dag.backfill && (
+              <DAGBackfillChip backfill={data.dag.backfill} />
             )}
           </div>
         );

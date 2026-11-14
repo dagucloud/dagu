@@ -237,6 +237,11 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   failed has not succeeded since. `GET /api/v1/dags/{fileName}` returns it
   as `latestBackfill`. `dagu status <DAG>` without `--run-id` prints it
   after the latest run, except in a remote context.
+- `GET /api/v1/dags` gives each DAG the backfill it mentions as `backfill`:
+  its newest open backfill, else its newest backfill that ended failed and
+  keeps its summary, with its slot count and how many slots ended and
+  failed. The list reads the summaries once per request, whatever the
+  number of DAGs.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and
   its explicit params or the first matching recurring schedule's overrides.

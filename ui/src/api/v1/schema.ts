@@ -5137,6 +5137,16 @@ export interface components {
             slots: components["schemas"]["BackfillPlanSlot"][];
             warnings?: string[];
         };
+        /** @description The DAG's newest open backfill, else its newest backfill that ended failed while a slot it failed has not succeeded since */
+        DAGBackfillSummary: {
+            id: string;
+            status: components["schemas"]["BackfillStatus"];
+            slots: number;
+            /** @description Slots that ended */
+            done: number;
+            /** @description Slots whose run failed */
+            failed: number;
+        };
         /** @enum {string} */
         BackfillStatus: BackfillStatus;
         /** @enum {string} */
@@ -6180,6 +6190,7 @@ export interface components {
             suspended: boolean;
             /** @description Whether the DAG is pinned to the top of the DAG list */
             pinned: boolean;
+            backfill?: components["schemas"]["DAGBackfillSummary"];
             /** @description List of errors encountered during the request */
             errors: string[];
         };
