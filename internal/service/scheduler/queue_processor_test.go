@@ -229,10 +229,12 @@ func TestQueueProcessor_PermanentStartupFailureIsFailedAndDequeued(t *testing.T)
 		Enabled: true,
 		Config:  []config.QueueConfig{{Name: "fifo-dag", MaxActiveRuns: 1}},
 	}).simulateQueue(1, false)
+	// A directory exists but cannot be executed, so the launch fails for a
+	// reason other than a missing executable.
 	f.processor.dagExecutor = NewDAGExecutor(
 		nil,
 		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: filepath.Join(t.TempDir(), "missing-dagu")},
+			Paths: config.PathsConfig{Executable: t.TempDir()},
 		}),
 		config.ExecutionModeLocal,
 		"",
@@ -827,10 +829,12 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 		withProcessor(config.Queues{}).
 		simulateQueue(1, false)
 	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeManual)
+	// A directory exists but cannot be executed, so the launch fails for a
+	// reason other than a missing executable.
 	f.processor.dagExecutor = NewDAGExecutor(
 		nil,
 		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: filepath.Join(t.TempDir(), "missing-dagu")},
+			Paths: config.PathsConfig{Executable: t.TempDir()},
 		}),
 		config.ExecutionModeLocal,
 		"",

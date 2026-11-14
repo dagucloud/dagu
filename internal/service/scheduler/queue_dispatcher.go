@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"google.golang.org/grpc/codes"
@@ -144,6 +145,7 @@ const (
 	queuedConditionReasonNoAvailableWorker         = ir.DAGRunReasonNoAvailableWorker
 	queuedConditionReasonWorkerDispatchUnavailable = ir.DAGRunReasonWorkerDispatchUnavailable
 	queuedConditionReasonLaunchFailed              = "LaunchFailed"
+	queuedConditionReasonExecutableMissing         = "ExecutableMissing"
 	queuedConditionReasonStartupNotObserved        = "StartupNotObserved"
 	queuedConditionReasonRunLivenessUnavailable    = "RunLivenessUnavailable"
 	queuedConditionReasonQueueStateUnavailable     = "QueueStateUnavailable"
@@ -290,6 +292,20 @@ var (
 			status:        dagRunConditionStatusFalse,
 			reason:        queuedConditionReasonLaunchFailed,
 			message:       "Local launch failed before any started signal was observed.",
+		},
+	}
+	executableMissingConditionDefs = []queuedConditionDef{
+		{
+			conditionType: dagRunConditionRunnable,
+			status:        dagRunConditionStatusFalse,
+			reason:        queuedConditionReasonExecutableMissing,
+			message:       "The DAG-run cannot start because the Dagu executable that launches it does not exist. Restart the scheduler.",
+		},
+		{
+			conditionType: dagRunConditionStartObserved,
+			status:        dagRunConditionStatusFalse,
+			reason:        queuedConditionReasonExecutableMissing,
+			message:       "The Dagu executable that launches DAG-runs does not exist.",
 		},
 	}
 	startupNotObservedConditionDefs = []queuedConditionDef{
@@ -1104,6 +1120,16 @@ func (d *queueDispatcher) waitForStartupWithConditions(
 	}
 
 	if err := backoff.Retry(ctx, operation, policy, nil); err != nil {
+		// A missing executable fails every launch, not just this run's, so
+		// the run stays queued until the scheduler is restarted.
+		if errors.Is(err, launcher.ErrExecutableMissing) {
+			logger.Error(ctx, "Cannot launch queued DAG run because the Dagu executable does not exist; restart the scheduler",
+				tag.Error(err),
+			)
+			conditionStage.observe(executableMissingConditionDefs...)
+			conditionStage.flush(ctx)
+			return false
+		}
 		logger.Error(ctx, "Failed to execute DAG after retries", tag.Error(err))
 		if shouldRecordStartupCondition(err) {
 			if errors.Is(err, errRunLivenessUnavailable) {

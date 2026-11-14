@@ -789,7 +789,7 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+			executable: unlaunchableExecutable(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -821,7 +821,9 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 	require.Empty(t, items)
 }
 
-func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+// A missing executable fails every launch until the scheduler restarts, so
+// the run stays queued instead of failing.
+func TestQueueProcessorKeepsRunQueuedWhenExecutableMissing(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueConditionFixtureWithConfig(
@@ -831,6 +833,30 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
 			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+		},
+	)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	requireQueuedConditions(t, status, executableMissingConditions()...)
+	require.Empty(t, status.Error)
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+}
+
+func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeLocal,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{
+			executable: unlaunchableExecutable(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -1326,6 +1352,30 @@ func workerDispatchUnavailableConditions() []expectedQueuedCondition {
 			message:       "Worker dispatch is temporarily unavailable.",
 		},
 	}
+}
+
+func executableMissingConditions() []expectedQueuedCondition {
+	return []expectedQueuedCondition{
+		{
+			conditionType: "Runnable",
+			status:        "False",
+			reason:        "ExecutableMissing",
+			message:       "The DAG-run cannot start because the Dagu executable that launches it does not exist. Restart the scheduler.",
+		},
+		{
+			conditionType: "StartObserved",
+			status:        "False",
+			reason:        "ExecutableMissing",
+			message:       "The Dagu executable that launches DAG-runs does not exist.",
+		},
+	}
+}
+
+// unlaunchableExecutable returns a path that exists but cannot be executed,
+// so a launch fails for a reason other than a missing executable.
+func unlaunchableExecutable(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
 }
 
 func startupNotObservedConditions() []expectedQueuedCondition {
