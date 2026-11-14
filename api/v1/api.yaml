@@ -14106,6 +14106,11 @@ components:
         secondsLeft:
           type: integer
           description: "About how long an open backfill's slots left take, from the pace of the runs that ended since its slots were last planned. Absent until one has."
+        failures:
+          type: array
+          description: "The failed slots grouped by the step their runs failed at and its error, the largest group first"
+          items:
+            $ref: "#/components/schemas/BackfillFailure"
       required:
         - id
         - dag
@@ -14116,6 +14121,30 @@ components:
         - onFailure
         - slotCount
         - counts
+
+    BackfillFailure:
+      type: object
+      description: "Failed slots of a backfill whose runs failed alike"
+      properties:
+        step:
+          type: string
+          description: "The step the runs failed at; absent when no step failed"
+        error:
+          type: string
+          description: "The first line of that step's error, or of the run's"
+        slots:
+          type: integer
+        slot:
+          type: string
+          format: date-time
+          description: "The group's earliest slot"
+        runId:
+          type: string
+          description: "The run of that slot"
+      required:
+        - slots
+        - slot
+        - runId
 
     LatestBackfill:
       description: "The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since"

@@ -137,6 +137,10 @@ type Progress struct {
 	// At is when the event happened. For an outcome, it is when the run's
 	// status was read; for a retry, when the retry queued the slot.
 	At time.Time `json:"at"`
+	// Step and Error tell how a failed run failed: its first failed step
+	// and that step's error, or the run's own error when no step failed.
+	Step  string `json:"step,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // ended reports whether the event records how the slot's run ended.

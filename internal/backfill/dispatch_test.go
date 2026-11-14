@@ -602,3 +602,43 @@ func (h lockHook) LockRecord(ctx context.Context, id string) (func(), error) {
 	h.before()
 	return h.Store.LockRecord(ctx, id)
 }
+
+// failAt fails a queued run at step with err, as a run whose step failed.
+func (f *dispatchFixture) failAt(runID, step, err string) {
+	f.t.Helper()
+	attempt, findErr := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	require.NoError(f.t, findErr)
+	current, readErr := attempt.ReadStatusUncached(f.ctx)
+	require.NoError(f.t, readErr)
+	require.NoError(f.t, attempt.Open(f.ctx))
+	current.Status, current.FinishedAt = ir.Failed, f.clock.Format(time.RFC3339)
+	current.Nodes = []*ir.Node{
+		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded},
+		{Step: ir.Step{Name: step}, Status: ir.NodeFailed, Error: err},
+	}
+	require.NoError(f.t, attempt.Write(f.ctx, *current))
+	require.NoError(f.t, attempt.Close(f.ctx))
+}
+
+// A backfill's failed slots are grouped by the step their runs failed at and
+// its error, the largest group first, each with its earliest slot's run.
+func TestDescribeGroupsFailures(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{OnFailure: backfill.OnFailureContinue})
+	for _, fail := range []struct{ step, err string }{
+		{"export", "disk full"},
+		{"load", "connection refused\ndial tcp 10.0.0.1:5432"},
+		{"load", "connection refused"},
+	} {
+		f.tick()
+		f.failAt(f.queued[len(f.queued)-1], fail.step, fail.err)
+	}
+	f.tick()
+
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	require.Len(t, report.Failures, 2)
+	assert.Equal(t, backfill.Failure{Step: "load", Error: "connection refused", Slots: 2, At: at(2, 2), RunID: f.queued[1]}, report.Failures[0])
+	assert.Equal(t, backfill.Failure{Step: "export", Error: "disk full", Slots: 1, At: at(1, 2), RunID: f.queued[0]}, report.Failures[1])
+}

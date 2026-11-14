@@ -27,6 +27,7 @@ import { BackfillSlotGrid } from '@/features/backfills/components/BackfillSlotGr
 import { BackfillStatusChip } from '@/features/backfills/components/BackfillStatusChip';
 import { CancelBackfillDialog } from '@/features/backfills/components/CancelBackfillDialog';
 import { ResumeBackfillDialog } from '@/features/backfills/components/ResumeBackfillDialog';
+import { BackfillFailures } from '@/features/backfills/components/BackfillFailures';
 import { BackfillSentence } from '@/features/backfills/components/BackfillSentence';
 import {
   SLOT_PAGE_SIZE,
@@ -198,6 +199,8 @@ export default function BackfillPage() {
             <li>{ts(ON_FAILURE_LABEL[backfill.onFailure])}</li>
           </ul>
         </section>
+
+        <BackfillFailures backfill={backfill} />
 
         <section className="card-obsidian">
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
