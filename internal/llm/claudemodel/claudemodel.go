@@ -8,6 +8,7 @@ package claudemodel
 import (
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // modelPattern reads the family and version from a model ID such as
@@ -58,4 +59,29 @@ func Parse(id string) (Model, bool) {
 func ForcedToolChoiceSupported(id string) bool {
 	model, ok := Parse(id)
 	return ok && model.Family != "fable" && model.Family != "mythos" && model.Major < 5
+}
+
+// SamplingSupported reports whether a model accepts custom sampling parameters.
+// Newer models use provider-controlled sampling even with thinking off.
+// Unrecognized IDs report true to preserve sampling for proxy deployments.
+// The matrix reflects anthropic-version 2023-06-01, the version the provider
+// sends; later API versions reject sampling parameters on every model, which
+// would make this function return false unconditionally.
+func SamplingSupported(id string) bool {
+	// Mythos Preview has no version segment for Parse to read.
+	if strings.Contains(id, "claude-mythos-preview") {
+		return false
+	}
+	model, ok := Parse(id)
+	if !ok {
+		return true
+	}
+	if model.Family == "fable" || model.Family == "mythos" {
+		return false
+	}
+	// Opus dropped custom sampling at 4.7, ahead of the 5 generation.
+	if model.Family == "opus" && model.Major == 4 && model.Minor >= 7 {
+		return false
+	}
+	return model.Major < 5
 }

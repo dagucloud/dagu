@@ -507,3 +507,47 @@ func TestStreamResponse_MergesUsage(t *testing.T) {
 	require.NotNil(t, usage)
 	assert.Equal(t, llm.Usage{PromptTokens: 120, CompletionTokens: 40, TotalTokens: 160, CachedPromptTokens: 100, CacheWritePromptTokens: 8}, *usage)
 }
+
+func TestBuildRequestBody_Sampling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		model        string
+		thinking     *llm.ThinkingRequest
+		wantSampling bool
+	}{
+		{name: "absent", model: "claude-sonnet-4-6", wantSampling: true},
+		{name: "opus_without_thinking", model: "claude-opus-4-7"},
+		{name: "sonnet_without_thinking", model: "claude-sonnet-5"},
+		{name: "proxy_without_thinking", model: "my-deployment", wantSampling: true},
+		{name: "disabled", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{}, wantSampling: true},
+		{name: "none", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, wantSampling: true},
+		{name: "adaptive", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true}},
+		{name: "budget", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(2048)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+			body, err := provider.buildRequestBody(&llm.ChatRequest{
+				Model:       tt.model,
+				Messages:    []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Thinking:    tt.thinking,
+				Temperature: new(0.7),
+				TopP:        new(0.9),
+			}, false)
+			require.NoError(t, err)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			if tt.wantSampling {
+				assert.Equal(t, 0.7, parsed["temperature"])
+				assert.Equal(t, 0.9, parsed["top_p"])
+			} else {
+				assert.NotContains(t, parsed, "temperature")
+				assert.NotContains(t, parsed, "top_p")
+			}
+		})
+	}
+}
