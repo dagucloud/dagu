@@ -237,9 +237,10 @@ Rules:
 - Secrets are encrypted with the key of the user's Dagu home, as on a
   server.
 - A server project ([RFC 003](../rfcs/003-projects.md#layout)) lays out its
-  state the same way. On an existing folder it uses the folder's `.dagu/`,
-  so the CLI and the server read one history and one set of secrets and
-  profiles. Elsewhere its state is in the server's data directory.
+  state the same way. On an existing folder, with the file backend, it uses
+  the folder's `.dagu/`, so the CLI and the server read one history and one
+  set of secrets and profiles. Elsewhere its state is in the server's data
+  directory.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs, so people rarely need to open `.dagu/`.
 - Project loading and workflow discovery do not write workflow events, run
@@ -271,6 +272,10 @@ Rules:
   `dagu start-all` refuse to start. The server already schedules that
   project, and a second scheduler with its own lock would run each
   scheduled workflow twice.
+- A command that would write a server project's state refuses when it runs
+  as a user other than the owner of that state, and names the user to run
+  as. Dagu keeps its files readable only by their owner, so the server
+  could not read what another user wrote.
 - When the CLI addresses a remote server through a context, a project-mode
   command addresses the server project named by `project`, and fails when
   `project` is not set.
