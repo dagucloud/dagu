@@ -973,14 +973,6 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 		return
 	}
 
-	if err := maskedReadError(ctx, node); err != nil {
-		r.setLastError(err)
-		node.MarkError(err)
-		node.SetStatus(ir.NodeFailed)
-		r.report(ctx, progressCh, node)
-		return
-	}
-
 	if r.dry {
 		node.CompleteHumanTaskDryRun(prompt, artifacts)
 	} else {
@@ -1655,8 +1647,9 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, extraEnvs map[string]string) error {
 	defer node.Finish()
 
+	// A handler reports on the run, so it reads outputs stored masked as they
+	// are instead of failing on them.
 	ctx = logger.WithValues(ctx, tag.Step(node.Name()))
-	ctx = cmnvalue.TrackMaskedReads(ctx)
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
@@ -1676,20 +1669,11 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 	defer func() { _ = node.Teardown() }()
 
-	err, readErr := evalPreconditions(ctx, node)
-	if readErr != nil && !errors.Is(err, errConditionInterrupted) {
-		node.SetStatus(ir.NodeFailed)
-		return readErr
-	}
-	if err != nil {
+	if err := node.evalPreconditions(ctx); err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
 			return nil
 		}
-		node.SetStatus(ir.NodeFailed)
-		return err
-	}
-	if err := maskedReadError(ctx, node); err != nil {
 		node.SetStatus(ir.NodeFailed)
 		return err
 	}

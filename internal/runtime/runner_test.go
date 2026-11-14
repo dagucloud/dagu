@@ -5471,36 +5471,20 @@ func TestRetryMaskedOutputShadowed(t *testing.T) {
 	}
 }
 
-// A handler resolves its env before output variables enter its scope, so
-// only its other fields read a masked one.
+// A handler reports on the run, so it reads an output stored masked as it is
+// instead of failing the retry.
 func TestRetryMaskedOutputInHandler(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name     string
-		handler  []stepOption
-		wantNode ir.NodeStatus
-	}{
-		{name: "Env", handler: []stepOption{withEnvVars("BODY=${TOKEN}"), withCommand(`echo "$BODY"`)}, wantNode: ir.NodeSucceeded},
-		{name: "Command", handler: []stepOption{withCommand(`echo "$TOKEN"`)}, wantNode: ir.NodeFailed},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			r := setupRunner(t, withOnExit(newStep("onExit", tc.handler...)))
-			fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
-			dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch}}
-			plan, err := runtime.CreateRetryPlan(r.Context, dag,
-				restoredNode(fetch, "*******", &ir.MaskedOutputs{Variables: []string{"TOKEN"}}),
-			)
-			require.NoError(t, err)
-			wantRun := ir.Succeeded
-			if tc.wantNode == ir.NodeFailed {
-				wantRun = ir.Failed
-			}
-			result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, wantRun)
-			result.assertNodeStatus(t, "onExit", tc.wantNode)
-		})
-	}
+	r := setupRunner(t, withOnExit(newStep("onExit", withCommand(`echo "$TOKEN"`))))
+	fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
+	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch}}
+	plan, err := runtime.CreateRetryPlan(r.Context, dag,
+		restoredNode(fetch, "*******", &ir.MaskedOutputs{Variables: []string{"TOKEN"}}),
+	)
+	require.NoError(t, err)
+	result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, ir.Succeeded)
+	result.assertNodeStatus(t, "onExit", ir.NodeSucceeded)
 }
 
 // restoredNode returns step as a retry restores it: succeeded, with its
