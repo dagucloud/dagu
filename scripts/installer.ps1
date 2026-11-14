@@ -1086,6 +1086,9 @@ function Write-ServiceXml {
   <description>Dagu Workflow Engine</description>
   <executable>$(Escape-XmlValue $Script:DaguExe)</executable>
   <arguments>start-all</arguments>
+  <!-- Stopping through Dagu leaves runs in progress running; by default the
+       wrapper ends the whole process tree. -->
+  <stoparguments>service-stop</stoparguments>
   <workingdirectory>$(Escape-XmlValue $Script:DaguHome)</workingdirectory>
   <startmode>Automatic</startmode>
   <onfailure action="restart" delay="10 sec"/>

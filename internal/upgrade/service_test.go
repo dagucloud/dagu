@@ -101,12 +101,22 @@ func TestDetectService(t *testing.T) {
 			},
 		},
 		{
-			name: "Windows service wrapper",
+			name: "Windows service wrapper that ends the process tree",
 			goos: "windows",
 			definition: func(execDir, _, _ string) string {
 				return filepath.Join(execDir, "dagu-service.xml")
 			},
-			want: &Service{RestartCommand: "Restart-Service Dagu", StopsRuns: true},
+			content: "<service><arguments>start-all</arguments></service>",
+			want:    &Service{RestartCommand: "Restart-Service Dagu", StopsRuns: true},
+		},
+		{
+			name: "Windows service wrapper that stops through Dagu",
+			goos: "windows",
+			definition: func(execDir, _, _ string) string {
+				return filepath.Join(execDir, "dagu-service.xml")
+			},
+			content: "\ufeff<service>\n  <arguments>start-all</arguments>\n  <stoparguments>service-stop</stoparguments>\n</service>",
+			want:    &Service{RestartCommand: "Restart-Service Dagu"},
 		},
 		{
 			name: "definition from another platform",
