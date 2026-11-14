@@ -17226,6 +17226,9 @@ components:
             - boolean
         default:
           $ref: "#/components/schemas/ParamScalar"
+        computed:
+          type: boolean
+          description: "The param has an eval, which computes its value when the run starts and no value is given. Its default is then only the fallback for an eval that fails."
         description:
           type: string
         required:

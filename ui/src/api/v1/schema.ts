@@ -6811,6 +6811,8 @@ export interface components {
              */
             type: ParamDefType;
             default?: components["schemas"]["ParamScalar"];
+            /** @description The param has an eval, which computes its value when the run starts and no value is given. Its default is then only the fallback for an eval that fails. */
+            computed?: boolean;
             description?: string;
             /** @default false */
             required: boolean;
