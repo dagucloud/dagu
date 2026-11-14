@@ -115,7 +115,7 @@ describe('StartBackfillDialog', () => {
 
     const options = await screen.findByRole('button', { name: /^Options/ });
     expect(options).toHaveTextContent('1 at a time, stop after a failed slot');
-    expect(screen.queryByLabelText('Profile')).toBeNull();
+    expect(screen.getByLabelText('Profile')).not.toBeVisible();
     fireEvent.click(options);
     fireEvent.change(screen.getByLabelText('Profile'), {
       target: { value: 'night' },
@@ -150,14 +150,26 @@ describe('StartBackfillDialog', () => {
     );
   });
 
-  it('starts only once the params are valid', async () => {
+  // Changed params are sent in place of each slot's schedule params, so
+  // they must be complete.
+  it('starts with changed params only once they are valid', async () => {
     details.dag = {
       name: 'etl',
-      paramDefs: [{ name: 'region', type: 'string', required: true }],
+      paramDefs: [
+        { name: 'region', type: 'string', required: true },
+        { name: 'size', type: 'string', default: 'small' },
+      ],
     };
     post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
     renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
 
+    fireEvent.click(await screen.findByRole('button', { name: /^Options/ }));
+    fireEvent.change(screen.getByLabelText(/size/), {
+      target: { value: 'large' },
+    });
+    await waitFor(() =>
+      expect(lastBody()).toMatchObject({ params: '[{"size":"large"}]' })
+    );
     fireEvent.click(
       await screen.findByRole('button', { name: 'Start 2 runs' })
     );
@@ -166,6 +178,36 @@ describe('StartBackfillDialog', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Required')).toBeInTheDocument();
     expect(lastBody()).toMatchObject({ dryRun: true });
+  });
+
+  // Unchanged params are not sent: each run takes its schedule's params,
+  // which may give the required ones.
+  it('starts without checking params left as they were', async () => {
+    details.dag = {
+      name: 'etl',
+      paramDefs: [{ name: 'region', type: 'string', required: true }],
+    };
+    post.mockImplementation(
+      async (_path: string, { body }: { body: { dryRun: boolean } }) =>
+        body.dryRun
+          ? { data: { plan: plan('r1', 2) } }
+          : {
+              data: {
+                plan: plan('r1', 2),
+                backfill: { id: 'bf123456', status: BackfillStatus.running },
+              },
+            }
+    );
+    const onStarted = renderDialog({
+      kind: 'range',
+      from: '2026-10-01T00:00:00Z',
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Start 2 runs' })
+    );
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    expect(lastBody()).not.toHaveProperty('params');
   });
 
   it('asks before running slots that succeeded again', async () => {
