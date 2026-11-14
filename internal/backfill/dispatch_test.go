@@ -642,3 +642,19 @@ func TestDescribeGroupsFailures(t *testing.T) {
 	assert.Equal(t, backfill.Failure{Step: "load", Error: "connection refused", Slots: 2, At: at(2, 2), RunID: f.queued[1]}, report.Failures[0])
 	assert.Equal(t, backfill.Failure{Step: "export", Error: "disk full", Slots: 1, At: at(1, 2), RunID: f.queued[0]}, report.Failures[1])
 }
+
+// A run that failed since the dispatcher's last tick is grouped by how it
+// failed already, from the status the report reads.
+func TestDescribeGroupsAFailureNotYetRecorded(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.failAt(f.queued[0], "load", "connection refused")
+
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	require.Len(t, report.Failures, 1)
+	assert.Equal(t, "load", report.Failures[0].Step)
+	assert.Equal(t, "connection refused", report.Failures[0].Error)
+}

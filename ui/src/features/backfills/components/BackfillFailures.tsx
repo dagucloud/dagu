@@ -43,7 +43,9 @@ export function BackfillFailures({
               })}
             </span>
             {failure.step && (
-              <code className="font-mono text-xs">{failure.step}</code>
+              <code className="min-w-0 max-w-full whitespace-normal break-words font-mono text-xs">
+                {failure.step}
+              </code>
             )}
             <span className="min-w-0 break-words text-muted-foreground">
               {failure.error || ts('No error recorded')}
