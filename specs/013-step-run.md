@@ -326,7 +326,7 @@ Shell selection order is:
 
 `reuseFrom` names a finished run of the same DAG, a normal run or an ephemeral run that still exists. The run chooses its steps itself and reuses the steps that did not change since that run.
 
-- A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
+- A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
 
 - Every other step runs, and so does every step after a step that runs, so it reads what that step does now.
 
@@ -334,7 +334,7 @@ Shell selection order is:
 
 - `reuseFrom` cannot be sent with `steps`, `outputsFromRunId`, `outputsFromRuns`, `outputs`, or `outputsSources`; the server rejects such a request with HTTP 400. A run that does not exist for the DAG is rejected with HTTP 404, and a run that is not finished with HTTP 400.
 
-- `dagu start --reuse-from <run-id>` is the command line form. It cannot be combined with `--only`, `--outputs-from`, `--output-from`, `--output`, or `--from-run-id`.
+- `dagu start --reuse-from <run-id>` is the command line form. It cannot be combined with `--only`, `--outputs-from`, `--output-from`, `--output`, or `--from-run-id`, nor with `--parent`, `--root`, or `--worker-id`; an empty value is an error.
 
 #### Command Line
 

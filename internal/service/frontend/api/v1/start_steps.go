@@ -183,7 +183,7 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 		return err
 	}
 	if req.selection.reuseFrom != "" {
-		plan, err := a.reuseUnchangedSteps(ctx, dag, req.selection)
+		plan, err := a.reuseUnchangedSteps(ctx, dag, req.profileName, req.selection)
 		if err != nil {
 			return err
 		}
@@ -232,7 +232,7 @@ type reusePlan struct {
 // runs: the steps StepsToRun names, with every other step carrying its
 // outputs from that run, whose work directory the run takes too. When no
 // step can be reused, or none changed, every step runs, from nothing.
-func (a *API) reuseUnchangedSteps(ctx context.Context, dag *ir.DAG, selection stepSelection) (reusePlan, error) {
+func (a *API) reuseUnchangedSteps(ctx context.Context, dag *ir.DAG, profile string, selection stepSelection) (reusePlan, error) {
 	all := make([]string, 0, len(dag.Steps))
 	for _, step := range dag.Steps {
 		all = append(all, step.Name)
@@ -244,7 +244,7 @@ func (a *API) reuseUnchangedSteps(ctx context.Context, dag *ir.DAG, selection st
 	if source.Status.IsActive() || source.Status == ir.NotStarted {
 		return reusePlan{}, badSelectedStepsRequest(fmt.Sprintf("dag-run %s is %s; steps are reused only from a finished run", source.DAGRunID, source.Status))
 	}
-	steps, err := intake.StepsToRun(dag, sourceDAG, source)
+	steps, err := intake.StepsToRun(dag, profile, sourceDAG, source)
 	if err != nil || len(steps) == 0 || len(steps) == len(all) {
 		selection.steps = all
 		return reusePlan{selection: selection}, nil
@@ -322,13 +322,13 @@ func addSelectedStepsAudit(details map[string]any, selection stepSelection) {
 	if selection.reuseFrom != "" {
 		details["reuse_from_dag_run_id"] = selection.reuseFrom
 	}
+	if selection.ephemeral {
+		details["ephemeral"] = true
+	}
 	if len(selection.steps) == 0 {
 		return
 	}
 	details["steps"] = selection.steps
-	if selection.ephemeral {
-		details["ephemeral"] = true
-	}
 	if selection.outputsFrom != "" {
 		details["outputs_from_dag_run_id"] = selection.outputsFrom
 	}

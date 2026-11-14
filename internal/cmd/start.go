@@ -207,6 +207,9 @@ func runStart(ctx *Context, args []string) error {
 	if len(selection.steps) > 0 && (isSubDAGRun || rootRef != "" || workerID != "local") {
 		return fmt.Errorf("--only cannot be combined with --parent, --root, or --worker-id")
 	}
+	if selection.reuseFrom != "" && (isSubDAGRun || rootRef != "" || workerID != "local") {
+		return fmt.Errorf("--reuse-from cannot be combined with --parent, --root, or --worker-id")
+	}
 
 	var (
 		dag             *ir.DAG

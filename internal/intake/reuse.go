@@ -23,16 +23,18 @@ import (
 // depends on are as they were in source, and it succeeded there or carried
 // outputs into it. Every other step runs, and so does every step after one
 // that runs, so it reads what that step does now. dag has its run's
-// parameters resolved, which a run's status records as source.Params does.
-func StepsToRun(dag *ir.DAG, sourceDAG *ir.DAG, source *ir.DAGRunStatus) ([]string, error) {
+// parameters resolved, which a run's status records as source.Params does,
+// and profile is the runtime profile the run uses, which can change the
+// environment of every step.
+func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRunStatus) ([]string, error) {
 	if source == nil || sourceDAG == nil {
 		return nil, errors.New("no run to reuse is given")
 	}
-	current, err := stepFingerprints(dag, strings.Join(dag.Params, " "))
+	current, err := stepFingerprints(dag, strings.Join(dag.Params, " "), profile)
 	if err != nil {
 		return nil, err
 	}
-	earlier, err := stepFingerprints(sourceDAG, source.Params)
+	earlier, err := stepFingerprints(sourceDAG, source.Params, source.ProfileName)
 	if err != nil {
 		return nil, fmt.Errorf("the run to reuse: %w", err)
 	}
@@ -73,10 +75,10 @@ func StepsToRun(dag *ir.DAG, sourceDAG *ir.DAG, source *ir.DAGRunStatus) ([]stri
 
 // stepFingerprints returns, by step name, a digest of what decides what each
 // step of dag does: its definition, the DAG's definition other than its
-// steps, the base config, the run's parameters, and the digests of the steps
-// it depends on.
-func stepFingerprints(dag *ir.DAG, params string) (map[string]string, error) {
-	base, err := definitionDigest(dag, params)
+// steps, the base config, the run's parameters and runtime profile, and the
+// digests of the steps it depends on.
+func stepFingerprints(dag *ir.DAG, params, profile string) (map[string]string, error) {
+	base, err := definitionDigest(dag, params, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -125,9 +127,10 @@ func stepFingerprints(dag *ir.DAG, params string) (map[string]string, error) {
 }
 
 // definitionDigest is a digest of the DAG's definition other than its steps,
-// as written, with the base config and the run's parameters. The definition
-// as written holds what its loaded form leaves out, such as the environment.
-func definitionDigest(dag *ir.DAG, params string) (string, error) {
+// as written, with the base config and the run's parameters and runtime
+// profile. The definition as written holds what its loaded form leaves out,
+// such as the environment.
+func definitionDigest(dag *ir.DAG, params, profile string) (string, error) {
 	if len(dag.YamlData) == 0 {
 		return "", errors.New("the DAG keeps no definition to compare")
 	}
@@ -141,7 +144,7 @@ func definitionDigest(dag *ir.DAG, params string) (string, error) {
 		return "", fmt.Errorf("read the DAG's definition: %w", err)
 	}
 	hash := sha256.New()
-	_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s", data, dag.BaseConfigData, params)
+	_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s", data, dag.BaseConfigData, params, profile)
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 

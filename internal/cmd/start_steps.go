@@ -53,7 +53,10 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	if err != nil {
 		return selectedSteps{}, fmt.Errorf("failed to get reuse-from: %w", err)
 	}
-	if reuseFrom = strings.TrimSpace(reuseFrom); reuseFrom != "" {
+	if reuseFrom = strings.TrimSpace(reuseFrom); reuseFrom == "" && ctx.Command.Flags().Changed(reuseFromFlag.name) {
+		return selectedSteps{}, fmt.Errorf("--reuse-from must name a run")
+	}
+	if reuseFrom != "" {
 		if len(steps) > 0 || outputsFrom != "" || len(entries) > 0 || len(outputEntries) > 0 || ctx.Command.Flags().Changed(fromRunIDFlag.name) {
 			return selectedSteps{}, fmt.Errorf("--reuse-from chooses the steps to run itself; it cannot be combined with --only, --outputs-from, --output-from, --output, or --from-run-id")
 		}
@@ -97,7 +100,7 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 // steps to run, which intake.StepsToRun chooses, each other step carrying its
 // outputs from that run, whose work directory the run takes too. When no step
 // can be reused, or none changed, every step runs, from nothing.
-func reuseUnchangedSteps(ctx context.Context, repo *persis.DAGRunRepository, dag *ir.DAG, selection selectedSteps) (selectedSteps, error) {
+func reuseUnchangedSteps(ctx context.Context, repo *persis.DAGRunRepository, dag *ir.DAG, profile string, selection selectedSteps) (selectedSteps, error) {
 	attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, selection.reuseFrom))
 	if err != nil {
 		return selection, fmt.Errorf("failed to find dag-run %s for DAG %s: %w", selection.reuseFrom, dag.Name, err)
@@ -117,7 +120,7 @@ func reuseUnchangedSteps(ctx context.Context, repo *persis.DAGRunRepository, dag
 	for _, step := range dag.Steps {
 		all = append(all, step.Name)
 	}
-	steps, err := intake.StepsToRun(dag, sourceDAG, source)
+	steps, err := intake.StepsToRun(dag, profile, sourceDAG, source)
 	if err != nil || len(steps) == 0 || len(steps) == len(all) {
 		return selectedSteps{steps: all}, nil
 	}
@@ -191,7 +194,7 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 	repo := ctx.Persistence.DAGRunRepository
 	if selection.reuseFrom != "" {
 		var err error
-		if selection, err = reuseUnchangedSteps(ctx, repo, dag, selection); err != nil {
+		if selection, err = reuseUnchangedSteps(ctx, repo, dag, opts.profileName, selection); err != nil {
 			return err
 		}
 	}

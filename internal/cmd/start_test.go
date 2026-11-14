@@ -853,6 +853,8 @@ func TestCmdStart_Only(t *testing.T) {
 		{name: "OutputWithoutName", args: []string{"--only=third", "--output=first=x"}, wantErr: `invalid --output "first": expected <step>.<name>=<value>`},
 		{name: "OutputTwice", args: []string{"--only=third", "--output=first.value=a", "--output=first.value=b"}, wantErr: `--output sets "first.value" more than once`},
 		{name: "OutputOfSelectedStep", args: []string{"--only=third", "--output=third.value=x"}, wantErr: `cannot set outputs of step "third": it is selected to run`},
+		{name: "ReuseFromEmpty", args: []string{"--reuse-from= "}, wantErr: "--reuse-from must name a run"},
+		{name: "ReuseFromSubDAGRun", args: []string{"--reuse-from=source", "--run-id=child", "--parent=parent:run", "--root=parent:run"}, wantErr: "--reuse-from cannot be combined with --parent"},
 	}
 	for _, tt := range rejects {
 		t.Run(tt.name, func(t *testing.T) {

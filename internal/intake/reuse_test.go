@@ -60,6 +60,8 @@ func TestStepsToRun(t *testing.T) {
 		yaml string
 		// params replaces the parameters the run resolved, when set.
 		params []string
+		// profile is the runtime profile of the run.
+		profile string
 		// failed is a step that failed in the earlier run.
 		failed string
 		want   []string
@@ -69,6 +71,7 @@ func TestStepsToRun(t *testing.T) {
 		{name: "ChangedFirstStepReachesAStepThatOnlyReadsIt", yaml: strings.Replace(reuseSpec, "echo rows", "echo all rows", 1), want: []string{"page", "filter", "report"}},
 		{name: "ChangedEnvironment", yaml: strings.Replace(reuseSpec, "homes.example.com", "homes.example.org", 1), want: []string{"page", "filter", "report", "notes"}},
 		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, want: []string{"page", "filter", "report", "notes"}},
+		{name: "ChangedProfile", yaml: reuseSpec, profile: "staging", want: []string{"page", "filter", "report", "notes"}},
 		{name: "FailedStepAndTheStepsAfterIt", yaml: reuseSpec, failed: "filter", want: []string{"filter", "report"}},
 		{name: "AddedStep", yaml: reuseSpec + "  - id: archive\n    run: echo archive\n", want: []string{"archive"}},
 	} {
@@ -84,7 +87,7 @@ func TestStepsToRun(t *testing.T) {
 			if tc.params != nil {
 				dag.Params = tc.params
 			}
-			got, err := intake.StepsToRun(dag, earlier, source)
+			got, err := intake.StepsToRun(dag, tc.profile, earlier, source)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})

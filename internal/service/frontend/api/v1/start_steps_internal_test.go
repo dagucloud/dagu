@@ -305,4 +305,11 @@ func TestSelectedStepsAudit(t *testing.T) {
 	details = map[string]any{}
 	addSelectedStepsAudit(details, stepSelection{steps: []string{"consume"}})
 	require.NotContains(t, details, "ephemeral")
+
+	// A run that reuses another records it, and is marked ephemeral before
+	// its steps are chosen.
+	details = map[string]any{}
+	addSelectedStepsAudit(details, stepSelection{reuseFrom: "earlier", ephemeral: true})
+	require.Equal(t, "earlier", details["reuse_from_dag_run_id"])
+	require.Equal(t, true, details["ephemeral"])
 }
