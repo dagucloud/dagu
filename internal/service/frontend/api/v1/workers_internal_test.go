@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -134,4 +135,47 @@ func TestAPIGetWorkers_ReturnsUnavailableWhenNoResults(t *testing.T) {
 
 	_, ok := resp.(openapiv1.GetWorkers503JSONResponse)
 	require.True(t, ok)
+}
+
+func TestAPIGetWorkers_ReturnsWorkerVersion(t *testing.T) {
+	t.Parallel()
+
+	api := &API{
+		coordinatorCli: &stubCoordinatorClient{
+			workers: []*coordinatorv1.WorkerInfo{
+				{WorkerId: "current", LastHeartbeatAt: 1710000000, Version: "2.27.0"},
+				{WorkerId: "earlier-release", LastHeartbeatAt: 1710000000},
+			},
+		},
+	}
+
+	resp, err := api.GetWorkers(context.Background(), openapiv1.GetWorkersRequestObject{})
+	require.NoError(t, err)
+
+	okResp, ok := resp.(openapiv1.GetWorkers200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, okResp.Workers, 2)
+	require.NotNil(t, okResp.Workers[0].Version)
+	require.Equal(t, "2.27.0", *okResp.Workers[0].Version)
+	require.Nil(t, okResp.Workers[1].Version)
+	require.Equal(t, openapiv1.WorkerVersionDriftUnknown, okResp.Workers[1].VersionDrift)
+}
+
+func TestWorkerVersionDrift(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		worker, server string
+		want           openapiv1.WorkerVersionDrift
+	}{
+		{"2.27.0", "2.27.0", openapiv1.WorkerVersionDriftNone},
+		{"v2.27.0", "2.27.0", openapiv1.WorkerVersionDriftNone},
+		{"2.25.3", "2.27.0", openapiv1.WorkerVersionDriftBehind},
+		{"2.28.0", "2.27.0", openapiv1.WorkerVersionDriftAhead},
+		{"", "2.27.0", openapiv1.WorkerVersionDriftUnknown},
+		{"2.27.0", "dev", openapiv1.WorkerVersionDriftUnknown},
+		{"dev", "2.27.0", openapiv1.WorkerVersionDriftUnknown},
+	} {
+		assert.Equal(t, tt.want, workerVersionDrift(tt.worker, tt.server), "worker %q, server %q", tt.worker, tt.server)
+	}
 }
