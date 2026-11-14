@@ -298,6 +298,7 @@ func TestSelectedStepNodesOutputReplacesCaptured(t *testing.T) {
 		if node.Step.Name == "fetch" {
 			require.NotNil(t, node.State.OutputValue)
 			require.Equal(t, "real", *node.State.OutputValue)
+			require.Nil(t, node.State.MaskedOutputs)
 			return
 		}
 	}

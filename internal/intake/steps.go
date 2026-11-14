@@ -499,6 +499,11 @@ func unmaskSuppliedOutputs(node runtime.NodeData, published map[string]json.RawM
 	}
 	masked.Published = slices.DeleteFunc(masked.Published, isSupplied)
 	masked.Variables = slices.DeleteFunc(masked.Variables, isSupplied)
+	// The value of the output variable replaces the captured output, unless
+	// ${<id>.outputs} still reads a stored payload of its own.
+	if node.Step.Output != "" && isSupplied(node.Step.Output) && node.State.OutputsValue == nil {
+		masked.Captured = false
+	}
 	if len(masked.Published) == 0 && len(masked.Variables) == 0 && !masked.Captured {
 		return nil
 	}
