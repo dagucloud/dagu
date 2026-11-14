@@ -584,7 +584,7 @@ func loadDAGsFromData(ctx buildContext, data []byte, filePath string, base *base
 
 // decodeDocuments splits a YAML stream into non-empty manifest documents.
 func decodeDocuments(data []byte) ([]dagDocument, error) {
-	data = yamlutil.ClearEmptyDocumentSeparators(data)
+	data = yamlutil.ClearEmptyDocumentSeparators(yamlutil.TrimByteOrderMark(data))
 	file, err := parser.ParseBytes(data, 0)
 	if err != nil {
 		return nil, err
