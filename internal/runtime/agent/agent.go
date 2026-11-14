@@ -906,6 +906,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 		a.noteDryRunStartup(ctx, "profile", profileErr)
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
+		a.noteDryRunStartup(ctx, "nodes", unsupportedNodeTargeting(a.dag))
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1005,6 +1006,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if profileErr != nil {
 		initErr = profileErr
+		return initErr
+	}
+	if err := unsupportedNodeTargeting(a.dag); err != nil {
+		initErr = err
 		return initErr
 	}
 

@@ -223,6 +223,9 @@ type DAG struct {
 	Queue string `json:"queue,omitempty"`
 	// RetryPolicy controls automatic DAG-level retry behavior for failed runs.
 	RetryPolicy *DAGRetryPolicy `json:"retryPolicy,omitempty"`
+	// NodeRequired makes the DAG run only bound to one inventory node, as a
+	// child of a node step or started with exactly one node (RFC 013).
+	NodeRequired bool `json:"nodeRequired,omitempty"`
 	// WorkerSelector defines labels required for worker selection in distributed execution.
 	// If specified, the DAG will only run on workers with matching labels.
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
@@ -485,6 +488,10 @@ func (d *DAG) HasApprovalSteps() bool {
 // with approval steps, which must run locally.
 var ErrWorkerSelectorApproval = errors.New("DAG with approval steps cannot be dispatched to workers")
 
+// errWorkerSelectorNodeRequired is returned when a worker selector is set on
+// a node: required DAG, whose bound node decides where it runs.
+var errWorkerSelectorNodeRequired = errors.New("a node: required DAG runs on its bound node and cannot be dispatched to workers")
+
 // ValidateWorkerSelector checks a selector given for one run: every key must
 // be a valid label key and every value a non-empty valid label value.
 func ValidateWorkerSelector(selector map[string]string) error {
@@ -514,6 +521,9 @@ func (d *DAG) ApplyWorkerSelector(selector map[string]string) error {
 	}
 	if d.HasApprovalSteps() {
 		return NewValidationError("worker_selector", selector, ErrWorkerSelectorApproval)
+	}
+	if d.NodeRequired {
+		return NewValidationError("worker_selector", selector, errWorkerSelectorNodeRequired)
 	}
 	d.WorkerSelector = maps.Clone(selector)
 	d.ForceLocal = false

@@ -1,0 +1,4 @@
+steps:
+  - run: "true"
+    nodes:
+      max_concurrent: 2

@@ -1,0 +1,3 @@
+steps:
+  - run: "true"
+    nodes: env==prod

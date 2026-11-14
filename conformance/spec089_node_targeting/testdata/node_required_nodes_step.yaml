@@ -1,0 +1,5 @@
+node: required
+steps:
+  - id: fan
+    run: "true"
+    nodes: web

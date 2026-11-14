@@ -105,6 +105,8 @@ type Step struct {
 	Parallel *ParallelConfig `json:"parallel,omitempty"`
 	// Foreach contains the configuration for inline item-body iteration.
 	Foreach *ForeachConfig `json:"foreach,omitempty"`
+	// Nodes runs the step once per matched inventory node (RFC 013).
+	Nodes *NodeTargets `json:"nodes,omitempty"`
 	// Env contains environment variables for the step.
 	Env []string `json:"env,omitempty"`
 	// Params contains parameters/inputs for the step.
