@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -499,6 +500,15 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	if err := json.Unmarshal(data, &values); err != nil {
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
+	detail := string(data)
+	if spec.Pages != nil {
+		pages, err := o.readPages(ctx, index, spec, schema, values, timeout)
+		if err != nil {
+			return opResult{}, err
+		}
+		all, _ := json.Marshal(values)
+		detail = fmt.Sprintf("%d pages: %s", pages, all)
+	}
 	// Only the fields a schema lists are published, matching the output
 	// names known when the DAG loads.
 	properties, listed := spec.Schema["properties"].(map[string]any)
@@ -512,10 +522,171 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	return opResult{
 		Report: agentstep.Report{
 			Index: index, Kind: opExtract, Subject: spec.Instruction, Status: agentstep.StatusCompleted, Via: agentstep.ViaModel,
-			Detail: string(data), Tokens: o.bridge.totals().sub(before).total(), Duration: time.Since(began),
+			Detail: detail, Tokens: o.bridge.totals().sub(before).total(), Duration: time.Since(began),
 		},
 		Values: published,
 	}, nil
+}
+
+// readPages reads the pages of a list after the first, which values holds,
+// turning each with pages.next and adding the items it gives to the array
+// properties of values; the others keep the first page's values. It
+// returns the pages read. The list ends when nothing is left to click,
+// when the page does not change, or when a page gives the items the page
+// before gave, and at pages.max.
+func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, schema json.RawMessage, values map[string]any, timeout time.Duration) (int, error) {
+	arrays := arrayProperties(spec.Schema)
+	last := pageItems(values, arrays)
+	// made is what the model clicked to turn a page in this run, which
+	// turns the pages after it.
+	var made []recordedAction
+	read := 1
+	for ; read < spec.Pages.limit(); read++ {
+		before, err := o.eng.PageText(ctx)
+		if err != nil {
+			return read, err
+		}
+		turned, err := o.turnPage(ctx, index, spec.Pages.Next, read > 1, &made, timeout)
+		if err != nil {
+			return read, fmt.Errorf("pages.next: %w", err)
+		}
+		if !turned {
+			return read, nil
+		}
+		changed, err := o.awaitPageChange(ctx, before, spec.Pages.window())
+		if err != nil || !changed {
+			return read, err
+		}
+		// A page the site refused holds none of the list, which an extract
+		// would read as a page without items.
+		if refused, err := o.pageRefusal(ctx); err == nil && refused != nil {
+			return read, refusedPage{*refused}
+		}
+		data, err := o.eng.Extract(ctx, spec.Instruction, schema, timeout)
+		if err != nil {
+			return read, err
+		}
+		var page map[string]any
+		if err := json.Unmarshal(data, &page); err != nil {
+			return read, fmt.Errorf("extract returned a non-object value: %w", err)
+		}
+		items := pageItems(page, arrays)
+		if reflect.DeepEqual(items, last) {
+			return read, nil
+		}
+		for _, name := range arrays {
+			values[name] = append(asList(values[name]), items[name]...)
+		}
+		last = items
+	}
+	o.warn(index, fmt.Sprintf("extract read pages.max, %d pages, and read no page after it", read))
+	return read, nil
+}
+
+// turnPage performs pages.next and reports whether it clicked anything. It
+// replays what made holds, what turned a page earlier in this run, or else
+// a recording of it that fits the variables; once a page has turned in
+// this run, an element that is gone means the list ended. Before that, the
+// model looks for the element, as an act heals, and the recording is
+// replaced only when it finds one, so a list that has one page today keeps
+// the recording for the days it has more. The model finding nothing ends
+// the list too.
+func (o *operator) turnPage(ctx context.Context, index int, next string, turned bool, made *[]recordedAction, timeout time.Duration) (bool, error) {
+	document, _ := o.eng.DocumentID(ctx)
+	choice, recorded := o.decide("", nil)
+	key := ""
+	if recorded {
+		pageURL, err := o.eng.CurrentURL(ctx)
+		if err != nil {
+			return false, err
+		}
+		key = replayKey(index, next, pageURL)
+	}
+	actions := *made
+	if len(actions) == 0 {
+		if rec, ok := o.recording(choice, key); ok && unfit(next, rec, o.variables) == "" {
+			actions = rec.Actions
+		}
+	}
+	if len(actions) > 0 {
+		replayed, err := o.replay(ctx, actions, document, timeout)
+		if err == nil && replayed == len(actions) {
+			*made = actions
+		}
+		if err != nil || replayed > 0 {
+			return replayed > 0, err
+		}
+		if turned {
+			return false, nil
+		}
+		document, _ = o.eng.DocumentID(ctx)
+	}
+	outcome, err := o.performAct(ctx, index, next, document, timeout)
+	if err != nil {
+		return false, err
+	}
+	if !outcome.Success {
+		if strings.Contains(outcome.Message, noActionFoundMessage) {
+			return false, nil
+		}
+		return false, fmt.Errorf("act did not complete: %s", outcome.Message)
+	}
+	if recorded && len(outcome.Actions) > 0 {
+		o.recorder.stage(key, recordAct(next, outcome.Actions, o.variables))
+	}
+	if choice != aiEveryRun {
+		*made = outcome.Actions
+	}
+	return true, nil
+}
+
+// awaitPageChange reports whether the page's text changes from before
+// within window, and waits, up to the same window, for a changed page to
+// stop changing, so it is read once it loaded. A page between documents is
+// read again.
+func (o *operator) awaitPageChange(ctx context.Context, before string, window time.Duration) (bool, error) {
+	deadline := time.Now().Add(window)
+	changed, last := false, before
+	for {
+		text, err := o.eng.PageText(ctx)
+		switch {
+		case errors.Is(err, errPageContextLost):
+		case err != nil:
+			return false, err
+		case changed && text == last:
+			return true, nil
+		case text != before:
+			changed, last = true, text
+		}
+		if !time.Now().Before(deadline) {
+			return changed, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(conditionPollInterval):
+		}
+	}
+}
+
+// pageItems returns the items a page gave for each array property.
+func pageItems(values map[string]any, arrays []string) map[string][]any {
+	items := make(map[string][]any, len(arrays))
+	for _, name := range arrays {
+		items[name] = asList(values[name])
+	}
+	return items
+}
+
+func asList(value any) []any {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []any:
+		return v
+	default:
+		return []any{v}
+	}
 }
 
 // expect fails unless the condition holds. A fixed check keeps reading the
