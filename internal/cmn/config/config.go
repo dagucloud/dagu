@@ -776,8 +776,13 @@ type Proc struct {
 type SignalHandlingConfig struct {
 	// EnablePropagation forwards shutdown signals (SIGINT, SIGTERM) received by
 	// a supervising process (server, scheduler, start-all) to the process
-	// groups of running DAG-run subprocesses it launched. Default: false.
+	// groups of running DAG-run subprocesses it launched. Default: true in a
+	// container, false otherwise.
 	EnablePropagation bool
+	// DrainTimeout is how long a process stopping on SIGINT or SIGTERM waits
+	// for the DAG runs it started to finish, starting no new ones, before it
+	// stops them or leaves them running. Default: 0, no wait.
+	DrainTimeout time.Duration
 }
 
 // Scheduler represents the scheduler configuration.

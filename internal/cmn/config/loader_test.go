@@ -3313,10 +3313,61 @@ default_execution_mode: invalid
 	})
 }
 
+// seeContainer makes the loader see a container, or no container, for the
+// rest of the test.
+func seeContainer(t *testing.T, detected bool) {
+	t.Helper()
+	saved := runningInContainer
+	runningInContainer = func() bool { return detected }
+	t.Cleanup(func() { runningInContainer = saved })
+}
+
 func TestLoad_SignalHandling(t *testing.T) {
 	t.Run("DefaultDisabled", func(t *testing.T) {
+		seeContainer(t, false)
 		cfg := testLoad(t)
 		assert.False(t, cfg.SignalHandling.EnablePropagation)
+		assert.Zero(t, cfg.SignalHandling.DrainTimeout)
+	})
+
+	// Stopping a container ends its runs either way; propagation lets them
+	// run their handlers and record that they stopped.
+	t.Run("DefaultEnabledInContainer", func(t *testing.T) {
+		seeContainer(t, true)
+		cfg := testLoad(t)
+		assert.True(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	t.Run("DisabledInContainer", func(t *testing.T) {
+		seeContainer(t, true)
+		cfg := loadFromYAML(t, `
+signal_handling:
+  enable_propagation: false
+`)
+		assert.False(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	t.Run("DrainTimeoutYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+signal_handling:
+  drain_timeout: 5m
+`)
+		assert.Equal(t, 5*time.Minute, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutEnvironment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_SIGNAL_DRAIN_TIMEOUT": "90s",
+		})
+		assert.Equal(t, 90*time.Second, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutInvalid", func(t *testing.T) {
+		for _, value := range []string{"soon", "-1m"} {
+			cfg := loadFromYAML(t, "signal_handling:\n  drain_timeout: "+value+"\n")
+			assert.Zero(t, cfg.SignalHandling.DrainTimeout, value)
+			assert.Contains(t, cfg.Warnings, "Invalid signal_handling.drain_timeout value: "+value)
+		}
 	})
 
 	t.Run("YAML", func(t *testing.T) {
