@@ -26,7 +26,40 @@ type DAGWatermark struct {
 	// LastSlot is the latest start-schedule slot that came due, and what the
 	// scheduler did with it; nil before any slot came due.
 	LastSlot *ScheduleSlot `json:"lastSlot,omitempty"`
+	// HeldSince is when the scheduler first found the DAG suspended, or
+	// itself paused, while that lasts, and HeldBy says which.
+	HeldSince *time.Time `json:"heldSince,omitempty"`
+	HeldBy    GapReason  `json:"heldBy,omitempty"`
+	// Missed is the latest span whose start-schedule slots passed without a
+	// run; nil when none has.
+	Missed *MissedGap `json:"missed,omitempty"`
 }
+
+// MissedGap is a span whose start-schedule slots passed without a run: the
+// DAG was suspended, the scheduler paused, or no scheduler ran for longer
+// than the DAG catches up.
+type MissedGap struct {
+	From   time.Time `json:"from"`
+	To     time.Time `json:"to"`
+	Reason GapReason `json:"reason"`
+	// Slots counts the slots that passed, up to MaxGapSlots.
+	Slots int `json:"slots"`
+}
+
+// MaxGapSlots bounds the slots a missed gap counts.
+const MaxGapSlots = 10000
+
+// GapReason is why the slots of a missed gap did not run.
+type GapReason string
+
+const (
+	// GapSuspended: the DAG was suspended.
+	GapSuspended GapReason = "suspended"
+	// GapPaused: the scheduler was paused.
+	GapPaused GapReason = "paused"
+	// GapDown: no scheduler ran.
+	GapDown GapReason = "down"
+)
 
 // ScheduleSlot is a start-schedule slot that came due, and what came of it.
 type ScheduleSlot struct {
@@ -122,6 +155,15 @@ func CloneDAGWatermark(watermark DAGWatermark) DAGWatermark {
 	if watermark.LastSlot != nil {
 		slot := *watermark.LastSlot
 		cloned.LastSlot = &slot
+	}
+	if watermark.HeldSince != nil {
+		heldSince := *watermark.HeldSince
+		cloned.HeldSince = &heldSince
+		cloned.HeldBy = watermark.HeldBy
+	}
+	if watermark.Missed != nil {
+		missed := *watermark.Missed
+		cloned.Missed = &missed
 	}
 	if len(watermark.OneOffs) > 0 {
 		cloned.OneOffs = make(map[string]OneOffScheduleState, len(watermark.OneOffs))
