@@ -1,0 +1,76 @@
+working_dir: .
+steps:
+  - id: json_text
+    action: xlsx.write
+    with:
+      path: json_text.xlsx
+      rows: '[{"b": 1, "a": 2, "_row": 9}]'
+  - id: yaml_map
+    action: xlsx.write
+    with:
+      path: yaml_map.xlsx
+      rows:
+        - {b: 1, a: 2}
+  - id: input_json
+    action: xlsx.write
+    with:
+      path: input_json.xlsx
+      input: input_rows.json
+  - id: input_jsonl
+    action: xlsx.write
+    with:
+      path: input_jsonl.xlsx
+      input: input_rows.jsonl
+  - id: input_csv
+    action: xlsx.write
+    with:
+      path: input_csv.xlsx
+      input: input_rows_csv.txt
+      format: csv
+  - id: input_bom
+    action: xlsx.write
+    with:
+      path: input_bom.xlsx
+      input: input_bom.csv
+  - id: read_json_text
+    depends: json_text
+    action: xlsx.read
+    with:
+      path: json_text.xlsx
+  - id: read_yaml_map
+    depends: yaml_map
+    action: xlsx.read
+    with:
+      path: yaml_map.xlsx
+  - id: read_input_json
+    depends: input_json
+    action: xlsx.read
+    with:
+      path: input_json.xlsx
+  - id: read_input_jsonl
+    depends: input_jsonl
+    action: xlsx.read
+    with:
+      path: input_jsonl.xlsx
+  - id: read_input_csv
+    depends: input_csv
+    action: xlsx.read
+    with:
+      path: input_csv.xlsx
+  - id: read_input_bom
+    depends: input_bom
+    action: xlsx.read
+    with:
+      path: input_bom.xlsx
+  - id: out
+    depends: [read_json_text, read_yaml_map, read_input_json, read_input_jsonl, read_input_csv, read_input_bom]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"json_text": {"headers": ${steps.read_json_text.outputs.headers}, "rows": ${steps.read_json_text.outputs.rows}},
+         "yaml_map": {"headers": ${steps.read_yaml_map.outputs.headers}},
+         "input_json": {"headers": ${steps.read_input_json.outputs.headers}, "count": ${steps.read_input_json.outputs.count}},
+         "input_jsonl": {"headers": ${steps.read_input_jsonl.outputs.headers}, "count": ${steps.read_input_jsonl.outputs.count}},
+         "input_csv": {"headers": ${steps.read_input_csv.outputs.headers}, "count": ${steps.read_input_csv.outputs.count}},
+         "input_bom": {"headers": ${steps.read_input_bom.outputs.headers}, "rows": ${steps.read_input_bom.outputs.rows}}}

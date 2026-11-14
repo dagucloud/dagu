@@ -7,10 +7,13 @@ package view
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // Render types.
@@ -36,6 +39,8 @@ const (
 const (
 	WorkflowSortName    = "name"
 	WorkflowSortNextRun = "nextRun"
+	WorkflowSortStatus  = "status"
+	WorkflowSortLastRun = "lastRun"
 	SortOrderAscending  = "asc"
 	SortOrderDescending = "desc"
 )
@@ -290,6 +295,11 @@ func (v *View) Validate() error {
 	case !ValidType(v.Type):
 		return ErrInvalidType
 	}
+	// Labels are filter terms, so a saved view must hold only terms that
+	// filter instead of failing every list it opens.
+	if _, err := ir.ParseLabelFilters(v.Labels); err != nil {
+		return fmt.Errorf("view: %w", err)
+	}
 	if v.Type == TypeKanban {
 		switch {
 		case v.IntervalDays < MinIntervalDays || v.IntervalDays > MaxIntervalDays:
@@ -501,7 +511,12 @@ func ValidWorkspaceScope(scope string, workspace string) bool {
 
 // ValidWorkflowSortField reports whether field is supported by the Workflows page.
 func ValidWorkflowSortField(field string) bool {
-	return field == WorkflowSortName || field == WorkflowSortNextRun
+	switch field {
+	case WorkflowSortName, WorkflowSortNextRun, WorkflowSortStatus, WorkflowSortLastRun:
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidSortOrder reports whether order is a supported view sort order.

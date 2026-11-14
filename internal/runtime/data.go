@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -57,6 +59,8 @@ type NodeState struct {
 	// This is used to generate unique run IDs for repeated steps in case the node
 	// runs nested DAGs.
 	Repeated bool
+	// Continuous is true for a step that repeats without a limit.
+	Continuous bool
 	// SkippedByRetry marks a skipped node that should not block downstream
 	// execution during a retry. Edit-and-retry uses this to preserve outputs;
 	// include-downstream step retry uses it for preserved skipped join prerequisites.
@@ -106,6 +110,9 @@ type NodeState struct {
 	ToolDefinitions []ir.ToolDefinition
 	// AgentSession stores managed coding-agent state across suspended attempts.
 	AgentSession *ir.AgentSession
+	// ModelUsage is what the step's calls to models used, over every attempt
+	// of the step in this run.
+	ModelUsage *ir.StepModelUsage
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -505,7 +512,7 @@ func outputValueToString(value any) string {
 	case string:
 		return v
 	default:
-		data, err := marshalCaptured(v)
+		data, err := jsonutil.MarshalUnescaped(v)
 		if err != nil {
 			return fmt.Sprint(v)
 		}
@@ -597,57 +604,16 @@ func (d *Data) SetError(err error) {
 	d.inner.State.Error = err
 }
 
-func (d *Data) ClearVariable(key string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.inner.State.OutputVariables == nil {
-		return
-	}
-
-	d.inner.State.OutputVariables.Delete(key)
-}
-
+// MatchExitCode reports whether the last attempt exited with one of exitCodes.
+// An attempt that failed during setup has no exit code and never matches.
 func (d *Data) MatchExitCode(exitCodes []int) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
+	if _, ok := errors.AsType[*stepSetupError](d.inner.State.Error); ok {
+		return false
+	}
 	return slices.Contains(exitCodes, d.inner.State.ExitCode)
-}
-
-func (d *Data) getVariable(key string) (stringutil.KeyValue, bool) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.inner.State.OutputVariables == nil {
-		return "", false
-	}
-
-	v, ok := d.inner.State.OutputVariables.Load(key)
-	if !ok {
-		return "", false
-	}
-
-	return stringutil.KeyValue(v.(string)), true
-}
-
-func (d *Data) getBoolVariable(key string) (bool, bool) {
-	v, ok := d.getVariable(key)
-	if !ok {
-		return false, false
-	}
-
-	return v.Bool(), true
-}
-
-func (d *Data) setBoolVariable(key string, value bool) {
-
-	if d.inner.State.OutputVariables == nil {
-		d.mu.Lock()
-		d.inner.State.OutputVariables = &collections.SyncMap{}
-		d.mu.Unlock()
-	}
-	d.inner.State.OutputVariables.Store(key, stringutil.NewKeyValue(key, strconv.FormatBool(value)).String())
 }
 
 func (d *Data) setVariable(key, value string) {
@@ -665,6 +631,13 @@ func (d *Data) setOutputValue(value string) {
 
 	v := value
 	d.inner.State.OutputValue = &v
+}
+
+func (d *Data) clearOutputValue() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.OutputValue = nil
 }
 
 func (d *Data) setOutputsValue(value string) {
@@ -704,6 +677,22 @@ func (d *Data) setStepOutputFile(path string) {
 	d.inner.State.StepOutputFile = path
 }
 
+// ClampStartedAt moves the start of the node to notBefore when the recorded
+// start is earlier, and the finish with it when the finish would come before
+// the new start. A zero notBefore, or a node without a start, stays as it is.
+func (d *Data) ClampStartedAt(notBefore time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	started := d.inner.State.StartedAt
+	if !notBefore.IsZero() && !started.IsZero() && started.Before(notBefore) {
+		d.inner.State.StartedAt = notBefore
+		if finished := d.inner.State.FinishedAt; !finished.IsZero() && finished.Before(notBefore) {
+			d.inner.State.FinishedAt = notBefore
+		}
+	}
+}
+
 func (d *Data) stepOutputFile() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -715,7 +704,13 @@ func (d *Data) Finish() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State.FinishedAt = time.Now()
+	// A clamped start can be later than the clock, so the finish never goes
+	// before the start.
+	finished := time.Now()
+	if started := d.inner.State.StartedAt; finished.Before(started) {
+		finished = started
+	}
+	d.inner.State.FinishedAt = finished
 }
 
 func (d *Data) IncRetryCount() {
@@ -753,11 +748,26 @@ func (d *Data) IncDoneCount() {
 	d.inner.State.DoneCount++
 }
 
+func (d *Data) setDoneCount(count int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.DoneCount = count
+}
+
 func (d *Data) SetRepeated(repeated bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.inner.State.Repeated = repeated
+}
+
+// SetContinuous marks the node as a step that repeats without a limit.
+func (d *Data) SetContinuous(continuous bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.Continuous = continuous
 }
 
 func (d *Data) SetSkippedByRetry(skipped bool) {
@@ -803,11 +813,13 @@ func (d *Data) SetWorkingDir(workingDir string) {
 	d.inner.State.WorkingDir = workingDir
 }
 
+// ClearState resets the step for another execution. It keeps what the
+// step's earlier attempts spent on models, which the run still spent.
 func (d *Data) ClearState(s ir.Step) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State = NodeState{}
+	d.inner.State = NodeState{ModelUsage: d.inner.State.ModelUsage}
 
 	// Reset the state of the step
 	d.inner.Step = s
@@ -815,7 +827,8 @@ func (d *Data) ClearState(s ir.Step) {
 
 // clearStateForRetry resets the step for another execution but keeps its
 // push-back context. A retry re-runs the step within the same push-back cycle,
-// so the reviewer feedback still applies.
+// so the reviewer feedback still applies. What the earlier attempts spent on
+// models stays, as the run still spent it.
 func (d *Data) clearStateForRetry(s ir.Step) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -826,6 +839,7 @@ func (d *Data) clearStateForRetry(s ir.Step) {
 		PushBackInputs:         previous.PushBackInputs,
 		PushBackHistory:        previous.PushBackHistory,
 		PushBackPreviousStdout: previous.PushBackPreviousStdout,
+		ModelUsage:             previous.ModelUsage,
 	}
 	d.inner.Step = s
 }
@@ -885,6 +899,21 @@ func (d *Data) GetAgentSession() *ir.AgentSession {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return ir.CloneAgentSession(d.inner.State.AgentSession)
+}
+
+// SetModelUsage records what the step's calls to models used.
+func (d *Data) SetModelUsage(usage *ir.StepModelUsage) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.ModelUsage = ir.CloneStepModelUsage(usage)
+}
+
+// ModelUsage returns a detached copy of what the step's calls to models
+// used.
+func (d *Data) ModelUsage() *ir.StepModelUsage {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return ir.CloneStepModelUsage(d.inner.State.ModelUsage)
 }
 
 // GetApprovalInputs returns a copy of the approval inputs map.

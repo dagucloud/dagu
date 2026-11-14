@@ -1,0 +1,20 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: many.xlsx
+      columns: [n]
+      rows: [{"n": 1}, {"n": 2}, {"n": 3}, {"n": 4}, {"n": 5}, {"n": 6}, {"n": 7}, {"n": 8}, {"n": 9}, {"n": 10}]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: many.xlsx
+      max_rows: 4
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"count": ${steps.read.outputs.count}, "truncated": ${steps.read.outputs.truncated}, "warnings": ${steps.read.outputs.warnings}}'

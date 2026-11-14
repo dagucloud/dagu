@@ -1,0 +1,28 @@
+#!/usr/bin/env dagu
+# Leading comment
+
+# Second block of comments
+name: comments   # trailing on name
+
+# before params
+params:
+  # inside params
+  - NAME: world    # trailing on item
+  # after the item
+
+steps:
+  # before step one
+  - name: one    # trailing one
+    # inside step one, before run
+    run: echo one   # trailing run
+
+    # inside step one, after a blank line
+  # between steps (less indented)
+  - name: two
+    depends: [one]  # trailing depends
+    run: echo two
+    # last comment of step two
+# comment at column 0 inside steps
+  - name: three
+    run: echo three
+# final comment

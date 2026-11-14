@@ -5,6 +5,8 @@ package value
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -132,6 +134,268 @@ func TestResolveReference_NotFound(t *testing.T) {
 	r := &resolver{}
 	_, ok := r.resolveReference(context.Background(), "NOPE12345", ".x")
 	assert.False(t, ok)
+}
+
+func TestResolverForeachStructuredScopePrecedesShadowVariable(t *testing.T) {
+	t.Parallel()
+
+	shadow := NewEnvScope(nil, false).WithEntry("foreach", "shadow", EnvSourceStepEnv)
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Env: shadow,
+		Foreach: Values{
+			"episode": map[string]any{"請求番号": "INV-001"},
+		},
+	})
+
+	got, err := resolver.String(context.Background(), `${foreach.episode."請求番号"}|${foreach.episode["請求番号"]}|$foreach`, WorkflowField("run"))
+	require.NoError(t, err)
+	assert.Equal(t, "INV-001|INV-001|shadow", got)
+
+	jsonScope := NewEnvScope(nil, false).WithEntry("foreach", `{"episode":{"請求番号":"INV-002"}}`, EnvSourceStepEnv)
+	resolver = NewResolver(StaticScope{}, RuntimeScope{Env: jsonScope})
+	got, err = resolver.String(context.Background(), `${foreach.episode."請求番号"}|$foreach`, WorkflowField("run"))
+	require.NoError(t, err)
+	assert.Equal(t, `INV-002|{"episode":{"請求番号":"INV-002"}}`, got)
+}
+
+// A step named foreach takes precedence over item fields in every path form,
+// including when the item scope has a matching alias.
+func TestResolverForeachPreservesStepProperties(t *testing.T) {
+	t.Parallel()
+
+	for _, itemScope := range []Values{
+		{"episode": map[string]any{"請求番号": "INV-001"}},
+		{
+			"episode": map[string]any{"請求番号": "INV-001"},
+			"outputs": map[string]any{"value": "item-value"},
+			"stdout":  "item-stdout",
+		},
+	} {
+		outputs := `{"value":"step-value"}`
+		resolver := NewResolver(StaticScope{}, RuntimeScope{
+			Foreach: itemScope,
+			Steps: map[string]StepInfo{
+				"foreach": {Outputs: &outputs, Stdout: "step-stdout"},
+			},
+		})
+
+		got, err := resolver.String(context.Background(), `${foreach.outputs.value}|${foreach.outputs["value"]}|${foreach.stdout}|${foreach.episode["請求番号"]}`, WorkflowField("run"))
+		require.NoError(t, err)
+		assert.Equal(t, "step-value|step-value|step-stdout|INV-001", got)
+	}
+}
+
+func TestForeachStepQuoting(t *testing.T) {
+	t.Parallel()
+
+	outputs := `{"value":"a\"b\nc\\d"}`
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Foreach: Values{
+			"item":    "one",
+			"outputs": map[string]any{"value": "item-value"},
+		},
+		Steps: map[string]StepInfo{"foreach": {Outputs: &outputs}},
+	})
+	for _, ref := range []string{`${foreach.outputs.value}`, `${foreach.outputs."value"}`, `${foreach.outputs["value"]}`} {
+		t.Run(ref, func(t *testing.T) {
+			t.Run("json", func(t *testing.T) {
+				got, err := resolver.String(t.Context(), `{"result":"`+ref+`"}`, WorkflowField("foreach.collect"))
+				require.NoError(t, err)
+				var decoded map[string]string
+				require.NoError(t, json.Unmarshal([]byte(got), &decoded))
+				assert.Equal(t, "a\"b\nc\\d", decoded["result"])
+			})
+
+			for _, tc := range []struct {
+				shell string
+				want  string
+			}{
+				{shell: "sh", want: `echo "a\"b\nc\\d"`},
+				{shell: "pwsh", want: "echo \"a\"\"b`nc\\d\""},
+			} {
+				t.Run(tc.shell, func(t *testing.T) {
+					field := ShellCommandField("run", CommandContext{
+						Target:          CommandTargetLocal,
+						Shell:           []string{tc.shell},
+						ShellConfigured: true,
+					})
+					got, err := resolver.String(t.Context(), `echo "`+ref+`"`, field)
+					require.NoError(t, err)
+					assert.Equal(t, tc.want, got)
+				})
+			}
+		})
+	}
+}
+
+func TestResolverQuotedForeachValuesStayLiteral(t *testing.T) {
+	t.Parallel()
+
+	const item = `$SECRET ${SECRET} ${env.SECRET}`
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Env: NewEnvScope(nil, false).WithEntry("SECRET", "synthetic-secret", EnvSourceStepEnv),
+		Foreach: Values{
+			"episode": map[string]any{"請求番号": item},
+		},
+	})
+	for _, field := range []Field{WorkflowField("foreach.collect"), StepEnvField("CAPTURE")} {
+		got, err := resolver.String(context.Background(), `${foreach.episode."請求番号"}|${foreach.episode["請求番号"]}`, field)
+		require.NoError(t, err)
+		assert.Equal(t, item+"|"+item, got)
+	}
+
+	var notices ValueReferenceNoticeCollector
+	resolver = NewResolver(StaticScope{}, RuntimeScope{
+		Foreach: Values{"episode": map[string]any{"請求番号": item}},
+	}, WithValueReferenceNotices(&notices))
+	const malformed = `${foreach.episode[}`
+	got, err := resolver.String(context.Background(), malformed, WorkflowField("foreach.collect"))
+	require.NoError(t, err)
+	assert.Equal(t, malformed, got)
+	assert.Empty(t, notices.Notices())
+}
+
+func TestResolverForeachDollarEscapes(t *testing.T) {
+	t.Parallel()
+
+	var notices ValueReferenceNoticeCollector
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Foreach: Values{
+			"item":    "INV-001",
+			"episode": map[string]any{"請求番号": "INV-001"},
+		},
+	}, WithValueReferenceNotices(&notices))
+	command := CommandContext{Target: CommandTargetLocal, ShellConfigured: true, Shell: []string{"sh"}}
+	for _, ref := range []string{`${foreach.item}`, `${foreach.episode."請求番号"}`, `${foreach.episode["請求番号"]}`} {
+		for _, backslashes := range []int{1, 2, 3} {
+			input := strings.Repeat(`\`, backslashes) + ref
+			want := strings.Repeat(`\`, backslashes) + "INV-001"
+			if backslashes%2 == 1 {
+				want = strings.Repeat(`\`, backslashes-1) + ref
+			}
+			for _, field := range []Field{
+				WorkflowField("foreach.collect"), StepEnvField("CAPTURE"),
+				ShellCommandField("run", command), CommandScriptField("script", command),
+			} {
+				got, err := resolver.String(context.Background(), input, field)
+				require.NoError(t, err)
+				assert.Equal(t, want, got, "input: %s, field: %s", input, field.Path())
+			}
+
+			// A path field keeps every backslash as path text, so the item resolves.
+			got, err := resolver.String(context.Background(), input, StepArtifactOutputField("output"))
+			require.NoError(t, err)
+			assert.Equal(t, strings.Repeat(`\`, backslashes)+"INV-001", got, "input: %s, field: output", input)
+		}
+	}
+	assert.Empty(t, notices.Notices())
+}
+
+func TestForeachUnbraced(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Env:     NewEnvScope(nil, false).WithEntry("SECRET", "synthetic-secret", EnvSourceStepEnv),
+		Foreach: Values{"item": map[string]any{"value": "$SECRET"}},
+	})
+	command := CommandContext{Target: CommandTargetLocal, ShellConfigured: true, Shell: []string{"sh"}}
+	for _, ref := range []string{`$foreach.item.value`, `$foreach.item."value"`, `$foreach.item["value"]`} {
+		for _, field := range []Field{
+			WorkflowField("foreach.collect"), StepEnvField("CAPTURE"),
+			ShellCommandField("run", command), CommandScriptField("script", command),
+			StepArtifactOutputField("output"),
+		} {
+			got, err := resolver.String(t.Context(), ref, field)
+			require.NoError(t, err)
+			assert.Equal(t, ref, got, "field: %s", field.Path())
+		}
+	}
+}
+
+func TestForeachMissingField(t *testing.T) {
+	t.Parallel()
+
+	for _, ref := range []string{`${foreach.item.missing}`, `${foreach.item."missing"}`, `${foreach.item["missing"]}`, `${foreach.item.未設定}`} {
+		t.Run(ref, func(t *testing.T) {
+			var notices ValueReferenceNoticeCollector
+			resolver := NewResolver(StaticScope{}, RuntimeScope{
+				// A missing item field must not fall back to an environment value.
+				Env:     NewEnvScope(nil, false).WithEntry("foreach", `{"item":{"missing":"shadow","未設定":"shadow"}}`, EnvSourceStepEnv),
+				Foreach: Values{"item": map[string]any{"present": "value"}},
+			}, WithValueReferenceNotices(&notices))
+			got, err := resolver.String(t.Context(), ref, WorkflowField("foreach.collect"))
+			require.NoError(t, err)
+			assert.Equal(t, ref, got)
+			require.Len(t, notices.Notices(), 1)
+			assert.Equal(t, ValueReferenceReasonNamespaceUnavailable, notices.Notices()[0].Reason)
+		})
+	}
+}
+
+func TestForeachFieldValues(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "integer", value: float64(1000000), want: "1000000"},
+		{name: "fraction", value: 0.0000042, want: "0.0000042"},
+		{name: "boolean", value: false, want: "false"},
+		{name: "object", value: map[string]any{"nested": "value"}, want: `{"nested":"value"}`},
+		{name: "array", value: []any{"one", "two"}, want: `["one","two"]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var notices ValueReferenceNoticeCollector
+			resolver := NewResolver(StaticScope{}, RuntimeScope{
+				Foreach: Values{"item": map[string]any{"value": tc.value}},
+			}, WithValueReferenceNotices(&notices))
+			for _, ref := range []string{`${foreach.item.value}`, `${foreach.item."value"}`, `${foreach.item["value"]}`} {
+				got, err := resolver.String(t.Context(), ref, WorkflowField("foreach.collect"))
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got, "reference: %s", ref)
+			}
+			assert.Empty(t, notices.Notices())
+		})
+	}
+}
+
+func TestForeachQuotedKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{"請求番号", "column.name", "column name", `column["name"]`, ""} {
+		t.Run(key, func(t *testing.T) {
+			resolver := NewResolver(StaticScope{}, RuntimeScope{
+				Foreach: Values{"item": map[string]any{key: "value"}},
+			})
+			quoted, err := json.Marshal(key)
+			require.NoError(t, err)
+			for _, ref := range []string{"${foreach.item." + string(quoted) + "}", "${foreach.item[" + string(quoted) + "]}"} {
+				got, err := resolver.String(t.Context(), ref, WorkflowField("foreach.collect"))
+				require.NoError(t, err)
+				assert.Equal(t, "value", got, "reference: %s", ref)
+			}
+		})
+	}
+}
+
+// An unquoted item field may be named in any script, as workbook headers are.
+func TestForeachUnicodeFieldNames(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{"請求番号", "リンク", "Straße", "café", "_行", "列2"} {
+		t.Run(key, func(t *testing.T) {
+			var notices ValueReferenceNoticeCollector
+			resolver := NewResolver(StaticScope{}, RuntimeScope{
+				Foreach: Values{"item": map[string]any{key: "value"}},
+			}, WithValueReferenceNotices(&notices))
+			got, err := resolver.String(t.Context(), "${foreach.item."+key+"}", WorkflowField("foreach.collect"))
+			require.NoError(t, err)
+			assert.Equal(t, "value", got)
+			assert.Empty(t, notices.Notices())
+		})
+	}
 }
 
 // --- ExpandOS resolver tests ---

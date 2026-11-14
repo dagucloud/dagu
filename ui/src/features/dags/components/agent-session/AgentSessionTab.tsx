@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { RelativeTime } from '@/components/ui/relative-time';
 import { Tab, Tabs } from '@/components/ui/tabs';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import {
@@ -38,7 +39,8 @@ type NodeData = components['schemas']['Node'];
 
 // Providers whose sessions can start over in a new generation.
 const BROWSER_PROVIDER = 'browser';
-const RESTARTABLE_PROVIDERS = ['opencode', BROWSER_PROVIDER];
+const COMPUTER_PROVIDER = 'computer';
+const RESTARTABLE_PROVIDERS = ['opencode', BROWSER_PROVIDER, COMPUTER_PROVIDER];
 
 type Props = {
   dagRun: DAGRunDetails;
@@ -70,18 +72,19 @@ function EventIcon({ event }: { event: AgentSessionEvent }) {
 
 function AgentTimeline({
   events,
-  isBrowser,
+  isStepSession,
   artifactRun,
 }: {
   events: AgentSessionEvent[];
-  isBrowser: boolean;
+  // Set for browser and computer steps, which Dagu drives itself.
+  isStepSession: boolean;
   // Set when event files are run artifacts that can be shown inline.
   artifactRun?: ArtifactRunRef;
 }) {
   if (events.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
-        {isBrowser ? (
+        {isStepSession ? (
           <I18nText text={"No timeline events yet."} />
         ) : (
           <I18nText text={"OpenCode has not emitted any timeline events yet."} />
@@ -138,13 +141,13 @@ function AgentTimeline({
 
 function InteractionCard({
   interaction,
-  isBrowser,
+  provider,
   busy,
   onPermission,
   onQuestion,
 }: {
   interaction: AgentInteraction;
-  isBrowser: boolean;
+  provider: string;
   busy: boolean;
   onPermission: (
     decision: AgentInteractionResponseRequestDecision
@@ -250,8 +253,10 @@ function InteractionCard({
     <div className="space-y-4 rounded-lg border border-warning/40 bg-warning/5 p-4">
       <div className="flex items-center gap-2 font-medium">
         <Bot className="h-4 w-4 text-warning" />{' '}
-        {isBrowser ? (
+        {provider === BROWSER_PROVIDER ? (
           <I18nText text={"The browser step needs an answer"} />
+        ) : provider === COMPUTER_PROVIDER ? (
+          <I18nText text={"The computer step needs an answer"} />
         ) : (
           <I18nText text={"OpenCode needs an answer"} />
         )}
@@ -269,7 +274,7 @@ function InteractionCard({
       {questions.map((question, questionIndex) => (
         <div key={`${interaction.id}-${questionIndex}`} className="space-y-2">
           <div>
-            <div className="text-xs font-medium uppercase text-muted-foreground">
+            <div className="text-xs font-medium text-muted-foreground">
               {question.header}
             </div>
             <div className="text-sm">{question.question}</div>
@@ -359,11 +364,14 @@ function AgentSessionCard({
 }) {
   const client = useClient();
   const remoteNode = useRemoteNode();
+  const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
   const [confirmRestart, setConfirmRestart] = React.useState(false);
   const session = node.agentSession!;
   const isBrowser = session.provider === BROWSER_PROVIDER;
+  const isComputer = session.provider === COMPUTER_PROVIDER;
+  const isStepSession = isBrowser || isComputer;
   const pending = (session.interactions || []).filter(
     (interaction) => interaction.status === 'pending'
   );
@@ -442,7 +450,7 @@ function AgentSessionCard({
     ((node.status === NodeStatus.Waiting &&
       (session.state === 'waiting' || session.state === 'unavailable')) ||
       terminalNodeStatuses.includes(node.status));
-  const artifactRun: ArtifactRunRef | undefined = isBrowser
+  const artifactRun: ArtifactRunRef | undefined = isStepSession
     ? {
         dagRunName: path.name,
         dagRunId: path.dagRunId,
@@ -476,6 +484,8 @@ function AgentSessionCard({
               .join(' · ') ||
               (isBrowser ? (
                 <I18nText text={"Browser session"} />
+              ) : isComputer ? (
+                <I18nText text={"Computer session"} />
               ) : (
                 <I18nText text={"OpenCode managed session"} />
               ))}
@@ -483,7 +493,7 @@ function AgentSessionCard({
               ` · OpenCode ${session.providerVersion}`}
           </div>
         </div>
-        {canRestart && (
+        {canRestart && canExecute && (
           <Button
             size="sm"
             variant={session.state === 'unavailable' ? 'primary' : 'secondary'}
@@ -514,8 +524,8 @@ function AgentSessionCard({
         <InteractionCard
           key={interaction.id}
           interaction={interaction}
-          isBrowser={isBrowser}
-          busy={busy}
+          provider={session.provider}
+          busy={busy || !canExecute}
           onPermission={(decision) => respond(interaction, { decision })}
           onQuestion={(answers) =>
             respond(
@@ -527,6 +537,16 @@ function AgentSessionCard({
           }
         />
       ))}
+
+      {!canExecute && (pending.length > 0 || canRestart) && (
+        <p className="text-xs text-muted-foreground">
+          <I18nText
+            text={
+              'Execute permission is required to answer or restart this session.'
+            }
+          />
+        </p>
+      )}
 
       {session.usage &&
         ((session.usage.totalTokens || 0) > 0 ||
@@ -546,7 +566,7 @@ function AgentSessionCard({
         <h4 className="mb-2 text-sm font-medium"><I18nText text={"Session timeline"} /></h4>
         <AgentTimeline
           events={session.events || []}
-          isBrowser={isBrowser}
+          isStepSession={isStepSession}
           artifactRun={artifactRun}
         />
       </div>
@@ -555,7 +575,9 @@ function AgentSessionCard({
         title={
           isBrowser
             ? 'Start this browser step over?'
-            : 'Start a clean OpenCode session?'
+            : isComputer
+              ? 'Start this computer step over?'
+              : 'Start a clean OpenCode session?'
         }
         buttonText="Start clean session"
         visible={confirmRestart}
@@ -565,6 +587,8 @@ function AgentSessionCard({
       >
         {isBrowser ? (
           <I18nText text={"This closes the browser if it is still open and runs the step again from its first operation."} />
+        ) : isComputer ? (
+          <I18nText text={"This runs the step again from its first operation. Windows the step opened stay as they are."} />
         ) : (
           <I18nText text={"This starts a new conversation and retries this step with its original prompt. The previous conversation is retained until this DAG run is deleted. Files already changed in the workspace are not reverted."} />
         )}

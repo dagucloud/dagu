@@ -1,0 +1,32 @@
+# Demo: route on a value to one of two handler steps.
+description: Produce a status code, route it to a handler, and run lifecycle handlers.
+type: graph
+steps:
+  - id: produce
+    name: produce code
+    run: echo 200
+    output:
+      code:
+        from: stdout
+        decode: text
+
+  - name: route code
+    depends: [produce]
+    action: router.route
+    with:
+      value: "${steps.produce.outputs.code}"
+      routes:
+        "re:^2\\d\\d$": [handle_ok]
+        "re:^[^2]\\d\\d$": [handle_other]
+
+  - name: handle_ok
+    run: echo "ok branch"
+
+  - name: handle_other
+    run: echo "other branch"
+
+handler_on:
+  success:
+    run: echo "dag succeeded"
+  failure:
+    run: echo "dag failed"

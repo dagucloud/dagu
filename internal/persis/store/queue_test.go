@@ -95,6 +95,41 @@ func TestQueueStore_EnqueueListAndDequeue(t *testing.T) {
 	assert.Zero(t, revision)
 }
 
+// A queue's summary counts its items, and its next in line is the
+// high-priority item even when a low-priority one was queued first.
+func TestQueueStore_Summaries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := newQueueStore(t)
+	require.NoError(t, s.Enqueue(ctx, "main", queue.QueuePriorityLow, queueRef("dag-low", "run-low")))
+	beforeHigh := time.Now().UTC()
+	require.NoError(t, s.Enqueue(ctx, "main", queue.QueuePriorityHigh, queueRef("dag-high", "run-high")))
+	afterHigh := time.Now().UTC()
+	require.NoError(t, s.Enqueue(ctx, "other", queue.QueuePriorityLow, queueRef("dag-other", "run-other")))
+
+	summaries, err := s.Summaries(ctx)
+	require.NoError(t, err)
+	require.Len(t, summaries, 2)
+	assert.Equal(t, "main", summaries[0].Name)
+	assert.Equal(t, 2, summaries[0].Queued)
+	assert.False(t, summaries[0].NextQueuedAt.Before(beforeHigh), "the high-priority item is next")
+	assert.False(t, summaries[0].NextQueuedAt.After(afterHigh))
+	next, err := s.GetByItemID(ctx, "main", summaries[0].Next)
+	require.NoError(t, err)
+	assert.Equal(t, queueRef("dag-high", "run-high"), requireQueuedRef(t, next))
+	assert.Equal(t, "other", summaries[1].Name)
+	assert.Equal(t, 1, summaries[1].Queued)
+
+	items, err := s.List(ctx, "other")
+	require.NoError(t, err)
+	_, err = s.DeleteByItemIDs(ctx, "other", []string{items[0].ID()})
+	require.NoError(t, err)
+	summaries, err = s.Summaries(ctx)
+	require.NoError(t, err)
+	assert.Len(t, summaries, 1, "a queue with nothing queued is not summed up")
+}
+
 func TestQueueStore_GetByItemID(t *testing.T) {
 	t.Parallel()
 

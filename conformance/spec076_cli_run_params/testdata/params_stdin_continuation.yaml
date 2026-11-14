@@ -1,0 +1,10 @@
+name: params_stdin
+params: |
+  value="echo one \
+    two"
+working_dir: .
+steps:
+  - id: write
+    run: |
+      printf '%s\n' "$value" > params_stdin.out
+      eval "$value" > params_continuation.out

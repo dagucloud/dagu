@@ -56,18 +56,30 @@ var (
 	WithRunStartedAt = runctx.WithRunStartedAt
 	// WithScheduleTime sets the logical schedule time.
 	WithScheduleTime = runctx.WithScheduleTime
+	// WithScheduleWindow sets the window the schedule slot owns.
+	WithScheduleWindow = runctx.WithScheduleWindow
+	// WithDates sets the run's dates.
+	WithDates = runctx.WithDates
 	// WithParams sets runtime parameters.
 	WithParams = runctx.WithParams
+	// WithParamsJSON replaces the DAG's params JSON in the environment steps
+	// see.
+	WithParamsJSON = runctx.WithParamsJSON
 	// WithDefaultEnvVars sets low-precedence inherited environment variables.
 	WithDefaultEnvVars = runctx.WithDefaultEnvVars
 	// WithEnvVars sets additional execution-scoped environment variables.
 	WithEnvVars = runctx.WithEnvVars
+	// WithInheritedEnvs sets environment entries a child run inherits from the
+	// parent run scope.
+	WithInheritedEnvs = runctx.WithInheritedEnvs
 	// WithCoordinator sets the coordinator dispatcher for distributed execution.
 	WithCoordinator = runctx.WithCoordinator
 	// WithDefaultSecrets sets low-precedence inherited secret environment variables.
 	WithDefaultSecrets = runctx.WithDefaultSecrets
 	// WithSecrets sets secret environment variables.
 	WithSecrets = runctx.WithSecrets
+	// WithMaskedSecrets sets secret values that are masked but not exported.
+	WithMaskedSecrets = runctx.WithMaskedSecrets
 	// WithLogEncoding sets the log file character encoding.
 	WithLogEncoding = runctx.WithLogEncoding
 	// WithLogWriterFactory sets the log writer factory for remote log streaming.

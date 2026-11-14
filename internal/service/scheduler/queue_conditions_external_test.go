@@ -24,8 +24,11 @@ import (
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/proc"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -372,6 +375,31 @@ func TestQueueProcessorWaitsForMatchingWorkerBeforeDispatch(t *testing.T) {
 	require.Len(t, items, 1)
 }
 
+func TestQueueProcessorMissingSelectedWorker(t *testing.T) {
+	t.Parallel()
+
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprintf("Stale=%t", stale), func(t *testing.T) {
+			t.Parallel()
+			dispatcher := &queueConditionDispatcher{}
+			heartbeats := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(t.TempDir(), "heartbeats")))
+			f := newQueueConditionFixtureWithDispatcher(t, config.ExecutionModeDistributed, nil, dispatcher,
+				scheduler.WithWorkerHeartbeatStore(heartbeats))
+			f.dag.WorkerSelector = map[string]string{"type": "gpu"}
+			f.enqueueRun("waiting-run", nil)
+			if stale {
+				require.NoError(t, heartbeats.Upsert(f.ctx, dispatch.WorkerHeartbeatRecord{
+					WorkerID: "worker-1", Labels: f.dag.WorkerSelector,
+					LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli(),
+				}))
+			}
+			f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+			requireQueuedConditions(t, f.readStatus("waiting-run"), noMatchingWorkerConditions()...)
+			require.Zero(t, dispatcher.callCount.Load())
+		})
+	}
+}
+
 func TestQueueProcessorWaitsForFreshWorkerBeforeDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -624,6 +652,94 @@ func TestQueueProcessorRecordsNoAvailableWorkerCondition(t *testing.T) {
 	require.Equal(t, 1, f.casCount("waiting-run"))
 }
 
+// A fresh condition is an observation, not a latch: the same queue item must
+// recover from an old NoMatchingWorker diagnosis and dispatch when a poller returns.
+func TestQueueProcessorRecoversBusyWorker(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	heartbeats := store.NewWorkerHeartbeatStore(file.NewCollection(filepath.Join(t.TempDir(), "heartbeats")))
+	var h *coordinator.Handler
+	labels := map[string]string{"type": "gpu"}
+	dispatcher := &queueConditionDispatcher{dispatchFn: func(ctx context.Context, req dispatch.DispatchRequest) error {
+		task, err := convert.DispatchTaskToProto(req.Task)
+		if err != nil {
+			return err
+		}
+		_, err = h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
+		return err
+	}}
+	f := newQueueConditionFixtureWithDispatcher(t, config.ExecutionModeDistributed, nil, dispatcher,
+		scheduler.WithWorkerHeartbeatStore(heartbeats),
+		scheduler.WithWorkerHeartbeatStaleThreshold(conditionTestStaleThreshold))
+	f.ctx = ctx
+	h = coordinator.NewHandler(coordinator.HandlerConfig{
+		DAGRunRepository:     f.dagRunRepository.repository,
+		WorkerHeartbeatStore: heartbeats, StaleHeartbeatThreshold: conditionTestStaleThreshold,
+	})
+	t.Cleanup(func() { h.Close(context.Background()) })
+	_, err := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+		WorkerId: "worker-1", Labels: labels,
+		Stats: &coordinatorv1.WorkerStats{TotalPollers: 1, BusyPollers: 1},
+	})
+	require.NoError(t, err)
+	f.dag.WorkerSelector = labels
+	f.dag.YamlData = []byte("name: queue-condition\nworker_selector:\n  type: gpu\nsteps:\n  - name: test\n    command: echo hello\n")
+	var oldConditions []ir.DAGRunCondition
+	for _, condition := range noMatchingWorkerConditions() {
+		oldConditions = append(oldConditions, ir.NewDAGRunCondition(
+			condition.conditionType, condition.status, condition.reason, condition.message, time.Now().UTC()))
+	}
+	attempt := f.enqueueRun("waiting-run", oldConditions)
+	before, err := f.queueStore.List(ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, before, 1)
+
+	f.processor.ProcessQueueItems(ctx, f.dag.Name)
+	requireQueuedConditions(t, f.readStatus("waiting-run"), noAvailableWorkerConditions()...)
+	waiting, err := f.queueStore.List(ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, waiting, 1)
+	require.Equal(t, before[0].ID(), waiting[0].ID())
+
+	// The worker can poll again. No reschedule, re-enqueue or condition aging.
+	polled := make(chan *coordinatorv1.PollResponse, 1)
+	pollErrors := make(chan error, 1)
+	go func() {
+		response, err := h.Poll(ctx, &coordinatorv1.PollRequest{
+			WorkerId: "worker-1", PollerId: "poller-1", Labels: labels,
+		})
+		if err != nil {
+			pollErrors <- err
+			return
+		}
+		f.updateStatus("waiting-run", func(runStatus *ir.DAGRunStatus) {
+			runStatus.Status = ir.Running
+			runStatus.WorkerID = "worker-1"
+		})
+		polled <- response
+	}()
+	// The normal fallback scan retries within 30 seconds even though the
+	// heartbeat labels and queue generation have not changed.
+	require.Eventually(t, func() bool {
+		f.processor.ProcessQueueItems(ctx, f.dag.Name)
+		items, err := f.queueStore.List(ctx, f.dag.Name)
+		return err == nil && len(items) == 0
+	}, 45*time.Second, 20*time.Millisecond)
+	select {
+	case response := <-polled:
+		require.Equal(t, "waiting-run", response.Task.DagRunId)
+		require.Equal(t, attempt.ID(), response.Task.AttemptId)
+		require.Equal(t, "worker-1", response.Task.WorkerId)
+	case err := <-pollErrors:
+		t.Fatalf("poll failed: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	require.Equal(t, ir.Running, f.readStatus("waiting-run").Status)
+}
+
 func TestQueueProcessorRecordsWorkerDispatchUnavailableCondition(t *testing.T) {
 	t.Parallel()
 
@@ -673,7 +789,7 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+			executable: scheduler.UnlaunchableExecutableForTest(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -705,7 +821,9 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 	require.Empty(t, items)
 }
 
-func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+// A missing executable fails every launch until the scheduler restarts, so
+// the run stays queued instead of failing.
+func TestQueueProcessorKeepsRunQueuedWhenExecutableMissing(t *testing.T) {
 	t.Parallel()
 
 	f := newQueueConditionFixtureWithConfig(
@@ -715,6 +833,61 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
 			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+		},
+	)
+	f.enqueueRun("waiting-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	status := f.readStatus("waiting-run")
+	requireQueuedConditions(t, status, executableMissingConditions()...)
+	require.Empty(t, status.Error)
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+}
+
+// A local run held by a missing executable does not take the slot of a
+// distributed run queued behind it.
+func TestQueueProcessorDispatchesPastRunsHeldByMissingExecutable(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &queueConditionDispatcher{}
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeDistributed,
+		nil,
+		dispatcher,
+		queueConditionFixtureConfig{
+			executable: filepath.Join(t.TempDir(), "missing-dagu"),
+		},
+	)
+	localDAG := &ir.DAG{
+		Name:       "queue-condition-local",
+		ForceLocal: true,
+		YamlData:   []byte("name: queue-condition-local\nsteps:\n  - name: test\n    command: echo hello\n"),
+		Steps:      []ir.Step{{Name: "test", Command: "echo hello"}},
+	}
+	ir.InitializeDefaults(localDAG)
+	f.enqueueRunOf(localDAG, "local-run", nil)
+	f.enqueueRun("remote-run", nil)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	require.Equal(t, []string{"remote-run"}, dispatcher.dispatchedRunIDs())
+	requireQueuedConditions(t, f.readStatusOf(localDAG, "local-run"), executableMissingConditions()...)
+}
+
+func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueConditionFixtureWithConfig(
+		t,
+		config.ExecutionModeLocal,
+		nil,
+		&queueConditionDispatcher{},
+		queueConditionFixtureConfig{
+			executable: scheduler.UnlaunchableExecutableForTest(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -924,7 +1097,7 @@ func newQueueConditionFixtureWithConfig(
 	}
 	executable := fixtureConfig.executable
 	if executable == "" {
-		executable = "/usr/bin/dagu"
+		executable = scheduler.UnlaunchableExecutableForTest(t)
 	}
 	executor := scheduler.NewDAGExecutor(
 		dispatcher,
@@ -970,14 +1143,18 @@ func newQueueConditionFixtureWithConfig(
 }
 
 func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
-	attempt, err := f.dagRunRepository.repository.CreateAttempt(f.ctx, f.dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+	return f.createQueuedAttemptOf(f.dag, runID, conditions)
+}
+
+func (f *queueConditionFixture) createQueuedAttemptOf(dag *ir.DAG, runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
+	attempt, err := f.dagRunRepository.repository.CreateAttempt(f.ctx, dag, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
 	if err != nil {
 		panic(err)
 	}
 	if err := attempt.Open(f.ctx); err != nil {
 		panic(err)
 	}
-	status := ir.InitialStatus(f.dag)
+	status := ir.InitialStatus(dag)
 	status.DAGRunID = runID
 	status.AttemptID = attempt.ID()
 	status.Status = ir.Queued
@@ -992,15 +1169,25 @@ func (f *queueConditionFixture) createQueuedAttempt(runID string, conditions []i
 }
 
 func (f *queueConditionFixture) enqueueRun(runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
-	attempt := f.createQueuedAttempt(runID, conditions)
-	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, ir.NewDAGRunRef(f.dag.Name, runID)); err != nil {
+	return f.enqueueRunOf(f.dag, runID, conditions)
+}
+
+// enqueueRunOf queues a run of dag in the fixture's queue, which the
+// fixture's DAG names.
+func (f *queueConditionFixture) enqueueRunOf(dag *ir.DAG, runID string, conditions []ir.DAGRunCondition) dagrun.Attempt {
+	attempt := f.createQueuedAttemptOf(dag, runID, conditions)
+	if err := f.queueStore.Enqueue(f.ctx, f.dag.Name, queuedomain.QueuePriorityHigh, ir.NewDAGRunRef(dag.Name, runID)); err != nil {
 		panic(err)
 	}
 	return attempt
 }
 
 func (f *queueConditionFixture) readStatus(runID string) *ir.DAGRunStatus {
-	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	return f.readStatusOf(f.dag, runID)
+}
+
+func (f *queueConditionFixture) readStatusOf(dag *ir.DAG, runID string) *ir.DAGRunStatus {
+	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(dag.Name, runID))
 	if err != nil {
 		panic(err)
 	}
@@ -1212,6 +1399,23 @@ func workerDispatchUnavailableConditions() []expectedQueuedCondition {
 	}
 }
 
+func executableMissingConditions() []expectedQueuedCondition {
+	return []expectedQueuedCondition{
+		{
+			conditionType: "Runnable",
+			status:        "False",
+			reason:        "ExecutableMissing",
+			message:       "The DAG-run cannot start because the Dagu executable that launches it does not exist. Restart the scheduler.",
+		},
+		{
+			conditionType: "StartObserved",
+			status:        "False",
+			reason:        "ExecutableMissing",
+			message:       "The Dagu executable that launches DAG-runs does not exist.",
+		},
+	}
+}
+
 func startupNotObservedConditions() []expectedQueuedCondition {
 	return []expectedQueuedCondition{
 		{
@@ -1325,20 +1529,36 @@ func (s *queueConditionDispatchTaskStore) HasOutstandingAttempt(_ context.Contex
 	return s.attemptKey != "" && s.attemptKey == attemptKey, nil
 }
 
+func (s *queueConditionDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *queueConditionDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *queueConditionDispatchTaskStore) DeletePending(context.Context, string) error {
+	return nil
+}
+
 type queueConditionDispatcher struct {
 	dispatchErr error
+	dispatchFn  func(context.Context, dispatch.DispatchRequest) error
 	callCount   atomic.Int32
 	mu          sync.Mutex
 	runIDs      []string
 }
 
-func (d *queueConditionDispatcher) Dispatch(_ context.Context, req dispatch.DispatchRequest) error {
+func (d *queueConditionDispatcher) Dispatch(ctx context.Context, req dispatch.DispatchRequest) error {
 	d.callCount.Add(1)
 	d.mu.Lock()
 	if req.Task != nil {
 		d.runIDs = append(d.runIDs, req.Task.DAGRunID)
 	}
 	d.mu.Unlock()
+	if d.dispatchFn != nil {
+		return d.dispatchFn(ctx, req)
+	}
 	return d.dispatchErr
 }
 

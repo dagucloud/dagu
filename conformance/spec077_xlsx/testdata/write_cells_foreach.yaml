@@ -1,0 +1,55 @@
+working_dir: .
+artifacts:
+  dir: artifacts
+steps:
+  - id: templates_dir
+    action: file.mkdir
+    with:
+      path: templates
+  - id: out_dir
+    action: file.mkdir
+    with:
+      path: out
+  - id: template
+    depends: templates_dir
+    action: xlsx.write
+    with:
+      path: templates/invoice.xlsx
+      header: false
+      rows: [["Customer", ""], ["Amount", ""], ["Total"]]
+  - id: orders_book
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Customer, Amount]
+      rows: [{"Invoice No": "INV-1", "Customer": "Acme", "Amount": 100}, {"Invoice No": "INV-2", "Customer": "Beta", "Amount": 250}]
+  - id: orders
+    depends: orders_book
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      columns: [{Invoice No: invoice}, {Customer: customer}, {Amount: amount}]
+  - id: each
+    depends: [template, orders, out_dir]
+    foreach:
+      items: ${steps.orders.outputs.rows}
+      steps:
+        - id: fill
+          action: xlsx.write_cells
+          with:
+            path: templates/invoice.xlsx
+            output: out/invoice-${foreach.item.invoice}.xlsx
+            cells:
+              B1: ${foreach.item.customer}
+              B2: ${foreach.item.amount}
+              B3: {formula: "=B2*1.1"}
+            artifact: true
+      collect:
+        artifact: ${steps.fill.outputs.artifact}
+    output: FILLED
+  - id: record
+    depends: each
+    action: file.write
+    with:
+      path: filled.json
+      content: ${FILLED}

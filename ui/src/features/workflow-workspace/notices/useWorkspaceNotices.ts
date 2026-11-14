@@ -1,0 +1,238 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Status } from '@/api/v1/schema';
+import { useMonitoringOfferState } from '@/components/MonitoringOffer';
+import { useBackfillNotice } from '@/features/backfills/hooks/useBackfillNotice';
+import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { useI18n } from '@/i18n/I18nProvider';
+import type { WorkspaceNotice } from '../contracts';
+import { useWorkspaceRun } from '../data';
+import { useWorkspaceData } from '../data/context';
+import { firstWaitingCallStep, isNewerRun } from '../data/runFacts';
+import { useSubRuns } from '../data/useSubRuns';
+import { useDockCommands } from '../dock/DockContext';
+import { allSubRunsOf } from '../step/useStepRunActions';
+
+/** The highest priority shows first. DAGSpec ranks its own notices around these. */
+export const RUN_NOTICE_PRIORITY = {
+  'run-not-found': 60,
+  'approval-resume': 50,
+  'human-task-resume': 50,
+  'agent-waiting': 45,
+  'actions-waiting': 40,
+  'sub-run-waiting': 35,
+  'newer-run-active': 30,
+  'monitoring-offer': 10,
+} as const;
+
+// The statuses for which isRunActive is true.
+const ACTIVE_STATUSES: ReadonlySet<Status> = new Set([
+  Status.NotStarted,
+  Status.Queued,
+  Status.Running,
+  Status.Waiting,
+]);
+
+/**
+ * Run-level notices of the workspace, highest priority first. DAGSpec adds
+ * draft, frozen, edit-refused and validation itself.
+ */
+export function useWorkspaceNotices(): WorkspaceNotice[] {
+  const { ts } = useI18n();
+  const navigate = useNavigate();
+  const run = useWorkspaceRun();
+  const { dagData, remoteNode } = useWorkspaceData('useWorkspaceNotices');
+  const dock = useDockCommands();
+  const offer = useMonitoringOfferState();
+
+  const { notFound, hasRun, selection, latestRef, waiting, select } = run;
+  const status = run.details?.status;
+  const resumePending =
+    status === Status.Waiting && !!run.details?.approvalResumePending;
+  const taskResumePending =
+    status === Status.Waiting && !!run.details?.humanTaskResumePending;
+  const actionCount = waiting.approvals + waiting.humanTasks;
+  const agentWaiting = waiting.agent > 0;
+  const pinnedRunId = selection === 'latest' ? null : selection.runId;
+  const selectedRun = run.details;
+  const newerRunActive =
+    pinnedRunId !== null &&
+    latestRef !== null &&
+    latestRef.runId !== pinnedRunId &&
+    ACTIVE_STATUSES.has(latestRef.status) &&
+    (selectedRun === null || isNewerRun(latestRef, selectedRun));
+  // Scheduled runs happen unattended, which is when alerts matter.
+  const runsOnSchedule = !!dagData.dag?.schedule?.length && !dagData.suspended;
+  // A phone keeps the top of the graph free: the offer stays in Settings.
+  const phone = useIsMobile();
+  const offerVisible = runsOnSchedule && offer.visible && !phone;
+  const { setTab } = dock;
+  const { dismiss: dismissOffer } = offer;
+  const waitingSubRun = useWaitingSubRun();
+  const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
+
+  return useMemo(() => {
+    const notices: WorkspaceNotice[] = [];
+    // With no run at all, 'the latest run is shown' would be false.
+    if (notFound && hasRun) {
+      notices.push({
+        id: 'run-not-found',
+        tone: 'warning',
+        message: ts(
+          'The run in the link was not found. The latest run is shown.'
+        ),
+        dismissible: true,
+        dismiss: () => select('latest', { replace: true }),
+        priority: RUN_NOTICE_PRIORITY['run-not-found'],
+      });
+    }
+    if (resumePending) {
+      notices.push({
+        id: 'approval-resume',
+        tone: 'warning',
+        message: ts('Approval saved; resume failed.'),
+        action: {
+          label: ts('Open actions'),
+          run: () => setTab('actions', { user: true }),
+        },
+        priority: RUN_NOTICE_PRIORITY['approval-resume'],
+      });
+    }
+    if (taskResumePending) {
+      notices.push({
+        id: 'human-task-resume',
+        tone: 'warning',
+        message: ts('Tasks saved; resume failed.'),
+        action: {
+          label: ts('Open actions'),
+          run: () => setTab('actions', { user: true }),
+        },
+        priority: RUN_NOTICE_PRIORITY['human-task-resume'],
+      });
+    }
+    if (agentWaiting) {
+      notices.push({
+        id: 'agent-waiting',
+        tone: 'info',
+        message: ts('An agent is waiting for an answer.'),
+        action: {
+          label: ts('Open agent'),
+          run: () => setTab('agent', { user: true }),
+        },
+        priority: RUN_NOTICE_PRIORITY['agent-waiting'],
+      });
+    }
+    if (actionCount > 0) {
+      notices.push({
+        id: 'actions-waiting',
+        tone: 'info',
+        message:
+          actionCount === 1
+            ? ts('An action is waiting.')
+            : ts('{count} actions are waiting.', { count: actionCount }),
+        action: {
+          label: ts('Open actions'),
+          run: () => setTab('actions', { user: true }),
+        },
+        priority: RUN_NOTICE_PRIORITY['actions-waiting'],
+      });
+    }
+    if (waitingSubRun) {
+      notices.push({
+        id: 'sub-run-waiting',
+        tone: 'info',
+        message: ts('Sub-run {name} is waiting for an action.', {
+          name: waitingSubRun.name,
+        }),
+        action: { label: ts('Open sub-run'), run: waitingSubRun.open },
+        priority: RUN_NOTICE_PRIORITY['sub-run-waiting'],
+      });
+    }
+    if (newerRunActive) {
+      notices.push({
+        id: 'newer-run-active',
+        tone: 'info',
+        message: ts('A newer run is active'),
+        action: { label: ts('Follow latest'), run: () => select('latest') },
+        priority: RUN_NOTICE_PRIORITY['newer-run-active'],
+      });
+    }
+    if (backfillNotice) {
+      notices.push(backfillNotice);
+    }
+    if (offerVisible) {
+      notices.push({
+        id: 'monitoring-offer',
+        tone: 'info',
+        message: ts('Get an email if this server stops'),
+        action: {
+          label: ts('Set up for free'),
+          run: () => navigate('/settings#monitoring'),
+        },
+        dismissible: true,
+        dismiss: dismissOffer,
+        priority: RUN_NOTICE_PRIORITY['monitoring-offer'],
+      });
+    }
+    return notices;
+  }, [
+    ts,
+    navigate,
+    select,
+    setTab,
+    dismissOffer,
+    notFound,
+    hasRun,
+    resumePending,
+    taskResumePending,
+    agentWaiting,
+    actionCount,
+    waitingSubRun,
+    newerRunActive,
+    backfillNotice,
+    offerVisible,
+  ]);
+}
+
+/** How often the sub runs of a waiting fan-out are read again. */
+const WAITING_FAN_OUT_POLL_MS = 10_000;
+
+/**
+ * The child run that keeps the selected run waiting, with its opener on the
+ * sub-run stack; null when no call step waits. A step with one child opens
+ * it. Of the children of a fan-out, the one that the server reports waiting
+ * opens; until the list of sub runs says which, there is no notice.
+ */
+function useWaitingSubRun(): { name: string; open(): void } | null {
+  const run = useWorkspaceRun();
+  const openOnStack = useOpenSubRun();
+  const node = firstWaitingCallStep(run.details);
+  const children = useMemo(() => allSubRunsOf(node ?? undefined), [node]);
+  const fanOut = children.length > 1;
+  // The list does not poll a waiting run by itself, and another child may
+  // be the one that waits next.
+  const { subRuns } = useSubRuns(
+    node && fanOut ? run.ref : null,
+    undefined,
+    WAITING_FAN_OUT_POLL_MS
+  );
+  return useMemo(() => {
+    if (!node || !openOnStack) return null;
+    const ids = new Set(children.map((child) => child.dagRunId));
+    const child = fanOut
+      ? subRuns.find(
+          (sub) => ids.has(sub.dagRunId) && sub.status === Status.Waiting
+        )
+      : children[0];
+    if (!child) return null;
+    const name = child.dagName || node.step.call || node.step.name;
+    return {
+      name,
+      open: () => openOnStack({ name, dagRunId: child.dagRunId }),
+    };
+  }, [children, fanOut, node, openOnStack, subRuns]);
+}

@@ -6,6 +6,7 @@ package eventstore
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,6 +155,52 @@ func TestStoreQueryClassifiesLegacyPartialSuccess(t *testing.T) {
 	require.Len(t, result.Entries, 1)
 	assert.Equal(t, event.ID, result.Entries[0].ID)
 	assert.Equal(t, eventstore.TypeDAGRunPartiallySucceeded, result.Entries[0].Type)
+}
+
+// Excluded events must not count toward the page limit, and a cursor must not
+// be reusable under a different exclusion set.
+func TestStoreQueryExcludesTypes(t *testing.T) {
+	t.Parallel()
+
+	store, err := New(t.TempDir())
+	require.NoError(t, err)
+
+	base := time.Date(2026, 3, 29, 10, 0, 0, 0, time.UTC)
+	eventTypes := []eventstore.EventType{
+		eventstore.TypeDAGRunRunning,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeDAGRunUpdated,
+		eventstore.TypeDAGRunSucceeded,
+	}
+	lines := make([][]byte, 0, len(eventTypes))
+	for i, eventType := range eventTypes {
+		event := testEvent(fmt.Sprintf("evt-%d", i), base.Add(time.Duration(i)*time.Second))
+		event.Type = eventType
+		lines = append(lines, mustMarshalEvent(t, event))
+	}
+	writeCommittedEvents(t, store.baseDir, base, lines)
+
+	filter := eventstore.QueryFilter{
+		ExcludeTypes:   []eventstore.EventType{eventstore.TypeDAGRunUpdated},
+		Limit:          1,
+		PaginationMode: eventstore.QueryPaginationModeCursor,
+	}
+	firstPage, err := store.Query(context.Background(), filter)
+	require.NoError(t, err)
+	require.Len(t, firstPage.Entries, 1)
+	assert.Equal(t, eventstore.TypeDAGRunSucceeded, firstPage.Entries[0].Type)
+	require.NotEmpty(t, firstPage.NextCursor)
+
+	filter.Cursor = firstPage.NextCursor
+	secondPage, err := store.Query(context.Background(), filter)
+	require.NoError(t, err)
+	require.Len(t, secondPage.Entries, 1)
+	assert.Equal(t, eventstore.TypeDAGRunRunning, secondPage.Entries[0].Type)
+	assert.Empty(t, secondPage.NextCursor)
+
+	filter.ExcludeTypes = nil
+	_, err = store.Query(context.Background(), filter)
+	require.ErrorIs(t, err, eventstore.ErrInvalidQueryCursor)
 }
 
 func TestStoreQuerySupportsOffsetCompatibilityPagination(t *testing.T) {

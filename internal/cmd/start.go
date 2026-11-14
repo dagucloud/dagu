@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/output"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
@@ -51,20 +52,34 @@ A DAG definition is a blueprint that defines the DAG structure. This command cre
 instance with a unique DAG-run ID.
 
 Parameters after the "--" separator are passed as execution parameters (either positional or key=value pairs).
+With --params-stdin, piped or redirected stdin supplies the parameters
+(e.g. 'echo "P1=foo P2=bar" | dagu start --params-stdin my_dag'). Input is read
+until EOF, up to 1 MiB. Arguments after "--" and --params take precedence.
+Quote individual stdin values to preserve spaces; "" supplies an empty value.
+Empty or whitespace-only stdin uses DAG defaults.
+Without --params-stdin, stdin is left unread.
+--params-stdin cannot be combined with --from-run-id.
 Flags can override default settings such as DAG-run ID, DAG name, or suppress output.
 
 Use --only to run just the named steps (by name or ID) in a new DAG-run of the
 current definition; every other step is recorded as skipped. Add --outputs-from
-to carry the step outputs and work directory of a finished run into the skipped
-steps, so the selected steps can reference them. Add --output to set an output
-of a skipped step directly; it takes precedence over --outputs-from.
+to carry the work directory of ONE finished run, and the outputs of the skipped
+steps that the selected steps depend on, so the selected steps can reference
+them. Add --output-from
+<step>=<run-id> to take the outputs of ONE skipped step from a finished run;
+it takes precedence over --outputs-from for that step. The run must be a run of
+the same DAG, and the step must have succeeded in it. A step selected by --only
+cannot be named in --output-from. The run records the source run of each reused
+output. The deprecated --output <step>.<name>=<value> still sets an output of a
+skipped step directly and takes precedence over both; use --output-from.
 
 Examples:
+  echo '"hello world"' | dagu start --params-stdin my_dag
   dagu start my_dag -- P1=foo P2=bar
   dagu start --name my_custom_name my_dag.yaml -- P1=foo P2=bar
   dagu start --only build my_dag
   dagu start --only test --only lint --outputs-from 20260101_120000 my_dag -- ENV=dev
-  dagu start --only fetch --output login.token=abc123 my_dag
+  dagu start --only use --output-from slow=20260101_120000 --output-from middle=20260102_090000 my_dag
 
 This command parses the DAG definition, resolves parameters, and initiates the DAG-run execution.
 `,
@@ -74,7 +89,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -89,12 +104,18 @@ var onlyFlag = commandLineFlag{
 
 var outputsFromFlag = commandLineFlag{
 	name:  "outputs-from",
-	usage: "Finished dag-run ID whose step outputs and work directory feed the steps selected by --only",
+	usage: "Finished dag-run ID whose work directory, and the outputs of the skipped steps that --only steps depend on, feed the run",
+}
+
+var outputFromFlag = commandLineFlag{
+	name:          "output-from",
+	usage:         "Take the outputs of ONE skipped step from a finished dag-run, as <step>=<run-id>; repeatable; wins over --outputs-from for that step",
+	isStringArray: true,
 }
 
 var outputFlag = commandLineFlag{
 	name:          "output",
-	usage:         "Output of a step skipped by --only, as <step>.<name>=<value>; repeatable",
+	usage:         "Deprecated: use --output-from <step>=<run-id>. Output of a step skipped by --only, as <step>.<name>=<value>; repeatable",
 	isStringArray: true,
 }
 
@@ -107,7 +128,7 @@ var startWorkerIDFlag = commandLineFlag{
 // triggerTypeFlag identifies how this DAG run was initiated
 var triggerTypeFlag = commandLineFlag{
 	name:         "trigger-type",
-	usage:        "How this DAG run was initiated (scheduler, manual, webhook, subdag, retry, catchup)",
+	usage:        "How this DAG run was initiated (scheduler, manual, webhook, subdag, retry, catchup, restart)",
 	defaultValue: "manual",
 }
 
@@ -119,8 +140,16 @@ var triggerActorFlag = commandLineFlag{
 
 // scheduleTimeFlag records the cron fire time for scheduler-triggered runs
 var scheduleTimeFlag = commandLineFlag{
-	name:  "schedule-time",
-	usage: "RFC 3339 timestamp of when this run was scheduled (set by scheduler, not for manual use)",
+	name:   "schedule-time",
+	usage:  "RFC 3339 timestamp of when this run was scheduled (set by scheduler, not for manual use)",
+	hidden: true,
+}
+
+// scheduledAtFlag names the schedule slot a manual run is started for.
+var scheduledAtFlag = commandLineFlag{
+	name: "scheduled-at",
+	usage: "Schedule slot to run for: latest, a date (2006-01-02), a time in the schedule's zone " +
+		"(2006-01-02T15:04), or RFC 3339 with an offset",
 }
 
 var sourceFileFlag = commandLineFlag{
@@ -157,10 +186,6 @@ func runStart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to get trigger actor: %w", err)
 	}
 
-	scheduleTime, err := parseScheduleTimeParam(ctx)
-	if err != nil {
-		return err
-	}
 	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
@@ -182,13 +207,14 @@ func runStart(ctx *Context, args []string) error {
 		dag             *ir.DAG
 		params          string
 		historicNoReuse bool
+		historicSlot    runSlot
 	)
 
 	if fromRunID != "" {
 		if len(args) == 0 {
 			return fmt.Errorf("DAG name or file must be provided when using --from-run-id")
 		}
-		if len(args) > 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 {
+		if len(args) > 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
 
@@ -210,6 +236,7 @@ func runStart(ctx *Context, args []string) error {
 			profileName = status.ProfileName
 		}
 		historicNoReuse = status.NoReuse
+		historicSlot = runSlot{scheduleTime: status.ScheduleTime, window: status.ScheduleWindow()}
 
 		snapshot, err := attempt.ReadDAG(ctx)
 		if err != nil {
@@ -243,7 +270,17 @@ func runStart(ctx *Context, args []string) error {
 			return err
 		}
 
-		if err := validateStartPositionalParamCount(ctx, args, dag); err != nil {
+		if err := validateStartPositionalParamCount(ctx, args, dag, params); err != nil {
+			return err
+		}
+	}
+
+	if ctx.Command.Flags().Changed(flagWorkerLabel) {
+		// A worker re-invoking start must not re-route the run it was given.
+		if workerID != "local" {
+			return fmt.Errorf("--%s cannot be combined with --worker-id", flagWorkerLabel)
+		}
+		if err := applyWorkerLabelsOverride(ctx, dag); err != nil {
 			return err
 		}
 	}
@@ -264,17 +301,46 @@ func runStart(ctx *Context, args []string) error {
 		noReuse = historicNoReuse
 	}
 
+	slot, err := runSlotParams(ctx, dag, profileName, false)
+	if err != nil {
+		return err
+	}
+	// A rerun of a historic run is for the same slot unless the flags name
+	// another.
+	if slot.scheduleTime == "" {
+		slot = historicSlot
+	}
+	// A sub-DAG run may continue a run that recorded its slot and dates, so
+	// the run settles its own when it starts.
+	var dates []ir.DateValue
+	if !isSubDAGRun {
+		slot = withDefaultSlot(ctx, dag, profileName, slot)
+		if dates, err = slotDates(ctx, dag, profileName, slot); err != nil {
+			return err
+		}
+		reportRunDates(ctx, slot, dates)
+	}
+
+	recursiveOutput, err := ctx.Command.Flags().GetBool("recursive-output")
+	if err != nil {
+		return fmt.Errorf("failed to read recursive-output: %w", err)
+	}
+
 	opts := runOptions{
-		root:         root,
-		workerID:     workerID,
-		attemptID:    attemptID,
-		triggerType:  triggerType,
-		triggerActor: triggerActor,
-		parallelItem: parallelItemFromEnv(dag.Env),
-		scheduleTime: scheduleTime,
-		profileName:  profileName,
-		definitionID: dagDefinitionIDFromEnv(),
-		noReuse:      noReuse,
+		root:            root,
+		workerID:        workerID,
+		attemptID:       attemptID,
+		triggerType:     triggerType,
+		triggerActor:    triggerActor,
+		parallelItem:    parallelItemFromEnv(dag.Env),
+		scheduleTime:    slot.scheduleTime,
+		scheduleWindow:  slot.window,
+		dates:           dates,
+		defaultSlot:     slot.isDefault,
+		profileName:     profileName,
+		definitionID:    dagDefinitionIDFromEnv(),
+		noReuse:         noReuse,
+		recursiveOutput: recursiveOutput,
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
@@ -286,6 +352,16 @@ func runStart(ctx *Context, args []string) error {
 		}
 		opts.parent = parent
 		return handleSubDAGRun(ctx, dag, dagRunID, params, opts)
+	}
+
+	if workerID == "local" {
+		definition := dag
+		if fromRunID != "" {
+			definition = serviceDefinition(ctx, dag)
+		}
+		if err := ctx.DAGRunMgr.CheckServiceRun(ctx, definition, dagRunID); err != nil {
+			return err
+		}
 	}
 
 	if len(selection.steps) > 0 {
@@ -386,6 +462,8 @@ func getDAGRunInfo(ctx *Context) (dagRunID, rootDAGRun, parentDAGRun string, isS
 }
 
 // loadDAGWithParams loads the DAG and its parameters from command arguments.
+// Parameters come from args after "--", else the --params flag, else stdin
+// when --params-stdin is enabled.
 func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, string, error) {
 	dagPath := args[0]
 
@@ -430,6 +508,9 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 	var params string
 
 	if ctx.Command.ArgsLenAtDash() != -1 && len(args) > 0 {
+		if stdinParamsRequested(ctx) {
+			logger.Warn(ctx, "Ignoring --params-stdin: params were provided after '--'")
+		}
 		dashArgs := args[ctx.Command.ArgsLenAtDash():]
 		loadOpts = append(loadOpts, spec.WithParams(quoteStartDashArgs(dashArgs)))
 		params = strings.Join(dashArgs, " ")
@@ -438,7 +519,28 @@ func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, 
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to get parameters: %w", err)
 		}
-		loadOpts = append(loadOpts, spec.WithParams(stringutil.RemoveQuotes(params)))
+		switch {
+		case ctx.Command.Flags().Changed("params"):
+			if stdinParamsRequested(ctx) {
+				logger.Warn(ctx, "Ignoring --params-stdin: params were provided via --params")
+			}
+		default:
+			hasInput, err := stdinHasParamsInput(ctx)
+			if err != nil {
+				return nil, "", err
+			}
+			if hasInput {
+				params, err = readStdinParams()
+				if err != nil {
+					return nil, "", err
+				}
+			}
+		}
+		loadParams := params
+		if ctx.Command.Flags().Changed("params") {
+			loadParams = stringutil.RemoveQuotes(loadParams)
+		}
+		loadOpts = append(loadOpts, spec.WithParams(loadParams))
 	}
 
 	dag, err := spec.Load(ctx, dagPath, loadOpts...)
@@ -647,13 +749,66 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			ParallelItem:             opts.parallelItem,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             opts.scheduleTime,
+			ScheduleWindow:           opts.scheduleWindow,
+			Dates:                    opts.dates,
+			DefaultSlot:              opts.defaultSlot,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
+			ExpandSubRuns:            opts.recursiveOutput,
 		},
 	)
 
 	return ExecuteAgent(ctx, agentInstance, d, dagRunID, logFile)
+}
+
+// subRunStatusLookupTimeout bounds one recursive sub-run status lookup so an
+// unreachable coordinator cannot stall the deferred summary render.
+const subRunStatusLookupTimeout = 5 * time.Second
+
+// subRunStatusLookupBudget bounds the time one summary spends on sub-run
+// status lookups that go over the network.
+const subRunStatusLookupBudget = 30 * time.Second
+
+var errSubRunLookupBudgetSpent = errors.New("sub-run status lookup budget spent")
+
+// withSubRunLookupBudget returns a resolver that stops calling resolve once
+// budget has passed since its first lookup, so a slow or unreachable server
+// delays a summary by a bounded time however many sub-runs it has. The
+// returned resolver is not safe for concurrent use.
+func withSubRunLookupBudget(budget time.Duration, resolve output.SubRunResolver) output.SubRunResolver {
+	var deadline time.Time
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		now := time.Now()
+		if deadline.IsZero() {
+			deadline = now.Add(budget)
+		}
+		if now.After(deadline) {
+			return nil, errSubRunLookupBudgetSpent
+		}
+		return resolve(sub)
+	}
+}
+
+// remoteSubRunResolver resolves sub-run status through the coordinator so the
+// final summary can render child step trees inline.
+func remoteSubRunResolver(ctx *Context, cli coordinator.Client, dagName, dagRunID string) output.SubRunResolver {
+	root := ir.NewDAGRunRef(dagName, dagRunID)
+	return withSubRunLookupBudget(subRunStatusLookupBudget, func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		if sub.DAGName == "" {
+			return nil, nil
+		}
+		lookupCtx, cancel := context.WithTimeout(ctx, subRunStatusLookupTimeout)
+		defer cancel()
+		res, err := cli.GetDAGRunStatus(lookupCtx, sub.DAGName, sub.DAGRunID, &root)
+		if err != nil {
+			return nil, err
+		}
+		if res == nil || !res.Found {
+			return nil, nil
+		}
+		return res.Status, nil
+	})
 }
 
 // dispatchToCoordinatorAndWait dispatches a DAG to coordinator and waits for completion.
@@ -666,6 +821,9 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	var progress *RemoteProgressDisplay
 	if showProgress {
 		progress = NewRemoteProgressDisplay(d, dagRunID)
+		if opts.recursiveOutput {
+			progress.SetSubRunResolver(remoteSubRunResolver(ctx, coordinatorCli, d.Name, dagRunID))
+		}
 		progress.Start()
 	}
 
@@ -695,7 +853,13 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts = append(taskOpts, executor.WithSourceFile(d.SourceFile))
 	}
 	if opts.scheduleTime != "" {
-		taskOpts = append(taskOpts, executor.WithScheduleTime(opts.scheduleTime))
+		taskOpts = append(taskOpts,
+			executor.WithScheduleTime(opts.scheduleTime),
+			executor.WithScheduleWindow(opts.scheduleWindow),
+		)
+	}
+	if opts.dates != nil {
+		taskOpts = append(taskOpts, executor.WithDates(opts.dates))
 	}
 	if opts.profileName != "" {
 		taskOpts = append(taskOpts, executor.WithProfileName(opts.profileName))
@@ -703,6 +867,7 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 	if opts.triggerActor != "" {
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
+	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 
 	operation := dispatch.DispatchOperationStart
 	if opts.seed != nil {
@@ -825,8 +990,8 @@ func waitForDAGCompletionWithProgress(ctx *Context, d *ir.DAG, dagRunID string, 
 					logger.Info(ctx, "DAG completed successfully", tag.RunID(dagRunID))
 					return nil
 				}
-				if dagStatus.Error != "" {
-					return fmt.Errorf("DAG run failed with status %s: %s", dagStatus.Status, dagStatus.Error)
+				if runError := dagStatus.ErrorText(); runError != "" {
+					return fmt.Errorf("DAG run failed with status %s: %s", dagStatus.Status, runError)
 				}
 				return fmt.Errorf("DAG run failed with status: %s", dagStatus.Status)
 			}

@@ -45,7 +45,7 @@ export function DeleteMissingDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            <I18nText text={'Delete All Missing Items'} />
+            <I18nText text={'Delete all missing items'} />
           </DialogTitle>
           <DialogDescription className="text-xs">
             <I18nText
@@ -96,7 +96,7 @@ export function DeleteMissingDialog({
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                <I18nText text={'Delete All Missing'} />
+                <I18nText text={'Delete all missing'} />
               </>
             )}
           </Button>

@@ -1,0 +1,159 @@
+[0-228] RootWebArea: Items
+  [0-357] scrollable, html
+    [0-360] body
+      [0-361] heading: Items
+      [0-362] list
+        [0-363] listitem
+          [0-231] ListMarker: •
+          [0-364] link: Item B
+          [0-233] StaticText: 
+          [0-234] StaticText: ¥100
+        [0-366] listitem
+          [0-235] ListMarker: •
+          [0-367] link: Item C
+          [0-237] StaticText: 
+          [0-238] StaticText: ¥200
+        [0-369] listitem
+          [0-239] ListMarker: •
+          [0-370] link: Item D
+          [0-241] StaticText: 
+          [0-242] StaticText: ¥300
+        [0-372] listitem
+          [0-243] ListMarker: •
+          [0-373] link: Item E
+          [0-245] StaticText: 
+          [0-246] StaticText: ¥400
+        [0-375] listitem
+          [0-247] ListMarker: •
+          [0-376] link: Item F
+          [0-249] StaticText: 
+          [0-250] StaticText: ¥500
+        [0-378] listitem
+          [0-251] ListMarker: •
+          [0-379] link: Item G
+          [0-253] StaticText: 
+          [0-254] StaticText: ¥600
+        [0-381] listitem
+          [0-255] ListMarker: •
+          [0-382] link: Item H
+          [0-257] StaticText: 
+          [0-258] StaticText: ¥700
+        [0-384] listitem
+          [0-259] ListMarker: •
+          [0-385] link: Item I
+          [0-261] StaticText: 
+          [0-262] StaticText: ¥800
+        [0-387] listitem
+          [0-263] ListMarker: •
+          [0-388] link: Item J
+          [0-265] StaticText: 
+          [0-266] StaticText: ¥900
+        [0-390] listitem
+          [0-267] ListMarker: •
+          [0-391] link: Item K
+          [0-269] StaticText: 
+          [0-270] StaticText: ¥000
+        [0-393] listitem
+          [0-271] ListMarker: •
+          [0-394] link: Item L
+          [0-273] StaticText: 
+          [0-274] StaticText: ¥100
+        [0-396] listitem
+          [0-275] ListMarker: •
+          [0-397] link: Item M
+          [0-277] StaticText: 
+          [0-278] StaticText: ¥200
+        [0-399] listitem
+          [0-279] ListMarker: •
+          [0-400] link: Item N
+          [0-281] StaticText: 
+          [0-282] StaticText: ¥300
+        [0-402] listitem
+          [0-283] ListMarker: •
+          [0-403] link: Item O
+          [0-285] StaticText: 
+          [0-286] StaticText: ¥400
+        [0-405] listitem
+          [0-287] ListMarker: •
+          [0-406] link: Item P
+          [0-289] StaticText: 
+          [0-290] StaticText: ¥500
+        [0-408] listitem
+          [0-291] ListMarker: •
+          [0-409] link: Item Q
+          [0-293] StaticText: 
+          [0-294] StaticText: ¥600
+        [0-411] listitem
+          [0-295] ListMarker: •
+          [0-412] link: Item R
+          [0-297] StaticText: 
+          [0-298] StaticText: ¥700
+        [0-414] listitem
+          [0-299] ListMarker: •
+          [0-415] link: Item S
+          [0-301] StaticText: 
+          [0-302] StaticText: ¥800
+        [0-417] listitem
+          [0-303] ListMarker: •
+          [0-418] link: Item T
+          [0-305] StaticText: 
+          [0-306] StaticText: ¥900
+        [0-420] listitem
+          [0-307] ListMarker: •
+          [0-421] link: Item U
+          [0-309] StaticText: 
+          [0-310] StaticText: ¥000
+        [0-423] listitem
+          [0-311] ListMarker: •
+          [0-424] link: Item V
+          [0-313] StaticText: 
+          [0-314] StaticText: ¥100
+        [0-426] listitem
+          [0-315] ListMarker: •
+          [0-427] link: Item W
+          [0-317] StaticText: 
+          [0-318] StaticText: ¥200
+        [0-429] listitem
+          [0-319] ListMarker: •
+          [0-430] link: Item X
+          [0-321] StaticText: 
+          [0-322] StaticText: ¥300
+        [0-432] listitem
+          [0-323] ListMarker: •
+          [0-356] link: Item Y
+          [0-325] StaticText: 
+          [0-326] StaticText: ¥400
+        [0-434] listitem
+          [0-327] ListMarker: •
+          [0-435] link: Item Z
+          [0-329] StaticText: 
+          [0-330] StaticText: ¥500
+        [0-437] listitem
+          [0-331] ListMarker: •
+          [0-438] link: Item A
+          [0-333] StaticText: 
+          [0-334] StaticText: ¥600
+        [0-440] listitem
+          [0-335] ListMarker: •
+          [0-441] link: Item B
+          [0-337] StaticText: 
+          [0-338] StaticText: ¥700
+        [0-443] listitem
+          [0-339] ListMarker: •
+          [0-444] link: Item C
+          [0-341] StaticText: 
+          [0-342] StaticText: ¥800
+        [0-446] listitem
+          [0-343] ListMarker: •
+          [0-447] link: Item D
+          [0-345] StaticText: 
+          [0-346] StaticText: ¥900
+        [0-449] listitem
+          [0-347] ListMarker: •
+          [0-450] link: Item E
+          [0-349] StaticText: 
+          [0-350] StaticText: ¥000
+      [0-354] radio: Newest [checked]
+      [0-355] radio: Price
+      [0-229] textbox: Note
+        [0-351] StaticText: hello

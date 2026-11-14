@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 )
 
 var (
@@ -375,18 +376,19 @@ func newDocker(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	// Priority 1: Step-level container field (new intuitive syntax)
 	// This is the preferred way to configure containers at step level
 	if step.Container != nil {
-		// Merge step env into container env BEFORE evaluation so that
-		// all variable references (including DAG env/params in step env)
-		// are resolved together with the full runtime scope.
-		ct := *step.Container
-		ct.Env = mergeEnvVars(step.Env, ct.Env)
-
 		// Expand environment variables in container fields at execution time
 		env := runtime.GetEnv(ctx)
-		expanded, err := EvalContainerFields(ctx, ct)
+		expanded, err := EvalContainerFields(ctx, *step.Container)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate container config: %w", err)
 		}
+		// Step env is injected below the container's own declarations, which
+		// include env_file variables (spec 006).
+		stepEnv, err := evalEnvSequentially(ctx, step.Env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate step env: %w", err)
+		}
+		expanded.Env = mergeEnvVars(stepEnv, expanded.Env)
 		c, err := LoadConfig(env.WorkingDir, expanded, registryAuths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load step container config: %w", err)
@@ -479,6 +481,8 @@ func mergeEnvVars(base, override []string) []string {
 // - Volumes, Ports, Env, Command, Shell (slice fields)
 // Fields like PullPolicy, Startup, WaitFor, KeepContainer are NOT evaluated
 // as they have specific enum/boolean values.
+// EnvFile paths are evaluated, then each file's variables are injected into
+// Env at lower precedence than explicit entries.
 func EvalContainerFields(ctx context.Context, ct ir.Container) (ir.Container, error) {
 	var err error
 
@@ -518,6 +522,14 @@ func EvalContainerFields(ctx context.Context, ct ir.Container) (ir.Container, er
 	if ct.Env, err = evalEnvSequentially(ctx, ct.Env); err != nil {
 		return ct, fmt.Errorf("failed to evaluate env: %w", err)
 	}
+	if ct.EnvFile, err = evalStringSlice(ctx, ct.EnvFile, "container.env_file", func(path string) cmnvalue.Field {
+		return cmnvalue.ContainerField(path)
+	}); err != nil {
+		return ct, fmt.Errorf("failed to evaluate env_file: %w", err)
+	}
+	if ct.Env, err = loadEnvFileVars(ctx, ct.EnvFile, ct.Env); err != nil {
+		return ct, fmt.Errorf("failed to load env_file: %w", err)
+	}
 	if ct.Command, err = evalStringSlice(ctx, ct.Command, "container.command", func(path string) cmnvalue.Field {
 		return cmnvalue.DirectCommandField(path, cmnvalue.CommandContext{Target: cmnvalue.CommandTargetDocker})
 	}); err != nil {
@@ -547,6 +559,26 @@ func evalStringSlice(ctx context.Context, ss []string, path string, fieldForPath
 		result[i] = evaluated
 	}
 	return result, nil
+}
+
+// loadEnvFileVars reads each env_file entry and returns the env list extended
+// with the file variables. File values are not evaluated further, and
+// explicit env entries override file variables for the same key.
+func loadEnvFileVars(ctx context.Context, files, env []string) ([]string, error) {
+	if len(files) == 0 {
+		return env, nil
+	}
+
+	rtEnv := runtime.GetEnv(ctx)
+	var dagLocation string
+	if rtEnv.DAG != nil {
+		dagLocation = rtEnv.DAG.Location
+	}
+	fileVars, err := runtimeenv.LoadEnvFiles(files, rtEnv.WorkingDir, dagLocation)
+	if err != nil {
+		return nil, err
+	}
+	return mergeEnvByKey(fileVars, env), nil
 }
 
 // evalEnvSequentially evaluates "KEY=VALUE" env entries in order,

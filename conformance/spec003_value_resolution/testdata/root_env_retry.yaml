@@ -1,0 +1,13 @@
+params:
+  - name: variable
+    type: string
+    default: '$INSERTED/data'
+env:
+  INSERTED: expanded
+  ROOT_COPY: ${params.variable}
+working_dir: .
+steps:
+  - id: check
+    run: |
+      printf '%s\n' "$ROOT_COPY" >> root_copy.out
+      [ -f ready ]

@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -287,9 +288,9 @@ func TruncateString(s string, maxLen int) string {
 		return s
 	}
 	if maxLen <= 3 {
-		return s[:maxLen]
+		return stringutil.TruncUTF8Bytes(s, maxLen)
 	}
-	return s[:maxLen-3] + "..."
+	return stringutil.TruncUTF8Bytes(s, maxLen-3) + "..."
 }
 
 // SanitizeKey removes newlines and control characters from a key for display.

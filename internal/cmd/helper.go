@@ -8,15 +8,19 @@ import (
 	"fmt"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -37,7 +41,7 @@ func parseTriggerTypeParam(ctx *Context) (ir.TriggerType, error) {
 	triggerType := ir.ParseTriggerType(triggerTypeStr)
 	if triggerType == ir.TriggerTypeUnknown {
 		return ir.TriggerTypeUnknown, fmt.Errorf(
-			"invalid trigger-type %q: must be one of scheduler, manual, webhook, subdag, retry, catchup",
+			"invalid trigger-type %q: must be one of scheduler, manual, webhook, subdag, retry, catchup, restart",
 			triggerTypeStr,
 		)
 	}
@@ -79,6 +83,143 @@ func parseScheduleTimeParam(ctx *Context) (string, error) {
 		}
 	}
 	return scheduleTime, nil
+}
+
+// runSlot is the schedule slot a run is started for.
+type runSlot struct {
+	scheduleTime string
+	window       ir.ScheduleWindow
+	// operatorChosen reports a slot named with --scheduled-at, not by the
+	// scheduler.
+	operatorChosen bool
+	// isDefault reports the default slot of a run that named none.
+	isDefault bool
+}
+
+// withDefaultSlot gives a run that names no slot the default slot, which a
+// DAG with dates gets so that its dates follow its schedule.
+func withDefaultSlot(ctx *Context, dag *ir.DAG, profile string, slot runSlot) runSlot {
+	if slot.scheduleTime != "" {
+		return slot
+	}
+	def, ok := rundates.DefaultSlot(dag, profile, ctx.Config.Core.Location, spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir), time.Now())
+	if !ok {
+		return slot
+	}
+	return runSlot{scheduleTime: def.ScheduleTime, window: def.Window, isDefault: true}
+}
+
+// runSlotParams reads the slot a run is started for: --schedule-time, which
+// the scheduler sets, or --scheduled-at, which an operator sets. The window
+// is computed among the DAG's start schedules for the profile. A slot later
+// than now is rejected unless allowFuture. A warning about a time no
+// schedule fires is printed to stderr.
+func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) (runSlot, error) {
+	var scheduleTime string
+	if ctx.Command.Flags().Lookup(scheduleTimeFlag.name) != nil {
+		var err error
+		if scheduleTime, err = parseScheduleTimeParam(ctx); err != nil {
+			return runSlot{}, err
+		}
+	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return runSlot{}, fmt.Errorf("failed to get scheduled-at: %w", err)
+	}
+	switch {
+	case scheduledAt != "" && scheduleTime != "":
+		return runSlot{}, fmt.Errorf("--scheduled-at cannot be combined with --schedule-time")
+	case scheduleTime != "":
+		at, _ := time.Parse(time.RFC3339, scheduleTime)
+		window := ir.ScheduleWindowAt(boundStartSchedules(ctx, dag), profile, ctx.Config.Core.Location, at)
+		return runSlot{scheduleTime: scheduleTime, window: window}, nil
+	case scheduledAt == "":
+		return runSlot{}, nil
+	}
+
+	slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
+		Value:       scheduledAt,
+		Schedules:   boundStartSchedules(ctx, dag),
+		Profile:     profile,
+		Location:    ctx.Config.Core.Location,
+		Now:         time.Now(),
+		AllowFuture: allowFuture,
+	})
+	if err != nil {
+		return runSlot{}, fmt.Errorf("invalid --scheduled-at: %w", err)
+	}
+	if slot.Warning != "" {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", slot.Warning)
+	}
+	return runSlot{
+		scheduleTime:   stringutil.FormatTime(slot.At.In(ctx.Config.Core.Location)),
+		window:         slot.Window,
+		operatorChosen: true,
+	}, nil
+}
+
+// slotDates resolves the dates of a run being created for slot. An error
+// refuses the run before it exists.
+func slotDates(ctx *Context, dag *ir.DAG, profile string, slot runSlot) ([]ir.DateValue, error) {
+	return rundates.Resolve(rundates.Request{
+		DAG:          dag,
+		Profile:      profile,
+		ScheduleTime: slot.scheduleTime,
+		Window:       slot.window,
+		CreatedAt:    time.Now(),
+		Location:     ctx.Config.Core.Location,
+		Calendars:    spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir),
+	})
+}
+
+// reportRunDates tells, on stderr, the slot and dates a run was created
+// with, so a run for a past slot shows what it loads.
+func reportRunDates(ctx *Context, slot runSlot, dates []ir.DateValue) {
+	if len(dates) == 0 {
+		return
+	}
+	where := "no slot"
+	if slot.scheduleTime != "" {
+		where = "slot " + slot.scheduleTime
+		if at, err := stringutil.ParseTime(slot.scheduleTime); err == nil {
+			if zone, err := time.LoadLocation(slot.window.Timezone); err == nil {
+				where = "slot " + at.In(zone).Format(time.RFC3339)
+			}
+		}
+		if slot.isDefault {
+			where += " (default)"
+		}
+	}
+	_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Dates for %s: %s\n", where, formatDates(dates))
+}
+
+// formatDates shows a run's dates on one line: name=date for an entry, and
+// name=first..last for a list.
+func formatDates(dates []ir.DateValue) string {
+	parts := make([]string, 0, len(dates))
+	for _, date := range dates {
+		value := date.Value
+		if date.List {
+			switch len(date.Values) {
+			case 0:
+				value = "[]"
+			case 1:
+				value = date.Values[0]
+			default:
+				value = date.Values[0] + ".." + date.Values[len(date.Values)-1]
+			}
+		}
+		parts = append(parts, date.Name+"="+value)
+	}
+	return strings.Join(parts, " ")
+}
+
+// boundStartSchedules returns a copy of the DAG's start schedules with their
+// calendars bound, so they fire as the scheduler fires them.
+func boundStartSchedules(ctx *Context, dag *ir.DAG) []ir.Schedule {
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir))
+	return schedules
 }
 
 // restoreDAGFromStatus restores a DAG from a previous run's status and YAML.
@@ -157,7 +298,7 @@ func applyPersistedRunWorkingDir(dag *ir.DAG, status *ir.DAGRunStatus) {
 // If the input is a file path (.yaml or .yml), it loads the DAG metadata
 // to extract the name. Otherwise, it returns the input as-is.
 func extractDAGName(ctx *Context, name string) (string, error) {
-	if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+	if !fileutil.IsYAMLFile(name) {
 		return name, nil
 	}
 

@@ -414,6 +414,7 @@ func TestViewsAPI_CreateValidation(t *testing.T) {
 	}{
 		{"empty name", apigen.ViewSpec{Name: "", IntervalDays: 3}},
 		{"interval too large", apigen.ViewSpec{Name: "x", IntervalDays: 31}},
+		{"invalid label filter", apigen.ViewSpec{Name: "x", IntervalDays: 3, Labels: &[]string{"env==prod"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

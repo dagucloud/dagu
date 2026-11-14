@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 var sourceFiles = []string{
@@ -19,6 +21,7 @@ var sourceFiles = []string{
 	filepath.Join("references", "context.md"),
 	filepath.Join("references", "build.md"),
 	filepath.Join("references", "harnesses.md"),
+	filepath.Join("references", "server-operations.md"),
 }
 
 // Options configures llms.txt generation.
@@ -79,7 +82,7 @@ func WriteFile(outputPath string, opts Options) error {
 		}
 	}
 
-	if err := os.WriteFile(outputPath, content, 0o644); err != nil {
+	if err := fileutil.WriteFileAtomic(outputPath, content, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", outputPath, err)
 	}
 	return nil

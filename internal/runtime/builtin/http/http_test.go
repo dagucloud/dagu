@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -337,6 +338,57 @@ func TestHTTPExecutor_MultipartSchemaRejectsNonStringValues(t *testing.T) {
 				field: map[string]any{"document": 123},
 			})
 			require.Error(t, err)
+		})
+	}
+}
+
+// A misspelled `with` key must fail validation instead of silently dropping
+// the headers (#3440). The closed schema also suggests the closest valid key.
+func TestHTTPExecutor_RejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	err := registry.ValidateExecutorConfig("http", map[string]any{
+		"method": "GET", "url": "https://example.com", "header": map[string]any{"X-Test": "1"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `did you mean "headers" instead of "header"?`)
+
+	require.NoError(t, registry.ValidateExecutorConfig("http", map[string]any{
+		"method": "GET", "url": "https://example.com", "headers": map[string]any{"X-Test": "1"},
+	}))
+}
+
+// status_exit_codes keys are a status code (300-599) or class (3xx-5xx), and
+// values are exit codes (0-255), so dagu validate rejects anything else.
+func TestHTTPExecutor_StatusExitCodesSchema(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		codes   map[string]any
+		wantErr bool
+	}{
+		{name: "code and class", codes: map[string]any{"404": 0, "5xx": 3}},
+		{name: "code out of range", codes: map[string]any{"600": 1}, wantErr: true},
+		{name: "success code", codes: map[string]any{"204": 1}, wantErr: true},
+		{name: "success class", codes: map[string]any{"2xx": 1}, wantErr: true},
+		{name: "informational class", codes: map[string]any{"1xx": 1}, wantErr: true},
+		{name: "unknown class", codes: map[string]any{"6xx": 1}, wantErr: true},
+		{name: "partial class", codes: map[string]any{"40x": 1}, wantErr: true},
+		{name: "exit code too high", codes: map[string]any{"404": 256}, wantErr: true},
+		{name: "negative exit code", codes: map[string]any{"404": -1}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := registry.ValidateExecutorConfig("http", map[string]any{
+				"method": "GET", "url": "https://example.com", "status_exit_codes": tc.codes,
+			})
+			if tc.wantErr {
+				require.ErrorContains(t, err, "status_exit_codes")
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -707,6 +759,77 @@ func TestHTTPExecutor_CmdWithArgsExpansion(t *testing.T) {
 	})
 }
 
+// A silent success prints only the body; status_code and headers stay in
+// the output when silent is off or the response is not a success. A JSON
+// null body stays as "body": null, and with.output replaces the body.
+func TestHTTPExecutor_JSONOutputFields(t *testing.T) {
+	okBody := map[string]any{"ok": true}
+	for _, tc := range []struct {
+		name     string
+		status   int
+		response string
+		silent   bool
+		output   bool
+		keys     []string
+		body     any
+	}{
+		{"SilentSuccess", nethttp.StatusAccepted, `{"ok":true}`, true, false, []string{"body"}, okBody},
+		{"Success", nethttp.StatusAccepted, `{"ok":true}`, false, false, []string{"body", "headers", "status_code"}, okBody},
+		{"SilentError", nethttp.StatusServiceUnavailable, `{"ok":true}`, true, false, []string{"body", "headers", "status_code"}, okBody},
+		{"SilentNullBody", nethttp.StatusOK, `null`, true, false, []string{"body"}, nil},
+		{"NullBody", nethttp.StatusOK, `null`, false, false, []string{"body", "headers", "status_code"}, nil},
+		{"SilentNullBodyToFile", nethttp.StatusOK, `null`, true, true, []string{"output"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer server.Close()
+
+			cfg := map[string]any{
+				"format": "json",
+				"silent": tc.silent,
+			}
+			if tc.output {
+				cfg["output"] = filepath.Join(t.TempDir(), "response.json")
+			}
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{Command: "POST", Args: []string{server.URL}}},
+				ExecutorConfig: ir.ExecutorConfig{
+					Type:   "http",
+					Config: cfg,
+				},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+
+			out := &testWriter{}
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			httpExec.SetStdout(out)
+			httpExec.SetStderr(&testWriter{})
+
+			err = httpExec.Run(context.Background())
+			if tc.status >= 300 {
+				require.ErrorIs(t, err, errHTTPStatusCode)
+			} else {
+				require.NoError(t, err)
+			}
+
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(out.data, &result))
+			assert.ElementsMatch(t, tc.keys, slices.Collect(maps.Keys(result)))
+			assert.Equal(t, tc.body, result["body"])
+			if _, ok := result["status_code"]; ok {
+				assert.InDelta(t, tc.status, result["status_code"], 0)
+			}
+		})
+	}
+}
+
 type testWriter struct {
 	data []byte
 }
@@ -718,4 +841,191 @@ func (tw *testWriter) Write(p []byte) (n int, err error) {
 
 func (tw *testWriter) String() string {
 	return string(tw.data)
+}
+
+func TestHTTPExecutor_StatusExitCodes(t *testing.T) {
+	t.Parallel()
+
+	// wantExit 0 means the step succeeds.
+	for _, tc := range []struct {
+		name     string
+		status   int
+		mapCfg   map[string]any
+		wantExit int
+	}{
+		{"ExactCodeMapsToZero", 409, map[string]any{"status_exit_codes": map[string]any{"409": 0}}, 0},
+		{"ExactCodeMapsToNonZero", 404, map[string]any{"status_exit_codes": map[string]any{"404": 23}}, 23},
+		{"ClassMapsToRetryable", 503, map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, 75},
+		{"ExactWinsOverClass", 404, map[string]any{"status_exit_codes": map[string]any{"404": 0, "4xx": 66}}, 0},
+		{"UnmappedKeepsDefault", 400, map[string]any{"status_exit_codes": map[string]any{"404": 0, "5xx": 75}}, 1},
+		{"NoMapKeepsDefault", 500, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.WriteHeader(tc.status)
+			}))
+			defer server.Close()
+
+			cfg := map[string]any{"url": server.URL}
+			if tc.mapCfg != nil {
+				maps.Copy(cfg, tc.mapCfg)
+			}
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: "GET"}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: cfg},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			httpExec.SetStdout(&testWriter{})
+			httpExec.SetStderr(&testWriter{})
+
+			err = httpExec.Run(context.Background())
+			if tc.wantExit == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, errHTTPStatusCode)
+			assert.Equal(t, tc.wantExit, httpExec.ExitCode())
+		})
+	}
+}
+
+// A failed response need not carry JSON, so format: json keeps the mapped exit
+// code when the error body is HTML or empty.
+func TestHTTPExecutor_StatusExitCodesWithNonJSONBody(t *testing.T) {
+	t.Parallel()
+
+	for name, body := range map[string]string{"HTML": "<html>busy</html>", "Empty": ""} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.WriteHeader(nethttp.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{Command: "GET"}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: map[string]any{
+					"url":               server.URL,
+					"format":            "json",
+					"status_exit_codes": map[string]any{"5xx": 75},
+				}},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			out := &testWriter{}
+			httpExec.SetStdout(out)
+			httpExec.SetStderr(&testWriter{})
+
+			require.ErrorIs(t, httpExec.Run(context.Background()), errHTTPStatusCode)
+			assert.Equal(t, 75, httpExec.ExitCode())
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(out.data, &result))
+			assert.InDelta(t, nethttp.StatusServiceUnavailable, result["status_code"], 0)
+			assert.Equal(t, body, result["body"])
+		})
+	}
+}
+
+// A status mapped to 0 is a success, so the response is written as for a 2xx
+// response and output receives the body.
+func TestHTTPExecutor_StatusMappedToZeroWritesResponse(t *testing.T) {
+	t.Parallel()
+
+	const body = `{"error":"not here"}`
+	for _, tc := range []struct {
+		name       string
+		format     string
+		outputFile bool
+	}{
+		{name: "Text"},
+		{name: "JSON", format: "json"},
+		{name: "OutputFile", outputFile: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.WriteHeader(nethttp.StatusNotFound)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			output := filepath.Join(t.TempDir(), "response.out")
+			cfg := map[string]any{
+				"url":               server.URL,
+				"format":            tc.format,
+				"status_exit_codes": map[string]any{"404": 0},
+			}
+			if tc.outputFile {
+				require.NoError(t, os.WriteFile(output, []byte("previous"), 0o600))
+				cfg["output"] = output
+			}
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: "GET"}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: cfg},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+			out := &testWriter{}
+			executor.SetStdout(out)
+			executor.SetStderr(&testWriter{})
+
+			require.NoError(t, executor.Run(context.Background()))
+			if tc.outputFile {
+				data, err := os.ReadFile(output)
+				require.NoError(t, err)
+				assert.Equal(t, body, string(data))
+				return
+			}
+			assert.Contains(t, out.String(), "not here")
+		})
+	}
+}
+
+func TestHTTPExecutor_StatusExitCodesValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		value  map[string]any
+		script string
+		ok     bool
+	}{
+		{name: "ValidExact", value: map[string]any{"status_exit_codes": map[string]any{"404": 0}}, ok: true},
+		{name: "ValidClass", value: map[string]any{"status_exit_codes": map[string]any{"5xx": 75}}, ok: true},
+		{name: "InvalidKey", value: map[string]any{"status_exit_codes": map[string]any{"999": 0}}},
+		{name: "InvalidClass", value: map[string]any{"status_exit_codes": map[string]any{"9xx": 0}}},
+		{name: "SuccessKey", value: map[string]any{"status_exit_codes": map[string]any{"200": 1}}},
+		{name: "ValueOutOfRange", value: map[string]any{"status_exit_codes": map[string]any{"404": 256}}},
+		{name: "ScriptInvalidKey", script: `{"status_exit_codes": {"999": 0}}`},
+		{name: "ScriptValueOutOfRange", script: `{"status_exit_codes": {"404": 300}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := ir.Step{
+				Commands:       []ir.CommandEntry{{Command: "GET", Args: []string{"https://example.com"}}},
+				ExecutorConfig: ir.ExecutorConfig{Type: "http", Config: tc.value},
+				Script:         tc.script,
+			}
+			_, err := newHTTP(context.Background(), step)
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

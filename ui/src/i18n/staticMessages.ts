@@ -2,19 +2,77 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Locale } from '@/contexts/UserPreference';
+import { backfillMessages } from '@/features/backfills/messages';
+import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
-const english = {
+const baseEnglish = {
+  'Plan & features': 'Plan & features',
+  'Manage plan & features': 'Manage plan & features',
+  'Checking license…': 'Checking license…',
+  'License status unavailable': 'License status unavailable',
+  Community: 'Community',
+  Licensed: 'Licensed',
+  Trial: 'Trial',
+  'Expires today': 'Expires today',
+  'Ask your administrator to manage the license and available features.':
+    'Ask your administrator to manage the license and available features.',
+  'Manage license': 'Manage license',
+  'Start free trial': 'Start free trial',
+  'View plans': 'View plans',
+  'Renew license': 'Renew license',
+  'Activate a key': 'Activate a key',
+  'Audit logs': 'Audit logs',
+  'Trace who changed or ran workflows.': 'Trace who changed or ran workflows.',
+  'Role-based access': 'Role-based access',
+  'Control what teammates can view and change.':
+    'Control what teammates can view and change.',
+  'Single sign-on': 'Single sign-on',
+  'Sign in through your organization’s identity provider.':
+    'Sign in through your organization’s identity provider.',
+  'Incident routing': 'Incident routing',
+  'Open and resolve incidents when workflows fail.':
+    'Open and resolve incidents when workflows fail.',
+  'More API keys': 'More API keys',
+  'Create API keys beyond the Community limit of two.':
+    'Create API keys beyond the Community limit of two.',
+  'License status updated.': 'License status updated.',
+  Included: 'Included',
+  'Setup guide': 'Setup guide',
+  'Open feature': 'Open feature',
+  'This license is configured via an environment variable (DAGU_LICENSE or DAGU_LICENSE_KEY). To deactivate, remove the environment variable and restart Dagu.':
+    'This license is configured via an environment variable (DAGU_LICENSE or DAGU_LICENSE_KEY). To deactivate, remove the environment variable and restart Dagu.',
+  'This will deactivate the license on this server. Paid features will become unavailable. Existing API keys remain active.':
+    'This will deactivate the license on this server. Paid features will become unavailable. Existing API keys remain active.',
+  'Password reset remains available to administrators.':
+    'Password reset remains available to administrators.',
+  'contact your administrator': 'contact your administrator',
   'Artifact preview': 'Artifact preview',
   'Task artifacts': 'Task artifacts',
   'Referenced artifacts are not available for this DAG run yet.':
     'Referenced artifacts are not available for this DAG run yet.',
   'Open DAG run': 'Open DAG run',
   'Back to files': 'Back to files',
-  '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k navigate · ←→ folders · Enter preview',
-  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter': '↑↓ / j k navigate · ←→ folders · Enter preview · / filter',
+  '↑↓ / j k navigate · ←→ folders · Enter preview':
+    '↑↓ / j k navigate · ←→ folders · Enter preview',
+  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter':
+    '↑↓ / j k navigate · ←→ folders · Enter preview · / filter',
   'Incoming webhook': 'Incoming webhook',
   'Bot destination': 'Bot destination',
   'Webhook destination': 'Webhook destination',
+  'Local command': 'Local command',
+  Command: 'Command',
+  'The Dagu server runs this command. Unix uses sh -c and Windows uses PowerShell. The server stops it after 30 seconds, and a non-zero exit fails delivery.':
+    'The Dagu server runs this command. Unix uses sh -c and Windows uses PowerShell. The server stops it after 30 seconds, and a non-zero exit fails delivery.',
+  'The command runs as written. Run values are environment variables, such as {dagEnv}, {statusEnv}, {errorEnv}, DAG_RUN_ID, and RUN_URL. Quote them, as in {quotedError}. {logEnv} is a temporary file with up to 1 MiB of the run log, including lifecycle-handler output, and is removed after the command exits. On Windows, PowerShell reads these as {windowsEnv} and so on.':
+    'The command runs as written. Run values are environment variables, such as {dagEnv}, {statusEnv}, {errorEnv}, DAG_RUN_ID, and RUN_URL. Quote them, as in {quotedError}. {logEnv} is a temporary file with up to 1 MiB of the run log, including lifecycle-handler output, and is removed after the command exits. On Windows, PowerShell reads these as {windowsEnv} and so on.',
+  'Only admins can change or test local command channels.':
+    'Only admins can change or test local command channels.',
+  'This server does not run local commands. Enable permissions.write_dags and permissions.run_dags to deliver to this channel.':
+    'This server does not run local commands. Enable permissions.write_dags and permissions.run_dags to deliver to this channel.',
+  'Set Global defaults and workspace overrides.':
+    'Set Global defaults and workspace overrides.',
+  'Manage Slack, email, webhook, Telegram, and local command destinations.':
+    'Manage Slack, email, webhook, Telegram, and local command destinations.',
   'Channel actions for {channel}': 'Channel actions for {channel}',
   'Delete channel': 'Delete channel',
   '{count} channel': '{count} channel',
@@ -171,11 +229,11 @@ const english = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     '). To deactivate, remove the environment variable and restart Dagu.',
   '←→ Select': '←→ Select',
+  '←→ Scroll': '←→ Scroll',
   '↑↓ Navigate': '↑↓ Navigate',
   '↻ until': '↻ until',
   '↻ while': '↻ while',
   '+Click: new tab': '+Click: new tab',
-  '| Run ID:': '| Run ID:',
   '1. Scope': '1. Scope',
   '100 lines': '100 lines',
   '1000 lines': '1000 lines',
@@ -191,7 +249,6 @@ const english = {
   Action: 'Action',
   Actions: 'Actions',
   Activate: 'Activate',
-  'Activate License Key': 'Activate License Key',
   'Activating...': 'Activating...',
   active: 'active',
   Active: 'Active',
@@ -209,12 +266,12 @@ const english = {
   'Add custom': 'Add custom',
   'Add custom destination': 'Add custom destination',
   'Add new tab': 'Add new tab',
-  'Add Node': 'Add Node',
-  'Add Profile': 'Add Profile',
-  'Add Remote Node': 'Add Remote Node',
+  'Add node': 'Add node',
+  'Add profile': 'Add profile',
+  'Add remote node': 'Add remote node',
   'Add route': 'Add route',
-  'Add Secret Ref': 'Add Secret Ref',
-  'Add User': 'Add User',
+  'Add secret ref': 'Add secret ref',
+  'Add user': 'Add user',
   Admin: 'Admin',
   'Admin - Full access': 'Admin - Full access',
   Agent: 'Agent',
@@ -223,8 +280,7 @@ const english = {
   All: 'All',
   'All audit entries': 'All audit entries',
   'All Categories': 'All Categories',
-  'All DAGs': 'All DAGs',
-  'All loaded DAG runs are displayed.': 'All loaded DAG runs are displayed.',
+  'All runs are displayed.': 'All runs are displayed.',
   'All outcomes': 'All outcomes',
   'All requests have been submitted': 'All requests have been submitted',
   'All artifacts': 'All artifacts',
@@ -249,7 +305,6 @@ const english = {
   'API Keys': 'API Keys',
   'API URL': 'API URL',
   Apply: 'Apply',
-  'Apply Filters': 'Apply Filters',
   Approval: 'Approval',
   Approve: 'Approve',
   'Approved by:': 'Approved by:',
@@ -264,7 +319,6 @@ const english = {
   'Artifacts will appear here after a run writes files into {directory}.':
     'Artifacts will appear here after a run writes files into {directory}.',
   Asc: 'Asc',
-  at: 'at',
   'at sign-in.': 'at sign-in.',
   'Attach logs': 'Attach logs',
   Attempt: 'Attempt',
@@ -282,7 +336,6 @@ const english = {
   Authentication: 'Authentication',
   'Auto-generated if empty': 'Auto-generated if empty',
   'Auto-sync': 'Auto-sync',
-  'Auto:': 'Auto:',
   'Available actions': 'Available actions',
   'Available Tools (': 'Available Tools (',
   Back: 'Back',
@@ -305,6 +358,7 @@ const english = {
   by: 'by',
   'By request': 'By request',
   'By:': 'By:',
+  'Bypass step preconditions': 'Bypass step preconditions',
   bytes: 'bytes',
   'Calling:': 'Calling:',
   Cancel: 'Cancel',
@@ -367,6 +421,29 @@ const english = {
     'Community installs can manage up to 2 API keys.',
   'Complete task': 'Complete task',
   completed: 'completed',
+  'Page not found': 'Page not found',
+  'Nothing exists at {path}. Check the address or start from your workflows.':
+    'Nothing exists at {path}. Check the address or start from your workflows.',
+  'Go to Workflows': 'Go to Workflows',
+  'Workflow not found': 'Workflow not found',
+  'No workflow named {name} exists. It may have been renamed or deleted.':
+    'No workflow named {name} exists. It may have been renamed or deleted.',
+  'Back to Workflows': 'Back to Workflows',
+  "Couldn't load this workflow": "Couldn't load this workflow",
+  'Run not found': 'Run not found',
+  'This run may have been deleted.': 'This run may have been deleted.',
+  "Couldn't load this run": "Couldn't load this run",
+  'Open workflow': 'Open workflow',
+  'Recent runs': 'Recent runs',
+  "Couldn't load workflows": "Couldn't load workflows",
+  "Couldn't load runs": "Couldn't load runs",
+  "Couldn't load Git sync status": "Couldn't load Git sync status",
+  "Couldn't load the base config": "Couldn't load the base config",
+  "Couldn't load views": "Couldn't load views",
+  'View not found': 'View not found',
+  'This view may have been deleted.': 'This view may have been deleted.',
+  'Go to Overview': 'Go to Overview',
+  'The server did not respond.': 'The server did not respond.',
   'Completed by:': 'Completed by:',
   'Completed:': 'Completed:',
   'Completing…': 'Completing…',
@@ -381,21 +458,19 @@ const english = {
   Configuration: 'Configuration',
   Configure: 'Configure',
   'Configure a runtime profile entry.': 'Configure a runtime profile entry.',
-  'Configure DAG override': 'Configure DAG override',
+  'Configure workflow override': 'Configure workflow override',
   'Configure runtime profile metadata and protection.':
     'Configure runtime profile metadata and protection.',
   'Configure the DAG run before submitting it.':
     'Configure the DAG run before submitting it.',
-  'Configure Workspace': 'Configure Workspace',
   Configured: 'Configured',
   'Confirm Password': 'Confirm Password',
   'Confirm the requested action.': 'Confirm the requested action.',
-  Confirmation: 'Confirmation',
   Connection: 'Connection',
   'Connection disabled': 'Connection disabled',
   Connections: 'Connections',
-  'Connections are configured once, then selected by Global, workspace, or DAG incident routing.':
-    'Connections are configured once, then selected by Global, workspace, or DAG incident routing.',
+  'Connections are configured once, then selected by Global, workspace, or workflow incident routing.':
+    'Connections are configured once, then selected by Global, workspace, or workflow incident routing.',
   'console.dagu.sh': 'console.dagu.sh',
   'Continue scanning': 'Continue scanning',
   'Coordinator Service': 'Coordinator Service',
@@ -414,21 +489,18 @@ const english = {
   Create: 'Create',
   'Create a channel before adding notification routes.':
     'Create a channel before adding notification routes.',
-  'Create a DAG override only when this DAG needs different events or destinations. The effective order is DAG, then workspace, then Global.':
-    'Create a DAG override only when this DAG needs different events or destinations. The effective order is DAG, then workspace, then Global.',
-  'Create a webhook to trigger this DAG via HTTP':
-    'Create a webhook to trigger this DAG via HTTP',
+  'Create a workflow override only when this workflow needs different events or destinations. The effective order is workflow, then workspace, then Global.':
+    'Create a workflow override only when this workflow needs different events or destinations. The effective order is workflow, then workspace, then Global.',
   'Create an incoming-webhook Workflow in Teams, select its destination, save it, and copy the generated URL. Dagu sends the compatible MessageCard format automatically.':
     'Create an incoming-webhook Workflow in Teams, select its destination, save it, and copy the generated URL. Dagu sends the compatible MessageCard format automatically.',
   'Create and test notification channels before using them in routes.':
     'Create and test notification channels before using them in routes.',
   'Create API Key': 'Create API Key',
-  'Create Key': 'Create Key',
+  'Create key': 'Create key',
   'Create new DAG': 'Create new DAG',
   'Create New Wiki page': 'Create New Wiki page',
-  'Create User': 'Create User',
+  'Create user': 'Create user',
   'Create view': 'Create view',
-  'Create Webhook': 'Create Webhook',
   'Create your first Wiki page': 'Create your first Wiki page',
   'Create your first workflow': 'Create your first workflow',
   Created: 'Created',
@@ -441,38 +513,50 @@ const english = {
   'Current owner:': 'Current owner:',
   'Current time': 'Current time',
   Custom: 'Custom',
+  'Custom...': 'Custom...',
   'Custom Destinations': 'Custom Destinations',
+  'Custom lines per page': 'Custom lines per page',
   'Custom range': 'Custom range',
   'Custom run IDs are disabled.': 'Custom run IDs are disabled.',
   'Customize events': 'Customize events',
   D: 'D',
   DAG: 'DAG',
   'DAG default': 'DAG default',
-  'DAG Incidents': 'DAG Incidents',
-  'DAG Name': 'DAG Name',
+  'Workflow incidents': 'Workflow incidents',
+  'Workflow name': 'Workflow name',
   'DAG name filter': 'DAG name filter',
   'DAG Name Override (optional)': 'DAG Name Override (optional)',
   'DAG not found in this workspace.': 'DAG not found in this workspace.',
-  'DAG not found or has been deleted.': 'DAG not found or has been deleted.',
-  'DAG Notifications': 'DAG Notifications',
-  'DAG override': 'DAG override',
+  'Workflow notifications': 'Workflow notifications',
+  'Workflow override': 'Workflow override',
   'DAG Properties': 'DAG Properties',
-  'DAG run ID': 'DAG run ID',
   'DAG Runs': 'DAG Runs',
-  'DAG Secret Refs': 'DAG Secret Refs',
+  'Secret refs': 'Secret refs',
   'DAG Tabs': 'DAG Tabs',
-  'DAG-Run ID (optional)': 'DAG-Run ID (optional)',
-  'DAG-Run-ID': 'DAG-Run-ID',
-  'DAG-Run-Name': 'DAG-Run-Name',
+  'Run ID (optional)': 'Run ID (optional)',
+  'Scheduled at (optional)': 'Scheduled at (optional)',
+  'None (run now)': 'None (run now)',
+  'Other time': 'Other time',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    "The listed times follow the DAG's default profile. The run's window follows the selected profile.",
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'The run gets the schedule time and window of this slot.',
   'DAG:': 'DAG:',
-  'DAGRun Precondition Unmet': 'DAGRun Precondition Unmet',
-  'DAGRun-ID': 'DAGRun-ID',
-  'DAGRun-Name': 'DAGRun-Name',
+  'Run error': 'Run error',
+  'Run precondition not met': 'Run precondition not met',
+  'Execution in progress': 'Execution in progress',
+  'DAGRun is queued for execution': 'DAGRun is queued for execution',
+  'Execution was aborted': 'Execution was aborted',
+  'Waiting for manual action': 'Waiting for manual action',
+  'Execution was rejected': 'Execution was rejected',
+  Workflow: 'Workflow',
   DAGs: 'DAGs',
   'Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples.':
     'Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples.',
-  'Dagu uses the most specific configured scope: DAG, then workspace, then Global.':
-    'Dagu uses the most specific configured scope: DAG, then workspace, then Global.',
+  'Dagu uses the most specific configured scope: workflow, then workspace, then Global.':
+    'Dagu uses the most specific configured scope: workflow, then workspace, then Global.',
   'Dagu v': 'Dagu v',
   'DAGU-XXXX-XXXX-XXXX-XXXX': 'DAGU-XXXX-XXXX-XXXX-XXXX',
   Data: 'Data',
@@ -482,13 +566,13 @@ const english = {
   'Deactivate License': 'Deactivate License',
   'Deactivating...': 'Deactivating...',
   Default: 'Default',
-  'Default for every DAG unless a workspace or DAG is configured.':
-    'Default for every DAG unless a workspace or DAG is configured.',
+  'Default for every workflow unless a workspace or workflow is configured.':
+    'Default for every workflow unless a workspace or workflow is configured.',
   'Default Layer': 'Default Layer',
   'Default only': 'Default only',
   'Default profile': 'Default profile',
-  'Default route for DAGs without workspace or DAG overrides.':
-    'Default route for DAGs without workspace or DAG overrides.',
+  'Default route for workflows without workspace or workflow overrides.':
+    'Default route for workflows without workspace or workflow overrides.',
   'Default sender': 'Default sender',
   'Define at least one step to view the graph':
     'Define at least one step to view the graph',
@@ -497,29 +581,27 @@ const english = {
   Degraded: 'Degraded',
   Delete: 'Delete',
   'Delete (': 'Delete (',
-  'Delete All Missing': 'Delete All Missing',
-  'Delete All Missing Items': 'Delete All Missing Items',
+  'Delete all missing': 'Delete all missing',
+  'Delete all missing items': 'Delete all missing items',
   'Delete all missing items from remote repository':
     'Delete all missing items from remote repository',
-  'Delete Channel': 'Delete Channel',
-  'Delete DAG': 'Delete DAG',
-  'Delete Destination': 'Delete Destination',
-  'Delete Entry': 'Delete Entry',
+  'Delete destination': 'Delete destination',
+  'Delete entry': 'Delete entry',
   'Delete from remote': 'Delete from remote',
   'Delete from Remote': 'Delete from Remote',
   'Delete incident connection': 'Delete incident connection',
   'Delete incident connection?': 'Delete incident connection?',
-  'Delete Missing': 'Delete Missing',
-  'Delete Profile': 'Delete Profile',
-  'Delete Remote Node': 'Delete Remote Node',
+  'Delete missing': 'Delete missing',
+  'Delete profile': 'Delete profile',
+  'Delete remote node': 'Delete remote node',
   'Delete request accepted': 'Delete request accepted',
-  'Delete Secret Ref': 'Delete Secret Ref',
+  'Delete secret ref': 'Delete secret ref',
   'Delete selected': 'Delete selected',
-  'Delete Selected Items': 'Delete Selected Items',
-  'Delete Subscription': 'Delete Subscription',
-  'Delete Sync Item': 'Delete Sync Item',
+  'Delete selected items': 'Delete selected items',
+  'Delete subscription': 'Delete subscription',
+  'Delete sync item': 'Delete sync item',
   'Delete this subscription?': 'Delete this subscription?',
-  'Delete User': 'Delete User',
+  'Delete user': 'Delete user',
   'Delete Webhook': 'Delete Webhook',
   'Delete Wiki': 'Delete Wiki',
   'Delete Wiki page': 'Delete Wiki page',
@@ -533,9 +615,12 @@ const english = {
   'Denied audit entries': 'Denied audit entries',
   Dependencies: 'Dependencies',
   'Depends on': 'Depends on',
+  'Inferred from': 'Inferred from',
+  'Inferred from a step output reference':
+    'Inferred from a step output reference',
   Dequeue: 'Dequeue',
-  'Dequeue action only available at root dagRun level':
-    'Dequeue action only available at root dagRun level',
+  'Dequeue is only available on the top-level run':
+    'Dequeue is only available on the top-level run',
   'Dequeue request accepted.': 'Dequeue request accepted.',
   'Dequeue selected': 'Dequeue selected',
   Desc: 'Desc',
@@ -558,16 +643,8 @@ const english = {
   'Dismiss license expiry notification': 'Dismiss license expiry notification',
   'Dismiss update notification': 'Dismiss update notification',
   'Distributed Workers': 'Distributed Workers',
-  'Do you really want to delete this DAG?':
-    'Do you really want to delete this DAG?',
-  'Do you really want to dequeue the following dagRun?':
-    'Do you really want to dequeue the following dagRun?',
-  'Do you really want to rerun the following execution?':
-    'Do you really want to rerun the following execution?',
-  'Do you really want to retry the following execution?':
-    'Do you really want to retry the following execution?',
-  'Do you really want to stop all running instances of this DAG?':
-    'Do you really want to stop all running instances of this DAG?',
+  'Do you really want to delete this workflow?':
+    'Do you really want to delete this workflow?',
   'Do you want to': 'Do you want to',
   'Do you want to dequeue': 'Do you want to dequeue',
   Docs: 'Docs',
@@ -591,15 +668,15 @@ const english = {
     'Each channel can have one route per scope. Edit its events above, or add another channel.',
   Edit: 'Edit',
   'Edit API Key': 'Edit API Key',
-  'Edit Profile': 'Edit Profile',
-  'Edit Remote Node': 'Edit Remote Node',
-  'Edit Secret Ref': 'Edit Secret Ref',
-  'Edit User': 'Edit User',
+  'Edit profile': 'Edit profile',
+  'Edit remote node': 'Edit remote node',
+  'Edit secret ref': 'Edit secret ref',
+  'Edit user': 'Edit user',
   'Edit view': 'Edit view',
   Edited: 'Edited',
   'Effective Inherited Routes': 'Effective Inherited Routes',
-  'Effective order is DAG, workspace, then Global.':
-    'Effective order is DAG, workspace, then Global.',
+  'Effective order is workflow, workspace, then Global.':
+    'Effective order is workflow, workspace, then Global.',
   'Eligible steps execute and replace their materializations only after success.':
     'Eligible steps execute and replace their materializations only after success.',
   'Email body template': 'Email body template',
@@ -613,7 +690,7 @@ const english = {
   'End of results': 'End of results',
   Endpoint: 'Endpoint',
   Enqueue: 'Enqueue',
-  'Enqueue the DAG': 'Enqueue the DAG',
+  'Enqueue workflow': 'Enqueue workflow',
   'Enqueuing...': 'Enqueuing...',
   'Enter a commit message for this change.':
     'Enter a commit message for this change.',
@@ -622,7 +699,7 @@ const english = {
     'Enter a path for the new Wiki page. Use / for directories.',
   'Enter a search term and press Enter or click Search':
     'Enter a search term and press Enter or click Search',
-  'Enter custom DAG-Run ID': 'Enter custom DAG-Run ID',
+  'Enter a custom run ID': 'Enter a custom run ID',
   'Enter your license or trial key to activate Dagu features. You can obtain a key from':
     'Enter your license or trial key to activate Dagu features. You can obtain a key from',
   'Enter: Confirm': 'Enter: Confirm',
@@ -652,6 +729,8 @@ const english = {
   'Example Request': 'Example Request',
   'Example workflows': 'Example workflows',
   Examples: 'Examples',
+  'Execute permission is required to answer or restart this session.':
+    'Execute permission is required to answer or restart this session.',
   'Execute permission is required to complete this task.':
     'Execute permission is required to complete this task.',
   Execution: 'Execution',
@@ -660,14 +739,13 @@ const english = {
   Executions: 'Executions',
   'Existing keys remain active, but new key creation is blocked until extra keys are revoked or a license is configured.':
     'Existing keys remain active, but new key creation is blocked until extra keys are revoked or a license is configured.',
-  'Existing open incidents still resolve when the DAG recovers.':
-    'Existing open incidents still resolve when the DAG recovers.',
+  'Existing open incidents still resolve when the workflow recovers.':
+    'Existing open incidents still resolve when the workflow recovers.',
   'exit codes:': 'exit codes:',
   'Expand All': 'Expand All',
   'Expand graph': 'Expand graph',
   'Expand rows': 'Expand rows',
   'Expected:': 'Expected:',
-  Expires: 'Expires',
   'expires today': 'expires today',
   'Export as PNG': 'Export as PNG',
   'Export as SVG': 'Export as SVG',
@@ -683,9 +761,9 @@ const english = {
   'Failed to load data': 'Failed to load data',
   'Failed to load queue details': 'Failed to load queue details',
   'Failed to load queue information': 'Failed to load queue information',
+  'Failed to load service DAGs': 'Failed to load service DAGs',
   'Failed to load runs': 'Failed to load runs',
   'Failed to load step details': 'Failed to load step details',
-  'Failed to load the workflow list.': 'Failed to load the workflow list.',
   'Failed to load Wiki pages': 'Failed to load Wiki pages',
   'Failed to load workers': 'Failed to load workers',
   fallback: 'fallback',
@@ -697,8 +775,7 @@ const english = {
   Field: 'Field',
   fields: 'fields',
   'Files first': 'Files first',
-  'Filter by DAG name': 'Filter by DAG name',
-  'Filter by DAG name...': 'Filter by DAG name...',
+  'Filter by workflow name': 'Filter by workflow name',
   'Filter by labels...': 'Filter by labels...',
   'Filter by Run ID...': 'Filter by Run ID...',
   'Filter by tags': 'Filter by tags',
@@ -736,17 +813,15 @@ const english = {
   'Git Sync': 'Git Sync',
   'Git sync allows you to synchronize workflow definitions and Wiki pages with a remote Git repository. Configure it in your server settings.':
     'Git sync allows you to synchronize workflow definitions and Wiki pages with a remote Git repository. Configure it in your server settings.',
-  'Git Sync Not Configured': 'Git Sync Not Configured',
   Global: 'Global',
-  'Global defaults inherited by all DAG definitions':
-    'Global defaults inherited by all DAG definitions',
-  'Global rules apply by default. Workspace and DAG settings override them only when configured.':
-    'Global rules apply by default. Workspace and DAG settings override them only when configured.',
+  'Global defaults inherited by all workflows':
+    'Global defaults inherited by all workflows',
+  'Global rules apply by default. Workspace and workflow settings override them only when configured.':
+    'Global rules apply by default. Workspace and workflow settings override them only when configured.',
   Go: 'Go',
   'Google OAuth client ID': 'Google OAuth client ID',
   'Google refresh token': 'Google refresh token',
   'Google Workspace service account': 'Google Workspace service account',
-  'Grace Period': 'Grace Period',
   Graph: 'Graph',
   'Graph controls': 'Graph controls',
   Grep: 'Grep',
@@ -763,6 +838,34 @@ const english = {
   Hidden: 'Hidden',
   'Hide events': 'Hide events',
   History: 'History',
+  'Connection: {id}': 'Connection: {id}',
+  'Command: {command}': 'Command: {command}',
+  'N/A': 'N/A',
+  '{key}: {count} item': '{key}: {count} item',
+  '{key}: {count} items': '{key}: {count} items',
+  '{key}: structured data': '{key}: structured data',
+  Paused: 'Paused',
+  Retrying: 'Retrying',
+  '{count} file': '{count} file',
+  '{shown} of {total} queues': '{shown} of {total} queues',
+  '{count} queue': '{count} queue',
+  '{count} queues': '{count} queues',
+  worker: 'worker',
+  task: 'task',
+  '({count} up)': '({count} up)',
+  '{count} item': '{count} item',
+  '{count} items': '{count} items',
+  '{count} match shown': '{count} match shown',
+  '{count} matches shown': '{count} matches shown',
+  'Pulled {synced}, removed {deleted}': 'Pulled {synced}, removed {deleted}',
+  'Published {item}': 'Published {item}',
+  'Published {count} item': 'Published {count} item',
+  'Published {count} items': 'Published {count} items',
+  'Are you sure you want to delete {count} item? This cannot be undone.':
+    'Are you sure you want to delete {count} item? This cannot be undone.',
+  'Deleted {deleted}, {failed} failed': 'Deleted {deleted}, {failed} failed',
+  'Deleted {count} item': 'Deleted {count} item',
+  'Deleted {count} items': 'Deleted {count} items',
   'History:': 'History:',
   'HMAC enforcement': 'HMAC enforcement',
   'HMAC only': 'HMAC only',
@@ -796,8 +899,8 @@ const english = {
   Inherit: 'Inherit',
   'Inherit Global': 'Inherit Global',
   Inherited: 'Inherited',
-  'Inherited rules are not used while this DAG override exists. Add a channel or reset to inherit.':
-    'Inherited rules are not used while this DAG override exists. Add a channel or reset to inherit.',
+  'Inherited rules are not used while this workflow override exists. Add a channel or reset to inherit.':
+    'Inherited rules are not used while this workflow override exists. Add a channel or reset to inherit.',
   'Inline preview is truncated. Use Copy or Download for the full file.':
     'Inline preview is truncated. Use Copy or Download for the full file.',
   'Inputs:': 'Inputs:',
@@ -809,7 +912,6 @@ const english = {
   item: 'item',
   Item: 'Item',
   'items? This cannot be undone.': 'items? This cannot be undone.',
-  'items)': 'items)',
   Iteration: 'Iteration',
   'Jump to line:': 'Jump to line:',
   'Keep Token and Add HMAC': 'Keep Token and Add HMAC',
@@ -827,10 +929,7 @@ const english = {
   'Last triggered:': 'Last triggered:',
   'Last updated:': 'Last updated:',
   'Last Used': 'Last Used',
-  'Latest Run': 'Latest Run',
-  'Latest status': 'Latest status',
   License: 'License',
-  'License Error': 'License Error',
   'License key': 'License key',
   'license or trial': 'license or trial',
   'License Required': 'License Required',
@@ -839,30 +938,27 @@ const english = {
   List: 'List',
   'List view': 'List view',
   Live: 'Live',
-  'Live / Schedule': 'Live / Schedule',
-  'Load Average': 'Load Average',
+  'Load average': 'Load average',
   'Load into editor': 'Load into editor',
   'Load more': 'Load more',
-  'Load More': 'Load More',
   'Load more workflows': 'Load more workflows',
   'Load older': 'Load older',
   'Load older day': 'Load older day',
-  'Load older runs': 'Load older runs',
   Loaded: 'Loaded',
   'Loading API keys...': 'Loading API keys...',
   'Loading artifacts...': 'Loading artifacts...',
   'Loading audit logs...': 'Loading audit logs...',
-  'Loading DAG details...': 'Loading DAG details...',
-  'Loading DAG runs...': 'Loading DAG runs...',
+  'Loading workflow...': 'Loading workflow...',
   'Loading diff...': 'Loading diff...',
   'Loading event feed...': 'Loading event feed...',
   'Loading image preview...': 'Loading image preview...',
   'Loading incident connections': 'Loading incident connections',
   'Loading incident routing': 'Loading incident routing',
   'Loading labels...': 'Loading labels...',
+  'Loading log output...': 'Loading log output...',
   'Loading logs...': 'Loading logs...',
   'Loading messages...': 'Loading messages...',
-  'Loading more DAG runs...': 'Loading more DAG runs...',
+  'Loading more runs...': 'Loading more runs...',
   'Loading more queued items...': 'Loading more queued items...',
   'Loading more workflows...': 'Loading more workflows...',
   'Loading outputs...': 'Loading outputs...',
@@ -899,13 +995,14 @@ const english = {
   'Manage channels': 'Manage channels',
   'Manage connections to remote Dagu instances':
     'Manage connections to remote Dagu instances',
-  'Manage environment profiles and individual secret references used by DAG runs.':
-    'Manage environment profiles and individual secret references used by DAG runs.',
+  'Manage environment profiles and individual secret references used by runs.':
+    'Manage environment profiles and individual secret references used by runs.',
   'Manage rules': 'Manage rules',
   'Manage user accounts and their roles':
     'Manage user accounts and their roles',
   'Manage views…': 'Manage views…',
-  'Manage webhooks across all DAGs': 'Manage webhooks across all DAGs',
+  'Manage webhooks across all workflows':
+    'Manage webhooks across all workflows',
   'Manage artifact views': 'Manage artifact views',
   'Manage run views': 'Manage run views',
   'Manage workflow views': 'Manage workflow views',
@@ -952,7 +1049,7 @@ const english = {
   New: 'New',
   'New connection': 'New connection',
   'New DAG run:': 'New DAG run:',
-  'New DAG-Run ID (optional)': 'New DAG-Run ID (optional)',
+  'New run ID (optional)': 'New run ID (optional)',
   'New Item ID': 'New Item ID',
   'New Password': 'New Password',
   'New Path': 'New Path',
@@ -979,14 +1076,15 @@ const english = {
   'No channels configured.': 'No channels configured.',
   'No chat steps in this DAG run': 'No chat steps in this DAG run',
   'No configured profiles to display.': 'No configured profiles to display.',
-  'No DAG override channels selected.': 'No DAG override channels selected.',
-  'No DAG runs are currently executing in this queue.':
-    'No DAG runs are currently executing in this queue.',
-  'No DAG runs found': 'No DAG runs found',
-  'No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.':
-    'No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.',
+  'No workflow override channels selected.':
+    'No workflow override channels selected.',
+  'No runs are executing in this queue.':
+    'No runs are executing in this queue.',
+  'No runs found': 'No runs found',
+  'No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.':
+    'No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.',
   'No DAG spec available for this DAG.': 'No DAG spec available for this DAG.',
-  'No DAGs found': 'No DAGs found',
+  'No workflows found': 'No workflows found',
   'No enabled route currently sends notifications.':
     'No enabled route currently sends notifications.',
   'No entries': 'No entries',
@@ -1003,8 +1101,8 @@ const english = {
     '{step} and the steps that depend on it run again with your feedback. This task reopens afterward.',
   'No incident connections configured.': 'No incident connections configured.',
   'No incident connections selected.': 'No incident connections selected.',
-  'No inherited route is configured for this DAG.':
-    'No inherited route is configured for this DAG.',
+  'No inherited route is configured for this workflow.':
+    'No inherited route is configured for this workflow.',
   'No instances': 'No instances',
   'No labels found': 'No labels found',
   'No managed agent sessions in this run.':
@@ -1023,11 +1121,48 @@ const english = {
   'No profile': 'No profile',
   'No profiles found.': 'No profiles found.',
   'No queued items in this queue.': 'No queued items in this queue.',
-  'No queues found': 'No queues found',
   'No remote nodes configured': 'No remote nodes configured',
   'No running, retrying, or failed steps at the moment.':
     'No running, retrying, or failed steps at the moment.',
   'No runs': 'No runs',
+  'Stop this run?': 'Stop this run?',
+  'Cancel auto-retry?': 'Cancel auto-retry?',
+  'Stop all running instances?': 'Stop all running instances?',
+  'Running steps are canceled.': 'Running steps are canceled.',
+  'The failed run will not be retried automatically.':
+    'The failed run will not be retried automatically.',
+  'Running steps in every instance of this workflow are canceled.':
+    'Running steps in every instance of this workflow are canceled.',
+  'Reschedule as a new run?': 'Reschedule as a new run?',
+  'Retry this run?': 'Retry this run?',
+  'Remove this run from the queue?': 'Remove this run from the queue?',
+  'Stop the latest run': 'Stop the latest run',
+  'Cancel auto-retry for the latest run':
+    'Cancel auto-retry for the latest run',
+  'Stop this run': 'Stop this run',
+  'Cancel auto-retry for this run': 'Cancel auto-retry for this run',
+  'Stop is only available on the top-level run':
+    'Stop is only available on the top-level run',
+  'No runs in the selected time range produced artifact files. Adjust the date range or filters.':
+    'No runs in the selected time range produced artifact files. Adjust the date range or filters.',
+  'Time range': 'Time range',
+  Period: 'Period',
+  'No webhooks yet': 'No webhooks yet',
+  "Create a webhook from a workflow's Webhook tab to trigger it over HTTP.":
+    "Create a webhook from a workflow's Webhook tab to trigger it over HTTP.",
+  'No webhook yet': 'No webhook yet',
+  'Create a webhook to trigger this workflow over HTTP.':
+    'Create a webhook to trigger this workflow over HTTP.',
+  'Create webhook': 'Create webhook',
+  'Queue not found': 'Queue not found',
+  'No queue named {name} exists.': 'No queue named {name} exists.',
+  'Terminal is turned off': 'Terminal is turned off',
+  'Set {setting} on the server to enable it.':
+    'Set {setting} on the server to enable it.',
+  'Git sync is not configured': 'Git sync is not configured',
+  'No active queues': 'No active queues',
+  'Queues defined in the server configuration appear here, along with any queue that has running or waiting runs.':
+    'Queues defined in the server configuration appear here, along with any queue that has running or waiting runs.',
   'No runs on': 'No runs on',
   'No saved artifact views yet.': 'No saved artifact views yet.',
   'No saved run views yet.': 'No saved run views yet.',
@@ -1042,16 +1177,11 @@ const english = {
     'No stored revisions yet. Revisions are captured on each save.',
   'No sub DAG runs match the selected filter':
     'No sub DAG runs match the selected filter',
-  'No sub DAG-runs match the selected filter':
-    'No sub DAG-runs match the selected filter',
   'No tasks are defined.': 'No tasks are defined.',
   'No upcoming run': 'No upcoming run',
   'No users found': 'No users found',
   'No visible queued items were returned for this queue.':
     'No visible queued items were returned for this queue.',
-  'No Webhook Configured': 'No Webhook Configured',
-  'No webhooks found. Create webhooks from individual DAG pages.':
-    'No webhooks found. Create webhooks from individual DAG pages.',
   'No Wiki pages reference this DAG yet.':
     'No Wiki pages reference this DAG yet.',
   'No Wiki pages yet.': 'No Wiki pages yet.',
@@ -1060,12 +1190,12 @@ const english = {
   'Node.js': 'Node.js',
   None: 'None',
   'Not available': 'Not available',
-  'Not Configured': 'Not Configured',
+  'Not configured': 'Not configured',
   'Not set': 'Not set',
   'Note:': 'Note:',
   'Notification Channels': 'Notification Channels',
   'Notification Rules': 'Notification Rules',
-  'Notification Source': 'Notification Source',
+  'Notification source': 'Notification source',
   Notifications: 'Notifications',
   now: 'now',
   'OAuth 2.0': 'OAuth 2.0',
@@ -1077,12 +1207,11 @@ const english = {
   Off: 'Off',
   OFF: 'OFF',
   Offline: 'Offline',
-  ok: 'ok',
   OK: 'OK',
   'Oldest first': 'Oldest first',
   ON: 'ON',
-  'One card per queue, with running activity and backlog status.':
-    'One card per queue, with running activity and backlog status.',
+  'Concurrency limits and backlog for each queue.':
+    'Concurrency limits and backlog for each queue.',
   'One Of': 'One Of',
   'Only HTTPS URLs are accepted. A saved URL remains configured unless it is replaced.':
     'Only HTTPS URLs are accepted. A saved URL remains configured unless it is replaced.',
@@ -1091,11 +1220,9 @@ const english = {
   'Open connections': 'Open connections',
   'Open date picker': 'Open date picker',
   'Open in full modal': 'Open in full modal',
-  'Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab':
-    'Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab',
   'Open in new tab': 'Open in new tab',
   'Open Microsoft setup guide': 'Open Microsoft setup guide',
-  'Open Run': 'Open Run',
+  'Open run': 'Open run',
   'OpenCode has not emitted any timeline events yet.':
     'OpenCode has not emitted any timeline events yet.',
   'OpenCode managed session': 'OpenCode managed session',
@@ -1107,9 +1234,13 @@ const english = {
   'Start this browser step over?': 'Start this browser step over?',
   'This closes the browser if it is still open and runs the step again from its first operation.':
     'This closes the browser if it is still open and runs the step again from its first operation.',
+  'The computer step needs an answer': 'The computer step needs an answer',
+  'Computer session': 'Computer session',
+  'Start this computer step over?': 'Start this computer step over?',
+  'This runs the step again from its first operation. Windows the step opened stay as they are.':
+    'This runs the step again from its first operation. Windows the step opened stay as they are.',
   'Opens on final failure and resolves on recovery.':
     'Opens on final failure and resolves on recovery.',
-  Operations: 'Operations',
   'Operator - DAG execution only': 'Operator - DAG execution only',
   option: 'option',
   'Optional description': 'Optional description',
@@ -1151,11 +1282,22 @@ const english = {
   Path: 'Path',
   Paths: 'Paths',
   Pattern: 'Pattern',
-  'Pattern:': 'Pattern:',
   'Permission requested': 'Permission requested',
   'Pin to sidebar': 'Pin to sidebar',
-  Plan: 'Plan',
+  'Pin workflow': 'Pin workflow',
+  'Pin workflow {name}': 'Pin workflow {name}',
+  Pinned: 'Pinned',
+  'Unpin workflow': 'Unpin workflow',
   'Please check the below errors!': 'Please check the below errors!',
+  'Click a step for details': 'Click a step for details',
+  'Show logs': 'Show logs',
+  'Hide logs': 'Hide logs',
+  'View script': 'View script',
+  '+{count} line': '+{count} line',
+  '+{count} lines': '+{count} lines',
+  'Lifecycle handlers': 'Lifecycle handlers',
+  'Copy run ID': 'Copy run ID',
+  'Run ID copied to clipboard': 'Run ID copied to clipboard',
   'Please check the following errors:': 'Please check the following errors:',
   pollers: 'pollers',
   Port: 'Port',
@@ -1202,19 +1344,16 @@ const english = {
   'Queued for execution': 'Queued for execution',
   'Queued:': 'Queued:',
   'Queueing…': 'Queueing…',
-  queues: 'queues',
   Queues: 'Queues',
   Quick: 'Quick',
   'Quick select': 'Quick select',
-  R: 'R',
   Raw: 'Raw',
   'Raw Event': 'Raw Event',
   Reason: 'Reason',
   'Reason (optional)...': 'Reason (optional)...',
   'Reason:': 'Reason:',
-  'Recent DAG-run outcome events for the selected remote node':
-    'Recent DAG-run outcome events for the selected remote node',
-  'recent runs': 'recent runs',
+  'Recent run outcome events for the selected remote node':
+    'Recent run outcome events for the selected remote node',
   Ref: 'Ref',
   Reference: 'Reference',
   Refresh: 'Refresh',
@@ -1222,7 +1361,7 @@ const english = {
   'Refresh failed': 'Refresh failed',
   'Refresh status': 'Refresh status',
   'Refresh system status': 'Refresh system status',
-  'Refreshing DAG runs...': 'Refreshing DAG runs...',
+  'Refreshing runs...': 'Refreshing runs...',
   'Refreshing notification channels...': 'Refreshing notification channels...',
   'Refreshing notification rules...': 'Refreshing notification rules...',
   'Refreshing notifications...': 'Refreshing notifications...',
@@ -1231,10 +1370,10 @@ const english = {
   'Refreshing the queue detail page': 'Refreshing the queue detail page',
   'Refreshing...': 'Refreshing...',
   'Regenerate HMAC Secret': 'Regenerate HMAC Secret',
-  'Regenerate Token': 'Regenerate Token',
+  'Regenerate token': 'Regenerate token',
   Reject: 'Reject',
-  'Reject DAG run': 'Reject DAG run',
-  'Reject DAG Run': 'Reject DAG Run',
+  'Reject this run': 'Reject this run',
+  'Reject run': 'Reject run',
   rejected: 'rejected',
   Rejected: 'Rejected',
   'Rejected by:': 'Rejected by:',
@@ -1242,18 +1381,268 @@ const english = {
   'Relative path without .md extension. Use / for directories.':
     'Relative path without .md extension. Use / for directories.',
   Reload: 'Reload',
+  // visual-editor:P1-1 begin
+  // visual-editor:P1-1 end
+  //
+  // visual-editor:P1-2 begin
+  'Run step': 'Run step',
+  'Errors: {count}': 'Errors: {count}',
+  'Warnings: {count}': 'Warnings: {count}',
+  'Retries: {count}': 'Retries: {count}',
+  'Insert a step here': 'Insert a step here',
+  Handler: 'Handler',
+  'Inferred from a step reference. Remove the reference to remove this edge.':
+    'Inferred from a step reference. Remove the reference to remove this edge.',
+  'Chain DAGs run steps in YAML order. Move the step in the YAML to change the order.':
+    'Chain DAGs run steps in YAML order. Move the step in the YAML to change the order.',
+  'Edges of this DAG type cannot be changed on the canvas.':
+    'Edges of this DAG type cannot be changed on the canvas.',
+  'YAML has errors: the canvas shows the last valid version':
+    'YAML has errors: the canvas shows the last valid version',
+  'The editor cannot read the YAML at line {line}: the canvas shows the steps the server read':
+    'The editor cannot read the YAML at line {line}: the canvas shows the steps the server read',
+  'Read-only': 'Read-only',
+  'Add step': 'Add step',
+  'Fit view': 'Fit view',
+  'Top to bottom': 'Top to bottom',
+  'Left to right': 'Left to right',
+  'Re-align the steps': 'Re-align the steps',
+  'Workflow canvas': 'Workflow canvas',
+  'Search actions': 'Search actions',
+  'No matching actions': 'No matching actions',
+  'Step palette': 'Step palette',
+  // visual-editor:P1-2 end
+  //
+  // visual-editor:P1-3 begin
+  'Step inspector': 'Step inspector',
+  'This step no longer exists.': 'This step no longer exists.',
+  'Fix the YAML errors to edit this step.':
+    'Fix the YAML errors to edit this step.',
+  General: 'General',
+  'What it does': 'What it does',
+  Flow: 'Flow',
+  ID: 'ID',
+  'Change the action': 'Change the action',
+  'Remove the current parameters?': 'Remove the current parameters?',
+  Keep: 'Keep',
+  Shell: 'Shell',
+  '(default)': '(default)',
+  'Multi-line': 'Multi-line',
+  Script: 'Script',
+  'Edit this field in YAML': 'Edit this field in YAML',
+  Text: 'Text',
+  'Key/value': 'Key/value',
+  'Step YAML': 'Step YAML',
+  'Line {line}, column {column}: {message}':
+    'Line {line}, column {column}: {message}',
+  'Schema warnings': 'Schema warnings',
+  'The step must be a YAML mapping.': 'The step must be a YAML mapping.',
+  'Other keys': 'Other keys',
+  'No form for the parameters of this action. Edit them in the YAML section.':
+    'No form for the parameters of this action. Edit them in the YAML section.',
+  'Edit the other fields in YAML': 'Edit the other fields in YAML',
+  Routes: 'Routes',
+  'Add entry': 'Add entry',
+  Targets: 'Targets',
+  'Targets of {pattern}': 'Targets of {pattern}',
+  'Remove route {pattern}': 'Remove route {pattern}',
+  'New pattern': 'New pattern',
+  'New targets': 'New targets',
+  'step-a, step-b': 'step-a, step-b',
+  'Continue on failure': 'Continue on failure',
+  'Continue when skipped': 'Continue when skipped',
+  'Mark as success': 'Mark as success',
+  'No dependencies': 'No dependencies',
+  'Edit dependencies on the canvas': 'Edit dependencies on the canvas',
+  Environment: 'Environment',
+  'Output name': 'Output name',
+  'Remove output {name}': 'Remove output {name}',
+  'New output name': 'New output name',
+  'Add output': 'Add output',
+  Condition: 'Condition',
+  Expected: 'Expected',
+  'Remove condition {index}': 'Remove condition {index}',
+  'New condition': 'New condition',
+  'New expected value': 'New expected value',
+  'Add condition': 'Add condition',
+  'Timeout (seconds)': 'Timeout (seconds)',
+  'Retry limit': 'Retry limit',
+  'Retry interval (seconds)': 'Retry interval (seconds)',
+  'Edit the kind of this step in the YAML section.':
+    'Edit the kind of this step in the YAML section.',
+  // visual-editor:P1-3 end
+  //
+  // visual-editor:P1-4 begin
+  'Insert reference': 'Insert reference',
+  'Available references': 'Available references',
+  'Put the cursor in a field value': 'Put the cursor in a field value',
+  'Published when chosen': 'Published when chosen',
+  'Not safe in a shell': 'Not safe in a shell',
+  'Unsafe here: use env': 'Unsafe here: use env',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.',
+  'Search references': 'Search references',
+  References: 'References',
+  'No references available': 'No references available',
+  'No matching references': 'No matching references',
+  'Known after run': 'Known after run',
+  'Step outputs': 'Step outputs',
+  Constants: 'Constants',
+  Dates: 'Dates',
+  'The dates of this slot cannot be resolved.': 'The dates of this slot cannot be resolved.',
+  'Dates of this run': 'Dates of this run',
+  'Slot {time}, the latest fire': 'Slot {time}, the latest fire',
+  'window from {time}': 'window from {time}',
+  'Left empty, it takes {value} from the slot.': 'Left empty, it takes {value} from the slot.',
+  '{slot}, loads {date}': '{slot}, loads {date}',
+  'Loads {date}': 'Loads {date}',
+  'loads {date}': 'loads {date}',
+  'slot {index} of {count}': 'slot {index} of {count}',
+  'about {left} left': 'about {left} left',
+  Failures: 'Failures',
+  '{count} slot': '{count} slot',
+  '{count} slots': '{count} slots',
+  'No error recorded': 'No error recorded',
+  'Run of {time}': 'Run of {time}',
+  'Backfill {id}': 'Backfill {id}',
+  Slot: 'Slot',
+  'the latest fire': 'the latest fire',
+  'from the clock': 'from the clock',
+  'Environment variables': 'Environment variables',
+  Secrets: 'Secrets',
+  'Run context': 'Run context',
+  'Build inputs': 'Build inputs',
+  'Build outputs': 'Build outputs',
+  'Step environment': 'Step environment',
+  'Upstream data': 'Upstream data',
+  'Select a step to see the data of its upstream steps':
+    'Select a step to see the data of its upstream steps',
+  'No reference data yet': 'No reference data yet',
+  'This step has no upstream steps': 'This step has no upstream steps',
+  'No run selected': 'No run selected',
+  'Run {runId}': 'Run {runId}',
+  'Direct upstream': 'Direct upstream',
+  '{count} levels up': '{count} levels up',
+  'No outputs in this run': 'No outputs in this run',
+  'Not in this run': 'Not in this run',
+  'Truncated, original size {size}': 'Truncated, original size {size}',
+  'Copy reference': 'Copy reference',
+  Insert: 'Insert',
+  'Add an id to this step to reference its outputs':
+    'Add an id to this step to reference its outputs',
+  'Show {count} more': 'Show {count} more',
+  'Legacy reference form': 'Legacy reference form',
+  'Not available in this step': 'Not available in this step',
+  '${{name}} is shell syntax here. Use ${env.{name}} for a Dagu reference.':
+    '${{name}} is shell syntax here. Use ${env.{name}} for a Dagu reference.',
+  '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.':
+    '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.',
+  // visual-editor:P1-4 end
+  //
+  // visual-editor:P1-5 begin
+  'Run to show': 'Run to show',
+  'Latest run': 'Latest run',
+  'No run': 'No run',
+  'Run unsaved draft': 'Run unsaved draft',
+  'No unsaved changes': 'No unsaved changes',
+  'Starting run': 'Starting run',
+  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
+    'The saved definition differs from the editor. Save first, or run the unsaved draft.',
+  'You do not have permission to run workflows.':
+    'You do not have permission to run workflows.',
+  'This run used a different definition than the saved one.':
+    'This run used a different definition than the saved one.',
+  'Save the DAG first, or run the unsaved draft.':
+    'Save the DAG first, or run the unsaved draft.',
+  'Could not start the run (HTTP {status}).':
+    'Could not start the run (HTTP {status}).',
+  'Could not start the run.': 'Could not start the run.',
+  'Not run in this run': 'Not run in this run',
+  'Reused from an earlier run': 'Reused from an earlier run',
+  'Output variable': 'Output variable',
+  'truncated ({size})': 'truncated ({size})',
+  'View logs': 'View logs',
+  'View logs for {name}': 'View logs for {name}',
+  'Review changes': 'Review changes',
+  'No changes': 'No changes',
+  '{added} added, {removed} removed': '{added} added, {removed} removed',
+  'Saved version': 'Saved version',
+  'Your changes': 'Your changes',
+  Unified: 'Unified',
+  // visual-editor:P1-5 end
+  //
+  // visual-editor:P2 begin
+  Visual: 'Visual',
+  'Fix the YAML errors before you edit in the canvas.':
+    'Fix the YAML errors before you edit in the canvas.',
+  'This step does not exist any more.': 'This step does not exist any more.',
+  'This edit needs the steps in the explicit form: a list of named steps.':
+    'This edit needs the steps in the explicit form: a list of named steps.',
+  'Steps of a chain DAG run in order. Convert the steps to the explicit form to edit dependencies.':
+    'Steps of a chain DAG run in order. Convert the steps to the explicit form to edit dependencies.',
+  'The visual editor cannot edit the steps of an agent DAG.':
+    'The visual editor cannot edit the steps of an agent DAG.',
+  'Another step has this name.': 'Another step has this name.',
+  'This step name is not valid.': 'This step name is not valid.',
+  'This dependency makes a cycle.': 'This dependency makes a cycle.',
+  'The step YAML is not valid.': 'The step YAML is not valid.',
+  Undo: 'Undo',
+  Redo: 'Redo',
+  'Undo (Ctrl+Z)': 'Undo (Ctrl+Z)',
+  'Redo (Shift+Ctrl+Z)': 'Redo (Shift+Ctrl+Z)',
+  'Part of the YAML to show': 'Part of the YAML to show',
+  'Show the YAML of this step': 'Show the YAML of this step',
+  Step: 'Step',
+  File: 'File',
+  Form: 'Form',
+  'Add a step': 'Add a step',
+  'Search for an action': 'Search for an action',
+  'Recently used': 'Recently used',
+  Popular: 'Popular',
+  'After {name}': 'After {name}',
+  'At the end of the workflow': 'At the end of the workflow',
+  'Between {from} and {to}': 'Between {from} and {to}',
+  'Add a shell command': 'Add a shell command',
+  'Show all actions': 'Show all actions',
+  'Up and Down to move, Enter to add, Esc to close':
+    'Up and Down to move, Enter to add, Esc to close',
+  Editor: 'Editor',
+  '{count} task': '{count} task',
+  '{count} tasks': '{count} tasks',
+  'The agent chooses which step to run, so the steps have no order.':
+    'The agent chooses which step to run, so the steps have no order.',
+  'Hide YAML': 'Hide YAML',
+  Handlers: 'Handlers',
+  Document: 'Document',
+  'Export graph': 'Export graph',
+  'Convert steps': 'Convert steps',
+  'Run only the step {name} now? Its command runs for real.':
+    'Run only the step {name} now? Its command runs for real.',
+  'The other steps keep their outputs of run {runId}.':
+    'The other steps keep their outputs of run {runId}.',
+  'The step runs from the unsaved editor text.':
+    'The step runs from the unsaved editor text.',
+  'Click a field of the step first, then insert the value.':
+    'Click a field of the step first, then insert the value.',
+  'The file changed on disk': 'The file changed on disk',
+  'A newer version was saved. Review it before you save again.':
+    'A newer version was saved. Review it before you save again.',
+  'Unsaved draft': 'Unsaved draft',
+  'Restore unsaved draft from {time}?': 'Restore unsaved draft from {time}?',
+  Restore: 'Restore',
+  // visual-editor:P2 end
   'Reload artifacts': 'Reload artifacts',
   'Reload logs': 'Reload logs',
   'Remote Nodes': 'Remote Nodes',
   Remove: 'Remove',
-  'Remove DAGRun from queue': 'Remove DAGRun from queue',
+  'Remove this run from the queue': 'Remove this run from the queue',
   'Remove incident connection': 'Remove incident connection',
   'Remove missing items from sync tracking':
     'Remove missing items from sync tracking',
   'Remove the license from this machine and return to community mode.':
     'Remove the license from this machine and return to community mode.',
-  'Remove this DAG override and inherit workspace or Global notification rules?':
-    'Remove this DAG override and inherit workspace or Global notification rules?',
+  'Remove this workflow override and inherit workspace or Global notification rules?':
+    'Remove this workflow override and inherit workspace or Global notification rules?',
   Rename: 'Rename',
   'Rename Wiki page': 'Rename Wiki page',
   'Rename workflow': 'Rename workflow',
@@ -1262,11 +1651,16 @@ const english = {
   required: 'required',
   'Reschedule request accepted': 'Reschedule request accepted',
   'Reschedule selected': 'Reschedule selected',
-  'Reschedule with new DAG-run': 'Reschedule with new DAG-run',
+  'Edit the definition and choose the steps to run':
+    'Edit the definition and choose the steps to run',
+  'Edit and retry': 'Edit and retry',
+  'A checked step reuses its previous output; the others run again.':
+    'A checked step reuses its previous output; the others run again.',
+  'Reschedule as a new run': 'Reschedule as a new run',
   Reset: 'Reset',
   'Reset changes': 'Reset changes',
-  'Reset DAG Override': 'Reset DAG Override',
-  'Reset Password': 'Reset Password',
+  'Reset workflow override': 'Reset workflow override',
+  'Reset password': 'Reset password',
   'Reset Password for': 'Reset Password for',
   'Reset this step and every reachable descendant. Unrelated branches are left unchanged.':
     'Reset this step and every reachable descendant. Unrelated branches are left unchanged.',
@@ -1275,6 +1669,11 @@ const english = {
   'Reset zoom': 'Reset zoom',
   'Resetting...': 'Resetting...',
   'Resize step details': 'Resize step details',
+  'Maximize panel': 'Maximize panel',
+  'Restore panel': 'Restore panel',
+  'Resize sub-run view': 'Resize sub-run view',
+  'Resize workflow view': 'Resize workflow view',
+  'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+Click for new tab',
   'Resolved during a run (': 'Resolved during a run (',
   'Resource & Trace': 'Resource & Trace',
   'Resource ID': 'Resource ID',
@@ -1286,19 +1685,33 @@ const english = {
   result: 'result',
   Result: 'Result',
   Results: 'Results',
+  'Command palette': 'Command palette',
+  'Search workflows, pages, and actions':
+    'Search workflows, pages, and actions',
+  'Search workflows, pages, and actions...':
+    'Search workflows, pages, and actions...',
+  Pages: 'Pages',
+  Navigate: 'Navigate',
+  'Use light theme': 'Use light theme',
+  'Use dark theme': 'Use dark theme',
+  'Use system theme': 'Use system theme',
+  'Search workflow contents for "{query}"':
+    'Search workflow contents for "{query}"',
+  'Searching workflows...': 'Searching workflows...',
+  'No results for "{query}"': 'No results for "{query}"',
+  'Search...': 'Search...',
   'Results follow committed log order, newest committed entries first.':
     'Results follow committed log order, newest committed entries first.',
   'Results will appear here as each request finishes.':
     'Results will appear here as each request finishes.',
   Retry: 'Retry',
-  'Retry action only available at root dagRun level':
-    'Retry action only available at root dagRun level',
+  'Retry is only available on the top-level run':
+    'Retry is only available on the top-level run',
   'Retry as a new run': 'Retry as a new run',
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.',
-  'Retry DAG execution': 'Retry DAG execution',
-  'Retry DAGRun execution': 'Retry DAGRun execution',
-  'Retry Edited DAG Run': 'Retry Edited DAG Run',
+  'Retry this run': 'Retry this run',
+  'Retry edited run': 'Retry edited run',
   'Retry load more': 'Retry load more',
   'Retry loading more': 'Retry loading more',
   'Retry queue': 'Retry queue',
@@ -1354,7 +1767,6 @@ const english = {
     'Runtime profiles could not be loaded. Editing is disabled.',
   Save: 'Save',
   'Save changes': 'Save changes',
-  'Save Changes': 'Save Changes',
   'Save changes (Ctrl+S / Cmd+S)': 'Save changes (Ctrl+S / Cmd+S)',
   'Save changes before leaving this page or sending a test.':
     'Save changes before leaving this page or sending a test.',
@@ -1378,6 +1790,7 @@ const english = {
   'Scanning...': 'Scanning...',
   Schedule: 'Schedule',
   Scheduled: 'Scheduled',
+  'Window start': 'Window start',
   'Scheduled At': 'Scheduled At',
   'Scheduled:': 'Scheduled:',
   'Scheduler Service': 'Scheduler Service',
@@ -1385,10 +1798,9 @@ const english = {
   'Schema unavailable': 'Schema unavailable',
   Scope: 'Scope',
   'Script Content': 'Script Content',
-  'Script defined': 'Script defined',
   Search: 'Search',
   'Search by ID or labels...': 'Search by ID or labels...',
-  'Search DAGs...': 'Search DAGs...',
+  'Search workflows...': 'Search workflows...',
   'Search git sync items': 'Search git sync items',
   'Search in loaded lines...': 'Search in loaded lines...',
   'Search items...': 'Search items...',
@@ -1430,7 +1842,8 @@ const english = {
   'Selected workspaces': 'Selected workspaces',
   'Selected:': 'Selected:',
   'Send Incidents To': 'Send Incidents To',
-  'Send notifications when this DAG is': 'Send notifications when this DAG is',
+  'Send notifications when this workflow is':
+    'Send notifications when this workflow is',
   'Send test': 'Send test',
   'send to': 'send to',
   'Send to': 'Send to',
@@ -1449,11 +1862,8 @@ const english = {
   'Shell (OpenSSL)': 'Shell (OpenSSL)',
   Shift: 'Shift',
   'Show all workflows': 'Show all workflows',
-  'Show Beginning': 'Show Beginning',
-  'Show End': 'Show End',
   'Show more matches': 'Show more matches',
   Showing: 'Showing',
-  shown: 'shown',
   'Sibling Properties (': 'Sibling Properties (',
   sign: 'sign',
   'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in':
@@ -1461,6 +1871,8 @@ const english = {
   'Since startup': 'Since startup',
   'Size:': 'Size:',
   'Skip TLS verification': 'Skip TLS verification',
+  'Skip precondition checks for the retried steps. Workflow-level preconditions still apply.':
+    'Skip precondition checks for the retried steps. Workflow-level preconditions still apply.',
   skipped: 'skipped',
   Skipped: 'Skipped',
   'Slack message template': 'Slack message template',
@@ -1477,7 +1889,8 @@ const english = {
   'Sort by key': 'Sort by key',
   'Sort by value': 'Sort by value',
   'Sort DAG cards': 'Sort DAG cards',
-  'Sorts current page only': 'Sorts current page only',
+  'Sorting by this column is disabled for more than {count} workflows':
+    'Sorting by this column is disabled for more than {count} workflows',
   Source: 'Source',
   'Source DAG-run ID': 'Source DAG-run ID',
   Spec: 'Spec',
@@ -1485,6 +1898,7 @@ const english = {
   'Specific date, month, or year': 'Specific date, month, or year',
   'Specific date/month/year': 'Specific date/month/year',
   'Specific period': 'Specific period',
+  Split: 'Split',
   'Standard Output Log': 'Standard Output Log',
   'Star and add to the sidebar for everyone':
     'Star and add to the sidebar for everyone',
@@ -1494,8 +1908,8 @@ const english = {
   'Start a clean OpenCode session?': 'Start a clean OpenCode session?',
   'Start a workflow from the ': 'Start a workflow from the ',
   'Start clean session': 'Start clean session',
-  'Start DAG execution': 'Start DAG execution',
-  'Start the DAG': 'Start the DAG',
+  'Start a new run': 'Start a new run',
+  'Start workflow': 'Start workflow',
   Started: 'Started',
   'Started ': 'Started ',
   'Started At': 'Started At',
@@ -1553,6 +1967,21 @@ const english = {
   'System Status': 'System Status',
   target: 'target',
   'Target DAG': 'Target DAG',
+  "Remove this workflow's incident routing and use the inherited routing instead?":
+    "Remove this workflow's incident routing and use the inherited routing instead?",
+  'Callers using the current token lose access as soon as a new one is generated.':
+    'Callers using the current token lose access as soon as a new one is generated.',
+  'Requests signed with the current secret are rejected as soon as a new one is generated.':
+    'Requests signed with the current secret are rejected as soon as a new one is generated.',
+  'The webhook will accept requests that carry only the token.':
+    'The webhook will accept requests that carry only the token.',
+  'Collapse {name}': 'Collapse {name}',
+  'Expand {name}': 'Expand {name}',
+  'Remove {label}': 'Remove {label}',
+  'Items per page': 'Items per page',
+  '{selected} of {loaded} selected': '{selected} of {loaded} selected',
+  'Schedule for {name}': 'Schedule for {name}',
+  'Restarts for {name}': 'Restarts for {name}',
   'Target name': 'Target name',
   'Target:': 'Target:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -1566,10 +1995,8 @@ const english = {
   'Telegram topic ID': 'Telegram topic ID',
   Template: 'Template',
   Terminal: 'Terminal',
-  'Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable.':
-    'Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable.',
   Test: 'Test',
-  'Test Connection': 'Test Connection',
+  'Test connection': 'Test connection',
   'Testing...': 'Testing...',
   'The DAG specification has been modified externally while you were editing.':
     'The DAG specification has been modified externally while you were editing.',
@@ -1591,17 +2018,17 @@ const english = {
   'This action cannot be undone.': 'This action cannot be undone.',
   'This artifact is too large to render inline. Download it to inspect the contents.':
     'This artifact is too large to render inline. Download it to inspect the contents.',
-  'This DAG': 'This DAG',
+  'This workflow': 'This workflow',
   'This DAG has restrictions:': 'This DAG has restrictions:',
   'This DAG inherits': 'This DAG inherits',
-  'This DAG inherits rules by default. Configure a DAG override only when this DAG needs different events or destinations.':
-    'This DAG inherits rules by default. Configure a DAG override only when this DAG needs different events or destinations.',
-  'This DAG is not in the selected workspace.':
-    'This DAG is not in the selected workspace.',
-  'This DAG override has no destinations. Inherited rules are not used while the override exists.':
-    'This DAG override has no destinations. Inherited rules are not used while the override exists.',
-  'This DAG override replaces workspace and Global rules for future runs. Send test verifies delivery now.':
-    'This DAG override replaces workspace and Global rules for future runs. Send test verifies delivery now.',
+  'This workflow inherits rules by default. Configure a workflow override only when it needs different events or destinations.':
+    'This workflow inherits rules by default. Configure a workflow override only when it needs different events or destinations.',
+  'This workflow is not in the selected workspace.':
+    'This workflow is not in the selected workspace.',
+  'This workflow override has no destinations. Inherited rules are not used while the override exists.':
+    'This workflow override has no destinations. Inherited rules are not used while the override exists.',
+  'This workflow override replaces workspace and Global rules for future runs. Send test verifies delivery now.':
+    'This workflow override replaces workspace and Global rules for future runs. Send test verifies delivery now.',
   'This DAG uses': 'This DAG uses',
   'This feature requires an active Dagu license or trial. Visit the':
     'This feature requires an active Dagu license or trial. Visit the',
@@ -1645,13 +2072,11 @@ const english = {
     'to expose selected request headers as',
   'to keep licensed features.': 'to keep licensed features.',
   'to navigate DAGs': 'to navigate DAGs',
-  'to navigate histories': 'to navigate histories',
   'to navigate runs': 'to navigate runs',
   'to see activity here.': 'to see activity here.',
   'to toggle': 'to toggle',
   'to update': 'to update',
   Today: 'Today',
-  'Toggle & next run': 'Toggle & next run',
   'Toggle notifications': 'Toggle notifications',
   'Toggle Schema Documentation (Ctrl+Shift+D)':
     'Toggle Schema Documentation (Ctrl+Shift+D)',
@@ -1662,7 +2087,7 @@ const english = {
   'Tool Calls:': 'Tool Calls:',
   'Topic ID (optional, for forum groups)':
     'Topic ID (optional, for forum groups)',
-  'Total DAGs': 'Total DAGs',
+  'Total workflows': 'Total workflows',
   Trigger: 'Trigger',
   true: 'true',
   'Try again': 'Try again',
@@ -1681,17 +2106,16 @@ const english = {
   'Unsaved Changes': 'Unsaved Changes',
   Unset: 'Unset',
   Untitled: 'Untitled',
-  'up)': 'up)',
   Update: 'Update',
   'Update “': 'Update “',
   'Update available: v': 'Update available: v',
-  'Update Status': 'Update Status',
+  'Update status': 'Update status',
   Updated: 'Updated',
   'updated by': 'updated by',
   Uptime: 'Uptime',
   Usage: 'Usage',
   Use: 'Use',
-  'Use DAG events': 'Use DAG events',
+  'Use workflow events': 'Use workflow events',
   'Use HMAC Only': 'Use HMAC Only',
   'Use operational events': 'Use operational events',
   'Use original DAG file': 'Use original DAG file',
@@ -1724,15 +2148,15 @@ const english = {
   View: 'View',
   'View artifacts': 'View artifacts',
   'View DAG': 'View DAG',
-  'View DAG Definition': 'View DAG Definition',
+  'View workflow definition': 'View workflow definition',
   'View diff': 'View diff',
   'View license status and activate a Dagu license or trial key.':
     'View license status and activate a Dagu license or trial key.',
   'View mode': 'View mode',
-  'View Raw': 'View Raw',
+  'View raw': 'View raw',
   'View release': 'View release',
   'View run →': 'View run →',
-  'View Scheduler Log': 'View Scheduler Log',
+  'View scheduler log': 'View scheduler log',
   'View stderr': 'View stderr',
   'View stderr log (Cmd/Ctrl+Click for new tab)':
     'View stderr log (Cmd/Ctrl+Click for new tab)',
@@ -1767,7 +2191,6 @@ const english = {
   Workers: 'Workers',
   workflow: 'workflow',
   'Workflow graph': 'Workflow graph',
-  'Workflow link copied to clipboard': 'Workflow link copied to clipboard',
   Workflows: 'Workflows',
   'Workflows page': 'Workflows page',
   Workspace: 'Workspace',
@@ -1792,6 +2215,8 @@ const english = {
     'You have unsaved changes in the DAG definition.',
   'Your Dagu': 'Your Dagu',
   'YYYY-MM-DD HH:mm:ss': 'YYYY-MM-DD HH:mm:ss',
+  Zoom: 'Zoom',
+  'Overview of the workflow': 'Overview of the workflow',
   'Zoom in': 'Zoom in',
   'Zoom out': 'Zoom out',
   Aborted: 'Aborted',
@@ -1802,6 +2227,10 @@ const english = {
     "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.",
   'Are you sure you want to {action} the schedule for "{name}"?':
     'Are you sure you want to {action} the schedule for "{name}"?',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    'Suspend the restarts of "{name}"? A running run keeps running.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -1811,7 +2240,7 @@ const english = {
   'Back one level': 'Back one level',
   'Back to {name}': 'Back to {name}',
   Critical: 'Critical',
-  'Create New DAG': 'Create New DAG',
+  'Create workflow': 'Create workflow',
   'Creating...': 'Creating...',
   Deactivate: 'Deactivate',
   'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.':
@@ -1826,12 +2255,6 @@ const english = {
     'Delete "{id}"? This cannot be undone.',
   'Discard & Close All': 'Discard & Close All',
   'Discard & Close Others': 'Discard & Close Others',
-  'Do you really want to cancel auto-retry for the dag-run "{name}"?':
-    'Do you really want to cancel auto-retry for the dag-run "{name}"?',
-  'Do you really want to retry the dag-run "{name}"?':
-    'Do you really want to retry the dag-run "{name}"?',
-  'Do you really want to stop the dag-run "{name}"?':
-    'Do you really want to stop the dag-run "{name}"?',
   'Do you want to {action} {count} selected DAG run?':
     'Do you want to {action} {count} selected DAG run?',
   'Do you want to {action} {count} selected DAG runs?':
@@ -1840,10 +2263,10 @@ const english = {
     'Do you want to dequeue {count} selected DAG run?',
   'Do you want to dequeue {count} selected DAG runs?':
     'Do you want to dequeue {count} selected DAG runs?',
-  'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
-    'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
-  'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
-    'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+  'Enter a name for your new workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    'Enter a name for your new workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+  'Enter a new name for your workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    'Enter a new name for your workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.',
   'Failed at {step}': 'Failed at {step}',
   Info: 'Info',
   'Loaded {count} event': 'Loaded {count} event',
@@ -1853,6 +2276,7 @@ const english = {
   'No runs on {date}': 'No runs on {date}',
   'Page {page}': 'Page {page}',
   'Page {page} of {total}': 'Page {page} of {total}',
+  'of {total}': 'of {total}',
   'Partially succeeded': 'Partially succeeded',
   'Processing {count} request using the existing DAG-run API.':
     'Processing {count} request using the existing DAG-run API.',
@@ -1867,10 +2291,12 @@ const english = {
     'Remove {count} missing item from sync tracking? Files remain in the remote repository.',
   'Remove {count} missing items from sync tracking? Files remain in the remote repository.':
     'Remove {count} missing items from sync tracking? Files remain in the remote repository.',
-  'Rename DAG': 'Rename DAG',
   'Renaming...': 'Renaming...',
   Reschedule: 'Reschedule',
-  'Run Anyway': 'Run Anyway',
+  'Run anyway': 'Run anyway',
+  'Save & Run': 'Save & Run',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.',
   'Run one of the example workflows from the {link} to see activity here.':
     'Run one of the example workflows from the {link} to see activity here.',
   'Send incidents': 'Send incidents',
@@ -1921,10 +2347,11 @@ const english = {
   delete: 'delete',
   retry: 'retry',
   reschedule: 'reschedule',
-  'Reschedule DAG Run': 'Reschedule DAG Run',
-  'Disable Schedule': 'Disable Schedule',
+  'Disable schedule': 'Disable schedule',
+  'Suspend restarts': 'Suspend restarts',
   'Disable Webhook': 'Disable Webhook',
-  'Enable Schedule': 'Enable Schedule',
+  'Enable schedule': 'Enable schedule',
+  'Resume restarts': 'Resume restarts',
   'Enable Webhook': 'Enable Webhook',
   '+{count} more': '+{count} more',
   '+{count} more step': '+{count} more step',
@@ -1933,7 +2360,6 @@ const english = {
   '{count} files': '{count} files',
   '{count} issue': '{count} issue',
   '{count} issues': '{count} issues',
-  '{count} loaded': '{count} loaded',
   '{count} run': '{count} run',
   '{count} runs': '{count} runs',
   '{count} route': '{count} route',
@@ -1942,8 +2368,6 @@ const english = {
   '{count} workflow': '{count} workflow',
   '{count} workflows': '{count} workflows',
   '{count} {type}': '{count} {type}',
-  '{selected} selected of {loaded} loaded':
-    '{selected} selected of {loaded} loaded',
   '{settled} of {total} tasks settled': '{settled} of {total} tasks settled',
   '{title} column': '{title} column',
   '{workspace} overrides layered on top of global defaults':
@@ -1958,6 +2382,7 @@ const english = {
   Conflict: 'Conflict',
   conflict: 'conflict',
   'Const is not declared': 'Const is not declared',
+  'Date is not declared': 'Date is not declared',
   Developer: 'Developer',
   developer: 'developer',
   disabled: 'disabled',
@@ -1982,8 +2407,8 @@ const english = {
   executable: 'executable',
   'Full access including user management':
     'Full access including user management',
-  'Individual secrets that DAGs reference with {reference}.':
-    'Individual secrets that DAGs reference with {reference}.',
+  'Individual secrets that workflows reference with {reference}.':
+    'Individual secrets that workflows reference with {reference}.',
   'Inspect {name}': 'Inspect {name}',
   'Interactive shell connection to local server as {username}':
     'Interactive shell connection to local server as {username}',
@@ -1999,7 +2424,6 @@ const english = {
   'Multiple executions: {visible} of {total} sub DAG runs':
     'Multiple executions: {visible} of {total} sub DAG runs',
   'No {type}': 'No {type}',
-  'No dags found': 'No dags found',
   'No Wiki pages found': 'No Wiki pages found',
   'No {type} matching "{query}"': 'No {type} matching "{query}"',
   'No {type} with {status} status': 'No {type} with {status} status',
@@ -2048,7 +2472,6 @@ const english = {
   'Update “{name}”': 'Update “{name}”',
   'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
     'Update available: v{current} → {latest} {releaseLink} · Run {command} to update',
-  'Use {up} {down} to navigate DAGs': 'Use {up} {down} to navigate DAGs',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.',
   'Value is unavailable in this context':
@@ -2069,6 +2492,8 @@ const english = {
     '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.',
   attachment: 'attachment',
   attachments: 'attachments',
+  calendar: 'calendar',
+  calendars: 'calendars',
   'Audit ID': 'Audit ID',
   'Credential type': 'Credential type',
   dag: 'dag',
@@ -2088,6 +2513,9 @@ const english = {
   'Wiki page management is not available on this server.':
     'Wiki page management is not available on this server.',
   'Graph interactions': 'Graph interactions',
+  'Drag: Pan the graph': 'Drag: Pan the graph',
+  'Resize graph': 'Resize graph',
+  'Ctrl/Cmd + scroll or pinch: Zoom': 'Ctrl/Cmd + scroll or pinch: Zoom',
   '<No log output>': '<No log output>',
   LIVE: 'LIVE',
   'More actions': 'More actions',
@@ -2105,7 +2533,6 @@ const english = {
     'Requires operator access in this workspace',
   'Name copied': 'Name copied',
   'Copy name: {name}': 'Copy name: {name}',
-  'Copied name {name}': 'Copied name {name}',
   'URL configured ({preview})': 'URL configured ({preview})',
   saved: 'saved',
   'HMAC secret configured': 'HMAC secret configured',
@@ -2144,14 +2571,14 @@ const english = {
   'Wiki pages under {folder} or containing a {link} wikilink appear here.':
     'Wiki pages under {folder} or containing a {link} wikilink appear here.',
   'its folder': 'its folder',
-  'This DAG uses {source} routing unless you set a DAG override.':
-    'This DAG uses {source} routing unless you set a DAG override.',
+  'This workflow uses {source} routing unless you set a workflow override.':
+    'This workflow uses {source} routing unless you set a workflow override.',
   'workspace {name}': 'workspace {name}',
   'This will re-execute {step}. Are you sure?':
     'This will re-execute {step}. Are you sure?',
   'Supports tokens such as {dag}, {status}, {error}, and {link}.':
     'Supports tokens such as {dag}, {status}, {error}, and {link}.',
-  'This DAG inherits {source}.': 'This DAG inherits {source}.',
+  'This workflow inherits {source}.': 'This workflow inherits {source}.',
   'Showing {start} - {end} of {total} entries':
     'Showing {start} - {end} of {total} entries',
   'Page {current} of {total}': 'Page {current} of {total}',
@@ -2169,8 +2596,6 @@ const english = {
     'Choose how requests authenticate to this webhook. If you enable HMAC, callers must send {signature} computed from the exact signature input shown below. Requests with {profile} sign {input}.',
   'Use your webhook HMAC secret as {variable}.':
     'Use your webhook HMAC secret as {variable}.',
-  '{payload} is available as the {variable} environment variable.':
-    '{payload} is available as the {variable} environment variable.',
   'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.':
     'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.',
   'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.':
@@ -2196,23 +2621,23 @@ const english = {
   'Global rules': 'Global rules',
   '{workspace} workspace rules': '{workspace} workspace rules',
   'No events': 'No events',
-  'Same as DAG events': 'Same as DAG events',
+  'Same as workflow events': 'Same as workflow events',
   'Custom events': 'Custom events',
   'Copy name': 'Copy name',
   'Link copied': 'Link copied',
   'Copy link to this workflow': 'Copy link to this workflow',
+  'Show description': 'Show description',
+  'Last run': 'Last run',
+  '{time} ago': '{time} ago',
+  'Open run {dagRunId}': 'Open run {dagRunId}',
   'Copy link to this run': 'Copy link to this run',
+  'Show in workflow': 'Show in workflow',
   'This workspace currently inherits Global rules.':
     'This workspace currently inherits Global rules.',
-  'Overrides Global for DAGs in this workspace.':
-    'Overrides Global for DAGs in this workspace.',
-  'Default for every DAG unless workspace or DAG settings are configured.':
-    'Default for every DAG unless workspace or DAG settings are configured.',
-  'Stop action only available at root dagRun level':
-    'Stop action only available at root dagRun level',
-  'Stop DAGRun execution': 'Stop DAGRun execution',
-  'Cancel auto-retry for this failed DAGRun':
-    'Cancel auto-retry for this failed DAGRun',
+  'Overrides Global for workflows in this workspace.':
+    'Overrides Global for workflows in this workspace.',
+  'Default for every workflow unless workspace or workflow settings are configured.':
+    'Default for every workflow unless workspace or workflow settings are configured.',
   'Failed to stop DAG run': 'Failed to stop DAG run',
   'Failed to cancel DAG run': 'Failed to cancel DAG run',
   'The DAG run may have already completed or the worker is unavailable.':
@@ -2253,23 +2678,660 @@ const english = {
   '(unchanged)': '(unchanged)',
   'Next run': 'Next run',
   'Copy MCP setup prompt': 'Copy MCP setup prompt',
+  'Profile tokens': 'Profile tokens',
+  "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
+    "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.",
+  'No profile tokens.': 'No profile tokens.',
+  'Token name': 'Token name',
+  'Runtime profile': 'Runtime profile',
+  'Create token': 'Create token',
+  'Last used:': 'Last used:',
+  'Profile tokens are ignored while authentication is HMAC only.':
+    'Profile tokens are ignored while authentication is HMAC only.',
+  'Revoke profile token': 'Revoke profile token',
+  'Applications using this token will immediately lose access.':
+    'Applications using this token will immediately lose access.',
+  Items: 'Items',
+  'Not started': 'Not started',
+  'Loading items…': 'Loading items…',
+  'Waiting for items…': 'Waiting for items…',
+  'No item records for this run.': 'No item records for this run.',
+  'No items match this filter.': 'No items match this filter.',
+  'Loading item…': 'Loading item…',
+  'No record for this item.': 'No record for this item.',
+  'Open in log viewer': 'Open in log viewer',
+  '{done} of {total} done': '{done} of {total} done',
+  'Item {index}': 'Item {index}',
+  'Open {step} in log viewer': 'Open {step} in log viewer',
+  'Connected via Dagu Console': 'Connected via Dagu Console',
+  'Activated with a license key': 'Activated with a license key',
+  'Set by an environment variable': 'Set by an environment variable',
+  'Set by license.key in the config file':
+    'Set by license.key in the config file',
+  'Loaded from a license file': 'Loaded from a license file',
+  'license.key in the config file activates this license again when Dagu restarts. Remove it to stop using the license.':
+    'license.key in the config file activates this license again when Dagu restarts. Remove it to stop using the license.',
+  'The license file is loaded again when Dagu restarts. Remove it to stop using the license.':
+    'The license file is loaded again when Dagu restarts. Remove it to stop using the license.',
+  'Dagu Console could not be reached. Try again later.':
+    'Dagu Console could not be reached. Try again later.',
+  'Last check-in': 'Last check-in',
+  'Not yet': 'Not yet',
+  'Checking…': 'Checking…',
+  'Check now': 'Check now',
+  'Server ID': 'Server ID',
+  'Copy server ID': 'Copy server ID',
+  'License ID': 'License ID',
+  'Server name': 'Server name',
+  'Reports as {name}': 'Reports as {name}',
+  'Leave empty to use the name the server reports.':
+    'Leave empty to use the name the server reports.',
+  'Disconnecting frees this server’s slot in Dagu Console and returns it to community mode.':
+    'Disconnecting frees this server’s slot in Dagu Console and returns it to community mode.',
+  'Manage in Dagu Console': 'Manage in Dagu Console',
+  'Disconnecting...': 'Disconnecting...',
+  Disconnect: 'Disconnect',
+  'Disconnected here, but Dagu Console could not be reached. Disconnect this server in Dagu Console to free its slot.':
+    'Disconnected here, but Dagu Console could not be reached. Disconnect this server in Dagu Console to free its slot.',
+  'Disconnected. Running in community mode.':
+    'Disconnected. Running in community mode.',
+  'Disconnect this server': 'Disconnect this server',
+  'Paid features become unavailable on this server and its slot in Dagu Console is freed for another server. Existing API keys remain active.':
+    'Paid features become unavailable on this server and its slot in Dagu Console is freed for another server. Existing API keys remain active.',
+  'Could not start connecting to Dagu Console.':
+    'Could not start connecting to Dagu Console.',
+  'Could not cancel the request. Try again.':
+    'Could not cancel the request. Try again.',
+  'Expires in {time}': 'Expires in {time}',
+  'Waiting for approval': 'Waiting for approval',
+  'This server’s license is set by DAGU_LICENSE or DAGU_LICENSE_KEY. Fix or remove it to connect from Dagu Console.':
+    'This server’s license is set by DAGU_LICENSE or DAGU_LICENSE_KEY. Fix or remove it to connect from Dagu Console.',
+  'Approve this server in Dagu Console. Check that the console shows this code:':
+    'Approve this server in Dagu Console. Check that the console shows this code:',
+  'Your browser blocked the new tab. Open Dagu Console to continue.':
+    'Your browser blocked the new tab. Open Dagu Console to continue.',
+  'Open Dagu Console': 'Open Dagu Console',
+  'Enter a server key or license key from Dagu Console.':
+    'Enter a server key or license key from Dagu Console.',
+  Monitoring: 'Monitoring',
+  'Set in configuration': 'Set in configuration',
+  'Monitoring status unavailable': 'Monitoring status unavailable',
+  Reports: 'Reports',
+  'Last report': 'Last report',
+  'Health only': 'Health only',
+  'Health and run status': 'Health and run status',
+  'cloud.report in the server configuration sets this. Change it there and restart Dagu.':
+    'cloud.report in the server configuration sets this. Change it there and restart Dagu.',
+  Change: 'Change',
+  'Turn on': 'Turn on',
+  'Turn off': 'Turn off',
+  'Turning off…': 'Turning off…',
+  'View last report': 'View last report',
+  'The last report this server sent to Dagu Console. The heartbeat secret is hidden.':
+    'The last report this server sent to Dagu Console. The heartbeat secret is hidden.',
+  'Could not change what this server reports.':
+    'Could not change what this server reports.',
+  'Could not dismiss the notice.': 'Could not dismiss the notice.',
+  'Monitor this server from Dagu Console':
+    'Monitor this server from Dagu Console',
+  'Choose what this server reports': 'Choose what this server reports',
+  'Choose what to report': 'Choose what to report',
+  'Dismiss monitoring notice': 'Dismiss monitoring notice',
+  'Show why runs fail in Dagu Console': 'Show why runs fail in Dagu Console',
+  'Send error messages': 'Send error messages',
+  "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
+    "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.",
+  'What to report': 'What to report',
+  "Sends the Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, how far remote access lets calls from Dagu Cloud go, and, on a paid plan or trial, the machine's CPU and memory use, load averages, and how full the data directory's disk is.":
+    "Sends the Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, how far remote access lets calls from Dagu Cloud go, and, on a paid plan or trial, the machine's CPU and memory use, load averages, and how full the data directory's disk is.",
+  "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started, and each queue holding runs: its name, how many runs are waiting and how many are running, how many may run at once, when the next run was queued, and why it cannot start when it waits for a worker. No parameters, logs, or outputs.":
+    "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started, and each queue holding runs: its name, how many runs are waiting and how many are running, how many may run at once, when the next run was queued, and why it cannot start when it waits for a worker. No parameters, logs, or outputs.",
+  'Every report also carries what identifies and authenticates this server, as its license check-in does: the protocol version, license ID, server ID, and heartbeat secret, and which choice it was sent under. With run status, it also carries the reporter’s cursor and, after events were lost, the time they were lost from. Turning reporting off sends one last report that carries only what identifies and authenticates this server and the choice Off, so that Dagu Console shows monitoring as off.':
+    'Every report also carries what identifies and authenticates this server, as its license check-in does: the protocol version, license ID, server ID, and heartbeat secret, and which choice it was sent under. With run status, it also carries the reporter’s cursor and, after events were lost, the time they were lost from. Turning reporting off sends one last report that carries only what identifies and authenticates this server and the choice Off, so that Dagu Console shows monitoring as off.',
+  'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
+    'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.',
+  'Health, run status, and error messages (recommended)':
+    'Health, run status, and error messages (recommended)',
+  'Health, run status, and error messages':
+    'Health, run status, and error messages',
+  "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":
+    "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.",
+  'Not now': 'Not now',
+  '{plan} plan': '{plan} plan',
+  'License error': 'License error',
+  'Needs attention': 'Needs attention',
+  'Grace period': 'Grace period',
+  Expired: 'Expired',
+  'Expires in {count} day': 'Expires in {count} day',
+  'Expires in {count} days': 'Expires in {count} days',
+  'Not reporting': 'Not reporting',
+  'Not reporting since {time}': 'Not reporting since {time}',
+  'Run history paused until {time}': 'Run history paused until {time}',
+  '{level}, last report {time}': '{level}, last report {time}',
+  Server: 'Server',
+  'License, Dagu Console connection, monitoring, and remote access for this server.':
+    'License, Dagu Console connection, monitoring, and remote access for this server.',
+  'Connected to {workspace}.': 'Connected to {workspace}.',
+  'Connected to Dagu Console.': 'Connected to Dagu Console.',
+  'License activated.': 'License activated.',
+  Disconnected: 'Disconnected',
+  'Not connected': 'Not connected',
+  'Copy license ID': 'Copy license ID',
+  'Could not connect to Dagu Console': 'Could not connect to Dagu Console',
+  'Danger zone': 'Danger zone',
+  'Use a license key': 'Use a license key',
+  'Use a different license key': 'Use a different license key',
+  'Not included': 'Not included',
+  'License needs attention': 'License needs attention',
+  'This license is active on more machines than allowed. Deactivate extra machines in Dagu Console.':
+    'This license is active on more machines than allowed. Deactivate extra machines in Dagu Console.',
+  'Dagu Console reported {code} for this license.':
+    'Dagu Console reported {code} for this license.',
+  'Licensed features keep working until {date}.':
+    'Licensed features keep working until {date}.',
+  'Licensed features keep working for a short grace period.':
+    'Licensed features keep working for a short grace period.',
+  'Licensed features are unavailable.': 'Licensed features are unavailable.',
+  'License expires today': 'License expires today',
+  'License expires in {count} day': 'License expires in {count} day',
+  'License expires in {count} days': 'License expires in {count} days',
+  'Licensed features stop working when it expires.':
+    'Licensed features stop working when it expires.',
+  'License expired': 'License expired',
+  'Activation failed': 'Activation failed',
+  'Deactivation failed': 'Deactivation failed',
+  Plan: 'Plan',
+  Expires: 'Expires',
+  'License deactivated. Running in community mode.':
+    'License deactivated. Running in community mode.',
+  'Monitoring only': 'Monitoring only',
+  Free: 'Free',
+  'Included in Team and Pro': 'Included in Team and Pro',
+  'Connect to Dagu Cloud': 'Connect to Dagu Cloud',
+  'Use this server from MCP clients': 'Use this server from MCP clients',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.',
+  "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
+    "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.",
+  "Dagu Console shows this server's health and emails you when the server stops reporting.":
+    "Dagu Console shows this server's health and emails you when the server stops reporting.",
+  'Reporting starts as soon as the server connects.':
+    'Reporting starts as soon as the server connects.',
+  'Free for one server: reports every 5 minutes and keeps 7 days of run history. Paid features stay off.':
+    'Free for one server: reports every 5 minutes and keeps 7 days of run history. Paid features stay off.',
+  'Free for one server, with 14 days of paid features. After the trial: reports every 5 minutes and keeps 7 days of run history.':
+    'Free for one server, with 14 days of paid features. After the trial: reports every 5 minutes and keeps 7 days of run history.',
+  'Connect for free': 'Connect for free',
+  'Connect and start trial': 'Connect and start trial',
+  'Also try paid features free for 14 days':
+    'Also try paid features free for 14 days',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.',
+  'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
+    'Dagu Console stops monitoring this server, and its free slot becomes available to another server.',
+  'The Free plan supports up to 2 API keys.':
+    'The Free plan supports up to 2 API keys.',
+  'Existing keys remain active. Revoke a key to create another, or move to Team or Pro to remove the limit.':
+    'Existing keys remain active. Revoke a key to create another, or move to Team or Pro to remove the limit.',
+  'Public URL': 'Public URL',
+  'Receive webhooks from services on the internet, such as GitHub or Stripe, through Dagu Cloud. Deliveries wait there for up to 7 days while this server is offline.':
+    'Receive webhooks from services on the internet, such as GitHub or Stripe, through Dagu Cloud. Deliveries wait there for up to 7 days while this server is offline.',
+  'Only administrators can turn on a public URL.':
+    'Only administrators can turn on a public URL.',
+  URL: 'URL',
+  'The URL appears once this server connects to Dagu Cloud.':
+    'The URL appears once this server connects to Dagu Cloud.',
+  Sender: 'Sender',
+  'Anyone with the URL': 'Anyone with the URL',
+  'Signing secret': 'Signing secret',
+  'Leave empty to keep the current secret':
+    'Leave empty to keep the current secret',
+  'Leave empty to have Dagu make one': 'Leave empty to have Dagu make one',
+  "Paste the sender's signing secret": "Paste the sender's signing secret",
+  'All events': 'All events',
+  'Separate events with commas, such as {example}. A name also takes the events under it.':
+    'Separate events with commas, such as {example}. A name also takes the events under it.',
+  "In GitHub's webhook settings, set Content type to {type}.":
+    "In GitHub's webhook settings, set Content type to {type}.",
+  'Save sender': 'Save sender',
+  'New secret': 'New secret',
+  'Dagu Cloud dropped deliveries for this URL: {expired} waited more than 7 days, and {refused} arrived while 1,000 were waiting.':
+    'Dagu Cloud dropped deliveries for this URL: {expired} waited more than 7 days, and {refused} arrived while 1,000 were waiting.',
+  Dismiss: 'Dismiss',
+  'New URL': 'New URL',
+  'Turn off public URL': 'Turn off public URL',
+  'Replace public URL': 'Replace public URL',
+  Replace: 'Replace',
+  'Dagu Cloud drops this URL and any deliveries waiting for it.':
+    'Dagu Cloud drops this URL and any deliveries waiting for it.',
+  'Your plan allows {count} public URLs, and this one is not among them. Turn another off, or change the plan.':
+    'Your plan allows {count} public URLs, and this one is not among them. Turn another off, or change the plan.',
+  'Connecting to Dagu Cloud…': 'Connecting to Dagu Cloud…',
+  'Recent deliveries': 'Recent deliveries',
+  'No deliveries yet.': 'No deliveries yet.',
+  Size: 'Size',
+  Ignored: 'Ignored',
+  'This server is not connected to Dagu Cloud.':
+    'This server is not connected to Dagu Cloud.',
+  'The webhooks could not be read.': 'The webhooks could not be read.',
+  'Dagu Cloud refused more public URLs than the plan allows.':
+    'Dagu Cloud refused more public URLs than the plan allows.',
+  'Webhook Token': 'Webhook Token',
+  'Webhook HMAC Secret': 'Webhook HMAC Secret',
+  'Signing Secret': 'Signing Secret',
+  "Copy this secret into GitHub's webhook settings now. You won't be able to see it again!":
+    "Copy this secret into GitHub's webhook settings now. You won't be able to see it again!",
+  "Copy this HMAC secret now. You won't be able to see it again!":
+    "Copy this HMAC secret now. You won't be able to see it again!",
+  'The current URL stops working. Requests Dagu Cloud already took through it are still delivered. Give every sender the new URL.':
+    'The current URL stops working. Requests Dagu Cloud already took through it are still delivered. Give every sender the new URL.',
+  '{payload} is in the file named by {file}, and in the {variable} environment variable when it fits in one.':
+    '{payload} is in the file named by {file}, and in the {variable} environment variable when it fits in one.',
+  'The public URL could not be loaded.': 'The public URL could not be loaded.',
+  'The plan allows no public URLs.': 'The plan allows no public URLs.',
+  runs: 'runs',
+  'In progress': 'In progress',
+  'Up next': 'Up next',
+  Fit: 'Fit',
+  '24h': '24h',
+  'Open Executions': 'Open Executions',
+  'Filter workflows...': 'Filter workflows...',
+  'Filter workflows': 'Filter workflows',
+  'Runs over time': 'Runs over time',
+  'Waiting for input': 'Waiting for input',
+  'No scheduled runs.': 'No scheduled runs.',
+  'Nothing is running.': 'Nothing is running.',
+  'Runs by workflow': 'Runs by workflow',
+  '{failed} of {count} failed': '{failed} of {count} failed',
+  '{name}: {count} runs. Use the arrow keys to move between runs.':
+    '{name}: {count} runs. Use the arrow keys to move between runs.',
+  'All clear. No failing workflows or runs waiting for input.':
+    'All clear. No failing workflows or runs waiting for input.',
+  'Running {elapsed}, usually {usual}': 'Running {elapsed}, usually {usual}',
+  'No runs in the last 24 hours': 'No runs in the last 24 hours',
+  'No runs in this range': 'No runs in this range',
+  'Activity is not available from this node':
+    'Activity is not available from this node',
+  'The node may run an older Dagu version. Its runs are still listed on the Executions page.':
+    'The node may run an older Dagu version. Its runs are still listed on the Executions page.',
+  'No workflows match the filter.': 'No workflows match the filter.',
+  'Showing the latest {count} runs. Drag across a lane to zoom in, or click a mark for one run.':
+    'Showing the latest {count} runs. Drag across a lane to zoom in, or click a mark for one run.',
+  'Drag across a lane to zoom in, or click a mark for one run.':
+    'Drag across a lane to zoom in, or click a mark for one run.',
+  'latest runs': 'latest runs',
+  'Live, last 24 hours': 'Live, last 24 hours',
+  '{running} running': '{running} running',
+  '{running} of {max} running': '{running} of {max} running',
+  '{count}+ queued': '{count}+ queued',
+  'next waiting {elapsed}': 'next waiting {elapsed}',
+  'The scheduler is not running, so scheduled and queued runs will not start.':
+    'The scheduler is not running, so scheduled and queued runs will not start.',
+  'Queued runs in {queue} cannot start: no healthy worker matches their selector.':
+    'Queued runs in {queue} cannot start: no healthy worker matches their selector.',
+  'Queued runs in {queue} cannot start: no healthy worker is available.':
+    'Queued runs in {queue} cannot start: no healthy worker is available.',
+  'Queued runs in {queue} cannot start: they cannot be handed to a worker right now.':
+    'Queued runs in {queue} cannot start: they cannot be handed to a worker right now.',
+  'The data disk is {percent}% full. Runs fail once it fills up.':
+    'The data disk is {percent}% full. Runs fail once it fills up.',
+  'no matching worker': 'no matching worker',
+  'no worker available': 'no worker available',
+  'worker unreachable': 'worker unreachable',
+  'A sub-run of this step is waiting for an action.':
+    'A sub-run of this step is waiting for an action.',
+  'A sub-run of {step} is waiting for an action.':
+    'A sub-run of {step} is waiting for an action.',
+  '{count} more sub-runs are waiting': '{count} more sub-runs are waiting',
+  'Action required': 'Action required',
+  'An agent is waiting for an answer.': 'An agent is waiting for an answer.',
+  'Queue wait': 'Queue wait',
+  Manual: 'Manual',
+  'Sub-DAG': 'Sub-DAG',
+  'Catch-up': 'Catch-up',
+  Restart: 'Restart',
+  Backfill: 'Backfill',
+  'Run log': 'Run log',
+  Stream: 'Stream',
+  'Lines shown': 'Lines shown',
+  'Log display': 'Log display',
+  'No workflows yet': 'No workflows yet',
+  'Create your first workflow to get started.':
+    'Create your first workflow to get started.',
+  'No workflows match the “{view}” view. Try adjusting its filters or show all workflows.':
+    'No workflows match the “{view}” view. Try adjusting its filters or show all workflows.',
+  'There are no workflows matching your current filters. Try adjusting your search criteria or labels.':
+    'There are no workflows matching your current filters. Try adjusting your search criteria or labels.',
+  'Invalid DAG name': 'Invalid DAG name',
+  'DAG name cannot be empty': 'DAG name cannot be empty',
+  'DAG name must be {max} characters or less':
+    'DAG name must be {max} characters or less',
+  'DAG name can only contain letters, numbers, underscores, dots, and hyphens':
+    'DAG name can only contain letters, numbers, underscores, dots, and hyphens',
+  'DAG name cannot contain spaces': 'DAG name cannot contain spaces',
+  'Retried {count}×': 'Retried {count}×',
+  'Get an email if this server stops': 'Get an email if this server stops',
+  'Alerts from this server stop if the server goes down.':
+    'Alerts from this server stop if the server goes down.',
+  'Dagu Console emails you when a workflow fails or this server stops reporting. Free for one server.':
+    'Dagu Console emails you when a workflow fails or this server stops reporting. Free for one server.',
+  'Set up for free': 'Set up for free',
+  'Getting started': 'Getting started',
+  'Run a workflow': 'Run a workflow',
+  'Create your own workflow': 'Create your own workflow',
+  'Put a workflow on a schedule': 'Put a workflow on a schedule',
+  'Get alerted when something fails': 'Get alerted when something fails',
+  'The retry example fails once, then succeeds on its retry.':
+    'The retry example fails once, then succeeds on its retry.',
+  'Start a workflow from the Workflows page.':
+    'Start a workflow from the Workflows page.',
+  'Define steps in YAML. Each step runs a command.':
+    'Define steps in YAML. Each step runs a command.',
+  'A schedule runs a workflow while no one is watching.':
+    'A schedule runs a workflow while no one is watching.',
+  'Get an email from Dagu Console when a workflow fails or this server stops, or send failures to a notification channel.':
+    'Get an email from Dagu Console when a workflow fails or this server stops, or send failures to a notification channel.',
+  'Send failures to Slack, email, or a webhook.':
+    'Send failures to Slack, email, or a webhook.',
+  'Open the retry example': 'Open the retry example',
+  'Open Workflows': 'Open Workflows',
+  'Scheduling guide': 'Scheduling guide',
+  'Add a notification channel': 'Add a notification channel',
+  'Connect an AI app': 'Connect an AI app',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.',
+  'Use from Claude or ChatGPT': 'Use from Claude or ChatGPT',
+  'Set up a coding agent': 'Set up a coding agent',
+  'Could not change remote access.': 'Could not change remote access.',
+  'Remote access': 'Remote access',
+  'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
+    'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.',
+  'MCP calls are refused.': 'MCP calls are refused.',
+  'MCP calls read DAGs, runs, and logs.':
+    'MCP calls read DAGs, runs, and logs.',
+  'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
+    'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.',
+  'MCP calls also change DAG definitions, so they can run any command on this machine.':
+    'MCP calls also change DAG definitions, so they can run any command on this machine.',
+  'Remote access status unavailable': 'Remote access status unavailable',
+  Access: 'Access',
+  Approvals: 'Approvals',
+  'Let MCP calls complete human tasks. Needs Operator or Developer access.':
+    'Let MCP calls complete human tasks. Needs Operator or Developer access.',
+  On: 'On',
+  'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.':
+    'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.',
+  Connected: 'Connected',
+  'Connecting…': 'Connecting…',
+  'Agent activity': 'Agent activity',
+  'No calls from Dagu Cloud yet.': 'No calls from Dagu Cloud yet.',
+  'MCP URL': 'MCP URL',
+  'Copy MCP URL': 'Copy MCP URL',
+  'MCP URL copied': 'MCP URL copied',
+  'Last call': 'Last call',
+  'No calls yet': 'No calls yet',
+  'Connect a client': 'Connect a client',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.',
+  'Copy command': 'Copy command',
+  'Command copied': 'Command copied',
+  'Then run /mcp in Claude Code to sign in.':
+    'Then run /mcp in Claude Code to sign in.',
+  'Other clients and connections in Dagu Cloud':
+    'Other clients and connections in Dagu Cloud',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'Included in your trial until {date}. Choose a plan to keep MCP clients working.',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Use this server from Claude, ChatGPT, and other MCP clients',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your trial. Turn on remote access, then add the MCP URL to your client.',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'Included in your plan. Turn on remote access, then add the MCP URL to your client.',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'Turn on remote access, then add the MCP URL to your client.',
+  'MCP calls need a paid plan or a trial':
+    'MCP calls need a paid plan or a trial',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.',
+  'Choose remote access': 'Choose remote access',
+  'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
+    'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.',
+  'Read DAGs, runs, and logs.': 'Read DAGs, runs, and logs.',
+  'Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters those DAGs take.':
+    'Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters those DAGs take.',
+  'Also change DAG definitions and run inline specs. DAG steps run commands, so this runs any command on this machine.':
+    'Also change DAG definitions and run inline specs. DAG steps run commands, so this runs any command on this machine.',
+  'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.':
+    'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.',
+  'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.':
+    'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.',
+  'Workspaces are removed in v3.0': 'Workspaces are removed in v3.0',
+  'These workspace settings will stop applying, and users and API keys limited to workspaces will become viewers.':
+    'These workspace settings will stop applying, and users and API keys limited to workspaces will become viewers.',
+  'Have feedback? Comment on the GitHub issue.':
+    'Have feedback? Comment on the GitHub issue.',
+  'Base config': 'Base config',
+  'Profile entry': 'Profile entry',
+  'Notification route': 'Notification route',
+  'Incident policy': 'Incident policy',
+  'Config key': 'Config key',
+  'API key': 'API key',
+  'Wiki directory': 'Wiki directory',
+  'Update available: v{current} → {latest} {releaseLink}':
+    'Update available: v{current} → {latest} {releaseLink}',
+  'A new Dagu binary is installed. Run {command} to restart and use it.':
+    'A new Dagu binary is installed. Run {command} to restart and use it.',
+  'A new Dagu binary is installed. Restart Dagu to use it.':
+    'A new Dagu binary is installed. Restart Dagu to use it.',
+  'Upcoming runs': 'Upcoming runs',
+  '{count} parameter override': '{count} parameter override',
+  '{count} parameter overrides': '{count} parameter overrides',
+  'last business day of the month': 'last business day of the month',
+  "business day {n} from the month's end":
+    "business day {n} from the month's end",
+  'business day {n} of the month': 'business day {n} of the month',
+  'extra business day': 'extra business day',
+  'skips {day}': 'skips {day}',
+  'This DAG is suspended. None of these runs will start until it is resumed.':
+    'This DAG is suspended. None of these runs will start until it is resumed.',
+  'A calendar named {name} already exists.':
+    'A calendar named {name} already exists.',
+  'Back to calendars': 'Back to calendars',
+  'Built in': 'Built in',
+  'Business day {ordinal} of {total}': 'Business day {ordinal} of {total}',
+  'Business days that start schedules fire on. A schedule names a calendar with {key}.':
+    'Business days that start schedules fire on. A schedule names a calendar with {key}.',
+  'Calendar not found': 'Calendar not found',
+  'Calendar saved': 'Calendar saved',
+  'Calendar {name} deleted': 'Calendar {name} deleted',
+  'Calendar:': 'Calendar:',
+  Calendars: 'Calendars',
+  'Checking...': 'Checking...',
+  "Couldn't load the calendar": "Couldn't load the calendar",
+  'Delete calendar': 'Delete calendar',
+  'Delete this calendar': 'Delete this calendar',
+  'Extra business day, {ordinal} of {total}':
+    'Extra business day, {ordinal} of {total}',
+  'Failed to create the calendar.': 'Failed to create the calendar.',
+  'Failed to delete the calendar.': 'Failed to delete the calendar.',
+  'Failed to save the calendar.': 'Failed to save the calendar.',
+  'Fix the problems in the file to see its business days.':
+    'Fix the problems in the file to see its business days.',
+  'Hide dates': 'Hide dates',
+  Holiday: 'Holiday',
+  'Holiday: {name}': 'Holiday: {name}',
+  'Holidays run out': 'Holidays run out',
+  'Holidays through': 'Holidays through',
+  'Holidays through {date}': 'Holidays through {date}',
+  'Included by': 'Included by',
+  Includes: 'Includes',
+  Invalid: 'Invalid',
+  'Keep my edits': 'Keep my edits',
+  'Load the server version': 'Load the server version',
+  'Loading calendars...': 'Loading calendars...',
+  'New calendar': 'New calendar',
+  'Next year': 'Next year',
+  'No DAG schedules use this calendar.': 'No DAG schedules use this calendar.',
+  'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.':
+    'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.',
+  'No calendar is named {name}. It may have been deleted.':
+    'No calendar is named {name}. It may have been deleted.',
+  'Not a business day': 'Not a business day',
+  'Previous year': 'Previous year',
+  Problems: 'Problems',
+  'Remove the schedules and includes that use this calendar first':
+    'Remove the schedules and includes that use this calendar first',
+  'Schedules name it with calendar. It starts as Monday to Friday with no holidays.':
+    'Schedules name it with calendar. It starts as Monday to Friday with no holidays.',
+  'Select a date to see its business day.':
+    'Select a date to see its business day.',
+  'Show dates': 'Show dates',
+  'The calendar file changed on the server while you were editing.':
+    'The calendar file changed on the server while you were editing.',
+  'The calendar was not saved': 'The calendar was not saved',
+  'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.':
+    'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.',
+  'Use letters, digits, - and _ only.': 'Use letters, digits, - and _ only.',
+  'Used by': 'Used by',
+  'after {through}, when the holidays end':
+    'after {through}, when the holidays end',
+  'business day': 'business day',
+  holiday: 'holiday',
+  'not a business day': 'not a business day',
+  'unsaved change': 'unsaved change',
+  'used by {count} DAG': 'used by {count} DAG',
+  'used by {count} DAGs': 'used by {count} DAGs',
+  'via {calendar}': 'via {calendar}',
+  'weekdays {changes}': 'weekdays {changes}',
+  '{count} date changes': '{count} date changes',
+  '{count} dates change': '{count} dates change',
+  '{count} problem': '{count} problem',
+  '{count} problems': '{count} problems',
+  '{name} is reserved.': '{name} is reserved.',
+  "Couldn't preview the calendar.": "Couldn't preview the calendar.",
+  'Loading {year}...': 'Loading {year}...',
+  "Couldn't check": "Couldn't check",
+  'Service DAG': 'Service DAG',
+  'Service DAGs': 'Service DAGs',
+  'DAGs that Dagu restarts when their run ends.': 'DAGs that Dagu restarts when their run ends.',
+  'Pending': 'Pending',
+  'Restarting': 'Restarting',
+  'Failing': 'Failing',
+  'Up for {duration}': 'Up for {duration}',
+  'Restarting…': 'Restarting…',
+  'Restart in {duration}': 'Restart in {duration}',
+  'Next restart unknown': 'Next restart unknown',
+  'Only service DAGs are running.': 'Only service DAGs are running.',
+  'Restart on hold: the scheduler is paused':
+    'Restart on hold: the scheduler is paused',
+  'Restart on hold: no scheduler is running':
+    'Restart on hold: no scheduler is running',
+  'Stopped by an operator': 'Stopped by an operator',
+  'No new run': 'No new run',
+  'Waiting for a run': 'Waiting for a run',
+  'Restarts {seconds}s after a run ends': 'Restarts {seconds}s after a run ends',
+  'Show runs of {name}': 'Show runs of {name}',
+  'Hide runs of {name}': 'Hide runs of {name}',
+  'Last {count} runs': 'Last {count} runs',
+  '{count} succeeded': '{count} succeeded',
+  'No run in the last {days} days': 'No run in the last {days} days',
+  'Last run failed': 'Last run failed',
+  '{count} failures in a row': '{count} failures in a row',
+  'Multi-line or file': 'Multi-line or file',
+  'Value source': 'Value source',
+  '{name} loaded ({size} bytes)': '{name} loaded ({size} bytes)',
+  'Failed to read the selected file': 'Failed to read the selected file',
+} as const;
+
+type BaseStaticMessage = keyof typeof baseEnglish;
+
+// Base entries are listed last: an existing translation always wins over a
+// workspace module entry with the same key.
+const english = {
+  ...workspaceMessages.en,
+  ...backfillMessages.en,
+  ...baseEnglish,
 } as const;
 
 export type StaticMessage = keyof typeof english;
-export type StaticTranslationValues = Record<string, string | number>;
 
-const chinese = {
+const baseChinese = {
+  'Plan & features': '套餐与功能',
+  'Manage plan & features': '管理套餐与功能',
+  'Checking license…': '正在检查许可证…',
+  'License status unavailable': '无法获取许可证状态',
+  Community: '社区版',
+  Licensed: '已授权',
+  Trial: '试用',
+  'Expires today': '今天到期',
+  'Ask your administrator to manage the license and available features.':
+    '请联系管理员管理许可证和可用功能。',
+  'Manage license': '管理许可证',
+  'Start free trial': '开始免费试用',
+  'View plans': '查看套餐',
+  'Renew license': '续订许可证',
+  'Activate a key': '激活密钥',
+  'Audit logs': '审计日志',
+  'Trace who changed or ran workflows.': '追踪谁修改或运行了工作流。',
+  'Role-based access': '基于角色的访问控制',
+  'Control what teammates can view and change.':
+    '控制团队成员可以查看和修改的内容。',
+  'Single sign-on': '单点登录',
+  'Sign in through your organization’s identity provider.':
+    '通过组织的身份提供商登录。',
+  'Incident routing': '事件路由',
+  'Open and resolve incidents when workflows fail.':
+    '在工作流失败时创建并处理事件。',
+  'More API keys': '更多 API 密钥',
+  'Create API keys beyond the Community limit of two.':
+    '创建超过社区版两个上限的 API 密钥。',
+  'License status updated.': '许可证状态已更新。',
+  Included: '已包含',
+  'Setup guide': '设置指南',
+  'Open feature': '打开功能',
+  'This license is configured via an environment variable (DAGU_LICENSE or DAGU_LICENSE_KEY). To deactivate, remove the environment variable and restart Dagu.':
+    '此许可证通过环境变量（DAGU_LICENSE 或 DAGU_LICENSE_KEY）配置。要停用，请删除环境变量并重启 Dagu。',
+  'This will deactivate the license on this server. Paid features will become unavailable. Existing API keys remain active.':
+    '这将停用此服务器上的许可证。付费功能将不可用。现有 API 密钥仍保持有效。',
+  'Password reset remains available to administrators.': '管理员仍可重置密码。',
+  'contact your administrator': '联系您的管理员',
   'Artifact preview': '产物预览',
   'Task artifacts': '任务产物',
   'Referenced artifacts are not available for this DAG run yet.':
     '此次 DAG 运行尚无可用的引用产物。',
   'Open DAG run': '打开 DAG 运行',
   'Back to files': '返回文件列表',
-  '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览',
-  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter': '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览 · / 筛选',
+  '↑↓ / j k navigate · ←→ folders · Enter preview':
+    '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览',
+  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter':
+    '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览 · / 筛选',
   'Incoming webhook': '传入 Webhook',
   'Bot destination': '机器人通知目标',
   'Webhook destination': 'Webhook 通知目标',
+  'Local command': '本地命令',
+  Command: '命令',
+  'The Dagu server runs this command. Unix uses sh -c and Windows uses PowerShell. The server stops it after 30 seconds, and a non-zero exit fails delivery.':
+    'Dagu 服务器会运行此命令。Unix 使用 sh -c，Windows 使用 PowerShell。服务器会在 30 秒后停止该命令，非零退出码会导致发送失败。',
+  'The command runs as written. Run values are environment variables, such as {dagEnv}, {statusEnv}, {errorEnv}, DAG_RUN_ID, and RUN_URL. Quote them, as in {quotedError}. {logEnv} is a temporary file with up to 1 MiB of the run log, including lifecycle-handler output, and is removed after the command exits. On Windows, PowerShell reads these as {windowsEnv} and so on.':
+    '命令按原样运行。运行值以环境变量提供，例如 {dagEnv}、{statusEnv}、{errorEnv}、DAG_RUN_ID 和 RUN_URL。请为它们加上引号，例如 {quotedError}。{logEnv} 是一个临时文件，包含最多 1 MiB 的运行日志（含生命周期处理器的输出），命令退出后会被删除。在 Windows 上，PowerShell 以 {windowsEnv} 等形式读取这些值。',
+  'Only admins can change or test local command channels.':
+    '只有管理员可以更改或测试本地命令通道。',
+  'This server does not run local commands. Enable permissions.write_dags and permissions.run_dags to deliver to this channel.':
+    '此服务器不运行本地命令。启用 permissions.write_dags 和 permissions.run_dags 后才能向此通道发送通知。',
+  'Set Global defaults and workspace overrides.':
+    '设置全局默认规则和工作区覆盖规则。',
+  'Manage Slack, email, webhook, Telegram, and local command destinations.':
+    '管理 Slack、电子邮件、Webhook、Telegram 和本地命令通知目标。',
   'Channel actions for {channel}': '{channel} 的通道操作',
   'Delete channel': '删除通道',
   '{count} channel': '{count} 个通道',
@@ -2421,11 +3483,11 @@ const chinese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ')。要停用，请删除环境变量并重启 Dagu。',
   '←→ Select': '←→ 选择',
+  '←→ Scroll': '←→ 滚动',
   '↑↓ Navigate': '↑↓ 导航',
   '↻ until': '↻ 直到...',
   '↻ while': '↻ 当...时',
   '+Click: new tab': '+点击：新标签页',
-  '| Run ID:': '| Run ID:',
   '1. Scope': '1. 范围',
   '100 lines': '100行',
   '1000 lines': '1000行',
@@ -2440,7 +3502,6 @@ const chinese = {
   Action: '操作',
   Actions: '操作',
   Activate: '激活',
-  'Activate License Key': '激活许可证密钥',
   'Activating...': '正在激活...',
   active: '活跃',
   Active: '活跃',
@@ -2458,12 +3519,12 @@ const chinese = {
   'Add custom': '添加自定义',
   'Add custom destination': '添加自定义目标',
   'Add new tab': '添加新标签页',
-  'Add Node': '添加节点',
-  'Add Profile': '添加配置文件',
-  'Add Remote Node': '添加远程节点',
+  'Add node': '添加节点',
+  'Add profile': '添加配置文件',
+  'Add remote node': '添加远程节点',
   'Add route': '添加路由',
-  'Add Secret Ref': '添加密钥引用',
-  'Add User': '添加用户',
+  'Add secret ref': '添加密钥引用',
+  'Add user': '添加用户',
   Admin: '管理员',
   'Admin - Full access': '管理员 - 完全访问',
   Agent: '代理',
@@ -2472,8 +3533,7 @@ const chinese = {
   All: '全部',
   'All audit entries': '所有审计条目',
   'All Categories': '所有类别',
-  'All DAGs': '全部 DAG',
-  'All loaded DAG runs are displayed.': '已显示全部已加载的 DAG 运行',
+  'All runs are displayed.': '已显示全部运行记录。',
   'All outcomes': '全部结果',
   'All requests have been submitted': '所有请求已提交',
   'All artifacts': '所有产物',
@@ -2498,7 +3558,6 @@ const chinese = {
   'API Keys': 'API 密钥',
   'API URL': 'API URL',
   Apply: '应用',
-  'Apply Filters': '应用筛选',
   Approval: '审批',
   Approve: '批准',
   'Approved by:': '审批人:',
@@ -2513,7 +3572,6 @@ const chinese = {
   'Artifacts will appear here after a run writes files into {directory}.':
     '运行将文件写入 {directory} 后，产物将显示在此处。',
   Asc: '升序',
-  at: '于',
   'at sign-in.': '登录时。',
   'Attach logs': '附加日志',
   Attempt: '尝试',
@@ -2531,7 +3589,6 @@ const chinese = {
   Authentication: '身份认证',
   'Auto-generated if empty': '为空时自动生成',
   'Auto-sync': '自动同步',
-  'Auto:': '自动:',
   'Available actions': '可用操作',
   'Available Tools (': '可用工具 (',
   Back: '返回',
@@ -2554,6 +3611,7 @@ const chinese = {
   by: '由',
   'By request': '按请求',
   'By:': '由:',
+  'Bypass step preconditions': '跳过步骤前置条件',
   bytes: '字节',
   'Calling:': '调用:',
   Cancel: '取消',
@@ -2616,6 +3674,29 @@ const chinese = {
     '社区版最多可管理 2 个 API 密钥。',
   'Complete task': '完成任务',
   completed: '已完成',
+  'Page not found': '页面不存在',
+  'Nothing exists at {path}. Check the address or start from your workflows.':
+    '{path} 不存在。请检查地址，或从工作流列表开始。',
+  'Go to Workflows': '前往工作流',
+  'Workflow not found': '未找到工作流',
+  'No workflow named {name} exists. It may have been renamed or deleted.':
+    '不存在名为 {name} 的工作流。它可能已被重命名或删除。',
+  'Back to Workflows': '返回工作流',
+  "Couldn't load this workflow": '无法加载此工作流',
+  'Run not found': '未找到运行',
+  'This run may have been deleted.': '此运行可能已被删除。',
+  "Couldn't load this run": '无法加载此运行',
+  'Open workflow': '打开工作流',
+  'Recent runs': '最近的运行',
+  "Couldn't load workflows": '无法加载工作流',
+  "Couldn't load runs": '无法加载运行记录',
+  "Couldn't load Git sync status": '无法加载 Git 同步状态',
+  "Couldn't load the base config": '无法加载基础配置',
+  "Couldn't load views": '无法加载视图',
+  'View not found': '未找到视图',
+  'This view may have been deleted.': '此视图可能已被删除。',
+  'Go to Overview': '前往概览',
+  'The server did not respond.': '服务器没有响应。',
   'Completed by:': '完成人：',
   'Completed:': '完成：',
   'Completing…': '正在完成…',
@@ -2630,20 +3711,18 @@ const chinese = {
   Configuration: '配置',
   Configure: '配置',
   'Configure a runtime profile entry.': '配置运行时配置文件条目。',
-  'Configure DAG override': '配置 DAG 覆盖',
+  'Configure workflow override': '配置工作流覆盖',
   'Configure runtime profile metadata and protection.':
     '配置运行时配置文件元数据和保护。',
   'Configure the DAG run before submitting it.': '在提交前配置 DAG 运行。',
-  'Configure Workspace': '配置工作区',
   Configured: '已配置',
   'Confirm Password': '确认密码',
   'Confirm the requested action.': '确认请求的操作。',
-  Confirmation: '确认',
   Connection: '连接',
   'Connection disabled': '连接已禁用',
   Connections: '连接',
-  'Connections are configured once, then selected by Global, workspace, or DAG incident routing.':
-    '连接只需配置一次，随后通过全局、工作区或 DAG 事件路由进行选择。',
+  'Connections are configured once, then selected by Global, workspace, or workflow incident routing.':
+    '连接只需配置一次，随后通过全局、工作区或工作流事件路由进行选择。',
   'console.dagu.sh': 'console.dagu.sh',
   'Continue scanning': '继续扫描',
   'Coordinator Service': '协调服务',
@@ -2662,21 +3741,18 @@ const chinese = {
   Create: '创建',
   'Create a channel before adding notification routes.':
     '在添加通知路由之前，请先创建频道。',
-  'Create a DAG override only when this DAG needs different events or destinations. The effective order is DAG, then workspace, then Global.':
-    '仅当此 DAG 需要不同的事件或目标时，才创建 DAG 覆盖。生效顺序为 DAG，然后是工作区，最后是全局。',
-  'Create a webhook to trigger this DAG via HTTP':
-    '创建 Webhook 以通过 HTTP 触发此 DAG',
+  'Create a workflow override only when this workflow needs different events or destinations. The effective order is workflow, then workspace, then Global.':
+    '仅当此工作流需要不同的事件或目标时，才创建工作流覆盖。生效顺序为工作流，然后是工作区，最后是全局。',
   'Create an incoming-webhook Workflow in Teams, select its destination, save it, and copy the generated URL. Dagu sends the compatible MessageCard format automatically.':
     '在 Teams 中创建一个传入 Webhook 工作流，选择其目标，保存它，并复制生成的 URL。Dagu 会自动发送兼容的 MessageCard 格式。',
   'Create and test notification channels before using them in routes.':
     '在路由中使用之前，请先创建并测试通知频道。',
   'Create API Key': '创建 API 密钥',
-  'Create Key': '创建密钥',
+  'Create key': '创建密钥',
   'Create new DAG': '新建 DAG',
   'Create New Wiki page': '创建新 Wiki 页面',
-  'Create User': '创建用户',
+  'Create user': '创建用户',
   'Create view': '创建视图',
-  'Create Webhook': '创建 Webhook',
   'Create your first Wiki page': '创建您的第一个 Wiki 页面',
   'Create your first workflow': '创建您的第一个工作流',
   Created: '创建时间',
@@ -2690,38 +3766,50 @@ const chinese = {
   'Current owner:': '当前所有者:',
   'Current time': '当前时间',
   Custom: '自定义',
+  'Custom...': '自定义...',
   'Custom Destinations': '自定义目标',
+  'Custom lines per page': '自定义每页行数',
   'Custom range': '自定义范围',
   'Custom run IDs are disabled.': '自定义运行 ID 已禁用。',
   'Customize events': '自定义事件',
   D: 'D',
   DAG: 'DAG',
   'DAG default': 'DAG 默认',
-  'DAG Incidents': 'DAG 事故',
-  'DAG Name': 'DAG 名称',
+  'Workflow incidents': '工作流事故',
+  'Workflow name': '工作流名称',
   'DAG name filter': 'DAG 名称筛选',
   'DAG Name Override (optional)': 'DAG 名称覆盖（可选）',
   'DAG not found in this workspace.': '在此工作区中未找到 DAG。',
-  'DAG not found or has been deleted.': '未找到 DAG 或已被删除。',
-  'DAG Notifications': 'DAG 通知',
-  'DAG override': 'DAG 覆盖',
+  'Workflow notifications': '工作流通知',
+  'Workflow override': '工作流覆盖',
   'DAG Properties': 'DAG 属性',
-  'DAG run ID': 'DAG 运行 ID',
   'DAG Runs': 'DAG 运行',
-  'DAG Secret Refs': 'DAG 密钥引用',
+  'Secret refs': '密钥引用',
   'DAG Tabs': 'DAG 标签页',
-  'DAG-Run ID (optional)': 'DAG-Run ID（可选）',
-  'DAG-Run-ID': 'DAG-Run-ID',
-  'DAG-Run-Name': 'DAG-Run-Name',
+  'Run ID (optional)': '运行 ID（可选）',
+  'Scheduled at (optional)': '计划时间（可选）',
+  'None (run now)': '无（立即运行）',
+  'Other time': '其他时间',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '列出的时间来自 DAG 的默认配置文件。本次运行的时间窗口按所选配置文件计算。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00 或 RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    '本次运行使用该时间槽的计划时间和时间窗口。',
   'DAG:': 'DAG：',
-  'DAGRun Precondition Unmet': 'DAGRun 前置条件未满足',
-  'DAGRun-ID': 'DAGRun-ID',
-  'DAGRun-Name': 'DAGRun-Name',
+  'Run error': '运行错误',
+  'Run precondition not met': '运行前置条件未满足',
+  'Execution in progress': '正在执行',
+  'DAGRun is queued for execution': 'DAG 运行已加入执行队列',
+  'Execution was aborted': '执行已中止',
+  'Waiting for manual action': '等待手动操作',
+  'Execution was rejected': '执行已被拒绝',
+  Workflow: '工作流',
   DAGs: 'DAG 列表',
   'Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples.':
     'Dagu 运行通过 YAML 定义的工作流。您可以从零开始创建，或从文档示例开始。',
-  'Dagu uses the most specific configured scope: DAG, then workspace, then Global.':
-    'Dagu 使用最具体的配置范围：DAG，然后是工作区，最后是全局。',
+  'Dagu uses the most specific configured scope: workflow, then workspace, then Global.':
+    'Dagu 使用最具体的配置范围：工作流，然后是工作区，最后是全局。',
   'Dagu v': 'Dagu v',
   'DAGU-XXXX-XXXX-XXXX-XXXX': 'DAGU-XXXX-XXXX-XXXX-XXXX',
   Data: '数据',
@@ -2731,13 +3819,13 @@ const chinese = {
   'Deactivate License': '停用许可证',
   'Deactivating...': '正在停用...',
   Default: '默认',
-  'Default for every DAG unless a workspace or DAG is configured.':
-    '除非配置了工作区或 DAG，否则这是所有 DAG 的默认值。',
+  'Default for every workflow unless a workspace or workflow is configured.':
+    '除非配置了工作区或工作流，否则这是所有工作流的默认值。',
   'Default Layer': '默认层',
   'Default only': '仅默认',
   'Default profile': '默认配置文件',
-  'Default route for DAGs without workspace or DAG overrides.':
-    '没有工作区或 DAG 覆盖的 DAG 的默认路由。',
+  'Default route for workflows without workspace or workflow overrides.':
+    '没有工作区或工作流覆盖的工作流的默认路由。',
   'Default sender': '默认发件人',
   'Define at least one step to view the graph': '定义至少一个步骤以查看图形',
   Definition: '定义',
@@ -2745,28 +3833,26 @@ const chinese = {
   Degraded: '性能降级',
   Delete: '删除',
   'Delete (': '删除 (',
-  'Delete All Missing': '删除所有缺失项',
-  'Delete All Missing Items': '删除所有缺失项',
+  'Delete all missing': '删除所有缺失项',
+  'Delete all missing items': '删除所有缺失项',
   'Delete all missing items from remote repository': '从远程仓库删除所有缺失项',
-  'Delete Channel': '删除通道',
-  'Delete DAG': '删除 DAG',
-  'Delete Destination': '删除目标',
-  'Delete Entry': '删除条目',
+  'Delete destination': '删除目标',
+  'Delete entry': '删除条目',
   'Delete from remote': '从远程删除',
   'Delete from Remote': '从远程删除',
   'Delete incident connection': '删除事件连接',
   'Delete incident connection?': '删除事件连接？',
-  'Delete Missing': '删除缺失项',
-  'Delete Profile': '删除配置文件',
-  'Delete Remote Node': '删除远程节点',
+  'Delete missing': '删除缺失项',
+  'Delete profile': '删除配置文件',
+  'Delete remote node': '删除远程节点',
   'Delete request accepted': '删除请求已接受',
-  'Delete Secret Ref': '删除密钥引用',
+  'Delete secret ref': '删除密钥引用',
   'Delete selected': '删除所选',
-  'Delete Selected Items': '删除选中项',
-  'Delete Subscription': '删除订阅',
-  'Delete Sync Item': '删除同步项',
+  'Delete selected items': '删除选中项',
+  'Delete subscription': '删除订阅',
+  'Delete sync item': '删除同步项',
   'Delete this subscription?': '删除此订阅？',
-  'Delete User': '删除用户',
+  'Delete user': '删除用户',
   'Delete Webhook': '删除 Webhook',
   'Delete Wiki': '删除 Wiki',
   'Delete Wiki page': '删除 Wiki 页面',
@@ -2780,9 +3866,10 @@ const chinese = {
   'Denied audit entries': '被拒绝的审计条目',
   Dependencies: '依赖',
   'Depends on': '依赖于',
+  'Inferred from': '推断自',
+  'Inferred from a step output reference': '从步骤输出引用推断',
   Dequeue: '出队',
-  'Dequeue action only available at root dagRun level':
-    '出队操作仅在根 dagRun 层级可用',
+  'Dequeue is only available on the top-level run': '仅可在顶层运行上移出队列',
   'Dequeue request accepted.': '出队请求已接受。',
   'Dequeue selected': '移除所选队列项',
   Desc: '降序',
@@ -2805,15 +3892,7 @@ const chinese = {
   'Dismiss license expiry notification': '关闭许可证过期通知',
   'Dismiss update notification': '关闭更新通知',
   'Distributed Workers': '分布式 Worker',
-  'Do you really want to delete this DAG?': '确定要删除此 DAG 吗？',
-  'Do you really want to dequeue the following dagRun?':
-    '确定要出队以下 dagRun 吗？',
-  'Do you really want to rerun the following execution?':
-    '确定要重新运行以下执行吗？',
-  'Do you really want to retry the following execution?':
-    '确定要重试以下执行吗？',
-  'Do you really want to stop all running instances of this DAG?':
-    '确定要停止此 DAG 的所有运行实例吗？',
+  'Do you really want to delete this workflow?': '确定要删除此工作流吗？',
   'Do you want to': '您想要',
   'Do you want to dequeue': '是否要从队列中移除',
   Docs: '文档',
@@ -2835,15 +3914,15 @@ const chinese = {
     '每个通道在每个作用域内只能有一条路由。请在上方编辑事件，或添加另一个通道。',
   Edit: '编辑',
   'Edit API Key': '编辑 API 密钥',
-  'Edit Profile': '编辑个人资料',
-  'Edit Remote Node': '编辑远程节点',
-  'Edit Secret Ref': '编辑密钥引用',
-  'Edit User': '编辑用户',
+  'Edit profile': '编辑个人资料',
+  'Edit remote node': '编辑远程节点',
+  'Edit secret ref': '编辑密钥引用',
+  'Edit user': '编辑用户',
   'Edit view': '编辑视图',
   Edited: '已编辑',
   'Effective Inherited Routes': '生效的继承路由',
-  'Effective order is DAG, workspace, then Global.':
-    '生效顺序为 DAG、工作区，然后是全局。',
+  'Effective order is workflow, workspace, then Global.':
+    '生效顺序为工作流、工作区，然后是全局。',
   'Eligible steps execute and replace their materializations only after success.':
     '符合条件的步骤仅在成功后执行并替换其物化结果。',
   'Email body template': '邮件正文模板',
@@ -2857,7 +3936,7 @@ const chinese = {
   'End of results': '结果末尾',
   Endpoint: '端点',
   Enqueue: '入队',
-  'Enqueue the DAG': '将 DAG 加入队列',
+  'Enqueue workflow': '将工作流加入队列',
   'Enqueuing...': '正在加入队列...',
   'Enter a commit message for this change.': '请输入此更改的提交信息。',
   'Enter a new path for the Wiki page.': '请输入 Wiki 页面的新路径。',
@@ -2865,7 +3944,7 @@ const chinese = {
     '请输入新 Wiki 页面的路径。目录请使用 /。',
   'Enter a search term and press Enter or click Search':
     '输入搜索词并按回车或点击搜索',
-  'Enter custom DAG-Run ID': '输入自定义 DAG-Run ID',
+  'Enter a custom run ID': '输入自定义运行 ID',
   'Enter your license or trial key to activate Dagu features. You can obtain a key from':
     '输入您的许可证或试用密钥以激活 Dagu 功能。您可以从以下位置获取密钥：',
   'Enter: Confirm': 'Enter: 确认',
@@ -2894,6 +3973,8 @@ const chinese = {
   'Example Request': '请求示例',
   'Example workflows': '工作流示例',
   Examples: '示例',
+  'Execute permission is required to answer or restart this session.':
+    '回答或重启此会话需要执行权限。',
   'Execute permission is required to complete this task.':
     '完成此任务需要执行权限。',
   Execution: '执行',
@@ -2902,14 +3983,13 @@ const chinese = {
   Executions: '执行',
   'Existing keys remain active, but new key creation is blocked until extra keys are revoked or a license is configured.':
     '现有密钥保持有效，但在撤销额外密钥或配置许可证之前，新密钥的创建将被阻止。',
-  'Existing open incidents still resolve when the DAG recovers.':
-    '当 DAG 恢复时，现有的未解决事件仍会解决。',
+  'Existing open incidents still resolve when the workflow recovers.':
+    '当工作流恢复时，现有的未解决事件仍会解决。',
   'exit codes:': '退出代码:',
   'Expand All': '展开全部',
   'Expand graph': '展开图',
   'Expand rows': '展开行',
   'Expected:': '预期值:',
-  Expires: '过期',
   'expires today': '今日到期',
   'Export as PNG': '导出为 PNG',
   'Export as SVG': '导出为 SVG',
@@ -2924,9 +4004,9 @@ const chinese = {
   'Failed to load data': '加载数据失败',
   'Failed to load queue details': '加载队列详情失败',
   'Failed to load queue information': '加载队列信息失败',
+  'Failed to load service DAGs': '加载服务 DAG 失败',
   'Failed to load runs': '加载运行记录失败',
   'Failed to load step details': '加载步骤详情失败',
-  'Failed to load the workflow list.': '加载工作流列表失败。',
   'Failed to load Wiki pages': '加载 Wiki 页面失败',
   'Failed to load workers': '加载工作器失败',
   fallback: '回退',
@@ -2938,8 +4018,7 @@ const chinese = {
   Field: '字段',
   fields: '字段',
   'Files first': '文件优先',
-  'Filter by DAG name': '按 DAG 名称筛选',
-  'Filter by DAG name...': '按 DAG 名称筛选...',
+  'Filter by workflow name': '按工作流名称筛选',
   'Filter by labels...': '按标签筛选...',
   'Filter by Run ID...': '按运行 ID 筛选...',
   'Filter by tags': '按标签筛选',
@@ -2977,17 +4056,14 @@ const chinese = {
   'Git Sync': 'Git 同步',
   'Git sync allows you to synchronize workflow definitions and Wiki pages with a remote Git repository. Configure it in your server settings.':
     'Git 同步允许您将工作流定义和 Wiki 页面与远程 Git 仓库进行同步。请在服务器设置中进行配置。',
-  'Git Sync Not Configured': '未配置 Git 同步',
   Global: '全局',
-  'Global defaults inherited by all DAG definitions':
-    '所有 DAG 定义继承的全局默认值',
-  'Global rules apply by default. Workspace and DAG settings override them only when configured.':
-    '默认应用全局规则。仅当配置了工作区和 DAG 设置时，它们才会覆盖全局规则。',
+  'Global defaults inherited by all workflows': '所有工作流继承的全局默认值',
+  'Global rules apply by default. Workspace and workflow settings override them only when configured.':
+    '默认应用全局规则。仅当配置了工作区和工作流设置时，它们才会覆盖全局规则。',
   Go: '执行',
   'Google OAuth client ID': 'Google OAuth 客户端 ID',
   'Google refresh token': 'Google 刷新令牌',
   'Google Workspace service account': 'Google Workspace 服务账号',
-  'Grace Period': '宽限期',
   Graph: '图',
   'Graph controls': '图控制',
   Grep: 'Grep',
@@ -3004,6 +4080,35 @@ const chinese = {
   Hidden: '隐藏',
   'Hide events': '隐藏事件',
   History: '历史',
+  'Connection: {id}': '连接：{id}',
+  'Command: {command}': '命令：{command}',
+  'N/A': '无',
+  '{key}: {count} item': '{key}：{count} 项',
+  '{key}: {count} items': '{key}：{count} 项',
+  '{key}: structured data': '{key}：结构化数据',
+  Paused: '已暂停',
+  Retrying: '重试中',
+  '{count} file': '{count} 个文件',
+  '{shown} of {total} queues': '{total} 个队列中的 {shown} 个',
+  '{count} queue': '{count} 个队列',
+  '{count} queues': '{count} 个队列',
+  worker: '个 Worker',
+  task: '任务',
+  '({count} up)': '（{count} 个在线）',
+  '{count} item': '{count} 项',
+  '{count} items': '{count} 项',
+  '{count} match shown': '显示 {count} 处匹配',
+  '{count} matches shown': '显示 {count} 处匹配',
+  'Pulled {synced}, removed {deleted}':
+    '已拉取 {synced} 项，已移除 {deleted} 项',
+  'Published {item}': '已发布 {item}',
+  'Published {count} item': '已发布 {count} 项',
+  'Published {count} items': '已发布 {count} 项',
+  'Are you sure you want to delete {count} item? This cannot be undone.':
+    '确定要删除 {count} 项吗？此操作无法撤销。',
+  'Deleted {deleted}, {failed} failed': '已删除 {deleted} 项，{failed} 项失败',
+  'Deleted {count} item': '已删除 {count} 项',
+  'Deleted {count} items': '已删除 {count} 项',
   'History:': '历史：',
   'HMAC enforcement': 'HMAC 强制',
   'HMAC only': '仅 HMAC',
@@ -3036,8 +4141,8 @@ const chinese = {
   Inherit: '继承',
   'Inherit Global': '继承全局',
   Inherited: '继承',
-  'Inherited rules are not used while this DAG override exists. Add a channel or reset to inherit.':
-    '在此 DAG 覆盖存在期间，继承的规则不会被使用。请添加频道或重置以继承。',
+  'Inherited rules are not used while this workflow override exists. Add a channel or reset to inherit.':
+    '在此工作流覆盖存在期间，继承的规则不会被使用。请添加频道或重置以继承。',
   'Inline preview is truncated. Use Copy or Download for the full file.':
     '内联预览已截断。使用复制或下载获取完整文件。',
   'Inputs:': '输入：',
@@ -3049,7 +4154,6 @@ const chinese = {
   item: '项',
   Item: '项目',
   'items? This cannot be undone.': '项？此操作无法撤销。',
-  'items)': '项)',
   Iteration: '迭代',
   'Jump to line:': '跳转到行：',
   'Keep Token and Add HMAC': '保留令牌并添加 HMAC',
@@ -3067,10 +4171,7 @@ const chinese = {
   'Last triggered:': '最后触发:',
   'Last updated:': '最后更新：',
   'Last Used': '上次使用',
-  'Latest Run': '最新运行',
-  'Latest status': '最新状态',
   License: '许可证',
-  'License Error': '许可证错误',
   'License key': '许可证密钥',
   'license or trial': '许可证或试用',
   'License Required': '需要许可证',
@@ -3079,30 +4180,27 @@ const chinese = {
   List: '列表',
   'List view': '列表视图',
   Live: '实时',
-  'Live / Schedule': '实时 / 调度',
-  'Load Average': '负载均值',
+  'Load average': '负载均值',
   'Load into editor': '加载到编辑器',
   'Load more': '加载更多',
-  'Load More': '加载更多',
   'Load more workflows': '加载更多工作流',
   'Load older': '加载更早',
   'Load older day': '加载前一天',
-  'Load older runs': '加载较早的运行记录',
   Loaded: '已加载',
   'Loading API keys...': '正在加载 API 密钥...',
   'Loading artifacts...': '正在加载工件...',
   'Loading audit logs...': '正在加载审计日志...',
-  'Loading DAG details...': '正在加载 DAG 详情...',
-  'Loading DAG runs...': '正在加载 DAG 运行...',
+  'Loading workflow...': '正在加载工作流...',
   'Loading diff...': '正在加载差异...',
   'Loading event feed...': '正在加载事件流...',
   'Loading image preview...': '正在加载图像预览...',
   'Loading incident connections': '正在加载事件连接',
   'Loading incident routing': '正在加载事件路由',
   'Loading labels...': '正在加载标签...',
+  'Loading log output...': '正在加载日志输出...',
   'Loading logs...': '正在加载日志...',
   'Loading messages...': '正在加载消息...',
-  'Loading more DAG runs...': '正在加载更多 DAG 运行...',
+  'Loading more runs...': '正在加载更多运行记录...',
   'Loading more queued items...': '正在加载更多排队项...',
   'Loading more workflows...': '正在加载更多工作流...',
   'Loading outputs...': '正在加载输出...',
@@ -3135,12 +4233,12 @@ const chinese = {
   'Manage API keys for programmatic access': '管理用于程序化访问的 API 密钥',
   'Manage channels': '管理频道',
   'Manage connections to remote Dagu instances': '管理到远程 Dagu 实例的连接',
-  'Manage environment profiles and individual secret references used by DAG runs.':
-    '管理 DAG 运行使用的环境配置文件和单个密钥引用。',
+  'Manage environment profiles and individual secret references used by runs.':
+    '管理运行使用的环境配置文件和单个密钥引用。',
   'Manage rules': '管理规则',
   'Manage user accounts and their roles': '管理用户账户及其角色',
   'Manage views…': '管理视图…',
-  'Manage webhooks across all DAGs': '跨所有 DAG 管理 Webhook',
+  'Manage webhooks across all workflows': '跨所有工作流管理 Webhook',
   'Manage artifact views': '管理产物视图',
   'Manage run views': '管理运行视图',
   'Manage workflow views': '管理工作流视图',
@@ -3186,7 +4284,7 @@ const chinese = {
   New: '新建',
   'New connection': '新连接',
   'New DAG run:': '新的 DAG 运行:',
-  'New DAG-Run ID (optional)': '新的 DAG 运行 ID（可选）',
+  'New run ID (optional)': '新的运行 ID（可选）',
   'New Item ID': '新项目 ID',
   'New Password': '新密码',
   'New Path': '新路径',
@@ -3211,14 +4309,13 @@ const chinese = {
   'No channels configured.': '未配置频道。',
   'No chat steps in this DAG run': '此 DAG 运行中没有聊天步骤',
   'No configured profiles to display.': '没有可显示的配置配置文件。',
-  'No DAG override channels selected.': '未选择 DAG 覆盖频道。',
-  'No DAG runs are currently executing in this queue.':
-    '此队列中当前没有正在执行的 DAG 运行。',
-  'No DAG runs found': '未找到 DAG 运行',
-  'No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.':
-    '所选时间范围内没有 DAG 运行。请调整日期范围或筛选条件，或从 Workflows 页面启动工作流。',
+  'No workflow override channels selected.': '未选择工作流覆盖频道。',
+  'No runs are executing in this queue.': '此队列中没有正在执行的运行。',
+  'No runs found': '未找到运行记录',
+  'No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.':
+    '所选时间范围内没有运行记录。请调整日期范围或筛选条件，或从工作流页面启动工作流。',
   'No DAG spec available for this DAG.': '此 DAG 没有可用的 DAG spec。',
-  'No DAGs found': '未找到 DAG',
+  'No workflows found': '未找到工作流',
   'No enabled route currently sends notifications.':
     '当前没有启用的路由发送通知。',
   'No entries': '无条目',
@@ -3234,7 +4331,8 @@ const chinese = {
     '{step} 及依赖它的步骤将根据你的反馈重新运行，之后此任务会重新打开。',
   'No incident connections configured.': '未配置事件连接。',
   'No incident connections selected.': '未选择事件连接。',
-  'No inherited route is configured for this DAG.': '此 DAG 未配置继承的路由。',
+  'No inherited route is configured for this workflow.':
+    '此工作流未配置继承的路由。',
   'No instances': '无实例',
   'No labels found': '未找到标签',
   'No managed agent sessions in this run.': '此运行中没有托管代理会话。',
@@ -3252,11 +4350,46 @@ const chinese = {
   'No profile': '无配置',
   'No profiles found.': '未找到配置文件。',
   'No queued items in this queue.': '此队列中没有排队项。',
-  'No queues found': '未找到队列',
   'No remote nodes configured': '未配置远程节点',
   'No running, retrying, or failed steps at the moment.':
     '当前没有正在运行、重试或失败的步骤。',
   'No runs': '暂无运行',
+  'Stop this run?': '停止此运行？',
+  'Cancel auto-retry?': '取消自动重试？',
+  'Stop all running instances?': '停止所有运行中的实例？',
+  'Running steps are canceled.': '正在运行的步骤将被取消。',
+  'The failed run will not be retried automatically.':
+    '失败的运行将不会自动重试。',
+  'Running steps in every instance of this workflow are canceled.':
+    '此工作流所有实例中正在运行的步骤都将被取消。',
+  'Reschedule as a new run?': '作为新运行重新调度？',
+  'Retry this run?': '重试此运行？',
+  'Remove this run from the queue?': '从队列中移除此运行？',
+  'Stop the latest run': '停止最近一次运行',
+  'Cancel auto-retry for the latest run': '取消最近一次运行的自动重试',
+  'Stop this run': '停止此运行',
+  'Cancel auto-retry for this run': '取消此运行的自动重试',
+  'Stop is only available on the top-level run': '仅可在顶层运行上停止',
+  'No runs in the selected time range produced artifact files. Adjust the date range or filters.':
+    '所选时间范围内没有运行生成产物文件。请调整日期范围或筛选条件。',
+  'Time range': '时间范围',
+  Period: '时间单位',
+  'No webhooks yet': '还没有 Webhook',
+  "Create a webhook from a workflow's Webhook tab to trigger it over HTTP.":
+    '在工作流的 Webhook 标签页中创建 Webhook，即可通过 HTTP 触发它。',
+  'No webhook yet': '还没有 Webhook',
+  'Create a webhook to trigger this workflow over HTTP.':
+    '创建 Webhook，即可通过 HTTP 触发此工作流。',
+  'Create webhook': '创建 Webhook',
+  'Queue not found': '未找到队列',
+  'No queue named {name} exists.': '不存在名为 {name} 的队列。',
+  'Terminal is turned off': '终端已关闭',
+  'Set {setting} on the server to enable it.':
+    '在服务器上设置 {setting} 即可启用。',
+  'Git sync is not configured': '未配置 Git 同步',
+  'No active queues': '没有活跃的队列',
+  'Queues defined in the server configuration appear here, along with any queue that has running or waiting runs.':
+    '服务器配置中定义的队列，以及有运行中或等待中运行的队列，会显示在这里。',
   'No runs on': '没有',
   'No saved artifact views yet.': '尚未保存产物视图。',
   'No saved run views yet.': '尚未保存运行视图。',
@@ -3271,16 +4404,11 @@ const chinese = {
     '暂无已保存的修订版本。每次保存时都会记录修订版本。',
   'No sub DAG runs match the selected filter':
     '没有子 DAG 运行匹配所选筛选条件',
-  'No sub DAG-runs match the selected filter':
-    '没有子 DAG 运行匹配所选筛选条件',
   'No tasks are defined.': '未定义任务。',
   'No upcoming run': '暂无即将到来的运行',
   'No users found': '未找到用户',
   'No visible queued items were returned for this queue.':
     '此队列未返回可见的排队项。',
-  'No Webhook Configured': '未配置 Webhook',
-  'No webhooks found. Create webhooks from individual DAG pages.':
-    '未找到 Webhook。请从单独的 DAG 页面创建 Webhook。',
   'No Wiki pages reference this DAG yet.': '还没有 Wiki 页面引用此 DAG。',
   'No Wiki pages yet.': '还没有百科页面',
   'No workers connected': '暂无连接的 Worker',
@@ -3288,12 +4416,12 @@ const chinese = {
   'Node.js': 'Node.js',
   None: '无',
   'Not available': '不可用',
-  'Not Configured': '未配置',
+  'Not configured': '未配置',
   'Not set': '未设置',
   'Note:': '注意:',
   'Notification Channels': '通知渠道',
   'Notification Rules': '通知规则',
-  'Notification Source': '通知来源',
+  'Notification source': '通知来源',
   Notifications: '通知',
   now: '立即',
   'OAuth 2.0': 'OAuth 2.0',
@@ -3305,12 +4433,11 @@ const chinese = {
   Off: '关闭',
   OFF: '关闭',
   Offline: '离线',
-  ok: '正常',
   OK: '确定',
   'Oldest first': '最早优先',
   ON: '开启',
-  'One card per queue, with running activity and backlog status.':
-    '每个队列一张卡片，显示运行活动与积压状态。',
+  'Concurrency limits and backlog for each queue.':
+    '每个队列的并发上限与积压情况。',
   'One Of': '其中之一',
   'Only HTTPS URLs are accepted. A saved URL remains configured unless it is replaced.':
     '仅接受 HTTPS URL。除非被替换，否则已保存的 URL 将保持配置状态。',
@@ -3319,11 +4446,9 @@ const chinese = {
   'Open connections': '打开连接',
   'Open date picker': '打开日期选择器',
   'Open in full modal': '在完整模态框中打开',
-  'Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab':
-    '全屏打开 (F) - Cmd/Ctrl+点击在新标签页打开',
   'Open in new tab': '在新标签页打开',
   'Open Microsoft setup guide': '打开 Microsoft 设置指南',
-  'Open Run': '打开 Run',
+  'Open run': '打开 Run',
   'OpenCode has not emitted any timeline events yet.':
     'OpenCode 尚未发出任何时间线事件。',
   'OpenCode managed session': 'OpenCode 托管会话',
@@ -3335,9 +4460,13 @@ const chinese = {
   'Start this browser step over?': '要重新开始此浏览器步骤吗？',
   'This closes the browser if it is still open and runs the step again from its first operation.':
     '如果浏览器仍处于打开状态，将关闭它，并从第一个操作重新运行此步骤。',
+  'The computer step needs an answer': '计算机步骤需要回答',
+  'Computer session': '计算机会话',
+  'Start this computer step over?': '要重新开始此计算机步骤吗？',
+  'This runs the step again from its first operation. Windows the step opened stay as they are.':
+    '将从第一个操作重新运行此步骤。此步骤打开的窗口将保持原样。',
   'Opens on final failure and resolves on recovery.':
     '在最终失败时打开，并在恢复时解决。',
-  Operations: '操作',
   'Operator - DAG execution only': '操作员 - 仅 DAG 执行',
   option: '选项',
   'Optional description': '可选描述',
@@ -3379,11 +4508,22 @@ const chinese = {
   Path: '路径',
   Paths: '路径',
   Pattern: '模式',
-  'Pattern:': '模式:',
   'Permission requested': '请求权限',
   'Pin to sidebar': '固定到侧边栏',
-  Plan: '计划',
+  'Pin workflow': '固定工作流',
+  'Pin workflow {name}': '固定工作流 {name}',
+  Pinned: '已固定',
+  'Unpin workflow': '取消固定工作流',
   'Please check the below errors!': '请检查以下错误！',
+  'Click a step for details': '点击步骤查看详情',
+  'Show logs': '显示日志',
+  'Hide logs': '隐藏日志',
+  'View script': '查看脚本',
+  '+{count} line': '另外 {count} 行',
+  '+{count} lines': '另外 {count} 行',
+  'Lifecycle handlers': '生命周期处理器',
+  'Copy run ID': '复制运行 ID',
+  'Run ID copied to clipboard': '运行 ID 已复制到剪贴板',
   'Please check the following errors:': '请检查以下错误：',
   pollers: '轮询器',
   Port: '端口',
@@ -3430,19 +4570,16 @@ const chinese = {
   'Queued for execution': '已加入执行队列',
   'Queued:': '排队中:',
   'Queueing…': '正在排队…',
-  queues: '队列',
   Queues: '队列',
   Quick: '快速',
   'Quick select': '快速选择',
-  R: 'R',
   Raw: '原始',
   'Raw Event': '原始事件',
   Reason: '原因',
   'Reason (optional)...': '原因 (可选)...',
   'Reason:': '原因:',
-  'Recent DAG-run outcome events for the selected remote node':
-    '所选远程节点的近期 DAG 运行结果事件',
-  'recent runs': '近期运行',
+  'Recent run outcome events for the selected remote node':
+    '所选远程节点的近期运行结果事件',
   Ref: '引用',
   Reference: '引用',
   Refresh: '刷新',
@@ -3450,7 +4587,7 @@ const chinese = {
   'Refresh failed': '刷新失败',
   'Refresh status': '刷新状态',
   'Refresh system status': '刷新系统状态',
-  'Refreshing DAG runs...': '正在刷新 DAG 运行...',
+  'Refreshing runs...': '正在刷新运行记录...',
   'Refreshing notification channels...': '正在刷新通知渠道...',
   'Refreshing notification rules...': '正在刷新通知规则...',
   'Refreshing notifications...': '正在刷新通知...',
@@ -3459,10 +4596,10 @@ const chinese = {
   'Refreshing the queue detail page': '正在刷新队列详情页',
   'Refreshing...': '刷新中...',
   'Regenerate HMAC Secret': '重新生成 HMAC 密钥',
-  'Regenerate Token': '重新生成令牌',
+  'Regenerate token': '重新生成令牌',
   Reject: '拒绝',
-  'Reject DAG run': '拒绝 DAG 运行',
-  'Reject DAG Run': '拒绝 DAG 运行',
+  'Reject this run': '拒绝此运行',
+  'Reject run': '拒绝运行',
   rejected: '已拒绝',
   Rejected: '已拒绝',
   'Rejected by:': '拒绝者:',
@@ -3470,17 +4607,265 @@ const chinese = {
   'Relative path without .md extension. Use / for directories.':
     '不带 .md 扩展名的相对路径。目录请使用 /。',
   Reload: '重新加载',
+  // visual-editor:P1-1 begin
+  // visual-editor:P1-1 end
+  //
+  // visual-editor:P1-2 begin
+  'Run step': '运行步骤',
+  'Errors: {count}': '错误：{count}',
+  'Warnings: {count}': '警告：{count}',
+  'Retries: {count}': '重试：{count}',
+  'Insert a step here': '在此处插入步骤',
+  Handler: '处理程序',
+  'Inferred from a step reference. Remove the reference to remove this edge.':
+    '根据步骤引用推断。删除该引用即可删除此连线。',
+  'Chain DAGs run steps in YAML order. Move the step in the YAML to change the order.':
+    '链式 DAG 按 YAML 顺序运行步骤。要更改顺序，请在 YAML 中移动该步骤。',
+  'Edges of this DAG type cannot be changed on the canvas.':
+    '无法在画布上更改此类型 DAG 的连线。',
+  'YAML has errors: the canvas shows the last valid version':
+    'YAML 有错误：画布显示最近一个有效版本',
+  'The editor cannot read the YAML at line {line}: the canvas shows the steps the server read':
+    '编辑器无法读取第 {line} 行的 YAML：画布显示服务器读取的步骤',
+  'Read-only': '只读',
+  'Add step': '添加步骤',
+  'Fit view': '适应视图',
+  'Top to bottom': '从上到下',
+  'Left to right': '从左到右',
+  'Re-align the steps': '重新对齐步骤',
+  'Workflow canvas': '工作流画布',
+  'Search actions': '搜索操作',
+  'No matching actions': '没有匹配的操作',
+  'Step palette': '步骤面板',
+  // visual-editor:P1-2 end
+  //
+  // visual-editor:P1-3 begin
+  'Step inspector': '步骤检查器',
+  'This step no longer exists.': '此步骤已不存在。',
+  'Fix the YAML errors to edit this step.':
+    '请先修复 YAML 错误，再编辑此步骤。',
+  General: '常规',
+  'What it does': '执行内容',
+  Flow: '流程',
+  ID: 'ID',
+  'Change the action': '更改动作',
+  'Remove the current parameters?': '删除当前参数？',
+  Keep: '保留',
+  Shell: 'Shell',
+  '(default)': '（默认）',
+  'Multi-line': '多行',
+  Script: '脚本',
+  'Edit this field in YAML': '请在 YAML 中编辑此字段',
+  Text: '文本',
+  'Key/value': '键/值',
+  'Step YAML': '步骤 YAML',
+  'Line {line}, column {column}: {message}':
+    '第 {line} 行，第 {column} 列：{message}',
+  'Schema warnings': '架构警告',
+  'The step must be a YAML mapping.': '步骤必须是 YAML 映射。',
+  'Other keys': '其他键',
+  'No form for the parameters of this action. Edit them in the YAML section.':
+    '此动作的参数没有表单。请在 YAML 部分中编辑。',
+  'Edit the other fields in YAML': '请在 YAML 中编辑其他字段',
+  Routes: '路由',
+  'Add entry': '添加条目',
+  Targets: '目标',
+  'Targets of {pattern}': '{pattern} 的目标',
+  'Remove route {pattern}': '删除路由 {pattern}',
+  'New pattern': '新模式',
+  'New targets': '新目标',
+  'step-a, step-b': 'step-a, step-b',
+  'Continue on failure': '失败时继续',
+  'Continue when skipped': '跳过时继续',
+  'Mark as success': '标记为成功',
+  'No dependencies': '没有依赖',
+  'Edit dependencies on the canvas': '请在画布上编辑依赖',
+  Environment: '环境变量',
+  'Output name': '输出名称',
+  'Remove output {name}': '删除输出 {name}',
+  'New output name': '新输出名称',
+  'Add output': '添加输出',
+  Condition: '条件',
+  Expected: '期望值',
+  'Remove condition {index}': '删除条件 {index}',
+  'New condition': '新条件',
+  'New expected value': '新期望值',
+  'Add condition': '添加条件',
+  'Timeout (seconds)': '超时（秒）',
+  'Retry limit': '重试次数上限',
+  'Retry interval (seconds)': '重试间隔（秒）',
+  'Edit the kind of this step in the YAML section.':
+    '请在 YAML 部分中编辑此步骤的类型。',
+  // visual-editor:P1-3 end
+  //
+  // visual-editor:P1-4 begin
+  'Insert reference': '插入引用',
+  'Available references': '可用引用',
+  'Put the cursor in a field value': '请将光标放在字段值中',
+  'Published when chosen': '选择后发布',
+  'Not safe in a shell': '在 shell 中不安全',
+  'Unsafe here: use env': '此处不安全：请用 env',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    '此文本由模型生成，shell 可能会将其作为代码执行。请通过 env 传递，并从环境变量中读取。',
+  'Search references': '搜索引用',
+  References: '引用',
+  'No references available': '没有可用的引用',
+  'No matching references': '没有匹配的引用',
+  'Known after run': '运行后可知',
+  'Step outputs': '步骤输出',
+  Constants: '常量',
+  Dates: '日期',
+  'The dates of this slot cannot be resolved.': '无法解析此时段的日期。',
+  'Dates of this run': '此运行的日期',
+  'Slot {time}, the latest fire': '时段 {time}（最近一次触发）',
+  'window from {time}': '窗口起于 {time}',
+  'Left empty, it takes {value} from the slot.': '留空时取时段的值 {value}。',
+  '{slot}, loads {date}': '{slot}，载入 {date}',
+  'Loads {date}': '载入 {date}',
+  'loads {date}': '载入 {date}',
+  'slot {index} of {count}': '第 {index} / {count} 个时段',
+  'about {left} left': '约剩 {left}',
+  Failures: '失败',
+  '{count} slot': '{count} 个时段',
+  '{count} slots': '{count} 个时段',
+  'No error recorded': '未记录错误',
+  'Run of {time}': '{time} 的运行',
+  'Backfill {id}': '回填 {id}',
+  Slot: '时段',
+  'the latest fire': '最近一次触发',
+  'from the clock': '取自当前时间',
+  'Environment variables': '环境变量',
+  Secrets: '密钥',
+  'Run context': '运行上下文',
+  'Build inputs': '构建输入',
+  'Build outputs': '构建输出',
+  'Step environment': '步骤环境变量',
+  'Upstream data': '上游数据',
+  'Select a step to see the data of its upstream steps':
+    '选择一个步骤以查看其上游步骤的数据',
+  'No reference data yet': '暂无引用数据',
+  'This step has no upstream steps': '此步骤没有上游步骤',
+  'No run selected': '未选择运行',
+  'Run {runId}': '运行 {runId}',
+  'Direct upstream': '直接上游',
+  '{count} levels up': '上 {count} 级',
+  'No outputs in this run': '此次运行没有输出',
+  'Not in this run': '不在此次运行中',
+  'Truncated, original size {size}': '已截断，原始大小 {size}',
+  'Copy reference': '复制引用',
+  Insert: '插入',
+  'Add an id to this step to reference its outputs':
+    '为此步骤添加 id 以引用其输出',
+  'Show {count} more': '再显示 {count} 项',
+  'Legacy reference form': '旧版引用形式',
+  'Not available in this step': '此步骤中不可用',
+  '${{name}} is shell syntax here. Use ${env.{name}} for a Dagu reference.':
+    '${{name}} 在此处是 Shell 语法。请使用 ${env.{name}} 作为 Dagu 引用。',
+  '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.':
+    '${{name}} 在 run 中是 Shell 语法。请使用 ${env.{name}} 作为 Dagu 环境变量引用。',
+  // visual-editor:P1-4 end
+  //
+  // visual-editor:P1-5 begin
+  'Run to show': '要显示的运行',
+  'Latest run': '最新运行',
+  'No run': '无运行',
+  'Run unsaved draft': '运行未保存的草稿',
+  'No unsaved changes': '没有未保存的更改',
+  'Starting run': '正在启动运行',
+  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
+    '已保存的定义与编辑器中的内容不同。请先保存，或运行未保存的草稿。',
+  'You do not have permission to run workflows.': '您没有运行工作流的权限。',
+  'This run used a different definition than the saved one.':
+    '此运行使用的定义与已保存的定义不同。',
+  'Save the DAG first, or run the unsaved draft.':
+    '请先保存 DAG，或运行未保存的草稿。',
+  'Could not start the run (HTTP {status}).': '无法启动运行（HTTP {status}）。',
+  'Could not start the run.': '无法启动运行。',
+  'Not run in this run': '此次运行中未执行',
+  'Reused from an earlier run': '复用自之前的运行',
+  'Output variable': '输出变量',
+  'truncated ({size})': '已截断（{size}）',
+  'View logs': '查看日志',
+  'View logs for {name}': '查看 {name} 的日志',
+  'Review changes': '检查更改',
+  'No changes': '无更改',
+  '{added} added, {removed} removed': '新增 {added} 行，删除 {removed} 行',
+  'Saved version': '已保存版本',
+  'Your changes': '您的更改',
+  Unified: '合并',
+  // visual-editor:P1-5 end
+  //
+  // visual-editor:P2 begin
+  Visual: '可视化',
+  'Fix the YAML errors before you edit in the canvas.':
+    '请先修复 YAML 错误，再在画布中编辑。',
+  'This step does not exist any more.': '此步骤已不存在。',
+  'This edit needs the steps in the explicit form: a list of named steps.':
+    '此编辑需要显式形式的步骤：具名步骤列表。',
+  'Steps of a chain DAG run in order. Convert the steps to the explicit form to edit dependencies.':
+    'chain DAG 的步骤按顺序运行。请将步骤转换为显式形式以编辑依赖关系。',
+  'The visual editor cannot edit the steps of an agent DAG.':
+    '可视化编辑器无法编辑 agent DAG 的步骤。',
+  'Another step has this name.': '另一个步骤已使用此名称。',
+  'This step name is not valid.': '此步骤名称无效。',
+  'This dependency makes a cycle.': '此依赖关系会形成循环。',
+  'The step YAML is not valid.': '步骤 YAML 无效。',
+  Undo: '撤销',
+  Redo: '重做',
+  'Undo (Ctrl+Z)': '撤销 (Ctrl+Z)',
+  'Redo (Shift+Ctrl+Z)': '重做 (Shift+Ctrl+Z)',
+  'Part of the YAML to show': '要显示的 YAML 部分',
+  'Show the YAML of this step': '显示此步骤的 YAML',
+  Step: '步骤',
+  File: '文件',
+  Form: '表单',
+  'Add a step': '添加步骤',
+  'Search for an action': '搜索操作',
+  'Recently used': '最近使用',
+  Popular: '常用',
+  'After {name}': '在 {name} 之后',
+  'At the end of the workflow': '在工作流末尾',
+  'Between {from} and {to}': '在 {from} 与 {to} 之间',
+  'Add a shell command': '添加 Shell 命令',
+  'Show all actions': '显示所有操作',
+  'Up and Down to move, Enter to add, Esc to close':
+    '上下键移动，回车添加，Esc 关闭',
+  Editor: '编辑器',
+  '{count} task': '{count} 个任务',
+  '{count} tasks': '{count} 个任务',
+  'The agent chooses which step to run, so the steps have no order.':
+    '由智能体选择运行哪个步骤，因此步骤没有顺序。',
+  'Hide YAML': '隐藏 YAML',
+  Handlers: '处理器',
+  Document: '文档',
+  'Export graph': '导出图',
+  'Convert steps': '转换步骤',
+  'Run only the step {name} now? Its command runs for real.':
+    '现在只运行步骤 {name} 吗？其命令会真实执行。',
+  'The other steps keep their outputs of run {runId}.':
+    '其他步骤沿用运行 {runId} 的输出。',
+  'The step runs from the unsaved editor text.':
+    '该步骤将使用编辑器中未保存的文本运行。',
+  'Click a field of the step first, then insert the value.':
+    '请先点击步骤的一个字段，再插入该值。',
+  'The file changed on disk': '文件已在磁盘上更改',
+  'A newer version was saved. Review it before you save again.':
+    '已保存了更新的版本。请先查看它，再重新保存。',
+  'Unsaved draft': '未保存的草稿',
+  'Restore unsaved draft from {time}?': '要恢复 {time} 的未保存草稿吗？',
+  Restore: '恢复',
+  // visual-editor:P2 end
   'Reload artifacts': '重新加载工件',
   'Reload logs': '重新加载日志',
   'Remote Nodes': '远程节点',
   Remove: '移除',
-  'Remove DAGRun from queue': '从队列中移除 DAGRun',
+  'Remove this run from the queue': '从队列中移除此运行',
   'Remove incident connection': '移除事件连接',
   'Remove missing items from sync tracking': '从同步跟踪中移除缺失项',
   'Remove the license from this machine and return to community mode.':
     '从此机器移除许可证并返回社区模式。',
-  'Remove this DAG override and inherit workspace or Global notification rules?':
-    '移除此 DAG 覆盖并继承工作区或全局通知规则？',
+  'Remove this workflow override and inherit workspace or Global notification rules?':
+    '移除此工作流覆盖并继承工作区或全局通知规则？',
   Rename: '重命名',
   'Rename Wiki page': '重命名 Wiki 页面',
   'Rename workflow': '重命名工作流',
@@ -3490,11 +4875,16 @@ const chinese = {
   required: '必填',
   'Reschedule request accepted': '已接受重新调度请求',
   'Reschedule selected': '重新调度所选',
-  'Reschedule with new DAG-run': '使用新 DAG 运行重新调度',
+  'Edit the definition and choose the steps to run':
+    '编辑定义并选择要运行的步骤',
+  'Edit and retry': '编辑并重试',
+  'A checked step reuses its previous output; the others run again.':
+    '勾选的步骤复用之前的输出；其他步骤重新运行。',
+  'Reschedule as a new run': '作为新运行重新调度',
   Reset: '重置',
   'Reset changes': '重置更改',
-  'Reset DAG Override': '重置 DAG 覆盖',
-  'Reset Password': '重置密码',
+  'Reset workflow override': '重置工作流覆盖',
+  'Reset password': '重置密码',
   'Reset Password for': '重置密码：',
   'Reset this step and every reachable descendant. Unrelated branches are left unchanged.':
     '重置此步骤及所有可达的后继步骤。无关分支保持不变。',
@@ -3503,6 +4893,11 @@ const chinese = {
   'Reset zoom': '重置缩放',
   'Resetting...': '正在重置...',
   'Resize step details': '调整步骤详情大小',
+  'Maximize panel': '最大化面板',
+  'Restore panel': '还原面板',
+  'Resize sub-run view': '调整子运行视图大小',
+  'Resize workflow view': '调整工作流视图大小',
+  'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+点击在新标签页打开',
   'Resolved during a run (': '在运行期间已解析 (',
   'Resource & Trace': '资源与追踪',
   'Resource ID': '资源 ID',
@@ -3514,19 +4909,29 @@ const chinese = {
   result: '结果',
   Result: '结果',
   Results: '结果',
+  'Command palette': '命令面板',
+  'Search workflows, pages, and actions': '搜索工作流、页面和操作',
+  'Search workflows, pages, and actions...': '搜索工作流、页面和操作...',
+  Pages: '页面',
+  Navigate: '移动',
+  'Use light theme': '使用浅色主题',
+  'Use dark theme': '使用深色主题',
+  'Use system theme': '跟随系统主题',
+  'Search workflow contents for "{query}"': '在工作流内容中搜索“{query}”',
+  'Searching workflows...': '正在搜索工作流...',
+  'No results for "{query}"': '没有与“{query}”匹配的结果',
+  'Search...': '搜索...',
   'Results follow committed log order, newest committed entries first.':
     '结果按已提交日志顺序显示，最新已提交条目在前。',
   'Results will appear here as each request finishes.':
     '结果将在每个请求完成后显示在这里。',
   Retry: '重试',
-  'Retry action only available at root dagRun level':
-    '重试操作仅在根 dagRun 层级可用',
+  'Retry is only available on the top-level run': '仅可在顶层运行上重试',
   'Retry as a new run': '作为新运行重试',
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     '重试将继续现有的 OpenCode 对话并重新发送步骤提示。要开始新对话，请在 Agent 会话选项卡中使用“开始新会话”。',
-  'Retry DAG execution': '重试 DAG 执行',
-  'Retry DAGRun execution': '重试 DAGRun 执行',
-  'Retry Edited DAG Run': '重试已编辑的 DAG 运行',
+  'Retry this run': '重试此运行',
+  'Retry edited run': '重试已编辑的运行',
   'Retry load more': '重试加载更多',
   'Retry loading more': '重试加载更多',
   'Retry queue': '重试队列',
@@ -3580,7 +4985,6 @@ const chinese = {
     '无法加载运行时配置文件。编辑功能已禁用。',
   Save: '保存',
   'Save changes': '保存更改',
-  'Save Changes': '保存更改',
   'Save changes (Ctrl+S / Cmd+S)': '保存更改（Ctrl+S / Cmd+S）',
   'Save changes before leaving this page or sending a test.':
     '离开此页面或发送测试前，请保存更改。',
@@ -3604,6 +5008,7 @@ const chinese = {
   'Scanning...': '扫描中...',
   Schedule: '调度',
   Scheduled: '已计划',
+  'Window start': '窗口开始',
   'Scheduled At': '计划时间',
   'Scheduled:': '计划:',
   'Scheduler Service': '调度服务',
@@ -3611,10 +5016,9 @@ const chinese = {
   'Schema unavailable': '模式不可用',
   Scope: '作用域',
   'Script Content': '脚本内容',
-  'Script defined': '已定义脚本',
   Search: '搜索',
   'Search by ID or labels...': '按 ID 或标签搜索...',
-  'Search DAGs...': '搜索 DAG...',
+  'Search workflows...': '搜索工作流...',
   'Search git sync items': '搜索 Git 同步项',
   'Search in loaded lines...': '在已加载的行中搜索...',
   'Search items...': '搜索项目...',
@@ -3651,7 +5055,8 @@ const chinese = {
   'Selected workspaces': '已选工作区',
   'Selected:': '已选中:',
   'Send Incidents To': '发送事件至',
-  'Send notifications when this DAG is': '当此 DAG 处于以下状态时发送通知',
+  'Send notifications when this workflow is':
+    '当此工作流处于以下状态时发送通知',
   'Send test': '发送测试',
   'send to': '发送至',
   'Send to': '发送至',
@@ -3670,11 +5075,8 @@ const chinese = {
   'Shell (OpenSSL)': 'Shell (OpenSSL)',
   Shift: '班次',
   'Show all workflows': '显示全部工作流',
-  'Show Beginning': '显示开头',
-  'Show End': '显示结尾',
   'Show more matches': '显示更多匹配项',
   Showing: '显示：',
-  shown: '已显示',
   'Sibling Properties (': '同级属性 (',
   sign: '签名',
   'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in':
@@ -3682,6 +5084,8 @@ const chinese = {
   'Since startup': '自启动以来',
   'Size:': '大小：',
   'Skip TLS verification': '跳过 TLS 验证',
+  'Skip precondition checks for the retried steps. Workflow-level preconditions still apply.':
+    '跳过所重试步骤的前置条件检查。工作流级前置条件仍然适用。',
   skipped: '已跳过',
   Skipped: '已跳过',
   'Slack message template': 'Slack 消息模板',
@@ -3698,7 +5102,8 @@ const chinese = {
   'Sort by key': '按键排序',
   'Sort by value': '按值排序',
   'Sort DAG cards': '排序 DAG 卡片',
-  'Sorts current page only': '仅对当前页面排序',
+  'Sorting by this column is disabled for more than {count} workflows':
+    '超过 {count} 个工作流时无法按此列排序',
   Source: '来源',
   'Source DAG-run ID': '源 DAG 运行 ID',
   Spec: '规格',
@@ -3706,6 +5111,7 @@ const chinese = {
   'Specific date, month, or year': '指定日期、月份或年份',
   'Specific date/month/year': '指定日期/月/年',
   'Specific period': '特定期间',
+  Split: '分屏',
   'Standard Output Log': '标准输出日志',
   'Star and add to the sidebar for everyone': '加星并添加到所有人的侧边栏',
   'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.':
@@ -3714,8 +5120,8 @@ const chinese = {
   'Start a clean OpenCode session?': '开始新的 OpenCode 会话？',
   'Start a workflow from the ': '从 启动工作流',
   'Start clean session': '开始新会话',
-  'Start DAG execution': '开始 DAG 执行',
-  'Start the DAG': '启动 DAG',
+  'Start a new run': '开始新的运行',
+  'Start workflow': '启动工作流',
   Started: '已启动',
   'Started ': '已启动 ',
   'Started At': '开始时间',
@@ -3773,6 +5179,21 @@ const chinese = {
   'System Status': '系统状态',
   target: '目标',
   'Target DAG': '目标 DAG',
+  "Remove this workflow's incident routing and use the inherited routing instead?":
+    '移除此工作流的事件路由并改用继承的路由？',
+  'Callers using the current token lose access as soon as a new one is generated.':
+    '生成新令牌后，使用当前令牌的调用方将立即失去访问权限。',
+  'Requests signed with the current secret are rejected as soon as a new one is generated.':
+    '生成新密钥后，使用当前密钥签名的请求将立即被拒绝。',
+  'The webhook will accept requests that carry only the token.':
+    'Webhook 将接受仅携带令牌的请求。',
+  'Collapse {name}': '折叠 {name}',
+  'Expand {name}': '展开 {name}',
+  'Remove {label}': '移除 {label}',
+  'Items per page': '每页条数',
+  '{selected} of {loaded} selected': '已选择 {loaded} 项中的 {selected} 项',
+  'Schedule for {name}': '{name} 的调度',
+  'Restarts for {name}': '{name} 的重启',
   'Target name': '目标名称',
   'Target:': '目标:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -3786,10 +5207,8 @@ const chinese = {
   'Telegram topic ID': 'Telegram 话题 ID',
   Template: '模板',
   Terminal: '终端',
-  'Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable.':
-    '终端未启用。设置 DAGU_TERMINAL_ENABLED=true 以启用。',
   Test: '测试',
-  'Test Connection': '测试连接',
+  'Test connection': '测试连接',
   'Testing...': '测试中...',
   'The DAG specification has been modified externally while you were editing.':
     '编辑期间，DAG 规格已被外部修改。',
@@ -3809,16 +5228,17 @@ const chinese = {
   'This action cannot be undone.': '此操作无法撤销。',
   'This artifact is too large to render inline. Download it to inspect the contents.':
     '此工件太大，无法内联渲染。请下载以查看内容。',
-  'This DAG': '此 DAG',
+  'This workflow': '此工作流',
   'This DAG has restrictions:': '此 DAG 存在限制：',
   'This DAG inherits': '此 DAG 继承：',
-  'This DAG inherits rules by default. Configure a DAG override only when this DAG needs different events or destinations.':
-    '此 DAG 默认继承规则。仅当此 DAG 需要不同的事件或目标时，才配置 DAG 覆盖。',
-  'This DAG is not in the selected workspace.': '此 DAG 不在所选工作区中。',
-  'This DAG override has no destinations. Inherited rules are not used while the override exists.':
-    '此 DAG 覆盖没有目标。在覆盖存在期间，继承的规则不会被使用。',
-  'This DAG override replaces workspace and Global rules for future runs. Send test verifies delivery now.':
-    '此 DAG 覆盖将替换未来运行的工作区和全局规则。发送测试以立即验证投递。',
+  'This workflow inherits rules by default. Configure a workflow override only when it needs different events or destinations.':
+    '此工作流默认继承规则。仅当它需要不同的事件或目标时，才配置工作流覆盖。',
+  'This workflow is not in the selected workspace.':
+    '此工作流不在所选工作区中。',
+  'This workflow override has no destinations. Inherited rules are not used while the override exists.':
+    '此工作流覆盖没有目标。在覆盖存在期间，继承的规则不会被使用。',
+  'This workflow override replaces workspace and Global rules for future runs. Send test verifies delivery now.':
+    '此工作流覆盖将替换未来运行的工作区和全局规则。发送测试以立即验证投递。',
   'This DAG uses': '此 DAG 使用',
   'This feature requires an active Dagu license or trial. Visit the':
     '此功能需要有效的 Dagu 许可证或试用版。请访问',
@@ -3861,13 +5281,11 @@ const chinese = {
   'to expose selected request headers as': '继承。将选定的请求头暴露为',
   'to keep licensed features.': '以保留授权功能。',
   'to navigate DAGs': '以导航 DAG',
-  'to navigate histories': '以导航历史记录',
   'to navigate runs': '以导航运行',
   'to see activity here.': '的运行记录以查看活动。',
   'to toggle': '以切换',
   'to update': '以更新',
   Today: '今天',
-  'Toggle & next run': '切换与下次运行',
   'Toggle notifications': '切换通知',
   'Toggle Schema Documentation (Ctrl+Shift+D)': '切换架构文档（Ctrl+Shift+D）',
   Token: '令牌',
@@ -3876,7 +5294,7 @@ const chinese = {
   tokens: '令牌',
   'Tool Calls:': '工具调用:',
   'Topic ID (optional, for forum groups)': '话题 ID（可选，用于论坛组）',
-  'Total DAGs': 'DAG 总数',
+  'Total workflows': '工作流总数',
   Trigger: '触发',
   true: 'true',
   'Try again': '重试',
@@ -3895,17 +5313,16 @@ const chinese = {
   'Unsaved Changes': '未保存的更改',
   Unset: '未设置',
   Untitled: '未命名',
-  'up)': '上)',
   Update: '更新',
   'Update “': '更新“',
   'Update available: v': '可用更新: v',
-  'Update Status': '更新状态',
+  'Update status': '更新状态',
   Updated: '更新时间',
   'updated by': '更新者：',
   Uptime: '正常运行时间',
   Usage: '使用情况',
   Use: '使用',
-  'Use DAG events': '使用 DAG 事件',
+  'Use workflow events': '使用工作流事件',
   'Use HMAC Only': '仅使用 HMAC',
   'Use operational events': '使用运维事件',
   'Use original DAG file': '使用原始 DAG 文件',
@@ -3937,15 +5354,15 @@ const chinese = {
   View: '查看',
   'View artifacts': '查看产物',
   'View DAG': '查看 DAG',
-  'View DAG Definition': '查看 DAG 定义',
+  'View workflow definition': '查看工作流定义',
   'View diff': '查看差异',
   'View license status and activate a Dagu license or trial key.':
     '查看许可证状态并激活 Dagu 许可证或试用密钥。',
   'View mode': '查看模式',
-  'View Raw': '查看原始数据',
+  'View raw': '查看原始数据',
   'View release': '查看发布',
   'View run →': '查看运行 →',
-  'View Scheduler Log': '查看调度器日志',
+  'View scheduler log': '查看调度器日志',
   'View stderr': '查看 stderr',
   'View stderr log (Cmd/Ctrl+Click for new tab)':
     '查看标准错误日志（Cmd/Ctrl+点击新标签页打开）',
@@ -3979,7 +5396,6 @@ const chinese = {
   Workers: 'Worker',
   workflow: '工作流',
   'Workflow graph': '工作流图',
-  'Workflow link copied to clipboard': '工作流链接已复制到剪贴板',
   Workflows: '工作流',
   'Workflows page': '工作流页面',
   Workspace: '工作区',
@@ -4002,6 +5418,8 @@ const chinese = {
     'DAG定义中有未保存的更改。',
   'Your Dagu': '您的 Dagu',
   'YYYY-MM-DD HH:mm:ss': 'YYYY-MM-DD HH:mm:ss',
+  Zoom: '缩放',
+  'Overview of the workflow': '工作流概览',
   'Zoom in': '放大',
   'Zoom out': '缩小',
   Aborted: '已中止',
@@ -4012,6 +5430,10 @@ const chinese = {
     '允许调用方使用 {header} 选择已批准的配置。未提供该请求头时，将使用 DAG 的默认配置解析。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '确定要{action}“{name}”的计划吗？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -4021,7 +5443,7 @@ const chinese = {
   'Back one level': '返回上一级',
   'Back to {name}': '返回 {name}',
   Critical: '严重',
-  'Create New DAG': '新建 DAG',
+  'Create workflow': '新建工作流',
   Deactivate: '停用',
   'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.':
     '要从远程仓库和本地磁盘删除“{id}”吗？该文件将从两个位置移除。',
@@ -4034,12 +5456,6 @@ const chinese = {
   'Delete "{id}"? This cannot be undone.': '要删除“{id}”吗？此操作无法撤销。',
   'Discard & Close All': '放弃更改并全部关闭',
   'Discard & Close Others': '放弃更改并关闭其他标签页',
-  'Do you really want to cancel auto-retry for the dag-run "{name}"?':
-    '确定要取消 DAG 运行“{name}”的自动重试吗？',
-  'Do you really want to retry the dag-run "{name}"?':
-    '确定要重试 DAG 运行“{name}”吗？',
-  'Do you really want to stop the dag-run "{name}"?':
-    '确定要停止 DAG 运行“{name}”吗？',
   'Do you want to {action} {count} selected DAG run?':
     '要{action}选中的 {count} 个 DAG 运行吗？',
   'Do you want to {action} {count} selected DAG runs?':
@@ -4048,10 +5464,10 @@ const chinese = {
     '要将选中的 {count} 个 DAG 运行移出队列吗？',
   'Do you want to dequeue {count} selected DAG runs?':
     '要将选中的 {count} 个 DAG 运行移出队列吗？',
-  'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
-    '输入新 DAG 的名称。仅允许字母、数字、下划线、点和连字符。',
-  'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
-    '输入 DAG 的新名称。仅允许字母、数字、下划线、点和连字符。',
+  'Enter a name for your new workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    '输入新工作流的名称。仅允许字母、数字、下划线、点和连字符。',
+  'Enter a new name for your workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    '输入工作流的新名称。仅允许字母、数字、下划线、点和连字符。',
   'Failed at {step}': '在步骤 {step} 失败',
   Info: '信息',
   'Loaded {count} event': '已加载 {count} 个事件',
@@ -4061,6 +5477,7 @@ const chinese = {
   'No runs on {date}': '{date} 没有运行记录',
   'Page {page}': '第 {page} 页',
   'Page {page} of {total}': '第 {page} 页，共 {total} 页',
+  'of {total}': '共 {total} 页',
   'Partially succeeded': '部分成功',
   'Processing {count} request using the existing DAG-run API.':
     '正在使用现有 DAG 运行 API 处理 {count} 个请求。',
@@ -4075,9 +5492,11 @@ const chinese = {
     '从同步跟踪中移除 {count} 个缺失项？文件将保留在远程仓库中。',
   'Remove {count} missing items from sync tracking? Files remain in the remote repository.':
     '从同步跟踪中移除 {count} 个缺失项？文件将保留在远程仓库中。',
-  'Rename DAG': '重命名 DAG',
   Reschedule: '重新调度',
-  'Run Anyway': '仍然运行',
+  'Run anyway': '仍然运行',
+  'Save & Run': '保存并运行',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    '“保存并运行”会保存您的编辑并运行。“仍然运行”会运行最后保存的版本，不包含您的编辑。',
   'Run one of the example workflows from the {link} to see activity here.':
     '在{link}运行一个示例工作流，即可在此查看活动。',
   'Send incidents': '发送事件',
@@ -4128,10 +5547,11 @@ const chinese = {
   delete: '删除',
   retry: '重试',
   reschedule: '重新调度',
-  'Reschedule DAG Run': '重新调度 DAG 运行',
-  'Disable Schedule': '禁用计划',
+  'Disable schedule': '禁用计划',
+  'Suspend restarts': '暂停重启',
   'Disable Webhook': '禁用 Webhook',
-  'Enable Schedule': '启用计划',
+  'Enable schedule': '启用计划',
+  'Resume restarts': '恢复重启',
   'Enable Webhook': '启用 Webhook',
   '+{count} more': '另有 {count} 个',
   '+{count} more step': '另有 {count} 个步骤',
@@ -4140,7 +5560,6 @@ const chinese = {
   '{count} files': '{count} 个文件',
   '{count} issue': '{count} 个问题',
   '{count} issues': '{count} 个问题',
-  '{count} loaded': '已加载 {count} 个',
   '{count} run': '{count} 个运行',
   '{count} runs': '{count} 个运行',
   '{count} route': '{count} 条路由',
@@ -4149,8 +5568,6 @@ const chinese = {
   '{count} workflow': '{count} 个工作流',
   '{count} workflows': '{count} 个工作流',
   '{count} {type}': '{count} 个{type}',
-  '{selected} selected of {loaded} loaded':
-    '已选择 {loaded} 个已加载项中的 {selected} 个',
   '{settled} of {total} tasks settled':
     '已处理 {total} 个任务中的 {settled} 个',
   '{title} column': '{title}列',
@@ -4166,6 +5583,7 @@ const chinese = {
   Conflict: '冲突',
   conflict: '冲突',
   'Const is not declared': '常量未声明',
+  'Date is not declared': '日期未声明',
   Developer: '开发者',
   developer: '开发者',
   disabled: '禁用',
@@ -4187,8 +5605,8 @@ const chinese = {
   'Every {count} seconds': '每 {count} 秒',
   executable: '可执行',
   'Full access including user management': '完全访问权限，包括用户管理',
-  'Individual secrets that DAGs reference with {reference}.':
-    'DAG 通过 {reference} 引用的各个密钥。',
+  'Individual secrets that workflows reference with {reference}.':
+    '工作流通过 {reference} 引用的各个密钥。',
   'Inspect {name}': '检查 {name}',
   'Interactive shell connection to local server as {username}':
     '以 {username} 身份连接到本地服务器的交互式 Shell',
@@ -4204,7 +5622,6 @@ const chinese = {
   'Multiple executions: {visible} of {total} sub DAG runs':
     '多次执行：显示 {total} 个子 DAG 运行中的 {visible} 个',
   'No {type}': '没有{type}',
-  'No dags found': '未找到 DAG',
   'No Wiki pages found': '未找到 Wiki 页面',
   'No {type} matching "{query}"': '没有匹配“{query}”的{type}',
   'No {type} with {status} status': '没有状态为{status}的{type}',
@@ -4252,7 +5669,6 @@ const chinese = {
   'Update “{name}”': '更新“{name}”',
   'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
     '有可用更新：v{current} → {latest} {releaseLink} · 运行 {command} 进行更新',
-  'Use {up} {down} to navigate DAGs': '使用 {up} {down} 浏览 DAG',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     '用户管理功能（创建、编辑、删除）需要{licenseLink}。所有管理员均可重置密码。',
   'Value is unavailable in this context': '该值在此上下文中不可用',
@@ -4271,6 +5687,8 @@ const chinese = {
     '将为有权访问此工作区范围的所有人移除“{name}”。运行不受影响。',
   attachment: '附件',
   attachments: '附件',
+  calendar: '日历',
+  calendars: '日历',
   'Audit ID': '审计 ID',
   'Credential type': '凭据类型',
   dag: 'DAG',
@@ -4290,6 +5708,9 @@ const chinese = {
   'Wiki page management is not available on this server.':
     '此服务器不提供 Wiki 页面管理功能。',
   'Graph interactions': '图表交互',
+  'Drag: Pan the graph': '拖动：平移图表',
+  'Resize graph': '调整图表大小',
+  'Ctrl/Cmd + scroll or pinch: Zoom': 'Ctrl/Cmd + 滚轮或触控板捏合：缩放',
   '<No log output>': '<无日志输出>',
   LIVE: '实时',
   'More actions': '更多操作',
@@ -4306,7 +5727,6 @@ const chinese = {
   'Requires operator access in this workspace': '此工作区需要操作员权限',
   'Name copied': '名称已复制',
   'Copy name: {name}': '复制名称：{name}',
-  'Copied name {name}': '已复制名称 {name}',
   'URL configured ({preview})': 'URL 已配置（{preview}）',
   saved: '已保存',
   'HMAC secret configured': 'HMAC 密钥已配置',
@@ -4345,13 +5765,13 @@ const chinese = {
   'Wiki pages under {folder} or containing a {link} wikilink appear here.':
     '{folder}下或包含 {link} Wiki 链接的页面会显示在此处。',
   'its folder': '其文件夹',
-  'This DAG uses {source} routing unless you set a DAG override.':
-    '除非设置 DAG 覆盖配置，否则此 DAG 使用{source}路由。',
+  'This workflow uses {source} routing unless you set a workflow override.':
+    '除非设置工作流覆盖，否则此工作流使用{source}路由。',
   'workspace {name}': '工作区 {name}',
   'This will re-execute {step}. Are you sure?': '这将重新执行{step}。确定吗？',
   'Supports tokens such as {dag}, {status}, {error}, and {link}.':
     '支持 {dag}、{status}、{error} 和 {link} 等令牌。',
-  'This DAG inherits {source}.': '此 DAG 继承{source}。',
+  'This workflow inherits {source}.': '此工作流继承{source}。',
   'Showing {start} - {end} of {total} entries':
     '显示第 {start} 至 {end} 条，共 {total} 条',
   'Page {current} of {total}': '第 {current} 页，共 {total} 页',
@@ -4369,8 +5789,6 @@ const chinese = {
     '选择请求对此 Webhook 的身份验证方式。启用 HMAC 后，调用方必须发送根据下方确切签名输入计算的 {signature}。带有 {profile} 的请求对 {input} 签名。',
   'Use your webhook HMAC secret as {variable}.':
     '将 Webhook HMAC 密钥用作 {variable}。',
-  '{payload} is available as the {variable} environment variable.':
-    '{payload} 可通过环境变量 {variable} 获取。',
   'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.':
     '在 DAG YAML 中配置 {setting}。也可从 {base} 继承，将所选请求标头公开为 {variable}。',
   'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.':
@@ -4396,22 +5814,23 @@ const chinese = {
   'Global rules': '全局规则',
   '{workspace} workspace rules': '{workspace} 工作区规则',
   'No events': '无事件',
-  'Same as DAG events': '与 DAG 事件相同',
+  'Same as workflow events': '与工作流事件相同',
   'Custom events': '自定义事件',
   'Copy name': '复制名称',
   'Link copied': '链接已复制',
   'Copy link to this workflow': '复制此工作流的链接',
+  'Show description': '显示说明',
+  'Last run': '最近一次运行',
+  '{time} ago': '{time}前',
+  'Open run {dagRunId}': '打开运行 {dagRunId}',
   'Copy link to this run': '复制此次运行的链接',
+  'Show in workflow': '在工作流中显示',
   'This workspace currently inherits Global rules.':
     '此工作区当前继承全局规则。',
-  'Overrides Global for DAGs in this workspace.':
-    '覆盖此工作区中 DAG 的全局规则。',
-  'Default for every DAG unless workspace or DAG settings are configured.':
-    '默认用于每个 DAG，除非配置了工作区或 DAG 设置。',
-  'Stop action only available at root dagRun level':
-    '仅根 DAG 运行可执行停止操作',
-  'Stop DAGRun execution': '停止 DAG 运行',
-  'Cancel auto-retry for this failed DAGRun': '取消此失败 DAG 运行的自动重试',
+  'Overrides Global for workflows in this workspace.':
+    '覆盖此工作区中工作流的全局规则。',
+  'Default for every workflow unless workspace or workflow settings are configured.':
+    '默认用于每个工作流，除非配置了工作区或工作流设置。',
   'Failed to stop DAG run': '停止 DAG 运行失败',
   'Failed to cancel DAG run': '取消 DAG 运行失败',
   'The DAG run may have already completed or the worker is unavailable.':
@@ -4449,20 +5868,630 @@ const chinese = {
   '(unchanged)': '（不变）',
   'Next run': '下次运行',
   'Copy MCP setup prompt': '复制 MCP 配置提示词',
-} as const satisfies Record<StaticMessage, string>;
+  'Profile tokens': '配置文件令牌',
+  "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
+    '为每个调用方提供独立的令牌。使用配置文件令牌的请求始终以该令牌的配置文件运行，指定其他配置文件的 {header} 标头会被拒绝。',
+  'No profile tokens.': '没有配置文件令牌。',
+  'Token name': '令牌名称',
+  'Runtime profile': '运行时配置文件',
+  'Create token': '创建令牌',
+  'Last used:': '最后使用:',
+  'Profile tokens are ignored while authentication is HMAC only.':
+    '认证方式为仅 HMAC 时，配置文件令牌会被忽略。',
+  'Revoke profile token': '撤销配置文件令牌',
+  'Applications using this token will immediately lose access.':
+    '使用此令牌的应用将立即失去访问权限。',
+  Items: '项目',
+  'Not started': '未开始',
+  'Loading items…': '正在加载项目…',
+  'Waiting for items…': '等待项目…',
+  'No item records for this run.': '此运行没有项目记录。',
+  'No items match this filter.': '没有符合此筛选的项目。',
+  'Loading item…': '正在加载项目…',
+  'No record for this item.': '此项目没有记录。',
+  'Open in log viewer': '在日志查看器中打开',
+  '{done} of {total} done': '已完成 {done} / {total}',
+  'Item {index}': '项目 {index}',
+  'Open {step} in log viewer': '在日志查看器中打开 {step}',
+  'Connected via Dagu Console': '已通过 Dagu Console 连接',
+  'Activated with a license key': '已通过许可证密钥激活',
+  'Set by an environment variable': '由环境变量设置',
+  'Set by license.key in the config file': '由配置文件中的 license.key 设置',
+  'Loaded from a license file': '从许可证文件加载',
+  'license.key in the config file activates this license again when Dagu restarts. Remove it to stop using the license.':
+    'Dagu 重启时，配置文件中的 license.key 会再次激活此许可证。如需停止使用该许可证，请将其删除。',
+  'The license file is loaded again when Dagu restarts. Remove it to stop using the license.':
+    'Dagu 重启时会再次加载许可证文件。如需停止使用该许可证，请将其删除。',
+  'Dagu Console could not be reached. Try again later.':
+    '无法连接 Dagu Console。请稍后重试。',
+  'Last check-in': '最近签到',
+  'Not yet': '尚未',
+  'Checking…': '正在检查…',
+  'Check now': '立即检查',
+  'Server ID': '服务器 ID',
+  'Copy server ID': '复制服务器 ID',
+  'License ID': '许可证 ID',
+  'Server name': '服务器名称',
+  'Reports as {name}': '上报的名称：{name}',
+  'Leave empty to use the name the server reports.':
+    '留空则使用服务器上报的名称。',
+  'Disconnecting frees this server’s slot in Dagu Console and returns it to community mode.':
+    '断开连接会释放此服务器在 Dagu Console 中占用的名额，并恢复为社区版模式。',
+  'Manage in Dagu Console': '在 Dagu Console 中管理',
+  'Disconnecting...': '正在断开连接...',
+  Disconnect: '断开连接',
+  'Disconnected here, but Dagu Console could not be reached. Disconnect this server in Dagu Console to free its slot.':
+    '已在本地断开连接，但无法连接 Dagu Console。请在 Dagu Console 中断开此服务器以释放其名额。',
+  'Disconnected. Running in community mode.':
+    '已断开连接。正在以社区版模式运行。',
+  'Disconnect this server': '断开此服务器',
+  'Paid features become unavailable on this server and its slot in Dagu Console is freed for another server. Existing API keys remain active.':
+    '此服务器将无法使用付费功能，其在 Dagu Console 中的名额将释放给其他服务器。现有 API 密钥仍然有效。',
+  'Could not start connecting to Dagu Console.': '无法开始连接 Dagu Console。',
+  'Could not cancel the request. Try again.': '无法取消请求，请重试。',
+  'Expires in {time}': '{time} 后过期',
+  'Waiting for approval': '等待批准',
+  'This server’s license is set by DAGU_LICENSE or DAGU_LICENSE_KEY. Fix or remove it to connect from Dagu Console.':
+    '此服务器的许可证由 DAGU_LICENSE 或 DAGU_LICENSE_KEY 设置。请修正或删除它，以便通过 Dagu Console 连接。',
+  'Approve this server in Dagu Console. Check that the console shows this code:':
+    '请在 Dagu Console 中批准此服务器。确认控制台显示以下代码：',
+  'Your browser blocked the new tab. Open Dagu Console to continue.':
+    '浏览器阻止了新标签页。请打开 Dagu Console 继续。',
+  'Open Dagu Console': '打开 Dagu Console',
+  'Enter a server key or license key from Dagu Console.':
+    '输入来自 Dagu Console 的服务器密钥或许可证密钥。',
+  Monitoring: '监控',
+  'Set in configuration': '在配置中设置',
+  'Monitoring status unavailable': '监控状态不可用',
+  Reports: '报告内容',
+  'Last report': '最近报告',
+  'Health only': '仅健康状态',
+  'Health and run status': '健康状态和运行状态',
+  'cloud.report in the server configuration sets this. Change it there and restart Dagu.':
+    '此设置由服务器配置中的 cloud.report 决定。请在配置中修改并重启 Dagu。',
+  Change: '更改',
+  'Turn on': '开启',
+  'Turn off': '关闭',
+  'Turning off…': '正在关闭…',
+  'View last report': '查看最近报告',
+  'The last report this server sent to Dagu Console. The heartbeat secret is hidden.':
+    '此服务器最近发送到 Dagu Console 的报告。心跳密钥已隐藏。',
+  'Could not change what this server reports.': '无法更改此服务器报告的内容。',
+  'Could not dismiss the notice.': '无法关闭此通知。',
+  'Monitor this server from Dagu Console': '在 Dagu Console 中监控此服务器',
+  'Choose what this server reports': '选择此服务器报告的内容',
+  'Choose what to report': '选择报告内容',
+  'Dismiss monitoring notice': '关闭监控通知',
+  'Show why runs fail in Dagu Console': '在 Dagu Console 中显示运行失败的原因',
+  'Send error messages': '发送错误消息',
+  "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
+    'Dagu Console 会在“服务器”页面显示此服务器的健康状态。同时报告运行状态时，工作流失败会通过电子邮件通知工作区的所有者和管理员。',
+  'What to report': '要报告的内容',
+  "Sends the Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, how far remote access lets calls from Dagu Cloud go, and, on a paid plan or trial, the machine's CPU and memory use, load averages, and how full the data directory's disk is.":
+    '发送 Dagu 版本、操作系统、架构、进程启动时间、服务数量（持有调度器锁的调度器和已注册的协调器）、调度器最近一次运转的时间和是否已暂停、远程访问允许来自 Dagu Cloud 的调用做到什么程度，以及在付费方案或试用期间，这台机器的 CPU、内存和负载平均值，和数据目录所在磁盘的使用情况。',
+  "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started, and each queue holding runs: its name, how many runs are waiting and how many are running, how many may run at once, when the next run was queued, and why it cannot start when it waits for a worker. No parameters, logs, or outputs.":
+    '发送健康状态字段，以及每个结束的顶层 DAG 运行的状态，附带其失败步骤名称（最多 50 个）和触发方式，还会发送排队中、运行中或等待中的运行列表。每个运行以 DAG 名称、运行 ID、尝试 ID、状态、触发方式，以及排队、开始和结束时间的形式发送。还会发送每个已计划 DAG 的下次运行时间，以及其最近一次计划运行是否已启动；以及每个有运行的队列：其名称、等待中和运行中的运行数量、可同时运行的数量、下一个运行的排队时间，以及它因等待工作节点而无法启动时的原因。不发送参数、日志或输出。',
+  'Every report also carries what identifies and authenticates this server, as its license check-in does: the protocol version, license ID, server ID, and heartbeat secret, and which choice it was sent under. With run status, it also carries the reporter’s cursor and, after events were lost, the time they were lost from. Turning reporting off sends one last report that carries only what identifies and authenticates this server and the choice Off, so that Dagu Console shows monitoring as off.':
+    '每次报告还会像许可证签到一样，携带识别和验证此服务器的信息：协议版本、许可证 ID、服务器 ID 和心跳密钥，以及发送时所选的报告内容。报告运行状态时，还会携带报告器的游标；如有事件丢失，还会携带事件开始丢失的时间。关闭报告时，会再发送最后一次报告，仅携带识别和验证此服务器的信息以及所选的“关闭”，以便 Dagu Console 显示监控已关闭。',
+  'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
+    '从不发送：完整日志、输出、参数、环境变量、步骤命令、DAG YAML、计划表达式以及工作流密钥的值。',
+  'Health, run status, and error messages (recommended)':
+    '健康状态、运行状态和错误消息（推荐）',
+  'Health, run status, and error messages': '健康状态、运行状态和错误消息',
+  "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":
+    '发送“健康状态和运行状态”的全部内容，并附带每个失败运行的失败原因：最多 5 个失败步骤和处理程序的错误消息，或运行本身的错误消息，每条从末尾起最多 2 KB。步骤的错误消息末尾可能包含其 stderr 的最后几行，其中工作流密钥的值会被遮蔽。',
+  'Not now': '暂不',
+  '{plan} plan': '{plan} 套餐',
+  'License error': '许可证错误',
+  'Needs attention': '需要处理',
+  'Grace period': '宽限期',
+  Expired: '已过期',
+  'Expires in {count} day': '{count} 天后到期',
+  'Expires in {count} days': '{count} 天后到期',
+  'Not reporting': '报告中断',
+  'Not reporting since {time}': '自 {time} 起未收到报告',
+  'Run history paused until {time}': '运行历史已暂停记录，直到 {time}',
+  '{level}, last report {time}': '{level}，最近报告 {time}',
+  Server: '服务器',
+  'License, Dagu Console connection, monitoring, and remote access for this server.':
+    '此服务器的许可证、Dagu Console 连接、监控和远程访问。',
+  'Connected to {workspace}.': '已连接到 {workspace}。',
+  'Connected to Dagu Console.': '已连接到 Dagu Console。',
+  'License activated.': '许可证已激活。',
+  Disconnected: '已断开连接',
+  'Not connected': '未连接',
+  'Copy license ID': '复制许可证 ID',
+  'Could not connect to Dagu Console': '无法连接到 Dagu Console',
+  'Danger zone': '危险操作',
+  'Use a license key': '使用许可证密钥',
+  'Use a different license key': '使用其他许可证密钥',
+  'Not included': '未包含',
+  'License needs attention': '许可证需要处理',
+  'This license is active on more machines than allowed. Deactivate extra machines in Dagu Console.':
+    '此许可证激活的机器数超过了允许的数量。请在 Dagu Console 中停用多余的机器。',
+  'Dagu Console reported {code} for this license.':
+    'Dagu Console 报告此许可证存在 {code}。',
+  'Licensed features keep working until {date}.':
+    '授权功能在 {date} 之前仍可使用。',
+  'Licensed features keep working for a short grace period.':
+    '授权功能在短暂的宽限期内仍可使用。',
+  'Licensed features are unavailable.': '授权功能不可用。',
+  'License expires today': '许可证今天到期',
+  'License expires in {count} day': '许可证将在 {count} 天后到期',
+  'License expires in {count} days': '许可证将在 {count} 天后到期',
+  'Licensed features stop working when it expires.':
+    '到期后，授权功能将无法使用。',
+  'License expired': '许可证已过期',
+  'Activation failed': '激活失败',
+  'Deactivation failed': '停用失败',
+  Plan: '套餐',
+  Expires: '到期日',
+  'License deactivated. Running in community mode.':
+    '许可证已停用。正在以社区版模式运行。',
+  'Monitoring only': '仅监控',
+  Free: '免费',
+  'Included in Team and Pro': '包含在 Team 和 Pro 中',
+  'Connect to Dagu Cloud': '连接到 Dagu Cloud',
+  'Use this server from MCP clients': '从 MCP 客户端使用此服务器',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP 客户端通过 Dagu Cloud MCP 端点访问此服务器，权限不超过此处选择的角色。需要付费套餐或试用。',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    '服务器配置中的 cloud.remote_access 设置了此项。请在配置中更改并重启 Dagu。',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    '远程访问需要付费套餐或试用。否则 Dagu Cloud 会拒绝 MCP 调用。',
+  "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
+    'Dagu Console 会显示此服务器的运行、失败和趋势，并在工作流失败或服务器停止报告时向你发送电子邮件。',
+  "Dagu Console shows this server's health and emails you when the server stops reporting.":
+    'Dagu Console 会显示此服务器的健康状态，并在服务器停止报告时向你发送电子邮件。',
+  'Reporting starts as soon as the server connects.':
+    '服务器连接后立即开始报告。',
+  'Free for one server: reports every 5 minutes and keeps 7 days of run history. Paid features stay off.':
+    '一台服务器免费：每 5 分钟报告一次，保留 7 天的运行历史。付费功能保持关闭。',
+  'Free for one server, with 14 days of paid features. After the trial: reports every 5 minutes and keeps 7 days of run history.':
+    '一台服务器免费，并可使用 14 天付费功能。试用结束后：每 5 分钟报告一次，保留 7 天的运行历史。',
+  'Connect for free': '免费连接',
+  'Connect and start trial': '连接并开始试用',
+  'Also try paid features free for 14 days': '同时免费试用付费功能 14 天',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    '通过 Claude 和 ChatGPT 进行 MCP 访问、审计日志、基于角色的访问控制、单点登录，以及聊天和 Webhook 告警。无需银行卡；试用结束后免费监控仍会保留。',
+  'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
+    'Dagu Console 将停止监控此服务器，其免费名额可供其他服务器使用。',
+  'The Free plan supports up to 2 API keys.':
+    '免费套餐最多支持 2 个 API 密钥。',
+  'Existing keys remain active. Revoke a key to create another, or move to Team or Pro to remove the limit.':
+    '现有密钥保持有效。撤销一个密钥即可创建新密钥，或升级到 Team 或 Pro 以取消此限制。',
+  'Public URL': '公共 URL',
+  'Receive webhooks from services on the internet, such as GitHub or Stripe, through Dagu Cloud. Deliveries wait there for up to 7 days while this server is offline.':
+    '通过 Dagu Cloud 接收来自互联网服务（如 GitHub 或 Stripe）的 Webhook。此服务器离线时，投递会在 Dagu Cloud 中等待最多 7 天。',
+  'Only administrators can turn on a public URL.':
+    '只有管理员可以开启公共 URL。',
+  URL: 'URL',
+  'The URL appears once this server connects to Dagu Cloud.':
+    '此服务器连接到 Dagu Cloud 后将显示 URL。',
+  Sender: '发送方',
+  'Anyone with the URL': '任何持有 URL 的人',
+  'Signing secret': '签名密钥',
+  'Leave empty to keep the current secret': '留空以保留当前密钥',
+  'Leave empty to have Dagu make one': '留空以由 Dagu 生成',
+  "Paste the sender's signing secret": '粘贴发送方的签名密钥',
+  'All events': '所有事件',
+  'Separate events with commas, such as {example}. A name also takes the events under it.':
+    '用逗号分隔事件，例如 {example}。一个名称也包含其下的事件。',
+  "In GitHub's webhook settings, set Content type to {type}.":
+    '在 GitHub 的 Webhook 设置中，将 Content type 设为 {type}。',
+  'Save sender': '保存发送方',
+  'New secret': '新密钥',
+  'Dagu Cloud dropped deliveries for this URL: {expired} waited more than 7 days, and {refused} arrived while 1,000 were waiting.':
+    'Dagu Cloud 丢弃了此 URL 的投递：{expired} 个等待超过 7 天，{refused} 个在已有 1,000 个等待时到达。',
+  Dismiss: '忽略',
+  'New URL': '新 URL',
+  'Turn off public URL': '关闭公共 URL',
+  'Replace public URL': '替换公共 URL',
+  Replace: '替换',
+  'Dagu Cloud drops this URL and any deliveries waiting for it.':
+    'Dagu Cloud 将丢弃此 URL 以及所有等待中的投递。',
+  'Your plan allows {count} public URLs, and this one is not among them. Turn another off, or change the plan.':
+    '您的套餐允许 {count} 个公共 URL，此 URL 不在其中。请关闭其他 URL 或更改套餐。',
+  'Connecting to Dagu Cloud…': '正在连接 Dagu Cloud…',
+  'Recent deliveries': '最近的投递',
+  'No deliveries yet.': '暂无投递。',
+  Size: '大小',
+  Ignored: '已忽略',
+  'This server is not connected to Dagu Cloud.':
+    '此服务器未连接到 Dagu Cloud。',
+  'The webhooks could not be read.': '无法读取 Webhook。',
+  'Dagu Cloud refused more public URLs than the plan allows.':
+    'Dagu Cloud 拒绝了超出套餐允许数量的公共 URL。',
+  'Webhook Token': 'Webhook 令牌',
+  'Webhook HMAC Secret': 'Webhook HMAC 密钥',
+  'Signing Secret': '签名密钥',
+  "Copy this secret into GitHub's webhook settings now. You won't be able to see it again!":
+    '请立即将此密钥复制到 GitHub 的 Webhook 设置中。之后将无法再次查看！',
+  "Copy this HMAC secret now. You won't be able to see it again!":
+    '请立即复制此 HMAC 密钥。之后将无法再次查看！',
+  'The current URL stops working. Requests Dagu Cloud already took through it are still delivered. Give every sender the new URL.':
+    '当前 URL 将失效。Dagu Cloud 已通过它接收的请求仍会投递。请将新 URL 提供给所有发送方。',
+  '{payload} is in the file named by {file}, and in the {variable} environment variable when it fits in one.':
+    '{payload} 位于 {file} 指定的文件中；当其大小能放入单个环境变量时，也可通过 {variable} 环境变量获取。',
+  'The public URL could not be loaded.': '无法加载公共 URL。',
+  'The plan allows no public URLs.': '当前套餐不允许公共 URL。',
+  runs: '次运行',
+  'In progress': '进行中',
+  'Up next': '即将运行',
+  Fit: '适应',
+  '24h': '24 小时',
+  'Open Executions': '打开执行记录',
+  'Filter workflows...': '筛选工作流...',
+  'Filter workflows': '筛选工作流',
+  'Runs over time': '运行时间线',
+  'Waiting for input': '等待输入',
+  'No scheduled runs.': '没有已计划的运行。',
+  'Nothing is running.': '当前没有运行。',
+  'Runs by workflow': '按工作流显示运行',
+  '{failed} of {count} failed': '{count} 次中 {failed} 次失败',
+  '{name}: {count} runs. Use the arrow keys to move between runs.':
+    '{name}：{count} 次运行。使用方向键在运行之间移动。',
+  'All clear. No failing workflows or runs waiting for input.':
+    '一切正常。没有失败的工作流，也没有等待输入的运行。',
+  'Running {elapsed}, usually {usual}': '已运行 {elapsed}，通常 {usual}',
+  'No runs in the last 24 hours': '过去 24 小时内没有运行',
+  'No runs in this range': '此范围内没有运行',
+  'Activity is not available from this node': '无法从此节点获取活动',
+  'The node may run an older Dagu version. Its runs are still listed on the Executions page.':
+    '该节点可能运行较旧版本的 Dagu。其运行仍会显示在执行记录页面上。',
+  'No workflows match the filter.': '没有匹配筛选条件的工作流。',
+  'Showing the latest {count} runs. Drag across a lane to zoom in, or click a mark for one run.':
+    '显示最近 {count} 次运行。在泳道上拖动以放大，或点击标记打开单次运行。',
+  'Drag across a lane to zoom in, or click a mark for one run.':
+    '在泳道上拖动以放大，或点击标记打开单次运行。',
+  'latest runs': '次最近运行',
+  'Live, last 24 hours': '实时，过去 24 小时',
+  '{running} running': '{running} 个运行中',
+  '{running} of {max} running': '{running}/{max} 个运行中',
+  '{count}+ queued': '{count}+ 个排队中',
+  'next waiting {elapsed}': '下一个已等待 {elapsed}',
+  'The scheduler is not running, so scheduled and queued runs will not start.':
+    '调度器未运行，计划运行和排队中的运行将不会启动。',
+  'Queued runs in {queue} cannot start: no healthy worker matches their selector.':
+    '{queue} 中的排队运行无法启动：没有健康的工作节点匹配其选择器。',
+  'Queued runs in {queue} cannot start: no healthy worker is available.':
+    '{queue} 中的排队运行无法启动：没有可用的健康工作节点。',
+  'Queued runs in {queue} cannot start: they cannot be handed to a worker right now.':
+    '{queue} 中的排队运行无法启动：目前无法将其交给工作节点。',
+  'The data disk is {percent}% full. Runs fail once it fills up.':
+    '数据磁盘已使用 {percent}%。磁盘写满后运行将会失败。',
+  'no matching worker': '无匹配的工作节点',
+  'no worker available': '无可用工作节点',
+  'worker unreachable': '无法交给工作节点',
+  'A sub-run of this step is waiting for an action.':
+    '此步骤的子运行正在等待处理。',
+  'A sub-run of {step} is waiting for an action.':
+    '{step} 的子运行正在等待处理。',
+  '{count} more sub-runs are waiting': '还有 {count} 个子运行正在等待',
+  'Action required': '需要处理',
+  'An agent is waiting for an answer.': '有代理正在等待回答。',
+  'Queue wait': '排队等待',
+  Manual: '手动',
+  'Sub-DAG': '子工作流',
+  'Catch-up': '补跑',
+  Restart: '重启',
+  Backfill: '回填',
+  'Run log': '运行日志',
+  Stream: '输出流',
+  'Lines shown': '显示的行',
+  'Log display': '日志显示',
+  'No workflows yet': '还没有工作流',
+  'Create your first workflow to get started.': '创建第一个工作流即可开始。',
+  'No workflows match the “{view}” view. Try adjusting its filters or show all workflows.':
+    '没有工作流符合“{view}”视图。请调整其筛选条件，或显示全部工作流。',
+  'There are no workflows matching your current filters. Try adjusting your search criteria or labels.':
+    '没有符合当前筛选条件的工作流。请调整搜索条件或标签。',
+  'Invalid DAG name': 'DAG 名称无效',
+  'DAG name cannot be empty': 'DAG 名称不能为空',
+  'DAG name must be {max} characters or less': 'DAG 名称不能超过 {max} 个字符',
+  'DAG name can only contain letters, numbers, underscores, dots, and hyphens':
+    'DAG 名称只能包含字母、数字、下划线、点和连字符',
+  'DAG name cannot contain spaces': 'DAG 名称不能包含空格',
+  'Retried {count}×': '已重试 {count} 次',
+  'Get an email if this server stops': '在此服务器停止时收到邮件',
+  'Alerts from this server stop if the server goes down.':
+    '此服务器宕机后，它发出的告警也会停止。',
+  'Dagu Console emails you when a workflow fails or this server stops reporting. Free for one server.':
+    'Dagu Console 会在工作流失败或此服务器停止上报时向您发送邮件。一台服务器免费。',
+  'Set up for free': '免费设置',
+  'Getting started': '快速入门',
+  'Run a workflow': '运行一个工作流',
+  'Create your own workflow': '创建您自己的工作流',
+  'Put a workflow on a schedule': '为工作流设置计划',
+  'Get alerted when something fails': '在出现失败时收到告警',
+  'The retry example fails once, then succeeds on its retry.':
+    '重试示例会先失败一次，然后在重试时成功。',
+  'Start a workflow from the Workflows page.': '从工作流页面启动一个工作流。',
+  'Define steps in YAML. Each step runs a command.':
+    '用 YAML 定义步骤，每个步骤运行一条命令。',
+  'A schedule runs a workflow while no one is watching.':
+    '计划会在无人值守时运行工作流。',
+  'Get an email from Dagu Console when a workflow fails or this server stops, or send failures to a notification channel.':
+    '在工作流失败或此服务器停止时通过 Dagu Console 收到邮件，或将失败发送到通知频道。',
+  'Send failures to Slack, email, or a webhook.':
+    '将失败发送到 Slack、邮件或 Webhook。',
+  'Open the retry example': '打开重试示例',
+  'Open Workflows': '打开工作流',
+  'Scheduling guide': '计划指南',
+  'Add a notification channel': '添加通知频道',
+  'Connect an AI app': '连接 AI 应用',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    '让 Claude、ChatGPT 或编码智能体通过 MCP 在此运行和编辑工作流。',
+  'Use from Claude or ChatGPT': '在 Claude 或 ChatGPT 中使用',
+  'Set up a coding agent': '设置编码智能体',
+  'Could not change remote access.': '无法更改远程访问。',
+  'Remote access': '远程访问',
+  'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
+    '通过 Dagu Cloud MCP 端点提供此服务器的 MCP 工具。服务器主动连接 Dagu Cloud，不开放入站端口。',
+  'MCP calls are refused.': 'MCP 调用会被拒绝。',
+  'MCP calls read DAGs, runs, and logs.': 'MCP 调用可读取 DAG、运行和日志。',
+  'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
+    'MCP 调用可读取 DAG、运行和日志，并可启动、重试和停止运行。',
+  'MCP calls also change DAG definitions, so they can run any command on this machine.':
+    'MCP 调用还可更改 DAG 定义，因此可以在此机器上运行任意命令。',
+  'Remote access status unavailable': '远程访问状态不可用',
+  Access: '访问',
+  Approvals: '审批',
+  'Let MCP calls complete human tasks. Needs Operator or Developer access.':
+    '允许 MCP 调用完成人工任务。需要“操作员”或“开发者”访问权限。',
+  On: '开启',
+  'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.':
+    '服务器配置中的 cloud.remote_access 和 cloud.remote_approvals 设置了这些选项。请在配置中更改并重启 Dagu。',
+  Connected: '已连接',
+  'Connecting…': '正在连接…',
+  'Agent activity': '智能体活动',
+  'No calls from Dagu Cloud yet.': '尚无来自 Dagu Cloud 的调用。',
+  'MCP URL': 'MCP URL',
+  'Copy MCP URL': '复制 MCP URL',
+  'MCP URL copied': '已复制 MCP URL',
+  'Last call': '最近调用',
+  'No calls yet': '尚无调用',
+  'Connect a client': '连接客户端',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    '在 Claude 中打开 Customize，然后选择 Connectors。选择 + Add，然后选择 Add custom connector。粘贴 URL，选择 Continue，然后登录。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    '在 Team 和 Enterprise 方案中，需由所有者先在 Organization settings 的 Connectors 中添加。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '选择 +，然后选择 Add custom MCP server。在 Server URL 中粘贴 URL，选择 OAuth 并确认，然后选择 Create as a plugin。安装插件，然后登录。',
+  'Copy command': '复制命令',
+  'Command copied': '命令已复制',
+  'Then run /mcp in Claude Code to sign in.':
+    '然后在 Claude Code 中运行 /mcp 登录。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud 中的其他客户端和连接',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    '试用期内包含此功能，截至 {date}。选择套餐以继续使用 MCP 客户端。',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    '在 Claude、ChatGPT 和其他 MCP 客户端中使用此服务器',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的试用中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    '已包含在您的套餐中。开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '需要付费套餐或试用。14 天试用免费，无需银行卡。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    '开启远程访问，然后将 MCP URL 添加到您的客户端。',
+  'MCP calls need a paid plan or a trial': 'MCP 调用需要付费套餐或试用',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    '在此服务器的工作区拥有付费套餐或试用之前，Dagu Cloud 会拒绝对它的调用。14 天试用免费，无需银行卡。',
+  'Choose remote access': '选择远程访问',
+  'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
+    'Dagu Cloud 用户在此服务器上获得的最高角色。Dagu Cloud 可以授予更低的角色，但绝不会更高。',
+  'Read DAGs, runs, and logs.': '读取 DAG、运行记录和日志。',
+  'Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters those DAGs take.':
+    '还可以启动、排队、重试和停止现有 DAG 的运行，并传入这些 DAG 接受的任意参数。',
+  'Also change DAG definitions and run inline specs. DAG steps run commands, so this runs any command on this machine.':
+    '还可以更改 DAG 定义并运行内联规范。DAG 步骤会运行命令，因此这意味着可以在此机器上运行任意命令。',
+  'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.':
+    '调用永远无法访问终端、用户、API 密钥、许可证或这些设置。每次调用都携带 Dagu Cloud 仅为该调用签发的短期断言。关闭远程访问会断开连接并终止正在进行的调用。',
+  'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.':
+    '开发者角色允许可访问此服务器的 Dagu Cloud 用户以运行 Dagu 的用户身份在此机器上运行任意命令。仅在你愿意给予他们此机器的 shell 时才选择它。',
+  'Workspaces are removed in v3.0': '工作区将在 v3.0 中移除',
+  'These workspace settings will stop applying, and users and API keys limited to workspaces will become viewers.':
+    '这些工作区设置将不再生效，仅限于部分工作区的用户和 API 密钥将变为查看者。',
+  'Have feedback? Comment on the GitHub issue.':
+    '有反馈？请在 GitHub issue 中评论。',
+  'Base config': '基础配置',
+  'Profile entry': '配置条目',
+  'Notification route': '通知路由',
+  'Incident policy': '事件策略',
+  'Config key': '配置键',
+  'API key': 'API 密钥',
+  'Wiki directory': '百科目录',
+  'Update available: v{current} → {latest} {releaseLink}':
+    '有可用更新：v{current} → {latest} {releaseLink}',
+  'A new Dagu binary is installed. Run {command} to restart and use it.':
+    '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
+  'A new Dagu binary is installed. Restart Dagu to use it.':
+    '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
+  'Upcoming runs': '即将进行的运行',
+  '{count} parameter override': '{count} 个参数覆盖',
+  '{count} parameter overrides': '{count} 个参数覆盖',
+  'last business day of the month': '当月最后一个工作日',
+  "business day {n} from the month's end": '当月倒数第 {n} 个工作日',
+  'business day {n} of the month': '当月第 {n} 个工作日',
+  'extra business day': '额外工作日',
+  'skips {day}': '跳过 {day}',
+  'This DAG is suspended. None of these runs will start until it is resumed.':
+    '此 DAG 已暂停。恢复之前，这些运行都不会开始。',
+  'A calendar named {name} already exists.': '已存在名为 {name} 的日历。',
+  'Back to calendars': '返回日历列表',
+  'Built in': '内置',
+  'Business day {ordinal} of {total}': '第 {ordinal} 个工作日，共 {total} 个',
+  'Business days that start schedules fire on. A schedule names a calendar with {key}.':
+    '启动调度只在工作日触发。调度用 {key} 指定日历。',
+  'Calendar not found': '未找到日历',
+  'Calendar saved': '日历已保存',
+  'Calendar {name} deleted': '已删除日历 {name}',
+  'Calendar:': '日历：',
+  Calendars: '业务日历',
+  'Checking...': '正在检查...',
+  "Couldn't load the calendar": '无法加载日历',
+  'Delete calendar': '删除日历',
+  'Delete this calendar': '删除此日历',
+  'Extra business day, {ordinal} of {total}':
+    '额外工作日，第 {ordinal} 个，共 {total} 个',
+  'Failed to create the calendar.': '创建日历失败。',
+  'Failed to delete the calendar.': '删除日历失败。',
+  'Failed to save the calendar.': '保存日历失败。',
+  'Fix the problems in the file to see its business days.':
+    '修复文件中的问题后即可查看其工作日。',
+  'Hide dates': '隐藏日期',
+  Holiday: '假日',
+  'Holiday: {name}': '假日：{name}',
+  'Holidays run out': '假日需更新',
+  'Holidays through': '假日截至',
+  'Holidays through {date}': '假日截至 {date}',
+  'Included by': '包含它的日历',
+  Includes: '包含的日历',
+  Invalid: '无效',
+  'Keep my edits': '保留我的编辑',
+  'Load the server version': '加载服务器版本',
+  'Loading calendars...': '正在加载日历...',
+  'New calendar': '新建日历',
+  'Next year': '下一年',
+  'No DAG schedules use this calendar.': '没有 DAG 调度使用此日历。',
+  'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.':
+    '还没有日历文件。可在此创建，或将 {file} 添加到 paths.calendars_dir。',
+  'No calendar is named {name}. It may have been deleted.':
+    '没有名为 {name} 的日历，可能已被删除。',
+  'Not a business day': '非工作日',
+  'Previous year': '上一年',
+  Problems: '问题',
+  'Remove the schedules and includes that use this calendar first':
+    '请先移除使用此日历的调度和日历包含关系',
+  'Schedules name it with calendar. It starts as Monday to Friday with no holidays.':
+    '调度通过 calendar 指定它。初始为周一至周五，没有假日。',
+  'Select a date to see its business day.': '选择日期以查看其工作日信息。',
+  'Show dates': '显示日期',
+  'The calendar file changed on the server while you were editing.':
+    '编辑期间服务器上的日历文件已更改。',
+  'The calendar was not saved': '日历未保存',
+  'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.':
+    '这是内置日历：周一至周五，没有假日，无法更改。要列出假日，请创建日历文件。',
+  'Use letters, digits, - and _ only.': '只能使用字母、数字、- 和 _。',
+  'Used by': '使用此日历的 DAG',
+  'after {through}, when the holidays end': '在假日截止日 {through} 之后',
+  'business day': '工作日',
+  holiday: '假日',
+  'not a business day': '非工作日',
+  'unsaved change': '未保存的更改',
+  'used by {count} DAG': '{count} 个 DAG 使用',
+  'used by {count} DAGs': '{count} 个 DAG 使用',
+  'via {calendar}': '经由 {calendar}',
+  'weekdays {changes}': '星期 {changes}',
+  '{count} date changes': '{count} 个日期变更',
+  '{count} dates change': '{count} 个日期变更',
+  '{count} problem': '{count} 个问题',
+  '{count} problems': '{count} 个问题',
+  '{name} is reserved.': '{name} 是保留名称。',
+  "Couldn't preview the calendar.": '无法预览日历。',
+  'Loading {year}...': '正在加载 {year}...',
+  "Couldn't check": '无法检查',
+  'Service DAG': '服务 DAG',
+  'Service DAGs': '服务 DAG',
+  'DAGs that Dagu restarts when their run ends.': '运行结束后由 Dagu 重新启动的 DAG。',
+  'Pending': '等待中',
+  'Restarting': '重启中',
+  'Failing': '持续失败',
+  'Up for {duration}': '已运行 {duration}',
+  'Restarting…': '正在重启…',
+  'Restart in {duration}': '{duration}后重启',
+  'Next restart unknown': '下次重启时间未知',
+  'Only service DAGs are running.': '只有服务 DAG 在运行。',
+  'Restart on hold: the scheduler is paused': '重启已暂停：调度器已暂停',
+  'Restart on hold: no scheduler is running': '重启已暂停：没有正在运行的调度器',
+  'Stopped by an operator': '已被操作员停止',
+  'No new run': '不再启动新的运行',
+  'Waiting for a run': '等待运行',
+  'Restarts {seconds}s after a run ends': '运行结束 {seconds} 秒后重启',
+  'Show runs of {name}': '显示 {name} 的运行',
+  'Hide runs of {name}': '隐藏 {name} 的运行',
+  'Last {count} runs': '最近 {count} 次运行',
+  '{count} succeeded': '{count} 次成功',
+  'No run in the last {days} days': '最近 {days} 天没有运行',
+  'Last run failed': '上次运行失败',
+  '{count} failures in a row': '连续 {count} 次失败',
+  'Multi-line or file': '多行或文件',
+  'Value source': '值来源',
+  '{name} loaded ({size} bytes)': '已加载 {name}（{size} 字节）',
+  'Failed to read the selected file': '无法读取所选文件',
+} as const satisfies Record<BaseStaticMessage, string>;
 
-const japanese = {
+const baseJapanese = {
+  'Plan & features': 'プランと機能',
+  'Manage plan & features': 'プランと機能を管理',
+  'Checking license…': 'ライセンスを確認中…',
+  'License status unavailable': 'ライセンス状態を取得できません',
+  Community: 'Community',
+  Licensed: 'ライセンスあり',
+  Trial: '試用',
+  'Expires today': '本日失効',
+  'Ask your administrator to manage the license and available features.':
+    'ライセンスと利用可能な機能の管理については管理者にお問い合わせください。',
+  'Manage license': 'ライセンスを管理',
+  'Start free trial': '無料で試す',
+  'View plans': 'プランを見る',
+  'Renew license': 'ライセンスを更新',
+  'Activate a key': 'キーを有効化',
+  'Audit logs': '監査ログ',
+  'Trace who changed or ran workflows.':
+    'ワークフローの変更者や実行者を確認できます。',
+  'Role-based access': 'ロールによるアクセス制御',
+  'Control what teammates can view and change.':
+    'メンバーが閲覧・変更できる範囲を管理できます。',
+  'Single sign-on': 'シングルサインオン',
+  'Sign in through your organization’s identity provider.':
+    '組織の認証プロバイダーでログインできます。',
+  'Incident routing': 'インシデントルーティング',
+  'Open and resolve incidents when workflows fail.':
+    'ワークフローの失敗に応じてインシデントを作成・解決します。',
+  'More API keys': 'APIキー数の拡張',
+  'Create API keys beyond the Community limit of two.':
+    'Communityの上限である2個を超えてAPIキーを作成できます。',
+  'License status updated.': 'ライセンス状態を更新しました。',
+  Included: '利用可能',
+  'Setup guide': '設定ガイド',
+  'Open feature': '機能を開く',
+  'This license is configured via an environment variable (DAGU_LICENSE or DAGU_LICENSE_KEY). To deactivate, remove the environment variable and restart Dagu.':
+    'このライセンスは環境変数（DAGU_LICENSEまたはDAGU_LICENSE_KEY）で設定されています。無効にするには環境変数を削除してDaguを再起動してください。',
+  'This will deactivate the license on this server. Paid features will become unavailable. Existing API keys remain active.':
+    'このサーバーのライセンスを無効にします。有料機能は利用できなくなります。既存のAPIキーは引き続き有効です。',
+  'Password reset remains available to administrators.':
+    '管理者は引き続きパスワードをリセットできます。',
+  'contact your administrator': '管理者にお問い合わせください',
   'Artifact preview': '成果物プレビュー',
   'Task artifacts': 'タスク成果物',
   'Referenced artifacts are not available for this DAG run yet.':
     'この DAG 実行では参照された成果物はまだ利用できません。',
   'Open DAG run': 'DAG 実行を開く',
   'Back to files': 'ファイル一覧に戻る',
-  '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー',
-  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter': '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー · / 絞り込み',
+  '↑↓ / j k navigate · ←→ folders · Enter preview':
+    '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー',
+  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter':
+    '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー · / 絞り込み',
   'Incoming webhook': '受信用 Webhook',
   'Bot destination': 'Bot の通知先',
   'Webhook destination': 'Webhook の通知先',
+  'Local command': 'ローカルコマンド',
+  Command: 'コマンド',
+  'The Dagu server runs this command. Unix uses sh -c and Windows uses PowerShell. The server stops it after 30 seconds, and a non-zero exit fails delivery.':
+    'このコマンドは Dagu サーバーが実行します。Unix では sh -c、Windows では PowerShell を使います。30 秒経つとサーバーが停止し、終了コードが 0 以外の場合は送信失敗になります。',
+  'The command runs as written. Run values are environment variables, such as {dagEnv}, {statusEnv}, {errorEnv}, DAG_RUN_ID, and RUN_URL. Quote them, as in {quotedError}. {logEnv} is a temporary file with up to 1 MiB of the run log, including lifecycle-handler output, and is removed after the command exits. On Windows, PowerShell reads these as {windowsEnv} and so on.':
+    'コマンドは書かれたとおりに実行されます。実行時の値は {dagEnv}、{statusEnv}、{errorEnv}、DAG_RUN_ID、RUN_URL などの環境変数で渡されます。{quotedError} のように引用符で囲んでください。{logEnv} は実行ログ（ライフサイクルハンドラーの出力を含む）を最大 1 MiB 収めた一時ファイルで、コマンドの終了後に削除されます。Windows の PowerShell では {windowsEnv} のように読み取ります。',
+  'Only admins can change or test local command channels.':
+    'ローカルコマンドのチャネルを変更・テストできるのは管理者だけです。',
+  'This server does not run local commands. Enable permissions.write_dags and permissions.run_dags to deliver to this channel.':
+    'このサーバーはローカルコマンドを実行しません。このチャネルに送信するには permissions.write_dags と permissions.run_dags を有効にしてください。',
+  'Set Global defaults and workspace overrides.':
+    'グローバルのデフォルトとワークスペースの個別設定を設定します。',
+  'Manage Slack, email, webhook, Telegram, and local command destinations.':
+    'Slack、メール、Webhook、Telegram、ローカルコマンドの通知先を管理します。',
   'Channel actions for {channel}': '{channel} のチャネル操作',
   'Delete channel': 'チャネルを削除',
   '{count} channel': '{count} 個のチャネル',
@@ -4622,11 +6651,11 @@ const japanese = {
   '). To deactivate, remove the environment variable and restart Dagu.':
     ') で設定されています。無効にするには、環境変数を削除して Dagu を再起動してください。',
   '←→ Select': '←→ 選択',
+  '←→ Scroll': '←→ スクロール',
   '↑↓ Navigate': '↑↓ 移動',
   '↻ until': '↻ 条件が真になるまで',
   '↻ while': '↻ 条件が真の間',
   '+Click: new tab': '+クリック: 新しいタブ',
-  '| Run ID:': '| Run ID:',
   '1. Scope': '1. スコープ',
   '100 lines': '100行',
   '1000 lines': '1000行',
@@ -4641,7 +6670,6 @@ const japanese = {
   Action: 'アクション',
   Actions: 'アクション',
   Activate: '有効化',
-  'Activate License Key': 'ライセンスキーを有効化',
   'Activating...': '有効化中...',
   active: 'アクティブ',
   Active: 'アクティブ',
@@ -4659,12 +6687,12 @@ const japanese = {
   'Add custom': 'カスタムを追加',
   'Add custom destination': 'カスタム宛先を追加',
   'Add new tab': '新しいタブを追加',
-  'Add Node': 'ノードの追加',
-  'Add Profile': 'プロファイルの追加',
-  'Add Remote Node': 'リモートノードを追加',
+  'Add node': 'ノードの追加',
+  'Add profile': 'プロファイルの追加',
+  'Add remote node': 'リモートノードを追加',
   'Add route': 'ルートの追加',
-  'Add Secret Ref': 'シークレット参照の追加',
-  'Add User': 'ユーザーの追加',
+  'Add secret ref': 'シークレット参照の追加',
+  'Add user': 'ユーザーの追加',
   Admin: '管理者',
   'Admin - Full access': '管理者 - 完全アクセス',
   Agent: 'エージェント',
@@ -4673,13 +6701,11 @@ const japanese = {
   All: 'すべて',
   'All audit entries': 'すべての監査エントリ',
   'All Categories': 'すべてのカテゴリ',
-  'All DAGs': 'すべてのDAG',
-  'All loaded DAG runs are displayed.':
-    '読み込まれたすべてのDAG実行が表示されています。',
+  'All runs are displayed.': 'すべての実行が表示されています。',
   'All outcomes': 'すべての結果',
   'All requests have been submitted': 'すべてのリクエストが送信されました',
   'All artifacts': 'すべての成果物',
-  'All runs': 'すべてのラン',
+  'All runs': 'すべての実行',
   'All Statuses': 'すべてのステータス',
   'All workflows': 'すべてのワークフロー',
   'All workflows are displayed.': 'すべてのワークフローが表示されています。',
@@ -4700,7 +6726,6 @@ const japanese = {
   'API Keys': 'APIキー',
   'API URL': 'API URL',
   Apply: '適用',
-  'Apply Filters': 'フィルターを適用',
   Approval: '承認',
   Approve: '承認',
   'Approved by:': '承認者:',
@@ -4715,7 +6740,6 @@ const japanese = {
   'Artifacts will appear here after a run writes files into {directory}.':
     '実行が {directory} にファイルを書き込むと、成果物がここに表示されます。',
   Asc: '昇順',
-  at: '日時:',
   'at sign-in.': 'サインイン時。',
   'Attach logs': 'ログを添付',
   Attempt: '試行',
@@ -4733,7 +6757,6 @@ const japanese = {
   Authentication: '認証',
   'Auto-generated if empty': '空の場合に自動生成',
   'Auto-sync': '自動同期',
-  'Auto:': '自動:',
   'Available actions': '利用可能なアクション',
   'Available Tools (': '利用可能なツール (',
   Back: '戻る',
@@ -4756,6 +6779,7 @@ const japanese = {
   by: '作成者:',
   'By request': 'リクエストごと',
   'By:': '作成者:',
+  'Bypass step preconditions': 'ステップの前提条件をバイパス',
   bytes: 'バイト',
   'Calling:': '呼び出し中:',
   Cancel: 'キャンセル',
@@ -4820,6 +6844,30 @@ const japanese = {
     'コミュニティ版では最大2つのAPIキーを管理できます。',
   'Complete task': 'タスクを完了',
   completed: '完了',
+  'Page not found': 'ページが見つかりません',
+  'Nothing exists at {path}. Check the address or start from your workflows.':
+    '{path} は存在しません。アドレスを確認するか、ワークフロー一覧から始めてください。',
+  'Go to Workflows': 'ワークフローへ移動',
+  'Workflow not found': 'ワークフローが見つかりません',
+  'No workflow named {name} exists. It may have been renamed or deleted.':
+    '{name} という名前のワークフローはありません。名前が変更されたか、削除された可能性があります。',
+  'Back to Workflows': 'ワークフローに戻る',
+  "Couldn't load this workflow": 'このワークフローを読み込めませんでした',
+  'Run not found': '実行が見つかりません',
+  'This run may have been deleted.': 'この実行は削除された可能性があります。',
+  "Couldn't load this run": 'この実行を読み込めませんでした',
+  'Open workflow': 'ワークフローを開く',
+  'Recent runs': '最近の実行',
+  "Couldn't load workflows": 'ワークフローを読み込めませんでした',
+  "Couldn't load runs": '実行を読み込めませんでした',
+  "Couldn't load Git sync status": 'Git 同期の状態を読み込めませんでした',
+  "Couldn't load the base config": 'ベース設定を読み込めませんでした',
+  "Couldn't load views": 'ビューを読み込めませんでした',
+  'View not found': 'ビューが見つかりません',
+  'This view may have been deleted.':
+    'このビューは削除された可能性があります。',
+  'Go to Overview': '概要へ移動',
+  'The server did not respond.': 'サーバーから応答がありませんでした。',
   'Completed by:': '完了者:',
   'Completed:': '完了:',
   'Completing…': '完了処理中…',
@@ -4835,21 +6883,19 @@ const japanese = {
   Configure: '設定',
   'Configure a runtime profile entry.':
     'ランタイムプロファイルエントリを設定します。',
-  'Configure DAG override': 'DAG のオーバーライドを設定',
+  'Configure workflow override': 'ワークフローのオーバーライドを設定',
   'Configure runtime profile metadata and protection.':
     'ランタイムプロファイルのメタデータと保護を設定します。',
   'Configure the DAG run before submitting it.':
     'DAGの実行を提出する前に設定します。',
-  'Configure Workspace': 'ワークスペースを設定',
   Configured: '設定済み',
   'Confirm Password': 'パスワードの確認',
   'Confirm the requested action.': '要求されたアクションを確認します。',
-  Confirmation: '確認',
   Connection: '接続',
   'Connection disabled': '接続が無効',
   Connections: '接続',
-  'Connections are configured once, then selected by Global, workspace, or DAG incident routing.':
-    '接続は一度設定され、その後グローバル、ワークスペース、またはDAGインシデントルーティングによって選択されます。',
+  'Connections are configured once, then selected by Global, workspace, or workflow incident routing.':
+    '接続は一度設定され、その後グローバル、ワークスペース、またはワークフローのインシデントルーティングによって選択されます。',
   'console.dagu.sh': 'console.dagu.sh',
   'Continue scanning': 'スキャンを続行',
   'Coordinator Service': 'コーディネーターサービス',
@@ -4868,21 +6914,18 @@ const japanese = {
   Create: '作成',
   'Create a channel before adding notification routes.':
     '通知ルートを追加する前にチャネルを作成します。',
-  'Create a DAG override only when this DAG needs different events or destinations. The effective order is DAG, then workspace, then Global.':
-    'このDAGが異なるイベントまたは宛先を必要とする場合のみ、DAGオーバーライドを作成します。有効な順序はDAG、次にワークスペース、最後にグローバルです。',
-  'Create a webhook to trigger this DAG via HTTP':
-    'HTTP経由でこのDAGをトリガーするWebhookを作成',
+  'Create a workflow override only when this workflow needs different events or destinations. The effective order is workflow, then workspace, then Global.':
+    'このワークフローが異なるイベントまたは宛先を必要とする場合のみ、ワークフローのオーバーライドを作成します。有効な順序はワークフロー、次にワークスペース、最後にグローバルです。',
   'Create an incoming-webhook Workflow in Teams, select its destination, save it, and copy the generated URL. Dagu sends the compatible MessageCard format automatically.':
     'Teams で受信 Webhook ワークフローを作成し、その宛先を選択して保存し、生成された URL をコピーします。Dagu は互換性のある MessageCard 形式を自動的に送信します。',
   'Create and test notification channels before using them in routes.':
     'ルートの使用前に通知チャネルを作成してテストします。',
   'Create API Key': 'API キーを作成',
-  'Create Key': 'キーを作成',
+  'Create key': 'キーを作成',
   'Create new DAG': '新しい DAG を作成',
   'Create New Wiki page': '新しいWikiページを作成',
-  'Create User': 'ユーザーを作成',
+  'Create user': 'ユーザーを作成',
   'Create view': 'ビューを作成',
-  'Create Webhook': 'Webhook を作成',
   'Create your first Wiki page': '最初のWikiページを作成',
   'Create your first workflow': '最初のワークフローを作成',
   Created: '作成済み',
@@ -4895,40 +6938,52 @@ const japanese = {
   'Current owner:': '現在の所有者:',
   'Current time': '現在時刻',
   Custom: 'カスタム',
+  'Custom...': 'カスタム...',
   'Custom Destinations': 'カスタム宛先',
+  'Custom lines per page': 'ページあたりのカスタム行数',
   'Custom range': 'カスタム範囲',
   'Custom run IDs are disabled.': 'カスタム実行IDは無効です。',
   'Customize events': 'イベントをカスタマイズ',
   D: 'D',
   DAG: 'DAG',
   'DAG default': 'DAG デフォルト',
-  'DAG Incidents': 'DAG インシデント',
-  'DAG Name': 'DAG 名',
+  'Workflow incidents': 'ワークフローのインシデント',
+  'Workflow name': 'ワークフロー名',
   'DAG name filter': 'DAG 名フィルター',
   'DAG Name Override (optional)': 'DAG 名のオーバーライド（任意）',
   'DAG not found in this workspace.':
     'このワークスペースに DAG が見つかりません。',
-  'DAG not found or has been deleted.':
-    'DAG が見つからないか、削除されています。',
-  'DAG Notifications': 'DAG 通知',
-  'DAG override': 'DAG オーバーライド',
+  'Workflow notifications': 'ワークフローの通知',
+  'Workflow override': 'ワークフローのオーバーライド',
   'DAG Properties': 'DAG プロパティ',
-  'DAG run ID': 'DAG 実行 ID',
   'DAG Runs': 'DAG 実行',
-  'DAG Secret Refs': 'DAG シークレット参照',
+  'Secret refs': 'シークレット参照',
   'DAG Tabs': 'DAG タブ',
-  'DAG-Run ID (optional)': 'DAG-Run ID（任意）',
-  'DAG-Run-ID': 'DAG-Run-ID',
-  'DAG-Run-Name': 'DAG-Run-Name',
+  'Run ID (optional)': '実行 ID（任意）',
+  'Scheduled at (optional)': 'スケジュール時刻（任意）',
+  'None (run now)': 'なし（今すぐ実行）',
+  'Other time': 'その他の時刻',
+  "The listed times follow the DAG's default profile. The run's window follows the selected profile.":
+    '一覧の時刻は DAG のデフォルトプロファイルに基づきます。実行のウィンドウは選択したプロファイルに従います。',
+  'latest, 2026-11-09, 2026-11-09T02:00, or RFC 3339':
+    'latest、2026-11-09、2026-11-09T02:00、または RFC 3339',
+  'The run gets the schedule time and window of this slot.':
+    'この実行はこのスロットのスケジュール時刻とウィンドウを使います。',
   'DAG:': 'DAG：',
-  'DAGRun Precondition Unmet': 'DAGRun の前提条件が未充足',
-  'DAGRun-ID': 'DAGRun-ID',
-  'DAGRun-Name': 'DAGRun-Name',
+  'Run error': '実行エラー',
+  'Run precondition not met': '実行の前提条件が満たされていません',
+  'Execution in progress': '実行中です',
+  'DAGRun is queued for execution':
+    'DAG 実行は実行待ちのキューに登録されています',
+  'Execution was aborted': '実行は中止されました',
+  'Waiting for manual action': '手動操作を待っています',
+  'Execution was rejected': '実行は拒否されました',
+  Workflow: 'ワークフロー',
   DAGs: 'DAG',
   'Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples.':
     'Dagu は YAML で定義されたワークフローを実行します。ゼロから作成するか、ドキュメントの例から開始できます。',
-  'Dagu uses the most specific configured scope: DAG, then workspace, then Global.':
-    'Dagu は最も具体的な設定スコープを使用します：DAG、次にワークスペース、最後にグローバル。',
+  'Dagu uses the most specific configured scope: workflow, then workspace, then Global.':
+    'Dagu は最も具体的な設定スコープを使用します：ワークフロー、次にワークスペース、最後にグローバル。',
   'Dagu v': 'Dagu v',
   'DAGU-XXXX-XXXX-XXXX-XXXX': 'DAGU-XXXX-XXXX-XXXX-XXXX',
   Data: 'データ',
@@ -4938,13 +6993,13 @@ const japanese = {
   'Deactivate License': 'ライセンスを無効化',
   'Deactivating...': '無効化中...',
   Default: 'デフォルト',
-  'Default for every DAG unless a workspace or DAG is configured.':
-    'ワークスペースまたは DAG が設定されていない限り、すべての DAG のデフォルトです。',
+  'Default for every workflow unless a workspace or workflow is configured.':
+    'ワークスペースまたはワークフローが設定されていない限り、すべてのワークフローのデフォルトです。',
   'Default Layer': 'デフォルトレイヤー',
   'Default only': 'デフォルトのみ',
   'Default profile': 'デフォルトプロファイル',
-  'Default route for DAGs without workspace or DAG overrides.':
-    'ワークスペースまたは DAG のオーバーライドがない DAG のデフォルトルートです。',
+  'Default route for workflows without workspace or workflow overrides.':
+    'ワークスペースまたはワークフローのオーバーライドがないワークフローのデフォルトルートです。',
   'Default sender': 'デフォルトの送信者',
   'Define at least one step to view the graph':
     'グラフを表示するには、少なくとも 1 つのステップを定義してください',
@@ -4953,29 +7008,27 @@ const japanese = {
   Degraded: '性能低下',
   Delete: '削除',
   'Delete (': '削除 (',
-  'Delete All Missing': 'すべての欠落アイテムを削除',
-  'Delete All Missing Items': 'すべての欠落項目を削除',
+  'Delete all missing': 'すべての欠落アイテムを削除',
+  'Delete all missing items': 'すべての欠落項目を削除',
   'Delete all missing items from remote repository':
     'リモートリポジトリからすべての欠落アイテムを削除',
-  'Delete Channel': 'チャネルを削除',
-  'Delete DAG': 'DAG を削除',
-  'Delete Destination': '送信先を削除',
-  'Delete Entry': 'エントリを削除',
+  'Delete destination': '送信先を削除',
+  'Delete entry': 'エントリを削除',
   'Delete from remote': 'リモートから削除',
   'Delete from Remote': 'リモートから削除',
   'Delete incident connection': 'インシデント接続を削除',
   'Delete incident connection?': 'インシデント接続を削除しますか？',
-  'Delete Missing': '欠落アイテムを削除',
-  'Delete Profile': 'プロファイルを削除',
-  'Delete Remote Node': 'リモートノードを削除',
+  'Delete missing': '欠落アイテムを削除',
+  'Delete profile': 'プロファイルを削除',
+  'Delete remote node': 'リモートノードを削除',
   'Delete request accepted': '削除リクエストが受け入れられました',
-  'Delete Secret Ref': 'シークレット参照を削除',
+  'Delete secret ref': 'シークレット参照を削除',
   'Delete selected': '選択した項目を削除',
-  'Delete Selected Items': '選択した項目を削除',
-  'Delete Subscription': 'サブスクリプションを削除',
-  'Delete Sync Item': '同期項目を削除',
+  'Delete selected items': '選択した項目を削除',
+  'Delete subscription': 'サブスクリプションを削除',
+  'Delete sync item': '同期項目を削除',
   'Delete this subscription?': 'この購読を削除しますか？',
-  'Delete User': 'ユーザーを削除',
+  'Delete user': 'ユーザーを削除',
   'Delete Webhook': 'Webhook を削除',
   'Delete Wiki': 'Wiki を削除',
   'Delete Wiki page': 'Wiki ページを削除',
@@ -4989,9 +7042,11 @@ const japanese = {
   'Denied audit entries': '拒否された監査エントリ',
   Dependencies: '依存関係',
   'Depends on': '依存先',
+  'Inferred from': '推論元',
+  'Inferred from a step output reference': 'ステップ出力参照から推論',
   Dequeue: 'キューから取り出す',
-  'Dequeue action only available at root dagRun level':
-    'キュー削除アクションはルート dagRun レベルでのみ利用可能です',
+  'Dequeue is only available on the top-level run':
+    'キューからの削除は最上位の実行でのみ可能です',
   'Dequeue request accepted.': 'デキューイング要求が受け入れられました。',
   'Dequeue selected': '選択したものをキューから取り出す',
   Desc: '降順',
@@ -5014,15 +7069,8 @@ const japanese = {
   'Dismiss license expiry notification': 'ライセンス期限切れ通知を閉じる',
   'Dismiss update notification': '更新通知を閉じる',
   'Distributed Workers': '分散型ワーカー',
-  'Do you really want to delete this DAG?': '本当にこの DAG を削除しますか？',
-  'Do you really want to dequeue the following dagRun?':
-    '本当に以下の dagRun をキューから取り出しますか？',
-  'Do you really want to rerun the following execution?':
-    '次の実行を再実行してもよろしいですか？',
-  'Do you really want to retry the following execution?':
-    '本当に以下の実行を再試行しますか？',
-  'Do you really want to stop all running instances of this DAG?':
-    'この DAG のすべての実行中インスタンスを停止してもよろしいですか？',
+  'Do you really want to delete this workflow?':
+    '本当にこのワークフローを削除しますか？',
   'Do you want to': '実行しますか?',
   'Do you want to dequeue': 'キューから削除しますか',
   Docs: 'ドキュメント',
@@ -5045,15 +7093,15 @@ const japanese = {
     '各スコープでチャネルごとに設定できるルートは1つです。上のイベントを編集するか、別のチャネルを追加してください。',
   Edit: '編集',
   'Edit API Key': 'APIキーを編集',
-  'Edit Profile': 'プロフィールを編集',
-  'Edit Remote Node': 'リモートノードを編集',
-  'Edit Secret Ref': 'シークレット参照を編集',
-  'Edit User': 'ユーザーを編集',
+  'Edit profile': 'プロフィールを編集',
+  'Edit remote node': 'リモートノードを編集',
+  'Edit secret ref': 'シークレット参照を編集',
+  'Edit user': 'ユーザーを編集',
   'Edit view': 'ビューを編集',
   Edited: '編集済み',
   'Effective Inherited Routes': '有効な継承ルート',
-  'Effective order is DAG, workspace, then Global.':
-    '有効な順序は DAG、ワークスペース、グローバルの順です。',
+  'Effective order is workflow, workspace, then Global.':
+    '有効な順序はワークフロー、ワークスペース、グローバルの順です。',
   'Eligible steps execute and replace their materializations only after success.':
     '対象となるステップは、成功後にのみ実行され、そのマテリアライゼーションを置き換えます。',
   'Email body template': 'メール本文テンプレート',
@@ -5067,7 +7115,7 @@ const japanese = {
   'End of results': '結果の末尾',
   Endpoint: 'エンドポイント',
   Enqueue: 'キューに追加',
-  'Enqueue the DAG': 'DAGをキューに追加',
+  'Enqueue workflow': 'ワークフローをキューに追加',
   'Enqueuing...': 'キューに追加中...',
   'Enter a commit message for this change.':
     'この変更のコミットメッセージを入力してください。',
@@ -5077,7 +7125,7 @@ const japanese = {
     '新しい Wiki ページのパスを入力してください。ディレクトリには / を使用します。',
   'Enter a search term and press Enter or click Search':
     '検索語を入力し、Enter キーを押すか、検索をクリックしてください',
-  'Enter custom DAG-Run ID': 'カスタム DAG-Run ID を入力',
+  'Enter a custom run ID': 'カスタム実行 ID を入力',
   'Enter your license or trial key to activate Dagu features. You can obtain a key from':
     'Dagu の機能を有効にするには、ライセンスキーまたはトライアルキーを入力してください。キーは以下から取得できます：',
   'Enter: Confirm': 'Enter: 確認',
@@ -5107,6 +7155,8 @@ const japanese = {
   'Example Request': 'リクエストの例',
   'Example workflows': 'ワークフローの例',
   Examples: '例',
+  'Execute permission is required to answer or restart this session.':
+    'このセッションに回答したり再起動したりするには、実行権限が必要です。',
   'Execute permission is required to complete this task.':
     'このタスクを完了するには、実行権限が必要です。',
   Execution: '実行',
@@ -5115,14 +7165,13 @@ const japanese = {
   Executions: '実行',
   'Existing keys remain active, but new key creation is blocked until extra keys are revoked or a license is configured.':
     '既存のキーは有効のままですが、追加のキーが失効するかライセンスが設定されるまで、新しいキーの作成はブロックされます。',
-  'Existing open incidents still resolve when the DAG recovers.':
-    'DAG が回復すると、既存の未解決インシデントも解決されます。',
+  'Existing open incidents still resolve when the workflow recovers.':
+    'ワークフローが回復すると、既存の未解決インシデントも解決されます。',
   'exit codes:': '終了コード:',
   'Expand All': 'すべて展開',
   'Expand graph': 'グラフを展開',
   'Expand rows': '行を展開',
   'Expected:': '期待値:',
-  Expires: '有効期限',
   'expires today': '本日有効期限切れ',
   'Export as PNG': 'PNG としてエクスポート',
   'Export as SVG': 'SVG としてエクスポート',
@@ -5138,10 +7187,9 @@ const japanese = {
   'Failed to load data': 'データの読み込みに失敗しました',
   'Failed to load queue details': 'キュー詳細の読み込みに失敗しました',
   'Failed to load queue information': 'キュー情報の読み込みに失敗しました',
+  'Failed to load service DAGs': 'サービス DAG の読み込みに失敗しました',
   'Failed to load runs': '実行の読み込みに失敗しました',
   'Failed to load step details': 'ステップの詳細を読み込めませんでした',
-  'Failed to load the workflow list.':
-    'ワークフローリストの読み込みに失敗しました。',
   'Failed to load Wiki pages': 'Wiki ページの読み込みに失敗しました',
   'Failed to load workers': 'ワーカーの読み込みに失敗しました',
   fallback: 'フォールバック',
@@ -5153,8 +7201,7 @@ const japanese = {
   Field: 'フィールド',
   fields: 'フィールド',
   'Files first': 'ファイルを優先',
-  'Filter by DAG name': 'DAG 名で絞り込み',
-  'Filter by DAG name...': 'DAG 名で絞り込み...',
+  'Filter by workflow name': 'ワークフロー名で絞り込み',
   'Filter by labels...': 'ラベルで絞り込み...',
   'Filter by Run ID...': 'Run ID で絞り込み...',
   'Filter by tags': 'タグで絞り込み',
@@ -5192,17 +7239,15 @@ const japanese = {
   'Git Sync': 'Git 同期',
   'Git sync allows you to synchronize workflow definitions and Wiki pages with a remote Git repository. Configure it in your server settings.':
     'Git 同期により、ワークフロー定義と Wiki ページをリモートの Git リポジトリと同期できます。サーバー設定で構成してください。',
-  'Git Sync Not Configured': 'Git 同期が未設定です',
   Global: 'グローバル',
-  'Global defaults inherited by all DAG definitions':
-    'すべてのDAG定義に継承されるグローバルデフォルト',
-  'Global rules apply by default. Workspace and DAG settings override them only when configured.':
-    'グローバルルールはデフォルトで適用されます。ワークスペースと DAG の設定は、構成されている場合のみそれらをオーバーライドします。',
+  'Global defaults inherited by all workflows':
+    'すべてのワークフローに継承されるグローバルデフォルト',
+  'Global rules apply by default. Workspace and workflow settings override them only when configured.':
+    'グローバルルールはデフォルトで適用されます。ワークスペースとワークフローの設定は、構成されている場合のみそれらをオーバーライドします。',
   Go: '実行',
   'Google OAuth client ID': 'Google OAuth クライアント ID',
   'Google refresh token': 'Google リフレッシュトークン',
   'Google Workspace service account': 'Google Workspace サービスアカウント',
-  'Grace Period': '猶予期間',
   Graph: 'グラフ',
   'Graph controls': 'グラフコントロール',
   Grep: 'Grep',
@@ -5219,6 +7264,36 @@ const japanese = {
   Hidden: '非表示',
   'Hide events': 'イベントを非表示',
   History: '履歴',
+  'Connection: {id}': '接続: {id}',
+  'Command: {command}': 'コマンド: {command}',
+  'N/A': 'なし',
+  '{key}: {count} item': '{key}: {count} 件',
+  '{key}: {count} items': '{key}: {count} 件',
+  '{key}: structured data': '{key}: 構造化データ',
+  Paused: '一時停止中',
+  Retrying: '再試行中',
+  '{count} file': '{count} 個のファイル',
+  '{shown} of {total} queues': '{total} 件中 {shown} 件のキュー',
+  '{count} queue': '{count} 件のキュー',
+  '{count} queues': '{count} 件のキュー',
+  worker: 'ワーカー',
+  task: 'タスク',
+  '({count} up)': '（{count} 台稼働中）',
+  '{count} item': '{count} 件',
+  '{count} items': '{count} 件',
+  '{count} match shown': '{count} 件の一致を表示',
+  '{count} matches shown': '{count} 件の一致を表示',
+  'Pulled {synced}, removed {deleted}':
+    '{synced} 件を取得し、{deleted} 件を削除しました',
+  'Published {item}': '{item} を公開しました',
+  'Published {count} item': '{count} 件を公開しました',
+  'Published {count} items': '{count} 件を公開しました',
+  'Are you sure you want to delete {count} item? This cannot be undone.':
+    '{count} 件を削除しますか？この操作は元に戻せません。',
+  'Deleted {deleted}, {failed} failed':
+    '{deleted} 件を削除しました。{failed} 件は失敗しました',
+  'Deleted {count} item': '{count} 件を削除しました',
+  'Deleted {count} items': '{count} 件を削除しました',
   'History:': '履歴:',
   'HMAC enforcement': 'HMAC 強制',
   'HMAC only': 'HMAC のみ',
@@ -5252,8 +7327,8 @@ const japanese = {
   Inherit: '継承',
   'Inherit Global': 'グローバルを継承',
   Inherited: '継承',
-  'Inherited rules are not used while this DAG override exists. Add a channel or reset to inherit.':
-    'この DAG のオーバーライドが存在する間、継承されたルールは使用されません。チャネルを追加するか、リセットして継承してください。',
+  'Inherited rules are not used while this workflow override exists. Add a channel or reset to inherit.':
+    'このワークフローのオーバーライドが存在する間、継承されたルールは使用されません。チャネルを追加するか、リセットして継承してください。',
   'Inline preview is truncated. Use Copy or Download for the full file.':
     'インラインプレビューは切り詰められています。完全なファイルにはコピーまたはダウンロードを使用してください。',
   'Inputs:': '入力:',
@@ -5265,7 +7340,6 @@ const japanese = {
   item: 'アイテム',
   Item: '項目',
   'items? This cannot be undone.': '項目？これは元に戻せません。',
-  'items)': '項目)',
   Iteration: 'イテレーション',
   'Jump to line:': '行へジャンプ:',
   'Keep Token and Add HMAC': 'トークンを保持し HMAC を追加',
@@ -5283,10 +7357,7 @@ const japanese = {
   'Last triggered:': '最終トリガー:',
   'Last updated:': '最終更新日:',
   'Last Used': '最終使用',
-  'Latest Run': '最新の Run',
-  'Latest status': '最新ステータス',
   License: 'ライセンス',
-  'License Error': 'ライセンスエラー',
   'License key': 'ライセンスキー',
   'license or trial': 'ライセンスまたはトライアル',
   'License Required': 'ライセンスが必要です',
@@ -5295,30 +7366,27 @@ const japanese = {
   List: 'リスト',
   'List view': 'リストビュー',
   Live: 'ライブ',
-  'Live / Schedule': 'ライブ / スケジュール',
-  'Load Average': 'ロードアベレージ',
+  'Load average': 'ロードアベレージ',
   'Load into editor': 'エディターに読み込む',
   'Load more': 'もっと読み込む',
-  'Load More': 'さらに読み込む',
   'Load more workflows': 'さらにワークフローを読み込む',
   'Load older': '古いものを読み込む',
   'Load older day': '前の日を読み込む',
-  'Load older runs': '古い実行を読み込む',
   Loaded: '読み込み済み',
   'Loading API keys...': 'API キーを読み込み中...',
   'Loading artifacts...': '成果物を読み込み中...',
   'Loading audit logs...': '監査ログを読み込み中...',
-  'Loading DAG details...': 'DAG の詳細を読み込み中...',
-  'Loading DAG runs...': 'DAG の実行を読み込み中...',
+  'Loading workflow...': 'ワークフローを読み込み中...',
   'Loading diff...': '差分を読み込み中...',
   'Loading event feed...': 'イベントフィードを読み込み中...',
   'Loading image preview...': '画像プレビューを読み込み中...',
   'Loading incident connections': 'インシデント接続を読み込み中',
   'Loading incident routing': 'インシデントルーティングを読み込み中',
   'Loading labels...': 'ラベルを読み込み中...',
+  'Loading log output...': 'ログ出力を読み込み中...',
   'Loading logs...': 'ログを読み込み中...',
   'Loading messages...': 'メッセージを読み込み中...',
-  'Loading more DAG runs...': 'DAG実行をさらに読み込み中...',
+  'Loading more runs...': 'さらに実行を読み込み中...',
   'Loading more queued items...': 'さらにキュー済みの項目を読み込み中...',
   'Loading more workflows...': 'ワークフローをさらに読み込み中...',
   'Loading outputs...': '出力を読み込み中...',
@@ -5341,7 +7409,7 @@ const japanese = {
   local: 'ローカル',
   'Local Timezone': 'ローカルタイムゾーン',
   log: 'ログ',
-  Log: 'ログ',
+  Log: '実行ログ',
   LOG_LEVEL: 'LOG_LEVEL',
   Logs: 'ログ',
   'Lose your changes and load the latest version':
@@ -5355,13 +7423,14 @@ const japanese = {
   'Manage channels': 'チャネルを管理',
   'Manage connections to remote Dagu instances':
     'リモートのDaguインスタンスへの接続を管理',
-  'Manage environment profiles and individual secret references used by DAG runs.':
-    'DAG実行で使用される環境プロファイルと個別のシークレット参照を管理します。',
+  'Manage environment profiles and individual secret references used by runs.':
+    '実行で使用される環境プロファイルと個別のシークレット参照を管理します。',
   'Manage rules': 'ルールの管理',
   'Manage user accounts and their roles':
     'ユーザーアカウントとそのロールを管理',
   'Manage views…': 'ビューの管理…',
-  'Manage webhooks across all DAGs': 'すべてのDAGのWebhookを管理',
+  'Manage webhooks across all workflows':
+    'すべてのワークフローの Webhook を管理',
   'Manage artifact views': '成果物ビューを管理',
   'Manage run views': 'ランビューを管理',
   'Manage workflow views': 'ワークフロービューを管理',
@@ -5408,7 +7477,7 @@ const japanese = {
   New: '新規',
   'New connection': '新しい接続',
   'New DAG run:': '新しい DAG 実行:',
-  'New DAG-Run ID (optional)': '新しいDAG-Run ID（任意）',
+  'New run ID (optional)': '新しい実行 ID（任意）',
   'New Item ID': '新しいアイテムID',
   'New Password': '新しいパスワード',
   'New Path': '新しいパス',
@@ -5437,16 +7506,16 @@ const japanese = {
     'この DAG 実行にチャットステップはありません',
   'No configured profiles to display.':
     '表示する設定済みプロファイルがありません。',
-  'No DAG override channels selected.':
-    'DAG 上書きチャンネルが選択されていません。',
-  'No DAG runs are currently executing in this queue.':
-    'このキューでは現在実行中の DAG 実行はありません。',
-  'No DAG runs found': 'DAG実行が見つかりません',
-  'No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.':
-    '選択した期間内に DAG 実行はありません。日付範囲やフィルターを調整するか、Workflows ページからワークフローを開始してください。',
+  'No workflow override channels selected.':
+    'ワークフローのオーバーライドのチャンネルが選択されていません。',
+  'No runs are executing in this queue.':
+    'このキューで実行中のものはありません。',
+  'No runs found': '実行が見つかりません',
+  'No runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.':
+    '選択した期間内に実行はありません。日付範囲やフィルターを調整するか、ワークフローページからワークフローを開始してください。',
   'No DAG spec available for this DAG.':
     'この DAG の DAG spec が利用できません。',
-  'No DAGs found': 'DAG が見つかりません',
+  'No workflows found': 'ワークフローが見つかりません',
   'No enabled route currently sends notifications.':
     '現在、有効なルートで通知を送信していません。',
   'No entries': 'エントリなし',
@@ -5464,8 +7533,8 @@ const japanese = {
   'No incident connections configured.':
     'インシデント接続が設定されていません。',
   'No incident connections selected.': 'インシデント接続が選択されていません。',
-  'No inherited route is configured for this DAG.':
-    'この DAG に継承されたルートが設定されていません。',
+  'No inherited route is configured for this workflow.':
+    'このワークフローに継承されたルートが設定されていません。',
   'No instances': 'インスタンスなし',
   'No labels found': 'ラベルが見つかりません',
   'No managed agent sessions in this run.':
@@ -5486,11 +7555,47 @@ const japanese = {
   'No profiles found.': 'プロファイルが見つかりません。',
   'No queued items in this queue.':
     'このキューにキューイングされた項目はありません。',
-  'No queues found': 'キューが見つかりません',
   'No remote nodes configured': 'リモートノードが設定されていません',
   'No running, retrying, or failed steps at the moment.':
     '現在、実行中、再試行中、または失敗したステップはありません。',
   'No runs': '実行なし',
+  'Stop this run?': 'この実行を停止しますか？',
+  'Cancel auto-retry?': '自動再試行をキャンセルしますか？',
+  'Stop all running instances?': '実行中のすべてのインスタンスを停止しますか？',
+  'Running steps are canceled.': '実行中のステップはキャンセルされます。',
+  'The failed run will not be retried automatically.':
+    '失敗した実行は自動で再試行されません。',
+  'Running steps in every instance of this workflow are canceled.':
+    'このワークフローのすべてのインスタンスで実行中のステップがキャンセルされます。',
+  'Reschedule as a new run?': '新しい実行として再スケジュールしますか？',
+  'Retry this run?': 'この実行を再試行しますか？',
+  'Remove this run from the queue?': 'この実行をキューから削除しますか？',
+  'Stop the latest run': '最新の実行を停止',
+  'Cancel auto-retry for the latest run': '最新の実行の自動再試行をキャンセル',
+  'Stop this run': 'この実行を停止',
+  'Cancel auto-retry for this run': 'この実行の自動再試行をキャンセル',
+  'Stop is only available on the top-level run':
+    '停止は最上位の実行でのみ利用できます',
+  'No runs in the selected time range produced artifact files. Adjust the date range or filters.':
+    '選択した期間内に成果物ファイルを生成した実行はありません。期間またはフィルターを調整してください。',
+  'Time range': '期間',
+  Period: '期間の単位',
+  'No webhooks yet': 'Webhook はまだありません',
+  "Create a webhook from a workflow's Webhook tab to trigger it over HTTP.":
+    'ワークフローの Webhook タブで Webhook を作成すると、HTTP で起動できます。',
+  'No webhook yet': 'Webhook はまだありません',
+  'Create a webhook to trigger this workflow over HTTP.':
+    'Webhook を作成すると、このワークフローを HTTP で起動できます。',
+  'Create webhook': 'Webhook を作成',
+  'Queue not found': 'キューが見つかりません',
+  'No queue named {name} exists.': '{name} という名前のキューは存在しません。',
+  'Terminal is turned off': 'ターミナルは無効です',
+  'Set {setting} on the server to enable it.':
+    'サーバーで {setting} を設定すると有効になります。',
+  'Git sync is not configured': 'Git 同期は設定されていません',
+  'No active queues': 'アクティブなキューはありません',
+  'Queues defined in the server configuration appear here, along with any queue that has running or waiting runs.':
+    'サーバー設定で定義したキューと、実行中または待機中の実行があるキューがここに表示されます。',
   'No runs on': 'に実行はありません',
   'No saved artifact views yet.': '保存された成果物ビューはまだありません。',
   'No saved run views yet.': '保存されたランビューはまだありません。',
@@ -5506,16 +7611,11 @@ const japanese = {
     '保存されたリビジョンはまだありません。リビジョンは各保存時に記録されます。',
   'No sub DAG runs match the selected filter':
     '選択したフィルターに一致するサブ DAG 実行はありません',
-  'No sub DAG-runs match the selected filter':
-    '選択したフィルターに一致するサブ DAG 実行はありません',
   'No tasks are defined.': 'タスクが定義されていません。',
   'No upcoming run': '予定された実行はありません',
   'No users found': 'ユーザーが見つかりません',
   'No visible queued items were returned for this queue.':
     'このキューには表示可能なキューイング項目が返されませんでした。',
-  'No Webhook Configured': 'Webhook が設定されていません',
-  'No webhooks found. Create webhooks from individual DAG pages.':
-    'Webhook が見つかりません。個々の DAG ページから Webhook を作成してください。',
   'No Wiki pages reference this DAG yet.':
     'まだこの DAG を参照する Wiki ページはありません。',
   'No Wiki pages yet.': 'まだ Wiki ページはありません。',
@@ -5524,12 +7624,12 @@ const japanese = {
   'Node.js': 'Node.js',
   None: 'なし',
   'Not available': '利用不可',
-  'Not Configured': '未設定',
+  'Not configured': '未設定',
   'Not set': '未設定',
   'Note:': '注:',
   'Notification Channels': '通知チャンネル',
   'Notification Rules': '通知ルール',
-  'Notification Source': '通知ソース',
+  'Notification source': '通知ソース',
   Notifications: '通知',
   now: '今すぐ',
   'OAuth 2.0': 'OAuth 2.0',
@@ -5541,12 +7641,11 @@ const japanese = {
   Off: 'オフ',
   OFF: 'オフ',
   Offline: 'オフライン',
-  ok: 'OK',
   OK: 'OK',
   'Oldest first': '古い順',
   ON: 'オン',
-  'One card per queue, with running activity and backlog status.':
-    'キューごとに1枚のカードを表示し、実行中のアクティビティとバックログのステータスを確認できます。',
+  'Concurrency limits and backlog for each queue.':
+    '各キューの同時実行数の上限とバックログ。',
   'One Of': 'いずれか',
   'Only HTTPS URLs are accepted. A saved URL remains configured unless it is replaced.':
     'HTTPS URL のみ受け付けます。保存された URL は、置き換えられない限り設定されたままになります。',
@@ -5555,11 +7654,9 @@ const japanese = {
   'Open connections': '接続を開く',
   'Open date picker': '日付ピッカーを開く',
   'Open in full modal': 'フルモーダルで開く',
-  'Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab':
-    '全画面で開く (F) - Cmd/Ctrl+クリックで新しいタブで開く',
   'Open in new tab': '新しいタブで開く',
   'Open Microsoft setup guide': 'Microsoft セットアップガイドを開く',
-  'Open Run': 'Run を開く',
+  'Open run': 'Run を開く',
   'OpenCode has not emitted any timeline events yet.':
     'OpenCode はまだタイムラインイベントを出力していません。',
   'OpenCode managed session': 'OpenCode 管理セッション',
@@ -5568,12 +7665,18 @@ const japanese = {
   'The browser step needs an answer': 'ブラウザステップは回答が必要です',
   'Answer deadline: {time}': '回答期限: {time}',
   'Browser session': 'ブラウザセッション',
-  'Start this browser step over?': 'このブラウザステップを最初からやり直しますか？',
+  'Start this browser step over?':
+    'このブラウザステップを最初からやり直しますか？',
   'This closes the browser if it is still open and runs the step again from its first operation.':
     'ブラウザが開いたままの場合は閉じ、最初の操作からステップを再実行します。',
+  'The computer step needs an answer': 'コンピューターステップは回答が必要です',
+  'Computer session': 'コンピューターセッション',
+  'Start this computer step over?':
+    'このコンピューターステップを最初からやり直しますか？',
+  'This runs the step again from its first operation. Windows the step opened stay as they are.':
+    '最初の操作からステップを再実行します。ステップが開いたウィンドウはそのまま残ります。',
   'Opens on final failure and resolves on recovery.':
     '最終的な失敗時に開き、回復時に解決されます。',
-  Operations: '操作',
   'Operator - DAG execution only': 'オペレーター - DAG 実行のみ',
   option: 'オプション',
   'Optional description': '任意の説明',
@@ -5615,11 +7718,22 @@ const japanese = {
   Path: 'パス',
   Paths: 'パス',
   Pattern: 'パターン',
-  'Pattern:': 'パターン:',
   'Permission requested': '権限要求',
   'Pin to sidebar': 'サイドバーにピン留め',
-  Plan: 'プラン',
+  'Pin workflow': 'ワークフローをピン留め',
+  'Pin workflow {name}': 'ワークフロー {name} をピン留め',
+  Pinned: 'ピン留め済み',
+  'Unpin workflow': 'ワークフローのピン留めを解除',
   'Please check the below errors!': '以下のエラーを確認してください！',
+  'Click a step for details': 'ステップをクリックして詳細を表示',
+  'Show logs': 'ログを表示',
+  'Hide logs': 'ログを隠す',
+  'View script': 'スクリプトを表示',
+  '+{count} line': 'ほか {count} 行',
+  '+{count} lines': 'ほか {count} 行',
+  'Lifecycle handlers': 'ライフサイクルハンドラー',
+  'Copy run ID': '実行 ID をコピー',
+  'Run ID copied to clipboard': '実行 ID をクリップボードにコピーしました',
   'Please check the following errors:': '以下のエラーを確認してください：',
   pollers: 'ポーラー',
   Port: 'ポート',
@@ -5666,19 +7780,16 @@ const japanese = {
   'Queued for execution': '実行用にキューに登録されました',
   'Queued:': 'キュー済み:',
   'Queueing…': 'キューイング中…',
-  queues: 'キュー',
   Queues: 'キュー',
   Quick: 'クイック',
   'Quick select': 'クイック選択',
-  R: 'R',
   Raw: '生データ',
   'Raw Event': '生イベント',
   Reason: '理由',
   'Reason (optional)...': '理由 (任意)...',
   'Reason:': '理由:',
-  'Recent DAG-run outcome events for the selected remote node':
-    '選択されたリモートノードの最近の DAG 実行結果イベント',
-  'recent runs': '最近の実行',
+  'Recent run outcome events for the selected remote node':
+    '選択されたリモートノードの最近の実行結果イベント',
   Ref: 'リファレンス',
   Reference: '参照',
   Refresh: '更新',
@@ -5686,7 +7797,7 @@ const japanese = {
   'Refresh failed': '更新に失敗しました',
   'Refresh status': 'ステータスを更新',
   'Refresh system status': 'システムステータスを更新',
-  'Refreshing DAG runs...': 'DAG 実行を更新しています...',
+  'Refreshing runs...': '実行を更新しています...',
   'Refreshing notification channels...': '通知チャネルを更新中...',
   'Refreshing notification rules...': '通知ルールを更新中...',
   'Refreshing notifications...': '通知を更新中...',
@@ -5695,10 +7806,10 @@ const japanese = {
   'Refreshing the queue detail page': 'キュー詳細ページを更新中',
   'Refreshing...': '更新中...',
   'Regenerate HMAC Secret': 'HMAC シークレットを再生成',
-  'Regenerate Token': 'トークンを再生成',
+  'Regenerate token': 'トークンを再生成',
   Reject: '拒否',
-  'Reject DAG run': 'DAG 実行を拒否',
-  'Reject DAG Run': 'DAG 実行を拒否',
+  'Reject this run': 'この実行を拒否',
+  'Reject run': '実行を拒否',
   rejected: '拒否済み',
   Rejected: '拒否されました',
   'Rejected by:': '拒否者:',
@@ -5706,18 +7817,270 @@ const japanese = {
   'Relative path without .md extension. Use / for directories.':
     '.md 拡張子なしの相対パス。ディレクトリには / を使用します。',
   Reload: '再読み込み',
+  // visual-editor:P1-1 begin
+  // visual-editor:P1-1 end
+  //
+  // visual-editor:P1-2 begin
+  'Run step': 'ステップを実行',
+  'Errors: {count}': 'エラー: {count}',
+  'Warnings: {count}': '警告: {count}',
+  'Retries: {count}': '再試行: {count}',
+  'Insert a step here': 'ここにステップを挿入',
+  Handler: 'ハンドラー',
+  'Inferred from a step reference. Remove the reference to remove this edge.':
+    'ステップ参照から推論されました。この接続を削除するには、参照を削除してください。',
+  'Chain DAGs run steps in YAML order. Move the step in the YAML to change the order.':
+    'チェーン DAG はステップを YAML の順序で実行します。順序を変更するには、YAML 内でステップを移動してください。',
+  'Edges of this DAG type cannot be changed on the canvas.':
+    'この種類の DAG の接続はキャンバス上では変更できません。',
+  'YAML has errors: the canvas shows the last valid version':
+    'YAML にエラーがあります: キャンバスには最後の有効なバージョンが表示されます',
+  'The editor cannot read the YAML at line {line}: the canvas shows the steps the server read':
+    'エディターは {line} 行目の YAML を読み取れません: キャンバスにはサーバーが読み取ったステップが表示されます',
+  'Read-only': '読み取り専用',
+  'Add step': 'ステップを追加',
+  'Fit view': '全体を表示',
+  'Top to bottom': '上から下',
+  'Left to right': '左から右',
+  'Re-align the steps': 'ステップを整列し直す',
+  'Workflow canvas': 'ワークフローキャンバス',
+  'Search actions': 'アクションを検索',
+  'No matching actions': '一致するアクションがありません',
+  'Step palette': 'ステップパレット',
+  // visual-editor:P1-2 end
+  //
+  // visual-editor:P1-3 begin
+  'Step inspector': 'ステップインスペクター',
+  'This step no longer exists.': 'このステップはもう存在しません。',
+  'Fix the YAML errors to edit this step.':
+    'このステップを編集するには、YAML のエラーを修正してください。',
+  General: '一般',
+  'What it does': '処理内容',
+  Flow: 'フロー',
+  ID: 'ID',
+  'Change the action': 'アクションを変更',
+  'Remove the current parameters?': '現在のパラメーターを削除しますか？',
+  Keep: '保持',
+  Shell: 'シェル',
+  '(default)': '（デフォルト）',
+  'Multi-line': '複数行',
+  Script: 'スクリプト',
+  'Edit this field in YAML': 'このフィールドは YAML で編集してください',
+  Text: 'テキスト',
+  'Key/value': 'キー/値',
+  'Step YAML': 'ステップの YAML',
+  'Line {line}, column {column}: {message}': '{line} 行 {column} 列: {message}',
+  'Schema warnings': 'スキーマの警告',
+  'The step must be a YAML mapping.':
+    'ステップは YAML のマッピングである必要があります。',
+  'Other keys': 'その他のキー',
+  'No form for the parameters of this action. Edit them in the YAML section.':
+    'このアクションのパラメーターにはフォームがありません。YAML セクションで編集してください。',
+  'Edit the other fields in YAML':
+    'その他のフィールドは YAML で編集してください',
+  Routes: 'ルート',
+  'Add entry': 'エントリを追加',
+  Targets: 'ターゲット',
+  'Targets of {pattern}': '{pattern} のターゲット',
+  'Remove route {pattern}': 'ルート {pattern} を削除',
+  'New pattern': '新しいパターン',
+  'New targets': '新しいターゲット',
+  'step-a, step-b': 'step-a, step-b',
+  'Continue on failure': '失敗時も続行',
+  'Continue when skipped': 'スキップ時も続行',
+  'Mark as success': '成功としてマーク',
+  'No dependencies': '依存関係なし',
+  'Edit dependencies on the canvas': '依存関係はキャンバスで編集してください',
+  Environment: '環境変数',
+  'Output name': '出力名',
+  'Remove output {name}': '出力 {name} を削除',
+  'New output name': '新しい出力名',
+  'Add output': '出力を追加',
+  Condition: '条件',
+  Expected: '期待値',
+  'Remove condition {index}': '条件 {index} を削除',
+  'New condition': '新しい条件',
+  'New expected value': '新しい期待値',
+  'Add condition': '条件を追加',
+  'Timeout (seconds)': 'タイムアウト（秒）',
+  'Retry limit': 'リトライ上限',
+  'Retry interval (seconds)': 'リトライ間隔（秒）',
+  'Edit the kind of this step in the YAML section.':
+    'このステップの種類は YAML セクションで編集してください。',
+  // visual-editor:P1-3 end
+  //
+  // visual-editor:P1-4 begin
+  'Insert reference': '参照を挿入',
+  'Available references': '利用できる参照',
+  'Put the cursor in a field value': 'フィールドの値にカーソルを置いてください',
+  'Published when chosen': '選ぶと公開されます',
+  'Not safe in a shell': 'シェルでは安全ではありません',
+  'Unsafe here: use env': 'ここでは危険: env を使用',
+  'A model wrote this text, so a shell can run it as code. Pass it through env and read it from the environment instead.':
+    'このテキストはモデルが書いたもので、シェルがコードとして実行するおそれがあります。env で渡し、環境変数から読み取ってください。',
+  'Search references': '参照を検索',
+  References: '参照',
+  'No references available': '利用可能な参照はありません',
+  'No matching references': '一致する参照はありません',
+  'Known after run': '実行後に判明',
+  'Step outputs': 'ステップ出力',
+  Constants: '定数',
+  Dates: '日付',
+  'The dates of this slot cannot be resolved.': 'このスロットの日付を解決できません。',
+  'Dates of this run': 'この実行の日付',
+  'Slot {time}, the latest fire': 'スロット {time}（直近の実行時刻）',
+  'window from {time}': 'ウィンドウの開始 {time}',
+  'Left empty, it takes {value} from the slot.': '空欄のときはスロットから {value} を取ります。',
+  '{slot}, loads {date}': '{slot}、{date} を読み込む',
+  'Loads {date}': '{date} を読み込む',
+  'loads {date}': '{date} を読み込む',
+  'slot {index} of {count}': 'スロット {index} / {count}',
+  'about {left} left': '残り約 {left}',
+  Failures: '失敗',
+  '{count} slot': '{count} スロット',
+  '{count} slots': '{count} スロット',
+  'No error recorded': 'エラーの記録なし',
+  'Run of {time}': '{time} の実行',
+  'Backfill {id}': 'バックフィル {id}',
+  Slot: 'スロット',
+  'the latest fire': '直近の実行時刻',
+  'from the clock': '現在時刻から',
+  'Environment variables': '環境変数',
+  Secrets: 'シークレット',
+  'Run context': '実行コンテキスト',
+  'Build inputs': 'ビルド入力',
+  'Build outputs': 'ビルド出力',
+  'Step environment': 'ステップの環境変数',
+  'Upstream data': '上流データ',
+  'Select a step to see the data of its upstream steps':
+    'ステップを選択すると、その上流ステップのデータを表示します',
+  'No reference data yet': '参照データはまだありません',
+  'This step has no upstream steps': 'このステップに上流ステップはありません',
+  'No run selected': '実行が選択されていません',
+  'Run {runId}': '実行 {runId}',
+  'Direct upstream': '直接の上流',
+  '{count} levels up': '{count} 段上',
+  'No outputs in this run': 'この実行に出力はありません',
+  'Not in this run': 'この実行には含まれません',
+  'Truncated, original size {size}': '切り詰め済み、元のサイズ {size}',
+  'Copy reference': '参照をコピー',
+  Insert: '挿入',
+  'Add an id to this step to reference its outputs':
+    'このステップに id を追加すると、その出力を参照できます',
+  'Show {count} more': 'さらに {count} 件を表示',
+  'Legacy reference form': '旧形式の参照',
+  'Not available in this step': 'このステップでは使用できません',
+  '${{name}} is shell syntax here. Use ${env.{name}} for a Dagu reference.':
+    '${{name}} はここではシェル構文です。Dagu の参照には ${env.{name}} を使用してください。',
+  '${{name}} is shell syntax in run. Use ${env.{name}} for Dagu environment references.':
+    '${{name}} は run ではシェル構文です。Dagu の環境変数参照には ${env.{name}} を使用してください。',
+  // visual-editor:P1-4 end
+  //
+  // visual-editor:P1-5 begin
+  'Run to show': '表示する実行',
+  'Latest run': '最新の実行',
+  'No run': '実行なし',
+  'Run unsaved draft': '未保存の下書きを実行',
+  'No unsaved changes': '未保存の変更はありません',
+  'Starting run': '実行を開始しています',
+  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
+    '保存済みの定義はエディターの内容と異なります。先に保存するか、未保存の下書きを実行してください。',
+  'You do not have permission to run workflows.':
+    'ワークフローを実行する権限がありません。',
+  'This run used a different definition than the saved one.':
+    'この実行は保存済みとは異なる定義を使用しました。',
+  'Save the DAG first, or run the unsaved draft.':
+    '先に DAG を保存するか、未保存の下書きを実行してください。',
+  'Could not start the run (HTTP {status}).':
+    '実行を開始できませんでした (HTTP {status})。',
+  'Could not start the run.': '実行を開始できませんでした。',
+  'Not run in this run': 'この実行では実行されていません',
+  'Reused from an earlier run': '以前の実行から再利用',
+  'Output variable': '出力変数',
+  'truncated ({size})': '切り詰め済み ({size})',
+  'View logs': 'ログを表示',
+  'View logs for {name}': '{name} のログを表示',
+  'Review changes': '変更を確認',
+  'No changes': '変更なし',
+  '{added} added, {removed} removed': '{added} 行追加、{removed} 行削除',
+  'Saved version': '保存済みバージョン',
+  'Your changes': 'あなたの変更',
+  Unified: '統合',
+  // visual-editor:P1-5 end
+  //
+  // visual-editor:P2 begin
+  Visual: 'ビジュアル',
+  'Fix the YAML errors before you edit in the canvas.':
+    'キャンバスで編集する前に YAML のエラーを修正してください。',
+  'This step does not exist any more.': 'このステップはもう存在しません。',
+  'This edit needs the steps in the explicit form: a list of named steps.':
+    'この編集には明示的な形式のステップ（名前付きステップのリスト）が必要です。',
+  'Steps of a chain DAG run in order. Convert the steps to the explicit form to edit dependencies.':
+    'chain DAG のステップは順番に実行されます。依存関係を編集するには、ステップを明示的な形式に変換してください。',
+  'The visual editor cannot edit the steps of an agent DAG.':
+    'ビジュアルエディターでは agent DAG のステップを編集できません。',
+  'Another step has this name.': 'この名前は別のステップで使われています。',
+  'This step name is not valid.': 'このステップ名は無効です。',
+  'This dependency makes a cycle.': 'この依存関係は循環になります。',
+  'The step YAML is not valid.': 'ステップの YAML が無効です。',
+  Undo: '元に戻す',
+  Redo: 'やり直す',
+  'Undo (Ctrl+Z)': '元に戻す (Ctrl+Z)',
+  'Redo (Shift+Ctrl+Z)': 'やり直す (Shift+Ctrl+Z)',
+  'Part of the YAML to show': '表示する YAML の範囲',
+  'Show the YAML of this step': 'このステップの YAML を表示',
+  Step: 'ステップ',
+  File: 'ファイル',
+  Form: 'フォーム',
+  'Add a step': 'ステップを追加',
+  'Search for an action': 'アクションを検索',
+  'Recently used': '最近使用',
+  Popular: '人気',
+  'After {name}': '{name} の後',
+  'At the end of the workflow': 'ワークフローの末尾',
+  'Between {from} and {to}': '{from} と {to} の間',
+  'Add a shell command': 'シェルコマンドを追加',
+  'Show all actions': 'すべてのアクションを表示',
+  'Up and Down to move, Enter to add, Esc to close':
+    '上下キーで移動、Enter で追加、Esc で閉じる',
+  Editor: 'エディター',
+  '{count} task': '{count} 件のタスク',
+  '{count} tasks': '{count} 件のタスク',
+  'The agent chooses which step to run, so the steps have no order.':
+    'どのステップを実行するかはエージェントが選ぶため、ステップに順序はありません。',
+  'Hide YAML': 'YAML を隠す',
+  Handlers: 'ハンドラー',
+  Document: 'ドキュメント',
+  'Export graph': 'グラフをエクスポート',
+  'Convert steps': 'ステップを変換',
+  'Run only the step {name} now? Its command runs for real.':
+    'ステップ {name} だけを今すぐ実行しますか？コマンドは実際に実行されます。',
+  'The other steps keep their outputs of run {runId}.':
+    'ほかのステップは実行 {runId} の出力を使います。',
+  'The step runs from the unsaved editor text.':
+    'このステップはエディターの未保存のテキストから実行されます。',
+  'Click a field of the step first, then insert the value.':
+    '先にステップのフィールドをクリックしてから、値を挿入してください。',
+  'The file changed on disk': 'ファイルがディスク上で変更されました',
+  'A newer version was saved. Review it before you save again.':
+    '新しいバージョンが保存されています。確認してから再度保存してください。',
+  'Unsaved draft': '未保存の下書き',
+  'Restore unsaved draft from {time}?':
+    '{time} の未保存の下書きを復元しますか？',
+  Restore: '復元',
+  // visual-editor:P2 end
   'Reload artifacts': '成果物を再読み込み',
   'Reload logs': 'ログを再読み込み',
   'Remote Nodes': 'リモートノード',
   Remove: '削除',
-  'Remove DAGRun from queue': 'キューから DAGRun を削除',
+  'Remove this run from the queue': 'この実行をキューから削除',
   'Remove incident connection': 'インシデント接続を削除',
   'Remove missing items from sync tracking':
     '同期トラッキングから欠落項目を削除',
   'Remove the license from this machine and return to community mode.':
     'このマシンからライセンスを削除し、コミュニティモードに戻ります。',
-  'Remove this DAG override and inherit workspace or Global notification rules?':
-    'この DAG のオーバーライドを削除し、ワークスペースまたはグローバルの通知ルールを継承しますか？',
+  'Remove this workflow override and inherit workspace or Global notification rules?':
+    'このワークフローのオーバーライドを削除し、ワークスペースまたはグローバルの通知ルールを継承しますか？',
   Rename: '名前の変更',
   'Rename Wiki page': 'Wiki ページの名前を変更',
   'Rename workflow': 'ワークフローの名前を変更',
@@ -5727,11 +8090,16 @@ const japanese = {
   required: '必須',
   'Reschedule request accepted': 'スケジュール変更のリクエストが承認されました',
   'Reschedule selected': '選択項目を再スケジュール',
-  'Reschedule with new DAG-run': '新しい DAG 実行で再スケジュール',
+  'Edit the definition and choose the steps to run':
+    '定義を編集して実行するステップを選ぶ',
+  'Edit and retry': '編集して再試行',
+  'A checked step reuses its previous output; the others run again.':
+    'チェックしたステップは前回の出力を再利用し、他は再実行します。',
+  'Reschedule as a new run': '新しい実行として再スケジュール',
   Reset: 'リセット',
   'Reset changes': '変更をリセット',
-  'Reset DAG Override': 'DAG オーバーライドをリセット',
-  'Reset Password': 'パスワードのリセット',
+  'Reset workflow override': 'ワークフローのオーバーライドをリセット',
+  'Reset password': 'パスワードのリセット',
   'Reset Password for': 'パスワードのリセット対象:',
   'Reset this step and every reachable descendant. Unrelated branches are left unchanged.':
     'このステップと到達可能なすべての後続ステップをリセットします。無関係なブランチは変更されません。',
@@ -5740,6 +8108,11 @@ const japanese = {
   'Reset zoom': 'ズームをリセット',
   'Resetting...': 'リセット中...',
   'Resize step details': 'ステップ詳細のサイズを変更',
+  'Maximize panel': 'パネルを最大化',
+  'Restore panel': 'パネルを元のサイズに戻す',
+  'Resize sub-run view': 'サブ実行ビューのサイズを変更',
+  'Resize workflow view': 'ワークフロービューのサイズを変更',
+  'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+クリックで新しいタブを開く',
   'Resolved during a run (': '実行中に解決されました (',
   'Resource & Trace': 'リソース & トレース',
   'Resource ID': 'リソース ID',
@@ -5751,19 +8124,33 @@ const japanese = {
   result: '結果',
   Result: '結果',
   Results: '結果',
+  'Command palette': 'コマンドパレット',
+  'Search workflows, pages, and actions':
+    'ワークフロー、ページ、アクションを検索',
+  'Search workflows, pages, and actions...':
+    'ワークフロー、ページ、アクションを検索...',
+  Pages: 'ページ',
+  Navigate: '移動',
+  'Use light theme': 'ライトテーマを使用',
+  'Use dark theme': 'ダークテーマを使用',
+  'Use system theme': 'システムのテーマを使用',
+  'Search workflow contents for "{query}"':
+    'ワークフローの内容から「{query}」を検索',
+  'Searching workflows...': 'ワークフローを検索中...',
+  'No results for "{query}"': '「{query}」に一致する結果はありません',
+  'Search...': '検索...',
   'Results follow committed log order, newest committed entries first.':
     '結果はコミット済みログの順序に従い、最新のコミット済みエントリが先頭に表示されます。',
   'Results will appear here as each request finishes.':
     '各リクエストが完了すると、ここに結果が表示されます。',
   Retry: '再試行',
-  'Retry action only available at root dagRun level':
-    '再試行アクションはルート dagRun レベルでのみ利用可能です',
+  'Retry is only available on the top-level run':
+    '再試行は最上位の実行でのみ可能です',
   'Retry as a new run': '新しい実行として再試行',
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     '再試行は既存の OpenCode 会話を継続し、ステップのプロンプトを再送信します。新しい会話を開始するには、Agent セッションタブで「クリーンセッションを開始」を使用してください。',
-  'Retry DAG execution': 'DAG 実行を再試行',
-  'Retry DAGRun execution': 'DAGRun の実行を再試行',
-  'Retry Edited DAG Run': '編集済み DAG 実行を再試行',
+  'Retry this run': 'この実行を再試行',
+  'Retry edited run': '編集済みの実行を再試行',
   'Retry load more': 'さらに読み込むを再試行',
   'Retry loading more': 'さらに読み込むのを再試行',
   'Retry queue': '再試行キュー',
@@ -5821,7 +8208,6 @@ const japanese = {
     'ランタイムプロファイルを読み込めませんでした。編集は無効になっています。',
   Save: '保存',
   'Save changes': '変更を保存',
-  'Save Changes': '変更を保存',
   'Save changes (Ctrl+S / Cmd+S)': '変更を保存 (Ctrl+S / Cmd+S)',
   'Save changes before leaving this page or sending a test.':
     'このページを離れるかテストを送信する前に変更を保存してください。',
@@ -5845,6 +8231,7 @@ const japanese = {
   'Scanning...': 'スキャン中...',
   Schedule: 'スケジュール',
   Scheduled: 'スケジュール済み',
+  'Window start': 'ウィンドウ開始',
   'Scheduled At': 'スケジュール時刻',
   'Scheduled:': 'スケジュール:',
   'Scheduler Service': 'スケジューラーサービス',
@@ -5852,10 +8239,9 @@ const japanese = {
   'Schema unavailable': 'スキーマが利用できません',
   Scope: 'スコープ',
   'Script Content': 'スクリプト内容',
-  'Script defined': 'スクリプト定義済み',
   Search: '検索',
   'Search by ID or labels...': 'ID またはラベルで検索...',
-  'Search DAGs...': 'DAG を検索...',
+  'Search workflows...': 'ワークフローを検索...',
   'Search git sync items': 'Git 同期項目を検索',
   'Search in loaded lines...': '読み込まれた行を検索...',
   'Search items...': '項目を検索...',
@@ -5899,7 +8285,8 @@ const japanese = {
   'Selected workspaces': '選択されたワークスペース',
   'Selected:': '選択済み:',
   'Send Incidents To': 'インシデントの送信先',
-  'Send notifications when this DAG is': 'この DAG が～の場合に通知を送信',
+  'Send notifications when this workflow is':
+    'このワークフローが～の場合に通知を送信',
   'Send test': 'テストを送信',
   'send to': '送信先',
   'Send to': '送信先',
@@ -5918,11 +8305,8 @@ const japanese = {
   'Shell (OpenSSL)': 'シェル (OpenSSL)',
   Shift: 'シフト',
   'Show all workflows': 'すべてのワークフローを表示',
-  'Show Beginning': '先頭を表示',
-  'Show End': '末尾を表示',
   'Show more matches': '一致をさらに表示',
   Showing: '表示中：',
-  shown: '表示中',
   'Sibling Properties (': '兄弟プロパティ (',
   sign: '署名',
   'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in':
@@ -5930,6 +8314,8 @@ const japanese = {
   'Since startup': '起動以来',
   'Size:': 'サイズ:',
   'Skip TLS verification': 'TLS 検証をスキップ',
+  'Skip precondition checks for the retried steps. Workflow-level preconditions still apply.':
+    '再試行されるステップの前提条件チェックをスキップします。ワークフローレベルの前提条件は引き続き適用されます。',
   skipped: 'スキップ',
   Skipped: 'スキップ済み',
   'Slack message template': 'Slack メッセージテンプレート',
@@ -5946,7 +8332,8 @@ const japanese = {
   'Sort by key': 'キーで並べ替え',
   'Sort by value': '値で並べ替え',
   'Sort DAG cards': 'DAG カードを並べ替え',
-  'Sorts current page only': '現在のページのみを並べ替え',
+  'Sorting by this column is disabled for more than {count} workflows':
+    'ワークフローが {count} 件を超えると、この列では並べ替えできません',
   Source: 'ソース',
   'Source DAG-run ID': 'ソース DAG 実行 ID',
   Spec: '仕様',
@@ -5954,6 +8341,7 @@ const japanese = {
   'Specific date, month, or year': '特定の日付、月、または年',
   'Specific date/month/year': '特定の日付/月/年',
   'Specific period': '特定の期間',
+  Split: '分割',
   'Standard Output Log': '標準出力ログ',
   'Star and add to the sidebar for everyone':
     'スターリングして全員用のサイドバーに追加',
@@ -5964,8 +8352,8 @@ const japanese = {
     'クリーンな OpenCode セッションを開始しますか？',
   'Start a workflow from the ': 'からワークフローを開始する',
   'Start clean session': 'クリーンなセッションを開始',
-  'Start DAG execution': 'DAG 実行を開始',
-  'Start the DAG': 'DAGを開始',
+  'Start a new run': '新しい実行を開始',
+  'Start workflow': 'ワークフローを開始',
   Started: '開始済み',
   'Started ': '開始済み ',
   'Started At': '開始日時',
@@ -6023,6 +8411,21 @@ const japanese = {
   'System Status': 'システムステータス',
   target: 'ターゲット',
   'Target DAG': 'ターゲット DAG',
+  "Remove this workflow's incident routing and use the inherited routing instead?":
+    'このワークフローのインシデントルーティングを削除し、継承したルーティングを使用しますか？',
+  'Callers using the current token lose access as soon as a new one is generated.':
+    '新しいトークンを生成すると、現在のトークンを使う呼び出し元はすぐにアクセスできなくなります。',
+  'Requests signed with the current secret are rejected as soon as a new one is generated.':
+    '新しいシークレットを生成すると、現在のシークレットで署名されたリクエストはすぐに拒否されます。',
+  'The webhook will accept requests that carry only the token.':
+    'Webhook はトークンのみのリクエストを受け付けるようになります。',
+  'Collapse {name}': '{name} を折りたたむ',
+  'Expand {name}': '{name} を展開',
+  'Remove {label}': '{label} を削除',
+  'Items per page': '1 ページの件数',
+  '{selected} of {loaded} selected': '{loaded} 件中 {selected} 件を選択',
+  'Schedule for {name}': '{name} のスケジュール',
+  'Restarts for {name}': '{name} の再起動',
   'Target name': 'ターゲット名',
   'Target:': 'ターゲット:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -6036,10 +8439,8 @@ const japanese = {
   'Telegram topic ID': 'Telegram トピック ID',
   Template: 'テンプレート',
   Terminal: 'ターミナル',
-  'Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable.':
-    'ターミナルは有効化されていません。有効にするには DAGU_TERMINAL_ENABLED=true を設定してください。',
   Test: 'テスト',
-  'Test Connection': '接続テスト',
+  'Test connection': '接続テスト',
   'Testing...': 'テスト中...',
   'The DAG specification has been modified externally while you were editing.':
     '編集している間に、DAG 仕様が外部から変更されました。',
@@ -6061,17 +8462,17 @@ const japanese = {
   'This action cannot be undone.': 'この操作は元に戻せません。',
   'This artifact is too large to render inline. Download it to inspect the contents.':
     'この成果物はインラインレンダリングが大きすぎます。内容を確認するにはダウンロードしてください。',
-  'This DAG': 'この DAG',
+  'This workflow': 'このワークフロー',
   'This DAG has restrictions:': 'この DAG には制限があります：',
   'This DAG inherits': 'この DAG は継承します：',
-  'This DAG inherits rules by default. Configure a DAG override only when this DAG needs different events or destinations.':
-    'この DAG はデフォルトでルールを継承します。この DAG が異なるイベントや宛先を必要とする場合のみ、DAG オーバーライドを設定してください。',
-  'This DAG is not in the selected workspace.':
-    'この DAG は選択されたワークスペースにはありません。',
-  'This DAG override has no destinations. Inherited rules are not used while the override exists.':
-    'この DAG オーバーライドには宛先がありません。オーバーライドが存在する間、継承されたルールは使用されません。',
-  'This DAG override replaces workspace and Global rules for future runs. Send test verifies delivery now.':
-    'この DAG オーバーライドは、今後の実行でワークスペースおよびグローバルルールを置き換えます。テスト送信で現在配信を確認します。',
+  'This workflow inherits rules by default. Configure a workflow override only when it needs different events or destinations.':
+    'このワークフローはデフォルトでルールを継承します。異なるイベントや宛先が必要な場合のみ、ワークフローのオーバーライドを設定してください。',
+  'This workflow is not in the selected workspace.':
+    'このワークフローは選択されたワークスペースにはありません。',
+  'This workflow override has no destinations. Inherited rules are not used while the override exists.':
+    'このワークフローのオーバーライドには宛先がありません。オーバーライドが存在する間、継承されたルールは使用されません。',
+  'This workflow override replaces workspace and Global rules for future runs. Send test verifies delivery now.':
+    'このワークフローのオーバーライドは、今後の実行でワークスペースおよびグローバルルールを置き換えます。テスト送信で現在の配信を確認します。',
   'This DAG uses': 'この DAG は',
   'This feature requires an active Dagu license or trial. Visit the':
     'この機能には有効な Dagu ライセンスまたはトライアルが必要です。',
@@ -6115,13 +8516,11 @@ const japanese = {
     'から継承できます。選択したリクエストヘッダーを',
   'to keep licensed features.': 'して、ライセンス付き機能を維持してください。',
   'to navigate DAGs': 'で DAG をナビゲート',
-  'to navigate histories': 'で履歴をナビゲート',
   'to navigate runs': 'で実行をナビゲート',
   'to see activity here.': 'でアクティビティを確認できます。',
   'to toggle': 'で切り替え',
   'to update': 'で更新',
   Today: '今日',
-  'Toggle & next run': '切り替え & 次回実行',
   'Toggle notifications': '通知の表示を切り替え',
   'Toggle Schema Documentation (Ctrl+Shift+D)':
     'スキーマドキュメントの表示を切り替え (Ctrl+Shift+D)',
@@ -6132,7 +8531,7 @@ const japanese = {
   'Tool Calls:': 'ツール呼び出し:',
   'Topic ID (optional, for forum groups)':
     'トピック ID（任意、フォーラムグループ用）',
-  'Total DAGs': 'DAG 合計',
+  'Total workflows': 'ワークフロー合計',
   Trigger: 'トリガー',
   true: 'true',
   'Try again': '再試行',
@@ -6151,17 +8550,16 @@ const japanese = {
   'Unsaved Changes': '未保存の変更',
   Unset: '未設定',
   Untitled: '無題',
-  'up)': '上)',
   Update: '更新',
   'Update “': '「',
   'Update available: v': 'アップデート利用可能: v',
-  'Update Status': 'ステータスを更新',
+  'Update status': 'ステータスを更新',
   Updated: '更新済み',
   'updated by': '更新者:',
   Uptime: '稼働時間',
   Usage: '使用状況',
   Use: '使用',
-  'Use DAG events': 'DAG イベントを使用',
+  'Use workflow events': 'ワークフローのイベントを使用',
   'Use HMAC Only': 'HMAC のみ使用',
   'Use operational events': '運用イベントを使用',
   'Use original DAG file': '元の DAG ファイルを使用',
@@ -6194,15 +8592,15 @@ const japanese = {
   View: '表示',
   'View artifacts': '成果物を表示',
   'View DAG': 'DAG の表示',
-  'View DAG Definition': 'DAG 定義を表示',
+  'View workflow definition': 'ワークフロー定義を表示',
   'View diff': '差分を表示',
   'View license status and activate a Dagu license or trial key.':
     'ライセンスのステータスを表示し、Dagu ライセンスまたはトライアルキーを有効化します。',
   'View mode': '表示モード',
-  'View Raw': '生データを表示',
+  'View raw': '生データを表示',
   'View release': 'リリースを表示',
   'View run →': '実行を表示 →',
-  'View Scheduler Log': 'スケジューラログを表示',
+  'View scheduler log': 'スケジューラログを表示',
   'View stderr': 'stderr を表示',
   'View stderr log (Cmd/Ctrl+Click for new tab)':
     'stderr ログを表示 (新しいタブで開くには Cmd/Ctrl+クリック)',
@@ -6237,8 +8635,6 @@ const japanese = {
   Workers: 'ワーカー',
   workflow: 'ワークフロー',
   'Workflow graph': 'ワークフローグラフ',
-  'Workflow link copied to clipboard':
-    'ワークフローリンクがクリップボードにコピーされました',
   Workflows: 'ワークフロー',
   'Workflows page': 'ワークフローページ',
   Workspace: 'ワークスペース',
@@ -6263,6 +8659,8 @@ const japanese = {
     'DAG定義に未保存の変更があります。',
   'Your Dagu': 'あなたの Dagu',
   'YYYY-MM-DD HH:mm:ss': 'YYYY-MM-DD HH:mm:ss',
+  Zoom: 'ズーム',
+  'Overview of the workflow': 'ワークフローの概要',
   'Zoom in': '拡大',
   'Zoom out': '縮小',
   Aborted: '中止',
@@ -6273,6 +8671,10 @@ const japanese = {
     '呼び出し元は {header} を使って承認済みプロファイルを選択できます。このヘッダーがない場合は、DAG のデフォルトプロファイル解決が使用されます。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '「{name}」のスケジュールを{action}にしますか？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -6282,7 +8684,7 @@ const japanese = {
   'Back one level': '1 つ前の階層に戻る',
   'Back to {name}': '{name} に戻る',
   Critical: '重大',
-  'Create New DAG': '新しい DAG を作成',
+  'Create workflow': 'ワークフローを作成',
   'Creating...': '作成中...',
   Deactivate: '無効化',
   'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.':
@@ -6297,12 +8699,6 @@ const japanese = {
     '「{id}」を削除しますか？この操作は元に戻せません。',
   'Discard & Close All': '破棄してすべて閉じる',
   'Discard & Close Others': '破棄して他を閉じる',
-  'Do you really want to cancel auto-retry for the dag-run "{name}"?':
-    'DAG 実行「{name}」の自動再試行をキャンセルしますか？',
-  'Do you really want to retry the dag-run "{name}"?':
-    'DAG 実行「{name}」を再試行しますか？',
-  'Do you really want to stop the dag-run "{name}"?':
-    'DAG 実行「{name}」を停止しますか？',
   'Do you want to {action} {count} selected DAG run?':
     '選択した {count} 件の DAG 実行を{action}しますか？',
   'Do you want to {action} {count} selected DAG runs?':
@@ -6311,10 +8707,10 @@ const japanese = {
     '選択した {count} 件の DAG 実行をキューから削除しますか？',
   'Do you want to dequeue {count} selected DAG runs?':
     '選択した {count} 件の DAG 実行をキューから削除しますか？',
-  'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
-    '新しい DAG の名前を入力してください。使用できるのは英数字、アンダースコア、ピリオド、ハイフンです。',
-  'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
-    'DAG の新しい名前を入力してください。使用できるのは英数字、アンダースコア、ピリオド、ハイフンです。',
+  'Enter a name for your new workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    '新しいワークフローの名前を入力してください。使用できるのは英数字、アンダースコア、ピリオド、ハイフンです。',
+  'Enter a new name for your workflow. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    'ワークフローの新しい名前を入力してください。使用できるのは英数字、アンダースコア、ピリオド、ハイフンです。',
   'Failed at {step}': 'ステップ {step} で失敗',
   Info: '情報',
   'Loaded {count} event': '{count} 件のイベントを読み込みました',
@@ -6324,6 +8720,7 @@ const japanese = {
   'No runs on {date}': '{date} の実行はありません',
   'Page {page}': '{page} ページ',
   'Page {page} of {total}': '{total} ページ中 {page} ページ',
+  'of {total}': '/ {total}',
   'Partially succeeded': '一部成功',
   'Processing {count} request using the existing DAG-run API.':
     '既存の DAG 実行 API で {count} 件のリクエストを処理中です。',
@@ -6338,9 +8735,11 @@ const japanese = {
     '同期管理から欠落アイテムを {count} 件削除しますか？ファイルはリモートリポジトリに残ります。',
   'Remove {count} missing items from sync tracking? Files remain in the remote repository.':
     '同期管理から欠落アイテムを {count} 件削除しますか？ファイルはリモートリポジトリに残ります。',
-  'Rename DAG': 'DAG の名前を変更',
   Reschedule: '再スケジュール',
-  'Run Anyway': 'そのまま実行',
+  'Run anyway': 'そのまま実行',
+  'Save & Run': '保存して実行',
+  'Save & Run saves your edits and runs them. Run anyway runs the last saved version, without your edits.':
+    '「保存して実行」は編集内容を保存して実行します。「そのまま実行」は編集内容を含めず、最後に保存したバージョンを実行します。',
   'Run one of the example workflows from the {link} to see activity here.':
     '{link}からサンプルワークフローを実行すると、ここにアクティビティが表示されます。',
   'Send incidents': 'インシデントを送信',
@@ -6392,10 +8791,11 @@ const japanese = {
   delete: '削除',
   retry: '再試行',
   reschedule: '再スケジュール',
-  'Reschedule DAG Run': 'DAG 実行を再スケジュール',
-  'Disable Schedule': 'スケジュールを無効化',
+  'Disable schedule': 'スケジュールを無効化',
+  'Suspend restarts': '再起動を一時停止',
   'Disable Webhook': 'Webhook を無効化',
-  'Enable Schedule': 'スケジュールを有効化',
+  'Enable schedule': 'スケジュールを有効化',
+  'Resume restarts': '再起動を再開',
   'Enable Webhook': 'Webhook を有効化',
   '+{count} more': '他 {count} 件',
   '+{count} more step': '他 {count} ステップ',
@@ -6404,7 +8804,6 @@ const japanese = {
   '{count} files': '{count} 個のファイル',
   '{count} issue': '{count} 件の問題',
   '{count} issues': '{count} 件の問題',
-  '{count} loaded': '{count} 件を読み込み済み',
   '{count} run': '{count} 件の実行',
   '{count} runs': '{count} 件の実行',
   '{count} route': '{count} 件のルート',
@@ -6413,8 +8812,6 @@ const japanese = {
   '{count} workflow': '{count} 件のワークフロー',
   '{count} workflows': '{count} 件のワークフロー',
   '{count} {type}': '{type} {count} 件',
-  '{selected} selected of {loaded} loaded':
-    '読み込み済み {loaded} 件中 {selected} 件を選択',
   '{settled} of {total} tasks settled':
     '{total} 件中 {settled} 件のタスクを処理済み',
   '{title} column': '{title}列',
@@ -6430,6 +8827,7 @@ const japanese = {
   Conflict: '競合',
   conflict: '競合',
   'Const is not declared': '定数が宣言されていません',
+  'Date is not declared': '日付が宣言されていません',
   Developer: '開発者',
   developer: '開発者',
   disabled: '無効',
@@ -6452,8 +8850,8 @@ const japanese = {
   executable: '実行可能',
   'Full access including user management':
     'ユーザー管理を含むすべてのアクセス権',
-  'Individual secrets that DAGs reference with {reference}.':
-    'DAG が {reference} で参照する個別のシークレットです。',
+  'Individual secrets that workflows reference with {reference}.':
+    'ワークフローが {reference} で参照する個別のシークレットです。',
   'Inspect {name}': '{name} を確認',
   'Interactive shell connection to local server as {username}':
     '{username} としてローカルサーバーへ対話型シェル接続',
@@ -6469,7 +8867,6 @@ const japanese = {
   'Multiple executions: {visible} of {total} sub DAG runs':
     '複数実行：サブ DAG 実行 {total} 件中 {visible} 件',
   'No {type}': '{type}はありません',
-  'No dags found': 'DAG が見つかりません',
   'No Wiki pages found': 'Wiki ページが見つかりません',
   'No {type} matching "{query}"': '「{query}」に一致する{type}はありません',
   'No {type} with {status} status': 'ステータスが{status}の{type}はありません',
@@ -6520,7 +8917,6 @@ const japanese = {
   'Update “{name}”': '「{name}」を更新',
   'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
     '更新があります：v{current} → {latest} {releaseLink} · {command} を実行して更新',
-  'Use {up} {down} to navigate DAGs': '{up} {down} で DAG 間を移動',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     'ユーザー管理機能（作成・編集・削除）には{licenseLink}が必要です。すべての管理者がパスワードをリセットできます。',
   'Value is unavailable in this context':
@@ -6541,6 +8937,8 @@ const japanese = {
     'このワークスペーススコープにアクセスできる全員から「{name}」を削除します。ランには影響しません。',
   attachment: '添付ファイル',
   attachments: '添付ファイル',
+  calendar: 'カレンダー',
+  calendars: 'カレンダー',
   'Audit ID': '監査 ID',
   'Credential type': '認証情報タイプ',
   dag: 'DAG',
@@ -6560,6 +8958,10 @@ const japanese = {
   'Wiki page management is not available on this server.':
     'このサーバーでは Wiki ページ管理を利用できません。',
   'Graph interactions': 'グラフ操作',
+  'Drag: Pan the graph': 'ドラッグ: グラフを移動',
+  'Resize graph': 'グラフのサイズを変更',
+  'Ctrl/Cmd + scroll or pinch: Zoom':
+    'Ctrl/Cmd + スクロールまたはピンチ: ズーム',
   '<No log output>': '<ログ出力なし>',
   LIVE: 'ライブ',
   'More actions': 'その他の操作',
@@ -6577,7 +8979,6 @@ const japanese = {
     'このワークスペースではオペレーター権限が必要です',
   'Name copied': '名前をコピーしました',
   'Copy name: {name}': '名前をコピー：{name}',
-  'Copied name {name}': '{name} をコピーしました',
   'URL configured ({preview})': 'URL 設定済み（{preview}）',
   saved: '保存済み',
   'HMAC secret configured': 'HMAC シークレット設定済み',
@@ -6616,14 +9017,15 @@ const japanese = {
   'Wiki pages under {folder} or containing a {link} wikilink appear here.':
     '{folder}以下、または {link} ウィキリンクを含む Wiki ページがここに表示されます。',
   'its folder': 'そのフォルダー',
-  'This DAG uses {source} routing unless you set a DAG override.':
-    'DAG の上書きを設定しない限り、この DAG は{source}ルーティングを使用します。',
+  'This workflow uses {source} routing unless you set a workflow override.':
+    'ワークフローのオーバーライドを設定しない限り、このワークフローは{source}ルーティングを使用します。',
   'workspace {name}': 'ワークスペース {name}',
   'This will re-execute {step}. Are you sure?':
     '{step}を再実行します。よろしいですか？',
   'Supports tokens such as {dag}, {status}, {error}, and {link}.':
     '{dag}、{status}、{error}、{link} などのトークンを使用できます。',
-  'This DAG inherits {source}.': 'この DAG は{source}を継承します。',
+  'This workflow inherits {source}.':
+    'このワークフローは{source}を継承します。',
   'Showing {start} - {end} of {total} entries':
     '全 {total} 件中 {start}～{end} 件を表示',
   'Page {current} of {total}': '{total} ページ中 {current} ページ',
@@ -6641,8 +9043,6 @@ const japanese = {
     'この Webhook へのリクエスト認証方法を選択します。HMAC を有効にした場合、呼び出し元は下記の正確な署名入力から計算した {signature} を送信する必要があります。{profile} を含むリクエストでは {input} に署名します。',
   'Use your webhook HMAC secret as {variable}.':
     'Webhook の HMAC シークレットを {variable} として使用します。',
-  '{payload} is available as the {variable} environment variable.':
-    '{payload} は環境変数 {variable} として利用できます。',
   'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.':
     'DAG YAML で {setting} を設定します。{base} から継承して、選択したリクエストヘッダーを {variable} として公開することもできます。',
   'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.':
@@ -6669,23 +9069,23 @@ const japanese = {
   'Global rules': 'グローバルルール',
   '{workspace} workspace rules': '{workspace} のワークスペースルール',
   'No events': 'イベントなし',
-  'Same as DAG events': 'DAG イベントと同じ',
+  'Same as workflow events': 'ワークフローのイベントと同じ',
   'Custom events': 'カスタムイベント',
   'Copy name': '名前をコピー',
   'Link copied': 'リンクをコピーしました',
   'Copy link to this workflow': 'このワークフローへのリンクをコピー',
+  'Show description': '説明を表示',
+  'Last run': '直近の実行',
+  '{time} ago': '{time}前',
+  'Open run {dagRunId}': '実行 {dagRunId} を開く',
   'Copy link to this run': 'この実行へのリンクをコピー',
+  'Show in workflow': 'ワークフローで表示',
   'This workspace currently inherits Global rules.':
     'このワークスペースは現在グローバルルールを継承しています。',
-  'Overrides Global for DAGs in this workspace.':
-    'このワークスペース内の DAG についてグローバルルールを上書きします。',
-  'Default for every DAG unless workspace or DAG settings are configured.':
-    'ワークスペースまたは DAG の設定がない限り、すべての DAG に適用されます。',
-  'Stop action only available at root dagRun level':
-    '停止操作はルート DAG 実行でのみ利用できます',
-  'Stop DAGRun execution': 'DAG 実行を停止',
-  'Cancel auto-retry for this failed DAGRun':
-    '失敗した DAG 実行の自動再試行をキャンセル',
+  'Overrides Global for workflows in this workspace.':
+    'このワークスペース内のワークフローについてグローバルルールを上書きします。',
+  'Default for every workflow unless workspace or workflow settings are configured.':
+    'ワークスペースまたはワークフローの設定がない限り、すべてのワークフローに適用されます。',
   'Failed to stop DAG run': 'DAG 実行を停止できませんでした',
   'Failed to cancel DAG run': 'DAG 実行のキャンセルに失敗しました',
   'The DAG run may have already completed or the worker is unavailable.':
@@ -6726,29 +9126,604 @@ const japanese = {
   '(unchanged)': '（変更なし）',
   'Next run': '次の実行',
   'Copy MCP setup prompt': 'MCP セットアップ用プロンプトをコピー',
+  'Profile tokens': 'プロファイルトークン',
+  "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
+    '呼び出し元ごとに専用のトークンを発行します。プロファイルトークンを使うリクエストは常にそのトークンのプロファイルで実行され、別のプロファイルを指定する {header} ヘッダーは拒否されます。',
+  'No profile tokens.': 'プロファイルトークンはありません。',
+  'Token name': 'トークン名',
+  'Runtime profile': 'ランタイムプロファイル',
+  'Create token': 'トークンを作成',
+  'Last used:': '最終使用:',
+  'Profile tokens are ignored while authentication is HMAC only.':
+    '認証方式が HMAC のみの間、プロファイルトークンは無視されます。',
+  'Revoke profile token': 'プロファイルトークンを失効',
+  'Applications using this token will immediately lose access.':
+    'このトークンを使っているアプリケーションは直ちにアクセスできなくなります。',
+  Items: 'アイテム',
+  'Not started': '未開始',
+  'Loading items…': 'アイテムを読み込み中…',
+  'Waiting for items…': 'アイテムを待機中…',
+  'No item records for this run.': 'この実行にはアイテムの記録がありません。',
+  'No items match this filter.':
+    'このフィルターに一致するアイテムはありません。',
+  'Loading item…': 'アイテムを読み込み中…',
+  'No record for this item.': 'このアイテムの記録はありません。',
+  'Open in log viewer': 'ログビューアで開く',
+  '{done} of {total} done': '{done} / {total} 完了',
+  'Item {index}': 'アイテム {index}',
+  'Open {step} in log viewer': '{step} をログビューアで開く',
+  'Connected via Dagu Console': 'Dagu Console で接続済み',
+  'Activated with a license key': 'ライセンスキーで有効化済み',
+  'Set by an environment variable': '環境変数で設定',
+  'Set by license.key in the config file': '設定ファイルの license.key で設定',
+  'Loaded from a license file': 'ライセンスファイルから読み込み',
+  'license.key in the config file activates this license again when Dagu restarts. Remove it to stop using the license.':
+    'Dagu を再起動すると、設定ファイルの license.key によってこのライセンスが再び有効になります。使用をやめるには削除してください。',
+  'The license file is loaded again when Dagu restarts. Remove it to stop using the license.':
+    'Dagu を再起動するとライセンスファイルが再び読み込まれます。使用をやめるには削除してください。',
+  'Dagu Console could not be reached. Try again later.':
+    'Dagu Console に接続できませんでした。しばらくしてから再試行してください。',
+  'Last check-in': '最終チェックイン',
+  'Not yet': 'まだありません',
+  'Checking…': '確認中…',
+  'Check now': '今すぐ確認',
+  'Server ID': 'サーバー ID',
+  'Copy server ID': 'サーバー ID をコピー',
+  'License ID': 'ライセンス ID',
+  'Server name': 'サーバー名',
+  'Reports as {name}': '報告する名前：{name}',
+  'Leave empty to use the name the server reports.':
+    '空欄にすると、サーバーが報告する名前を使います。',
+  'Disconnecting frees this server’s slot in Dagu Console and returns it to community mode.':
+    '接続を解除すると、Dagu Console でこのサーバーが使っている枠が空き、コミュニティモードに戻ります。',
+  'Manage in Dagu Console': 'Dagu Console で管理',
+  'Disconnecting...': '接続を解除中...',
+  Disconnect: '接続を解除',
+  'Disconnected here, but Dagu Console could not be reached. Disconnect this server in Dagu Console to free its slot.':
+    'このサーバーでは接続を解除しましたが、Dagu Console に接続できませんでした。枠を空けるには Dagu Console でこのサーバーの接続を解除してください。',
+  'Disconnected. Running in community mode.':
+    '接続を解除しました。コミュニティモードで動作しています。',
+  'Disconnect this server': 'このサーバーの接続を解除',
+  'Paid features become unavailable on this server and its slot in Dagu Console is freed for another server. Existing API keys remain active.':
+    'このサーバーでは有料機能が使えなくなり、Dagu Console の枠は他のサーバー用に空きます。既存の API キーは引き続き有効です。',
+  'Could not start connecting to Dagu Console.':
+    'Dagu Console への接続を開始できませんでした。',
+  'Could not cancel the request. Try again.':
+    'リクエストを取り消せませんでした。もう一度お試しください。',
+  'Expires in {time}': '残り {time}',
+  'Waiting for approval': '承認待ち',
+  'This server’s license is set by DAGU_LICENSE or DAGU_LICENSE_KEY. Fix or remove it to connect from Dagu Console.':
+    'このサーバーのライセンスは DAGU_LICENSE または DAGU_LICENSE_KEY で設定されています。Dagu Console から接続するには、修正するか削除してください。',
+  'Approve this server in Dagu Console. Check that the console shows this code:':
+    'Dagu Console でこのサーバーを承認してください。コンソールに次のコードが表示されていることを確認してください:',
+  'Your browser blocked the new tab. Open Dagu Console to continue.':
+    'ブラウザが新しいタブをブロックしました。続行するには Dagu Console を開いてください。',
+  'Open Dagu Console': 'Dagu Console を開く',
+  'Enter a server key or license key from Dagu Console.':
+    'Dagu Console のサーバーキーまたはライセンスキーを入力してください。',
+  Monitoring: '監視',
+  'Set in configuration': '設定ファイルで指定',
+  'Monitoring status unavailable': '監視の状態を取得できません',
+  Reports: '報告内容',
+  'Last report': '最終報告',
+  'Health only': 'ヘルスのみ',
+  'Health and run status': 'ヘルスと実行状況',
+  'cloud.report in the server configuration sets this. Change it there and restart Dagu.':
+    'サーバー設定の cloud.report で指定されています。変更するには設定を編集して Dagu を再起動してください。',
+  Change: '変更',
+  'Turn on': 'オンにする',
+  'Turn off': 'オフにする',
+  'Turning off…': 'オフにしています…',
+  'View last report': '最終報告を表示',
+  'The last report this server sent to Dagu Console. The heartbeat secret is hidden.':
+    'このサーバーが Dagu Console に最後に送信した報告です。ハートビートのシークレットは伏せています。',
+  'Could not change what this server reports.':
+    'このサーバーが報告する内容を変更できませんでした。',
+  'Could not dismiss the notice.': '通知を閉じられませんでした。',
+  'Monitor this server from Dagu Console':
+    'Dagu Console でこのサーバーを監視する',
+  'Choose what this server reports': 'このサーバーが報告する内容を選択',
+  'Choose what to report': '報告する内容を選択',
+  'Dismiss monitoring notice': '監視の通知を閉じる',
+  'Show why runs fail in Dagu Console':
+    'Dagu Console で実行が失敗した理由を表示する',
+  'Send error messages': 'エラーメッセージを送信する',
+  "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
+    'Dagu Console の「サーバー」ページにこのサーバーの状態が表示されます。実行状況も報告すると、ワークフローが失敗したときにワークスペースのオーナーと管理者にメールが届きます。',
+  'What to report': '報告する内容',
+  "Sends the Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, how far remote access lets calls from Dagu Cloud go, and, on a paid plan or trial, the machine's CPU and memory use, load averages, and how full the data directory's disk is.":
+    'Dagu のバージョン、OS、アーキテクチャ、プロセスの開始時刻、サービス数（スケジューラーロックを保持しているスケジューラーと、登録済みのコーディネーター）、スケジューラーが最後に動作した時刻と一時停止中かどうか、リモートアクセスで Dagu Cloud からの呼び出しにどこまで許可しているか、そして有料プランまたはトライアル中は、マシンの CPU・メモリ・ロードアベレージと、データディレクトリのあるディスクの使用量を送信します。',
+  "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG's next run, and whether its latest scheduled run started, and each queue holding runs: its name, how many runs are waiting and how many are running, how many may run at once, when the next run was queued, and why it cannot start when it waits for a worker. No parameters, logs, or outputs.":
+    'ヘルスの項目に加えて、終了したトップレベルの DAG 実行ごとの状態を、失敗したステップ名（最大 50 件）と起動方法とともに送信し、キュー待ち・実行中・待機中の実行の一覧も送信します。各実行は DAG 名、実行 ID、試行 ID、状態、起動方法、キュー投入・開始・終了時刻として送信されます。スケジュールされた各 DAG の次回実行時刻と、直近の予定実行が開始されたかどうか、さらに実行を抱える各キューの名前、待ち中と実行中の件数、同時に実行できる数、次の実行がキューに入った時刻、ワーカー待ちで開始できない場合はその理由も送信します。パラメーター、ログ、出力は送信しません。',
+  'Every report also carries what identifies and authenticates this server, as its license check-in does: the protocol version, license ID, server ID, and heartbeat secret, and which choice it was sent under. With run status, it also carries the reporter’s cursor and, after events were lost, the time they were lost from. Turning reporting off sends one last report that carries only what identifies and authenticates this server and the choice Off, so that Dagu Console shows monitoring as off.':
+    'すべての報告には、ライセンスのチェックインと同じく、このサーバーを識別・認証する情報（プロトコルバージョン、ライセンス ID、サーバー ID、ハートビートのシークレット）と、送信時に選択されている報告内容も含まれます。実行状況を報告する場合は、報告の位置を示すカーソルと、イベントが失われたときはその開始時刻も含まれます。報告をオフにすると、このサーバーを識別・認証する情報と、選択された「オフ」だけを含む最後の報告を 1 回送信し、Dagu Console で監視がオフと表示されるようにします。',
+  'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
+    '送信しないもの: ログ全体、出力、パラメータ、環境変数、ステップのコマンド、DAG の YAML、スケジュールの式、ワークフローのシークレットの値。',
+  'Health, run status, and error messages (recommended)':
+    'ヘルス、実行状況、エラーメッセージ（推奨）',
+  'Health, run status, and error messages':
+    'ヘルス、実行状況、エラーメッセージ',
+  "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":
+    '「ヘルスと実行状況」の内容に加えて、失敗した実行ごとの失敗理由を送信します。失敗したステップとハンドラー（最大 5 件）のエラーメッセージ、または実行自体のエラーメッセージで、それぞれ末尾から最大 2 KB です。ステップのエラーの末尾には stderr の最後の数行が含まれることがあり、ワークフローのシークレットの値はマスクされます。',
+  'Not now': '今はしない',
+  '{plan} plan': '{plan} プラン',
+  'License error': 'ライセンスエラー',
+  'Needs attention': '要対応',
+  'Grace period': '猶予期間',
+  Expired: '期限切れ',
+  'Expires in {count} day': '{count} 日後に失効',
+  'Expires in {count} days': '{count} 日後に失効',
+  'Not reporting': '報告停止中',
+  'Not reporting since {time}': '{time} 以降、報告がありません',
+  'Run history paused until {time}': '実行履歴の保存は {time} まで停止中です',
+  '{level}, last report {time}': '{level}、最終報告 {time}',
+  Server: 'サーバー',
+  'License, Dagu Console connection, monitoring, and remote access for this server.':
+    'このサーバーのライセンス、Dagu Console との接続、監視、リモートアクセス。',
+  'Connected to {workspace}.': '{workspace} に接続しました。',
+  'Connected to Dagu Console.': 'Dagu Console に接続しました。',
+  'License activated.': 'ライセンスを有効化しました。',
+  Disconnected: '接続を解除しました',
+  'Not connected': '未接続',
+  'Copy license ID': 'ライセンス ID をコピー',
+  'Could not connect to Dagu Console': 'Dagu Console に接続できませんでした',
+  'Danger zone': '危険な操作',
+  'Use a license key': 'ライセンスキーを使用',
+  'Use a different license key': '別のライセンスキーを使用',
+  'Not included': '利用不可',
+  'License needs attention': 'ライセンスの確認が必要です',
+  'This license is active on more machines than allowed. Deactivate extra machines in Dagu Console.':
+    'このライセンスは許可された台数を超えるマシンで有効になっています。Dagu Console で余分なマシンを無効化してください。',
+  'Dagu Console reported {code} for this license.':
+    'Dagu Console がこのライセンスについて {code} を報告しました。',
+  'Licensed features keep working until {date}.':
+    'ライセンス機能は {date} まで引き続き利用できます。',
+  'Licensed features keep working for a short grace period.':
+    'ライセンス機能は短い猶予期間のあいだ引き続き利用できます。',
+  'Licensed features are unavailable.': 'ライセンス機能は利用できません。',
+  'License expires today': 'ライセンスは本日失効します',
+  'License expires in {count} day': 'ライセンスは {count} 日後に失効します',
+  'License expires in {count} days': 'ライセンスは {count} 日後に失効します',
+  'Licensed features stop working when it expires.':
+    '失効するとライセンス機能は使えなくなります。',
+  'License expired': 'ライセンスが失効しました',
+  'Activation failed': '有効化に失敗しました',
+  'Deactivation failed': '無効化に失敗しました',
+  Plan: 'プラン',
+  Expires: '有効期限',
+  'License deactivated. Running in community mode.':
+    'ライセンスを無効化しました。コミュニティモードで動作しています。',
+  'Monitoring only': '監視のみ',
+  Free: '無料',
+  'Included in Team and Pro': 'Team と Pro で利用可能',
+  'Connect to Dagu Cloud': 'Dagu Cloud に接続',
+  'Use this server from MCP clients': 'MCP クライアントからこのサーバーを使う',
+  'MCP clients reach this server through the Dagu Cloud MCP endpoint, up to the role chosen here. Needs a paid plan or a trial.':
+    'MCP クライアントは Dagu Cloud の MCP エンドポイント経由で、ここで選んだロールまでこのサーバーを操作できます。有料プランまたはトライアルが必要です。',
+  'cloud.remote_access in the server configuration sets this. Change it there and restart Dagu.':
+    'サーバー設定の cloud.remote_access がこれを指定しています。設定を変更して Dagu を再起動してください。',
+  'Remote access needs a paid plan or a trial. Without one, Dagu Cloud refuses MCP calls.':
+    'リモートアクセスには有料プランまたはトライアルが必要です。ないと Dagu Cloud は MCP 呼び出しを拒否します。',
+  "Dagu Console shows this server's runs, failures, and trends, and emails you when a workflow fails or the server stops reporting.":
+    'Dagu Console にこのサーバーの実行、失敗、傾向が表示され、ワークフローが失敗したときやサーバーからの報告が止まったときにメールが届きます。',
+  "Dagu Console shows this server's health and emails you when the server stops reporting.":
+    'Dagu Console にこのサーバーの稼働状況が表示され、サーバーからの報告が止まったときにメールが届きます。',
+  'Reporting starts as soon as the server connects.':
+    'サーバーが接続されるとすぐに報告が始まります。',
+  'Free for one server: reports every 5 minutes and keeps 7 days of run history. Paid features stay off.':
+    '1 台のサーバーまで無料です。5 分ごとに報告し、実行履歴を 7 日間保持します。有料機能はオフのままです。',
+  'Free for one server, with 14 days of paid features. After the trial: reports every 5 minutes and keeps 7 days of run history.':
+    '1 台のサーバーまで無料で、14 日間は有料機能も使えます。トライアル終了後は 5 分ごとに報告し、実行履歴を 7 日間保持します。',
+  'Connect for free': '無料で接続',
+  'Connect and start trial': '接続してトライアルを開始',
+  'Also try paid features free for 14 days': '有料機能も 14 日間無料で試す',
+  'MCP access from Claude and ChatGPT, audit logs, role-based access, single sign-on, and chat and webhook alerts. No card needed; free monitoring stays when the trial ends.':
+    'Claude や ChatGPT からの MCP アクセス、監査ログ、ロールベースのアクセス制御、シングルサインオン、チャットと Webhook へのアラート。カードは不要で、トライアル終了後も無料モニタリングは続きます。',
+  'Dagu Console stops monitoring this server, and its free slot becomes available to another server.':
+    'Dagu Console はこのサーバーの監視を停止し、無料枠は他のサーバーで使えるようになります。',
+  'The Free plan supports up to 2 API keys.':
+    '無料プランでは最大2つのAPIキーを管理できます。',
+  'Existing keys remain active. Revoke a key to create another, or move to Team or Pro to remove the limit.':
+    '既存のキーは有効のままです。キーを 1 つ失効させると新しいキーを作成できます。Team または Pro に移行すると上限がなくなります。',
+  'Public URL': '公開 URL',
+  'Receive webhooks from services on the internet, such as GitHub or Stripe, through Dagu Cloud. Deliveries wait there for up to 7 days while this server is offline.':
+    'Dagu Cloud を通じて、GitHub や Stripe などインターネット上のサービスから Webhook を受け取ります。このサーバーがオフラインの間、配信は Dagu Cloud で最大 7 日間待機します。',
+  'Only administrators can turn on a public URL.':
+    '公開 URL をオンにできるのは管理者だけです。',
+  URL: 'URL',
+  'The URL appears once this server connects to Dagu Cloud.':
+    'このサーバーが Dagu Cloud に接続すると URL が表示されます。',
+  Sender: '送信元',
+  'Anyone with the URL': 'URL を知っている全員',
+  'Signing secret': '署名シークレット',
+  'Leave empty to keep the current secret':
+    '空のままにすると現在のシークレットを保持します',
+  'Leave empty to have Dagu make one': '空のままにすると Dagu が生成します',
+  "Paste the sender's signing secret":
+    '送信元の署名シークレットを貼り付けてください',
+  'All events': 'すべてのイベント',
+  'Separate events with commas, such as {example}. A name also takes the events under it.':
+    'イベントはカンマで区切ります（例: {example}）。名前はその配下のイベントも含みます。',
+  "In GitHub's webhook settings, set Content type to {type}.":
+    'GitHub の Webhook 設定で Content type を {type} にしてください。',
+  'Save sender': '送信元を保存',
+  'New secret': '新しいシークレット',
+  'Dagu Cloud dropped deliveries for this URL: {expired} waited more than 7 days, and {refused} arrived while 1,000 were waiting.':
+    'Dagu Cloud はこの URL への配信を破棄しました。{expired} 件は 7 日以上待機し、{refused} 件は 1,000 件が待機中に届きました。',
+  Dismiss: '閉じる',
+  'New URL': '新しい URL',
+  'Turn off public URL': '公開 URL をオフにする',
+  'Replace public URL': '公開 URL を置き換える',
+  Replace: '置き換える',
+  'Dagu Cloud drops this URL and any deliveries waiting for it.':
+    'Dagu Cloud はこの URL と待機中の配信をすべて破棄します。',
+  'Your plan allows {count} public URLs, and this one is not among them. Turn another off, or change the plan.':
+    'ご利用のプランでは公開 URL を {count} 個まで使え、この URL はその中に含まれていません。別の URL をオフにするか、プランを変更してください。',
+  'Connecting to Dagu Cloud…': 'Dagu Cloud に接続中…',
+  'Recent deliveries': '最近の配信',
+  'No deliveries yet.': '配信はまだありません。',
+  Size: 'サイズ',
+  Ignored: '無視',
+  'This server is not connected to Dagu Cloud.':
+    'このサーバーは Dagu Cloud に接続されていません。',
+  'The webhooks could not be read.': 'Webhook を読み込めませんでした。',
+  'Dagu Cloud refused more public URLs than the plan allows.':
+    'Dagu Cloud はプランの上限を超える公開 URL を拒否しました。',
+  'Webhook Token': 'Webhook トークン',
+  'Webhook HMAC Secret': 'Webhook HMAC シークレット',
+  'Signing Secret': '署名シークレット',
+  "Copy this secret into GitHub's webhook settings now. You won't be able to see it again!":
+    'このシークレットを今すぐ GitHub の Webhook 設定にコピーしてください。再度表示することはできません。',
+  "Copy this HMAC secret now. You won't be able to see it again!":
+    'この HMAC シークレットを今すぐコピーしてください。再度表示することはできません。',
+  'The current URL stops working. Requests Dagu Cloud already took through it are still delivered. Give every sender the new URL.':
+    '現在の URL は使えなくなります。Dagu Cloud がすでにこの URL で受け付けたリクエストは引き続き配信されます。すべての送信元に新しい URL を設定してください。',
+  '{payload} is in the file named by {file}, and in the {variable} environment variable when it fits in one.':
+    '{payload} は {file} が示すファイルにあり、1 つの環境変数に収まる場合は環境変数 {variable} でも参照できます。',
+  'The public URL could not be loaded.': '公開 URL を読み込めませんでした。',
+  'The plan allows no public URLs.':
+    'ご利用のプランでは公開 URL を使えません。',
+  runs: '件の実行',
+  'In progress': '進行中',
+  'Up next': '次の実行',
+  Fit: 'フィット',
+  '24h': '24 時間',
+  'Open Executions': '実行一覧を開く',
+  'Filter workflows...': 'ワークフローを絞り込み...',
+  'Filter workflows': 'ワークフローを絞り込み',
+  'Runs over time': '実行の推移',
+  'Waiting for input': '入力待ち',
+  'No scheduled runs.': '予定された実行はありません。',
+  'Nothing is running.': '実行中のものはありません。',
+  'Runs by workflow': 'ワークフロー別の実行',
+  '{failed} of {count} failed': '{count} 件中 {failed} 件失敗',
+  '{name}: {count} runs. Use the arrow keys to move between runs.':
+    '{name}：{count} 件の実行。矢印キーで実行の間を移動できます。',
+  'All clear. No failing workflows or runs waiting for input.':
+    '問題はありません。失敗しているワークフローも入力待ちの実行もありません。',
+  'Running {elapsed}, usually {usual}': '{elapsed} 実行中（通常は {usual}）',
+  'No runs in the last 24 hours': '過去 24 時間に実行はありません',
+  'No runs in this range': 'この範囲に実行はありません',
+  'Activity is not available from this node':
+    'このノードからアクティビティを取得できません',
+  'The node may run an older Dagu version. Its runs are still listed on the Executions page.':
+    'このノードは古いバージョンの Dagu を実行している可能性があります。実行は引き続き実行一覧ページに表示されます。',
+  'No workflows match the filter.': '条件に一致するワークフローはありません。',
+  'Showing the latest {count} runs. Drag across a lane to zoom in, or click a mark for one run.':
+    '最新の {count} 件の実行を表示しています。レーン上をドラッグすると拡大し、マークをクリックすると個別の実行を開きます。',
+  'Drag across a lane to zoom in, or click a mark for one run.':
+    'レーン上をドラッグすると拡大し、マークをクリックすると個別の実行を開きます。',
+  'latest runs': '件の最新の実行',
+  'Live, last 24 hours': 'ライブ・過去 24 時間',
+  '{running} running': '{running} 件実行中',
+  '{running} of {max} running': '{max} 件中 {running} 件実行中',
+  '{count}+ queued': '{count} 件以上がキュー待ち',
+  'next waiting {elapsed}': '次の実行は {elapsed} 待機中',
+  'The scheduler is not running, so scheduled and queued runs will not start.':
+    'スケジューラーが動いていないため、スケジュール実行とキュー内の実行は開始されません。',
+  'Queued runs in {queue} cannot start: no healthy worker matches their selector.':
+    '{queue} のキュー内の実行を開始できません。セレクターに一致する正常なワーカーがありません。',
+  'Queued runs in {queue} cannot start: no healthy worker is available.':
+    '{queue} のキュー内の実行を開始できません。利用できる正常なワーカーがありません。',
+  'Queued runs in {queue} cannot start: they cannot be handed to a worker right now.':
+    '{queue} のキュー内の実行を開始できません。現在ワーカーに渡すことができません。',
+  'The data disk is {percent}% full. Runs fail once it fills up.':
+    'データディスクの使用率が {percent}% です。満杯になると実行が失敗します。',
+  'no matching worker': '一致するワーカーなし',
+  'no worker available': '利用できるワーカーなし',
+  'worker unreachable': 'ワーカーに渡せません',
+  'A sub-run of this step is waiting for an action.':
+    'このステップのサブ実行が対応を待っています。',
+  'A sub-run of {step} is waiting for an action.':
+    '{step} のサブ実行が対応を待っています。',
+  '{count} more sub-runs are waiting':
+    'ほかに {count} 件のサブ実行が待っています',
+  'Action required': '対応が必要',
+  'An agent is waiting for an answer.': 'エージェントが回答を待っています。',
+  'Queue wait': 'キュー待ち',
+  Manual: '手動',
+  'Sub-DAG': 'サブワークフロー',
+  'Catch-up': 'キャッチアップ',
+  Restart: '再起動',
+  Backfill: 'バックフィル',
+  'Run log': '実行ログ',
+  Stream: '出力ストリーム',
+  'Lines shown': '表示する行',
+  'Log display': 'ログ表示',
+  'No workflows yet': 'ワークフローはまだありません',
+  'Create your first workflow to get started.':
+    '最初のワークフローを作成して始めましょう。',
+  'No workflows match the “{view}” view. Try adjusting its filters or show all workflows.':
+    '「{view}」ビューに一致するワークフローはありません。フィルターを調整するか、すべてのワークフローを表示してください。',
+  'There are no workflows matching your current filters. Try adjusting your search criteria or labels.':
+    '現在のフィルターに一致するワークフローはありません。検索条件またはラベルを調整してください。',
+  'Invalid DAG name': 'DAG 名が無効です',
+  'DAG name cannot be empty': 'DAG 名を入力してください',
+  'DAG name must be {max} characters or less':
+    'DAG 名は {max} 文字以内にしてください',
+  'DAG name can only contain letters, numbers, underscores, dots, and hyphens':
+    'DAG 名に使用できるのは英数字、アンダースコア、ドット、ハイフンのみです',
+  'DAG name cannot contain spaces': 'DAG 名にスペースは使用できません',
+  'Retried {count}×': '{count} 回再試行',
+  'Get an email if this server stops': 'このサーバーが停止したらメールで通知',
+  'Alerts from this server stop if the server goes down.':
+    'サーバーが停止すると、このサーバーからのアラートも止まります。',
+  'Dagu Console emails you when a workflow fails or this server stops reporting. Free for one server.':
+    'ワークフローが失敗したときや、このサーバーからの報告が途絶えたときに Dagu Console からメールが届きます。1 台のサーバーまで無料です。',
+  'Set up for free': '無料で設定',
+  'Getting started': 'はじめに',
+  'Run a workflow': 'ワークフローを実行する',
+  'Create your own workflow': '独自のワークフローを作成する',
+  'Put a workflow on a schedule': 'ワークフローをスケジュール実行する',
+  'Get alerted when something fails': '失敗したときにアラートを受け取る',
+  'The retry example fails once, then succeeds on its retry.':
+    '再試行の例は一度失敗し、再試行で成功します。',
+  'Start a workflow from the Workflows page.':
+    'ワークフローページからワークフローを開始します。',
+  'Define steps in YAML. Each step runs a command.':
+    'YAML でステップを定義します。各ステップはコマンドを 1 つ実行します。',
+  'A schedule runs a workflow while no one is watching.':
+    'スケジュールを設定すると、誰も見ていなくてもワークフローが実行されます。',
+  'Get an email from Dagu Console when a workflow fails or this server stops, or send failures to a notification channel.':
+    'ワークフローが失敗したときやこのサーバーが停止したときに Dagu Console からメールを受け取るか、失敗を通知チャネルに送信します。',
+  'Send failures to Slack, email, or a webhook.':
+    '失敗を Slack、メール、Webhook に送信します。',
+  'Open the retry example': '再試行の例を開く',
+  'Open Workflows': 'ワークフローを開く',
+  'Scheduling guide': 'スケジュールのガイド',
+  'Add a notification channel': '通知チャネルを追加',
+  'Connect an AI app': 'AI アプリを接続',
+  'Let Claude, ChatGPT, or a coding agent run and edit workflows here over MCP.':
+    'Claude、ChatGPT、コーディングエージェントが MCP 経由でここのワークフローを実行・編集できるようにします。',
+  'Use from Claude or ChatGPT': 'Claude や ChatGPT から使う',
+  'Set up a coding agent': 'コーディングエージェントを設定',
+  'Could not change remote access.': 'リモートアクセスを変更できませんでした。',
+  'Remote access': 'リモートアクセス',
+  'Serves the MCP tools of this server through the Dagu Cloud MCP endpoint. The server connects out to Dagu Cloud, so no inbound port is opened.':
+    'このサーバーの MCP ツールを Dagu Cloud の MCP エンドポイント経由で提供します。サーバーから Dagu Cloud へ接続するため、受信ポートは開きません。',
+  'MCP calls are refused.': 'MCP 呼び出しは拒否されます。',
+  'MCP calls read DAGs, runs, and logs.':
+    'MCP 呼び出しは DAG、実行、ログを読み取れます。',
+  'MCP calls read DAGs, runs, and logs, and start, retry, and stop runs.':
+    'MCP 呼び出しは DAG、実行、ログを読み取り、実行の開始、再試行、停止ができます。',
+  'MCP calls also change DAG definitions, so they can run any command on this machine.':
+    'MCP 呼び出しは DAG 定義も変更できるため、このマシンで任意のコマンドを実行できます。',
+  'Remote access status unavailable': 'リモートアクセスの状態を取得できません',
+  Access: 'アクセス',
+  Approvals: '承認',
+  'Let MCP calls complete human tasks. Needs Operator or Developer access.':
+    'MCP 呼び出しで人間タスクを完了できるようにします。オペレーターまたは開発者のアクセスが必要です。',
+  On: 'オン',
+  'cloud.remote_access and cloud.remote_approvals in the server configuration set these. Change them there and restart Dagu.':
+    'サーバー設定の cloud.remote_access と cloud.remote_approvals がこれらを指定しています。設定を変更して Dagu を再起動してください。',
+  Connected: '接続済み',
+  'Connecting…': '接続中…',
+  'Agent activity': 'エージェントのアクティビティ',
+  'No calls from Dagu Cloud yet.':
+    'Dagu Cloud からの呼び出しはまだありません。',
+  'MCP URL': 'MCP URL',
+  'Copy MCP URL': 'MCP URL をコピー',
+  'MCP URL copied': 'MCP URL をコピーしました',
+  'Last call': '最後の呼び出し',
+  'No calls yet': 'まだ呼び出しはありません',
+  'Connect a client': 'クライアントを接続',
+  'In Claude, open Customize, then Connectors. Select + Add, then Add custom connector. Paste the URL, select Continue, and sign in.':
+    'Claude で Customize を開き、Connectors を選びます。+ Add を選び、Add custom connector を選びます。URL を貼り付けて Continue を選び、サインインします。',
+  'On Team and Enterprise, an owner adds it first under Organization settings, then Connectors.':
+    'Team と Enterprise では、先にオーナーが Organization settings の Connectors で追加します。',
+  'Select +, then Add custom MCP server. Paste the URL as the Server URL, choose OAuth, confirm, and select Create as a plugin. Install the plugin, then sign in.':
+    '+ を選び、Add custom MCP server を選びます。Server URL に URL を貼り付け、OAuth を選んで確認し、Create as a plugin を選びます。プラグインをインストールし、サインインします。',
+  'Copy command': 'コマンドをコピー',
+  'Command copied': 'コマンドをコピーしました',
+  'Then run /mcp in Claude Code to sign in.':
+    'その後、Claude Code で /mcp を実行してサインインします。',
+  'Other clients and connections in Dagu Cloud':
+    'Dagu Cloud のほかのクライアントと接続',
+  'Included in your trial until {date}. Choose a plan to keep MCP clients working.':
+    'トライアルに {date} まで含まれています。MCP クライアントを使い続けるにはプランを選んでください。',
+  'Use this server from Claude, ChatGPT, and other MCP clients':
+    'Claude、ChatGPT などの MCP クライアントからこのサーバーを使う',
+  'Included in your trial. Turn on remote access, then add the MCP URL to your client.':
+    'トライアルに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Included in your plan. Turn on remote access, then add the MCP URL to your client.':
+    'プランに含まれています。リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'Needs a paid plan or a trial. The 14-day trial is free, with no card needed.':
+    '有料プランまたはトライアルが必要です。14 日間のトライアルは無料で、カードは不要です。',
+  'Turn on remote access, then add the MCP URL to your client.':
+    'リモートアクセスをオンにしてから、MCP URL をクライアントに追加します。',
+  'MCP calls need a paid plan or a trial':
+    'MCP の呼び出しには有料プランまたはトライアルが必要です',
+  'Dagu Cloud refuses calls to this server until its workspace has one. The 14-day trial is free, with no card needed.':
+    'ワークスペースに有料プランかトライアルがあるまで、Dagu Cloud はこのサーバーへの呼び出しを拒否します。14 日間のトライアルは無料で、カードは不要です。',
+  'Choose remote access': 'リモートアクセスを選択',
+  'The highest role a Dagu Cloud user gets on this server. Dagu Cloud may grant less, never more.':
+    'Dagu Cloud のユーザーがこのサーバーで得る最も高いロールです。Dagu Cloud はこれより低いロールを付与することはあっても、高いロールは付与しません。',
+  'Read DAGs, runs, and logs.': 'DAG、実行、ログを読み取ります。',
+  'Also start, enqueue, retry, and stop runs of existing DAGs, with any parameters those DAGs take.':
+    '既存の DAG の実行の開始、キュー投入、再試行、停止もでき、その DAG が受け取る任意のパラメーターを渡せます。',
+  'Also change DAG definitions and run inline specs. DAG steps run commands, so this runs any command on this machine.':
+    'DAG 定義の変更とインライン仕様の実行もできます。DAG のステップはコマンドを実行するため、このマシンで任意のコマンドを実行できることになります。',
+  'Calls never reach the terminal, users, API keys, the license, or these settings. Each carries a short-lived assertion that Dagu Cloud signs for that call alone. Turning remote access off closes the connection and ends the calls in flight.':
+    '呼び出しがターミナル、ユーザー、API キー、ライセンス、これらの設定に届くことはありません。各呼び出しには、Dagu Cloud がその呼び出しのためだけに署名した有効期間の短いアサーションが付きます。リモートアクセスをオフにすると接続が閉じ、実行中の呼び出しは終了します。',
+  'Developer lets the Dagu Cloud users this reaches run any command on this machine, as the user Dagu runs as. Choose it only where you would give them a shell here.':
+    '開発者を選ぶと、ここに届く Dagu Cloud のユーザーが、Dagu を実行しているユーザーとしてこのマシンで任意のコマンドを実行できます。このマシンのシェルを渡してよい場合にだけ選んでください。',
+  'Workspaces are removed in v3.0': 'ワークスペースは v3.0 で削除されます',
+  'These workspace settings will stop applying, and users and API keys limited to workspaces will become viewers.':
+    'これらのワークスペース設定は適用されなくなり、一部のワークスペースに限定されたユーザーと API キーは閲覧者になります。',
+  'Have feedback? Comment on the GitHub issue.':
+    'ご意見は GitHub の issue にコメントしてください。',
+  'Base config': 'ベース設定',
+  'Profile entry': 'プロファイルのエントリ',
+  'Notification route': '通知ルート',
+  'Incident policy': 'インシデントポリシー',
+  'Config key': '設定キー',
+  'API key': 'API キー',
+  'Wiki directory': 'Wiki ディレクトリ',
+  'Update available: v{current} → {latest} {releaseLink}':
+    '更新があります：v{current} → {latest} {releaseLink}',
+  'A new Dagu binary is installed. Run {command} to restart and use it.':
+    '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
+  'A new Dagu binary is installed. Restart Dagu to use it.':
+    '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
+  'Upcoming runs': '今後の実行',
+  '{count} parameter override': '{count} 件のパラメータ上書き',
+  '{count} parameter overrides': '{count} 件のパラメータ上書き',
+  'last business day of the month': '月末営業日',
+  "business day {n} from the month's end": '月末から {n} 番目の営業日',
+  'business day {n} of the month': '第 {n} 営業日',
+  'extra business day': '臨時営業日',
+  'skips {day}': '{day} はスキップ',
+  'This DAG is suspended. None of these runs will start until it is resumed.':
+    'このDAGは停止中です。再開するまで、これらの実行は開始されません。',
+  'A calendar named {name} already exists.':
+    '{name} という名前のカレンダーは既に存在します。',
+  'Back to calendars': 'カレンダー一覧に戻る',
+  'Built in': '組み込み',
+  'Business day {ordinal} of {total}': '{total} 営業日中の第 {ordinal} 営業日',
+  'Business days that start schedules fire on. A schedule names a calendar with {key}.':
+    '開始スケジュールが実行される営業日です。スケジュールは {key} でカレンダーを指定します。',
+  'Calendar not found': 'カレンダーが見つかりません',
+  'Calendar saved': 'カレンダーを保存しました',
+  'Calendar {name} deleted': 'カレンダー {name} を削除しました',
+  'Calendar:': 'カレンダー:',
+  Calendars: '営業日カレンダー',
+  'Checking...': '確認中...',
+  "Couldn't load the calendar": 'カレンダーを読み込めませんでした',
+  'Delete calendar': 'カレンダーを削除',
+  'Delete this calendar': 'このカレンダーを削除',
+  'Extra business day, {ordinal} of {total}':
+    '臨時営業日、{total} 営業日中の第 {ordinal} 営業日',
+  'Failed to create the calendar.': 'カレンダーを作成できませんでした。',
+  'Failed to delete the calendar.': 'カレンダーを削除できませんでした。',
+  'Failed to save the calendar.': 'カレンダーを保存できませんでした。',
+  'Fix the problems in the file to see its business days.':
+    'ファイルの問題を修正すると営業日が表示されます。',
+  'Hide dates': '日付を隠す',
+  Holiday: '休日',
+  'Holiday: {name}': '休日: {name}',
+  'Holidays run out': '休日の更新が必要',
+  'Holidays through': '休日の登録期限',
+  'Holidays through {date}': '休日は {date} まで登録済み',
+  'Included by': '取り込んでいるカレンダー',
+  Includes: '取り込むカレンダー',
+  Invalid: '無効',
+  'Keep my edits': '編集内容を保持',
+  'Load the server version': 'サーバーの版を読み込む',
+  'Loading calendars...': 'カレンダーを読み込み中...',
+  'New calendar': '新しいカレンダー',
+  'Next year': '翌年',
+  'No DAG schedules use this calendar.':
+    'このカレンダーを使う DAG のスケジュールはありません。',
+  'No calendar files yet. Create one here, or add {file} to paths.calendars_dir.':
+    'カレンダーファイルはまだありません。ここで作成するか、{file} を paths.calendars_dir に追加してください。',
+  'No calendar is named {name}. It may have been deleted.':
+    '{name} という名前のカレンダーはありません。削除された可能性があります。',
+  'Not a business day': '営業日ではありません',
+  'Previous year': '前年',
+  Problems: '問題',
+  'Remove the schedules and includes that use this calendar first':
+    '先にこのカレンダーを使うスケジュールと取り込みを外してください',
+  'Schedules name it with calendar. It starts as Monday to Friday with no holidays.':
+    'スケジュールは calendar で指定します。最初は月曜から金曜で、休日はありません。',
+  'Select a date to see its business day.':
+    '日付を選ぶと営業日の情報が表示されます。',
+  'Show dates': '日付を表示',
+  'The calendar file changed on the server while you were editing.':
+    '編集中にサーバー上のカレンダーファイルが変更されました。',
+  'The calendar was not saved': 'カレンダーは保存されませんでした',
+  'This calendar is built in: Monday to Friday, with no holidays. It cannot be changed. Create a calendar file to list holidays.':
+    '組み込みのカレンダーです。月曜から金曜で休日はなく、変更できません。休日を登録するにはカレンダーファイルを作成してください。',
+  'Use letters, digits, - and _ only.': '英字、数字、- と _ のみ使えます。',
+  'Used by': '使用している DAG',
+  'after {through}, when the holidays end': '休日の登録期限 {through} 以降',
+  'business day': '営業日',
+  holiday: '休日',
+  'not a business day': '非営業日',
+  'unsaved change': '未保存の変更',
+  'used by {count} DAG': '{count} 件の DAG が使用',
+  'used by {count} DAGs': '{count} 件の DAG が使用',
+  'via {calendar}': '{calendar} 経由',
+  'weekdays {changes}': '曜日 {changes}',
+  '{count} date changes': '{count} 件の日付が変更',
+  '{count} dates change': '{count} 件の日付が変更',
+  '{count} problem': '{count} 件の問題',
+  '{count} problems': '{count} 件の問題',
+  '{name} is reserved.': '{name} は予約済みの名前です。',
+  "Couldn't preview the calendar.": 'カレンダーをプレビューできませんでした。',
+  'Loading {year}...': '{year} 年を読み込み中...',
+  "Couldn't check": '確認できませんでした',
+  'Service DAG': 'サービス DAG',
+  'Service DAGs': 'サービス DAG',
+  'DAGs that Dagu restarts when their run ends.': '実行が終わると Dagu が再起動する DAG。',
+  'Pending': '待機中',
+  'Restarting': '再起動中',
+  'Failing': '失敗中',
+  'Up for {duration}': '{duration} 稼働中',
+  'Restarting…': '再起動しています…',
+  'Restart in {duration}': '{duration}後に再起動',
+  'Next restart unknown': '次の再起動の時刻は不明',
+  'Only service DAGs are running.': '実行中なのはサービス DAG だけです。',
+  'Restart on hold: the scheduler is paused':
+    '再起動は保留中: スケジューラーが一時停止しています',
+  'Restart on hold: no scheduler is running':
+    '再起動は保留中: スケジューラーが動いていません',
+  'Stopped by an operator': 'オペレーターが停止',
+  'No new run': '新しい実行なし',
+  'Waiting for a run': '実行を待機中',
+  'Restarts {seconds}s after a run ends': '実行の終了 {seconds} 秒後に再起動',
+  'Show runs of {name}': '{name} の実行を表示',
+  'Hide runs of {name}': '{name} の実行を隠す',
+  'Last {count} runs': '直近 {count} 件の実行',
+  '{count} succeeded': '{count} 件成功',
+  'No run in the last {days} days': '過去 {days} 日間の実行なし',
+  'Last run failed': '前回の実行が失敗',
+  '{count} failures in a row': '{count} 回連続で失敗',
+  'Multi-line or file': '複数行またはファイル',
+  'Value source': '値の入力方法',
+  '{name} loaded ({size} bytes)': '{name} を読み込みました（{size} バイト）',
+  'Failed to read the selected file': '選択したファイルを読み込めませんでした',
+} as const satisfies Record<BaseStaticMessage, string>;
+
+const chinese = {
+  ...workspaceMessages['zh-CN'],
+  ...backfillMessages['zh-CN'],
+  ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
+
+const japanese = {
+  ...workspaceMessages.ja,
+  ...backfillMessages.ja,
+  ...baseJapanese,
+} as const satisfies Record<StaticMessage, string>;
+
+export const baseStaticMessages = {
+  en: baseEnglish,
+  'zh-CN': baseChinese,
+  ja: baseJapanese,
+} satisfies Record<Locale, Record<BaseStaticMessage, string>>;
 
 export const staticMessages = {
   en: english,
   'zh-CN': chinese,
   ja: japanese,
 } satisfies Record<Locale, Record<StaticMessage, string>>;
-
-export function translateStatic(
-  locale: Locale,
-  source: string,
-  values?: StaticTranslationValues
-): string {
-  const message =
-    locale === 'en'
-      ? source
-      : (staticMessages[locale][source as StaticMessage] ?? source);
-  if (!values) {
-    return message;
-  }
-
-  return message.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
-    const value = values[name];
-    return value === undefined ? placeholder : String(value);
-  });
-}

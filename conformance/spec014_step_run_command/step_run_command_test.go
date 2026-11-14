@@ -4,10 +4,12 @@
 package spec014_step_run_command_test
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
@@ -218,19 +220,39 @@ exit 64
 }
 
 func TestCommandFormPowerShellWhenAvailable(t *testing.T) {
-	if _, err := exec.LookPath("pwsh"); err != nil {
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
 		t.Skip("pwsh is not available")
 	}
 
+	// The first pwsh launch on a machine pays .NET start-up and module
+	// import; on a loaded CI runner that has taken longer than the whole
+	// command budget while the next launch took a quarter of it. One
+	// warm-up launch keeps that cost out of the timed runs, and its
+	// duration sizes their budget so a slow runner still gets headroom. The
+	// warm-up has a deadline of its own, so a stalled pwsh fails the test
+	// instead of hanging it.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*harness.WaitTimeout(t))
+	defer cancel()
+	started := time.Now()
+	if out, err := exec.CommandContext(ctx, pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit").CombinedOutput(); err != nil {
+		t.Fatalf("pwsh warm-up failed after %s: %v\n%s", time.Since(started).Round(time.Second), err, out)
+	}
+	// The timed runs get the platform budget plus twice the warm-up, which
+	// a warm launch stays well inside, capped so a stalled dagu still fails
+	// within a few minutes.
+	wait := harness.WaitTimeout(t)
+	budget := min(wait+2*time.Since(started), 4*wait)
+
 	t.Run("UTF-8 output is stable", func(t *testing.T) {
-		dagu := harness.NewRunner(t)
+		dagu := harness.NewRunner(t).WithCommandTimeout(budget)
 		result := dagu.Run("start", "powershell_utf8.yaml")
 		result.ExpectExitCode(0)
 		dagu.ExpectFileContent("pwsh-utf8.txt", "東京")
 	})
 
 	t.Run("Write-Error fails command-form step", func(t *testing.T) {
-		dagu := harness.NewRunner(t)
+		dagu := harness.NewRunner(t).WithCommandTimeout(budget)
 		result := dagu.Run("start", "powershell_error_fails.yaml")
 		result.ExpectExitCode(1)
 		dagu.ExpectFileContent("pwsh-error.txt", "before")

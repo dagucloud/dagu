@@ -1,0 +1,4 @@
+schedule: "TZ=UTC @every 1h"
+steps:
+  - id: noop
+    run: "true"

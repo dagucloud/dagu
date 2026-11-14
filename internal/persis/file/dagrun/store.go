@@ -23,12 +23,17 @@ var _ persis.DAGRunStore = (*Store)(nil)
 
 const defaultRetryCandidateCacheLimit = 2000
 
+// latestAttemptLookback is how many of the newest runs are searched for the
+// latest attempt when the latest-attempt pointer is unusable.
+const latestAttemptLookback = 10
+
 // Store manages DAG run status files on the local filesystem.
 type Store struct {
 	baseDir         string
 	artifactDir     string
 	cache           *fileutil.Cache[*ir.DAGRunStatus]
 	retryCandidates retryCandidateCache
+	listTuning      statusListTuning
 }
 
 // StoreOption configures filesystem DAG-run storage.
@@ -82,6 +87,7 @@ func NewStore(baseDir string, opts ...StoreOption) *Store {
 		artifactDir:     cfg.artifactDir,
 		cache:           cfg.fileCache,
 		retryCandidates: retryCandidateCache{limit: cfg.retryCandidateCacheLimit},
+		listTuning:      defaultStatusListTuning,
 	}
 }
 
@@ -147,6 +153,8 @@ func (store *Store) resolveStatus(
 			ProcGroup:            s.ProcGroup,
 			DefinitionID:         s.DefinitionID,
 			ArchiveDir:           s.ArchiveDir,
+			BackfillID:           s.BackfillID,
+			Dates:                s.Dates,
 		}
 	}
 
@@ -221,7 +229,9 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 
-	status, err := attempt.ReadStatus(ctx)
+	// Mutate changes the status in place, so it must not be the one shared
+	// through the cache with other readers.
+	status, err := attempt.ReadStatusUncached(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -288,8 +298,12 @@ func (store *Store) CreateAttempt(ctx context.Context, req persis.DAGRunCreateAt
 		}
 		run = r
 	} else {
-		// Check if the dag-run already exists
-		existingRun, _ := dataRoot.FindByDAGRunID(ctx, req.DAGRunID)
+		// Check if the dag-run already exists. A failed lookup must not count as
+		// "no such run", or a scheduler could start a slot twice.
+		existingRun, err := dataRoot.FindByDAGRunID(ctx, req.DAGRunID)
+		if err != nil && !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+			return nil, fmt.Errorf("failed to check for an existing dag-run: %w", err)
+		}
 		if existingRun != nil {
 			// Error if the dag-run already exists
 			return nil, fmt.Errorf("%w: %s", dagrun.ErrDAGRunAlreadyExists, req.DAGRunID)
@@ -390,36 +404,51 @@ func (store *Store) LatestAttempt(ctx context.Context, query persis.DAGRunLatest
 			return attempt, nil
 		}
 
-		exec, err := root.LatestAfter(ctx, query.NotBefore)
+		attempt, err := store.latestAttemptAfter(ctx, root, query.NotBefore)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get latest after: %w", err)
+			return nil, err
 		}
-
-		attempt, err := exec.LatestAttempt(ctx, store.cache)
-		if err == nil {
-			if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
-				logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
-			}
-		}
-		return attempt, err
+		return attempt, nil
 	}
 
 	if attempt, err := root.latestAttemptFromPointer(ctx, store.cache, persis.TimeInUTC{}); err == nil {
 		return attempt, nil
 	}
 
-	// Get the latest execution data.
-	latest := root.Latest(ctx, 1)
-	if len(latest) == 0 {
-		return nil, dagrun.ErrNoStatusData
-	}
-	attempt, err := latest[0].LatestAttempt(ctx, store.cache)
-	if err == nil {
+	// A run without a visible attempt, such as one whose creation was cut
+	// short, does not hide the runs before it.
+	for _, run := range root.Latest(ctx, latestAttemptLookback) {
+		attempt, err := run.LatestAttempt(ctx, store.cache)
+		if errors.Is(err, dagrun.ErrNoStatusData) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
 		if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
 			logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
 		}
+		return attempt, nil
 	}
-	return attempt, err
+	return nil, dagrun.ErrNoStatusData
+}
+
+// latestAttemptAfter lists root for its newest run created at or after cutoff
+// and points the latest-attempt pointer at that run's newest attempt.
+func (store *Store) latestAttemptAfter(ctx context.Context, root DataRoot, cutoff persis.TimeInUTC) (*Attempt, error) {
+	exec, err := root.LatestAfter(ctx, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest after: %w", err)
+	}
+
+	attempt, err := exec.LatestAttempt(ctx, store.cache)
+	if err != nil {
+		return nil, err
+	}
+	if markerErr := updateLatestAttemptPointer(ctx, attempt.file); markerErr != nil {
+		logger.Debug(ctx, "Failed to refresh DAG-run latest attempt pointer", tag.Error(markerErr))
+	}
+	return attempt, nil
 }
 
 // FindAttempt finds the latest attempt by DAG-run ID.
@@ -485,6 +514,16 @@ func (store *Store) RemoveDAGRun(ctx context.Context, req persis.DAGRunRemoveReq
 	run, err := root.FindByDAGRunID(ctx, dagRun.ID)
 	if err != nil {
 		return fmt.Errorf("failed to find dag-run %s: %w", dagRun.ID, err)
+	}
+
+	if req.ExpectedAttemptID != "" {
+		newest, err := run.newestAttemptID()
+		if err != nil {
+			return fmt.Errorf("failed to list attempts of dag-run %s: %w", dagRun.ID, err)
+		}
+		if newest != req.ExpectedAttemptID {
+			return fmt.Errorf("%w: attempt %s is not the newest", dagrun.ErrDAGRunActive, req.ExpectedAttemptID)
+		}
 	}
 
 	if req.RejectActive {

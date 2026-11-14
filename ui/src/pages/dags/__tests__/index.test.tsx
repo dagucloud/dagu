@@ -33,26 +33,34 @@ const {
   clientDeleteMock,
   clientGetMock,
   clientPostMock,
+  clientPutMock,
   createViewMock,
   deleteResultsMock,
   deleteViewMock,
+  listMutateMock,
   renameErrorMock,
   sharedWorkflowViewState,
+  showErrorMock,
   updateViewMock,
   userPreferences,
+  workspaceWriteCheckMock,
 } = vi.hoisted(() => ({
   clientDeleteMock: vi.fn(),
   clientGetMock: vi.fn(),
   clientPostMock: vi.fn(),
+  clientPutMock: vi.fn(),
   createViewMock: vi.fn(),
   deleteResultsMock: vi.fn(),
   deleteViewMock: vi.fn(),
+  listMutateMock: vi.fn(),
   renameErrorMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
+  showErrorMock: vi.fn(),
   updateViewMock: vi.fn(),
   userPreferences: {
     pageLimit: 200,
   },
+  workspaceWriteCheckMock: vi.fn(),
 }));
 
 vi.mock('@/contexts/UserPreference', () => ({
@@ -64,6 +72,11 @@ vi.mock('@/contexts/UserPreference', () => ({
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
+  useWorkspaceWriteCheck: () => workspaceWriteCheckMock,
+}));
+
+vi.mock('@/components/ui/error-modal', () => ({
+  useErrorModal: () => ({ showError: showErrorMock }),
 }));
 
 vi.mock('@/hooks/useViews', () => ({
@@ -78,23 +91,6 @@ vi.mock('@/hooks/useViews', () => ({
   }),
 }));
 
-vi.mock('@/features/dags/components/dag-details', () => ({
-  DAGDetailsModal: ({
-    fileName,
-    onClose,
-  }: {
-    fileName: string;
-    onClose: () => void;
-  }) => (
-    <div role="dialog">
-      Workflow modal for {fileName}
-      <button type="button" onClick={onClose}>
-        Close workflow
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock('@/features/dags/components/dag-editor', () => ({
   DAGErrors: () => null,
 }));
@@ -106,8 +102,6 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     handleSearchTextChange,
     activeOnly,
     handleActiveOnlyChange,
-    selectedDAG,
-    onSelectDAG,
     activeWorkflowViewId,
     workflowViewError,
     onSaveWorkflowView,
@@ -119,14 +113,17 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onDeleteWorkflowView,
     onDeleteDAGs,
     onRenameDAG,
+    onSetDAGPinned,
+    canPinDAG,
   }: {
-    dags: Array<{ fileName: string; dag: { name: string } }>;
+    dags: Array<{
+      fileName: string;
+      dag: { name: string; workspace?: string };
+    }>;
     searchText: string;
     handleSearchTextChange: (value: string) => void;
     activeOnly: boolean;
     handleActiveOnlyChange: (value: boolean) => void;
-    selectedDAG?: string | null;
-    onSelectDAG?: (fileName: string, title: string) => void;
     activeWorkflowViewId: string | null;
     workflowViewError?: string | null;
     onSaveWorkflowView: (
@@ -144,6 +141,11 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       fileNames: string[]
     ) => Promise<Array<{ fileName: string; error?: string }>>;
     onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
+    onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
+    canPinDAG?: (dag: {
+      fileName: string;
+      dag: { name: string; workspace?: string };
+    }) => boolean;
   }) => (
     <div>
       <input
@@ -158,14 +160,6 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Active only
       </button>
-      <button
-        type="button"
-        aria-pressed={selectedDAG === 'demo.yaml'}
-        onClick={() => onSelectDAG?.('demo.yaml', 'demo')}
-      >
-        Open demo workflow
-      </button>
-      <span data-testid="selected-dag">{selectedDAG ?? 'none'}</span>
       <span data-testid="active-workflow-view">
         {activeWorkflowViewId ?? 'none'}
       </span>
@@ -236,9 +230,23 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       >
         Rename demo workflow
       </button>
+      <button
+        type="button"
+        onClick={() => void onSetDAGPinned('demo.yaml', true)}
+      >
+        Pin demo workflow
+      </button>
+      <button
+        type="button"
+        onClick={() => void onSetDAGPinned('demo.yaml', false)}
+      >
+        Unpin demo workflow
+      </button>
       <ul>
         {dags.map((dag) => (
-          <li key={dag.fileName}>{dag.fileName}</li>
+          <li key={dag.fileName} data-can-pin={String(canPinDAG?.(dag))}>
+            {dag.fileName}
+          </li>
         ))}
       </ul>
     </div>
@@ -249,14 +257,16 @@ vi.mock('@/features/dags/components/dag-list/DAGListHeader', () => ({
   default: () => null,
 }));
 
-vi.mock('@/hooks/api', () => ({
-  useQuery: vi.fn(),
-  useClient: () => ({
+// The app's client is one object for the whole session; so is this one.
+vi.mock('@/hooks/api', () => {
+  const client = {
     DELETE: clientDeleteMock,
     GET: clientGetMock,
     POST: clientPostMock,
-  }),
-}));
+    PUT: clientPutMock,
+  };
+  return { useQuery: vi.fn(), useClient: () => client };
+});
 
 vi.mock('@/hooks/useDAGsListSSE', () => ({
   useDAGsListSSE: () => ({
@@ -322,6 +332,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -356,7 +369,12 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location-search">{location.search}</output>;
+  return (
+    <>
+      <output data-testid="location-path">{location.pathname}</output>
+      <output data-testid="location-search">{location.search}</output>
+    </>
+  );
 }
 
 function DagsPageHarness({
@@ -444,6 +462,12 @@ describe('DagsPage', () => {
     clientGetMock.mockReset();
     clientPostMock.mockReset();
     clientPostMock.mockResolvedValue({});
+    clientPutMock.mockReset();
+    clientPutMock.mockResolvedValue({});
+    listMutateMock.mockReset();
+    showErrorMock.mockReset();
+    workspaceWriteCheckMock.mockReset();
+    workspaceWriteCheckMock.mockReturnValue(true);
     renameErrorMock.mockReset();
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
@@ -545,7 +569,7 @@ describe('DagsPage', () => {
         return {
           data: dagsPageResponse,
           isLoading: name.length > 0,
-          mutate: vi.fn(),
+          mutate: listMutateMock,
           ...(name.length > 0 && !keepPreviousData ? { data: undefined } : {}),
         };
       }
@@ -949,9 +973,6 @@ describe('DagsPage', () => {
   it('deletes selected workflows through the existing DAG endpoint', async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
-
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Delete demo workflow' })
@@ -964,19 +985,16 @@ describe('DagsPage', () => {
         query: { remoteNode: 'remote-a' },
       },
     });
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('none');
     expect(deleteResultsMock).toHaveBeenCalledWith([
       { fileName: 'demo.yaml', error: undefined },
     ]);
   });
 
-  it('returns the individual delete error without clearing the selection', async () => {
+  it('returns the individual delete error', async () => {
     clientDeleteMock.mockResolvedValueOnce({
       error: { message: 'workflow is read-only' },
     });
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Delete demo workflow' })
@@ -986,7 +1004,6 @@ describe('DagsPage', () => {
     expect(deleteResultsMock).toHaveBeenCalledWith([
       { fileName: 'demo.yaml', error: 'workflow is read-only' },
     ]);
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
   });
 
   it('limits concurrent workflow deletion requests', async () => {
@@ -1021,9 +1038,6 @@ describe('DagsPage', () => {
   it('renames workflows through the existing DAG endpoint', async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent('demo.yaml');
-
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Rename demo workflow' })
@@ -1037,9 +1051,79 @@ describe('DagsPage', () => {
       },
       body: { newFileName: 'renamed.yaml' },
     });
-    expect(screen.getByTestId('selected-dag')).toHaveTextContent(
-      'renamed.yaml'
+  });
+
+  it('pins and unpins workflows through the pin endpoint', async () => {
+    renderPage();
+    const request = {
+      params: {
+        path: { fileName: 'demo.yaml' },
+        query: { remoteNode: 'remote-a' },
+      },
+    };
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Pin demo workflow' })
+      );
+    });
+    expect(clientPutMock).toHaveBeenCalledWith('/dags/{fileName}/pin', request);
+    expect(listMutateMock).toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Unpin demo workflow' })
+      );
+    });
+    expect(clientDeleteMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/pin',
+      request
     );
+  });
+
+  // In an all-workspaces view, write access differs between workflows.
+  it('checks pin permission against each workflow workspace', () => {
+    dagsPageResponse.dags = [
+      { fileName: 'demo.yaml', dag: { name: 'demo' }, latestDAGRun: {} },
+      {
+        fileName: 'ops.yaml',
+        dag: { name: 'ops', workspace: 'ops' } as { name: string },
+        latestDAGRun: {},
+      },
+    ];
+    workspaceWriteCheckMock.mockImplementation(
+      (workspace?: string) => workspace === 'ops'
+    );
+    renderPage();
+
+    expect(screen.getByText('ops.yaml')).toHaveAttribute(
+      'data-can-pin',
+      'true'
+    );
+    expect(screen.getByText('demo.yaml')).toHaveAttribute(
+      'data-can-pin',
+      'false'
+    );
+  });
+
+  it('surfaces workflow pin errors without reloading the list', async () => {
+    clientPutMock.mockResolvedValueOnce({
+      error: { message: 'insufficient permissions' },
+    });
+    renderPage();
+    const reloadsBefore = listMutateMock.mock.calls.length;
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Pin demo workflow' })
+      );
+    });
+
+    expect(showErrorMock).toHaveBeenCalledWith(
+      'insufficient permissions',
+      expect.any(String)
+    );
+    expect(listMutateMock).toHaveBeenCalledTimes(reloadsBefore);
   });
 
   it('surfaces workflow rename errors', async () => {
@@ -1059,77 +1143,44 @@ describe('DagsPage', () => {
     );
   });
 
-  it('opens workflow details in the page-level modal when a table row is selected', () => {
-    renderPage();
+  // The preview of an older version had a ?peek link.
+  it('opens the workflow page of a ?peek link', () => {
+    renderPage(vi.fn(), '/dags?view=all&peek=demo.yaml');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open demo workflow' }));
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Workflow modal for demo.yaml'
-    );
-    expect(
-      screen.getByRole('button', { name: 'Open demo workflow' })
-    ).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('location-search')).toHaveTextContent(
-      '?selectedDAG=demo.yaml'
+    expect(screen.getByTestId('location-path')).toHaveTextContent(
+      '/dags/demo.yaml'
     );
   });
 
-  it('restores and closes workflow details from the URL', () => {
-    renderPage(vi.fn(), '/dags?selectedDAG=demo.yaml');
+  it('drops the peek when the workspace scope changes', () => {
+    const { rerender } = renderPage(vi.fn(), '/dags?view=all&peek=demo.yaml');
 
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Workflow modal for demo.yaml'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Close workflow' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-search')).toHaveTextContent('');
-  });
-
-  it('closes workflow details and removes its URL state when the workspace changes', () => {
-    function WorkspaceSwitchHarness() {
-      const [workspaceSelection, setWorkspaceSelection] =
-        React.useState<WorkspaceSelection>({
-          kind: WorkspaceKind.all,
-        });
-
-      return (
-        <>
-          <button
-            type="button"
-            onClick={() =>
-              setWorkspaceSelection({
-                kind: WorkspaceKind.workspace,
-                workspace: 'production',
-              })
-            }
-          >
-            Switch workspace
-          </button>
-          <DagsPageHarness
-            setTitle={vi.fn()}
-            workspaceSelection={workspaceSelection}
-          />
-        </>
-      );
-    }
-
-    render(
-      <MemoryRouter initialEntries={['/dags?selectedDAG=demo.yaml']}>
+    rerender(
+      <MemoryRouter initialEntries={['/dags?view=all&peek=demo.yaml']}>
         <LocationProbe />
-        <WorkspaceSwitchHarness />
+        <DagsPageHarness
+          setTitle={vi.fn()}
+          workspaceSelection={{
+            kind: WorkspaceKind.workspace,
+            workspace: 'ops',
+          }}
+        />
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Workflow modal for demo.yaml'
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
-
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('peek');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-search')).not.toHaveTextContent(
-      'selectedDAG'
+  });
+
+  // Links from before the workflow page replaced the side panel.
+  it('opens the workflow of a legacy ?selectedDAG link on its page', () => {
+    renderPage(vi.fn(), '/dags?selectedDAG=demo.yaml');
+
+    expect(screen.getByTestId('location-path')).toHaveTextContent(
+      '/dags/demo.yaml'
+    );
+    expect(screen.getByTestId('location-search')).toHaveTextContent(
+      '?remoteNode=remote-a'
     );
   });
 
@@ -1201,5 +1252,107 @@ describe('DagsPage', () => {
         },
       })
     );
+  });
+
+  // The first page is live and the next pages are read once. A workflow that
+  // starts a run moves to the first page under a last run sort and pushes the
+  // last workflow of that page onto the next one, which must then show it.
+  describe('pages after the first', () => {
+    const dagFile = (name: string) => ({
+      fileName: `${name}.yaml`,
+      dag: { name },
+      latestDAGRun: {},
+    });
+    const pagination = (currentPage: number) => ({
+      totalRecords: 4,
+      currentPage,
+      totalPages: 2,
+      nextPage: currentPage === 1 ? 2 : 0,
+      prevPage: currentPage - 1,
+    });
+    const firstPage = (names: string[]) => ({
+      dags: names.map(dagFile),
+      errors: [],
+      pagination: pagination(1),
+    });
+    const pageTwo = (names: string[]) => ({
+      data: { dags: names.map(dagFile), errors: [], pagination: pagination(2) },
+    });
+    const tree = () => (
+      <MemoryRouter initialEntries={['/dags?sort=lastRun&order=desc']}>
+        <DagsPageHarness
+          setTitle={vi.fn()}
+          workspaceSelection={{ kind: WorkspaceKind.all }}
+        />
+      </MemoryRouter>
+    );
+    const settle = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    const expectEveryWorkflow = () => {
+      for (const name of ['a', 'b', 'c', 'd']) {
+        expect(screen.getByText(`${name}.yaml`)).toBeVisible();
+      }
+    };
+
+    it('keeps every workflow when one crosses into the first page', async () => {
+      dagsPageResponse = firstPage(['a', 'b']);
+      clientGetMock
+        .mockResolvedValueOnce(pageTwo(['c', 'd']))
+        .mockResolvedValueOnce(pageTwo(['b', 'c']));
+      const view = render(tree());
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Load more workflows' })
+        );
+        await settle();
+      });
+      expect(screen.getByText('d.yaml')).toBeVisible();
+
+      // d starts a run: it leads the first page, and b falls to the second.
+      dagsPageResponse = firstPage(['d', 'a']);
+      await act(async () => {
+        view.rerender(tree());
+        await settle();
+      });
+
+      expectEveryWorkflow();
+    });
+
+    // A next page that was read while the first page changed holds the old
+    // order: it is read again once it arrives.
+    it('reads a page again that arrived after the first page changed', async () => {
+      dagsPageResponse = firstPage(['a', 'b']);
+      let deliver: (response: unknown) => void = () => undefined;
+      clientGetMock
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              deliver = resolve;
+            })
+        )
+        .mockResolvedValueOnce(pageTwo(['b', 'c']));
+      const view = render(tree());
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Load more workflows' })
+        );
+        await settle();
+      });
+      dagsPageResponse = firstPage(['d', 'a']);
+      await act(async () => {
+        view.rerender(tree());
+        await settle();
+      });
+      await act(async () => {
+        deliver(pageTwo(['c', 'd']));
+        await settle();
+      });
+
+      expectEveryWorkflow();
+    });
   });
 });

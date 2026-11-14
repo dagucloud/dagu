@@ -1,0 +1,235 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useState, type ReactNode } from 'react';
+import { AlertTriangle, Info } from 'lucide-react';
+import { LicenseMonitoringLevel } from '@/api/v1/schema';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import RelativeTime from '@/components/ui/relative-time';
+import type { LicenseMonitoring } from '@/hooks/useLicenseMonitoring';
+import { useI18n } from '@/i18n/I18nProvider';
+import dayjs from '@/lib/dayjs';
+import { monitoringLevelLabels, monitoringStale } from '@/lib/license';
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
+  );
+}
+
+/** Indents a report for reading, or returns it as is if it is not JSON. */
+function formatReport(report: string): string {
+  try {
+    return JSON.stringify(JSON.parse(report), null, 2);
+  } catch {
+    return report;
+  }
+}
+
+/**
+ * Shows what this server reports to Dagu Console, when it last did, and the
+ * last report itself, and lets an administrator change or stop it unless the
+ * configuration fixes it. A server that stopped reporting is called out, and
+ * so is a pause in Dagu Console storing its finished runs.
+ */
+export function MonitoringSection({
+  monitoring,
+  now,
+  loadError,
+  onRetry,
+  onChoose,
+  onTurnOff,
+}: {
+  monitoring?: LicenseMonitoring;
+  now: number;
+  loadError: boolean;
+  onRetry: () => void;
+  onChoose: () => void;
+  onTurnOff: () => Promise<void>;
+}) {
+  const { ts } = useI18n();
+  const [showReport, setShowReport] = useState(false);
+  const [turningOff, setTurningOff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reporting =
+    monitoring !== undefined && monitoring.level !== LicenseMonitoringLevel.off;
+  const stale = monitoringStale(monitoring, now);
+  const runsPaused =
+    (monitoring?.level === LicenseMonitoringLevel.runs ||
+      monitoring?.level === LicenseMonitoringLevel.errors) &&
+    monitoring.runsPausedUntil !== undefined &&
+    dayjs(monitoring.runsPausedUntil).valueOf() > now;
+
+  async function turnOff() {
+    setTurningOff(true);
+    setError(null);
+    try {
+      await onTurnOff();
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : ts('Could not change what this server reports.')
+      );
+    } finally {
+      setTurningOff(false);
+    }
+  }
+
+  return (
+    <section
+      id="monitoring"
+      className="card-obsidian p-4 space-y-3 scroll-mt-4"
+      aria-labelledby="license-monitoring"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 space-y-1">
+          <h2 id="license-monitoring" className="text-sm font-medium">
+            {ts('Monitoring')}
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            {ts(
+              "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails."
+            )}
+          </p>
+        </div>
+        {monitoring?.configured && (
+          <span className="text-xs text-muted-foreground">
+            {ts('Set in configuration')}
+          </span>
+        )}
+      </div>
+      {loadError && !monitoring ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 text-sm"
+        >
+          <span>{ts('Monitoring status unavailable')}</span>
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            {ts('Retry')}
+          </Button>
+        </div>
+      ) : (
+        monitoring && (
+          <>
+            <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
+              <Row label={ts('Reports')}>
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  {ts(monitoringLevelLabels[monitoring.level])}
+                  {!monitoring.configured && (
+                    <span className="flex flex-wrap items-center gap-2">
+                      {reporting ? (
+                        <>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            disabled={turningOff}
+                            onClick={onChoose}
+                          >
+                            {ts('Change')}
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            disabled={turningOff}
+                            onClick={() => void turnOff()}
+                          >
+                            {ts(turningOff ? 'Turning off…' : 'Turn off')}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="xs" variant="outline" onClick={onChoose}>
+                          {ts('Turn on')}
+                        </Button>
+                      )}
+                    </span>
+                  )}
+                </span>
+              </Row>
+              {(reporting || monitoring.lastReport) && (
+                <Row label={ts('Last report')}>
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    {stale ? (
+                      <span className="inline-flex items-center gap-1.5 text-warning">
+                        <AlertTriangle
+                          className="h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        {ts('Not reporting since {time}', {
+                          time: dayjs(monitoring.lastReportAt).format(
+                            'YYYY-MM-DD HH:mm'
+                          ),
+                        })}
+                      </span>
+                    ) : (
+                      <RelativeTime
+                        timestamp={monitoring.lastReportAt}
+                        fallback={ts('Not yet')}
+                      />
+                    )}
+                    {monitoring.lastReport && (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => setShowReport(true)}
+                      >
+                        {ts('View last report')}
+                      </Button>
+                    )}
+                  </span>
+                </Row>
+              )}
+            </dl>
+            {runsPaused && (
+              <p className="text-sm text-warning">
+                {ts('Run history paused until {time}', {
+                  time: dayjs(monitoring.runsPausedUntil).format(
+                    'YYYY-MM-DD HH:mm'
+                  ),
+                })}
+              </p>
+            )}
+            {monitoring.configured && (
+              <p className="text-sm text-muted-foreground flex items-start gap-2">
+                <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                {ts(
+                  'cloud.report in the server configuration sets this. Change it there and restart Dagu.'
+                )}
+              </p>
+            )}
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </>
+        )
+      )}
+      <Dialog open={showReport} onOpenChange={setShowReport}>
+        <DialogContent className="max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)] sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{ts('Last report')}</DialogTitle>
+            <DialogDescription>
+              {ts(
+                'The last report this server sent to Dagu Console. The heartbeat secret is hidden.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="min-h-0 overflow-auto rounded-md bg-muted p-3 font-mono text-xs">
+            {formatReport(monitoring?.lastReport ?? '')}
+          </pre>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}

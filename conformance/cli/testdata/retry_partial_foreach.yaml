@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - id: each
+    foreach:
+      items: ["a", "b"]
+      key: ${foreach.item}
+      steps:
+        - id: body
+          run: |
+            printf 'run\n' >> "foreach-${foreach.item}.out"
+            if [ "${foreach.item}" = "b" ] && [ ! -f allow-b.txt ]; then
+              exit 1
+            fi
+  - id: independent
+    run: printf 'independent\n' >> independent.out
+  - id: downstream
+    depends: each
+    run: printf 'downstream\n' >> foreach-downstream.out

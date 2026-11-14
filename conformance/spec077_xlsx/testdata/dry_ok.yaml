@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: read
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Status]
+  - id: mark
+    depends: read
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      rows: ${steps.read.outputs.rows}
+      set: {Status: Status}

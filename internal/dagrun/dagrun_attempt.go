@@ -19,9 +19,11 @@ type Attempt interface {
 	Write(ctx context.Context, status ir.DAGRunStatus) error
 	// Close finalizes writing to the attempt
 	Close(ctx context.Context) error
-	// ReadStatus retrieves the current status of the attempt
+	// ReadStatus retrieves the current status of the attempt. The status may
+	// be shared with other readers, so the caller must not modify it.
 	ReadStatus(ctx context.Context) (*ir.DAGRunStatus, error)
-	// ReadStatusUncached retrieves the current status without retaining it in a shared cache.
+	// ReadStatusUncached retrieves the current status without retaining it in
+	// a shared cache. The caller owns the returned status and may modify it.
 	ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, error)
 	// ReadDAG reads the DAG associated with this run attempt
 	ReadDAG(ctx context.Context) (*ir.DAG, error)

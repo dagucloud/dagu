@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ func TestCronLoopWakeGap(t *testing.T) {
 			}
 			require.NoError(t, planner.Init(t.Context(), testDAGEntries(dag)))
 			runs := make(chan PlannedRun, 10)
-			record := func(_ context.Context, entry DAGEntry, id string, trigger ir.TriggerType, scheduled time.Time) error {
+			record := func(_ context.Context, entry DAGEntry, id string, trigger ir.TriggerType, scheduled time.Time, _ string) error {
 				runs <- PlannedRun{DAGEntry: entry, RunID: id, TriggerType: trigger, ScheduledTime: scheduled}
 				return nil
 			}
@@ -75,7 +76,7 @@ func TestCronLoopBackwardClock(t *testing.T) {
 	planner.cfg.Clock = func() time.Time { return base }
 	planner.cfg.Location = time.UTC
 	runs := make(chan struct{}, 10)
-	planner.cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+	planner.cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 		runs <- struct{}{}
 		return nil
 	}
@@ -118,8 +119,10 @@ func TestWaitForTickSignalStopsScheduler(t *testing.T) {
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 
+	// The signal is sent on the channel, not by the OS.
+	ctx := signalctx.WithOSSignalsDisabled(context.Background())
 	sig <- syscall.SIGTERM
-	require.False(t, sc.waitForTick(context.Background(), sig, timer))
+	require.False(t, sc.waitForTick(ctx, sig, timer))
 
 	select {
 	case <-sc.quit:

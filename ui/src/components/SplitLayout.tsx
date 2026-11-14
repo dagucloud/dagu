@@ -141,13 +141,13 @@ function SplitLayout({
 
       {/* Draggable Divider - Hidden on mobile */}
       <div
-        className={`hidden md:flex items-center justify-center w-[1px] h-full bg-border/20 hover:bg-primary/50 hover:shadow-[0_0_10px_var(--color-primary)] cursor-col-resize flex-shrink-0 transition-all duration-300 group z-30 ${
+        className={`hidden md:flex items-center justify-center w-[1px] h-full bg-border/20 hover:bg-primary/50 hover:shadow-[0_0_10px_var(--color-primary)] cursor-col-resize flex-shrink-0 transition-[background-color,box-shadow] duration-300 group z-30 ${
           isDragging ? 'bg-primary shadow-[0_0_15px_var(--color-primary)]' : ''
         }`}
         onMouseDown={handleMouseDown}
       >
         <div
-          className={`w-1 h-8 rounded-full transition-all duration-300 ${
+          className={`w-1 h-8 rounded-full transition-[background-color,box-shadow,scale] duration-300 ${
             isDragging
               ? 'bg-primary shadow-[0_0_10px_var(--color-primary)] scale-110'
               : 'bg-muted-foreground/30 group-hover:bg-primary group-hover:shadow-[0_0_8px_var(--color-primary)]'

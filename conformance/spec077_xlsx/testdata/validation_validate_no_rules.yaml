@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: check
+    action: xlsx.validate
+    with:
+      path: orders.xlsx

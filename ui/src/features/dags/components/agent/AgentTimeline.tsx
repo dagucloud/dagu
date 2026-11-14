@@ -128,19 +128,19 @@ export function AgentTimeline({
                   </span>
                 ) : null}
                 {seconds !== null ? (
-                  <span className="text-muted-foreground/70 text-xs tabular-nums">
+                  <span className="text-muted-foreground text-xs tabular-nums">
                     {seconds.toFixed(1)}s
                   </span>
                 ) : null}
                 {linkable ? (
-                  <span className="text-muted-foreground/70 inline-flex items-center gap-0.5 text-xs">
+                  <span className="text-muted-foreground inline-flex items-center gap-0.5 text-xs">
                     {event.childDagName}
                     <ExternalLink className="h-3 w-3" />
                   </span>
                 ) : null}
               </div>
               {event.reason ? (
-                <div className="text-muted-foreground/80 text-xs break-words whitespace-normal italic">
+                <div className="text-muted-foreground text-xs break-words whitespace-normal italic">
                   {event.reason}
                 </div>
               ) : null}

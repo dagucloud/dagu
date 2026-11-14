@@ -1,0 +1,9 @@
+steps:
+  - id: export
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      output: out/orders.csv
+      encoding: shift_jis
+      columns: [品名, 数量, 金額]

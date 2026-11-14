@@ -37,31 +37,40 @@ const (
 )
 
 var (
-	// TODO: Cache only the bundle hash here once when we can revisit this
-	// package-global state without widening this low-risk regression fix.
-	assetVersionOnce sync.Once
-	assetVersion     string
+	bundleHashOnce sync.Once
+	bundleHash     string
 )
 
-func formatAssetVersion(version string, bundle []byte) string {
-	sum := sha256.Sum256(bundle)
-	suffix := hex.EncodeToString(sum[:8])
+// formatAssetVersion returns version and hash joined by a hyphen, or
+// whichever one is non-empty when the other is empty.
+func formatAssetVersion(version, hash string) string {
 	if version == "" {
-		return suffix
+		return hash
 	}
-	return version + "-" + suffix
+	if hash == "" {
+		return version
+	}
+	return version + "-" + hash
+}
+
+func hashBundle(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:8])
+}
+
+func currentBundleHash() string {
+	bundleHashOnce.Do(func() {
+		data, err := assetsFS.ReadFile("assets/bundle.js")
+		if err != nil {
+			return
+		}
+		bundleHash = hashBundle(data)
+	})
+	return bundleHash
 }
 
 func currentAssetVersion() string {
-	assetVersionOnce.Do(func() {
-		data, err := assetsFS.ReadFile("assets/bundle.js")
-		if err != nil {
-			assetVersion = config.Version
-			return
-		}
-		assetVersion = formatAssetVersion(config.Version, data)
-	})
-	return assetVersion
+	return formatAssetVersion(config.Version, currentBundleHash())
 }
 
 func (srv *Server) useTemplate(ctx context.Context, layout, name string) func(http.ResponseWriter, any) {
@@ -106,10 +115,22 @@ type SetupRequiredChecker interface {
 	IsSetupRequired(ctx context.Context) bool
 }
 
-// UpdateChecker provides dynamic update availability for template rendering.
+// UpdateChecker provides dynamic update status for template rendering.
 // Called on every HTML page render so the banner reflects the latest cached check.
 type UpdateChecker interface {
-	GetUpdateInfo() (updateAvailable bool, latestVersion string)
+	UpdateStatus() UpdateStatus
+}
+
+// UpdateStatus describes how the running server relates to the latest release.
+type UpdateStatus struct {
+	UpdateAvailable bool
+	LatestVersion   string
+	// UpgradeCommand updates this installation; empty when no single command applies.
+	UpgradeCommand string
+	// RestartRequired reports that a different binary was installed since the server started.
+	RestartRequired bool
+	// RestartCommand restarts the installer-managed service; empty when none is found.
+	RestartCommand string
 }
 
 type funcsConfig struct {
@@ -229,19 +250,11 @@ func defaultFunctions(cfg *funcsConfig) template.FuncMap {
 			}
 			return boolStr(cfg.SetupRequiredChecker.IsSetupRequired(context.Background()))
 		},
-		"updateAvailable": func() string {
+		"updateStatus": func() UpdateStatus {
 			if cfg.UpdateChecker == nil {
-				return "false"
+				return UpdateStatus{}
 			}
-			available, _ := cfg.UpdateChecker.GetUpdateInfo()
-			return boolStr(available)
-		},
-		"latestVersion": func() string {
-			if cfg.UpdateChecker == nil {
-				return ""
-			}
-			_, version := cfg.UpdateChecker.GetUpdateInfo()
-			return version
+			return cfg.UpdateChecker.UpdateStatus()
 		},
 
 		// License functions

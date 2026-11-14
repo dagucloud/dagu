@@ -13,7 +13,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { translate, type TranslationKey } from '@/i18n/messages';
 import { Home } from 'lucide-react';
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 type BreadcrumbItemData = {
   label: string;
@@ -33,12 +33,13 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/incidents': 'navigation.incidents',
   '/incident-providers': 'navigation.incidentConnections',
   '/incident-policies': 'navigation.incidentRouting',
-  '/dags': 'navigation.dags',
+  '/dags': 'navigation.workflows',
   '/search': 'navigation.search',
   '/base-config': 'navigation.baseConfig',
+  '/calendars': 'navigation.calendars',
   '/wiki': 'navigation.wiki',
   '/queues': 'navigation.queues',
-  '/dag-runs': 'navigation.dagRuns',
+  '/dag-runs': 'navigation.executions',
   '/artifacts': 'navigation.artifacts',
   '/system-status': 'navigation.systemStatus',
   '/users': 'navigation.users',
@@ -50,8 +51,25 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/event-logs': 'navigation.events',
   '/audit-logs': 'navigation.auditLogs',
   '/license': 'navigation.license',
+  '/settings': 'navigation.settings',
   '/git-sync': 'navigation.gitSync',
 };
+
+// Top-level routes that exist but have no static label above.
+const UNLABELED_ROUTE_ROOTS = new Set([
+  'backfills',
+  'docs',
+  'login',
+  'profiles',
+  'secrets',
+  'setup',
+]);
+
+function isKnownRouteRoot(segment: string): boolean {
+  return (
+    UNLABELED_ROUTE_ROOTS.has(segment) || `/${segment}` in STATIC_ROUTE_LABELS
+  );
+}
 
 type Translate = (key: TranslationKey) => string;
 
@@ -69,9 +87,20 @@ function humanizePathSegment(segment: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+// Workflow page sections that have a catalog name. The others are shown as
+// their path segment.
+const DAG_SECTION_KEYS: Record<string, TranslationKey> = {
+  executions: 'navigation.executions',
+  wiki: 'navigation.wiki',
+  notifications: 'navigation.notifications',
+  incidents: 'navigation.incidents',
+  webhook: 'navigation.webhooks',
+};
+
 export function getBreadcrumbItems(
   pathname: string,
-  t: Translate = (key) => translate('en', key)
+  t: Translate = (key) => translate('en', key),
+  search = ''
 ): BreadcrumbItemData[] {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   const segments = normalized.split('/').filter(Boolean);
@@ -88,10 +117,7 @@ export function getBreadcrumbItems(
   }
 
   if (segments[0] === 'dags') {
-    items.push(
-      { label: t('navigation.workflows'), to: '/dags' },
-      { label: t('navigation.dags'), to: '/dags' }
-    );
+    items.push({ label: t('navigation.workflows'), to: '/dags' });
     if (segments[1]) {
       items.push({
         label: decodePathSegment(segments[1]),
@@ -99,30 +125,43 @@ export function getBreadcrumbItems(
       });
     }
     if (segments[2]) {
+      const sectionKey = DAG_SECTION_KEYS[segments[2]];
       items.push({
-        label: humanizePathSegment(segments[2]),
+        label: sectionKey ? t(sectionKey) : humanizePathSegment(segments[2]),
         to: `/dags/${segments[1]}/${segments[2]}`,
       });
     }
     return items;
   }
 
-  if (segments[0] === 'dag-runs') {
-    items.push(
-      { label: t('navigation.executions'), to: '/dag-runs' },
-      { label: t('navigation.dagRuns'), to: '/dag-runs' }
-    );
+  if (segments[0] === 'calendars') {
+    // A calendar page on another node keeps that node in its crumbs.
+    const remoteNode = new URLSearchParams(search).get('remoteNode');
+    const query = remoteNode
+      ? `?remoteNode=${encodeURIComponent(remoteNode)}`
+      : '';
+    items.push({ label: t('navigation.calendars'), to: `/calendars${query}` });
     if (segments[1]) {
-      const dagName = decodePathSegment(segments[1]);
       items.push({
-        label: dagName,
-        to: `/dag-runs?name=${encodeURIComponent(dagName)}`,
+        label: decodePathSegment(segments[1]),
+        to: `/calendars/${segments[1]}${query}`,
       });
     }
-    if (segments[2]) {
+    return items;
+  }
+
+  if (segments[0] === 'dag-runs') {
+    items.push({ label: t('navigation.executions'), to: '/dag-runs' });
+    return items;
+  }
+
+  // A backfill has no list page of its own: it sits with the runs it makes.
+  if (segments[0] === 'backfills') {
+    items.push({ label: t('navigation.executions'), to: '/dag-runs' });
+    if (segments[1]) {
       items.push({
-        label: decodePathSegment(segments[2]),
-        to: `/dag-runs/${segments[1]}/${segments[2]}`,
+        label: decodePathSegment(segments[1]),
+        to: `/backfills/${segments[1]}`,
       });
     }
     return items;
@@ -163,6 +202,7 @@ export function getBreadcrumbItems(
       'api-keys',
       'terminal',
       'license',
+      'settings',
       'git-sync',
     ].includes(segments[0] ?? '')
   ) {
@@ -269,6 +309,11 @@ export function getBreadcrumbItems(
     return items;
   }
 
+  if (!isKnownRouteRoot(segments[0] ?? '')) {
+    items.push({ label: t('navigation.pageNotFound'), to: normalized });
+    return items;
+  }
+
   for (let index = 0; index < segments.length; index += 1) {
     const path = `/${segments.slice(0, index + 1).join('/')}`;
     items.push({
@@ -289,10 +334,11 @@ export function ContentNavigation({
   pathname: string;
 }): React.ReactElement {
   const { t } = useI18n();
-  const items = getBreadcrumbItems(pathname, t);
+  const { search } = useLocation();
+  const items = getBreadcrumbItems(pathname, t, search);
 
   return (
-    <div className="hidden min-h-12 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur md:flex">
+    <div className="hidden min-h-12 items-center gap-3 border-b border-border bg-background/95 px-4 md:flex">
       <Button asChild variant="ghost" size="icon-sm" className="shrink-0">
         <Link to="/home" aria-label={t('navigation.contentHome')}>
           <Home className="h-4 w-4" />
@@ -304,7 +350,11 @@ export function ContentNavigation({
             const isLast = index === items.length - 1;
             return (
               <React.Fragment key={`${item.label}-${index}`}>
-                {index > 0 && <BreadcrumbSeparator className="shrink-0" />}
+                {index > 0 && (
+                  <BreadcrumbSeparator className="shrink-0 text-muted-foreground/50">
+                    /
+                  </BreadcrumbSeparator>
+                )}
                 <BreadcrumbItem className="min-w-0">
                   <Link
                     to={item.to}

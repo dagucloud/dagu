@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	rtagent "github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
@@ -263,7 +264,7 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.R
 	}
 	if retryTarget != nil {
 		opts.RetryTarget = retryTarget
-		opts.TriggerType = inProcessRetryTriggerType(retryTarget)
+		opts.TriggerType = queue.ExecutionTriggerType(retryTarget)
 	}
 
 	child, err := r.newAgent(ctx, req, dag, opts)
@@ -318,6 +319,8 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		TriggerActor:     req.TriggerActor,
 		ParallelItem:     req.ParallelItem,
 		ProfileName:      req.ProfileName,
+		ScheduleTime:     req.ScheduleTime,
+		ScheduleWindow:   req.ScheduleWindow,
 	})
 	if err != nil {
 		return executor.EnqueueResult{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -353,7 +356,7 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 		StepRetry:           req.StepName,
 		IncludeDownstream:   req.IncludeDownstream,
 		BypassPreconditions: req.BypassPreconditions,
-		TriggerType:         inProcessRetryTriggerType(retryTarget),
+		TriggerType:         queue.ExecutionTriggerType(retryTarget),
 		WorkDir:             workspaceDir,
 	}
 	if req.Workspace != nil {
@@ -487,8 +490,11 @@ func (r *Local) newAgent(
 	opts.RootDAGRun = req.RootDAGRun
 	opts.TriggerActor = req.TriggerActor
 	opts.ParallelItem = req.ParallelItem
+	opts.ScheduleTime = req.ScheduleTime
+	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath
-	opts.ExtraEnvs = append(inProcessExtraEnvs(rCtx, req), toolEnvs...)
+	opts.ExtraEnvs = append(inProcessExtraEnvs(req), toolEnvs...)
+	opts.InheritedEnvs = inheritedEnvForLocalRunner(rCtx.InheritedEnvs())
 	opts.WorkerID = r.workerID
 	opts.StatusPusher = r.statusPusher
 	opts.SubWorkflowRunnerFactory = r.subWorkflowRunnerFactory
@@ -553,7 +559,9 @@ func (r *Local) runAgent(ctx context.Context, runID string, child *rtagent.Agent
 		r.mu.Unlock()
 	}()
 
-	runErr := child.Run(ctx)
+	// The child's steps count toward their own nodes; the parent step reads
+	// the child's total from its status, so the parent's meter is hidden.
+	runErr := child.Run(modelusage.WithMeter(ctx, nil))
 	status := child.Status(ctx)
 	result := statusToRunStatus(&status, runID)
 	if runErr != nil {
@@ -659,9 +667,9 @@ func inProcessLoadOptions(
 	if cfg != nil {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
 	}
-	if req.Params != "" {
-		loadOpts = append(loadOpts, spec.WithParams(req.Params))
-	}
+	// Params are always applied so that a child started without params still
+	// enforces its required params.
+	loadOpts = append(loadOpts, spec.WithParams(req.Params))
 	if req.Workspace != nil && workDir != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(workDir))
 	}
@@ -674,10 +682,13 @@ func inProcessLoadOptions(
 	return loadOpts
 }
 
-func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []string {
-	envs := inheritedEnvForLocalRunner(rCtx.InheritedEnvs())
-	// A local child already receives the parent run scope implicitly. Values the
-	// step passed explicitly are applied after it so they win on conflict.
+// inProcessExtraEnvs returns the execution-scoped values a local child run
+// receives on top of its own declarations: the pass_env values the step opted
+// to share plus run-control markers. The parent run scope reaches the child
+// separately through Options.InheritedEnvs, where it sits below the child's
+// own params and declarations.
+func inProcessExtraEnvs(req executor.SubWorkflowRequest) []string {
+	var envs []string
 	envs = append(envs, req.PassedEnv...)
 	if req.ParallelItem != "" {
 		envs = append(envs, ir.ParallelItemVariable+"="+req.ParallelItem)
@@ -706,12 +717,4 @@ func inProcessArtifactDir(ctx context.Context, dag *ir.DAG, baseDir, runID strin
 		return "", fmt.Errorf("failed to generate child workflow artifact directory: %w", err)
 	}
 	return dir, nil
-}
-
-func inProcessRetryTriggerType(status *ir.DAGRunStatus) ir.TriggerType {
-	triggerType := queue.PreservedQueueTriggerType(status)
-	if triggerType != ir.TriggerTypeUnknown {
-		return triggerType
-	}
-	return ir.TriggerTypeRetry
 }

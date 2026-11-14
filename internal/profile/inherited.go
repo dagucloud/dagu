@@ -99,18 +99,23 @@ func IsInheritedStorageName(name string) bool {
 }
 
 func IsWorkspaceInheritedStorageName(name string) bool {
-	if !strings.HasPrefix(name, inheritedWorkspaceNamePrefix) {
-		return false
-	}
-	encoded := strings.TrimPrefix(name, inheritedWorkspaceNamePrefix)
-	if encoded == "" {
-		return false
+	_, ok := InheritedWorkspaceName(name)
+	return ok
+}
+
+// InheritedWorkspaceName returns the workspace whose inherited profile layer
+// is stored under storageName, or false when storageName names no workspace
+// layer.
+func InheritedWorkspaceName(storageName string) (string, bool) {
+	encoded, ok := strings.CutPrefix(storageName, inheritedWorkspaceNamePrefix)
+	if !ok || encoded == "" {
+		return "", false
 	}
 	decoded, err := hex.DecodeString(encoded)
-	if err != nil {
-		return false
+	if err != nil || workspace.ValidateName(string(decoded)) != nil {
+		return "", false
 	}
-	return workspace.ValidateName(string(decoded)) == nil
+	return string(decoded), true
 }
 
 func SecretRefForProfileName(profileName, key string) string {

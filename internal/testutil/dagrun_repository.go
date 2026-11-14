@@ -22,3 +22,14 @@ func NewFileDAGRunRepository(
 		options,
 	)
 }
+
+// NewFileDAGRunRepositoryWithEphemeral constructs a file-backed repository
+// whose ephemeral runs live in ephemeralDir, outside baseDir.
+func NewFileDAGRunRepositoryWithEphemeral(
+	baseDir, ephemeralDir string,
+	options persis.DAGRunRepositoryOptions,
+	storeOptions ...filedagrun.StoreOption,
+) *persis.DAGRunRepository {
+	options.EphemeralStore = filedagrun.NewStore(ephemeralDir, storeOptions...)
+	return NewFileDAGRunRepository(baseDir, options, storeOptions...)
+}

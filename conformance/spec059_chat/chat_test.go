@@ -115,6 +115,11 @@ func TestChatConfig(t *testing.T) {
 	}{
 		{"provider_without_model.yaml", "model must be specified"},
 		{"neither_prompt_nor_messages.yaml", "requires with.prompt or with.messages"},
+		{"structured_output_no_type.yaml", "must declare type: object"},
+		{"structured_output_no_properties.yaml", "must list at least one property"},
+		{"structured_output_required_unlisted.yaml", "must be listed in properties"},
+		{"structured_output_web_search.yaml", "web search cannot be combined with output_schema"},
+		{"structured_output_respond_tool.yaml", `"respond" is reserved`},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()

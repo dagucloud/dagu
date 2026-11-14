@@ -96,7 +96,7 @@ describe('ProfilesPage', () => {
     renderPage();
     const profilesTab = screen.getByRole('tab', { name: 'Profiles' });
     const secretRefsTab = screen.getByRole('tab', {
-      name: 'DAG Secret Refs',
+      name: 'Secret refs',
     });
     const profilesPanel = document.getElementById('profiles-panel');
     const secretRefsPanel = document.getElementById('secret-refs-panel');
@@ -114,7 +114,7 @@ describe('ProfilesPage', () => {
     ).toBeVisible();
     expect(
       screen.getByRole('heading', {
-        name: 'DAG Secret Refs',
+        name: 'Secret refs',
         level: 2,
         hidden: true,
       })
@@ -124,7 +124,7 @@ describe('ProfilesPage', () => {
     await user.keyboard('{ArrowRight}');
 
     expect(
-      screen.getByRole('heading', { name: 'DAG Secret Refs', level: 2 })
+      screen.getByRole('heading', { name: 'Secret refs', level: 2 })
     ).toBeVisible();
     expect(secretRefsTab).toHaveAttribute('aria-selected', 'true');
     expect(secretRefsTab).toHaveAttribute('tabindex', '0');
@@ -162,7 +162,7 @@ describe('ProfilesPage', () => {
       screen.getByRole('button', { name: 'Actions for prod' })
     ).toBeDisabled();
 
-    await user.click(screen.getByRole('button', { name: 'Add Profile' }));
+    await user.click(screen.getByRole('button', { name: 'Add profile' }));
 
     expect(screen.getByRole('checkbox', { name: 'Protected' })).toBeDisabled();
   });

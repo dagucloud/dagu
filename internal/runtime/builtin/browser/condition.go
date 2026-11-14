@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 // condition is the value of expect or when: a statement the model judges,
@@ -37,9 +40,27 @@ func (c *condition) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, (*plain)(c))
 }
 
+// MarshalJSON writes a statement as a string and a fixed check as an
+// object, the forms a condition is written in.
+func (c condition) MarshalJSON() ([]byte, error) {
+	if c.Statement != "" {
+		return json.Marshal(c.Statement)
+	}
+	type plain condition
+	return json.Marshal(plain(c))
+}
+
 // judged reports whether the model evaluates the condition.
 func (c condition) judged() bool {
 	return c.Statement != ""
+}
+
+// via is how the condition is decided.
+func (c condition) via() string {
+	if c.judged() {
+		return agentstep.ViaModel
+	}
+	return agentstep.ViaExact
 }
 
 func (c condition) validate() error {
@@ -52,7 +73,13 @@ func (c condition) validate() error {
 	if set != 1 {
 		return errors.New("a condition is a statement, or an object with exactly one of text, selector, or url")
 	}
-	return validateDuration("within", c.Within)
+	// The page text and the check text are compared after folding width and
+	// collapsing whitespace, so a text of only whitespace would match every
+	// page.
+	if c.Text != "" && stringutil.NormalizeText(c.Text) == "" {
+		return errors.New("text must contain a character other than whitespace")
+	}
+	return agentstep.ValidateDuration("within", c.Within)
 }
 
 // window returns how long a fixed check keeps reading the page, or fallback

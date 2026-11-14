@@ -14,6 +14,9 @@ interface CommandDisplayProps {
   showFullInTooltip?: boolean;
 }
 
+const tooltipTriggerClass =
+  'min-w-0 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
 const formatCommand = (entry: CommandEntry): string => {
   if (entry.args && entry.args.length > 0) {
     return `${entry.command} ${entry.args.join(' ')}`;
@@ -66,21 +69,32 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
 
     const element = (
       <div
-        className={`flex items-center gap-1.5 text-xs font-medium ${className}`}
+        className={`flex min-w-0 max-w-full items-center gap-1.5 text-xs font-medium ${className}`}
       >
         <Icon className="h-4 w-4 text-primary flex-shrink-0" />
-        <span className="bg-muted rounded-md px-1.5 py-0.5 text-foreground/90 font-mono">
+        {/* The visible text may be shortened or clipped; assistive tech gets the full command. */}
+        <span
+          aria-hidden={isTruncated || undefined}
+          className="min-w-0 truncate whitespace-pre rounded-md bg-muted px-1.5 py-0.5 font-mono text-foreground/90"
+        >
           {truncated}
         </span>
+        {isTruncated && <span className="sr-only">{fullCmd}</span>}
       </div>
     );
 
-    if (!showFullInTooltip || !isTruncated) return element;
+    // The cell width can clip even a short command, so every command gets a
+    // tooltip that keyboard users can reach.
+    if (!showFullInTooltip) {
+      return element;
+    }
 
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="cursor-pointer">{element}</div>
+          <div tabIndex={0} className={tooltipTriggerClass}>
+            {element}
+          </div>
         </TooltipTrigger>
         <TooltipContent className="max-w-[600px]">
           <pre className="whitespace-pre-wrap break-all text-xs font-mono">
@@ -123,7 +137,9 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="cursor-pointer">{element}</div>
+        <div tabIndex={0} className={tooltipTriggerClass}>
+          {element}
+        </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-[600px]">
         <div className="space-y-2">

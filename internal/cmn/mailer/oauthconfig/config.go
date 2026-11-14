@@ -33,6 +33,9 @@ type Config struct {
 	ClientSecret       string   `json:"clientSecret,omitempty" yaml:"client_secret,omitempty"`
 	ServiceAccountJSON string   `json:"serviceAccountJson,omitempty" yaml:"service_account_json,omitempty"`
 	RefreshToken       string   `json:"refreshToken,omitempty" yaml:"refresh_token,omitempty"`
+	// Scopes replaces the scopes a microsoft_refresh token is refreshed for.
+	// Only mail accounts accept it.
+	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
 // Destination is an SMTP submission endpoint.
@@ -66,6 +69,9 @@ func ValidateStructure(cfg *Config) error {
 	provider := strings.TrimSpace(cfg.Provider)
 	if _, err := SMTPDestination(provider); err != nil {
 		return err
+	}
+	if len(cfg.Scopes) > 0 {
+		return fmt.Errorf("scopes is not valid for SMTP OAuth provider %q", provider)
 	}
 
 	require := func(fields ...configField) error {
@@ -157,6 +163,9 @@ func ValidateMailAccount(cfg *Config) error {
 		); err != nil {
 			return err
 		}
+		if len(cfg.Scopes) > 0 {
+			return fmt.Errorf("oauth.scopes is not valid for provider %q", provider)
+		}
 		return reject(provider,
 			configField{"tenant_id", cfg.TenantID},
 			configField{"service_account_json", cfg.ServiceAccountJSON},
@@ -167,6 +176,11 @@ func ValidateMailAccount(cfg *Config) error {
 			configField{"refresh_token", cfg.RefreshToken},
 		); err != nil {
 			return err
+		}
+		for _, scope := range cfg.Scopes {
+			if strings.TrimSpace(scope) == "" {
+				return errors.New("oauth.scopes must not contain an empty scope")
+			}
 		}
 		return reject(provider, configField{"service_account_json", cfg.ServiceAccountJSON})
 	default:

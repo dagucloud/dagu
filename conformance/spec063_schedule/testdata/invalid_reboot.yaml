@@ -1,0 +1,4 @@
+schedule: "@reboot"
+steps:
+  - id: noop
+    run: "true"

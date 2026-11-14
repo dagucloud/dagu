@@ -1,0 +1,31 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Template
+      columns: [Item]
+      rows: [{"Item": "Rent"}]
+  - id: add
+    depends: write
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: add
+      sheet: template
+      if_exists: skip
+  - id: delete
+    depends: add
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: delete
+      sheet: Nope
+      missing: skip
+  - id: out
+    depends: delete
+    action: file.write
+    with:
+      path: out.json
+      content: '{"add_sheets": ${steps.add.outputs.sheets}, "add_warnings": ${steps.add.outputs.warnings}, "delete_sheets": ${steps.delete.outputs.sheets}, "delete_warnings": ${steps.delete.outputs.warnings}}'

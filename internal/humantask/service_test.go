@@ -262,11 +262,6 @@ func TestCompleteResumesUnblockedBranch(t *testing.T) {
 			retrySkip,
 			stepNode("after", ir.NodeNotStarted, "Review", "side"),
 		}},
-		{name: "partially succeeded dependency", nodes: []*ir.Node{
-			waitingHumanTaskNode("Other"),
-			stepNode("side", ir.NodePartiallySucceeded),
-			stepNode("after", ir.NodeNotStarted, "Review", "side"),
-		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -337,6 +332,42 @@ func TestCompleteKeepsWaitingWhenNoStepIsReady(t *testing.T) {
 	}
 }
 
+// A partially succeeded branch may make intermediate progress while another
+// manual task waits, then the final completion queues the remaining work.
+func TestCompletePartialRetry(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	other := waitingHumanTaskNode("Other")
+	fixture.status.Nodes = append(fixture.status.Nodes,
+		other,
+		stepNode("side", ir.NodePartiallySucceeded),
+		stepNode("after", ir.NodeNotStarted, "Review", "side"),
+	)
+
+	result, err := fixture.completeReview(t)
+	require.NoError(t, err)
+	assert.True(t, result.ResumeRequested)
+	assert.True(t, result.Queued)
+	assert.Equal(t, 1, result.RemainingWaitingSteps)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
+	assert.Len(t, fixture.queue.enqueued, 1)
+
+	// The checkpoint resume runs the newly unblocked branch while Other waits.
+	fixture.status.Status = ir.Waiting
+	fixture.status.Nodes[0].Status = ir.NodeSucceeded
+	fixture.status.Nodes[0].HumanTaskInput = []byte(`{}`)
+
+	result, err = fixture.service.Complete(t.Context(), CompleteRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: other.Step.ID, Input: Input{Values: map[string]any{}},
+	})
+	require.NoError(t, err)
+	assert.False(t, result.AlreadyCompleted)
+	assert.True(t, result.ResumeRequested)
+	assert.True(t, result.Queued)
+	assert.Zero(t, result.RemainingWaitingSteps)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
+	assert.Len(t, fixture.queue.enqueued, 2)
+}
+
 // The unblocked step marks a resume as pending until an attempt runs it.
 func TestResumePendingUntilUnblockedStepRuns(t *testing.T) {
 	fixture := newServiceFixture(t, nil)
@@ -367,6 +398,51 @@ func TestResumePendingUntilUnblockedStepRuns(t *testing.T) {
 	_, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
 	require.Error(t, err)
 	assert.Equal(t, ErrorConflict, KindOf(err))
+}
+
+// Approving a step resumes the branches it unblocks even while another manual
+// step keeps waiting, unless the resume would re-run a retryable step.
+func TestUnblockedNodeReady(t *testing.T) {
+	tests := []struct {
+		name  string
+		nodes []*ir.Node
+		want  bool
+	}{
+		{name: "approved gate unblocks dependent", want: true, nodes: []*ir.Node{
+			{Step: ir.Step{ID: "gate", Name: "gate", Approval: &ir.ApprovalConfig{}}, Status: ir.NodeSucceeded},
+			waitingApprovalNode(),
+			stepNode("after", ir.NodeNotStarted, "gate"),
+		}},
+		{name: "dependent still blocked", want: false, nodes: []*ir.Node{
+			{Step: ir.Step{ID: "gate", Name: "gate", Approval: &ir.ApprovalConfig{}}, Status: ir.NodeSucceeded},
+			waitingApprovalNode(),
+			stepNode("after", ir.NodeNotStarted, "Approval"),
+		}},
+		{name: "nothing to run", want: false, nodes: []*ir.Node{
+			{Step: ir.Step{ID: "gate", Name: "gate", Approval: &ir.ApprovalConfig{}}, Status: ir.NodeSucceeded},
+			waitingApprovalNode(),
+		}},
+		// Every resume re-runs failed steps, so they run once after the last
+		// manual step resolves instead of once per approval.
+		{name: "failed step elsewhere", want: false, nodes: []*ir.Node{
+			{Step: ir.Step{ID: "gate", Name: "gate", Approval: &ir.ApprovalConfig{}}, Status: ir.NodeSucceeded},
+			waitingApprovalNode(),
+			stepNode("lint", ir.NodeFailed),
+			stepNode("after", ir.NodeNotStarted, "gate"),
+		}},
+		{name: "partially succeeded step elsewhere", want: true, nodes: []*ir.Node{
+			{Step: ir.Step{ID: "gate", Name: "gate", Approval: &ir.ApprovalConfig{}}, Status: ir.NodeSucceeded},
+			waitingApprovalNode(),
+			stepNode("lint", ir.NodePartiallySucceeded),
+			stepNode("after", ir.NodeNotStarted, "gate"),
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, UnblockedNodeReady(&ir.DAGRunStatus{Status: ir.Waiting, Nodes: tt.nodes}))
+		})
+	}
+	assert.False(t, UnblockedNodeReady(nil))
 }
 
 func TestCompleteEnqueuesRemoteResume(t *testing.T) {

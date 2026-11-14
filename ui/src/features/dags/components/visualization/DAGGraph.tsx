@@ -4,17 +4,7 @@
  * @module features/dags/components/visualization
  */
 import { Tab, Tabs } from '@/components/ui/tabs';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  GanttChart,
-  GitGraph,
-  GripHorizontal,
-  MousePointerClick,
-} from 'lucide-react';
+import { GanttChart, GitGraph } from 'lucide-react';
 import React from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
@@ -22,8 +12,12 @@ import { useConfig } from '../../../../contexts/ConfigContext';
 import BorderedBox from '@/components/ui/bordered-box';
 import type { SubRunStackEntry } from '../common';
 import { FlowchartType, Graph, TimelineChart } from './';
+import { GraphInteractionsHint } from './GraphInteractionsHint';
+import {
+  GraphResizeHandle,
+  useResizableGraphHeight,
+} from './GraphResizeHandle';
 import { I18nText } from '@/i18n/I18nText';
-import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Props for the DAGGraph component
@@ -52,7 +46,6 @@ function DAGGraph({
   onRightClickStep,
   onOpenSubRun,
 }: Props) {
-  const { ts } = useI18n();
   // Active tab state (0 = Graph, 1 = Timeline)
   const [sub, setSub] = React.useState('0');
   const config = useConfig();
@@ -60,27 +53,12 @@ function DAGGraph({
   // Flowchart direction preference stored in cookies
   const [cookie, setCookie] = useCookies(['flowchart']);
   const [flowchart, setFlowchart] = React.useState(cookie['flowchart']);
-  const [graphHeight, setGraphHeight] = React.useState(380);
+  const {
+    height: graphHeight,
+    graphBoxRef,
+    handleProps: graphResizeHandleProps,
+  } = useResizableGraphHeight();
   const hasStepInspector = Boolean(onClickStep);
-
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = graphHeight;
-
-    const handleMouseMove = (mv: MouseEvent) => {
-      const newHeight = startHeight + (mv.clientY - startY);
-      setGraphHeight(Math.max(200, newHeight));
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
 
   /**
    * Handle flowchart direction change and save preference to cookie
@@ -118,41 +96,19 @@ function DAGGraph({
         <div className="self-center sm:self-auto"></div>
       </div>
 
-      <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-        {sub === '0' && (
-          <div className="flex justify-end mb-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                  aria-label={ts('Graph interactions')}
-                >
-                  <MousePointerClick className="h-3.5 w-3.5" />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="space-y-1">
-                  {hasStepInspector && (
-                    <p>
-                      <I18nText text={'Click: Inspect step details'} />
-                    </p>
-                  )}
-                  <p>
-                    <I18nText text={'Double-click: Navigate to sub dagRun'} />
-                  </p>
-                  {config.permissions.runDags && onRightClickStep && (
-                    <p>
-                      <I18nText text={'Right-click: Update node status'} />
-                    </p>
-                  )}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-        <div className="overflow-x-auto -mx-4 px-4">
+      <BorderedBox className="flex flex-col items-stretch gap-0 overflow-hidden p-0">
+        <div ref={graphBoxRef} className="overflow-x-auto">
           {sub === '0' ? (
             <Graph
+              toolbarStart={
+                <GraphInteractionsHint
+                  inspect={hasStepInspector}
+                  openSubRun
+                  updateStatus={
+                    config.permissions.runDags && !!onRightClickStep
+                  }
+                />
+              }
               steps={dagRun.nodes}
               name={dagRun.name}
               type="status"
@@ -167,17 +123,12 @@ function DAGGraph({
               height={graphHeight}
             />
           ) : (
-            <TimelineChart status={dagRun} onOpenSubRun={onOpenSubRun} />
+            <div className="px-4 pt-4">
+              <TimelineChart status={dagRun} onOpenSubRun={onOpenSubRun} />
+            </div>
           )}
         </div>
-        {sub === '0' && (
-          <div
-            className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
-            onMouseDown={handleResizeMouseDown}
-          >
-            <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
-          </div>
-        )}
+        {sub === '0' && <GraphResizeHandle {...graphResizeHandleProps} />}
         {sub === '1' && <div className="pb-4" />}
       </BorderedBox>
     </div>

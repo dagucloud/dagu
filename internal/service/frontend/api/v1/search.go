@@ -62,7 +62,7 @@ func optionalString(value string) *string {
 	return ptrOf(value)
 }
 
-func scopedDAGSearchLabels(labelsParam *string) []string {
+func scopedDAGSearchLabels(labelsParam *string) ([]string, error) {
 	return parseCommaSeparatedLabels(labelsParam)
 }
 
@@ -161,7 +161,10 @@ func (a *API) SearchDAGFeed(ctx context.Context, request api.SearchDAGFeedReques
 	if err != nil {
 		return nil, err
 	}
-	labels := scopedDAGSearchLabels(request.Params.Labels)
+	labels, err := scopedDAGSearchLabels(request.Params.Labels)
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -248,7 +251,10 @@ func (a *API) SearchDagMatches(ctx context.Context, request api.SearchDagMatches
 	if err != nil {
 		return nil, err
 	}
-	labels := scopedDAGSearchLabels(request.Params.Labels)
+	labels, err := scopedDAGSearchLabels(request.Params.Labels)
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err

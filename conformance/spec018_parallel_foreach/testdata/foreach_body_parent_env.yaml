@@ -1,0 +1,19 @@
+type: graph
+working_dir: .
+steps:
+  - id: plan
+    run: echo hello
+    output: GREETING
+  - id: each
+    depends: plan
+    env:
+      REGION: eu
+    foreach:
+      items:
+        - one
+      steps:
+        - id: show
+          action: file.write
+          with:
+            path: foreach-body-parent-env.txt
+            content: ${GREETING}|${env.REGION}|${env.DAG_RUN_STEP_NAME}

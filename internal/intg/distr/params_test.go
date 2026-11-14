@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,6 +111,49 @@ steps:
 	require.Len(t, rootStatus.Nodes, 1)
 	require.Equal(t, ir.NodeFailed, rootStatus.Nodes[0].Status)
 	require.True(t, statusErrorsContain(rootStatus.Errors(), "count"), "expected parent status errors to mention count")
+}
+
+// A dag.run step that passes no params must still enforce the child's
+// required params on the worker. The child has no worker_selector so the
+// parent dispatches it without resolving its params first.
+func TestParams_DistributedSubDAGRequiredMissing(t *testing.T) {
+	f := newTestFixture(t, `
+steps:
+  - name: invoke-child
+    action: dag.run
+    with:
+      dag: worker-required-child
+
+---
+name: worker-required-child
+params:
+  - name: region
+    type: string
+    required: true
+steps:
+  - name: should-not-run
+    run: echo "region=$region"
+`, withConfigMutator(func(c *config.Config) {
+		c.DefaultExecMode = config.ExecutionModeDistributed
+	}))
+
+	agent := f.dagWrapper.Agent()
+	err := agent.Run(agent.Context)
+	require.Error(t, err)
+
+	f.dagWrapper.AssertLatestStatus(t, ir.Failed)
+
+	rootStatus, statusErr := f.latestStatus()
+	require.NoError(t, statusErr)
+	require.Len(t, rootStatus.Nodes, 1)
+	require.Equal(t, ir.NodeFailed, rootStatus.Nodes[0].Status)
+	require.Len(t, rootStatus.Nodes[0].SubRuns, 1)
+
+	rootRef := ir.NewDAGRunRef(rootStatus.Name, rootStatus.DAGRunID)
+	subStatus := readDistributedSubAttemptStatus(t, f, rootRef, rootStatus.Nodes[0].SubRuns[0].DAGRunID)
+	require.Equal(t, ir.Failed, subStatus.Status)
+	assert.Contains(t, subStatus.Error, "region")
+	assert.Empty(t, subStatus.Nodes)
 }
 
 func TestParams_DistributedQueuedRunRuntimeParams(t *testing.T) {

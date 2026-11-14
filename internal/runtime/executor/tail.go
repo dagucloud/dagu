@@ -6,7 +6,9 @@ package executor
 import (
 	"io"
 	"os"
+	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
@@ -40,8 +42,9 @@ func NewTailWriter(out io.Writer, max int) *TailWriter {
 }
 
 // NewTailWriterWithEncoding creates a TailWriter with character encoding support.
-// The encoding parameter specifies the character encoding of the output
-// (e.g., "utf-8", "shift_jis", "euc-jp"). If empty, UTF-8 is assumed.
+// The encoding parameter specifies the character encoding of output that is
+// not valid UTF-8 (e.g., "shift_jis", "euc-jp"). If empty, the console code
+// page of child processes is used where the platform has one.
 func NewTailWriterWithEncoding(out io.Writer, max int, encoding string) *TailWriter {
 	tw := NewTailWriter(out, max)
 	tw.encoding = encoding
@@ -72,11 +75,44 @@ func (t *TailWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// Tail returns the rolling tail buffer (up to max bytes) as a decoded string.
-// If an encoding was specified during creation, the buffer is decoded from
-// that encoding to UTF-8. Otherwise, the raw bytes are returned as a string.
+// Tail returns the rolling tail buffer (up to max bytes) as a valid UTF-8
+// string. Output that is already UTF-8 is returned as is; other output is
+// decoded from the writer's encoding, and bytes that still cannot be decoded
+// are replaced with U+FFFD.
 func (t *TailWriter) Tail() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return fileutil.DecodeString(t.encoding, t.buf)
+
+	if text := t.trimPartialRune(); utf8.Valid(text) {
+		return string(text)
+	}
+	return strings.ToValidUTF8(t.decode(), "\uFFFD")
+}
+
+// trimPartialRune drops the continuation bytes of a UTF-8 rune that the
+// rolling limit cut at the start of the buffer.
+func (t *TailWriter) trimPartialRune() []byte {
+	if len(t.buf) < t.max {
+		return t.buf
+	}
+	for i := 0; i < utf8.UTFMax && i < len(t.buf); i++ {
+		if utf8.RuneStart(t.buf[i]) {
+			return t.buf[i:]
+		}
+	}
+	return t.buf
+}
+
+// decode converts the buffer from the writer's encoding or, when none is set,
+// from the console code page of child processes.
+func (t *TailWriter) decode() string {
+	if t.encoding != "" {
+		return fileutil.DecodeString(t.encoding, t.buf)
+	}
+	if enc := consoleEncoding(); enc != nil {
+		if decoded, err := enc.NewDecoder().Bytes(t.buf); err == nil {
+			return string(decoded)
+		}
+	}
+	return string(t.buf)
 }

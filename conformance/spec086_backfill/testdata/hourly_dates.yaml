@@ -1,0 +1,6 @@
+schedule: "0 * * * *"
+dates:
+  target_day: -1d
+  target_unix: { shift: -1d, format: unix }
+steps:
+  - run: echo ${dates.target_day}

@@ -12,7 +12,8 @@ import (
 )
 
 // rehydrateExecutionDAG reloads a full DAG from source before scheduler-owned
-// execution or persistence paths use it as an execution snapshot.
+// execution or persistence paths use it as an execution snapshot. Its params'
+// evals are left to the run, which evaluates them in its own process.
 func rehydrateExecutionDAG(
 	ctx context.Context,
 	dag *ir.DAG,
@@ -23,6 +24,7 @@ func rehydrateExecutionDAG(
 	fresh, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig:             baseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
+		DeferEvals:             true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rehydrate execution DAG: %w", err)

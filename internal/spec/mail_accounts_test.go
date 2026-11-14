@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
@@ -27,10 +28,14 @@ mail_accounts:
       provider: microsoft_refresh
       client_id: client
       refresh_token: ${SUPPORT_TOKEN}
+      scopes: [https://outlook.office.com/IMAP.AccessAsUser.All]
   team@gmail.com:
     provider: google
     smtp: {security: starttls}
     password: app-password
+  me@gmail.com:
+    provider: google
+    oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}
   billing@example.com:
     username: billing
     imap: {host: imap.example.com, skip_tls_verify: true}
@@ -49,6 +54,7 @@ steps:
 			Username: "support@example.com",
 			OAuth: &oauthconfig.Config{
 				Provider: oauthconfig.ProviderMicrosoftRefresh, ClientID: "client", RefreshToken: "${SUPPORT_TOKEN}",
+				Scopes: []string{"https://outlook.office.com/IMAP.AccessAsUser.All"},
 			},
 		},
 		"team@gmail.com": {
@@ -58,6 +64,14 @@ steps:
 			SMTP:     &ir.MailServer{Host: "smtp.gmail.com", Port: "587", Security: ir.MailSecurityStartTLS},
 			Username: "team@gmail.com",
 			Password: "app-password",
+		},
+		// An OAuth sign-in reaches Gmail through its API, so it has no servers.
+		"me@gmail.com": {
+			Provider: ir.MailProviderGoogle,
+			Username: "me@gmail.com",
+			OAuth: &oauthconfig.Config{
+				Provider: oauthconfig.ProviderGoogleRefresh, ClientID: "c", ClientSecret: "s", RefreshToken: "r",
+			},
 		},
 		"billing@example.com": {
 			Provider: ir.MailProviderIMAP,
@@ -119,6 +133,26 @@ func TestMailAccountsErrors(t *testing.T) {
 			wantErr: `mail account "ops@example.com": imap.port is required when imap.security is a value reference`,
 		},
 		{
+			name:    "ScopesOnGoogleRefresh",
+			account: "{provider: google, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r, scopes: [x]}}",
+			wantErr: `mail account "ops@example.com": oauth.scopes is not valid for provider "google_refresh"`,
+		},
+		{
+			name:    "ServerOnGmailAPIAccount",
+			account: "{provider: google, imap: {host: imap.gmail.com}, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}}",
+			wantErr: `mail account "ops@example.com": imap is not used by a google account with oauth, which uses the Gmail API`,
+		},
+		{
+			name:    "SMTPOnGmailAPIAccount",
+			account: "{provider: google, smtp: {security: starttls}, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}}",
+			wantErr: `mail account "ops@example.com": smtp is not used by a google account with oauth, which uses the Gmail API`,
+		},
+		{
+			name:    "UsernameOnGmailAPIAccount",
+			account: "{provider: google, username: me, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}}",
+			wantErr: `mail account "ops@example.com": username is not used by a google account with oauth, which uses the Gmail API`,
+		},
+		{
 			name:    "UnknownField",
 			account: "{imap: {host: h, tls: true}, password: p}",
 			wantErr: `mail account "ops@example.com": unknown field "imap.tls"`,
@@ -152,6 +186,36 @@ steps:
 	require.NoError(t, err)
 	assert.Equal(t, &ir.MailServer{Host: "imap.example.com", Port: "993", Security: "${IMAP_SECURITY}"},
 		dag.MailAccounts["ops@example.com"].IMAP)
+}
+
+// The pin is stored in lowercase hex; colons and upper case are accepted.
+func TestMailAccountsTLSCertSHA256(t *testing.T) {
+	t.Parallel()
+
+	const pin = "3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a3f2a"
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+mail_accounts:
+  ops@example.com:
+    imap: {host: imap.example.com, tls_cert_sha256: "`+strings.ToUpper(pin)+`"}
+    smtp: {host: smtp.example.com, tls_cert_sha256: "`+strings.TrimSuffix(strings.Repeat("3F:2A:", 16), ":")+`"}
+    password: p
+steps:
+  - run: "true"
+`))
+	require.NoError(t, err)
+	account := dag.MailAccounts["ops@example.com"]
+	assert.Equal(t, pin, account.IMAP.TLSCertSHA256)
+	assert.Equal(t, pin, account.SMTP.TLSCertSHA256)
+
+	_, err = spec.LoadYAML(context.Background(), []byte(`
+mail_accounts:
+  ops@example.com:
+    imap: {host: imap.example.com, tls_cert_sha256: abc123}
+    password: p
+steps:
+  - run: "true"
+`))
+	require.ErrorContains(t, err, "imap.tls_cert_sha256 must be a SHA-256 fingerprint of 64 hex characters")
 }
 
 func TestMailAccountsKeyErrors(t *testing.T) {

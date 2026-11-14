@@ -360,6 +360,7 @@ paths:
   contexts_dir: ${LOCAL_RUNTIME_DIR}/contexts
   remote_nodes_dir: ${LOCAL_RUNTIME_DIR}/remote-nodes
   workspaces_dir: ${LOCAL_RUNTIME_DIR}/workspaces
+  calendars_dir: ${LOCAL_RUNTIME_DIR}/calendars
 coordinator:
   enabled: true
   host: 127.0.0.1
@@ -418,6 +419,7 @@ paths:
   contexts_dir: ${REMOTE_RUNTIME_DIR}/contexts
   remote_nodes_dir: ${REMOTE_RUNTIME_DIR}/remote-nodes
   workspaces_dir: ${REMOTE_RUNTIME_DIR}/workspaces
+  calendars_dir: ${REMOTE_RUNTIME_DIR}/calendars
 coordinator:
   enabled: false
 scheduler:
@@ -452,7 +454,8 @@ prepare_stack() {
 run_stack() {
   prepare_stack
 
-  trap 'kill_all_services' EXIT INT TERM
+  trap 'kill_all_services' EXIT
+  trap 'exit' INT TERM
 
   start_service coordinator
   start_service server

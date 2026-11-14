@@ -6,6 +6,7 @@ package api_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,19 +24,41 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// startResumeQueue runs the scheduler's queue consumer against the API stores.
+func startResumeQueue(t *testing.T, server test.Server) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(server.Context)
+	processor := scheduler.NewQueueProcessor(server.QueueStore, server.DAGRunRepository, server.ProcRepository,
+		scheduler.NewDAGExecutor(nil, server.SubCmdBuilder, server.Config.DefaultExecMode, server.Config.Paths.BaseConfig),
+		server.Config.Queues,
+	)
+	watcher := server.QueueStore.QueueWatcher(ctx)
+	notify, err := watcher.Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cancel()
+		processor.Stop()
+		watcher.Stop(server.Context)
+	})
+	processor.Start(ctx, notify)
+}
+
 func dagRunEventuallyTimeout(base time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
 		return base * 24
 	}
-	return base
+	// A loaded CI host can stall a single command for over ten seconds.
+	return max(base, 30*time.Second)
 }
 
 func dagRunSyncTimeoutSeconds() int {
@@ -79,16 +102,37 @@ func waitForDAGRunStatus(
 
 	dag := &ir.DAG{Name: dagName}
 	var status *ir.DAGRunStatus
-	require.Eventually(t, func() bool {
+	var readErr error
+	if !assert.Eventually(t, func() bool {
 		current, err := server.DAGRunMgr.GetCurrentStatus(server.Context, dag, dagRunID)
 		if err != nil || current == nil {
+			readErr = err
 			return false
 		}
 		status = current
 		return predicate(current)
-	}, dagRunEventuallyTimeout(timeout), 200*time.Millisecond)
+	}, dagRunEventuallyTimeout(timeout), 200*time.Millisecond) {
+		t.Fatalf("run %s of %s did not reach the expected status: %s", dagRunID, dagName, describeRun(status, readErr))
+	}
 
 	return status
+}
+
+// describeRun tells where a run stopped, for a failed wait: its status, its
+// error, and the end of its log, or why no status could be read.
+func describeRun(status *ir.DAGRunStatus, readErr error) string {
+	if status == nil {
+		return fmt.Sprintf("no status (%v)", readErr)
+	}
+	text := fmt.Sprintf("status %s, error %q", status.Status, status.Error)
+	if data, err := os.ReadFile(status.Log); err == nil {
+		const tail = 4096
+		if len(data) > tail {
+			data = data[len(data)-tail:]
+		}
+		text += "\nlog:\n" + string(data)
+	}
+	return text
 }
 
 func waitForStoredDAGRunStatus(
@@ -286,6 +330,142 @@ func TestGetDAGRunSpec(t *testing.T) {
 	_ = server.Client().Get(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/spec", "non_existent_dag", dagRunID),
 	).ExpectStatus(http.StatusNotFound).Send(t)
+}
+
+func TestLogPageLimits(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("strict=%t", strict), func(t *testing.T) {
+			server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+				cfg.Server.StrictValidation = strict
+			}))
+			logPath := filepath.Join(t.TempDir(), "output.log")
+			require.NoError(t, os.WriteFile(logPath, []byte(strings.Repeat("line\n", 20000)), 0o600))
+			dag := &ir.DAG{Name: "log-limits", Steps: []ir.Step{{Name: "main"}}}
+			root := ir.NewDAGRunRef(dag.Name, "root")
+			for _, runID := range []string{root.ID, "child"} {
+				opts := persis.DAGRunCreateAttemptOptions{}
+				if runID != root.ID {
+					opts.RootDAGRun = root
+				}
+				attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag, time.Now(), runID, opts)
+				require.NoError(t, err)
+				status := ir.InitialStatus(dag)
+				status.DAGRunID = runID
+				status.AttemptID = attempt.ID()
+				status.Root = root
+				status.Log = logPath
+				status.Nodes[0].Stdout = logPath
+				if runID == root.ID {
+					status.Nodes[0].SubRuns = []ir.SubDAGRun{{DAGRunID: "child", DAGName: dag.Name}}
+				}
+				require.NoError(t, attempt.Open(server.Context))
+				require.NoError(t, attempt.Write(server.Context, status))
+				require.NoError(t, attempt.Close(server.Context))
+			}
+
+			for _, path := range []string{
+				"/log",
+				"/steps/main/log",
+				"/sub-dag-runs/child/log",
+				"/sub-dag-runs/child/steps/main/log",
+			} {
+				t.Run(path, func(t *testing.T) {
+					for _, param := range []string{"head", "tail", "limit"} {
+						for _, count := range []int{-1, 0, 1, 10000, 10001, 100000} {
+							t.Run(fmt.Sprintf("%s=%d", param, count), func(t *testing.T) {
+								want := http.StatusBadRequest
+								if count >= 1 && count <= 10000 {
+									want = http.StatusOK
+								}
+								resp := server.Client().Get(fmt.Sprintf(
+									"/api/v1/dag-runs/%s/%s%s?remoteNode=local&stream=stdout&%s=%d", dag.Name, root.ID, path, param, count,
+								)).ExpectStatus(want).Send(t)
+								if want == http.StatusOK {
+									var body api.GetDAGRunLog200JSONResponse
+									resp.Unmarshal(t, &body)
+									require.NotNil(t, body.LineCount)
+									require.Equal(t, count, *body.LineCount)
+									require.Len(t, strings.Split(body.Content, "\n"), count)
+								}
+							})
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestStepLogStream(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("strict=%t", strict), func(t *testing.T) {
+			server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+				cfg.Server.StrictValidation = strict
+			}))
+			logDir := t.TempDir()
+			stdout := filepath.Join(logDir, "stdout.log")
+			stderr := filepath.Join(logDir, "stderr.log")
+			require.NoError(t, os.WriteFile(stdout, []byte("stdout"), 0o600))
+			require.NoError(t, os.WriteFile(stderr, []byte("stderr"), 0o600))
+
+			dag := &ir.DAG{Name: "step-log-stream", Steps: []ir.Step{{Name: "main"}}}
+			root := ir.NewDAGRunRef(dag.Name, "root")
+			for _, runID := range []string{root.ID, "child"} {
+				opts := persis.DAGRunCreateAttemptOptions{}
+				if runID != root.ID {
+					opts.RootDAGRun = root
+				}
+				attempt, err := server.DAGRunRepository.CreateAttempt(server.Context, dag, time.Now(), runID, opts)
+				require.NoError(t, err)
+				status := ir.InitialStatus(dag)
+				status.DAGRunID = runID
+				status.AttemptID = attempt.ID()
+				status.Root = root
+				status.Nodes[0].Stdout = stdout
+				status.Nodes[0].Stderr = stderr
+				if runID == root.ID {
+					status.Nodes[0].SubRuns = []ir.SubDAGRun{{DAGRunID: "child", DAGName: dag.Name}}
+				}
+				require.NoError(t, attempt.Open(server.Context))
+				require.NoError(t, attempt.Write(server.Context, status))
+				require.NoError(t, attempt.Close(server.Context))
+			}
+
+			for _, path := range []string{
+				"/steps/main/log",
+				"/sub-dag-runs/child/steps/main/log",
+			} {
+				t.Run(path, func(t *testing.T) {
+					for _, tc := range []struct {
+						name    string
+						query   string
+						content string
+					}{
+						{name: "omitted", content: "stdout"},
+						{name: "stdout", query: "?stream=stdout", content: "stdout"},
+						{name: "stderr", query: "?stream=stderr", content: "stderr"},
+						{name: "false", query: "?stream=false", content: "stdout"},
+					} {
+						t.Run(tc.name, func(t *testing.T) {
+							want := http.StatusOK
+							// Strict validation rejects values outside the stream enum.
+							if strict && tc.name == "false" {
+								want = http.StatusBadRequest
+							}
+							resp := server.Client().Get(fmt.Sprintf(
+								"/api/v1/dag-runs/%s/%s%s%s", dag.Name, root.ID, path, tc.query,
+							)).ExpectStatus(want).Send(t)
+							if want == http.StatusOK {
+								var body api.GetDAGRunStepLog200JSONResponse
+								resp.Unmarshal(t, &body)
+								assert.Equal(t, tc.content, body.Content)
+							}
+						})
+					}
+				})
+			}
+		})
+	}
 }
 
 func readLogArchive(t *testing.T, body string) map[string]string {
@@ -937,8 +1117,51 @@ steps:
 	).ExpectStatus(http.StatusNotFound).Send(t)
 }
 
+func TestResumeSavedApproval(t *testing.T) {
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = false
+	}))
+	dag := server.DAG(t, `name: saved-approval
+steps:
+  - name: gate
+    run: echo approved
+    approval:
+      prompt: Approve
+  - name: after
+    depends: gate
+    run: echo resumed
+`)
+	ref := seedLatestDAGRunStatus(t, server, dag.DAG, "run-1", ir.Waiting, seedDAGRunStatusOptions{
+		nodeStatuses: map[string]ir.NodeStatus{"gate": ir.NodeSucceeded},
+	})
+	attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ref)
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(server.Context)
+	require.NoError(t, err)
+	status.Nodes[0].ApprovedAt = stringutil.FormatTime(time.Now().Add(-time.Minute))
+	status.Nodes[0].ApprovedBy = "reviewer"
+	status.Log = filepath.Join(t.TempDir(), "run.log")
+	require.NoError(t, attempt.Open(server.Context))
+	require.NoError(t, attempt.Write(server.Context, *status))
+	require.NoError(t, attempt.Close(server.Context))
+	details := requireDAGRunDetails(t, server, ref.Name, ref.ID)
+	require.Equal(t, new(true), details.DagRunDetails.ApprovalResumePending)
+	path := fmt.Sprintf("/api/v1/dag-runs/%s/%s/resume?remoteNode=local", ref.Name, ref.ID)
+	response := server.Client().Post(path, nil).ExpectStatus(http.StatusOK).Send(t)
+	var resumed api.ResumeDAGRun200JSONResponse
+	response.Unmarshal(t, &resumed)
+	require.True(t, resumed.Resumed)
+	latest := waitForStoredDAGRunStatus(t, server, ref.Name, ref.ID, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Succeeded
+	})
+	require.Equal(t, status.Nodes[0].ApprovedAt, latest.Nodes[0].ApprovedAt)
+	require.Equal(t, "reviewer", latest.Nodes[0].ApprovedBy)
+}
+
 func TestApproveDAGRunStep(t *testing.T) {
-	server := test.SetupServer(t)
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = false
+	}))
 
 	dagSpec := fmt.Sprintf(`type: graph
 steps:
@@ -980,8 +1203,71 @@ steps:
 	require.Equal(t, "wait-step", approveBody.StepName)
 	require.True(t, approveBody.Resumed)
 
-	// Wait for DAG to complete
+	// A standalone server resumes directly, even with queues disabled.
 	waitForStoredDAGRunStatus(t, server, "approval_test_dag", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Succeeded
+	})
+}
+
+// Approving one waiting step resumes the branches it unblocks even while a
+// step on an independent branch still waits for approval.
+func TestApproveDAGRunStepResumesIndependentBranch(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dagSpec := `type: graph
+steps:
+  - id: gate_a
+    run: "exit 0"
+    approval:
+      prompt: "Approve A"
+  - id: gate_b
+    run: "exit 0"
+    approval:
+      prompt: "Approve B"
+  - id: after_a
+    depends: [gate_a]
+    run: "exit 0"
+  - id: after_b
+    depends: [gate_b]
+    run: "exit 0"`
+
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "approval_independent_branches",
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/approval_independent_branches/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+
+	waitForStoredDAGRunStatus(t, server, "approval_independent_branches", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting &&
+			hasNodeWithStatus(status, "gate_a", ir.NodeWaiting) &&
+			hasNodeWithStatus(status, "gate_b", ir.NodeWaiting)
+	})
+
+	approveResp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/approval_independent_branches/%s/steps/gate_a/approve", startBody.DagRunId),
+		api.ApproveStepRequest{},
+	).ExpectStatus(http.StatusOK).Send(t)
+	var approveBody api.ApproveDAGRunStep200JSONResponse
+	approveResp.Unmarshal(t, &approveBody)
+	require.True(t, approveBody.Resumed)
+
+	// The unblocked branch runs to completion while gate_b still waits.
+	waitForStoredDAGRunStatus(t, server, "approval_independent_branches", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting &&
+			hasNodeWithStatus(status, "after_a", ir.NodeSucceeded) &&
+			hasNodeWithStatus(status, "gate_b", ir.NodeWaiting)
+	})
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/approval_independent_branches/%s/steps/gate_b/approve", startBody.DagRunId),
+		api.ApproveStepRequest{},
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	waitForStoredDAGRunStatus(t, server, "approval_independent_branches", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 }
@@ -1075,10 +1361,7 @@ func TestCompleteHumanTask(t *testing.T) {
 
 // A push-back through the API validates feedback, honors the expected
 // iteration, resets the rewind target with the feedback, and queues the run.
-func TestPushBackHumanTask(t *testing.T) {
-	server := test.SetupServer(t)
-
-	dagSpec := `steps:
+const humanTaskPushBackSpec = `steps:
   - id: implement
     run: echo "implement ${feedback}"
   - id: review
@@ -1098,6 +1381,10 @@ func TestPushBackHumanTask(t *testing.T) {
     depends: review
     run: echo publish`
 
+func TestPushBackHumanTask(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dagSpec := humanTaskPushBackSpec
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "human_task_push_back_api_test",
 		Spec: &dagSpec,
@@ -1151,10 +1438,80 @@ func TestPushBackHumanTask(t *testing.T) {
 	server.Client().Post(pushBackPath, map[string]any{"feedback": "again"}).ExpectStatus(http.StatusConflict).Send(t)
 }
 
+// A push-back resume of a run owned by a remote worker stays queued when the
+// run is read before any worker claims the resumed attempt.
+func TestPushBackRemoteResumeStaysQueued(t *testing.T) {
+	server := test.SetupServer(t)
+
+	const dagName = "human_task_push_back_remote_test"
+	dagSpec := humanTaskPushBackSpec
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/"+dagName+"/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+
+	waiting := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting) &&
+			hasRunProcessIdentity(status)
+	})
+	// The run actually waited in a local process, which compacts its status
+	// file on exit and would replace the writes below with its last status.
+	// A remote worker leaves no such process, so wait until the process
+	// itself is gone; a stale heartbeat alone does not prove that.
+	require.Eventually(t, func() bool {
+		matched, _, ok := procutil.MatchesStartTime(int(waiting.PID), waiting.PIDStartedAt)
+		return !ok || !matched
+	}, dagRunEventuallyTimeout(10*time.Second), 100*time.Millisecond)
+
+	// The wait was reported by a remote worker that stays alive but idle.
+	const workerID = "worker-1"
+	_, swapped, err := server.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
+		server.Context,
+		waiting.DAGRun(),
+		waiting.AttemptID,
+		ir.Waiting,
+		func(latest *ir.DAGRunStatus) error {
+			latest.WorkerID = workerID
+			return nil
+		},
+		persis.DAGRunCompareAndSwapOptions{},
+	)
+	require.NoError(t, err)
+	require.True(t, swapped)
+	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        workerID,
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+		Stats:           &dispatch.WorkerStats{RunningTasks: []*dispatch.RunningTask{}},
+	}))
+
+	pushBackPath := fmt.Sprintf("/api/v1/dag-runs/%s/%s/human-tasks/review/push-back", dagName, startBody.DagRunId)
+	pushBackResp := server.Client().Post(pushBackPath, map[string]any{"feedback": "add tests"}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var pushBackBody api.PushBackHumanTask200JSONResponse
+	pushBackResp.Unmarshal(t, &pushBackBody)
+	require.True(t, pushBackBody.Queued)
+
+	detailsResp := server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", dagName, startBody.DagRunId)).
+		ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGRunDetails200JSONResponse
+	detailsResp.Unmarshal(t, &details)
+	require.Equal(t, api.Status(ir.Queued), details.DagRunDetails.Status)
+
+	stored := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, waiting.DAGRun())
+	require.Equal(t, ir.Queued, stored.Status)
+}
+
 // Approving the last dependency of a step that waits on a completed human task
 // queues the human-task resume, even while another task keeps waiting.
 func TestApproveQueuesUnblockedHumanTaskJoin(t *testing.T) {
-	server := test.SetupServer(t)
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues = config.Queues{Enabled: true, Config: []config.QueueConfig{{Name: "human_task_approval_join", MaxActiveRuns: 1}}}
+	}))
 
 	dagSpec := `type: graph
 steps:
@@ -1210,13 +1567,20 @@ steps:
 	waitForStoredDAGRunStatus(t, server, "human_task_approval_join", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.Status == ir.Queued && hasNodeWithStatus(status, "other", ir.NodeWaiting)
 	})
+	startResumeQueue(t, server)
+	waitForStoredDAGRunStatus(t, server, "human_task_approval_join", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting && hasNodeWithStatus(status, "join", ir.NodeSucceeded) &&
+			hasNodeWithStatus(status, "other", ir.NodeWaiting)
+	})
 }
 
 // A push-back cannot resume while a failed step would re-run and another step
 // waits, so it stays stored. Approving the last waiting step must then queue
 // the resume like a human-task checkpoint instead of starting dagu retry.
 func TestApproveQueuesPendingHumanTaskPushBack(t *testing.T) {
-	server := test.SetupServer(t)
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues = config.Queues{Enabled: true, Config: []config.QueueConfig{{Name: "human_task_push_back_approval", MaxActiveRuns: 1}}}
+	}))
 
 	dagSpec := `type: graph
 steps:
@@ -1281,6 +1645,7 @@ steps:
 
 func TestManualStepActionsRejectWhileDAGRunIsRunning(t *testing.T) {
 	server := test.SetupServer(t)
+	startResumeQueue(t, server)
 	release := newHoldFile(t)
 
 	dagName := "approval_running_dag"
@@ -1391,11 +1756,19 @@ steps:
 
 ---
 name: child_dag
+type: graph
 steps:
   - name: child-wait
     run: "exit 0"
     approval:
-      prompt: "Approve child"`, indentCommandBlock(holdUntilFileExistsCommand(release), 6))
+      prompt: "Approve child"
+  - name: other-wait
+    run: "exit 0"
+    approval:
+      prompt: "Approve other branch"
+  - name: after-child
+    depends: [child-wait]
+    run: "exit 0"`, indentCommandBlock(holdUntilFileExistsCommand(release), 6))
 
 	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: dagName,
@@ -1425,7 +1798,8 @@ steps:
 
 	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.Status == ir.Waiting &&
-			hasNodeWithStatus(status, "child-wait", ir.NodeWaiting)
+			hasNodeWithStatus(status, "child-wait", ir.NodeWaiting) &&
+			hasNodeWithStatus(status, "other-wait", ir.NodeWaiting)
 	})
 
 	resp := server.Client().Post(
@@ -1485,6 +1859,18 @@ steps:
 
 	var approveBody api.ApproveSubDAGRunStep200JSONResponse
 	approveResp.Unmarshal(t, &approveBody)
+	require.False(t, approveBody.Resumed)
+
+	// Child approvals remain waiting until every manual gate is resolved.
+	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting && hasNodeWithStatus(status, "child-wait", ir.NodeSucceeded) &&
+			hasNodeWithStatus(status, "other-wait", ir.NodeWaiting) && hasNodeWithStatus(status, "after-child", ir.NodeNotStarted)
+	})
+	approveResp = server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/other-wait/approve", dagName, startBody.DagRunId, subDAGRunID),
+		api.ApproveStepRequest{},
+	).ExpectStatus(http.StatusOK).Send(t)
+	approveResp.Unmarshal(t, &approveBody)
 	require.True(t, approveBody.Resumed)
 
 	waitForStoredSubDAGRunStatus(t, server, rootRef, subDAGRunID, 10*time.Second, func(status *ir.DAGRunStatus) bool {
@@ -1502,6 +1888,7 @@ func TestApproveDAGRunStepResumeRefreshesProcessIdentity(t *testing.T) {
 		cfg.Proc.HeartbeatInterval = procHeartbeatInterval
 		cfg.Proc.StaleThreshold = procStaleThreshold
 	}))
+	startResumeQueue(t, server)
 	release := newHoldFile(t)
 
 	dagName := "approval_long_resume_dag"
@@ -2067,6 +2454,66 @@ steps:
 		return status.Status == ir.Succeeded
 	})
 	require.Contains(t, rescheduledStatus.ParamsList, "MESSAGE=hello world")
+}
+
+// The current file gives its own DAG name, which is not the name of a run
+// started with --name: a new run takes the override, else the name of its run.
+func TestRescheduleCurrentDAGFileName(t *testing.T) {
+	const (
+		dagName = "reschedule_current_file_name"
+		runName = dagName + "_run"
+	)
+	override := dagName + "_override"
+	server := test.SetupServer(t, test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Queues.Enabled = true
+		cfg.Queues.Config = []config.QueueConfig{{Name: dagName, MaxActiveRuns: 1}}
+	}))
+
+	spec := fmt.Sprintf("queue: %s\nsteps:\n  - name: main\n    run: echo done", dagName)
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	name := runName
+	var started api.ExecuteDAG200JSONResponse
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dags/%s/start", dagName),
+		api.ExecuteDAGJSONRequestBody{DagName: &name},
+	).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
+	waitForStoredDAGRunStatus(t, server, runName, started.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Succeeded
+	})
+
+	tests := []struct {
+		name         string
+		dagName      *string
+		wantRunNamed string
+	}{
+		{name: "keeps the name of the run", wantRunNamed: runName},
+		{name: "takes the override", dagName: &override, wantRunNamed: override},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			useCurrentDagFile := true
+			var rescheduled api.RescheduleDAGRun200JSONResponse
+			server.Client().Post(
+				fmt.Sprintf("/api/v1/dag-runs/%s/%s/reschedule", runName, started.DagRunId),
+				api.RescheduleDAGRunJSONRequestBody{DagName: tt.dagName, UseCurrentDagFile: &useCurrentDagFile},
+			).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &rescheduled)
+
+			server.Client().Get(
+				fmt.Sprintf("/api/v1/dag-runs/%s/%s", tt.wantRunNamed, rescheduled.DagRunId),
+			).ExpectStatus(http.StatusOK).Send(t)
+
+			// The queue rebuilds the stored DAG: the run keeps the name when it runs.
+			test.ProcessQueuedInlineRun(t, server, dagName)
+			waitForStoredDAGRunStatus(t, server, tt.wantRunNamed, rescheduled.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+				return status.Status == ir.Succeeded
+			})
+		})
+	}
 }
 
 func TestRescheduleDAGRunRequiresQueuesEnabled(t *testing.T) {
@@ -2983,6 +3430,15 @@ steps:
 	requireFilterEventually("nonexistent", nil, []string{"label_filter_prod", "label_filter_dev", "label_filter_test"})
 	requireFilterEventually("test", []string{"label_filter_test"}, []string{"label_filter_prod", "label_filter_dev"})
 	requireFilterEventually("CRITICAL", []string{"label_filter_prod", "label_filter_dev"}, []string{"label_filter_test"})
+	requireFilterEventually("critical,!dev", []string{"label_filter_prod"}, []string{"label_filter_dev", "label_filter_test"})
+
+	// A malformed term is rejected instead of silently matching nothing.
+	resp := server.Client().Get("/api/v1/dag-runs?labels=critical,env%3D%3Dprod").
+		ExpectStatus(http.StatusBadRequest).Send(t)
+	var errResp api.Error
+	resp.Unmarshal(t, &errResp)
+	require.Equal(t, api.ErrorCodeBadRequest, errResp.Code)
+	require.Contains(t, errResp.Message, `invalid label filter "env==prod"`)
 }
 
 func TestListDAGRunsFilterByPartialName(t *testing.T) {
@@ -3008,20 +3464,20 @@ func TestListDAGRunsFilterByPartialName(t *testing.T) {
 		)
 	}
 
-	resp := server.Client().Get("/api/v1/dag-runs?name=test").
-		ExpectStatus(http.StatusOK).Send(t)
+	require.Eventually(t, func() bool {
+		resp := server.Client().Get("/api/v1/dag-runs?name=test").
+			ExpectStatus(http.StatusOK).Send(t)
 
-	var body api.ListDAGRuns200JSONResponse
-	resp.Unmarshal(t, &body)
+		var body api.ListDAGRuns200JSONResponse
+		resp.Unmarshal(t, &body)
 
-	names := make(map[string]bool)
-	for _, run := range body.DagRuns {
-		names[run.Name] = true
-	}
+		names := make(map[string]bool)
+		for _, run := range body.DagRuns {
+			names[run.Name] = true
+		}
 
-	require.True(t, names["test-params-flag"])
-	require.True(t, names["alpha-test-case"])
-	require.False(t, names["other-dag"])
+		return names["test-params-flag"] && names["alpha-test-case"] && !names["other-dag"]
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
 func TestListDAGRunsByNameRemainsExact(t *testing.T) {
@@ -3046,16 +3502,23 @@ func TestListDAGRunsByNameRemainsExact(t *testing.T) {
 		)
 	}
 
-	resp := server.Client().Get("/api/v1/dag-runs/test-params-flag").
-		ExpectStatus(http.StatusOK).Send(t)
+	require.Eventually(t, func() bool {
+		resp := server.Client().Get("/api/v1/dag-runs/test-params-flag").
+			ExpectStatus(http.StatusOK).Send(t)
 
-	var body api.ListDAGRunsByName200JSONResponse
-	resp.Unmarshal(t, &body)
+		var body api.ListDAGRunsByName200JSONResponse
+		resp.Unmarshal(t, &body)
 
-	require.NotEmpty(t, body.DagRuns)
-	for _, run := range body.DagRuns {
-		require.Equal(t, "test-params-flag", run.Name)
-	}
+		if len(body.DagRuns) == 0 {
+			return false
+		}
+		for _, run := range body.DagRuns {
+			if run.Name != "test-params-flag" {
+				return false
+			}
+		}
+		return true
+	}, dagRunEventuallyTimeout(5*time.Second), 200*time.Millisecond)
 }
 
 func TestGetDAGRunDetailsExposesLocalProcessWhileRunning(t *testing.T) {

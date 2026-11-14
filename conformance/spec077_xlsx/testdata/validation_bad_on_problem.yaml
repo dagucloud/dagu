@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.validate
+    with:
+      path: orders.xlsx
+      required: [Invoice No]
+      on_problem: pause

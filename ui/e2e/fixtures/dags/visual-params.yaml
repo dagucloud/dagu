@@ -1,0 +1,23 @@
+# Demo: params, consts, declared outputs and continue_on.
+description: Use params and consts, tolerate one failing step, then read a param and an output.
+params:
+  - GREETING: hello
+  - TARGET: world
+consts:
+  - SUFFIX: "!"
+steps:
+  - id: prepare
+    name: prepare
+    run: printf 'token=abc123\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: token
+
+  - name: flaky
+    depends: [prepare]
+    run: exit 1
+    continue_on:
+      failure: true
+
+  - name: report
+    depends: [flaky]
+    run: echo "${params.GREETING} ${params.TARGET}${consts.SUFFIX} token=${steps.prepare.outputs.token}"

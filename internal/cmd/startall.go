@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/signal"
+	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -28,6 +29,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/spf13/cobra"
 )
+
+// coordinatorPortInUseHint explains a coordinator listen failure caused by a
+// taken port. It names the opt-out because start-all enables the coordinator
+// by default.
+const coordinatorPortInUseHint = "another Dagu may be running; stop it, choose a free port with --coordinator.port or DAGU_COORDINATOR_PORT, or set DAGU_COORDINATOR_ENABLED=false"
 
 func StartAll() *cobra.Command {
 	return NewCommand(
@@ -108,11 +114,13 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	// Create a context that will be cancelled on interrupt signal.
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
-	signalCtx, stop := signal.NotifyContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
+	// SIGHUP and SIGQUIT end start-all as they end a standalone scheduler, so
+	// a closed terminal never leaves the server running without its scheduler.
+	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stop()
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
-	serviceCtx := ctx.WithContext(signalCtx)
+	serviceCtx := ctx.WithContext(ctx.withSignalPropagation(signalCtx))
 	if _, err := persisfile.NewDAGSettingsStore(
 		serviceCtx.Config,
 		serviceCtx.backend.Collection(persis.CollectionDAGSettings),
@@ -170,13 +178,29 @@ func runStartAll(ctx *Context, _ []string) error {
 	}
 	// Disable health server when running from start-all
 	scheduler.DisableHealthServer()
+	scheduler.DisableSignalHandling()
 	scheduler.SetOpenCodeHost(openCodeHost)
 
 	// Initialize resource monitoring service
 	resourceService := resource.NewService(ctx.Config)
 
+	serverOpts := []frontend.ServerOption{
+		frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)),
+		// The scheduler delivers DAG-run notifications and incidents.
+		frontend.WithoutNotificationMonitors(),
+	}
+	cloudMonitoring := newCloudReportMonitoring(serviceCtx)
+	if cloudMonitoring != nil {
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudReport(cloudMonitoring)))
+	}
+	cloudAccess := newCloudAccess(serviceCtx)
+	if cloudAccess != nil {
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudAccess(cloudAccess)))
+	}
+	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
+
 	// Use serviceCtx so auth initialization can respond to termination signals
-	server, err := newServer(serviceCtx, resourceService, stores, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
+	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}
@@ -187,7 +211,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		var err error
 		coord, _, err = newCoordinator(serviceCtx, stores.Secret, stores.Profile)
 		if err != nil {
-			return fmt.Errorf("failed to initialize coordinator: %w", err)
+			return fmt.Errorf("failed to initialize coordinator: %w", withPortInUseHint(err, coordinatorPortInUseHint))
 		}
 		coord.DisableHealthServer()
 	} else {
@@ -203,6 +227,11 @@ func runStartAll(ctx *Context, _ []string) error {
 	if err := resourceService.Start(serviceCtx); err != nil {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
+
+	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService); cloudReporter != nil {
+		defer cloudReporter.Stop()
+	}
+	defer startCloudAccess(serviceCtx, cloudAccess, server)()
 
 	// WaitGroup to track all services
 	var wg sync.WaitGroup
@@ -246,7 +275,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		)
 		if err := server.Serve(serviceCtx); err != nil {
 			select {
-			case errCh <- fmt.Errorf("server failed: %w", err):
+			case errCh <- fmt.Errorf("server failed: %w", withPortInUseHint(err, webPortInUseHint)):
 			default:
 			}
 		}
@@ -267,7 +296,11 @@ func runStartAll(ctx *Context, _ []string) error {
 			logger.Error(ctx, "Service failed, shutting down", tag.Error(err))
 		}
 	}
-	stop() // Restore default signal handling while graceful shutdown runs.
+	var received os.Signal
+	_ = errors.As(context.Cause(signalCtx), &received)
+	// Capture the signal before scheduler.Stop cancels its service context.
+	runsDone := launcher.PropagateSignal(serviceCtx, received)
+	stop() // Let a second SIGINT end graceful shutdown; SIGTERM stays absorbed.
 
 	// Stop all services gracefully
 	logger.Info(ctx, "Stopping all services")
@@ -288,6 +321,9 @@ func runStartAll(ctx *Context, _ []string) error {
 	if err := resourceService.Stop(ctx); err != nil {
 		logger.Error(ctx, "Failed to stop resource service", tag.Error(err))
 	}
+
+	// Runner cleanup follows each DAG's timeout, not the service budget.
+	<-runsDone
 
 	// Wait for all services to finish with timeout
 	done := make(chan struct{})

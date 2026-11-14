@@ -25,6 +25,10 @@ type Container struct {
 	// Serialized to JSON so it can be restored when ReadDAG deserializes from
 	// the stored DAGDefinition file.
 	Env []string `yaml:"env,omitempty" json:"env,omitempty"` // List of environment variables in "key=value" format
+	// EnvFile lists dotenv-syntax files to load into the container
+	// environment. File variables have lower precedence than Env entries.
+	// Serialized to JSON like Env for DAGDefinition persistence.
+	EnvFile []string `yaml:"env_file,omitempty" json:"env_file,omitempty"`
 	// Volumes specifies the volumes to mount in the container.
 	Volumes []string `yaml:"volumes,omitempty"` // Map of volume names to volume definitions
 	// User is the user to run the container as.

@@ -128,9 +128,11 @@ export function dereferenceSchema(schema: JSONSchema): JSONSchema {
       }
 
       const { $ref: _ref, ...rest } = obj;
+      // resolved is already dereferenced; walking it again would expand the
+      // references it keeps to break cycles.
       return Object.keys(rest).length === 0
         ? resolved
-        : processNode({ ...resolved, ...rest });
+        : { ...resolved, ...(processNode(rest) as Record<string, unknown>) };
     }
 
     const result: Record<string, unknown> = {};

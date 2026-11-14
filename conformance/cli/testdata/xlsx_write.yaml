@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [Invoice No, Amount, Due]
+      rows: [{"Invoice No": "INV-1", "Amount": 10, "Due": "2026-10-01"}, {"Invoice No": "INV-2", "Amount": 20.5, "Due": "2026-10-02"}]

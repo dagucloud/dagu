@@ -1,6 +1,6 @@
 ---
 name: dagu
-description: Authors, validates, and troubleshoots Dagu DAG definitions and assists with Dagu CLI operations. Use when creating or debugging DAG YAML, choosing Dagu commands, or inspecting and managing DAGs and runs from the CLI.
+description: Authors, validates, and troubleshoots Dagu DAG definitions and assists with Dagu CLI operations. Use when creating or debugging DAG YAML, choosing Dagu commands, or inspecting and managing DAGs and runs from the CLI. Also covers operating a running Dagu server (MCP, REST, remote CLI context).
 ---
 
 # DAG Authoring
@@ -14,8 +14,11 @@ Load only the reference file that matches the task.
 - Use `type: build` only for local regular-file pipelines whose unchanged transformations should be reused across runs.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
+- For requests against a running Dagu server (list, create, run, stop, schedule), follow `references/server-operations.md`: detect whether a server exists without asking, then prefer MCP, then REST, then a CLI remote context, and use the local CLI or file edits only as a stated last resort. With no server detected, work locally as usual. A local CLI pointed at the server's data directory is not a server request.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
+- Prefer `action: js.run` for transforming data between steps (parsing, filtering, reshaping, extracting with regular expressions, computing values) instead of `python -c`, Python or Node heredocs, or `awk`, `sed`, and `jq` pipelines in `run:`. It needs no interpreter on the host or worker, Dagu passes its script as written so `${...}` and `$` need no escaping, syntax errors fail validation before a run, and its returned value is clean stdout for `output:`. Pass data in with `with.input` or `with.input_file`. Keep `run:` for invoking CLIs and for work that needs the network, the filesystem, environment variables, or a library; `js.run` has none of these. A single jq path such as `.items[].id` is fine in `jq.filter`.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
+- Prefer `xlsx.*` actions for `.xlsx` workbooks: `xlsx.read` for rows, `xlsx.validate` before acting on them, `xlsx.write` or `xlsx.append` for reports, `xlsx.update_rows` to write per-row results back, `xlsx.write_cells` to fill a template, `xlsx.sheet` to manage sheets, `xlsx.convert` to hand a sheet to a tool that reads CSV, and `xlsx.extract` to read named fields out of a form-like sheet whose layout differs by sender, instead of a Python or PowerShell script. Inspect a workbook first with `dagu xlsx inspect` or the MCP `workbook` read target.
 - Prefer `git.worktree.add` and `git.worktree.remove` when steps need isolated branches inside an existing local Git repository. Add an explicit remove step when the workflow should delete the worktree.
 - Prefer `stdout.artifact` / `stderr.artifact` when a command stream should become a DAG-run artifact, especially for large reports, JSON, Markdown, logs, or generated files.
 - Prefer `artifact.*` actions for explicit artifact reads/writes/lists. Use `DAG_RUN_ARTIFACTS_DIR` only when a tool truly needs a filesystem path inside the step.
@@ -29,13 +32,15 @@ Load only the reference file that matches the task.
 - Prefer scoped Dagu references for named values: `${consts.NAME}`, `${params.NAME}`, and `${env.NAME}`. Avoid unscoped braced names in examples unless the example is intentionally showing shell syntax.
 - Declare portable external CLI dependencies in top-level `tools` using aqua shorthand when the binary version affects reproducibility, for example `tools: ["jqlang/jq@jq-1.7.1"]`. Append `#sha256:<64 hex>` to also pin the downloaded artifact content for the run platform, for example `jqlang/jq@jq-1.7.1#sha256:<hex>`.
 - For remote actions, put `tools` in the referenced action DAG file, not in `dagu-action.yaml`; caller DAG tools are not inherited across the action boundary.
+- For worker-local aqua registries, set `tools.registry.type: local` and `tools.registry.path` to a path absolute for the worker's OS. The worker captures a regular file of at most 16 MiB and installs from that snapshot, hashing its contents into the toolset cache key.
+- Each distinct local registry content hash retains a full private package set and aqua-proxy on every worker, with no automatic cache pruning. Use package digests to pin downloaded bytes even when a registry or asset URL changes.
 - Declare step-level `dependencies` when a run needs files from the DAG working directory. Use literal working-directory-relative paths or glob patterns; do not use value references.
 - Use remote action packages (`dagu-action.yaml`) when reusable logic needs helper files, its own DAG, versioning, or an input/output schema contract.
 
 ## High-Signal Rules
 
 - `output:` has two modes:
-  - string form captures trimmed stdout into an env-scope variable such as `${env.VERSION}`
+  - string form captures trimmed stdout, including any log lines, into an env-scope variable such as `${env.VERSION}`
   - object form publishes structured step-scoped output for `${step_id.output.*}` access
 - Value declarations in step `outputs:` publish explicit values through `${steps.<step_id>.outputs.<name>}`. Write those values to `$DAGU_OUTPUT_FILE`; Dagu captures them only after the command succeeds. Build path declarations publish the final materialization path after commit or reuse.
 - `human.task` is a processless root-DAG step with an explicit `id`, a required `with.prompt`, and an optional flat scalar form. A root DAG containing one can run locally or on a distributed worker. Every declared form property is a step output, published when submitted or defaulted, and available as `${steps.<step_id>.outputs.<name>}`. Optional `with.push_back` (`rewind_to` plus an optional feedback `form`) lets the operator send the work back to an upstream step instead of completing it.
@@ -52,7 +57,7 @@ Load only the reference file that matches the task.
 - `params:` values arrive as strings. The `params:` field supports JSON schema-like types and validation, check for schema to see how to specify types and validation rules.
 - Single-line `run:` values are command-form entries. Array-form `run:` entries run one by one. Multi-line `run:` values are scripts. Dagu does not split pipes, redirects, `&&`, or `;` into separate commands; those stay with the selected shell.
 - Do not assume `bash` for `run:` steps. If a script depends on a specific interpreter, add a shebang such as `#!/bin/sh` or `#!/usr/bin/env bash` only after checking that shell exists on the target host or container. Otherwise keep the script portable or set `with.shell:` explicitly.
-- `parallel:` currently requires `action: dag.run` to a child DAG.
+- `parallel:` currently requires `action: dag.run` or `action: dag.enqueue` to a child DAG.
 - Sub-DAGs do not inherit parent env vars; pass what you need via `params:`.
 - For arbitrary text inside shell steps, prefer `printenv VAR_NAME` or `action: template.render` over Dagu interpolation such as `${env.VAR_NAME}`.
 - `harness.run` supports built-in provider adapters (`aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kilo`, `kiro`, `opencode`, `pi`, `qwen`) and custom top-level `harnesses:` entries. Built-in OpenCode uses managed sessions on long-lived Dagu hosts by default; containers and unsupported options use the CLI path. It can use top-level `container:` or step-level `container:`.
@@ -66,6 +71,7 @@ Load only the reference file that matches the task.
 - In remote action examples, prefer `dag: workflow.yaml` for the action DAG filename. The `dag` field accepts any safe relative file path, but `workflow.yaml` avoids confusing the executable DAG with the `dagu-action.yaml` manifest.
 - Object-form `output:` with `decode: json` or `decode: yaml` can act as lightweight runtime validation. Malformed data or an unresolved `select:` path fails the step, so normal `retry_policy` applies.
 - Use DAG-level `shell` and `shell_args` only when every inherited `run:` step should use the same shell invocation. Use step-level `with.shell` and `with.shell_args` for a single step.
+- A DAG-level `watch:` block (`path`, optional `pattern` such as `*.pdf`, optional `interval`, 10s by default) starts one run for each file that arrives in a folder, with the file's path as `${WATCH_FILE}` and its name as `${WATCH_NAME}`. A file counts as arrived once its size and time hold still between two readings; files already in the folder when the watch starts are left alone, and a file runs again only when it is replaced. Prefer it to a schedule that polls a folder. A file's name is chosen by whoever put it in the folder, so in a `run:` step read `WATCH_FILE` and `WATCH_NAME` with `printenv` or through `action: template.render` rather than interpolating `${WATCH_NAME}` into the command.
 - Use `dagu schema dag` to check the full list of available fields and their shapes.
 - Use `dagu example` to see different DAG patterns and how to express them in YAML.
 
@@ -205,9 +211,10 @@ Complete the task from a local CLI context with `dagu human-task complete --run-
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, `template.render`, or `browser.*`
+- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `js.run`, `file.*`, `xlsx.*`, `state.*`, `template.render`, `chat.completion`, `browser.*`, or `computer.*`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
-- `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations
+- `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations, and browser sessions for building a browser step on a site you have not seen
+- `references/server-operations.md` when the task targets a running Dagu server: reading or changing DAGs, starting, stopping or retrying runs, or checking run status and logs through MCP, REST, or a remote context
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
 - `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
 - `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory

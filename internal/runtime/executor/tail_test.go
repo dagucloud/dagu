@@ -6,8 +6,10 @@ package executor
 import (
 	"bytes"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/text/encoding/japanese"
 )
 
 func TestTailWriter_RollingBufferSimple(t *testing.T) {
@@ -65,4 +67,48 @@ func TestTailWriter_TrimToLimit(t *testing.T) {
 	_, _ = tw.Write([]byte("abcdef"))
 	// Only last 5 bytes should remain
 	assert.Equal(t, "bcdef", tw.Tail())
+}
+
+func TestTailWriter_DecodesConfiguredEncoding(t *testing.T) {
+	t.Parallel()
+	tw := NewTailWriterWithEncoding(&bytes.Buffer{}, 100, "shift_jis")
+
+	sjis, err := japanese.ShiftJIS.NewEncoder().Bytes([]byte("発生場所 s:1"))
+	assert.NoError(t, err)
+	_, _ = tw.Write(sjis)
+
+	assert.Equal(t, "発生場所 s:1", tw.Tail())
+}
+
+// A shell can switch its output to UTF-8 regardless of the configured
+// encoding, so output that is already UTF-8 must not be decoded again.
+func TestTailWriter_KeepsUTF8WithConfiguredEncoding(t *testing.T) {
+	t.Parallel()
+	tw := NewTailWriterWithEncoding(&bytes.Buffer{}, 100, "shift_jis")
+
+	_, _ = tw.Write([]byte("Get-Item: ここ"))
+
+	assert.Equal(t, "Get-Item: ここ", tw.Tail())
+}
+
+// The rolling limit can cut a multi-byte rune at the start of the tail; the
+// rest of the UTF-8 output must still be returned as is.
+func TestTailWriter_TrimSplitsUTF8Rune(t *testing.T) {
+	t.Parallel()
+	tw := NewTailWriterWithEncoding(&bytes.Buffer{}, 10, "shift_jis")
+
+	_, _ = tw.Write([]byte("発生場所"))
+
+	assert.Equal(t, "生場所", tw.Tail())
+}
+
+func TestTailWriter_UndecodableOutputIsValidUTF8(t *testing.T) {
+	t.Parallel()
+	tw := NewTailWriter(&bytes.Buffer{}, 100)
+
+	_, _ = tw.Write([]byte{0x94, 0xad, 0x90, 0xb6, ' ', 's', ':', '1'})
+
+	tail := tw.Tail()
+	assert.True(t, utf8.ValidString(tail))
+	assert.Contains(t, tail, " s:1")
 }

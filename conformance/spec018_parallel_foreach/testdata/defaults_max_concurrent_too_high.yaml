@@ -1,0 +1,16 @@
+defaults:
+  max_concurrent: 1001
+
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child
+    parallel: [one]
+
+---
+
+name: child
+steps:
+  - name: ok
+    run: "true"

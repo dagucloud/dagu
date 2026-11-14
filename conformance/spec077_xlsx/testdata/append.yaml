@@ -1,0 +1,32 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: log.xlsx
+      columns: [when, what]
+      rows: [{"when": "2026-10-01", "what": "start"}, {"when": "2026-10-02", "what": "work"}]
+  - id: append
+    depends: write
+    action: xlsx.append
+    with:
+      path: log.xlsx
+      columns: [when, what]
+      rows: [{"when": "2026-10-03", "what": "more"}, {"when": "2026-10-04", "what": "done"}]
+  - id: changes
+    depends: append
+    action: file.write
+    with:
+      path: changes.json
+      content: ${steps.append.outputs.changes}
+  - id: read
+    depends: append
+    action: xlsx.read
+    with:
+      path: log.xlsx
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"count": ${steps.read.outputs.count}, "rows": ${steps.read.outputs.rows}}'

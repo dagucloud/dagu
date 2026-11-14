@@ -163,6 +163,9 @@ const (
 	dagYAMLExtension  = ".yaml"
 	dagYMLExtension   = ".yml"
 	wikiPageExtension = ".md"
+	// calendarFileExtension ends every calendar file name, as Dagu reads
+	// calendars only from <name>.yaml.
+	calendarFileExtension = ".yaml"
 )
 
 func normalizeDAGFileExtension(extension string) string {
@@ -181,6 +184,7 @@ type serviceImpl struct {
 	dagsDir      string
 	wikiDir      string
 	repoWikiDir  string
+	calendarsDir string
 	dataDir      string
 	stateManager *StateManager
 	gitClient    *GitClient
@@ -189,17 +193,22 @@ type serviceImpl struct {
 	running      bool
 }
 
-// NewService creates a new Git sync service.
-func NewService(cfg *Config, dagsDir, wikiPath, dataDir string) Service {
+// NewService creates a new Git sync service. Empty Wiki and calendar paths
+// default to folders in dagsDir.
+func NewService(cfg *Config, dagsDir, wikiPath, calendarsPath, dataDir string) Service {
 	repoPath := filepath.Join(dataDir, "gitsync", "repo")
 	if wikiPath == "" {
 		wikiPath = filepath.Join(dagsDir, wikiDir)
+	}
+	if calendarsPath == "" {
+		calendarsPath = filepath.Join(dagsDir, calendarsDir)
 	}
 	return &serviceImpl{
 		cfg:          cfg,
 		dagsDir:      dagsDir,
 		wikiDir:      wikiPath,
 		repoWikiDir:  wikiDir,
+		calendarsDir: calendarsPath,
 		dataDir:      dataDir,
 		stateManager: NewStateManager(dataDir),
 		gitClient:    NewGitClient(cfg, repoPath),
@@ -315,7 +324,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	for _, item := range items {
 		repoFileSet[item.id] = struct{}{}
 	}
-	deleted, deleteConflicts, err := s.syncRemoteFileDeletes(state, repoFileSet, pullResult.CurrentCommit)
+	deleted, deleteConflicts, err := s.syncRemoteDeletes(state, repoFileSet, pullResult.CurrentCommit)
 	if err != nil {
 		return localSyncResult{}, err
 	}
@@ -351,6 +360,11 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 				return localSyncResult{}, fmt.Errorf("failed to replace sync item %q: %w", item.id, err)
 			}
 			delete(state.Items, item.id)
+			itemState = nil
+		}
+		// A calendar listed only as untracked was made on the server, so Git
+		// Sync knows no more of it than of one without a record.
+		if itemState != nil && item.kind == SyncItemKindCalendar && itemState.Status == StatusUntracked {
 			itemState = nil
 		}
 		// Unchanged fast path: the item was synced against this exact commit
@@ -444,7 +458,9 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		remoteChanged := itemState == nil || itemState.RemoteDeleted || itemState.LastSyncedHash != repoHash ||
 			(item.kind == SyncItemKindFile && itemState.LastSyncedExecutable != remoteExecutable)
 		localChanged := itemState != nil && (itemState.Status == StatusModified || itemState.Status == StatusConflict)
-		if itemState == nil && item.kind == SyncItemKindFile {
+		// A file or calendar already present that Git Sync never synced
+		// holds local work, so differing content is a conflict.
+		if itemState == nil && (item.kind == SyncItemKindFile || item.kind == SyncItemKindCalendar) {
 			localChanged = true
 		}
 		if localChanged {
@@ -555,6 +571,9 @@ func (s *serviceImpl) repoFileItem(file TrackedFile) (repoSyncItem, bool) {
 			return repoSyncItem{}, false
 		}
 	}
+	if extension == calendarFileExtension && isCalendarItemID(baseID) {
+		return repoSyncItem{id: baseID, repoPath: repoPath, kind: SyncItemKindCalendar, extension: extension}, true
+	}
 	if extension == dagYAMLExtension || extension == dagYMLExtension {
 		if isBaseConfigID(baseID) {
 			return repoSyncItem{}, false
@@ -580,11 +599,14 @@ func (s *serviceImpl) trackedItemRepoPaths() (map[string][]string, error) {
 	return paths, nil
 }
 
-func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string]struct{}, remoteCommit string) ([]string, []string, error) {
+// syncRemoteDeletes removes unchanged local copies of tracked items that the
+// remote no longer contains. Locally changed items become conflicts so their
+// content is never lost; untracked items are local-only and left alone.
+func (s *serviceImpl) syncRemoteDeletes(state *State, repoFileSet map[string]struct{}, remoteCommit string) ([]string, []string, error) {
 	var deleted []string
 	var conflicts []string
 	for itemID, itemState := range state.Items {
-		if itemState.Kind != SyncItemKindFile {
+		if itemState.Status == StatusUntracked {
 			continue
 		}
 		if _, exists := repoFileSet[itemID]; exists {
@@ -597,7 +619,7 @@ func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string
 		if itemState.Status == StatusSynced {
 			matchesBase, err := s.localItemMatchesBase(itemID, itemState)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to verify remotely deleted file %q: %w", itemID, err)
+				return nil, nil, fmt.Errorf("failed to verify remotely deleted sync item %q: %w", itemID, err)
 			}
 			if !matchesBase {
 				s.markRemoteDeleteConflict(itemState, remoteCommit)
@@ -605,7 +627,7 @@ func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string
 				continue
 			}
 			if err := s.removeItemFile(itemID, itemState); err != nil && !os.IsNotExist(err) {
-				return nil, nil, fmt.Errorf("failed to remove remotely deleted file %q: %w", itemID, err)
+				return nil, nil, fmt.Errorf("failed to remove remotely deleted sync item %q: %w", itemID, err)
 			}
 			delete(state.Items, itemID)
 			deleted = append(deleted, itemID)
@@ -706,11 +728,10 @@ func (s *serviceImpl) reconcileAfterPull(state *State, repoFileSet map[string]st
 func (s *serviceImpl) scanLocalItems(state *State) error {
 	extensions := map[string]bool{dagYAMLExtension: true, dagYMLExtension: true}
 
+	// A DAGs directory that does not exist yet holds no DAGs, but the
+	// calendars live elsewhere and are still listed.
 	entries, err := os.ReadDir(s.dagsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // DAGs directory doesn't exist yet
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
@@ -760,8 +781,48 @@ func (s *serviceImpl) scanLocalItems(state *State) error {
 	}
 
 	s.scanWikiPageFiles(state)
+	s.scanCalendarFiles(state)
 
 	return nil
+}
+
+// scanCalendarFiles registers untracked calendar files.
+func (s *serviceImpl) scanCalendarFiles(state *State) {
+	entries, err := os.ReadDir(s.calendarsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name, ok := strings.CutSuffix(entry.Name(), calendarFileExtension)
+		itemID := path.Join(calendarsDir, name)
+		if !ok || entry.IsDir() || !isCalendarItemID(itemID) {
+			continue
+		}
+		if _, exists := state.Items[itemID]; exists {
+			continue
+		}
+		filePath, err := safeJoinWithinBase(s.calendarsDir, entry.Name())
+		if err != nil {
+			continue
+		}
+		checkedAt := time.Now()
+		content, err := safeReadFileWithinBase(s.calendarsDir, filePath)
+		if err != nil {
+			continue
+		}
+		now := time.Now()
+		itemState := &SyncItemState{
+			Status:        StatusUntracked,
+			Kind:          SyncItemKindCalendar,
+			FileExtension: calendarFileExtension,
+			LocalHash:     ComputeContentHash(content),
+			ModifiedAt:    &now,
+		}
+		if info, err := os.Stat(filePath); err == nil {
+			updateStatCache(itemState, info, checkedAt)
+		}
+		state.Items[itemID] = itemState
+	}
 }
 
 func (s *serviceImpl) scanWikiPageFiles(state *State) {
@@ -1750,6 +1811,9 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	}
 	if oldState.Kind == SyncItemKindDAG && SyncItemKindForID(newID) != SyncItemKindDAG {
 		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
+	}
+	if oldState.Kind == SyncItemKindCalendar && !isCalendarItemID(newID) {
+		return &ValidationError{Field: "newItemId", Message: "destination must be a calendar in the calendars folder"}
 	}
 	if oldState.Kind == SyncItemKindFile {
 		item, ok := s.repoFileItem(TrackedFile{Path: newID})
@@ -2788,7 +2852,26 @@ func safeRemoveFileWithinBase(baseDir, targetPath string) error {
 	if err := rejectUnsafeRootPath(root, relPath, targetPath, "remove", true); err != nil {
 		return err
 	}
-	return root.Remove(relPath)
+	if err := root.Remove(relPath); err != nil {
+		return err
+	}
+	removeEmptyRootParents(root, relPath)
+	return nil
+}
+
+// removeEmptyRootParents prunes directories left empty by a removal, as Git
+// does not track empty directories. The root itself is always kept.
+func removeEmptyRootParents(root *os.Root, relPath string) {
+	for dir := filepath.Dir(filepath.Clean(relPath)); dir != "."; dir = filepath.Dir(dir) {
+		info, err := root.Lstat(dir)
+		if err != nil || !info.IsDir() {
+			return
+		}
+		// Removing a non-empty directory fails, which ends the walk.
+		if err := root.Remove(dir); err != nil {
+			return
+		}
+	}
 }
 
 func safeRenameFileWithinBase(baseDir, oldPath, newPath string) error {
@@ -3015,6 +3098,8 @@ func (s *serviceImpl) safeItemFilePath(itemID string, kind SyncItemKind, extensi
 	switch kind {
 	case SyncItemKindWikiPage, SyncItemKindWikiPageAsset:
 		localID = strings.TrimPrefix(normalized, wikiRepoDirForID(normalized)+"/")
+	case SyncItemKindCalendar:
+		localID = strings.TrimPrefix(normalized, calendarsDir+"/")
 	case SyncItemKindFile:
 		extension = ""
 	case SyncItemKindDAG:
@@ -3055,6 +3140,8 @@ func normalizeItemExtension(kind SyncItemKind, extension string) string {
 		return wikiPageExtension
 	case SyncItemKindDAG:
 		return normalizeDAGFileExtension(extension)
+	case SyncItemKindCalendar:
+		return calendarFileExtension
 	default:
 		return ""
 	}
@@ -3113,8 +3200,12 @@ func (s *serviceImpl) localWikiDir() string {
 }
 
 func (s *serviceImpl) itemBaseDir(kind SyncItemKind) string {
-	if kind == SyncItemKindWikiPage || kind == SyncItemKindWikiPageAsset {
+	switch kind {
+	case SyncItemKindWikiPage, SyncItemKindWikiPageAsset:
 		return s.localWikiDir()
+	case SyncItemKindCalendar:
+		return s.calendarsDir
+	case SyncItemKindDAG, SyncItemKindFile:
 	}
 	return s.dagsDir
 }
@@ -3193,6 +3284,13 @@ func (s *serviceImpl) syncItemFileExtension(dagID string, dagState *SyncItemStat
 			dagState.FileExtension = ""
 		}
 		return ""
+	}
+	if kind == SyncItemKindCalendar {
+		if dagState != nil {
+			dagState.Kind = SyncItemKindCalendar
+			dagState.FileExtension = calendarFileExtension
+		}
+		return calendarFileExtension
 	}
 	if kind == SyncItemKindWikiPage {
 		if dagState != nil {

@@ -31,6 +31,11 @@ func (s *runStateStore) BeginAttempt(ctx context.Context, req runstate.BeginAtte
 			logger.Error(ctx, "DAG runs data cleanup failed", tag.Error(err))
 		}
 	}
+	if req.DAG != nil {
+		if err := s.repository.PruneSlots(ctx, req.DAG.Name, req.DAG.SlotRetentionDays); err != nil {
+			logger.Error(ctx, "Schedule slot record cleanup failed", tag.Error(err))
+		}
+	}
 
 	attempt := s.prepared
 	if attempt != nil {
@@ -118,6 +123,15 @@ type runStateAttempt struct {
 	dagrun.Attempt
 	repository *DAGRunRepository
 	workDirRef dagrun.WorkDirRef
+}
+
+// AttemptDir returns the directory of the attempt, or "" when the attempt
+// does not live in a local directory.
+func (a runStateAttempt) AttemptDir() string {
+	if d, ok := a.Attempt.(interface{ Dir() string }); ok {
+		return d.Dir()
+	}
+	return ""
 }
 
 func (a runStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatus) error {

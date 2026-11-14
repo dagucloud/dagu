@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 	"google.golang.org/grpc/codes"
@@ -36,6 +37,7 @@ type queueDispatchDeps struct {
 	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
+	isPaused               IsPausedFunc
 	backoffConfig          BackoffConfig
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
@@ -55,6 +57,7 @@ type queueDispatcher struct {
 	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
+	isPaused               IsPausedFunc
 	backoffConfig          BackoffConfig
 	leaseStaleThreshold    time.Duration
 	isClosed               func() bool
@@ -122,7 +125,7 @@ type dispatchAdmissionInput struct {
 }
 
 const (
-	dagRunConditionRunnable              = "Runnable"
+	dagRunConditionRunnable              = ir.DAGRunConditionRunnable
 	dagRunConditionConcurrencyReady      = "ConcurrencyReady"
 	dagRunConditionWorkerAssignmentReady = "WorkerAssignmentReady"
 	dagRunConditionRunRecordReady        = "RunRecordReady"
@@ -138,10 +141,11 @@ const (
 	queuedConditionReasonAssignmentUnavailable     = "AssignmentUnavailable"
 	queuedConditionReasonAttemptIdentityMissing    = "AttemptIdentityMissing"
 	queuedConditionReasonDAGSnapshotUnavailable    = "DAGSnapshotUnavailable"
-	queuedConditionReasonNoMatchingWorker          = "NoMatchingWorker"
-	queuedConditionReasonNoAvailableWorker         = "NoAvailableWorker"
-	queuedConditionReasonWorkerDispatchUnavailable = "WorkerDispatchUnavailable"
+	queuedConditionReasonNoMatchingWorker          = ir.DAGRunReasonNoMatchingWorker
+	queuedConditionReasonNoAvailableWorker         = ir.DAGRunReasonNoAvailableWorker
+	queuedConditionReasonWorkerDispatchUnavailable = ir.DAGRunReasonWorkerDispatchUnavailable
 	queuedConditionReasonLaunchFailed              = "LaunchFailed"
+	queuedConditionReasonExecutableMissing         = "ExecutableMissing"
 	queuedConditionReasonStartupNotObserved        = "StartupNotObserved"
 	queuedConditionReasonRunLivenessUnavailable    = "RunLivenessUnavailable"
 	queuedConditionReasonQueueStateUnavailable     = "QueueStateUnavailable"
@@ -290,6 +294,20 @@ var (
 			message:       "Local launch failed before any started signal was observed.",
 		},
 	}
+	executableMissingConditionDefs = []queuedConditionDef{
+		{
+			conditionType: dagRunConditionRunnable,
+			status:        dagRunConditionStatusFalse,
+			reason:        queuedConditionReasonExecutableMissing,
+			message:       "The DAG-run cannot start because the Dagu executable that launches it does not exist. Restart the scheduler.",
+		},
+		{
+			conditionType: dagRunConditionStartObserved,
+			status:        dagRunConditionStatusFalse,
+			reason:        queuedConditionReasonExecutableMissing,
+			message:       "The Dagu executable that launches DAG-runs does not exist.",
+		},
+	}
 	startupNotObservedConditionDefs = []queuedConditionDef{
 		{
 			conditionType: dagRunConditionRunnable,
@@ -339,6 +357,9 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 	if deps.isSuspended == nil {
 		deps.isSuspended = func(context.Context, string) (bool, error) { return false, nil }
 	}
+	if deps.isPaused == nil {
+		deps.isPaused = func(context.Context) (bool, error) { return false, nil }
+	}
 	if deps.isClosed == nil {
 		deps.isClosed = func() bool { return false }
 	}
@@ -361,6 +382,7 @@ func newQueueDispatcher(deps queueDispatchDeps) *queueDispatcher {
 		workerStaleAfter:       deps.workerStaleAfter,
 		dagExecutor:            deps.dagExecutor,
 		isSuspended:            deps.isSuspended,
+		isPaused:               deps.isPaused,
 		backoffConfig:          deps.backoffConfig,
 		leaseStaleThreshold:    deps.leaseStaleThreshold,
 		isClosed:               deps.isClosed,
@@ -760,7 +782,18 @@ func (d *queueDispatcher) dispatchQueuedItem(
 		return false
 	}
 
-	if isSchedulerManagedTriggerType(status.TriggerType) {
+	if status.BackfillID != "" {
+		// A backfill run, its retries too, is an operator's request: a
+		// suspension does not stop it, and a pause holds it queued.
+		paused, err := d.isPaused(ctx)
+		if err != nil {
+			logger.Error(ctx, "Failed to check the scheduler pause; leaving queued run pending", tag.Error(err))
+			return false
+		}
+		if paused {
+			return false
+		}
+	} else if isSchedulerManagedTriggerType(status.TriggerType) {
 		suspended, err := isSuspendedDAG(ctx, d.isSuspended, status, dag, "")
 		if err != nil {
 			logger.Error(ctx, "Failed to check DAG suspension; leaving queued run pending", tag.Error(err))
@@ -930,6 +963,19 @@ func (d *queueDispatcher) dispatchAndWaitForStartupWithConditions(
 			)
 			return true
 		}
+		// A definition that cannot be built can never be dispatched; fail the
+		// run with the build error instead of requeueing it forever behind a
+		// generic dispatch condition.
+		if defErr, ok := errors.AsType[*dispatch.DefinitionError](err); ok {
+			logger.Warn(ctx, "Queued DAG definition cannot be built; marking run failed",
+				tag.DAG(runRef.Name),
+				tag.Error(defErr),
+			)
+			if finalizeErr := d.failQueuedRunBeforeStartup(ctx, queueName, runRef, defErr, conditionStage); finalizeErr != nil {
+				logger.Error(ctx, "Failed to finalize queued DAG run after definition failure", tag.Error(finalizeErr))
+			}
+			return false
+		}
 		logger.Warn(ctx, "Failed to dispatch DAG; leaving it queued for the next scan", tag.Error(err))
 		if shouldRecordStartupCondition(err) {
 			conditionStage.observe(queuedDispatchCondition(err)...)
@@ -1074,6 +1120,16 @@ func (d *queueDispatcher) waitForStartupWithConditions(
 	}
 
 	if err := backoff.Retry(ctx, operation, policy, nil); err != nil {
+		// A missing executable fails every launch, not just this run's, so
+		// the run stays queued until the scheduler is restarted.
+		if errors.Is(err, launcher.ErrExecutableMissing) {
+			logger.Error(ctx, "Cannot launch queued DAG run because the Dagu executable does not exist; restart the scheduler",
+				tag.Error(err),
+			)
+			conditionStage.observe(executableMissingConditionDefs...)
+			conditionStage.flush(ctx)
+			return false
+		}
 		logger.Error(ctx, "Failed to execute DAG after retries", tag.Error(err))
 		if shouldRecordStartupCondition(err) {
 			if errors.Is(err, errRunLivenessUnavailable) {
@@ -1321,9 +1377,22 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 
 	runnable := make([]queuedomain.QueuedItemData, 0, min(freeSlots, len(items)))
 	retryScan := false
-	var workerConditionStages []*queuedConditionStage
+	var conditionStages []*queuedConditionStage
 	defer func() {
-		flushQueuedConditionStages(ctx, workerConditionStages)
+		flushQueuedConditionStages(ctx, conditionStages)
+	}()
+	// Local runs cannot launch while the executable is missing, so they are
+	// left out instead of taking slots that distributed runs could use. The
+	// scan is retried, which selects them again once the executable exists.
+	executableMissing := d.dagExecutor.executableMissing()
+	heldByExecutable := 0
+	defer func() {
+		if heldByExecutable > 0 {
+			logger.Error(ctx, "Local DAG runs stay queued because the Dagu executable does not exist; restart the scheduler",
+				tag.Queue(queueName),
+				tag.Count(heldByExecutable),
+			)
+		}
 	}()
 	for _, item := range items {
 		if len(runnable) >= freeSlots {
@@ -1350,14 +1419,26 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 				continue
 			}
 		}
+		if executableMissing {
+			recordCondition := len(conditionStages) < queuedConditionRefreshBatchLimit
+			held, conditionStage := d.queueItemHeldByMissingExecutable(ctx, queueName, item, *runRef, recordCondition)
+			if held {
+				if conditionStage != nil {
+					conditionStages = append(conditionStages, conditionStage)
+				}
+				heldByExecutable++
+				retryScan = true
+				continue
+			}
+		}
 		if d.workerHeartbeatStore != nil {
-			recordCondition := len(workerConditionStages) < queuedConditionRefreshBatchLimit
+			recordCondition := len(conditionStages) < queuedConditionRefreshBatchLimit
 			eligible, conditionStage := d.queueItemHasEligibleWorker(
 				ctx, queueName, item, *runRef, workerSnapshot, recordCondition,
 			)
 			if !eligible {
 				if conditionStage != nil {
-					workerConditionStages = append(workerConditionStages, conditionStage)
+					conditionStages = append(conditionStages, conditionStage)
 				}
 				continue
 			}
@@ -1368,6 +1449,52 @@ func (d *queueDispatcher) selectRunnableQueueItemsInQueue(
 	return runnable, retryScan, nil
 }
 
+// queueItemHeldByMissingExecutable reports whether the item is a queued local
+// run, which cannot launch while the Dagu executable is missing.
+func (d *queueDispatcher) queueItemHeldByMissingExecutable(
+	ctx context.Context,
+	queueName string,
+	item queuedomain.QueuedItemData,
+	runRef ir.DAGRunRef,
+	recordCondition bool,
+) (bool, *queuedConditionStage) {
+	run := d.readQueuedRun(ctx, runRef)
+	if run == nil || d.dagExecutor.IsDistributed(run.dag) {
+		return false, nil
+	}
+	if !recordCondition {
+		return true, nil
+	}
+	conditionStage := d.newQueuedConditionStage(runRef, queueName, item.ID(), run.attempt, run.status)
+	conditionStage.observe(executableMissingConditionDefs...)
+	return true, conditionStage
+}
+
+// queuedRun is a queued run as queue selection reads it.
+type queuedRun struct {
+	attempt dagrun.Attempt
+	status  *ir.DAGRunStatus
+	dag     *ir.DAG
+}
+
+// readQueuedRun reads a queued run. It returns nil when the run is hidden,
+// unreadable, or no longer queued.
+func (d *queueDispatcher) readQueuedRun(ctx context.Context, runRef ir.DAGRunRef) *queuedRun {
+	attempt, err := d.dagRunRepository.FindAttempt(ctx, runRef)
+	if err != nil || attempt.Hidden() {
+		return nil
+	}
+	status, err := attempt.ReadStatusUncached(ctx)
+	if err != nil || status.Status != ir.Queued {
+		return nil
+	}
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return nil
+	}
+	return &queuedRun{attempt: attempt, status: status, dag: dag}
+}
+
 func (d *queueDispatcher) queueItemHasEligibleWorker(
 	ctx context.Context,
 	queueName string,
@@ -1376,16 +1503,8 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	workerSnapshot *workerHeartbeatSnapshot,
 	recordCondition bool,
 ) (bool, *queuedConditionStage) {
-	attempt, err := d.dagRunRepository.FindAttempt(ctx, runRef)
-	if err != nil || attempt.Hidden() {
-		return true, nil
-	}
-	status, err := attempt.ReadStatusUncached(ctx)
-	if err != nil || status.Status != ir.Queued {
-		return true, nil
-	}
-	dag, err := attempt.ReadDAG(ctx)
-	if err != nil || !d.dagExecutor.IsDistributed(dag) {
+	run := d.readQueuedRun(ctx, runRef)
+	if run == nil || !d.dagExecutor.IsDistributed(run.dag) {
 		return true, nil
 	}
 
@@ -1394,7 +1513,7 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 	if err != nil {
 		conditionDefs = assignmentUnavailableConditionDefs
 	} else {
-		available, defs := workerAvailableInSnapshot(records, workerSnapshot.observedAt, d.workerStaleAfter, dag, status)
+		available, defs := workerAvailableInSnapshot(records, workerSnapshot.observedAt, d.workerStaleAfter, run.dag, run.status)
 		if available {
 			return true, nil
 		}
@@ -1404,7 +1523,7 @@ func (d *queueDispatcher) queueItemHasEligibleWorker(
 		return false, nil
 	}
 
-	conditionStage := d.newQueuedConditionStage(runRef, queueName, item.ID(), attempt, status)
+	conditionStage := d.newQueuedConditionStage(runRef, queueName, item.ID(), run.attempt, run.status)
 	conditionStage.observe(conditionDefs...)
 	return false, conditionStage
 }
@@ -1439,7 +1558,7 @@ func workerAvailableInSnapshot(
 			return true, nil
 		}
 	}
-	if healthyWorkers == 0 {
+	if healthyWorkers == 0 && len(dag.WorkerSelector) == 0 && targetWorkerID == "" {
 		return false, noAvailableWorkerConditionDefs
 	}
 	return false, noMatchingWorkerConditionDefs

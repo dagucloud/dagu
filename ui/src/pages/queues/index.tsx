@@ -9,6 +9,8 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import QueueList from '../../features/queues/components/QueueList';
+import { countIdleServiceDAGQueues } from '../../features/queues/lib/serviceDAGQueue';
+import { useServiceDAGs } from '../../features/service-dags/hooks/useServiceDAGs';
 import { useQuery } from '../../hooks/api';
 import { useQueuesListSSE } from '../../hooks/useQueuesListSSE';
 import {
@@ -17,9 +19,11 @@ import {
 } from '../../hooks/useSSECacheSync';
 import Title from '@/components/ui/title';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nProps } from '@/i18n/I18nProps';
 
 function Queues() {
+  const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
   const searchState = useSearchState();
   const remoteKey = appBarContext.selectedRemoteNode || 'local';
@@ -87,7 +91,7 @@ function Queues() {
   }, [currentFilters, remoteKey, searchState]);
 
   React.useEffect(() => {
-    appBarContext.setTitle('Queue Dashboard');
+    appBarContext.setTitle('Queues');
   }, [appBarContext]);
 
   const queuesSSE = useQueuesListSSE();
@@ -104,6 +108,7 @@ function Queues() {
     sseFallbackOptions(queuesSSE, 3000)
   );
   useSSECacheSync(queuesSSE, mutate);
+  const { serviceDAGs } = useServiceDAGs();
 
   async function handleRefresh(): Promise<void> {
     await mutate();
@@ -123,6 +128,21 @@ function Queues() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.queues, searchText]);
+  // Only a service DAG that owns its queue gets a card, and that queue has the
+  // name of the DAG. A server older than the queue field leaves it out.
+  const filteredServiceDAGs = React.useMemo(() => {
+    const search = searchText.toLowerCase();
+    return serviceDAGs.filter((dag) =>
+      dag.name.toLowerCase().includes(search)
+    );
+  }, [serviceDAGs, searchText]);
+  // The count includes the queues of service DAGs that the page draws as idle.
+  const totalQueues =
+    (data?.queues.length ?? 0) +
+    countIdleServiceDAGQueues(data?.queues ?? [], serviceDAGs);
+  const shownQueues =
+    filteredQueues.length +
+    countIdleServiceDAGQueues(filteredQueues, filteredServiceDAGs);
 
   if (error) {
     const errorData = error as components['schemas']['Error'];
@@ -139,11 +159,11 @@ function Queues() {
   }
 
   return (
-    <div className="flex h-full max-w-7xl flex-col gap-4 overflow-hidden">
+    <div className="flex h-full flex-col gap-4 overflow-hidden">
       <div className="flex flex-col gap-1">
         <Title><I18nText text={"Queues"} /></Title>
         <p className="text-sm text-muted-foreground">
-          <I18nText text={"One card per queue, with running activity and backlog status."} />
+          <I18nText text={"Concurrency limits and backlog for each queue."} />
         </p>
       </div>
 
@@ -161,10 +181,14 @@ function Queues() {
         <div className="flex items-center gap-2">
           {data?.queues && (
             <span className="text-xs text-muted-foreground">
-              {filteredQueues.length}
-              {filteredQueues.length !== data.queues.length &&
-                ` of ${data.queues.length}`}{' '}
-              <I18nText text={"queues"} />
+              {shownQueues !== totalQueues
+                ? ts('{shown} of {total} queues', {
+                    shown: shownQueues,
+                    total: totalQueues,
+                  })
+                : ts(totalQueues === 1 ? '{count} queue' : '{count} queues', {
+                    count: totalQueues,
+                  })}
             </span>
           )}
           <RefreshButton onRefresh={handleRefresh} />
@@ -172,7 +196,11 @@ function Queues() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto pr-1">
-        <QueueList queues={filteredQueues} isLoading={isLoading && !data} />
+        <QueueList
+          queues={filteredQueues}
+          isLoading={isLoading && !data}
+          serviceDAGs={filteredServiceDAGs}
+        />
       </div>
     </div>
   );

@@ -38,7 +38,7 @@ func TestValidateStartArgumentSeparator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, args := testValidationContext(t, tt.cliArgs)
+			ctx, args, _ := testValidationContext(t, tt.cliArgs)
 			err := validateStartArgumentSeparator(ctx, args)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
@@ -81,6 +81,11 @@ func TestValidateStartPositionalParamCount(t *testing.T) {
 			wantErr:     "too many positional params: expected at most 2, got 3",
 		},
 		{
+			name:        "QuotedPositionalFlag",
+			cliArgs:     []string{`--params="\"hello world\""`, "dag.yaml"},
+			defaultArgs: "default",
+		},
+		{
 			name:        "NamedOnlyDoesNotTriggerPositionalValidation",
 			cliArgs:     []string{"--params", "KEY1=value1 KEY2=value2", "dag.yaml"},
 			defaultArgs: `p1 p2`,
@@ -111,9 +116,9 @@ func TestValidateStartPositionalParamCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, args := testValidationContext(t, tt.cliArgs)
+			ctx, args, rawParams := testValidationContext(t, tt.cliArgs)
 			dag := &ir.DAG{DefaultParams: tt.defaultArgs}
-			err := validateStartPositionalParamCount(ctx, args, dag)
+			err := validateStartPositionalParamCount(ctx, args, dag, rawParams)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -124,7 +129,7 @@ func TestValidateStartPositionalParamCount(t *testing.T) {
 	}
 }
 
-func testValidationContext(t *testing.T, cliArgs []string) (*Context, []string) {
+func testValidationContext(t *testing.T, cliArgs []string) (*Context, []string, string) {
 	t.Helper()
 
 	command := &cobra.Command{Use: "start"}
@@ -133,5 +138,8 @@ func testValidationContext(t *testing.T, cliArgs []string) (*Context, []string) 
 	err := command.Flags().Parse(cliArgs)
 	require.NoError(t, err)
 
-	return &Context{Command: command}, command.Flags().Args()
+	rawParams, err := command.Flags().GetString("params")
+	require.NoError(t, err)
+
+	return &Context{Command: command}, command.Flags().Args(), rawParams
 }

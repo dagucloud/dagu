@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: bad
+    run:
+      - echo one
+      - [echo, two]

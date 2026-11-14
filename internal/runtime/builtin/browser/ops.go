@@ -11,10 +11,13 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -22,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
@@ -38,6 +42,9 @@ const (
 	shutdownTimeout       = 30 * time.Second
 	finalShotLabel        = "final"
 	failureShotLabel      = "failure"
+	openerShotLabel       = "failure-opener"
+	rehearsalShotLabel    = "rehearsal"
+	commitShotLabel       = "commit"
 )
 
 // noActionFoundMessage is how the browser runtime reports an act whose model
@@ -51,6 +58,8 @@ var statementSchema = json.RawMessage(`{"type":"object","additionalProperties":f
 // run executes one step attempt: a fresh browser session, or a session
 // resumed after a person answered an ask operation.
 type run struct {
+	// operator performs the operations on the step's browser.
+	operator
 	exec      *browserExecutor
 	cfg       config
 	dagName   string
@@ -61,14 +70,21 @@ type run struct {
 	browser   string
 	secrets   map[string]string
 	masker    *masking.Masker
-	bridge    *modelBridge
 	cache     *replayCache
-	artifacts *artifactStore
-	timeline  *timeline
-	eng       engine
+	artifacts *agentstep.ArtifactStore
+	timeline  *agentstep.Timeline
 	record    browserhost.Record
-	profile   *profileLease
-	variables map[string]string
+	// stepRecordID is the record a browser the step keeps for an ask's
+	// answer waits under.
+	stepRecordID string
+	profile      *profileLease
+	// shared is the browser the step shares with other steps of its run,
+	// whose turn it holds from its start to its end; nil when it shares
+	// none. sharedOwn is set while the step's browser is that browser, and
+	// dropShared once the step failed in a way that leaves it untrustworthy.
+	shared     *sharedBrowser
+	sharedOwn  bool
+	dropShared bool
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
@@ -78,9 +94,49 @@ type run struct {
 	// blockedUncounted is set once blocked requests can no longer be
 	// counted.
 	blockedUncounted bool
+	// certificateFailures holds, by host, the last trouble with a client
+	// certificate the proxy reported in this attempt.
+	certificateFailures map[string]string
+	// refused is the refusal reported last, while the page still shows it.
+	refused *refusal
 	// downloadWindow is the longest timeout of the acts and gotos run so
 	// far, which can start downloads; zero until one runs.
 	downloadWindow time.Duration
+	// downloads holds the absolute paths of the files saved so far, in the
+	// order they finished; the step publishes them as its downloads output.
+	downloads []string
+	// writeGate is the write gate mode the browser runs in.
+	writeGate string
+	// writeSeq is the last write gate event reported, and writes are those
+	// this attempt saw.
+	writeSeq int64
+	writes   []writegate.Event
+	// unrehearsable is set once a socket opened whose writes the gate
+	// cannot see.
+	unrehearsable bool
+	// commits keeps the step's commit points, and points are those it had
+	// when its browser started.
+	commits *writegate.CommitStore
+	points  []writegate.CommitPoint
+	// opIndex is the operation that ran last, -1 before one runs, and
+	// opKey, opPage and opActions are its commit point's key, the page it
+	// started on and the actions it performed. The writes the gate decides
+	// until the next operation starts are its own, and allowing is set
+	// while the gate lets it send its approved ones.
+	opIndex   int
+	opKey     string
+	opPage    string
+	opActions []recordedAction
+	allowing  bool
+	stepKey   string
+	// commitDecisions are the answers, by operation, a person gave before
+	// a commit operation in ask mode: once, session, or skip.
+	commitDecisions map[int]string
+	// approvedKeys are the commit operations a person let send their
+	// writes in this attempt.
+	approvedKeys map[string]bool
+	// skipped is set when a person chose not to run a commit operation.
+	skipped bool
 }
 
 func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
@@ -95,7 +151,8 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		secrets = env.Scope.AllSecrets()
 		artifactsDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	}
-	if err := checkSecrets(e.cfg, secrets); err != nil {
+	secrets = withCertificatePassphrases(secrets, e.cfg.Browser.ClientCertificates)
+	if err := agentstep.CheckSecrets(executorType, e.cfg.operationTexts(), secrets); err != nil {
 		return nil, err
 	}
 	dagName := ""
@@ -106,13 +163,26 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if stepKey == "" {
 		stepKey = e.step.Name
 	}
-	masker := newMasker(secrets, nil)
-	bridge, err := newModelBridge(ctx, e.step.LLM, masker, e.newProvider)
+	masker := agentstep.NewMasker(secrets, nil)
+	bridge, err := newModelBridge(ctx, e.step.LLM, masker, e.stderr, e.newProvider)
 	if err != nil {
 		return nil, err
 	}
 	browserDir := filepath.Join(dataDir, browserhost.DataDirName)
+	variables := maps.Clone(e.cfg.Variables)
+	if variables == nil {
+		variables = map[string]string{}
+	}
+	artifacts := agentstep.NewArtifactStore(artifactsDir, artifactsSubdir, stepKey)
 	r := &run{
+		operator: operator{
+			bridge:         bridge,
+			variables:      variables,
+			allowedDomains: e.cfg.Browser.AllowedDomains,
+			choice:         e.cfg.operationChoice,
+			shots:          artifacts,
+			workDir:        env.WorkingDir,
+		},
 		exec:      e,
 		cfg:       e.cfg,
 		dagName:   dagName,
@@ -123,42 +193,62 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		browser:   browserDir,
 		secrets:   secrets,
 		masker:    masker,
-		bridge:    bridge,
-		artifacts: newArtifactStore(artifactsDir, stepKey),
-		variables: maps.Clone(e.cfg.Variables),
+		artifacts: artifacts,
 		answers:   map[string]string{},
 		outputs:   map[string]any{},
 		blocked:   map[string]int{},
+		opIndex:   -1,
+
+		certificateFailures: map[string]string{},
 	}
-	if r.variables == nil {
-		r.variables = map[string]string{}
+	// A variable holding a declared secret or an ask's answer is secret.
+	r.secret = func(name string) bool { return holdsSecret(r.variables[name], r.secrets, r.answers) }
+	r.cache = openReplayCache(browserDir, dagName, stepKey)
+	r.recorder = stepRecorder{cache: r.cache}
+	r.stepKey = stepKey
+	r.commits = writegate.NewCommitStore(browserDir)
+	r.committed = r.committedActions
+	r.commitDecisions = map[int]string{}
+	r.approvedKeys = map[string]bool{}
+	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
+	r.warn = func(index int, message string) {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: %s %s\n", r.timeline.Position(index), message)
 	}
-	if e.cfg.cacheEnabled() {
-		if r.cache, err = openReplayCache(browserDir, dagName, stepKey); err != nil {
-			return nil, err
+	r.certificateEvent = func(index int, event certproxy.Event) {
+		logCertificateEvent(r.timeline, index, event)
+		if certificateTrouble(event) {
+			r.certificateFailures[event.Host] = describeCertificateEvent(event)
 		}
 	}
-	r.timeline = &timeline{log: e.stderr, masker: masker, total: len(e.cfg.Do), update: e.updateSession}
 	return r, nil
 }
 
 func (r *run) execute(ctx context.Context) error {
-	if r.cfg.hasAsk() && !r.exec.askSupported {
-		return errors.New("browser: ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	// An ask without a when certainly runs, so the step fails before starting
+	// a browser; a when-guarded ask fails at its operation if it runs.
+	if r.hasUnguardedAsk() && !r.exec.askSupported {
+		return errors.New("browser: " + r.askUnsupported(askOperations).Error())
+	}
+	if mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate); err == nil && mode == writegate.ModeAsk && !r.exec.askSupported {
+		return errors.New("browser: " + r.askUnsupported(writeGateAsk).Error())
 	}
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
-	_ = browserhost.Sweep(sweepCtx, r.store, time.Now(), nil)
+	_ = browserhost.SweepAll(sweepCtx, r.browser, time.Now(), nil)
 	cancel()
 
 	start, err := r.startSession(ctx)
-	r.reportDialogs(-1)
-	r.reportBlocked(-1)
-	if err == nil {
-		err = r.checkPage(ctx)
+	// What the browser did while the start URL opened, or while an answered
+	// ask held it, belongs to the operation before start.
+	if done, err := r.afterOperation(ctx, start-1, r.kindAt(start-1), err); done {
+		return err
 	}
-	if err != nil {
+	if err := r.checkPage(ctx, -1); err != nil {
 		return r.fail(ctx, -1, "", err)
 	}
+	r.reportRefusal(ctx, -1)
+	// ran is the operation that ran last, which a wait after it settles for;
+	// an operation its when skipped is not it.
+	ran := start - 1
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
 		if op.When != nil {
@@ -168,53 +258,204 @@ func (r *run) execute(ctx context.Context) error {
 				return r.fail(ctx, i, op.kind(), fmt.Errorf("evaluate when: %w", err))
 			}
 			if !holds {
-				r.timeline.operation(operationReport{
-					index: i, kind: op.kind(), subject: op.When.String(), status: statusSkipped, detail: reason,
-					tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
+				r.timeline.Operation(agentstep.Report{
+					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: op.When.via(), Detail: reason,
+					Tokens: r.bridge.totals().sub(before).total(), Duration: time.Since(began),
 				})
+				// The when may have waited while a check passed, so the
+				// operations that follow get the page as it is now.
+				r.reportRefusal(ctx, i)
 				continue
 			}
 		}
-		if op.Ask != nil {
-			if err := r.settleDownloads(ctx, i-1, true); err != nil {
-				return r.fail(ctx, i, kindDownload, err)
+		if op.Ask != nil && !r.exec.askSupported {
+			return r.fail(ctx, i, opAsk, r.askUnsupported(askOperations))
+		}
+		key, page := r.locate(ctx, i, op)
+		decision, decided := r.commitDecisions[i]
+		commit := r.asksBefore(key)
+		waits := op.Ask != nil || commit && !decided
+		// A person sees the page once the downloads of the operations before
+		// have settled.
+		if waits {
+			if done, err := r.settle(ctx, ran, true); done {
+				return err
 			}
+		}
+		if stopped, err := r.finishWrites(ctx, i-1); stopped {
+			return err
+		}
+		if err := r.endWrites(ctx); err != nil {
+			return r.fail(ctx, i, kindWriteGate, err)
+		}
+		// A write the gate kept back decides the step before the page it
+		// left does.
+		if err := r.checkRefusal(ctx, i, op); err != nil {
+			return r.fail(ctx, i, op.kind(), err)
+		}
+		if op.Ask != nil {
 			return r.waitForInput(ctx, i, *op.Ask)
 		}
-		err := r.runOperation(ctx, i, op)
-		r.reportDialogs(i)
-		r.reportBlocked(i)
-		if err != nil {
+		r.opIndex, r.opKey, r.opPage, r.opActions = i, key, page, nil
+		switch {
+		case waits:
+			return r.askToCommit(ctx, i, op)
+		case commit && !r.sendsCommit(ctx, i, decision):
+			return r.skipCommit(ctx, i, op)
+		}
+		ran = i
+		r.beginWrites(ctx, i, op)
+		result, err := r.runOperation(ctx, i, op)
+		r.opActions = result.Actions
+		if err == nil {
+			r.reportResult(ctx, result)
+		}
+		if done, err := r.afterOperation(ctx, i, op.kind(), err); done {
+			return err
+		}
+		if err := r.checkPage(ctx, i); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
 		}
-		if err := r.checkPage(ctx); err != nil {
-			return r.fail(ctx, i, op.kind(), err)
-		}
+		r.reportRefusal(ctx, i)
 		if op.Act != nil || op.Goto != "" {
 			r.downloadWindow = max(r.downloadWindow, op.timeout())
 		}
-		if err := r.settleDownloads(ctx, i, false); err != nil {
-			return r.fail(ctx, i, kindDownload, err)
+		if done, err := r.settle(ctx, i, false); done {
+			return err
 		}
 	}
 	last := len(r.cfg.Do) - 1
-	if err := r.settleDownloads(ctx, last, true); err != nil {
-		return r.fail(ctx, last, kindDownload, err)
+	if done, err := r.settle(ctx, ran, true); done {
+		return err
+	}
+	// The allowance left ends as the browser closes with its gate, and a
+	// write the gate kept back decides the step before the page does.
+	if stopped, err := r.finishWrites(ctx, last); stopped {
+		return err
+	}
+	// A refusal no operation answered for is the step's to report.
+	if refused := r.reportRefusal(ctx, last); refused != nil {
+		return r.fail(ctx, -1, "", refusedPage{*refused})
 	}
 	return r.succeed(ctx)
 }
 
-// reportDialogs records the dialogs the browser accepted while the operation
-// at index ran.
-func (r *run) reportDialogs(index int) {
+// checkRefusal fails the operation at index, before it runs, when the page
+// it would work on is one the site refused: an act, an upload, an expect,
+// or an extract has nothing to do there. One guarded by a when that held
+// runs, since the step chose to go on there, except an extract, which
+// never reads a refused page. A goto leaves the page, a wait can outlast a
+// rate limit, a screenshot keeps what the page shows, and an ask lets a
+// person pass the check, so they run. The refusal is the one reported
+// after the operation before, read again after a when, which can wait
+// while the check passes; a page that cannot be read keeps the refusal
+// seen on it.
+func (r *run) checkRefusal(ctx context.Context, index int, op operation) error {
+	switch op.kind() {
+	case opGoto, opWait, opScreenshot, opAsk:
+		return nil
+	}
+	if op.When != nil && op.Extract == nil {
+		return nil
+	}
+	refused := r.refused
+	if op.When != nil {
+		refused = r.reportRefusal(ctx, index-1)
+	}
+	if refused != nil {
+		return refusedPage{*refused}
+	}
+	return nil
+}
+
+// afterOperation reports the dialogs the browser answered, the requests
+// allowed_domains blocked, and what the write gate decided while the
+// operation at index ran, or while the step waited after it, or while the
+// start URL opened when index is before the first operation, and ends the
+// step when one of them or opErr, the operation's error of kind, decides
+// it: done is then true with the step's result. A write the gate kept back
+// ends the step there, whatever the operation made of the page that did
+// not get its answer: a rehearsal partially succeeds, and in record mode
+// the step fails. A confirm the step did not expect fails it even where a
+// rehearsal would have stopped and partially succeeded.
+func (r *run) afterOperation(ctx context.Context, index int, kind string, opErr error) (done bool, err error) {
+	dialogErr := r.reportDialogs(index)
+	r.reportBlocked(index)
+	stop, gateErr := r.reportWrites(ctx, index)
+	switch {
+	case gateErr != nil:
+		return true, r.fail(ctx, index, kindWriteGate, gateErr)
+	case stop != nil:
+		r.noteCommit(ctx, *stop)
+		switch {
+		case writegate.Sends(r.writeGate):
+			return true, r.fail(ctx, index, kind, writeBlocked{write: *stop})
+		case dialogErr != nil:
+			return true, r.fail(ctx, index, kind, dialogErr)
+		}
+		return true, r.rehearsed(ctx, index, *stop)
+	case opErr != nil:
+		if errors.As(opErr, new(downloadFailure)) {
+			kind = kindDownload
+		}
+		return true, r.fail(ctx, index, kind, opErr)
+	case dialogErr != nil:
+		return true, r.fail(ctx, index, kind, dialogErr)
+	}
+	return false, nil
+}
+
+// downloadFailure is a download that did not finish, which fails the
+// operation that started it as a download failure.
+type downloadFailure struct{ cause error }
+
+func (d downloadFailure) Error() string { return d.cause.Error() }
+func (d downloadFailure) Unwrap() error { return d.cause }
+
+// settle waits for the downloads the operation at index started, with a
+// moment for one to begin when the step ends or pauses after it, and
+// reports what the browser did meanwhile as the operation's, before a
+// browser that detaches would lose it. A download that does not finish
+// fails the operation, unless a write the gate kept back decided the step
+// first: done is then true with the step's result.
+func (r *run) settle(ctx context.Context, index int, final bool) (done bool, err error) {
+	var failure error
+	if err := r.settleDownloads(ctx, index, final); err != nil {
+		failure = downloadFailure{err}
+	}
+	return r.afterOperation(ctx, index, r.kindAt(index), failure)
+}
+
+// kindAt is the kind of the operation at index, or empty before the first.
+func (r *run) kindAt(index int) string {
+	if index < 0 {
+		return ""
+	}
+	return r.cfg.Do[index].kind()
+}
+
+// reportDialogs records the dialogs the browser answered while the operation
+// at index ran. Its error is the first confirm on_confirm: fail did not
+// expect, which fails the operation.
+func (r *run) reportDialogs(index int) error {
 	if r.eng == nil {
-		return
+		return nil
 	}
+	var unexpected error
 	for _, d := range r.eng.TakeDialogs() {
-		r.timeline.operation(operationReport{
-			index: index, kind: kindDialog, subject: d.Message, status: statusCompleted, detail: "accepted " + d.Type,
-		})
+		report := agentstep.Report{Index: index, Kind: kindDialog, Subject: d.Message, Status: agentstep.StatusCompleted, Detail: "accepted " + d.Type}
+		if d.Dismissed {
+			report.Detail = "dismissed " + d.Type
+		}
+		if d.Dismissed && r.cfg.onConfirm() == onConfirmFail {
+			report.Status = agentstep.StatusFailed
+			if unexpected == nil {
+				unexpected = fmt.Errorf("%s dialog %q was not expected", d.Type, d.Message)
+			}
+		}
+		r.timeline.Operation(report)
 	}
+	return unexpected
 }
 
 // reportBlocked records the requests allowed_domains blocked while the
@@ -226,7 +467,7 @@ func (r *run) reportBlocked(index int) {
 	blocked, err := r.eng.TakeBlockedRequests()
 	if err != nil && !r.blockedUncounted {
 		r.blockedUncounted = true
-		_, _ = fmt.Fprintf(r.timeline.log, "warning: stopped counting requests blocked by allowed_domains: %s\n",
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: stopped counting requests blocked by allowed_domains: %s\n",
 			r.masker.MaskString(err.Error()))
 	}
 	if len(blocked) == 0 {
@@ -235,23 +476,313 @@ func (r *run) reportBlocked(index int) {
 	for host, count := range blocked {
 		r.blocked[host] += count
 	}
-	r.timeline.blocked(index, describeBlocked(blocked))
+	logBlocked(r.timeline, index, describeBlocked(blocked))
 }
 
-// checkPage fails when the page has left browser.allowed_domains, which a
-// redirect or an act can cause even when every goto target was allowed.
-func (r *run) checkPage(ctx context.Context) error {
-	if len(r.cfg.Browser.AllowedDomains) == 0 {
+// reportWrites records what the write gate decided while the operation at
+// index ran, and returns the first write a rehearsal stops at. Its error
+// reports a gate that is gone.
+func (r *run) reportWrites(ctx context.Context, index int) (*writegate.Event, error) {
+	if r.eng == nil || r.eng.Handle().WriteGate == nil {
+		return nil, nil
+	}
+	events, err := r.eng.Writes(ctx, r.writeSeq)
+	if err != nil {
+		if !r.eng.Handle().WriteGate.Alive() {
+			return nil, errWriteGateLost
+		}
+		// A gate that runs still decides; only what it reports waits.
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: read the write gate: %s\n", r.masker.MaskString(err.Error()))
+		return nil, nil
+	}
+	var stop *writegate.Event
+	for _, event := range maskEvents(r.masker, events) {
+		r.writeSeq = event.Seq
+		r.writes = append(r.writes, event)
+		logWrite(r.timeline, index, event)
+		if event.Kind == writegate.KindSocket {
+			r.unrehearsable = true
+		}
+		if stop == nil && r.writeGate != writegate.ModeOff && event.Consequential() {
+			stop = &event
+		}
+	}
+	return stop, nil
+}
+
+// restoreWrites takes back what the gate decided up to the last event the
+// step reported before it waited for an answer, without reporting it
+// again, so its write gate report covers the whole step.
+func (r *run) restoreWrites(ctx context.Context) {
+	events, err := r.eng.Writes(ctx, 0)
+	if err != nil {
+		// The next report reads the gate again.
+		return
+	}
+	for _, event := range maskEvents(r.masker, events) {
+		if event.Seq > r.writeSeq {
+			break
+		}
+		r.writes = append(r.writes, event)
+		if event.Kind == writegate.KindSocket {
+			r.unrehearsable = true
+		}
+	}
+}
+
+// locate returns the commit point key of the operation at index and the
+// page it starts on, when a gate decides the browser's writes.
+func (r *run) locate(ctx context.Context, index int, op operation) (string, string) {
+	if r.eng == nil || r.eng.Handle().WriteGate == nil {
+		return "", ""
+	}
+	page, err := r.eng.CurrentURL(ctx)
+	if err != nil {
+		return "", ""
+	}
+	return commitKey(index, op, page), page
+}
+
+// asksBefore reports whether, in ask mode, a person decides before the
+// operation whose commit point key is key runs.
+func (r *run) asksBefore(key string) bool {
+	return r.writeGate == writegate.ModeAsk && key != "" && len(pointsAt(r.points, key)) > 0
+}
+
+// sendsCommit applies what a person decided before the commit operation
+// at index and reports whether it runs. Once lets it send its commit
+// points' writes in this attempt, and session approves them for later
+// runs too; any other answer runs nothing.
+func (r *run) sendsCommit(ctx context.Context, index int, decision string) bool {
+	if decision != commitOnce && decision != commitForSession {
+		return false
+	}
+	r.approvedKeys[r.opKey] = true
+	if decision == commitForSession {
+		key := r.opKey
+		if _, err := r.commits.Approve(ctx, r.dagName, r.stepKey, nil, func(p writegate.CommitPoint) bool { return p.Key == key }, time.Now()); err != nil {
+			r.warn(index, "approve the commit point: "+r.masker.MaskString(err.Error()))
+		}
+	}
+	return true
+}
+
+// beginWrites tells the gate, in record and ask mode, the writes the
+// commit points of the operation at index send, once approved.
+func (r *run) beginWrites(ctx context.Context, index int, op operation) {
+	allowed := writegate.Allowed(r.points, r.opKey)
+	if r.approvedKeys[r.opKey] {
+		allowed = signatures(pointsAt(r.points, r.opKey))
+	}
+	if !writegate.Sends(r.writeGate) || r.opKey == "" || len(allowed) == 0 {
+		return
+	}
+	// The allowance lasts until the next operation starts; its lease covers
+	// the operation and its downloads settling.
+	lease := op.timeout() + max(r.downloadWindow, op.timeout()) + downloadGrace + commitLeaseSlack
+	if err := r.eng.BeginWrites(ctx, allowed, lease); err != nil {
+		r.warn(index, "tell the write gate what the operation may send: "+r.masker.MaskString(err.Error()))
+		return
+	}
+	r.allowing = true
+}
+
+// endWrites tells the gate that the operation sending its approved writes
+// ended.
+func (r *run) endWrites(ctx context.Context) error {
+	if !r.allowing {
 		return nil
 	}
-	current, err := r.eng.CurrentURL(ctx)
-	if err != nil {
+	r.allowing = false
+	return r.eng.EndWrites(ctx)
+}
+
+// finishWrites reports what the gate decided since the operation that ran
+// last was read as that operation's. A write the gate kept back ends the
+// step, with nothing run after the operation at reached, and finishWrites
+// then returns true with the step's result.
+func (r *run) finishWrites(ctx context.Context, reached int) (bool, error) {
+	ran := reached
+	if r.opIndex >= 0 {
+		ran = r.opIndex
+	}
+	kind := r.kindAt(ran)
+	stop, err := r.reportWrites(ctx, ran)
+	switch {
+	case err != nil:
+		return true, r.fail(ctx, ran, kindWriteGate, err)
+	case stop == nil:
+		return false, nil
+	}
+	r.noteCommit(ctx, *stop)
+	if writegate.Sends(r.writeGate) {
+		return true, r.fail(ctx, ran, kind, writeBlocked{write: *stop})
+	}
+	return true, r.rehearsed(ctx, reached, *stop)
+}
+
+// committedActions returns the recorded actions of the approved commit
+// point of the act at key, in record and ask mode.
+func (r *run) committedActions(key string) ([]recordedAction, bool) {
+	if !writegate.Sends(r.writeGate) || key == "" {
+		return nil, false
+	}
+	for _, point := range pointsAt(r.points, key) {
+		var actions []recordedAction
+		if (point.Approved || r.approvedKeys[key]) && json.Unmarshal(point.Actions, &actions) == nil && len(actions) > 0 {
+			return actions, true
+		}
+	}
+	return nil, false
+}
+
+// askToCommit leaves the browser waiting before the commit operation at
+// index until a person decides whether it sends its writes, showing the
+// page as it is about to be sent.
+func (r *run) askToCommit(ctx context.Context, index int, op operation) error {
+	points := pointsAt(r.points, r.opKey)
+	question := commitQuestion(index, op, points)
+	var files []string
+	if r.artifacts.Enabled() {
+		if rel, err := r.capture(ctx, commitShotLabel); err == nil {
+			files = append(files, rel)
+		}
+		if rel, err := r.keepFormSnapshot(ctx, index); err == nil {
+			files = append(files, rel)
+		}
+	}
+	deadline := time.Now().Add(commitAskTimeout)
+	generation := r.exec.GetAgentSession().Generation
+	interaction := agentstep.PermissionInteraction(index, generation, ir.AgentPermissionBrowserWrite, signatures(points),
+		commitQuestionHeader, r.masker.MaskString(question), deadline)
+	if err := r.detachForAnswer(ctx, index, index, kindWriteGate, deadline); err != nil {
 		return err
 	}
-	if err := checkAllowedDomain(current, r.cfg.Browser.AllowedDomains); err != nil {
-		return fmt.Errorf("the page navigated away: %w", err)
-	}
+	r.timeline.Operation(agentstep.Report{Index: index, Kind: kindWriteGate, Subject: question, Status: agentstep.StatusWaiting, Files: files})
+	r.awaitAnswer(interaction)
 	return nil
+}
+
+// keepFormSnapshot saves what the page shows, its fields filled in, before
+// the commit operation at index, and returns its path in the artifacts.
+func (r *run) keepFormSnapshot(ctx context.Context, index int) (string, error) {
+	snap, err := r.eng.Snapshot(ctx)
+	if err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("commit-%d.txt", index)
+	text := r.masker.MaskString(snap.URL + "\n" + snap.Title + "\n\n" + snap.Tree)
+	if err := os.MkdirAll(r.artifacts.Dir(), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(r.artifacts.Dir(), name), []byte(text), 0o644); err != nil { //nolint:gosec // run artifacts are readable like the rest
+		return "", err
+	}
+	return r.artifacts.RelPath(name), nil
+}
+
+// skipCommit ends the step before the commit operation at index, which a
+// person chose not to run: nothing after it runs, nothing was sent, and
+// the step is skipped, as are the steps that depend on it.
+func (r *run) skipCommit(ctx context.Context, index int, op operation) error {
+	r.skipped = true
+	r.keepWriteGateReport(&index, nil)
+	r.exec.setNodeStatus(ir.NodeSkipped)
+	return r.finish(ctx, fmt.Sprintf("do[%d] %s was skipped as asked; it sent nothing, and nothing after it ran", index, opWords(op)), nil)
+}
+
+// noteCommit keeps the operation that ran last, which tried to send write,
+// as a commit point to approve, with the actions it performed.
+func (r *run) noteCommit(ctx context.Context, write writegate.Event) {
+	if r.opKey == "" {
+		return
+	}
+	index := r.opIndex
+	point := writegate.CommitPoint{
+		Key: r.opKey, Op: index, Operation: r.masker.MaskString(opWords(r.cfg.Do[index])), Page: r.masker.MaskString(pagePath(r.opPage)),
+		Signature: write.Signature, Example: &write, SeenAt: time.Now(),
+	}
+	if len(r.opActions) > 0 {
+		point.Actions, _ = json.Marshal(r.opActions)
+	}
+	if err := r.commits.Note(ctx, r.dagName, r.stepKey, point); err != nil {
+		r.warn(index, "keep the commit point: "+r.masker.MaskString(err.Error()))
+	}
+}
+
+// loadCommitPoints reads the step's commit points for a gated browser.
+func (r *run) loadCommitPoints() {
+	if r.writeGate == "" || r.writeGate == writegate.ModeOff {
+		return
+	}
+	points, err := r.commits.Load(r.dagName, r.stepKey)
+	if err != nil {
+		r.warn(-1, "read the commit points: "+r.masker.MaskString(err.Error()))
+	}
+	r.points = points
+}
+
+// rehearsed ends a rehearsal at the write the gate kept back after the
+// operation at index: the step partially succeeds, saying what it would
+// have sent and which operations did not run.
+func (r *run) rehearsed(ctx context.Context, index int, write writegate.Event) error {
+	var files []string
+	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil {
+		if rel, err := r.capture(ctx, rehearsalShotLabel); err == nil {
+			files = append(files, rel)
+		}
+	}
+	r.keepWriteGateReport(&index, &write)
+	message := wouldSend(write, index, len(r.cfg.Do))
+	r.exec.setNodeStatus(ir.NodePartiallySucceeded)
+	return r.finish(ctx, message, files)
+}
+
+// keepWriteGateReport writes what the gate decided into the step's
+// artifacts, with where a rehearsal stopped when stoppedAt is set.
+func (r *run) keepWriteGateReport(stoppedAt *int, write *writegate.Event) {
+	if r.writeGate == writegate.ModeOff || r.writeGate == "" || !r.artifacts.Enabled() {
+		return
+	}
+	report := writeGateReport{Mode: r.writeGate, Rehearsable: !r.unrehearsable, StoppedAt: stoppedAt, WouldSend: write, Skipped: r.skipped, Writes: r.writes}
+	if stoppedAt != nil {
+		first := *stoppedAt + 1
+		if r.skipped {
+			first = *stoppedAt
+		}
+		for i := first; i < len(r.cfg.Do); i++ {
+			report.NotRun = append(report.NotRun, i)
+		}
+	}
+	data, err := encodeReport(report)
+	if err == nil {
+		err = os.MkdirAll(r.artifacts.Dir(), 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(r.artifacts.Dir(), writeGateFile), data, 0o644) //nolint:gosec // run artifacts are readable like the rest
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep the write gate report: %s\n", r.masker.MaskString(err.Error()))
+	}
+}
+
+// reportRefusal records the refusal the page shows after the operation at
+// index, once while the page keeps showing it, and returns it. A page that
+// cannot be read keeps the refusal seen on it: the read says nothing about
+// the page.
+func (r *run) reportRefusal(ctx context.Context, index int) *refusal {
+	if r.eng == nil {
+		return nil
+	}
+	refused, err := r.pageRefusal(ctx)
+	if err != nil {
+		return r.refused
+	}
+	if refused != nil && (r.refused == nil || *r.refused != *refused) {
+		logRefusal(r.timeline, index, *refused)
+	}
+	r.refused = refused
+	return refused
 }
 
 // settleDownloads waits for downloads that are still running and records the
@@ -269,23 +800,43 @@ func (r *run) settleDownloads(ctx context.Context, index int, final bool) error 
 	}
 	names, err := r.eng.WaitForDownloads(ctx, grace, r.downloadWindow)
 	for _, name := range names {
-		rel := r.artifacts.downloadPath(name)
-		r.timeline.operation(operationReport{
-			index: index, kind: kindDownload, subject: name, status: statusCompleted,
-			detail: rel, files: []string{rel},
+		rel := downloadPath(r.artifacts, name)
+		r.downloads = append(r.downloads, filepath.Join(r.artifacts.Dir(), downloadsSubdir, name))
+		r.timeline.Operation(agentstep.Report{
+			Index: index, Kind: kindDownload, Subject: name, Status: agentstep.StatusCompleted,
+			Detail: rel, Files: []string{rel},
 		})
 	}
 	return err
+}
+
+// publishDownloads adds the files the step saved to its outputs. A step
+// that saved nothing publishes an empty list, so a later step can pass the
+// output on without checking for it.
+func (r *run) publishDownloads() {
+	downloads := r.downloads
+	if downloads == nil {
+		downloads = []string{}
+	}
+	r.outputs[ir.BrowserOutputDownloads] = downloads
 }
 
 // startSession launches a browser, or reattaches to the one an answered ask
 // operation left running, and returns the first operation to run.
 func (r *run) startSession(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
-	recordID := browserhost.RecordID(r.dagRunID, r.stepName)
-	answer, answered := pendingAnswer(session)
+	recordID := browserhost.RecordID(r.dagRunID, runtime.GetEnv(ctx).ForeachItem, r.stepName)
+	r.stepRecordID = recordID
+	if err := r.takeShared(ctx); err != nil {
+		return 0, err
+	}
+	answer, answered := agentstep.PendingAnswer(session, providerName)
 	if answered {
-		return r.resumeSession(ctx, recordID, session, answer)
+		start, err := r.resumeSession(ctx, recordID, session, answer)
+		if err == nil {
+			r.adoptShared()
+		}
+		return start, err
 	}
 	if stale, err := r.store.Load(recordID); err == nil {
 		// A previous attempt left a browser behind; it cannot be resumed. When
@@ -315,48 +866,98 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 	})
 	generation := r.exec.GetAgentSession().Generation
 
-	opts, err := r.launchOptions(ctx, recordID)
+	joined, err := r.joinShared(ctx, generation)
 	if err != nil {
 		return 0, err
 	}
-	r.timeline.lifecycle(statusRunning, "Starting browser")
-	eng, err := r.exec.launcher.Launch(ctx, opts)
-	if err != nil {
-		r.releaseProfile(ctx, opts)
-		return 0, err
-	}
-	r.eng = eng
-	handle := eng.Handle()
-	r.record = browserhost.Record{
-		ID:              recordID,
-		DAGName:         r.dagName,
-		DAGRunID:        r.dagRunID,
-		StepName:        r.stepName,
-		Generation:      generation,
-		State:           browserhost.StateRunning,
-		CDPURL:          handle.CDPURL,
-		ExtensionID:     handle.ExtensionID,
-		ExtensionDir:    handle.ExtensionDir,
-		UserDataDir:     opts.UserDataDir,
-		OwnsUserDataDir: r.profile == nil,
-		Profile:         r.cfg.Browser.Profile,
-		DownloadsDir:    opts.DownloadsDir,
-		BrowserPID:      handle.BrowserPID,
-	}
-	r.record.BrowserStartedAt, _ = procutil.StartTime(handle.BrowserPID)
-	if err := r.saveRunningRecord(); err != nil {
-		return 0, err
-	}
-	if r.cfg.URL != "" {
-		if err := r.gotoURL(ctx, -1, r.cfg.URL, defaultOperationTimeout); err != nil {
+	if !joined {
+		if err := r.launch(ctx, recordID, generation); err != nil {
 			return 0, err
 		}
+	}
+	if r.cfg.URL != "" {
+		result, err := r.gotoURL(ctx, -1, r.cfg.URL, defaultOperationTimeout)
+		if err != nil {
+			return 0, err
+		}
+		r.report(ctx, result.Report)
 	}
 	return 0, nil
 }
 
+// launch starts the step's browser and records it under recordID, or,
+// for a browser the step shares, under the record of the shared browser.
+func (r *run) launch(ctx context.Context, recordID string, generation int) error {
+	if r.shared != nil {
+		recordID = browserhost.SharedRecordID(r.dagRunID, r.shared.name)
+		// A run retried in a new process starts its shared browsers over.
+		if stale, err := r.store.Load(recordID); err == nil {
+			if err := browserhost.Release(ctx, r.store, stale); err != nil {
+				return fmt.Errorf("close the shared browser a previous attempt left open: %w", err)
+			}
+		}
+	}
+	if err := checkSharedSlots(ctx); err != nil {
+		return err
+	}
+	opts, err := r.launchOptions(ctx, recordID)
+	if err != nil {
+		return err
+	}
+	r.timeline.Lifecycle(agentstep.StatusRunning, "Starting browser")
+	eng, err := r.exec.launcher.Launch(ctx, opts)
+	if err != nil {
+		r.releaseProfile(ctx, opts)
+		return err
+	}
+	r.eng = eng
+	handle := eng.Handle()
+	if opts.WriteGate != nil {
+		r.writeGate = opts.WriteGate.Mode
+		r.loadCommitPoints()
+	}
+	r.record = browserhost.Record{
+		ID:               recordID,
+		DAGName:          r.dagName,
+		DAGRunID:         r.dagRunID,
+		StepName:         r.stepName,
+		Generation:       generation,
+		State:            browserhost.StateRunning,
+		CDPURL:           handle.CDPURL,
+		ExtensionID:      handle.ExtensionID,
+		ExtensionDir:     handle.ExtensionDir,
+		UserDataDir:      opts.UserDataDir,
+		OwnsUserDataDir:  r.profile == nil,
+		Profile:          r.cfg.Browser.Profile,
+		DownloadsDir:     opts.DownloadsDir,
+		BrowserPID:       handle.BrowserPID,
+		BrowserStartedAt: handle.BrowserStartedAt,
+	}
+	recordCertProxy(&r.record, handle.CertProxy)
+	recordWriteGate(&r.record, handle.WriteGate)
+	r.adoptShared()
+	return r.saveRunningRecord()
+}
+
 func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions, error) {
-	downloads, err := r.artifacts.downloadsDir()
+	downloads, err := downloadsDir(r.artifacts)
+	if err != nil {
+		return launchOptions{}, err
+	}
+	certificates, warnings, err := loadClientCertificates(ctx, r.cfg.Browser.ClientCertificates, runtime.GetEnv(ctx).WorkingDir)
+	if err != nil {
+		return launchOptions{}, err
+	}
+	authorities, err := loadTrustedCAs(ctx)
+	if err != nil {
+		return launchOptions{}, err
+	}
+	for _, warning := range warnings {
+		r.warn(-1, warning)
+	}
+	guard := guardsCertificates(ctx, certificates)
+	r.certificateProxy = len(certificates) > 0 || len(authorities) > 0 || guard
+	gate, err := r.writeGateOptions(ctx)
 	if err != nil {
 		return launchOptions{}, err
 	}
@@ -367,11 +968,24 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Proxy:          r.cfg.Browser.Proxy,
 		DownloadsDir:   downloads,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		DismissConfirm: r.cfg.dismissesConfirm(),
 		NoSandbox:      cmnconfig.GetConfig(ctx).Browser.NoSandbox,
 		Generate:       r.bridge.generate,
+
+		ClientCertificates: certificates,
+		TrustedCAs:         authorities,
+		Guard:              guard,
+		WriteGate:          gate,
+		Warn:               func(message string) { r.warn(-1, message) },
+		BrowserDir:         r.browser,
+		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
+		Waiting:            func() { r.timeline.Lifecycle(agentstep.StatusRunning, "Waiting for another browser to close") },
+		// A browser of another step of the run may start meanwhile and be
+		// shared, keeping its place until the run ends.
+		StopWaiting: func() error { return checkSharedSlots(ctx) },
 	}
 	if name := r.cfg.Browser.Profile; name != "" {
-		lease, err := acquireProfile(ctx, r.browser, name, r.store, recordID)
+		lease, err := r.lockProfile(ctx, name, recordID)
 		if err != nil {
 			return launchOptions{}, err
 		}
@@ -385,6 +999,25 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 	}
 	opts.UserDataDir = dir
 	return opts, nil
+}
+
+// writeGateOptions returns the write gate the step's browser starts with,
+// following the host's write policy, or nil when it runs none.
+func (r *run) writeGateOptions(ctx context.Context) (*writeGateOptions, error) {
+	mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate)
+	if err != nil || mode == writegate.ModeOff {
+		return nil, err
+	}
+	policy, err := loadWritePolicy(cmnconfig.GetConfig(ctx).Browser.WritePolicy)
+	if err != nil {
+		return nil, fmt.Errorf("browser.write_policy in the Dagu config: %w", err)
+	}
+	return writeGateFor(mode, policy, func(name string) (string, bool) {
+		if value, ok := r.secrets[name]; ok {
+			return value, true
+		}
+		return os.LookupEnv(name)
+	}), nil
 }
 
 // releaseProfile undoes launchOptions after a failed launch.
@@ -401,274 +1034,33 @@ func (r *run) releaseProfile(_ context.Context, opts launchOptions) {
 
 func (r *run) saveRunningRecord() error {
 	r.record.State = browserhost.StateRunning
+	r.record.WriteGateSeq = r.writeSeq
 	r.record.Deadline = time.Time{}
 	r.record.OwnerPID = os.Getpid()
 	r.record.OwnerStartedAt, _ = procutil.StartTime(r.record.OwnerPID)
 	return r.store.Save(r.record)
 }
 
-func (r *run) runOperation(ctx context.Context, index int, op operation) error {
-	timeout := op.timeout()
-	switch {
-	case op.Goto != "":
-		return r.gotoURL(ctx, index, op.Goto, timeout)
-	case op.Act != nil:
-		return r.act(ctx, index, *op.Act, timeout)
-	case op.Extract != nil:
-		return r.extract(ctx, index, *op.Extract, timeout)
-	case op.Expect != nil:
-		return r.expect(ctx, index, *op.Expect, timeout)
-	case op.Wait != nil:
-		return r.wait(ctx, index, *op.Wait, timeout)
-	case op.Screenshot != "":
-		return r.screenshot(ctx, index, op.Screenshot)
+// reportResult records what an operation did and publishes the values an
+// extract read. A screenshot operation is its own capture.
+func (r *run) reportResult(ctx context.Context, result opResult) {
+	maps.Copy(r.outputs, result.Values)
+	if result.Kind == opScreenshot {
+		r.timeline.Operation(result.Report)
+		return
 	}
-	return fmt.Errorf("unsupported operation %q", op.kind())
-}
-
-func (r *run) gotoURL(ctx context.Context, index int, target string, timeout time.Duration) error {
-	began := time.Now()
-	if err := checkAllowedDomain(target, r.cfg.Browser.AllowedDomains); err != nil {
-		return err
-	}
-	if err := r.eng.Goto(ctx, target, timeout); err != nil {
-		return err
-	}
-	r.report(ctx, operationReport{index: index, kind: opGoto, subject: target, status: statusCompleted, duration: time.Since(began)})
-	return nil
-}
-
-func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Duration) error {
-	// Validation guarantees every reference names a variable or an earlier
-	// ask, so a missing value means that ask was skipped.
-	for _, name := range variableReferences(spec.Instruction) {
-		if _, ok := r.variables[name]; !ok {
-			return fmt.Errorf("the instruction uses %%%s%%, but the ask that sets it did not run", name)
-		}
-	}
-	began, before := time.Now(), r.bridge.totals()
-	useCache := r.cache != nil && (spec.Cache == nil || *spec.Cache)
-	key := ""
-	if useCache {
-		pageURL, err := r.eng.CurrentURL(ctx)
-		if err != nil {
-			return err
-		}
-		key = replayKey(index, spec.Instruction, pageURL)
-	}
-	status := statusCompleted
-	if actions, ok := r.lookupCache(key); ok {
-		replayed, err := r.eng.Replay(ctx, actions, r.variables, timeout)
-		if err != nil {
-			return err
-		}
-		if replayed {
-			r.report(ctx, operationReport{
-				index: index, kind: opAct, subject: spec.Instruction, status: statusCacheHit,
-				detail: describeActions(actions), duration: time.Since(began),
-			})
-			return nil
-		}
-		status = statusHealed
-	}
-	outcome, err := r.eng.Act(ctx, spec.Instruction, r.variables, timeout)
-	if err != nil {
-		return err
-	}
-	if !outcome.Success {
-		if strings.Contains(outcome.Message, noActionFoundMessage) {
-			return fmt.Errorf("the model (%s) answered that no element on the page matches the instruction; "+
-				"if the element is on the page, reword the instruction or try another model, "+
-				"since some models give this answer for every request", r.bridge.modelName())
-		}
-		return fmt.Errorf("act did not complete: %s", outcome.Message)
-	}
-	if useCache && len(outcome.Actions) > 0 {
-		r.cache.stage(key, outcome.Actions)
-	}
-	r.report(ctx, operationReport{
-		index: index, kind: opAct, subject: spec.Instruction, status: status,
-		detail: describeActions(outcome.Actions), tokens: r.bridge.totals().sub(before).total(),
-		duration: time.Since(began),
-	})
-	return nil
-}
-
-func (r *run) lookupCache(key string) ([]recordedAction, bool) {
-	if key == "" {
-		return nil, false
-	}
-	return r.cache.lookup(key)
-}
-
-func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) error {
-	began, before := time.Now(), r.bridge.totals()
-	schema, err := json.Marshal(spec.Schema)
-	if err != nil {
-		return fmt.Errorf("encode extract schema: %w", err)
-	}
-	data, err := r.eng.Extract(ctx, spec.Instruction, schema, timeout)
-	if err != nil {
-		return err
-	}
-	var values map[string]any
-	if err := json.Unmarshal(data, &values); err != nil {
-		return fmt.Errorf("extract returned a non-object value: %w", err)
-	}
-	// Only the fields a schema lists are published, matching the output
-	// names known when the DAG loads.
-	properties, listed := spec.Schema["properties"].(map[string]any)
-	for name, value := range values {
-		if _, ok := properties[name]; listed && !ok {
-			continue
-		}
-		r.outputs[name] = value
-	}
-	r.report(ctx, operationReport{
-		index: index, kind: opExtract, subject: spec.Instruction, status: statusCompleted,
-		detail: string(data), tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
-	})
-	return nil
-}
-
-// expect fails unless the condition holds. A fixed check keeps reading the
-// page until its within window or the operation timeout, because the page
-// may still be updating.
-func (r *run) expect(ctx context.Context, index int, c condition, timeout time.Duration) error {
-	began, before := time.Now(), r.bridge.totals()
-	holds, reason, err := r.await(ctx, c, c.window(timeout), timeout)
-	if err != nil {
-		return err
-	}
-	if !holds {
-		return fmt.Errorf("expectation not met: %s", reason)
-	}
-	r.report(ctx, operationReport{
-		index: index, kind: opExpect, subject: c.String(), status: statusCompleted, detail: reason,
-		tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
-	})
-	return nil
-}
-
-// await evaluates a condition. The model judges a statement once; a fixed
-// check is read repeatedly until it holds or window passes. A zero window
-// reads the page once.
-func (r *run) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
-	deadline := time.Now().Add(window)
-	for {
-		holds, reason, err := r.evaluate(ctx, c, timeout)
-		if err != nil || holds || c.judged() || !time.Now().Before(deadline) {
-			return holds, reason, err
-		}
-		select {
-		case <-ctx.Done():
-			return false, "", ctx.Err()
-		case <-time.After(conditionPollInterval):
-		}
-	}
-}
-
-// evaluate reports whether a condition holds now, and why.
-func (r *run) evaluate(ctx context.Context, c condition, timeout time.Duration) (bool, string, error) {
-	switch {
-	case c.judged():
-		return r.judge(ctx, c.Statement, timeout)
-	case c.Text != "":
-		text, err := r.eng.PageText(ctx)
-		if err != nil {
-			return false, "", err
-		}
-		if strings.Contains(text, c.Text) {
-			return true, fmt.Sprintf("the page text contains %q", c.Text), nil
-		}
-		return false, fmt.Sprintf("the page text does not contain %q", c.Text), nil
-	case c.Selector != "":
-		visible, err := r.eng.SelectorVisible(ctx, c.Selector)
-		if err != nil {
-			return false, "", err
-		}
-		if visible {
-			return true, fmt.Sprintf("%q is visible", c.Selector), nil
-		}
-		return false, fmt.Sprintf("%q is not visible", c.Selector), nil
-	default:
-		current, err := r.eng.CurrentURL(ctx)
-		if err != nil {
-			return false, "", err
-		}
-		if strings.Contains(current, c.URL) {
-			return true, fmt.Sprintf("the URL contains %q", c.URL), nil
-		}
-		return false, fmt.Sprintf("the URL %s does not contain %q", current, c.URL), nil
-	}
-}
-
-func (r *run) wait(ctx context.Context, index int, spec waitSpec, timeout time.Duration) error {
-	began := time.Now()
-	subject := spec.Selector
-	if spec.Duration != "" {
-		duration, err := time.ParseDuration(spec.Duration)
-		if err != nil || duration <= 0 {
-			return fmt.Errorf("wait duration %q must be a positive duration", spec.Duration)
-		}
-		subject = spec.Duration
-		timer := time.NewTimer(duration)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-		}
-	} else if err := r.eng.WaitForSelector(ctx, spec.Selector, timeout); err != nil {
-		return err
-	}
-	r.report(ctx, operationReport{index: index, kind: opWait, subject: subject, status: statusCompleted, duration: time.Since(began)})
-	return nil
-}
-
-func (r *run) screenshot(ctx context.Context, index int, name string) error {
-	began := time.Now()
-	data, err := r.eng.Screenshot(ctx)
-	if err != nil {
-		return err
-	}
-	rel, err := r.artifacts.writeScreenshot(name, data)
-	if err != nil {
-		return err
-	}
-	r.timeline.operation(operationReport{
-		index: index, kind: opScreenshot, subject: name, status: statusCompleted,
-		detail: rel, duration: time.Since(began), files: []string{rel},
-	})
-	return nil
-}
-
-// judge asks the model whether a statement holds for the current page.
-func (r *run) judge(ctx context.Context, statement string, timeout time.Duration) (bool, string, error) {
-	instruction := fmt.Sprintf("Decide whether this statement is true for the current page: %q. Set answer to true or false and give a one-sentence reason.", statement)
-	data, err := r.eng.Extract(ctx, instruction, statementSchema, timeout)
-	if err != nil {
-		return false, "", err
-	}
-	var verdict struct {
-		Answer bool   `json:"answer"`
-		Reason string `json:"reason"`
-	}
-	if err := json.Unmarshal(data, &verdict); err != nil {
-		return false, "", fmt.Errorf("decode statement verdict: %w", err)
-	}
-	return verdict.Answer, verdict.Reason, nil
+	r.report(ctx, result.Report)
 }
 
 // report records a finished operation, attaching a screenshot when every
 // operation is captured.
-func (r *run) report(ctx context.Context, report operationReport) {
-	if r.cfg.screenshotPolicy() == screenshotsEach && r.artifacts.enabled() {
-		if rel, err := r.capture(ctx, report.kind); err == nil {
-			report.files = append(report.files, rel)
+func (r *run) report(ctx context.Context, report agentstep.Report) {
+	if r.cfg.screenshotPolicy() == screenshotsEach && r.artifacts.Enabled() {
+		if rel, err := r.capture(ctx, report.Kind); err == nil {
+			report.Files = append(report.Files, rel)
 		}
 	}
-	r.timeline.operation(report)
+	r.timeline.Operation(report)
 }
 
 func (r *run) capture(ctx context.Context, label string) (string, error) {
@@ -679,41 +1071,45 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return r.artifacts.writeScreenshot(label, data)
+	return r.artifacts.WriteScreenshot(label, data)
 }
 
 func (r *run) succeed(ctx context.Context) error {
 	var files []string
-	if r.cfg.capturesFinalScreenshot() && r.artifacts.enabled() {
+	if r.cfg.capturesFinalScreenshot() && r.artifacts.Enabled() {
 		if rel, err := r.capture(ctx, finalShotLabel); err == nil {
 			files = append(files, rel)
 		}
 	}
+	r.keepWriteGateReport(nil, nil)
+	return r.finish(ctx, fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), r.bridge.totals().total()), files)
+}
+
+// finish closes the browser of a step whose operations did their work,
+// keeps its recordings, and publishes its outputs, reporting summary.
+func (r *run) finish(ctx context.Context, summary string, files []string) error {
 	// The operations succeeded; leftover browser files are reported, not
 	// treated as a step failure.
 	if err := r.shutdown(ctx); err != nil {
-		_, _ = fmt.Fprintf(r.timeline.log, "warning: browser cleanup: %s\n", r.masker.MaskString(err.Error()))
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: browser cleanup: %s\n", r.masker.MaskString(err.Error()))
 	}
-	if r.cache != nil {
-		if err := r.cache.commit(ctx); err != nil {
-			_, _ = fmt.Fprintf(r.timeline.log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
-		}
+	if err := r.cache.Commit(ctx); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
 	}
 	usage := r.bridge.totals()
-	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), usage.total())
-	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusCompleted, Content: summary, Files: files})
-	_, _ = fmt.Fprintln(r.timeline.log, summary)
+	summary = r.masker.MaskString(summary)
+	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusCompleted, Content: summary, Files: files})
+	_, _ = fmt.Fprintln(r.timeline.Log, summary)
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionSucceeded
 		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
 	})
+	r.publishDownloads()
 	r.exec.setOutputs(r.outputs)
-	if len(r.outputs) > 0 {
-		encoder := json.NewEncoder(r.exec.stdout)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(r.outputs); err != nil {
-			return err
-		}
+	encoder := json.NewEncoder(r.exec.stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(r.outputs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -724,26 +1120,76 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	if ctx.Err() != nil && errors.Is(cause, context.Canceled) {
 		cause = ctx.Err()
 	}
+	// A browser that stopped answering, or whose write gate is gone, is not
+	// left open for the next step that shares it.
+	r.dropShared = errors.Is(cause, errBrowserUnresponsive) || errors.Is(cause, errWriteGateLost)
 	r.reportBlocked(index)
+	if !errors.Is(cause, errWriteGateLost) {
+		// What the gate decided before a cancellation still belongs in the
+		// report.
+		_, _ = r.reportWrites(context.WithoutCancel(ctx), index)
+	}
+	if blocked, ok := errors.AsType[writeBlocked](cause); ok {
+		r.keepWriteGateReport(&index, &blocked.write)
+	} else {
+		r.keepWriteGateReport(nil, nil)
+	}
+	r.takeCertificateEvents(ctx, index)
+	// A page the site refused explains a failure that follows, however long
+	// after the refusal, unless the failure is the refusal itself.
+	_, isRefusal := errors.AsType[refusedPage](cause)
+	refused := isRefusal || r.refused != nil
+	note := ""
+	if !isRefusal && r.refused != nil {
+		note = r.masker.MaskString(r.refused.String())
+	}
 	var files []string
-	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.enabled() && r.eng != nil {
+	shots := r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil
+	if shots {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
 			files = append(files, rel)
 		}
 	}
+	// A window a site leaves open, as a "searching" one whose answer was an
+	// error, hides the page behind it, which tells what went wrong.
+	behind := ""
+	if r.eng != nil && ctx.Err() == nil && !errors.Is(cause, errBrowserUnresponsive) {
+		if title, found, err := r.eng.Opener(ctx); err == nil && found {
+			behind = fmt.Sprintf("the page read is a window that the page %q opened and that is still open in front of it", title)
+			if shots {
+				if data, err := r.eng.OpenerScreenshot(ctx); err == nil {
+					if rel, err := r.artifacts.WriteScreenshot(openerShotLabel, data); err == nil {
+						files = append(files, rel)
+						behind += "; " + rel + " shows that page"
+					}
+				}
+			}
+		}
+	}
 	_ = r.shutdown(ctx)
-	r.forgetReplays(ctx, index, kind, cause)
+	r.forgetReplays(ctx, index, kind, cause, refused)
 	message := r.masker.MaskString(cause.Error())
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
+	}
+	if note != "" {
+		message += "; " + note
+	}
+	if behind != "" {
+		message += "; " + r.masker.MaskString(behind)
 	}
 	// A blocked request often breaks the page long before an operation
 	// fails, so the failure summarizes every request blocked in the attempt.
 	if len(r.blocked) > 0 {
 		message += "; browser.allowed_domains blocked " + r.masker.MaskString(describeBlocked(r.blocked))
 	}
+	for _, host := range slices.Sorted(maps.Keys(r.certificateFailures)) {
+		if failure := r.masker.MaskString(r.certificateFailures[host]); !strings.Contains(message, failure) {
+			message += "; browser TLS: " + failure
+		}
+	}
 	usage := r.bridge.totals()
-	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusFailed, Content: message, Files: files})
+	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusFailed, Content: message, Files: files})
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionFailed
 		s.LastError = message
@@ -756,25 +1202,33 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 // failed on the page may have followed a replay that did the wrong thing, so
 // the recordings the step replayed are dropped. A failure of the model, the
 // browser, a download, an ask, or the run itself says nothing about them,
-// so they stay. What the step recorded is never kept.
-func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error) {
-	if r.cache == nil {
+// so they stay, as they do when the site refused the page. So does a replay
+// that stopped because it no longer fit the page under ai: never: the
+// recording is what a run under ai: on_miss repairs. What the step recorded
+// is never kept.
+func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error, refused bool) {
+	if index < 0 || ctx.Err() != nil || refused || kind == opAsk || kind == kindDownload ||
+		errors.Is(cause, errBrowserUnresponsive) || errors.Is(cause, errPageSessionLost) || r.bridge.failedRequest() ||
+		errors.As(cause, new(replayMiss)) {
+		r.cache.Discard()
 		return
 	}
-	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == kindDownload ||
-		errors.Is(cause, errBrowserUnresponsive) || r.bridge.failedRequest() {
-		r.cache.discard()
-		return
-	}
-	if err := r.cache.evict(ctx); err != nil {
-		_, _ = fmt.Fprintf(r.timeline.log, "warning: drop replay recordings: %s\n", r.masker.MaskString(err.Error()))
+	if err := r.cache.Evict(ctx); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: drop replay recordings: %s\n", r.masker.MaskString(err.Error()))
 	}
 }
 
-// shutdown closes the browser and removes everything it owned.
+// shutdown closes the browser and removes everything it owned. A browser
+// the step shares stays open for the next step that shares it.
 func (r *run) shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
+	if r.shared != nil {
+		defer r.leaveShared()
+		if r.keepShared(ctx) {
+			return nil
+		}
+	}
 	var errs []error
 	if r.eng != nil {
 		errs = append(errs, r.eng.Close(ctx))

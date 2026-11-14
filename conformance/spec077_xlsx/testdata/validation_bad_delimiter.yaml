@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: orders.csv
+      delimiter: ";;"

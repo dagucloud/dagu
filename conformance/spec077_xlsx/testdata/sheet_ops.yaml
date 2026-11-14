@@ -1,0 +1,52 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Template
+      columns: [Item, Amount]
+      rows: [{"Item": "Rent", "Amount": 100}]
+  - id: add
+    depends: write
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: add
+      sheet: Notes
+      position: 1
+  - id: copy
+    depends: add
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: copy
+      sheet: Template
+      to: October
+  - id: rename
+    depends: copy
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: rename
+      sheet: October
+      to: "2026-10"
+  - id: delete
+    depends: rename
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: delete
+      sheet: Notes
+  - id: read
+    depends: delete
+    action: xlsx.read
+    with:
+      path: report.xlsx
+      sheet: "2026-10"
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"add": ${steps.add.outputs.sheets}, "copy": ${steps.copy.outputs.sheets}, "rename": ${steps.rename.outputs.sheets}, "delete": ${steps.delete.outputs.sheets}, "deleted": "${steps.delete.outputs.sheet}", "rows": ${steps.read.outputs.rows}}'

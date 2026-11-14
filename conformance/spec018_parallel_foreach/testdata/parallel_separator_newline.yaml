@@ -1,0 +1,33 @@
+params:
+  - name: items
+    description: Newline-separated item list whose items contain pipes.
+    default: '|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|'
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child-separator-item
+      params:
+        - value: ${ITEM}
+    parallel:
+      items: ${params.items}
+      separator: newline
+    output: PARALLEL_RESULTS
+  - name: consume
+    depends: fanout
+    run: |
+      printf '%s\n' "$PARALLEL_RESULTS" > parallel-separator-results.txt
+
+---
+
+name: child-separator-item
+params:
+  - name: value
+    description: Resolved item value.
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.value}'
+    output: CHILD_VALUE

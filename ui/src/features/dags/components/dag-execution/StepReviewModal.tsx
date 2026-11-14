@@ -37,14 +37,20 @@ export function StepReviewModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const inputFields = step.approval?.input || [];
   const requiredFields = step.approval?.required || [];
+  // The server refuses an approval without its required inputs, so Approve
+  // shows the fields when some are required.
+  const showInputs = !onApprove || requiredFields.length > 0;
+  const inputFields = [
+    ...(step.approval?.input || []),
+    ...requiredFields.filter(
+      (field) => !(step.approval?.input || []).includes(field)
+    ),
+  ];
 
-  const isValid =
-    onApprove ||
-    requiredFields.every(
-      (field) => inputs[field] && inputs[field].trim() !== ''
-    );
+  const isValid = requiredFields.every(
+    (field) => inputs[field] && inputs[field].trim() !== ''
+  );
 
   useEffect(() => {
     if (visible) {
@@ -115,7 +121,7 @@ export function StepReviewModal({
             /></I18nProps>
           )}
 
-          {inputFields.length > 0 && !onApprove && (
+          {inputFields.length > 0 && showInputs && (
             <div className="space-y-3">
               {inputFields.map((field) => {
                 const isRequired = requiredFields.includes(field);

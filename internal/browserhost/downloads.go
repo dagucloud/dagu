@@ -46,6 +46,10 @@ type DownloadWatcher struct {
 	completed []Download
 	failed    []string
 	readErr   error
+	// begun counts the downloads begun; beginning is closed when the next
+	// one begins or the watcher stops reading.
+	begun     int
+	beginning chan struct{}
 }
 
 // DenyDownloads makes the browser at cdpURL refuse every download.
@@ -63,12 +67,13 @@ func WatchDownloads(ctx context.Context, cdpURL, dir string) (*DownloadWatcher, 
 
 	readCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	w := &DownloadWatcher{
-		conn:    conn,
-		dir:     dir,
-		cancel:  cancel,
-		done:    make(chan struct{}),
-		changed: make(chan struct{}, 1),
-		started: map[string]string{},
+		conn:      conn,
+		dir:       dir,
+		cancel:    cancel,
+		done:      make(chan struct{}),
+		changed:   make(chan struct{}, 1),
+		started:   map[string]string{},
+		beginning: make(chan struct{}),
 	}
 	acknowledged := make(chan error, 1)
 	go w.read(readCtx, acknowledged)
@@ -140,6 +145,35 @@ func (w *DownloadWatcher) Wait(ctx context.Context, grace, timeout time.Duration
 	}
 }
 
+// Begun returns how many downloads the browser has begun since the watcher
+// started.
+func (w *DownloadWatcher) Begun() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.begun
+}
+
+// AwaitBegun returns once the browser has begun more than after downloads.
+// It fails when ctx ends first or the watcher stopped reading.
+func (w *DownloadWatcher) AwaitBegun(ctx context.Context, after int) error {
+	for {
+		w.mu.Lock()
+		begun, wake, readErr := w.begun, w.beginning, w.readErr
+		w.mu.Unlock()
+		switch {
+		case begun > after:
+			return nil
+		case readErr != nil:
+			return fmt.Errorf("lost track of downloads: %w", readErr)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-wake:
+		}
+	}
+}
+
 // Close stops watching. Downloads still in progress are left to the browser.
 func (w *DownloadWatcher) Close() error {
 	w.cancel()
@@ -166,6 +200,7 @@ func (w *DownloadWatcher) read(ctx context.Context, acknowledged chan<- error) {
 		if err != nil {
 			w.mu.Lock()
 			w.readErr = err
+			close(w.beginning)
 			w.mu.Unlock()
 			w.notify()
 			select {
@@ -203,6 +238,9 @@ func (w *DownloadWatcher) read(ctx context.Context, acknowledged chan<- error) {
 			if json.Unmarshal(message.Params, &event) == nil {
 				w.mu.Lock()
 				w.started[event.GUID] = event.SuggestedFilename
+				w.begun++
+				close(w.beginning)
+				w.beginning = make(chan struct{})
 				w.mu.Unlock()
 				w.notify()
 			}

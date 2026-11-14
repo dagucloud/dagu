@@ -74,7 +74,9 @@ var builtinStepTypeNames = map[string]struct{}{
 	"archive":       {},
 	"browser":       {},
 	"chat":          {},
+	"clickhouse":    {},
 	"command":       {},
+	"computer":      {},
 	"container":     {},
 	"dag":           {},
 	"data":          {},
@@ -89,6 +91,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"harness":       {},
 	"http":          {},
 	"jq":            {},
+	"js":            {},
 	"k8s":           {},
 	"kubernetes":    {},
 	"log":           {},
@@ -108,6 +111,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"subworkflow":   {},
 	"template":      {},
 	"wait":          {},
+	"xlsx":          {},
 }
 
 // IsValidExecutorTypeName reports whether name is valid for an executor type.

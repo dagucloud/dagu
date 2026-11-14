@@ -25,6 +25,8 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
+	filecalendar "github.com/dagucloud/dagu/v2/internal/persis/file/calendar"
+	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
@@ -66,14 +68,26 @@ func NewStores(ctx context.Context, cfg *config.Config, backend persis.Backend) 
 }
 
 func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend, stores *frontend.Stores) error {
+	// Base config edits change every DAG definition, so they signal the
+	// scheduler on other hosts the same way DAG edits do.
+	changeMarker := filedag.NewChangeMarker(persisfile.DAGChangeMarkerPath(cfg))
 	stores.WorkspaceBaseConfig = func(workspaceName string) (dagsettings.BaseConfigStore, error) {
 		return filebaseconfig.New(
 			workspace.BaseConfigPath(cfg.Paths.DAGsDir, workspaceName),
 			filebaseconfig.WithSkipDefault(true),
+			filebaseconfig.WithOnChange(changeMarker.Bump),
 		)
 	}
+	// Calendar edits change the business days of the DAGs that use them.
+	if cfg.Paths.CalendarsDir != "" {
+		calendarStore, err := filecalendar.New(cfg.Paths.CalendarsDir, filecalendar.WithOnChange(changeMarker.Bump))
+		if err != nil {
+			return fmt.Errorf("failed to create calendar store: %w", err)
+		}
+		stores.Calendar = calendarStore
+	}
 	if cfg.Paths.BaseConfig != "" {
-		baseConfigStore, err := filebaseconfig.New(cfg.Paths.BaseConfig)
+		baseConfigStore, err := filebaseconfig.New(cfg.Paths.BaseConfig, filebaseconfig.WithOnChange(changeMarker.Bump))
 		if err != nil {
 			logger.Warn(ctx, "Failed to create base config store", tag.Error(err))
 		} else {
@@ -89,6 +103,7 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		stores.AuthService = builtinAuth.service
 		stores.UserStore = builtinAuth.userStore
 		stores.AuthSetupRequired = builtinAuth.setupRequired
+		stores.PublicWebhooks = store.NewPublicWebhookStore(backend.Collection(persis.CollectionPublicWebhooks))
 	}
 
 	stores.Secret = persisfile.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets))
@@ -115,6 +130,12 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 	}
 
 	stores.View = store.NewViewStore(backend.Collection(persis.CollectionViews))
+
+	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
+	if err != nil {
+		return fmt.Errorf("failed to create DAG pin store: %w", err)
+	}
+	stores.DAGPins = dagPinStore
 
 	if cfg.Server.CheckUpdates {
 		upgradeStore, err := persisfile.NewUpgradeCheckStore(
@@ -271,7 +292,7 @@ func newMonitorLease(stateFile string) func() chatbridge.Lease {
 	return func() chatbridge.Lease {
 		return filemonitor.NewLease(stateFile, &dirlock.LockOptions{
 			StaleThreshold: chatbridge.DefaultNotificationLockStaleThreshold,
-			RetryInterval:  chatbridge.DefaultNotificationLockRetryInterval,
+			RetryInterval:  chatbridge.DefaultNotificationLockStandbyRetryInterval,
 			OnWait: func() {
 				slog.Info("Notification lock is held by another process; DAG run notifications are on standby",
 					slog.String("lock_dir", lockDir),
@@ -315,6 +336,7 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config, backend persis.Back
 	}
 	webhookStore, err := store.NewWebhookStore(
 		backend.Collection(persis.CollectionWebhooks),
+		backend.Collection(persis.CollectionWebhookDAGClaims),
 		webhookEncryptor,
 	)
 	if err != nil {

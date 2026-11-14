@@ -4,6 +4,7 @@
 package mailbox
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset" // decodes non-UTF-8 charsets
 	gomail "github.com/emersion/go-message/mail"
+	"github.com/emersion/go-message/textproto"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
@@ -50,7 +52,10 @@ type SearchOptions struct {
 // Message is a found email. Every field sits at the top level so a loop can
 // reach it.
 type Message struct {
-	ID          string       `json:"id"`
+	ID string `json:"id"`
+	// MessageID is the Message-ID header without angle brackets. Unlike ID, it
+	// stays the same when the email moves.
+	MessageID   string       `json:"message_id"`
 	Folder      string       `json:"folder"`
 	FromName    string       `json:"from_name"`
 	FromAddress string       `json:"from_address"`
@@ -73,15 +78,16 @@ type Attachment struct {
 }
 
 // Search returns the oldest matching emails, up to opts.Limit. It opens the
-// folder read-only, so no email's flags change.
-func (c *Client) Search(opts SearchOptions) ([]Message, error) {
+// folder read-only, so no email's flags change. It examines every email in the
+// folder, so its result is never partial.
+func (c *Client) Search(opts SearchOptions) ([]Message, bool, error) {
 	folder := opts.Folder
 	if folder == "" {
 		folder = "INBOX"
 	}
 	selected, err := c.imap.Select(folder, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("open folder %q: %w", folder, err)
+		return nil, false, fmt.Errorf("open folder %q: %w", folder, err)
 	}
 
 	now := time.Now()
@@ -101,7 +107,7 @@ func (c *Client) Search(opts SearchOptions) ([]Message, error) {
 	}
 	found, err := c.imap.UIDSearch(criteria, nil).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("search folder %q: %w", folder, err)
+		return nil, false, fmt.Errorf("search folder %q: %w", folder, err)
 	}
 	uids := found.AllUIDs()
 	slices.Sort(uids)
@@ -111,7 +117,7 @@ func (c *Client) Search(opts SearchOptions) ([]Message, error) {
 		batch := uids[start:min(start+fetchBatch, len(uids))]
 		headers, err := c.fetchHeaders(batch)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, h := range headers {
 			if opts.Within > 0 && h.internalDate.Before(now.Add(-opts.Within)) {
@@ -132,15 +138,15 @@ func (c *Client) Search(opts SearchOptions) ([]Message, error) {
 	for _, h := range picked {
 		raw, err := c.fetchBody(h.uid)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		msg := h.message(emailRef{folder: folder, uidValidity: selected.UIDValidity, uid: h.uid})
 		if err := parseBody(raw, &msg, saver); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		messages = append(messages, msg)
 	}
-	return messages, nil
+	return messages, false, nil
 }
 
 type fetchedHeader struct {
@@ -219,6 +225,7 @@ func (h *fetchedHeader) message(ref emailRef) Message {
 	}
 	date := h.internalDate
 	if env := h.envelope; env != nil {
+		msg.MessageID = env.MessageID
 		msg.Subject = env.Subject
 		if len(env.From) > 0 {
 			msg.FromName = env.From[0].Name
@@ -241,6 +248,39 @@ func addresses(list []imap.Address) []string {
 	for _, address := range list {
 		if addr := address.Addr(); addr != "" {
 			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+// readHeaders fills msg's header fields from the raw RFC 5322 message. The
+// time the mailbox received it stands in for a missing or unreadable Date.
+func readHeaders(raw []byte, msg *Message, received time.Time) {
+	date := received
+	if fields, err := textproto.ReadHeader(bufio.NewReader(bytes.NewReader(raw))); err == nil {
+		header := gomail.Header{Header: message.Header{Header: fields}}
+		msg.MessageID, _ = header.MessageID()
+		msg.Subject, _ = header.Subject()
+		if from, err := header.AddressList("From"); err == nil && len(from) > 0 {
+			msg.FromName, msg.FromAddress = from[0].Name, from[0].Address
+		}
+		msg.To = headerAddresses(header, "To")
+		msg.Cc = headerAddresses(header, "Cc")
+		if sent, err := header.Date(); err == nil && !sent.IsZero() {
+			date = sent
+		}
+	}
+	if !date.IsZero() {
+		msg.Date = date.UTC().Format(time.RFC3339)
+	}
+}
+
+func headerAddresses(header gomail.Header, key string) []string {
+	list, _ := header.AddressList(key)
+	out := make([]string, 0, len(list))
+	for _, address := range list {
+		if address.Address != "" {
+			out = append(out, address.Address)
 		}
 	}
 	return out

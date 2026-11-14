@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/cmn/yamlutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec/types"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -65,6 +65,26 @@ func WithWorkspaceBaseConfigDir(dir string) LoadOption {
 	}
 }
 
+// WithCalendars sets the source of the calendar files that schedules name.
+// Without one, a schedule naming a calendar file stays unbound and never
+// fires; built-in calendars bind either way.
+func WithCalendars(source *CalendarSource) LoadOption {
+	return func(o *buildOpts) {
+		o.Calendars = source
+	}
+}
+
+// WithCalendarsDir reads the calendar files that schedules name from dir,
+// without reusing calendars across loads. An empty dir sets no source.
+func WithCalendarsDir(dir string) LoadOption {
+	return func(o *buildOpts) {
+		o.Calendars = nil
+		if dir != "" {
+			o.Calendars = NewCalendarSource(dir)
+		}
+	}
+}
+
 // WithParams sets the parameters for the DAG.
 func WithParams(params any) LoadOption {
 	return func(o *buildOpts) {
@@ -84,6 +104,25 @@ func WithParams(params any) LoadOption {
 func WithoutEval() LoadOption {
 	return func(o *buildOpts) {
 		o.Flags |= buildFlagNoEval
+	}
+}
+
+// WithRunValues gives a param's eval the run's dates and context. Without
+// it, an eval that reads them waits for the run, and so does every eval
+// after it: see ir.DAG.DeferredParams.
+func WithRunValues(dates []ir.DateValue, runContext cmnvalue.BuiltinContext) LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagRunValues
+		o.RunDates = ir.DateTexts(dates)
+		o.RunContext = runContext
+	}
+}
+
+// DeferParamEvals makes every param's eval wait for the run, as one that
+// reads the run's values does, so the load runs no eval command.
+func DeferParamEvals() LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagDeferParamEval
 	}
 }
 
@@ -440,8 +479,13 @@ func assembleLoadedDAGs(dags []*ir.DAG, emptyErr error) (*ir.DAG, error) {
 	if err := attachLocalDAGs(mainDAG, dags[1:]); err != nil {
 		return nil, err
 	}
+	// Warnings about the shared base config are identical in every document.
 	for _, localDAG := range dags[1:] {
-		mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, localDAG.BuildWarnings...)
+		for _, warning := range localDAG.BuildWarnings {
+			if !slices.Contains(mainDAG.BuildWarnings, warning) {
+				mainDAG.BuildWarnings = append(mainDAG.BuildWarnings, warning)
+			}
+		}
 	}
 
 	return mainDAG, nil
@@ -540,6 +584,7 @@ func loadDAGsFromData(ctx buildContext, data []byte, filePath string, base *base
 
 // decodeDocuments splits a YAML stream into non-empty manifest documents.
 func decodeDocuments(data []byte) ([]dagDocument, error) {
+	data = yamlutil.ClearEmptyDocumentSeparators(data)
 	file, err := parser.ParseBytes(data, 0)
 	if err != nil {
 		return nil, err
@@ -791,6 +836,10 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 			merged[key] = mergeMailAccountMaps(baseMap, overrideMap)
 			continue
 		}
+		if key == "ssh" && ok && baseIsMap && overrideIsMap {
+			merged[key] = mergeSSHMaps(baseMap, overrideMap)
+			continue
+		}
 		if ok && baseIsMap && overrideIsMap {
 			mergedNested, err := mergeDefinitionMaps(baseMap, overrideMap)
 			if err != nil {
@@ -856,10 +905,14 @@ func buildDocumentContext(ctx buildContext, index int) buildContext {
 		return ctx
 	}
 
+	// The caller's params and the run's values belong to the first document,
+	// the DAG the run starts.
 	opts := ctx.opts
 	opts.Parameters = ""
 	opts.ParametersList = nil
-	opts.Flags &^= buildFlagValidateRuntimeParams
+	opts.Flags &^= buildFlagValidateRuntimeParams | buildFlagRunValues
+	opts.RunDates = nil
+	opts.RunContext = cmnvalue.BuiltinContext{}
 	return ctx.WithOpts(opts)
 }
 
@@ -917,10 +970,14 @@ func documentYAML(index int, doc map[string]any, fullData []byte) ([]byte, error
 
 // buildBaseDAG builds a new base DAG from the base definition.
 func buildBaseDAG(ctx buildContext, baseDef *dag) (*ir.DAG, error) {
+	if err := validateBaseRestartPolicy(baseDef); err != nil {
+		return nil, fmt.Errorf("failed to build base ir.DAG: %w", err)
+	}
+
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
-	buildOpts.Flags |= buildFlagDeferWorkerSelector
+	buildOpts.Flags |= buildFlagDeferWorkerSelector | buildFlagBaseDefinition
 
 	customStepTypes, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
 	if err != nil {
@@ -1025,9 +1082,7 @@ func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
 		file = filepath.Join(ctx.opts.DAGsDir, file)
 	}
 
-	if !strings.HasSuffix(file, ".yaml") && !strings.HasSuffix(file, ".yml") {
-		file += ".yaml"
-	}
+	file = fileutil.EnsureYAMLExtension(file)
 
 	return filepath.Abs(file)
 }
@@ -1144,20 +1199,7 @@ func (*mergeTransformer) Transformer(
 				return nil
 			}
 
-			cloneDef := func(def *ir.HarnessDefinition) *ir.HarnessDefinition {
-				if def == nil {
-					return nil
-				}
-				return &ir.HarnessDefinition{
-					Binary:         def.Binary,
-					PrefixArgs:     append([]string(nil), def.PrefixArgs...),
-					PromptMode:     def.PromptMode,
-					PromptFlag:     def.PromptFlag,
-					PromptPosition: def.PromptPosition,
-					FlagStyle:      def.FlagStyle,
-					OptionFlags:    maps.Clone(def.OptionFlags),
-				}
-			}
+			cloneDef := ir.CloneHarnessDefinition
 
 			cloneDefs := func(defs ir.HarnessDefinitions) ir.HarnessDefinitions {
 				if defs == nil {

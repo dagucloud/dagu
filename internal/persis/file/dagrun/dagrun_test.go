@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
@@ -416,6 +417,58 @@ func TestRemoveLogFiles(t *testing.T) {
 		}
 	})
 
+	// A run seeded from another run, such as a selected-steps run, names the
+	// logs of the source run for its skipped steps. Those logs stay with the
+	// source run. The logs of an earlier attempt of the same run go.
+	t.Run("KeepsLogsOfAnotherRun", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		path := func(dir, name string) string { return filepath.Join(tmpDir, dir, name) }
+		source := []string{path("source", "producer.out"), path("source", "producer.err")}
+		own := []string{
+			path("first", "scheduler.log"), path("first", "consumer.out"),
+			path("second", "scheduler.log"),
+		}
+		for _, logFile := range append(append([]string{}, source...), own...) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0750))
+			require.NoError(t, os.WriteFile(logFile, []byte("test log content"), 0600))
+		}
+
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
+		dag := &ir.DAG{Name: "test-dag"}
+		producer := &ir.Node{
+			Step: ir.Step{Name: "producer"}, Status: ir.NodeSkipped, SkippedByRetry: true,
+			Stdout: source[0], Stderr: source[1],
+		}
+		write := func(ts time.Time, log string, consumer *ir.Node) {
+			status := ir.InitialStatus(dag)
+			status.DAGRunID = "test-dag-run"
+			status.Status = ir.Succeeded
+			status.Log = log
+			status.Nodes = []*ir.Node{producer, consumer}
+			att, err := run.CreateAttempt(run.Context, persis.NewUTC(ts), nil, "")
+			require.NoError(t, err)
+			require.NoError(t, att.Open(run.Context))
+			require.NoError(t, att.Write(run.Context, status))
+			require.NoError(t, att.Close(run.Context))
+		}
+		now := time.Now()
+		write(now, own[0], &ir.Node{Step: ir.Step{Name: "consumer"}, Stdout: own[1]})
+		// The retry carries the consumer of the first attempt.
+		write(now.Add(time.Second), own[2], &ir.Node{
+			Step: ir.Step{Name: "consumer"}, Status: ir.NodeSkipped, SkippedByRetry: true, Stdout: own[1],
+		})
+
+		require.NoError(t, run.removeLogFiles(run.Context))
+
+		for _, logFile := range source {
+			assert.FileExists(t, logFile)
+		}
+		for _, logFile := range own {
+			assert.NoFileExists(t, logFile)
+		}
+	})
+
 	t.Run("Idempotent", func(t *testing.T) {
 		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
 		attemptLogDir := filepath.Join(dagRunLogDir, "attempt")
@@ -556,6 +609,54 @@ func TestDAGRunRemove(t *testing.T) {
 			_, err := os.Stat(logFile)
 			assert.True(t, os.IsNotExist(err), "log file should be removed: %s", logFile)
 		}
+		assert.NoDirExists(t, attemptLogDir)
+		assert.NoDirExists(t, dagRunLogDir)
+	})
+
+	// Body steps of a foreach step log under the attempt's foreach/ directory
+	// without appearing in the run status, so removal must drop that tree by
+	// its location rather than by recorded paths.
+	t.Run("RemovesForeachBodyLogs", func(t *testing.T) {
+		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
+		attemptLogDir := filepath.Join(dagRunLogDir, "run-attempt")
+		foreachLogDir := filepath.Join(attemptLogDir, logpath.ForeachLogDirName)
+		itemDir := filepath.Join(foreachLogDir, "each", "0")
+		nestedLogDir := filepath.Join(itemDir, logpath.ForeachLogDirName, "inner", "1")
+		require.NoError(t, os.MkdirAll(nestedLogDir, 0750))
+
+		stepLog := filepath.Join(attemptLogDir, "each.out")
+		bodyLogs := []string{
+			filepath.Join(itemDir, "body.out"),
+			filepath.Join(itemDir, logpath.ForeachItemStatusFile),
+			filepath.Join(nestedLogDir, "inner.out"),
+		}
+		for _, logFile := range append([]string{stepLog}, bodyLogs...) {
+			require.NoError(t, os.WriteFile(logFile, []byte("log"), 0600))
+		}
+
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
+		dagRunStatus := ir.InitialStatus(&ir.DAG{Name: "test-dag"})
+		dagRunStatus.DAGRunID = "test-dag-run"
+		dagRunStatus.Log = filepath.Join(dagRunLogDir, "dag-run.log")
+		dagRunStatus.Nodes = []*ir.Node{{
+			Step:   ir.Step{Name: "each"},
+			Stdout: stepLog,
+			Stderr: stepLog,
+		}}
+
+		att, err := run.CreateAttempt(run.Context, persis.NewUTC(time.Now()), nil, "")
+		require.NoError(t, err)
+		require.NoError(t, att.Open(run.Context))
+		require.NoError(t, att.Write(run.Context, dagRunStatus))
+		require.NoError(t, att.Close(run.Context))
+
+		require.NoError(t, run.Remove(run.Context))
+
+		for _, logFile := range bodyLogs {
+			assert.NoFileExists(t, logFile)
+		}
+		assert.NoDirExists(t, foreachLogDir)
 		assert.NoDirExists(t, attemptLogDir)
 		assert.NoDirExists(t, dagRunLogDir)
 	})

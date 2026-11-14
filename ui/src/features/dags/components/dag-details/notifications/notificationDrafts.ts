@@ -4,6 +4,7 @@ import {
   MessageSquare,
   MessagesSquare,
   Send,
+  Terminal,
   Webhook,
 } from 'lucide-react';
 
@@ -11,6 +12,7 @@ import {
   components,
   NotificationEventType,
   NotificationProviderType,
+  NotificationTargetProviderType,
 } from '../../../../../api/v1/schema';
 import { TOKEN_KEY } from '../../../../../contexts/AuthContext';
 
@@ -77,6 +79,9 @@ export type DeliveryDraft = {
     webhookUrlPreview?: string;
     webhookUrlConfigured?: boolean;
   };
+  command: {
+    command: string;
+  };
 };
 
 export type DraftTarget = DeliveryDraft & {
@@ -134,6 +139,15 @@ export const PROVIDER_OPTIONS = [
   },
 ];
 
+export const CHANNEL_PROVIDER_OPTIONS = [
+  ...PROVIDER_OPTIONS,
+  {
+    value: NotificationProviderType.command,
+    label: 'Local command',
+    icon: Terminal,
+  },
+];
+
 export const DEFAULT_NOTIFICATION_EVENTS = [
   NotificationEventType.dag_run_failed,
   NotificationEventType.dag_run_aborted,
@@ -148,6 +162,8 @@ export const DEFAULT_EMAIL_BODY_TEMPLATE =
   'DAG: {{dag.name}}\nRun ID: {{run.id}}\nStatus: {{run.status}}\nError: {{run.error}}\n{{run.link}}';
 export const WEBHOOK_BODY_TEMPLATE_PLACEHOLDER =
   'Custom JSON body (optional)\n{\n  "text": "{{message}}"\n}';
+export const DEFAULT_COMMAND_PLACEHOLDER =
+  'notify-send "Dagu Pipeline Alert" "DAG $DAG_NAME has finished with status: $STATUS"';
 
 export function defaultDraft(): DraftSettings {
   return {
@@ -216,6 +232,9 @@ export function blankDelivery(type: NotificationProviderType): DeliveryDraft {
     teams: {
       webhookUrl: '',
       messageTemplate: DEFAULT_MESSAGE_TEMPLATE,
+    },
+    command: {
+      command: '',
     },
   };
 }
@@ -359,8 +378,18 @@ function applyTeamsDraft(
     teams.messageTemplate || DEFAULT_MESSAGE_TEMPLATE;
 }
 
+function applyCommandDraft(
+  draft: DeliveryDraft,
+  command?: components['schemas']['NotificationCommandTarget']
+) {
+  if (!command) return;
+  draft.command = { command: command.command || '' };
+}
+
 function draftTargetFromAPI(target: NotificationTarget): DraftTarget {
-  const draft = blankTarget(target.type);
+  const draft = blankTarget(
+    target.type as unknown as NotificationProviderType
+  );
   draft.id = target.id;
   draft.name = target.name || '';
   draft.enabled = target.enabled;
@@ -385,6 +414,7 @@ export function draftChannelFromAPI(
   applySlackDraft(draft, channel.slack);
   applyTelegramDraft(draft, channel.telegram);
   applyTeamsDraft(draft, channel.teams);
+  applyCommandDraft(draft, channel.command);
   return draft;
 }
 
@@ -465,6 +495,14 @@ function deliveryInput(target: DeliveryDraft) {
       },
     };
   }
+  if (target.type === NotificationProviderType.command) {
+    return {
+      ...input,
+      command: {
+        command: target.command.command.trim(),
+      },
+    };
+  }
   return {
     ...input,
     telegram: {
@@ -484,8 +522,9 @@ export function targetInput(target: DraftTarget): NotificationTargetInput {
   return {
     id: target.id,
     ...deliveryInput(target),
+    type: target.type as unknown as NotificationTargetProviderType,
     events: target.events.length > 0 ? target.events : undefined,
-  } as NotificationTargetInput;
+  } as unknown as NotificationTargetInput;
 }
 
 export function subscriptionInput(
@@ -521,14 +560,15 @@ export async function readError(
 
 export function providerIcon(type?: NotificationProviderType) {
   return (
-    PROVIDER_OPTIONS.find((provider) => provider.value === type)?.icon || Bell
+    CHANNEL_PROVIDER_OPTIONS.find((provider) => provider.value === type)
+      ?.icon || Bell
   );
 }
 
 export function providerLabel(type?: NotificationProviderType): string {
   return (
-    PROVIDER_OPTIONS.find((provider) => provider.value === type)?.label ||
-    'Channel'
+    CHANNEL_PROVIDER_OPTIONS.find((provider) => provider.value === type)
+      ?.label || 'Channel'
   );
 }
 

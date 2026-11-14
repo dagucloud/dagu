@@ -4,7 +4,9 @@
 package cmd_test
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -204,6 +206,159 @@ func TestCleanupCommand(t *testing.T) {
 			Args: []string{"cleanup", "--yes", "non-existent-dag"},
 		})
 	})
+
+	t.Run("ClearsReplayCachesWhenHistoryIsDeleted", func(t *testing.T) {
+		t.Parallel()
+
+		// Default cleanup and explicit zero retention both delete every
+		// completed run, matching `dagu rm --history`, and clear this DAG's
+		// browser and computer replay caches. Another DAG's caches stay.
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{name: "Default", args: []string{"cleanup", "--yes"}},
+			{name: "RetentionZero", args: []string{"cleanup", "--retention-days", "0", "--yes"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				th := test.SetupCommand(t)
+				dag := completedEchoDAG(t, th)
+				const otherDAG = "other-workflow"
+				seedBothReplayCaches(t, th, dag.Name)
+				seedBothReplayCaches(t, th, otherDAG)
+
+				th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
+					Args: append(tt.args, dag.Name),
+				})
+
+				dag.AssertDAGRunCount(t, 0)
+				assert.Empty(t, browserReplayCacheSteps(t, th, dag.Name))
+				assert.Empty(t, computerReplayCacheSteps(t, th, dag.Name))
+				assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, otherDAG))
+				assert.Equal(t, []string{"post"}, computerReplayCacheSteps(t, th, otherDAG))
+			})
+		}
+	})
+
+	t.Run("PreservesReplayCachesWithRetentionDays", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.SetupCommand(t)
+		dag := completedEchoDAG(t, th)
+		seedBothReplayCaches(t, th, dag.Name)
+
+		th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
+			Args: []string{"cleanup", "--retention-days", "30", "--yes", dag.Name},
+		})
+
+		dag.AssertDAGRunCount(t, 1)
+		assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, dag.Name))
+		assert.Equal(t, []string{"post"}, computerReplayCacheSteps(t, th, dag.Name))
+	})
+
+	t.Run("ClearsReplayCachesWithoutHistory", func(t *testing.T) {
+		t.Parallel()
+
+		// A full-history cleanup still clears seeded caches when there is no
+		// run record to remove.
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{name: "Default", args: []string{"cleanup", "--yes"}},
+			{name: "RetentionZero", args: []string{"cleanup", "--retention-days", "0", "--yes"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				th := test.SetupCommand(t)
+				const (
+					dagName  = "no-history"
+					otherDAG = "other-workflow"
+				)
+				seedBothReplayCaches(t, th, dagName)
+				seedBothReplayCaches(t, th, otherDAG)
+
+				th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
+					Args: append(tt.args, dagName),
+				})
+
+				assert.Empty(t, browserReplayCacheSteps(t, th, dagName))
+				assert.Empty(t, computerReplayCacheSteps(t, th, dagName))
+				assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, otherDAG))
+				assert.Equal(t, []string{"post"}, computerReplayCacheSteps(t, th, otherDAG))
+			})
+		}
+	})
+
+	t.Run("EmptyReplayCachesAreNoOp", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.SetupCommand(t)
+		const dagName = "empty-caches"
+
+		th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
+			Args: []string{"cleanup", "--yes", dagName},
+		})
+
+		assert.Empty(t, browserReplayCacheSteps(t, th, dagName))
+		assert.Empty(t, computerReplayCacheSteps(t, th, dagName))
+	})
+
+	// Preview lines are printed with fmt.Printf. The command harness records
+	// logs only, so these tests read process stdout and must not run in
+	// parallel.
+	t.Run("DryRunListsReplayCaches", func(t *testing.T) {
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{name: "Default", args: []string{"cleanup", "--dry-run"}},
+			{name: "RetentionZero", args: []string{"cleanup", "--retention-days", "0", "--dry-run"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				th := test.SetupCommand(t)
+				dag := completedEchoDAG(t, th)
+				seedBothReplayCaches(t, th, dag.Name)
+
+				out := captureStdout(t, func() {
+					th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
+						Args: append(tt.args, dag.Name),
+					})
+				})
+
+				dag.AssertDAGRunCount(t, 1)
+				assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, dag.Name))
+				assert.Equal(t, []string{"post"}, computerReplayCacheSteps(t, th, dag.Name))
+				assert.Contains(t, out, fmt.Sprintf("Dry run: Would delete 1 run(s) for DAG %q:", dag.Name))
+				assert.Contains(t, out, fmt.Sprintf("Dry run: Would also delete browser replay cache for 1 step(s) of DAG %q", dag.Name))
+				assert.Contains(t, out, fmt.Sprintf("Dry run: Would also delete computer replay cache for 1 step(s) of DAG %q", dag.Name))
+			})
+		}
+	})
+
+	t.Run("DryRunWithRetentionDaysOmitsReplayCaches", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		dag := completedEchoDAG(t, th)
+		seedBothReplayCaches(t, th, dag.Name)
+
+		out := captureStdout(t, func() {
+			th.RunCommand(t, cmd.Cleanup(), test.CmdTest{
+				Args: []string{"cleanup", "--retention-days", "30", "--dry-run", dag.Name},
+			})
+		})
+
+		dag.AssertDAGRunCount(t, 1)
+		assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, dag.Name))
+		assert.Equal(t, []string{"post"}, computerReplayCacheSteps(t, th, dag.Name))
+		assert.Contains(t, out, fmt.Sprintf("Dry run: No runs to delete for DAG %q", dag.Name))
+		assert.NotContains(t, out, "replay cache")
+	})
 }
 
 func TestCleanupCommandRepository(t *testing.T) {
@@ -277,6 +432,63 @@ func TestCleanupCommandRepository(t *testing.T) {
 		require.Len(t, statuses, 1)
 		assert.Equal(t, "recent-run-id", statuses[0].DAGRunID)
 	})
+}
+
+// completedEchoDAG starts a one-step DAG and waits until it succeeds.
+func completedEchoDAG(t *testing.T, th test.Command) test.DAG {
+	t.Helper()
+
+	dag := th.DAG(t, `steps:
+  - name: "1"
+    run: echo "hello"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{
+		Args: []string{"start", dag.Location},
+	})
+	dag.AssertLatestStatus(t, ir.Succeeded)
+	dag.AssertDAGRunCount(t, 1)
+	return dag
+}
+
+func seedBothReplayCaches(t *testing.T, th test.Command, dagName string) {
+	t.Helper()
+	seedBrowserReplayCache(t, th, dagName, "login")
+	seedComputerReplayCache(t, th, dagName, "post")
+}
+
+// captureStdout runs fn with process stdout redirected and returns what it
+// wrote. Removal messages use fmt.Printf, which the command harness does not
+// record. Callers must not be parallel tests. Cleanup restores the descriptor
+// when fn stops before the pipe is read.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+
+	os.Stdout = writer
+	closed := false
+	closeWriter := func() {
+		if closed {
+			return
+		}
+		closed = true
+		os.Stdout = original
+		require.NoError(t, writer.Close())
+	}
+	t.Cleanup(func() {
+		closeWriter()
+		require.NoError(t, reader.Close())
+	})
+
+	fn()
+	closeWriter()
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, reader)
+	require.NoError(t, err)
+	return buf.String()
 }
 
 // setOldModTime sets old modification time on DAG run files

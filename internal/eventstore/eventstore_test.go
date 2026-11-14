@@ -5,6 +5,7 @@ package eventstore
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -96,6 +97,8 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		AttemptID:      "attempt-1",
 		ProcGroup:      "priority-high",
 		Status:         ir.Failed,
+		TriggerType:    ir.TriggerTypeWebhook,
+		BackfillID:     "bf123456",
 		Error:          "boom",
 		Log:            "/tmp/run.log",
 		QueuedAt:       "2026-04-01T09:00:00Z",
@@ -103,6 +106,9 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		FinishedAt:     "2026-04-01T09:02:00Z",
 		AutoRetryCount: 1,
 		AutoRetryLimit: 3,
+		Conditions: []ir.DAGRunCondition{
+			{Type: ir.DAGRunConditionWorkerReady, Status: ir.DAGRunConditionStatusFalse, Reason: ir.DAGRunReasonNoMatchingWorker, Message: "No healthy worker matches the required worker selector.", CheckedAt: "2026-04-01T09:00:30Z"},
+		},
 		Nodes: []*ir.Node{
 			{
 				Step:   ir.Step{Name: "fetch"},
@@ -113,10 +119,13 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 				},
 			},
 		},
+		OnInit:    &ir.Node{Step: ir.Step{Name: "onInit"}, Error: "init boom"},
+		OnSuccess: &ir.Node{Step: ir.Step{Name: "onSuccess"}, Error: "success boom"},
 		OnFailure: &ir.Node{
 			Step:  ir.Step{Name: "notify"},
 			Error: "handler boom",
 		},
+		OnAbort: &ir.Node{Step: ir.Step{Name: "onAbort"}, Error: "abort boom"},
 	}
 
 	event := NewDAGRunEvent(Source{Service: SourceServiceServer, Instance: "test"}, TypeDAGRunFailed, status, map[string]any{
@@ -135,6 +144,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.Parent.ID, snapshot.Parent.DAGRunID)
 	assert.Equal(t, status.ProcGroup, snapshot.ProcGroup)
 	assert.Equal(t, status.Labels, snapshot.Labels)
+	assert.Equal(t, status.Conditions, snapshot.Conditions)
 
 	restored, err := DAGRunStatusFromEvent(event)
 	require.NoError(t, err)
@@ -147,6 +157,8 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.AttemptID, restored.AttemptID)
 	assert.Equal(t, status.ProcGroup, restored.ProcGroup)
 	assert.Equal(t, status.Status, restored.Status)
+	assert.Equal(t, status.TriggerType, restored.TriggerType)
+	assert.Equal(t, status.BackfillID, restored.BackfillID, "notices and incidents leave backfill runs out by it")
 	assert.Equal(t, status.Error, restored.Error)
 	assert.Equal(t, status.Log, restored.Log)
 	assert.Equal(t, status.StartedAt, restored.StartedAt)
@@ -161,6 +173,15 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	require.NotNil(t, restored.OnFailure)
 	assert.Equal(t, "notify", restored.OnFailure.Step.Name)
 	assert.Equal(t, "handler boom", restored.OnFailure.Error)
+	for _, handler := range []struct{ want, got *ir.Node }{
+		{status.OnInit, restored.OnInit},
+		{status.OnSuccess, restored.OnSuccess},
+		{status.OnAbort, restored.OnAbort},
+	} {
+		require.NotNil(t, handler.got, handler.want.Step.Name)
+		assert.Equal(t, handler.want.Step.Name, handler.got.Step.Name)
+		assert.Equal(t, handler.want.Error, handler.got.Error)
+	}
 }
 
 func TestDAGRunSnapshotFromEventBackfillsLegacyDAGFile(t *testing.T) {
@@ -195,6 +216,7 @@ func TestDAGRunSnapshotFromEventBackfillsLegacyDAGFile(t *testing.T) {
 	require.NotNil(t, status)
 	assert.Equal(t, "legacy", status.Name)
 	assert.Equal(t, "run-1", status.DAGRunID)
+	assert.Equal(t, ir.TriggerTypeUnknown, status.TriggerType, "events stored before trigger types were recorded")
 }
 
 func TestEmitPersistedStatusTransitionFromContextEmitsUpdateForRepeatedStatus(t *testing.T) {
@@ -365,4 +387,46 @@ func (c *captureStore) DAGRunHeadCursor(context.Context) (DAGRunCursor, error) {
 func (c *captureStore) ReadDAGRunEvents(_ context.Context, cursor DAGRunCursor) ([]*Event, DAGRunCursor, error) {
 	c.lastDAGRunReadCursor = cursor
 	return nil, c.dagRunReadCursor, nil
+}
+
+func TestLogPathsPersistedEvent(t *testing.T) {
+	for _, status := range []ir.Status{ir.Succeeded, ir.Failed} {
+		original := &ir.DAGRunStatus{Name: "synthetic", DAGRunID: "run", AttemptID: "attempt", Status: status,
+			Nodes:  []*ir.Node{{Step: ir.Step{Name: "step"}, Stdout: "/logs/step.out", Stderr: "/logs/step.err"}},
+			OnExit: &ir.Node{Step: ir.Step{Name: "exit"}, Stdout: "/logs/exit.out", Stderr: "/logs/exit.err"}}
+		eventType, _ := PersistedDAGRunEventTypeForStatus(status)
+		event := NewDAGRunEvent(Source{Service: SourceServiceServer, Instance: "test"}, eventType, original, nil)
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var stored Event
+		if err := json.Unmarshal(data, &stored); err != nil {
+			t.Fatal(err)
+		}
+		restored, err := DAGRunStatusFromEvent(&stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(restored.Nodes) != 1 || restored.Nodes[0].Stdout != original.Nodes[0].Stdout || restored.Nodes[0].Stderr != original.Nodes[0].Stderr {
+			t.Fatal("persisted event lost step log paths")
+		}
+		if restored.OnExit == nil || restored.OnExit.Stdout != original.OnExit.Stdout || restored.OnExit.Stderr != original.OnExit.Stderr {
+			t.Fatal("persisted event lost handler log paths")
+		}
+	}
+}
+
+func TestLegacyNodeLogPaths(t *testing.T) {
+	var snapshot DAGRunNodeSnapshot
+	if err := json.Unmarshal([]byte(`{"step_name":"legacy","status":4}`), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	node := snapshot.Node()
+	if node.Step.Name != "legacy" || node.Stdout != "" || node.Stderr != "" {
+		t.Fatal("legacy snapshot changed")
+	}
+	if (*DAGRunNodeSnapshot)(nil).Node() != nil || newDAGRunNodeSnapshot(nil) != nil {
+		t.Fatal("nil snapshot changed")
+	}
 }

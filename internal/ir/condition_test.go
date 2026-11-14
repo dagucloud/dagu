@@ -37,6 +37,14 @@ func TestCondition_MarshalJSON(t *testing.T) {
 			expected: `{"eval":"$(printf ready)","expected":"ready"}`,
 		},
 		{
+			name: "WithExpectedAny",
+			condition: &ir.Condition{
+				Condition:   "${MODE}",
+				ExpectedAny: []string{"full", "minimal"},
+			},
+			expected: `{"condition":"${MODE}","expectedAny":["full","minimal"]}`,
+		},
+		{
 			name:      "EmptyFields",
 			condition: &ir.Condition{},
 			expected:  `{}`,
@@ -79,6 +87,14 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 			},
 		},
 		{
+			name: "WithExpectedAny",
+			json: `{"condition":"${MODE}","expectedAny":["full","minimal"]}`,
+			expected: &ir.Condition{
+				Condition:   "${MODE}",
+				ExpectedAny: []string{"full", "minimal"},
+			},
+		},
+		{
 			name:     "EmptyFields",
 			json:     `{}`,
 			expected: &ir.Condition{},
@@ -96,6 +112,7 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.expected.Condition, condition.Condition)
 			assert.Equal(t, tt.expected.Eval, condition.Eval)
 			assert.Equal(t, tt.expected.Expected, condition.Expected)
+			assert.Equal(t, tt.expected.ExpectedAny, condition.ExpectedAny)
 			assert.Equal(t, tt.expected.Negate, condition.Negate)
 		})
 	}
@@ -129,6 +146,14 @@ func TestCondition_Validate(t *testing.T) {
 			condition: &ir.Condition{
 				Eval:     "$(printf ready)",
 				Expected: "ready",
+			},
+			wantErr: false,
+		},
+		{
+			name: "EvalExpectedAny",
+			condition: &ir.Condition{
+				Eval:        "$(printf ready)",
+				ExpectedAny: []string{"ready", "done"},
 			},
 			wantErr: false,
 		},

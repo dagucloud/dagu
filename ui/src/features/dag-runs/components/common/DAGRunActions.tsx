@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
-import { Ban, RefreshCw, Square, X } from 'lucide-react';
+import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
 import React from 'react';
 import { components, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
@@ -34,6 +34,8 @@ import { getDAGRunTerminateActionDetails } from './terminateAction';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 /**
  * Props for the DAGRunActions component
@@ -49,10 +51,39 @@ type Props = {
   label?: boolean;
   /** Function to refresh data after actions */
   refresh?: () => void;
-  /** Display mode: 'compact' for icon-only, 'full' for text+icon buttons */
-  displayMode?: 'compact' | 'full';
+  /**
+   * Display mode: 'compact' for icon-only, 'full' for text+icon buttons,
+   * 'bar' for buttons that show their text on a bar wide enough for it.
+   */
+  displayMode?: 'compact' | 'full' | 'bar';
   /** Whether this is a root level dagRun (controls availability of retry/stop actions) */
   isRootLevel?: boolean;
+  /**
+   * Hide actions that do not apply to the run's current state instead of
+   * disabling them. A sub-run still shows Retry, disabled, so its tooltip
+   * can point to the top-level run.
+   */
+  hideUnavailable?: boolean;
+  /**
+   * Offers 'Stop all running instances' in the Stop confirmation. A checked
+   * submit stops every running instance of this workflow file.
+   */
+  stopAll?: { fileName: string };
+  /**
+   * Marks the Stop and Retry buttons with a data-ww-action attribute, so
+   * that the command palette of the workspace can find them.
+   */
+  markActions?: boolean;
+  /**
+   * Called with the new run ID and its DAG name after 'Reschedule as a new
+   * run' succeeds.
+   */
+  onRescheduled?: (dagRunId: string, dagName: string) => void;
+  /**
+   * Opens the screen that edits the definition of the run and chooses the
+   * steps that run again, for a new run. The Retry dialog links to it.
+   */
+  onEditRetry?: () => void;
 };
 
 /**
@@ -64,6 +95,11 @@ function DAGRunActions({
   refresh,
   displayMode = 'compact',
   isRootLevel = true,
+  hideUnavailable = false,
+  stopAll,
+  markActions = false,
+  onRescheduled,
+  onEditRetry,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -74,6 +110,8 @@ function DAGRunActions({
   const [isRetryModal, setIsRetryModal] = React.useState(false);
   const [isDequeueModal, setIsDequeueModal] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
+  const [stopAllRunning, setStopAllRunning] = React.useState(false);
+  const stopAllId = React.useId();
 
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
@@ -158,16 +196,15 @@ function DAGRunActions({
   const terminateDetails = getDAGRunTerminateActionDetails(dagRun, {
     isRootLevel,
     copy: {
-      stopConfirmText: ts('Do you really want to stop the dag-run "{name}"?', {
-        name: dagRun?.name ?? name,
-      }),
+      stopConfirmText: ts('Running steps are canceled.'),
       cancelConfirmText: ts(
-        'Do you really want to cancel auto-retry for the dag-run "{name}"?',
-        { name: dagRun?.name ?? name }
+        'The failed run will not be retried automatically.'
       ),
     },
   });
   const terminateAction = terminateDetails.action;
+  const offersStopAll = Boolean(stopAll) && terminateAction === 'stop';
+  const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(
     dagRun &&
       'nodes' in dagRun &&
@@ -191,22 +228,33 @@ function DAGRunActions({
     return <></>;
   }
 
+  // A bar shows the names of the actions where it has room for them; Stop
+  // and Reject keep the colour of their danger.
+  const buttonLabel =
+    displayMode === 'bar' ? 'wide' : displayMode !== 'compact';
+  const dangerClass = cn(
+    'cursor-pointer',
+    displayMode === 'bar' && 'text-destructive hover:text-destructive'
+  );
+
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className={`flex items-center ${displayMode === 'compact' ? 'space-x-1' : 'space-x-2'}`}
+        className={`flex items-center ${displayMode === 'full' ? 'space-x-2' : 'space-x-1'}`}
       >
         {/* Stop / Reject Button */}
-        {isWaiting && hasWaitingApprovals ? (
+        {hideUnavailable &&
+        !buttonState.terminate &&
+        !buttonState.reject ? null : isWaiting && hasWaitingApprovals ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
                 <ActionButton
-                  label={displayMode !== 'compact'}
+                  label={buttonLabel}
                   icon={<Ban className="h-4 w-4" />}
                   disabled={!buttonState['reject']}
                   onClick={() => setIsRejectModal(true)}
-                  className="cursor-pointer"
+                  className={dangerClass}
                 >
                   <I18nText text={'Reject'} />
                 </ActionButton>
@@ -214,7 +262,7 @@ function DAGRunActions({
             </TooltipTrigger>
             <TooltipContent>
               <p>
-                <I18nText text={'Reject DAG run'} />
+                <I18nText text={'Reject this run'} />
               </p>
             </TooltipContent>
           </Tooltip>
@@ -223,17 +271,21 @@ function DAGRunActions({
             <TooltipTrigger asChild>
               <span>
                 <ActionButton
-                  label={displayMode !== 'compact'}
+                  label={buttonLabel}
                   icon={
                     terminateAction === 'cancel' ? (
                       <X className="h-4 w-4" />
                     ) : (
-                      <Square className="h-4 w-4" />
+                      <CircleStop className="h-4 w-4" />
                     )
                   }
                   disabled={!buttonState['terminate']}
-                  onClick={() => setIsStopModal(true)}
-                  className="cursor-pointer"
+                  data-ww-action={markActions ? 'stop' : undefined}
+                  onClick={() => {
+                    setStopAllRunning(false);
+                    setIsStopModal(true);
+                  }}
+                  className={dangerClass}
                 >
                   {ts(terminateDetails.buttonText)}
                 </ActionButton>
@@ -246,70 +298,125 @@ function DAGRunActions({
         )}
 
         {/* Retry Button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={<RefreshCw className="h-4 w-4" />}
-                disabled={!buttonState['retry']}
-                onClick={() => setIsRetryModal(true)}
-                className="cursor-pointer"
-              >
-                <I18nText text={'Retry'} />
-              </ActionButton>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>
-              {isRootLevel ? (
-                <I18nText text={'Retry DAGRun execution'} />
-              ) : (
-                <I18nText
-                  text={'Retry action only available at root dagRun level'}
-                />
-              )}
-            </p>
-          </TooltipContent>
-        </Tooltip>
+        {(!hideUnavailable || buttonState.retry || !isRootLevel) && (
+          <Tooltip>
+            {/* On a sub-run the disabled button cannot take focus, so the
+                wrapper does, letting keyboard users read why. */}
+            <TooltipTrigger asChild>
+              <span tabIndex={isRootLevel ? undefined : 0}>
+                <ActionButton
+                  label={buttonLabel}
+                  icon={<RotateCcw className="h-4 w-4" />}
+                  disabled={!buttonState['retry']}
+                  data-ww-action={markActions ? 'retry' : undefined}
+                  onClick={() => setIsRetryModal(true)}
+                  className="cursor-pointer"
+                >
+                  <I18nText text={'Retry'} />
+                </ActionButton>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>
+                {isRootLevel ? (
+                  <I18nText text={'Retry this run'} />
+                ) : (
+                  <I18nText
+                    text={'Retry is only available on the top-level run'}
+                  />
+                )}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Dequeue Button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={<X className="h-4 w-4" />}
-                disabled={!buttonState['dequeue']}
-                onClick={() => setIsDequeueModal(true)}
-                className="cursor-pointer"
-              >
-                <I18nText text={'Dequeue'} />
-              </ActionButton>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>
-              {isRootLevel ? (
-                <I18nText text={'Remove DAGRun from queue'} />
-              ) : (
-                <I18nText
-                  text={'Dequeue action only available at root dagRun level'}
-                />
-              )}
-            </p>
-          </TooltipContent>
-        </Tooltip>
+        {(!hideUnavailable || buttonState.dequeue) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <ActionButton
+                  label={buttonLabel}
+                  icon={<X className="h-4 w-4" />}
+                  disabled={!buttonState['dequeue']}
+                  onClick={() => setIsDequeueModal(true)}
+                  className="cursor-pointer"
+                >
+                  <I18nText text={'Dequeue'} />
+                </ActionButton>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>
+                {isRootLevel ? (
+                  <I18nText text={'Remove this run from the queue'} />
+                ) : (
+                  <I18nText
+                    text={'Dequeue is only available on the top-level run'}
+                  />
+                )}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Stop Confirmation Modal */}
         <I18nProps>
           <ConfirmModal
-            title="Confirmation"
+            title={
+              terminateAction === 'cancel'
+                ? 'Cancel auto-retry?'
+                : stopsAll
+                  ? 'Stop all running instances?'
+                  : 'Stop this run?'
+            }
             buttonText={ts(terminateDetails.buttonText)}
             visible={isStopModal}
-            dismissModal={() => setIsStopModal(false)}
+            dismissModal={() => {
+              setIsStopModal(false);
+              setStopAllRunning(false);
+            }}
             onSubmit={async () => {
               setIsStopModal(false);
+              if (stopAll && stopsAll) {
+                const { data, error } = await client.POST(
+                  '/dags/{fileName}/stop-all',
+                  {
+                    params: {
+                      path: { fileName: stopAll.fileName },
+                      query: { remoteNode },
+                    },
+                  }
+                );
+                if (error) {
+                  console.error('Stop all API error:', error);
+                  showError(
+                    error.message || ts('Failed to stop all DAG instances'),
+                    ts(
+                      'Some instances may have already completed or the worker is unavailable.'
+                    )
+                  );
+                  return;
+                }
+                setStopAllRunning(false);
+                // A 200 lists the runs that did not stop.
+                if (data?.errors?.length) {
+                  showError(
+                    ts('Failed to stop all DAG instances'),
+                    ts(
+                      'Some instances may have already completed or the worker is unavailable.'
+                    ),
+                    undefined,
+                    data.errors
+                  );
+                } else {
+                  showToast(ts('Stop signal sent to all running instances'), {
+                    variant: 'info',
+                  });
+                }
+                reloadData();
+                return;
+              }
               const { error } = await client.POST(
                 '/dag-runs/{name}/{dagRunId}/stop',
                 {
@@ -332,18 +439,47 @@ function DAGRunActions({
                 );
                 return;
               }
-              showToast(ts('Stop signal sent'));
+              // The run stops later; the note confirms the request.
+              showToast(ts('Stop signal sent'), { variant: 'info' });
               reloadData();
             }}
           >
-            <div>{terminateDetails.confirmText}</div>
+            <div>
+              {stopsAll ? (
+                <I18nText
+                  text={
+                    'Running steps in every instance of this workflow are canceled.'
+                  }
+                />
+              ) : (
+                terminateDetails.confirmText
+              )}
+              {offersStopAll && (
+                <div className="mt-4 flex items-center space-x-2 p-2 bg-warning-muted rounded border border-warning/30">
+                  <Checkbox
+                    id={stopAllId}
+                    checked={stopAllRunning}
+                    onCheckedChange={(checked) =>
+                      setStopAllRunning(checked as boolean)
+                    }
+                    className="border-warning data-[state=checked]:bg-warning data-[state=checked]:border-warning data-[state=checked]:text-black"
+                  />
+                  <label
+                    htmlFor={stopAllId}
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-warning"
+                  >
+                    <I18nText text={'Stop all running instances'} />
+                  </label>
+                </div>
+              )}
+            </div>
           </ConfirmModal>
         </I18nProps>
 
         {/* Retry Confirmation Modal */}
         <I18nProps>
           <ConfirmModal
-            title={retryAsNew ? 'Reschedule DAG Run' : 'Confirmation'}
+            title={retryAsNew ? 'Reschedule as a new run?' : 'Retry this run?'}
             buttonText={retryAsNew ? 'Reschedule' : 'Retry'}
             visible={isRetryModal}
             dismissModal={() => {
@@ -385,6 +521,10 @@ function DAGRunActions({
                 // Show success message with new run ID
                 if (data?.dagRunId) {
                   showToast(`New DAG run created: ${data.dagRunId}`);
+                  onRescheduled?.(
+                    data.dagRunId,
+                    dagNameOverride.trim() || name
+                  );
                 }
                 resetRetryModalState();
               } else {
@@ -420,11 +560,6 @@ function DAGRunActions({
           >
             {/* Modal content structure */}
             <div className="space-y-3">
-              <p className="mb-2">
-                <I18nText
-                  text={'Do you really want to retry the following execution?'}
-                />
-              </p>
               {!retryAsNew && hasManagedAgentSession && (
                 <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                   <I18nText
@@ -435,14 +570,14 @@ function DAGRunActions({
                 </p>
               )}
               <I18nProps>
-                <LabeledItem label="DAGRun-Name">
+                <LabeledItem label="Workflow">
                   <span className="font-mono text-sm">
                     {dagRun?.name || 'N/A'}
                   </span>
                 </LabeledItem>
               </I18nProps>
               <I18nProps>
-                <LabeledItem label="DAGRun-ID">
+                <LabeledItem label="Run ID">
                   <span className="font-mono text-sm">
                     {dagRun?.dagRunId || 'N/A'}
                   </span>
@@ -478,16 +613,33 @@ function DAGRunActions({
                   className="border-border"
                 />
                 <Label htmlFor="reschedule" className="cursor-pointer text-sm">
-                  <I18nText text={'Reschedule with new DAG-run'} />
+                  <I18nText text={'Reschedule as a new run'} />
                 </Label>
               </div>
+
+              {onEditRetry && (
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 text-sm"
+                  onClick={() => {
+                    setIsRetryModal(false);
+                    resetRetryModalState();
+                    onEditRetry();
+                  }}
+                >
+                  <I18nText
+                    text={'Edit the definition and choose the steps to run'}
+                  />
+                </Button>
+              )}
 
               {/* Conditional inputs when reschedule is checked */}
               {retryAsNew && (
                 <div className="space-y-3 pt-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="new-dagrun-id" className="text-sm">
-                      <I18nText text={'New DAG-Run ID (optional)'} />
+                      <I18nText text={'New run ID (optional)'} />
                     </Label>
                     <I18nProps>
                       <Input
@@ -590,7 +742,7 @@ function DAGRunActions({
         {/* Dequeue Confirmation Modal */}
         <I18nProps>
           <ConfirmModal
-            title="Confirmation"
+            title="Remove this run from the queue?"
             buttonText="Dequeue"
             visible={isDequeueModal}
             dismissModal={() => setIsDequeueModal(false)}
@@ -623,20 +775,15 @@ function DAGRunActions({
             }}
           >
             <div>
-              <p className="mb-2">
-                <I18nText
-                  text={'Do you really want to dequeue the following dagRun?'}
-                />
-              </p>
               <I18nProps>
-                <LabeledItem label="DAGRun-Name">
+                <LabeledItem label="Workflow">
                   <span className="font-mono text-sm">
                     {dagRun?.name || 'N/A'}
                   </span>
                 </LabeledItem>
               </I18nProps>
               <I18nProps>
-                <LabeledItem label="DAGRun-ID">
+                <LabeledItem label="Run ID">
                   <span className="font-mono text-sm">
                     {dagRun?.dagRunId || 'N/A'}
                   </span>

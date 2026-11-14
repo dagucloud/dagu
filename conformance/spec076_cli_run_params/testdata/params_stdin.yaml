@@ -1,0 +1,8 @@
+params:
+  - name: value
+    type: string
+    default: default
+working_dir: .
+steps:
+  - id: write
+    run: printf '%s\n' "$value" > params_stdin.out

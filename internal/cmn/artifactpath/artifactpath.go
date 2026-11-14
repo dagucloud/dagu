@@ -187,14 +187,14 @@ func trimmedRoot(dir string) (string, error) {
 }
 
 func runDirName(at time.Time, dagName, dagRunID string) string {
-	return at.UTC().Format(timeOfDayLayout) + "_" + safeDAGName(dagName) + "_" + runSuffix(dagRunID)
+	return at.UTC().Format(timeOfDayLayout) + "_" + safeDAGName(dagName) + "_" + RunSuffix(dagRunID)
 }
 
-// runSuffix separates two runs of the same DAG started in the same second. It
+// RunSuffix separates two runs of the same DAG started in the same second. It
 // is derived from the run ID rather than drawn at random so that the directory
 // can be recomputed, not just remembered. The run ID itself stays out of the
 // path to leave room for user-authored artifact paths beneath it.
-func runSuffix(dagRunID string) string {
+func RunSuffix(dagRunID string) string {
 	sum := sha256.Sum256([]byte(dagRunID))
 	return hex.EncodeToString(sum[:])[:SuffixLen]
 }

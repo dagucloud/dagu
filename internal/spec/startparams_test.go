@@ -6,6 +6,7 @@ package spec
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,6 +86,28 @@ func TestValidateStartParams(t *testing.T) {
 			wantErr:       "too many positional params: expected at most 2, got 3",
 		},
 		{
+			name:          "QuotedPositionalCountsOnce",
+			defaultParams: "default",
+			input:         StartParamInput{RawParams: `"hello world"`},
+		},
+		{
+			name:          "QuotedAssignmentsCountOnce",
+			defaultParams: "default",
+			input:         StartParamInput{RawParams: `"a=b bare c=\"x y\""`},
+		},
+		{
+			name:          "QuotedAssignmentsEnforceCount",
+			defaultParams: "default",
+			input:         StartParamInput{RawParams: `"a=b" "c=d"`},
+			wantErr:       "too many positional params: expected at most 1, got 2",
+		},
+		{
+			name:          "QuotedPositionalsStillEnforceCount",
+			defaultParams: "default",
+			input:         StartParamInput{RawParams: `"hello world" "second value"`},
+			wantErr:       "too many positional params: expected at most 1, got 2",
+		},
+		{
 			name:          "NamedOnlyBypassesPositionalCount",
 			defaultParams: "p1 p2",
 			input:         StartParamInput{RawParams: "KEY1=value1 KEY2=value2"},
@@ -142,6 +165,16 @@ func TestParseParamTokens_Matrix(t *testing.T) {
 			expected: []paramToken{
 				{Name: "", Value: "`echo \"hello\"`"},
 			},
+		},
+		{
+			name:     "QuotedEquals",
+			input:    `"a=b"`,
+			expected: []paramToken{{Value: "a=b"}},
+		},
+		{
+			name:     "QuotedAssignmentText",
+			input:    `"a=b bare c=\"x y\""`,
+			expected: []paramToken{{Value: `a=b bare c="x y"`}},
 		},
 		{
 			name:  "MixedNamedBacktickQuotedAndPositional",
@@ -247,4 +280,20 @@ func TestShouldSkipDashArgsPositionalValidation(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestParamNames(t *testing.T) {
+	t.Parallel()
+
+	names, err := ParamNames(`day=2026-11-01 region="us east" positional`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"day", "region"}, names)
+
+	names, err = ParamNames(`{"day": "2026-11-01"}`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"day"}, names)
+
+	names, err = ParamNames("")
+	require.NoError(t, err)
+	assert.Empty(t, names)
 }

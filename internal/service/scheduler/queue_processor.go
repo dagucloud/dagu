@@ -111,6 +111,7 @@ type QueueProcessor struct {
 	workerStaleAfter       time.Duration
 	dagExecutor            *DAGExecutor
 	isSuspended            IsSuspendedFunc
+	isPaused               IsPausedFunc
 	queues                 sync.Map // map[string]*queue
 	wakeUpCh               chan struct{}
 	dispatchHandoffs       chan struct{}
@@ -294,6 +295,14 @@ func WithDispatchAdmissionStore(store dispatch.DispatchAdmissionStore) QueueProc
 func dispatchAdmissionStoreFromTaskStore(store dispatch.DispatchTaskStore) dispatch.DispatchAdmissionStore {
 	admissionStore, _ := store.(dispatch.DispatchAdmissionStore)
 	return admissionStore
+}
+
+// WithIsPaused sets the checker of an operator's pause, which holds queued
+// backfill runs.
+func WithIsPaused(isPaused IsPausedFunc) QueueProcessorOption {
+	return func(p *QueueProcessor) {
+		p.isPaused = isPaused
+	}
 }
 
 // WithIsSuspended sets the suspend-flag checker used by the queue processor.
@@ -493,6 +502,7 @@ func (p *QueueProcessor) newQueueDispatcher() *queueDispatcher {
 		workerStaleAfter:       p.workerStaleAfter,
 		dagExecutor:            p.dagExecutor,
 		isSuspended:            p.isSuspended,
+		isPaused:               p.isPaused,
 		backoffConfig:          p.backoffConfig,
 		leaseStaleThreshold:    p.leaseStaleThreshold,
 		isClosed:               p.isClosed,

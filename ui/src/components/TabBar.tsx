@@ -79,7 +79,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
               onKeyDown={(e) => handleKeyDown(e, tab.id)}
               className={cn(
                 'group relative flex items-center gap-2 h-8 px-3 min-w-[120px] max-w-[200px]',
-                'border-b-2 transition-all duration-150 cursor-pointer shrink-0',
+                'border-b-2 transition-colors duration-150 cursor-pointer shrink-0',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                 isActive
                   ? 'border-primary bg-transparent text-foreground'
@@ -97,7 +97,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
                 onClick={(e) => handleCloseTab(e, tab.id)}
                 className={cn(
                   'flex items-center justify-center shrink-0 w-4 h-4 rounded-sm',
-                  'transition-all duration-150',
+                  'transition-[background-color,opacity] duration-150',
                   'hover:bg-muted-foreground/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                   'opacity-0 group-hover:opacity-100',
                   isActive && 'opacity-100'
@@ -120,7 +120,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
             className={cn(
               'flex items-center justify-center shrink-0 w-8 h-8 ml-1',
               'text-text-secondary hover:text-foreground hover:bg-muted',
-              'transition-all duration-150 rounded-sm',
+              'transition-colors duration-150 rounded-sm',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
             )}
             aria-label="Add new tab"

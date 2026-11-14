@@ -8,6 +8,9 @@ Implemented.
 
 This spec defines `${params}` and `${params.name}` references.
 
+Local CLI parameter-source selection and stdin input are defined by
+[Spec 076: CLI Run Parameter Input](076-cli-run-params.md).
+
 Common reference syntax is defined by [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md).
 Spec 003 also defines unbraced text preservation, supported fields, string insertion, and resolution timing.
 

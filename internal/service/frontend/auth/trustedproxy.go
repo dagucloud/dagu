@@ -39,7 +39,10 @@ type TrustedProxyLoginConfig struct {
 	AuthService          TrustedProxyTokenService
 	LicenseChecker       license.Checker
 	InitialSetupComplete func(context.Context) (bool, error)
-	LoginBasePath        string
+	// TrustedSource reports whether a request came directly from the
+	// authenticating proxy. Requests from any other source are refused.
+	TrustedSource func(*http.Request) bool
+	LoginBasePath string
 }
 
 // TrustedProxyLoginHandler exchanges a proxy-provided identity for a Dagu session.
@@ -57,6 +60,13 @@ func TrustedProxyLoginHandler(cfg *TrustedProxyLoginConfig) http.Handler {
 		}
 		if r.URL.RawQuery != "" || r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
 			writeTrustedProxyError(w, http.StatusBadRequest, "invalid request")
+			return
+		}
+		if cfg.TrustedSource == nil || !cfg.TrustedSource(r) {
+			logger.Warn(r.Context(), "Proxy login denied",
+				slog.String("reason", "untrusted_source"),
+				slog.String("remoteAddr", r.RemoteAddr))
+			writeTrustedProxyError(w, http.StatusForbidden, "access denied")
 			return
 		}
 		if !allowTrustedProxyAfterInitialSetup(w, r, cfg) {

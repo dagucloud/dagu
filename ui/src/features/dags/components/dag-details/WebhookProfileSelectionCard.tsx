@@ -3,7 +3,7 @@
 
 import { Loader2, RefreshCw, Save } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { components, RuntimeProfileStatus } from '../../../../api/v1/schema';
+import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useClient } from '../../../../hooks/api';
+import { getQueryErrorMessage } from '../../../../lib/queryErrors';
+import { useProfiles, type RuntimeProfile } from '../../hooks/useProfiles';
 import {
   findUnavailableAllowedProfiles,
   updateAllowedProfiles,
@@ -22,8 +24,9 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 
-type RuntimeProfile = components['schemas']['RuntimeProfileResponse'];
 type WebhookDetails = components['schemas']['WebhookDetails'];
+
+const NO_PROFILES: RuntimeProfile[] = [];
 
 interface WebhookProfileSelectionCardProps {
   fileName: string;
@@ -49,82 +52,44 @@ function WebhookProfileSelectionCard({
   );
   const configuredAllowedProfilesRef = useRef(configuredAllowedProfiles);
   configuredAllowedProfilesRef.current = configuredAllowedProfiles;
-  const [runtimeProfiles, setRuntimeProfiles] = useState<RuntimeProfile[]>([]);
   const [draftAllowedProfiles, setDraftAllowedProfiles] = useState<string[]>(
     configuredAllowedProfiles
   );
-  const [profilesLoading, setProfilesLoading] = useState(false);
-  const [profilesLoadFailed, setProfilesLoadFailed] = useState(false);
   const [profileSelectionSaving, setProfileSelectionSaving] = useState(false);
-  const [profileSelectionError, setProfileSelectionError] = useState<
-    string | null
-  >(null);
-  const [profilesReloadKey, setProfilesReloadKey] = useState(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const {
+    activeProfiles,
+    isLoading: profilesLoading,
+    error: profilesError,
+    retry: retryProfiles,
+  } = useProfiles({ enabled: isAdmin, remoteNode });
+  // The old error stays in SWR while the retry runs; the spinner replaces it.
+  const profilesLoadFailed = isAdmin && !!profilesError && !profilesLoading;
+  const runtimeProfiles =
+    isAdmin && !profilesLoadFailed && !profilesLoading
+      ? activeProfiles
+      : NO_PROFILES;
+  const profileSelectionError =
+    saveError ??
+    (profilesLoadFailed
+      ? getQueryErrorMessage(profilesError, 'Failed to load runtime profiles')
+      : null);
 
   useEffect(() => {
     setDraftAllowedProfiles(configuredAllowedProfilesRef.current);
   }, [configuredAllowedProfilesKey]);
 
+  const activeProfileNamesKey = JSON.stringify(
+    runtimeProfiles.map((profile) => profile.name)
+  );
   useEffect(() => {
-    if (!isAdmin) {
-      setRuntimeProfiles([]);
-      onActiveProfileNamesChange([]);
-      setProfilesLoading(false);
-      setProfilesLoadFailed(false);
-      setProfileSelectionError(null);
-      return;
-    }
+    onActiveProfileNamesChange(JSON.parse(activeProfileNamesKey) as string[]);
+  }, [activeProfileNamesKey, onActiveProfileNamesChange]);
 
-    let cancelled = false;
-    const fetchProfiles = async () => {
-      setProfilesLoading(true);
-      setProfilesLoadFailed(false);
-      setRuntimeProfiles([]);
-      onActiveProfileNamesChange([]);
-      setProfileSelectionError(null);
-      try {
-        const { data, error } = await client.GET('/profiles', {
-          params: { query: { remoteNode } },
-        });
-        if (cancelled) return;
-        if (error || !data) {
-          throw new Error(error?.message || 'Failed to load runtime profiles');
-        }
-        const activeProfiles = data.profiles.filter(
-          (profile) => profile.status === RuntimeProfileStatus.active
-        );
-        setRuntimeProfiles(activeProfiles);
-        onActiveProfileNamesChange(
-          activeProfiles.map((profile) => profile.name)
-        );
-      } catch (error) {
-        if (cancelled) return;
-        onActiveProfileNamesChange([]);
-        setProfileSelectionError(
-          error instanceof Error
-            ? error.message
-            : 'Failed to load runtime profiles'
-        );
-        setProfilesLoadFailed(true);
-      } finally {
-        if (!cancelled) {
-          setProfilesLoading(false);
-        }
-      }
-    };
-
-    void fetchProfiles();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    client,
-    isAdmin,
-    onActiveProfileNamesChange,
-    profilesReloadKey,
-    remoteNode,
-    webhook.id,
-  ]);
+  const handleRetry = () => {
+    setSaveError(null);
+    retryProfiles();
+  };
 
   const handleAllowedProfileChange = (
     profileName: string,
@@ -138,7 +103,7 @@ function WebhookProfileSelectionCard({
   const handleSave = async () => {
     try {
       setProfileSelectionSaving(true);
-      setProfileSelectionError(null);
+      setSaveError(null);
       const { data, error } = await client.PUT(
         '/dags/{fileName}/webhook/profile-selection',
         {
@@ -154,7 +119,7 @@ function WebhookProfileSelectionCard({
       }
       onWebhookChange(data);
     } catch (error) {
-      setProfileSelectionError(
+      setSaveError(
         error instanceof Error
           ? error.message
           : 'Failed to update profile selection'
@@ -226,11 +191,7 @@ function WebhookProfileSelectionCard({
                         }
                       />
                     </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setProfilesReloadKey((key) => key + 1)}
-                    >
+                    <Button variant="outline" size="sm" onClick={handleRetry}>
                       <RefreshCw className="mr-1 h-3.5 w-3.5" />
                       <I18nText text={'Retry'} />
                     </Button>

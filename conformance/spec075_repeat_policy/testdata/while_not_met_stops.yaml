@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: poll
+    run: printf '%s\n' tick >> ticks.txt
+    repeat_policy:
+      repeat: while
+      condition: "pending"
+      expected: "done"
+      interval_sec: 0

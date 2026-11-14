@@ -17,6 +17,7 @@ module.exports = merge(common, {
           '/api',
           '/assets/dag.schema.json',
           '/assets/config.schema.json',
+          '/assets/calendar.schema.json',
         ],
         target: 'http://localhost:8080',
         changeOrigin: true,

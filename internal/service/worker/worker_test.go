@@ -7,14 +7,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -23,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestWorkerStart(t *testing.T) {
@@ -464,6 +469,80 @@ func TestWorkerHeartbeat(t *testing.T) {
 	})
 }
 
+// TestWorkerHeartbeatCarriesMachine checks that heartbeats name the worker's
+// machine and carry the sampler's latest sample, once there is one.
+func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
+	t.Parallel()
+
+	host, err := os.Hostname()
+	require.NoError(t, err)
+	cpu := 25.0
+	sampled := stubMachine{ok: true, sample: resource.Sample{
+		CPUs:       4,
+		CPUPercent: &cpu,
+		Memory:     &resource.Usage{UsedPercent: 50, UsedBytes: 5, TotalBytes: 10},
+	}}
+
+	for _, tc := range []struct {
+		name    string
+		machine worker.Machine
+		want    *coordinatorv1.MachineSample
+	}{
+		{"Sampled", sampled, &coordinatorv1.MachineSample{
+			Cpus:       4,
+			CpuPercent: &cpu,
+			Memory:     &coordinatorv1.MachineUsage{UsedPercent: 50, UsedBytes: 5, TotalBytes: 10},
+		}},
+		{"NotSampledYet", stubMachine{}, nil},
+		{"NoSampler", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			heartbeats := make(chan *coordinatorv1.HeartbeatRequest, 1)
+			cli := newMockCoordinatorCli()
+			cli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
+			cli.SetHeartbeatFunc(func(_ context.Context, req *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
+				select {
+				case heartbeats <- req:
+				default:
+				}
+				return &coordinatorv1.HeartbeatResponse{}, nil
+			})
+			w := worker.NewWorker("machine-worker", 1, cli, map[string]string{}, &config.Config{})
+			w.SetHandler(&mockHandler{})
+			if tc.machine != nil {
+				w.SetMachine(tc.machine)
+			}
+			go func() {
+				_ = w.Start(context.Background())
+			}()
+			t.Cleanup(func() { _ = w.Stop(context.Background()) })
+
+			var req *coordinatorv1.HeartbeatRequest
+			select {
+			case req = <-heartbeats:
+			case <-time.After(5 * time.Second):
+				t.Fatal("no heartbeat sent")
+			}
+			assert.Equal(t, host, req.Host)
+			assert.True(t, proto.Equal(tc.want, req.Machine), "machine sample: %v", req.Machine)
+		})
+	}
+}
+
+type stubMachine struct {
+	sample resource.Sample
+	ok     bool
+}
+
+func (m stubMachine) Since(time.Time) (resource.Sample, bool) {
+	return m.sample, m.ok
+}
+
 func TestWorkerStopWithoutStart(t *testing.T) {
 	t.Run("StopUnstartedWorker", func(t *testing.T) {
 		labels := make(map[string]string)
@@ -476,6 +555,80 @@ func TestWorkerStopWithoutStart(t *testing.T) {
 		// Stop should work without error even if not started
 		err := w.Stop(context.Background())
 		require.NoError(t, err)
+	})
+}
+
+func TestWorkerStopDeadline(t *testing.T) {
+	// startWorkerWithRun starts a worker whose only task runs handle and
+	// returns once that task has started.
+	startWorkerWithRun := func(t *testing.T, handle func(context.Context) error) *worker.Worker {
+		t.Helper()
+		mockCoordinatorCli := newMockCoordinatorCli()
+		var dispatched atomic.Bool
+		mockCoordinatorCli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+			if dispatched.Swap(true) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}, nil
+		})
+
+		started := make(chan struct{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+		w.SetHandler(&mockHandler{
+			ExecuteFunc: func(ctx context.Context, _ *coordinatorv1.Task) error {
+				close(started)
+				return handle(ctx)
+			},
+		})
+		go func() {
+			_ = w.Start(context.Background())
+		}()
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("task did not start")
+		}
+		return w
+	}
+
+	t.Run("DeadlineCancelsRunAndWaitsForItToExit", func(t *testing.T) {
+		// The run ignores the drain and only ends once its context is
+		// canceled, then needs a moment to report its final status.
+		var runCanceled, runExited atomic.Bool
+		w := startWorkerWithRun(t, func(ctx context.Context) error {
+			<-ctx.Done()
+			runCanceled.Store(true)
+			time.Sleep(300 * time.Millisecond)
+			runExited.Store(true)
+			return ctx.Err()
+		})
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		begin := time.Now()
+		err := w.Stop(stopCtx)
+		elapsed := time.Since(begin)
+
+		require.NoError(t, err, "reaching the deadline is not a stop failure")
+		require.True(t, runCanceled.Load(), "the deadline should cancel the running task")
+		require.True(t, runExited.Load(), "Stop should wait for the canceled task to exit")
+		require.GreaterOrEqual(t, elapsed, 200*time.Millisecond)
+		require.Less(t, elapsed, 5*time.Second)
+	})
+
+	t.Run("NoDeadlineWaitsForRunWithoutCanceling", func(t *testing.T) {
+		var canceledBeforeExit atomic.Bool
+		w := startWorkerWithRun(t, func(ctx context.Context) error {
+			time.Sleep(300 * time.Millisecond)
+			canceledBeforeExit.Store(ctx.Err() != nil)
+			return nil
+		})
+
+		begin := time.Now()
+		require.NoError(t, w.Stop(context.Background()))
+		require.GreaterOrEqual(t, time.Since(begin), 250*time.Millisecond)
+		require.False(t, canceledBeforeExit.Load(), "without a deadline Stop should let the task finish")
 	})
 }
 
@@ -1075,4 +1228,15 @@ func TestWorkerCancellation(t *testing.T) {
 		cancel()
 		_ = w.Stop(context.Background())
 	})
+}
+
+func TestCleanupErrorMessageKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
+
+	// The byte cap can land inside a multibyte rune; the message reported to
+	// the coordinator must stay valid UTF-8.
+	err := errors.New(strings.Repeat("a", 1023) + "界")
+	message := worker.CleanupErrorMessageForTest(err)
+	assert.LessOrEqual(t, len(message), 1024)
+	assert.True(t, utf8.ValidString(message))
 }

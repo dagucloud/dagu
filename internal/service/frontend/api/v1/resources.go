@@ -5,7 +5,9 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"net/http"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -33,11 +35,18 @@ func (a *API) GetResourceHistory(ctx context.Context, request api.GetResourceHis
 	maxDuration := a.config.Monitoring.Retention
 	duration := time.Hour
 	if request.Params.Duration != nil {
-		if d, err := time.ParseDuration(*request.Params.Duration); err == nil && d > 0 {
-			duration = min(d, maxDuration)
-		} else if err != nil {
+		d, err := time.ParseDuration(*request.Params.Duration)
+		if err != nil || d <= 0 {
 			logger.Warn(ctx, "Invalid duration parameter", tag.String("duration", *request.Params.Duration))
+			return api.GetResourceHistorydefaultJSONResponse{
+				Body: api.Error{
+					Code:    api.ErrorCodeBadRequest,
+					Message: fmt.Sprintf("invalid duration parameter: %s", *request.Params.Duration),
+				},
+				StatusCode: http.StatusBadRequest,
+			}, nil
 		}
+		duration = min(d, maxDuration)
 	}
 
 	history := a.resourceService.GetHistory(duration)

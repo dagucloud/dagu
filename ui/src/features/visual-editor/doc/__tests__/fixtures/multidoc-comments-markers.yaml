@@ -1,0 +1,20 @@
+# First document
+name: parent
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: child-a
+
+# comment before the marker
+--- # first child
+name: child-a
+steps:
+  - name: work
+    run: echo a
+...
+---
+name: child-b   # last document
+steps:
+  - name: work
+    run: echo b

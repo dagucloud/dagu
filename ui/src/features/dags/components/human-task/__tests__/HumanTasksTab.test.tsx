@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -143,9 +149,7 @@ describe('HumanTasksTab', () => {
     expect(screen.getByTestId('artifact-preview')).toHaveTextContent(
       'deploy:run-1:worker-a:changes.diff'
     );
-    expect(
-      screen.getByRole('button', { name: 'Complete task' })
-    ).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeEnabled();
   });
 
   it('switches between referenced artifacts', () => {
@@ -228,6 +232,25 @@ describe('HumanTasksTab', () => {
         'Referenced artifacts are not available for this DAG run yet.'
       )
     ).toBeVisible();
+  });
+
+  // The dock pads its tabs: the host drops the frame of the card.
+  it('drops the frame of the card for a padded host', () => {
+    const { container } = render(
+      <HumanTasksTab dagRun={humanTaskRun()} onChanged={vi.fn()} bare />
+    );
+
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeVisible();
+    expect(container.querySelector('.bg-surface')).toBeNull();
+    expect(container.querySelector('.rounded-lg')).toBeNull();
+  });
+
+  it('keeps the frame of the card by default', () => {
+    const { container } = render(
+      <HumanTasksTab dagRun={humanTaskRun()} onChanged={vi.fn()} />
+    );
+
+    expect(container.querySelector('.bg-surface.rounded-lg')).not.toBeNull();
   });
 
   it('completes a task without a form using an empty object', async () => {
@@ -481,6 +504,147 @@ describe('HumanTasksTab', () => {
   });
 });
 
+describe('HumanTasksTab prompt', () => {
+  it('renders the prompt as Markdown', () => {
+    const dagRun = humanTaskRun();
+    const task = dagRun.nodes[0]?.step.humanTask;
+    if (!task) throw new Error('expected a human task fixture');
+    task.prompt = 'Ship **v2** after:\n\n- the migration\n- the backfill';
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(screen.getByText('v2').tagName).toBe('STRONG');
+    expect(
+      screen.getAllByRole('listitem').map((item) => item.textContent)
+    ).toEqual(['the migration', 'the backfill']);
+  });
+});
+
+describe('HumanTasksTab choice form', () => {
+  const decisionForm = {
+    type: 'object',
+    properties: {
+      decision: {
+        type: 'string',
+        title: 'Merge it?',
+        enum: ['Merge', 'Skip'],
+      },
+    },
+    required: ['decision'],
+  };
+
+  it('completes the task with the choice that was clicked', async () => {
+    const onChanged = vi.fn();
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun(decisionForm)}
+        onChanged={onChanged}
+      />
+    );
+
+    const choices = screen.getByRole('group', { name: 'Merge it?' });
+    expect(
+      within(choices)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Merge', 'Skip']);
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { decision: 'Skip' } })
+      )
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels oneOf choices with their titles and submits their values', async () => {
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun({
+          type: 'object',
+          properties: {
+            replicas: {
+              type: 'integer',
+              oneOf: [
+                { const: 1, title: 'One replica' },
+                { const: 3, title: 'Three replicas' },
+              ],
+            },
+          },
+          required: ['replicas'],
+        })}
+        onChanged={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Three replicas' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { replicas: 3 } })
+      )
+    );
+  });
+
+  it('offers push-back beside the choices', () => {
+    const dagRun = pushBackRun();
+    const task = dagRun.nodes[0]?.step.humanTask;
+    if (!task) throw new Error('expected a human task fixture');
+    task.form = decisionForm;
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(
+      screen.getByRole('button', { name: 'Request changes' })
+    ).toBeVisible();
+    const choices = screen.getByRole('group', { name: 'Merge it?' });
+    expect(
+      within(choices)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Merge', 'Skip']);
+  });
+
+  it('disables the choices without workspace execute permission', () => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
+    render(
+      <HumanTasksTab dagRun={humanTaskRun(decisionForm)} onChanged={vi.fn()} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled();
+  });
+
+  // An optional choice can be left empty, and a second field needs the form,
+  // so neither completes on a single click.
+  it.each([
+    {
+      name: 'an optional choice',
+      form: { ...decisionForm, required: [] },
+    },
+    {
+      name: 'a choice beside another field',
+      form: {
+        ...decisionForm,
+        properties: {
+          ...decisionForm.properties,
+          note: { type: 'string', title: 'Note' },
+        },
+      },
+    },
+  ])('keeps the form for $name', ({ form }) => {
+    render(<HumanTasksTab dagRun={humanTaskRun(form)} onChanged={vi.fn()} />);
+
+    expect(screen.getByRole('radio', { name: 'Merge' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeVisible();
+  });
+});
+
 describe('HumanTasksTab push-back', () => {
   it('offers push-back only when the task declares it', () => {
     render(<HumanTasksTab dagRun={humanTaskRun()} onChanged={vi.fn()} />);
@@ -651,5 +815,147 @@ describe('HumanTasksTab push-back', () => {
     expect(
       screen.getByRole('button', { name: 'Request changes' })
     ).toBeDisabled();
+  });
+});
+
+// parity:test-human-tasks-approval
+function twoTaskRun(): components['schemas']['DAGRunDetails'] {
+  const dagRun = pushBackRun(feedbackForm, 1);
+  const first = dagRun.nodes[0];
+  if (!first?.step.humanTask) throw new Error('expected a human task fixture');
+  const second = {
+    ...first,
+    step: {
+      id: 'signoff',
+      name: 'Security sign-off',
+      humanTask: { prompt: 'Confirm the security review.' },
+    },
+    approvalIteration: undefined,
+  };
+  return {
+    ...dagRun,
+    humanTaskResumePending: true,
+    nodes: [first, second],
+  };
+}
+
+describe('HumanTasksTab output without a step filter', () => {
+  it('renders the resume alert and every waiting task', () => {
+    render(<HumanTasksTab dagRun={twoTaskRun()} onChanged={vi.fn()} />);
+
+    expect(
+      screen.getByText(
+        'Task input is safely stored, but the DAG-run still needs to be queued for resume.'
+      )
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retry queue' })).toBeEnabled();
+    expect(screen.getByText('Confirm the production release.')).toBeVisible();
+    expect(screen.getByText('Confirm the security review.')).toBeVisible();
+    expect(
+      screen.getAllByRole('button', { name: 'Complete task' })
+    ).toHaveLength(2);
+  });
+
+  it('renders the running notice', () => {
+    render(
+      <HumanTasksTab
+        dagRun={{ ...humanTaskRun(), status: Status.Running }}
+        onChanged={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(runExecutingNotice)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Complete task' })
+    ).toBeDisabled();
+  });
+
+  it('renders the empty state', () => {
+    render(
+      <HumanTasksTab
+        dagRun={{ ...humanTaskRun(), nodes: [] }}
+        onChanged={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('No human tasks are waiting.')).toBeVisible();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('HumanTasksTab step filter', () => {
+  it('shows only the task of the step, without the resume alert', () => {
+    render(
+      <HumanTasksTab
+        dagRun={twoTaskRun()}
+        onChanged={vi.fn()}
+        stepName="Security sign-off"
+      />
+    );
+
+    expect(screen.getByText('Confirm the security review.')).toBeVisible();
+    expect(screen.queryByText('Confirm the production release.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry queue' })).toBeNull();
+    expect(
+      screen.getAllByRole('button', { name: 'Complete task' })
+    ).toHaveLength(1);
+  });
+
+  it('completes the task of the step', async () => {
+    const onChanged = vi.fn();
+    render(
+      <HumanTasksTab
+        dagRun={twoTaskRun()}
+        onChanged={onChanged}
+        stepName="Security sign-off"
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete task' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        {
+          params: {
+            path: { name: 'deploy', dagRunId: 'run-1', stepId: 'signoff' },
+            query: { remoteNode: 'worker-a' },
+          },
+          body: {},
+        }
+      )
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the workspace execute gate', () => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
+    render(
+      <HumanTasksTab
+        dagRun={twoTaskRun()}
+        onChanged={vi.fn()}
+        stepName="Release review"
+      />
+    );
+
+    expect(useCanExecuteForWorkspace).toHaveBeenCalledWith('production');
+    expect(
+      screen.getByRole('button', { name: 'Complete task' })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Request changes' })
+    ).toBeDisabled();
+  });
+
+  it('shows the empty state for a step without a waiting task', () => {
+    render(
+      <HumanTasksTab
+        dagRun={twoTaskRun()}
+        onChanged={vi.fn()}
+        stepName="build"
+      />
+    );
+
+    expect(screen.getByText('No human tasks are waiting.')).toBeVisible();
   });
 });

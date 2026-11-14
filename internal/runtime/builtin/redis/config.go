@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/go-viper/mapstructure/v2"
 )
 
@@ -141,8 +143,9 @@ func DefaultConfig() *Config {
 	}
 }
 
-// ParseConfig parses the executor configuration from a map.
-func ParseConfig(_ context.Context, mapCfg map[string]any) (*Config, error) {
+// ParseConfig parses the executor configuration from a map. Relative file
+// paths resolve under the step working directory in ctx.
+func ParseConfig(ctx context.Context, mapCfg map[string]any) (*Config, error) {
 	cfg := DefaultConfig()
 
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
@@ -162,6 +165,12 @@ func ParseConfig(_ context.Context, mapCfg map[string]any) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+
+	workDir := runtime.GetEnv(ctx).WorkingDir
+	cfg.ScriptFile = workpath.Resolve(workDir, cfg.ScriptFile)
+	cfg.TLSCA = workpath.Resolve(workDir, cfg.TLSCA)
+	cfg.TLSCert = workpath.Resolve(workDir, cfg.TLSCert)
+	cfg.TLSKey = workpath.Resolve(workDir, cfg.TLSKey)
 
 	return cfg, nil
 }
@@ -211,6 +220,10 @@ func (c *Config) validate() error {
 		return fmt.Errorf("timeout must be non-negative")
 	}
 
+	if c.MaxResultSize < 0 {
+		return fmt.Errorf("max_result_size must be non-negative")
+	}
+
 	// Validate DB number
 	if c.DB < 0 || c.DB > 15 {
 		return fmt.Errorf("db must be between 0 and 15")
@@ -232,19 +245,4 @@ func (c *Config) validate() error {
 	}
 
 	return nil
-}
-
-// poolManagerKey is the context key for the global Redis pool manager.
-type poolManagerKey struct{}
-
-// WithRedisPoolManager returns a context with the global Redis pool manager.
-func WithRedisPoolManager(ctx context.Context, pm *GlobalRedisPoolManager) context.Context {
-	return context.WithValue(ctx, poolManagerKey{}, pm)
-}
-
-// GetRedisPoolManager retrieves the global Redis pool manager from context.
-// Returns nil if not in worker mode or not configured.
-func GetRedisPoolManager(ctx context.Context) *GlobalRedisPoolManager {
-	pm, _ := ctx.Value(poolManagerKey{}).(*GlobalRedisPoolManager)
-	return pm
 }

@@ -32,7 +32,7 @@ describe('DAGStepTableRow', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the script badge for harness steps', () => {
+  it('previews the script for harness steps', () => {
     const step = {
       name: 'review',
       script: 'summarize the current branch',
@@ -58,7 +58,28 @@ describe('DAGStepTableRow', () => {
       </table>
     );
 
-    expect(screen.getByText('Script defined')).toBeInTheDocument();
+    expect(
+      screen.getByText('summarize the current branch')
+    ).toBeInTheDocument();
     expect(screen.getByText('Review the repository')).toBeInTheDocument();
+  });
+
+  it('shows every alternative of an any-of precondition', () => {
+    const step = {
+      name: 'process',
+      preconditions: [
+        { condition: '${MODE}', expectedAny: ['full', 'minimal'] },
+      ],
+    } as components['schemas']['Step'];
+
+    render(
+      <table>
+        <tbody>
+          <DAGStepTableRow step={step} index={0} />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('full | minimal')).toBeInTheDocument();
   });
 });

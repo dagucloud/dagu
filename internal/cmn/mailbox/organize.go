@@ -120,8 +120,7 @@ func (c *Client) presentItems(folder string, items []pendingItem, readOnly bool,
 	}
 	selected, err := c.imap.Select(folder, &imap.SelectOptions{ReadOnly: readOnly}).Wait()
 	if err != nil {
-		var imapErr *imap.Error
-		if errors.As(err, &imapErr) && imapErr.Type == imap.StatusResponseTypeNo {
+		if folderMissing(err) {
 			missing(items)
 			return nil, nil
 		}
@@ -267,6 +266,14 @@ func joinAttrs(attrs []imap.MailboxAttr) string {
 		names[i] = string(attr)
 	}
 	return strings.Join(names, " or ")
+}
+
+// folderMissing reports whether the server refused to open a folder because
+// it does not exist. Other refusals, such as a missing permission, are errors
+// in their own right.
+func folderMissing(err error) bool {
+	var imapErr *imap.Error
+	return errors.As(err, &imapErr) && imapErr.Code == imap.ResponseCodeNonExistent
 }
 
 func uidSet(items []pendingItem) imap.UIDSet {

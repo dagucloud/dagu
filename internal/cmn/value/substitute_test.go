@@ -286,6 +286,20 @@ func TestRunCommandWithContext_WithScope(t *testing.T) {
 	assert.Equal(t, "hello", result)
 }
 
+// A command substituted with no scope runs with the process environment
+// without Dagu's own credentials.
+func TestRunCommandWithContext_WithoutScopeHidesDaguCredentials(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping tests on Windows")
+	}
+	t.Setenv("DAGU_AUTH_BASIC_PASSWORD", "server-password")
+	t.Setenv("CMD_TEST_VISIBLE", "visible")
+
+	result, err := runCommandWithContext(context.Background(), `echo "${DAGU_AUTH_BASIC_PASSWORD:-hidden} ${CMD_TEST_VISIBLE}"`)
+	require.NoError(t, err)
+	assert.Equal(t, "hidden visible", result)
+}
+
 func TestShellCommandFromContext(t *testing.T) {
 	t.Run("PrefersConfigDefaultShell", func(t *testing.T) {
 		scope := NewEnvScope(nil, false).WithEntry("SHELL", "/usr/bin/bash", EnvSourceOS)

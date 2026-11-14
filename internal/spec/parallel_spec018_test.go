@@ -41,6 +41,34 @@ func TestParallelSpec018Validation(t *testing.T) {
       max_concurrent: 1.5`,
 			wantParts: []string{"parallel.max_concurrent", "integer"},
 		},
+		{
+			name: "rejects unknown separator",
+			parallel: `
+      items: ${ITEMS}
+      separator: colon`,
+			wantParts: []string{"parallel.separator", "newline", "comma", "semicolon", "pipe", "tab", "space"},
+		},
+		{
+			name: "rejects mixed case separator",
+			parallel: `
+      items: ${ITEMS}
+      separator: Newline`,
+			wantParts: []string{"parallel.separator", "newline"},
+		},
+		{
+			name: "rejects non string separator",
+			parallel: `
+      items: ${ITEMS}
+      separator: 1`,
+			wantParts: []string{"parallel.separator", "string"},
+		},
+		{
+			name: "rejects separator with static items",
+			parallel: `
+      items: [one]
+      separator: newline`,
+			wantParts: []string{"parallel.separator", "string item source"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,4 +96,31 @@ steps:
 			}
 		})
 	}
+}
+
+// A valid separator is stored on the IR alongside the string item source.
+func TestParallelSpec018Separator(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(strings.TrimSpace(`
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child
+    parallel:
+      items: ${ITEMS}
+      separator: newline
+
+---
+
+name: child
+steps:
+  - name: ok
+    run: "true"
+`)), spec.SkipSchemaValidation(), spec.WithoutEval())
+	require.NoError(t, err)
+	require.NotNil(t, dag.Steps[0].Parallel)
+	require.Equal(t, "${ITEMS}", dag.Steps[0].Parallel.Variable)
+	require.Equal(t, "newline", dag.Steps[0].Parallel.Separator)
 }

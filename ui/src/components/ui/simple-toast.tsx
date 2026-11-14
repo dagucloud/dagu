@@ -1,9 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { AlertCircle, Check, Info } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { AlertCircle, Check, Info, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useI18n } from '@/i18n/I18nProvider';
+import { getNotificationRoot } from './notification-root';
 
 export type ToastVariant = 'success' | 'error' | 'info';
 
@@ -19,151 +21,73 @@ interface SimpleToastProps {
   onClose?: () => void;
 }
 
-// Minimum duration to ensure animations complete properly
+// Minimum duration, so that a note is never gone before it can be read.
 const MIN_DURATION = 500;
+const MAX_STACKED_TOASTS = 5;
 
 const DEFAULT_DURATIONS: Record<ToastVariant, number> = {
   success: 1800,
-  info: 2200,
-  error: 3500,
+  info: 4000,
+  error: 6000,
 };
 
 const VARIANT_STYLES: Record<
   ToastVariant,
-  { circleClass: string; iconClass: string; icon: React.ElementType }
+  { iconClass: string; icon: React.ElementType }
 > = {
-  success: {
-    circleClass: 'border-success',
-    iconClass: 'text-success',
-    icon: Check,
-  },
-  error: {
-    circleClass: 'border-destructive',
-    iconClass: 'text-destructive',
-    icon: AlertCircle,
-  },
-  info: { circleClass: 'border-info', iconClass: 'text-info', icon: Info },
+  success: { iconClass: 'text-success', icon: Check },
+  error: { iconClass: 'text-destructive', icon: AlertCircle },
+  info: { iconClass: 'text-info', icon: Info },
 };
 
+/**
+ * A note in the bottom right corner, in the stack of the notifications (the
+ * run progress cards are in it too). It goes away by itself after its
+ * duration, or at once with its close button.
+ */
 export const SimpleToast: React.FC<SimpleToastProps> = ({
   message,
   duration,
-  variant = 'success',
+  variant = 'info',
   onClose,
 }) => {
-  const [isVisible, setIsVisible] = useState(true);
-  const [animationState, setAnimationState] = useState<
-    'entering' | 'visible' | 'exiting'
-  >('entering');
-  const [iconAnimated, setIconAnimated] = useState(false);
-
-  // Ensure duration is at least MIN_DURATION
   const safeDuration = Math.max(
     duration ?? DEFAULT_DURATIONS[variant],
     MIN_DURATION
   );
-
+  // The timer does not start again when the host passes a new function.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
-    // Enter animation
-    const enterTimer = setTimeout(() => {
-      setAnimationState('visible');
-    }, 20);
+    const timer = setTimeout(() => onCloseRef.current?.(), safeDuration);
+    return () => clearTimeout(timer);
+  }, [safeDuration]);
 
-    // Icon draw animation
-    const iconTimer = setTimeout(() => {
-      setIconAnimated(true);
-    }, 150);
-
-    // Start exit animation (at least 350ms before end)
-    const exitTimer = setTimeout(() => {
-      setAnimationState('exiting');
-    }, safeDuration - 350);
-
-    // Remove from DOM
-    const removeTimer = setTimeout(() => {
-      setIsVisible(false);
-      if (onClose) onClose();
-    }, safeDuration);
-
-    return () => {
-      clearTimeout(enterTimer);
-      clearTimeout(iconTimer);
-      clearTimeout(exitTimer);
-      clearTimeout(removeTimer);
-    };
-  }, [safeDuration, onClose]);
-
-  if (!isVisible) return null;
-
-  const getAnimationClasses = () => {
-    switch (animationState) {
-      case 'entering':
-        return 'opacity-0 scale-90';
-      case 'visible':
-        return 'opacity-100 scale-100';
-      case 'exiting':
-        return 'opacity-0 scale-95';
-    }
-  };
-
-  const {
-    circleClass,
-    iconClass,
-    icon: IconComponent,
-  } = VARIANT_STYLES[variant];
+  const { ts } = useI18n();
+  const { iconClass, icon: IconComponent } = VARIANT_STYLES[variant];
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
-      <div
-        className={`
-          pointer-events-auto
-          flex flex-col items-center justify-center gap-3
-          w-32 h-32
-          bg-popover/80
-          backdrop-blur-xl
-          rounded-[20px]
-          border border-border/50
-          shadow-toast
-          transition-all duration-300 ease-out
-          ${getAnimationClasses()}
-        `}
+    <div
+      role={variant === 'error' ? 'alert' : 'status'}
+      data-testid="toast"
+      data-variant={variant}
+      className="pointer-events-auto relative flex items-start gap-2 overflow-hidden rounded-lg border border-border bg-card px-4 py-3 pr-10 text-sm text-card-foreground shadow-lg"
+    >
+      <IconComponent
+        aria-hidden="true"
+        className={`mt-0.5 h-4 w-4 shrink-0 ${iconClass}`}
+      />
+      <span className="min-w-0 flex-1 break-words">{message}</span>
+      <button
+        type="button"
+        aria-label={ts('Dismiss')}
+        className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onCloseRef.current?.()}
       >
-        {/* Animated icon circle */}
-        <div className="relative w-12 h-12">
-          {/* Circle background */}
-          <div
-            className={`
-              absolute inset-0 rounded-full
-              border-[2.5px] ${circleClass}
-              transition-all duration-300 ease-out
-              ${iconAnimated ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}
-            `}
-          />
-          {/* Variant icon */}
-          <div
-            className={`
-              absolute inset-0 flex items-center justify-center
-              transition-all duration-300 ease-out delay-100
-              ${iconAnimated ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}
-            `}
-          >
-            <IconComponent className={`h-7 w-7 ${iconClass}`} strokeWidth={3} />
-          </div>
-        </div>
-
-        {/* Message */}
-        <span
-          className={`
-            text-sm font-medium text-foreground/90 text-center px-2
-            transition-all duration-200 delay-150
-            ${iconAnimated ? 'opacity-100' : 'opacity-0'}
-          `}
-        >
-          {message}
-        </span>
-      </div>
+        <X aria-hidden="true" className="h-4 w-4" />
+      </button>
     </div>,
-    document.body
+    getNotificationRoot()
   );
 };
 
@@ -179,42 +103,64 @@ export const ToastContext = React.createContext<ToastContextType>({
   showToast: () => {},
 });
 
+interface ToastItem {
+  id: number;
+  message: string;
+  duration?: number;
+  variant: ToastVariant;
+}
+
+let nextToastId = 0;
+
 export const ToastProvider: React.FC<ToastManagerProps> = ({ children }) => {
-  const [toast, setToast] = useState<{
-    message: string;
-    duration?: number;
-    variant: ToastVariant;
-    id: number;
-  } | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const showToast = (message: string, options?: ToastOptions) => {
-    setToast({
+    const variant = options?.variant ?? 'success';
+    // A successful action shows nothing: the page already shows its result.
+    // Only an error or a note shows, in the corner.
+    if (variant === 'success') return;
+    nextToastId += 1;
+    const item: ToastItem = {
+      id: nextToastId,
       message,
       duration: options?.duration,
-      variant: options?.variant ?? 'success',
-      id: Date.now(),
-    });
+      variant,
+    };
+    setToasts((current) => [item, ...current].slice(0, MAX_STACKED_TOASTS));
   };
 
-  const handleClose = () => {
-    setToast(null);
-  };
+  const close = React.useCallback((id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      {toast && (
-        <SimpleToast
-          key={toast.id}
-          message={toast.message}
-          duration={toast.duration}
-          variant={toast.variant}
-          onClose={handleClose}
-        />
-      )}
+      {toasts.map((toast) => (
+        <ToastHost key={toast.id} toast={toast} onClose={close} />
+      ))}
     </ToastContext.Provider>
   );
 };
+
+function ToastHost({
+  toast,
+  onClose,
+}: {
+  toast: ToastItem;
+  onClose: (id: number) => void;
+}) {
+  const close = React.useCallback(() => onClose(toast.id), [onClose, toast.id]);
+  return (
+    <SimpleToast
+      message={toast.message}
+      duration={toast.duration}
+      variant={toast.variant}
+      onClose={close}
+    />
+  );
+}
 
 export const useSimpleToast = () => {
   const context = React.useContext(ToastContext);

@@ -5,6 +5,7 @@ package value_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -49,6 +50,122 @@ func TestResolveRefSinglePass(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, templateText, got)
+}
+
+func TestResolverKeepsInsertedText(t *testing.T) {
+	t.Parallel()
+
+	fields := []struct {
+		name  string
+		field value.Field
+	}{
+		{name: "executor", field: value.ExecutorConfigField("steps[0].with.password")},
+		{name: "root env", field: value.DAGEnvField("env.COPY")},
+		{name: "runtime env", field: value.RuntimeDAGEnvField("env.COPY")},
+		{name: "step env", field: value.StepEnvField("steps[0].env.COPY")},
+		{name: "directory", field: value.StepDirField("steps[0].working_dir")},
+	}
+	texts := []struct {
+		name string
+		text string
+	}{
+		{name: "escaped dollar", text: `p\$INSERTED`},
+		{name: "environment variable", text: `$INSERTED/data`},
+		{name: "braced variable", text: `${INSERTED}/data`},
+		{name: "scoped reference", text: `${env.INSERTED}`},
+		{name: "parameter reference", text: `${params.other}`},
+		{name: "JSON reference", text: `${DATA.part}`},
+		{name: "quoted JSON reference", text: `"${DATA.part}"`},
+		{name: "empty", text: ""},
+	}
+	for _, field := range fields {
+		for _, text := range texts {
+			t.Run(field.name+"/"+text.name, func(t *testing.T) {
+				t.Parallel()
+
+				resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{
+					Params: value.Values{"text": text.text, "other": "expanded"},
+					Env: testEnvScope(map[string]string{
+						"INSERTED": "expanded",
+						"DATA":     `{"part":"expanded"}`,
+					}),
+				})
+				got, err := resolver.String(context.Background(), "before ${params.text} after", field.field)
+				require.NoError(t, err)
+				assert.Equal(t, "before "+text.text+" after", got)
+			})
+		}
+	}
+}
+
+func TestResolverExpandsAuthoredText(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{
+		Params: value.Values{"text": `p\$INSERTED`, "path": "/data"},
+		Env:    testEnvScope(map[string]string{"INSERTED": "expanded"}),
+	})
+	got, err := resolver.Object(context.Background(), map[string]any{
+		"nested": []any{"${params.text}:$INSERTED", `\$INSERTED`, "$INSERTED${params.path}", "$INSERTED${env.MISSING}", `$INSERTED\$INSERTED`},
+	}, value.ExecutorConfigField("steps[0].with"))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"nested": []any{`p\$INSERTED:expanded`, "$INSERTED", "expanded/data", "expanded${env.MISSING}", "expanded$INSERTED"},
+	}, got)
+}
+
+// Completion runs over a value that loading already resolved, so escapes stay as
+// loading left them while names in the given scope still expand.
+func TestResolverDAGEnvCompletion(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{
+		Env: testEnvScope(map[string]string{"RUN": "run-1"}),
+	})
+	got, err := resolver.String(context.Background(), `p\$RUN:$RUN`, value.DAGEnvCompletionField("env.COPY"))
+	require.NoError(t, err)
+	assert.Equal(t, `p\$RUN:run-1`, got)
+}
+
+func TestResolverInsertionInDynamicFields(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX commands")
+	}
+
+	fields := []struct {
+		name  string
+		field value.Field
+	}{
+		{name: "parameter", field: value.DynamicParamEvalField("params[0].eval")},
+		{name: "condition", field: value.ConditionEvalField("preconditions[0].eval")},
+	}
+	tests := []struct {
+		name string
+		raw  string
+		text string
+		want string
+	}{
+		{name: "backtick data", raw: "${params.text}", text: "`printf executed`", want: "`printf executed`"},
+		{name: "dollar data", raw: "${params.text}", text: "$(printf executed)", want: "$(printf executed)"},
+		{name: "backtick command", raw: "`printf '%s' '${params.text}' | tr a-z A-Z`", text: "hello", want: "HELLO"},
+		{name: "dollar command", raw: "$(printf '%s' '${params.text}' | tr a-z A-Z)", text: "hello", want: "HELLO"},
+		{name: "unresolved backtick", raw: "`printf '%s' ${env.MISSING}`", want: "${env.MISSING}"},
+		{name: "unresolved dollar", raw: "$(printf '%s' ${env.MISSING})", want: "${env.MISSING}"},
+	}
+	for _, field := range fields {
+		for _, test := range tests {
+			t.Run(field.name+"/"+test.name, func(t *testing.T) {
+				t.Parallel()
+				resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{
+					Params: value.Values{"text": test.text},
+				})
+				got, err := resolver.String(context.Background(), test.raw, field.field)
+				require.NoError(t, err)
+				assert.Equal(t, test.want, got)
+			})
+		}
+	}
 }
 
 func TestResolveRefValidation(t *testing.T) {
@@ -344,7 +461,8 @@ func TestResolverShellCommandFieldInlinesSafeHomeRelativeScopeVars(t *testing.T)
 	ctx := context.Background()
 	scope := value.NewEnvScope(nil, false).
 		WithEntry("TEST_FILE", "~/.dagu-test-file", value.EnvSourceDAGEnv).
-		WithEntry("UNSAFE_FILE", "~/$(printf unsafe)", value.EnvSourceDAGEnv)
+		WithEntry("UNSAFE_FILE", "~/$(printf unsafe)", value.EnvSourceDAGEnv).
+		WithEntry("KEY_FILE", "~/.ssh/id_deploy", value.EnvSourceSecret)
 	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
 	command := value.CommandContext{
 		Target:          value.CommandTargetLocal,
@@ -352,10 +470,11 @@ func TestResolverShellCommandFieldInlinesSafeHomeRelativeScopeVars(t *testing.T)
 		ShellConfigured: true,
 	}
 
-	got, err := resolver.String(ctx, "touch $TEST_FILE $UNSAFE_FILE", value.ShellCommandField("steps[0].run", command))
+	// A secret never enters the command text, even in a home-relative shape.
+	got, err := resolver.String(ctx, "touch $TEST_FILE $UNSAFE_FILE $KEY_FILE", value.ShellCommandField("steps[0].run", command))
 
 	require.NoError(t, err)
-	assert.Equal(t, "touch ~/.dagu-test-file $UNSAFE_FILE", got)
+	assert.Equal(t, "touch ~/.dagu-test-file $UNSAFE_FILE $KEY_FILE", got)
 }
 
 func TestResolverPowerShellCommandFieldExpandsDaguScopeVars(t *testing.T) {
@@ -405,6 +524,97 @@ func TestResolverStepArtifactOutputExpandsVarAfterWindowsSeparator(t *testing.T)
 
 	require.NoError(t, err)
 	assert.Equal(t, `C:\tmp\prepared-output.log`, got)
+}
+
+// A backslash in a path field is a Windows separator rather than an escape
+// marker, so every reference form after it resolves. Ordinary fields keep
+// the escape.
+func TestResolverPathFieldResolvesReferenceAfterBackslash(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("NAME", "order-1.txt", value.EnvSourceStepEnv)
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{Params: value.Values{"name": "prod"}, Env: scope},
+	)
+
+	tests := []struct {
+		name  string
+		raw   string
+		field value.Field
+		want  string
+	}{
+		{name: "StdoutParam", raw: `C:\out\${params.name}.log`, field: value.StepArtifactOutputField("stdout"), want: `C:\out\prod.log`},
+		{name: "StepDirEnvReference", raw: `C:\work\${env.NAME}`, field: value.StepDirField("working_dir"), want: `C:\work\order-1.txt`},
+		{name: "DotenvUnqualifiedEnv", raw: `C:\cfg\${NAME}`, field: value.DotenvPathField("dotenv[0]"), want: `C:\cfg\order-1.txt`},
+		{name: "EvenRunKeptAsWritten", raw: `C:\out\\${params.name}`, field: value.StructuredOutputPathField("output.x.path"), want: `C:\out\\prod`},
+		{name: "OrdinaryFieldEscapes", raw: `C:\done\${NAME}`, field: value.WorkflowField("value"), want: `C:\done${NAME}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolver.String(ctx, tt.raw, tt.field)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Only the keys an object field names as paths read a backslash as path
+// text; the other keys keep the escape, and nested keys are named with dots.
+func TestResolverObjectPathKeys(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("NAME", "order-1.txt", value.EnvSourceStepEnv)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
+	field := value.ExecutorConfigField("with").WithPathKeys("destination", "import.input_file", "files.report")
+
+	got, err := resolver.Object(ctx, map[string]any{
+		"destination": `C:\done\${NAME}`,
+		"content":     `\${NAME}`,
+		"overwrite":   true,
+		"mode":        nil,
+		"import": map[string]any{
+			"input_file": `C:\in\${NAME}`,
+			"table":      `\${NAME}`,
+		},
+		"files": map[string]string{
+			"report": `C:\r\${NAME}`,
+			"note":   `\${NAME}`,
+		},
+	}, field)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"destination": `C:\done\order-1.txt`,
+		"content":     "${NAME}",
+		"overwrite":   true,
+		"mode":        nil,
+		"import": map[string]any{
+			"input_file": `C:\in\order-1.txt`,
+			"table":      "${NAME}",
+		},
+		"files": map[string]string{
+			"report": `C:\r\order-1.txt`,
+			"note":   "${NAME}",
+		},
+	}, got)
+}
+
+func TestPathFieldReadsReferenceAfterBackslash(t *testing.T) {
+	raw := `C:\out\${steps.build.outputs.image}`
+	path := value.StepArtifactOutputField("stdout")
+	ordinary := value.WorkflowField("value")
+
+	refs := path.StepOutputReferences(raw)
+	require.Len(t, refs, 1)
+	assert.Equal(t, "build", refs[0].StepName)
+	assert.True(t, path.HasValueReference(raw))
+	assert.True(t, path.HasStepRuntimeOutputReference(`C:\out\${build.outputs.image}`, "build"))
+
+	assert.Empty(t, ordinary.StepOutputReferences(raw))
+	assert.False(t, ordinary.HasValueReference(raw))
 }
 
 func TestResolverPowerShellCommandFieldPreservesEnvMemberAccess(t *testing.T) {
@@ -596,5 +806,63 @@ func TestStepOutputReferencesKeepsNarrowGrammar(t *testing.T) {
 			assert.Equal(t, tt.wantStep, refs[0].StepName)
 			assert.Equal(t, tt.wantPath, refs[0].Path)
 		})
+	}
+}
+
+// A value that may read the process environment, such as a log path, never
+// resolves Dagu's own credentials: not by name, not by a path into one, and
+// not when shell parsing gives way to the plain fallback.
+func TestResolverProcessEnvironmentHidesDaguCredentials(t *testing.T) {
+	t.Setenv("DAGU_LICENSE", `{"sub":"licensee"}`)
+	t.Setenv("DAGU_HOME", "/srv/dagu")
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{})
+
+	for raw, want := range map[string]string{
+		"${DAGU_HOME}/${DAGU_LICENSE}":    "/srv/dagu/${DAGU_LICENSE}",
+		"${DAGU_LICENSE.sub}":             "${DAGU_LICENSE.sub}",
+		"${DAGU_HOME}/${DAGU_LICENSE} $(": "/srv/dagu/${DAGU_LICENSE} $(",
+	} {
+		got, err := resolver.String(context.Background(), raw, value.LogPathField("log_dir"))
+		require.NoError(t, err, raw)
+		assert.Equal(t, want, got, raw)
+	}
+}
+
+// A run's dates resolve by name. Outside a run, a date the DAG declares is
+// only unavailable, while an undeclared one is a defect.
+func TestResolverDates(t *testing.T) {
+	t.Parallel()
+
+	declared := value.Values{"target_day": "", "window_days": ""}
+	ctx := context.Background()
+	field := value.WorkflowField("steps[0].run")
+
+	run := value.NewResolver(
+		value.StaticScope{Dates: declared},
+		value.RuntimeScope{Dates: value.Values{"target_day": "2026-11-09", "window_days": `["2026-11-09"]`}},
+	)
+	got, err := run.String(ctx, "load ${dates.target_day} ${dates.window_days}", field)
+	require.NoError(t, err)
+	assert.Equal(t, `load 2026-11-09 ["2026-11-09"]`, got)
+	ref, err := run.ResolveRef(ctx, "${dates.target_day}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-11-09", ref)
+
+	for _, tc := range []struct {
+		token string
+		class value.ValueReferenceNoticeClass
+	}{
+		{token: "${dates.target_day}", class: value.NoticeClassRuntimeOnly},
+		{token: "${dates.missing}", class: value.NoticeClassDefect},
+	} {
+		var collector value.ValueReferenceNoticeCollector
+		inspect := value.NewResolver(value.StaticScope{Dates: declared}, value.RuntimeScope{},
+			value.WithValueReferenceNotices(&collector))
+		got, err := inspect.String(ctx, tc.token, field)
+		require.NoError(t, err)
+		assert.Equal(t, tc.token, got)
+		notices := collector.Notices()
+		require.Len(t, notices, 1, tc.token)
+		assert.Equal(t, tc.class, notices[0].Class, tc.token)
 	}
 }

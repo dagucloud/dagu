@@ -25,6 +25,20 @@ steps:
     run: 'echo "params is $1 and $2"'
 `)
 
+	dagMissingShell := th.DAG(t, `steps:
+  - name: check
+    run: "true"
+    with:
+      shell: dagu-test-missing-shell-9f3c2b1a
+`)
+
+	dagMissingCommand := th.DAG(t, `steps:
+  - name: check
+    run: dagu-test-missing-command-9f3c2b1a --flag
+    with:
+      shell: direct
+`)
+
 	tests := []test.CmdTest{
 		{
 			Name:        "DryRunDAG",
@@ -40,6 +54,17 @@ steps:
 			Name:        "DryRunDAGWithParamsAfterDash",
 			Args:        []string{"dry", dagWithParams.Location, "--", "p5", "p6"},
 			ExpectedOut: []string{`[1=p5 2=p6`},
+		},
+		{
+			// A missing executable is reported but does not fail the dry run.
+			Name:        "MissingShellWarns",
+			Args:        []string{"dry", dagMissingShell.Location},
+			ExpectedOut: []string{"Dry run: step may fail on this host", "dagu-test-missing-shell-9f3c2b1a"},
+		},
+		{
+			Name:        "MissingCommandWarns",
+			Args:        []string{"dry", dagMissingCommand.Location},
+			ExpectedOut: []string{"Dry run: step may fail on this host", "dagu-test-missing-command-9f3c2b1a"},
 		},
 	}
 
@@ -67,4 +92,15 @@ steps:
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "depends on non-existent step")
+}
+
+func TestDryCommand_RejectsFormat(t *testing.T) {
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - run: "true"
+`)
+	err := th.RunCommandWithError(t, cmd.Dry(), test.CmdTest{
+		Args: []string{"dry", dag.Location, "--format", "yaml"},
+	})
+	require.ErrorContains(t, err, `--format "yaml": use text or json`)
 }

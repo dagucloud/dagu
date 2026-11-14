@@ -11,6 +11,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | Reference | Meaning |
 | --- | --- |
 | `${consts.NAME}` | Top-level `consts:` value |
+| `${dates.NAME}` | Top-level `dates:` entry, resolved from the run's schedule slot |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
 | `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |
@@ -49,6 +50,35 @@ Rules:
 
 Use `consts:` for fixed workflow configuration. Use `params:` for per-run user input. Use `env:` for values that should be available to the running process environment.
 
+## Top-Level `dates:`
+
+Use `dates:` for the dates a scheduled run loads, derived from its slot. Each run resolves them once when it is created, so a retry, a manual run for the slot (`dagu start --scheduled-at`), and the scheduler's run get the same values.
+
+```yaml
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+calendar: jp-banking
+dates:
+  target_day: -1d
+  target_compact: { from: target_day, format: date_compact }
+  month_start: [-1d, month_start]
+  last_open_day: -1bd
+  window_days: { each: 1d }
+steps:
+  - id: load
+    run: ./load.sh --date ${dates.target_day}
+```
+
+- An entry is a shift (`-1d`, `[-1d, month_start]`) or an object with `from`, `each`, `shift`, `format`, and `timezone`.
+- Shifts: `+N`/`-N` with `min`, `h`, `d`, `w`, `mo`, `y`, `bd`; `hour_start` to `year_start` (weeks start Monday); `bd_or_next`, `bd_or_prev`. `m` is rejected: write `min` or `mo`.
+- `from` is `scheduled_at` (default), `interval_start`, `interval_end`, `next_scheduled_at`, or another entry.
+- `each` lists the window from `interval_start` up to the slot as a JSON array, for `parallel: ${dates.window_days}`. A step under a day needs `format`.
+- Formats: `date` (default), `date_compact`, `datetime`, `rfc3339`, `unix`, or a strftime pattern.
+- Business days use the calendar of the schedule entry that owns the slot, else the DAG's `calendar`.
+- A run started without a slot, by hand, a webhook, or a watched file, gets the default slot: the latest fire at or before it was created. A monthly DAG started on the 15th loads what its run of the 1st loaded.
+- On a DAG with no schedule, `scheduled_at` is the minute the run was created, and a date that needs a window is refused, except in a sub-DAG of a run with a slot, which resolves from its parent's slot.
+- Dates are not environment variables. Pass one through `env:` when a script needs it.
+- A param can follow the slot with `eval: ${dates.target_day}`. It is evaluated when the run starts, so a caller's value overrides it (`dagu start etl -- date=2026-11-01`) without changing the date.
+
 ## Supported Context References
 
 Run and step metadata:
@@ -59,12 +89,17 @@ Run and step metadata:
 | `${context.run.id}` | Current DAG run ID |
 | `${context.run.status}` | Current run status when status is available, such as lifecycle handler scopes |
 | `${context.run.scheduled_at}` | Scheduled time for a scheduled run |
+| `${context.run.interval_start}` | Previous fire time of the DAG's schedule before `scheduled_at` |
+| `${context.run.interval_end}` | Same instant as `scheduled_at`; the window is `[interval_start, interval_end)` |
+| `${context.run.next_scheduled_at}` | Next fire time of the DAG's schedule after `scheduled_at` |
+| `${context.run.timezone}` | Zone of the slot's schedule, such as `Asia/Tokyo` |
 | `${context.run.root_name}` | Root DAG name when this run is part of a nested run |
 | `${context.run.root_id}` | Root run ID when this run is part of a nested run |
 | `${context.attempt.id}` | Current attempt ID |
 | `${context.attempt.started_at}` | Current attempt start time |
 | `${context.step.id}` | Current step ID |
 | `${context.step.name}` | Current step name |
+| `${context.step.repeat_index}` | Zero-based execution index of a step with `repeat_policy`; also `DAG_RUN_STEP_REPEAT_INDEX` |
 | `${context.trigger.type}` | Run trigger type when trigger metadata is available |
 | `${context.trigger.actor}` | Trigger actor when trigger metadata includes one |
 

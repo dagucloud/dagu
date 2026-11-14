@@ -154,6 +154,7 @@ runtime but produce inspection-only passive notices.
 | `steps` | Spec 007 | `steps.<step_id>.outputs.<name>` | Preserve with reason-specific passive notice. | No |
 | `foreach` | Spec 018 | `foreach.index`, `foreach.key`, `foreach.<as>`, or `foreach.<as>.<field>` | Preserve with passive notice when item scope is unavailable or the item field is missing. | Yes |
 | `context` | Spec 017 | `context.<namespace>.<field>` | Preserve with passive notice. | Yes |
+| `dates` | Spec 097 | `dates.<name>` | Preserve with passive notice. | No |
 
 Spec 017 also defines frozen top-level compatibility aliases `dag`, `run`,
 `attempt`, `step`, `trigger`, `paths`, `profile`, and `pushback`. Only the
@@ -164,6 +165,7 @@ must not be added to those alias roots.
 ### Escaped Dagu References
 
 - A run of backslashes immediately before `$` controls whether that dollar token is escaped for Dagu field evaluation.
+- Path fields are the exception; see "Path Fields" below.
 
 - If the run length is odd, the last backslash in the run is the Dagu escape marker.
 - Dagu removes that escape marker before the owning field consumes the value.
@@ -216,6 +218,57 @@ For shell-backed fields, Dagu escaping does not quote or escape for the shell.
 After Dagu removes its escape marker, the selected shell or script interpreter may still interpret dollar syntax.
 To pass a literal dollar form through a shell-backed field, the authored text must also protect it according to that shell or script language.
 
+### Path Fields
+
+A path field holds a filesystem path.
+In a path field, a backslash is path text and never a Dagu escape marker, so a Windows path keeps its separator before a reference.
+
+- Every reference form after a backslash resolves: Dagu-owned references, `$NAME`, and `${NAME}`.
+- Dagu removes no backslash from a path field.
+- A path field has no Dagu escape for literal dollar text.
+- Reference detection for validation, passive notices, and inferred step-output dependencies reads a path field the same way.
+
+Assuming `${params.name}` resolves to `prod` and `NAME` resolves to `order-1.txt`:
+
+| Text received by Dagu in a path field | Owning field receives |
+| --- | --- |
+| `C:\out\${params.name}.log` | `C:\out\prod.log` |
+| `C:\done\${NAME}` | `C:\done\order-1.txt` |
+| `C:\out\\${params.name}` | `C:\out\\prod` |
+
+Workflow path fields:
+
+- `dotenv[]`
+- Root `working_dir` and `steps[].working_dir`
+- `steps[].stdin`, `steps[].stdout`, `steps[].stderr`, `steps[].stdout.artifact`, and `steps[].stderr.artifact`
+- `steps[].output.<name>.path`
+- `steps[].with.artifacts[]` for `human.task`
+
+Action inputs that are path fields:
+
+| Actions | Path inputs |
+| --- | --- |
+| `file.*` | `with.path`, `with.source`, `with.destination` |
+| `archive.*` | `with.source`, `with.destination` |
+| `s3.*` | `with.source`, `with.destination` |
+| `wait.file` | `with.path` |
+| `template.render` | `with.output` |
+| `http.request` | `with.output`, every value under `with.files` |
+| `jq.filter` | `with.input` |
+| `data.*` | `with.input` |
+| `js.run` | `with.input_file` |
+| `xlsx.*` | `with.path`, `with.input`, `with.output` |
+| `postgres.*` | `with.output_file`, `with.import.input_file` |
+| `sqlite.*` | `with.dsn`, `with.output_file`, `with.import.input_file` |
+| `clickhouse.query` | `with.file`, `with.tls_ca` |
+| `redis.*` | `with.script_file`, `with.tls_cert`, `with.tls_key`, `with.tls_ca` |
+| `git.*` | `with.path`, `with.ssh_key_path` |
+| `mail.*` | every entry of `with.attachments` |
+| `kubernetes.run`, `k8s.run` | `with.kubeconfig` |
+
+Every other field, including `steps[].run`, `env` values, and action inputs not listed here, follows "Escaped Dagu References".
+A Windows path in such a field uses `/` or a doubled `\\` before a reference.
+
 ### Single-Quoted Environment References
 
 - Single-quoted `$NAME` and `${NAME}` are preserved during Dagu environment expansion.
@@ -236,9 +289,10 @@ Dagu-owned references are supported only in value-resolved fields and dynamic-ev
 | `preconditions[].condition` | Value-resolved | Before checking the precondition | Root precondition condition strings resolve Dagu-owned references. Value-match conditions treat `$()` and backtick text as ordinary text. Command-check conditions may hand shell syntax to the selected shell. |
 | `preconditions[].eval` | Dynamic-evaluated | Before checking the precondition | Root precondition eval strings are allowed only with `expected`. Dagu resolves Dagu-owned references, then runs dynamic evaluation as defined by Spec 011. |
 | `preconditions[].expected` numeric comparison number | Value-resolved | Before checking the precondition | Only the number of a `num:` comparison resolves Dagu-owned references, and it must be exactly one whole reference. Every other form of `expected`, including literal and `re:` patterns, stays literal. Command substitution is never executed. |
-| `container` | Value-resolved | Before root container settings are used | Root container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve Dagu-owned references. |
+| `container` | Value-resolved | Before root container settings are used | Root container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `env_file[]`, `command[]`, and `shell[]` resolve Dagu-owned references. |
+| `ssh` | Value-resolved | Before the DAG-level SSH connection is configured | `user`, `host`, `port`, `key`, `password`, `passphrase`, `known_host_file`, `shell`, and the `bastion` `host`, `port`, `user`, `key`, `password`, and `passphrase` strings resolve Dagu-owned references with the `steps[].with` rules, as does the path of a `key` given as `{ file: <path> }`. The `secret` value of a credential, `timeout`, and `strict_host_key` stay literal. |
 | `steps[].run` | Value-resolved | Step start | The string `run` value and each array-form `run` entry resolve Dagu-owned references. Dagu leaves shell syntax for the selected shell or script interpreter. |
-| `steps[].with` | Value-resolved | Step start | Nested string values under the step `with` object resolve Dagu-owned references unless a more specific row or owning action or executor spec defines another evaluation mode. This includes action inputs and run-step shell settings. |
+| `steps[].with` | Value-resolved | Step start | Nested string values under the step `with` object resolve Dagu-owned references unless a more specific row or owning action or executor spec defines another evaluation mode. This includes action inputs and run-step shell settings. Action inputs listed in "Path Fields" are path fields. The `secret` value of an SSH or SFTP credential stays literal, as Spec 042 defines. |
 | `steps[].working_dir` | Value-resolved | Step start | Step working directory resolves Dagu-owned references. |
 | `steps[].env` | Value-resolved | Step start | Step environment values in map form, array-of-map form, or `KEY=value` list form resolve Dagu-owned references. |
 | `steps[].preconditions[].condition` | Value-resolved | Before checking the step precondition | Step precondition condition strings resolve Dagu-owned references. Value-match conditions treat `$()` and backtick text as ordinary text. Command-check conditions may hand shell syntax to the selected shell. |
@@ -250,13 +304,13 @@ Dagu-owned references are supported only in value-resolved fields and dynamic-ev
 | Sub-DAG invocation target and params | Value-resolved | Before the sub-DAG run or enqueue request is created | Canonical `dag.run` and `dag.enqueue` `with.dag` resolves Dagu-owned references. Scalar string `with.params` resolves as one value. Nested string leaves under object-form or array-form `with.params` resolve individually. Accepted legacy `call` and legacy `params` follow the same target and params rules. |
 | `steps[].parallel` | Value-resolved | Before expanding the parallel step | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values resolve Dagu-owned references. |
 | `steps[].foreach` | Value-resolved | Before and during the foreach step | `items`, `key`, value-resolved string fields inside `foreach.steps`, and `collect` values resolve Dagu-owned references. Spec 018 defines the scoped `foreach` namespace available to those fields. |
-| `steps[].stdin` | Value-resolved | Step start | Standard input file path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. A path that resolves to an empty value, or that still carries a supported reference, fails the step. |
-| `steps[].stdout`, `steps[].stdout.artifact` | Value-resolved | Step start or stdout setup | Stdout file path strings and artifact path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. |
-| `steps[].stderr`, `steps[].stderr.artifact` | Value-resolved | Step start or stderr setup | Stderr file path strings and artifact path strings resolve Dagu-owned references. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. |
-| `steps[].with.artifacts[]` (`human.task`) | Value-resolved | Before the human task opens | Human-task artifact path strings resolve Dagu-owned references and are then re-checked as artifact-relative paths. For unqualified environment syntax in these path strings, backslashes remain path text unless Spec 006 assigns them escape behavior. Spec 031 defines the path rules and the failure behavior. |
+| `steps[].stdin` | Value-resolved | Step start | Standard input file path strings resolve Dagu-owned references as path fields. A path that resolves to an empty value, or that still carries a supported reference, fails the step. |
+| `steps[].stdout`, `steps[].stdout.artifact` | Value-resolved | Step start or stdout setup | Stdout file path strings and artifact path strings resolve Dagu-owned references as path fields. Missing parent directories of a file path are created, unless the path still carries a reference, starts with `~`, has a `..` segment, or does not name a file; such a path fails the step. |
+| `steps[].stderr`, `steps[].stderr.artifact` | Value-resolved | Step start or stderr setup | Stderr file path strings and artifact path strings resolve Dagu-owned references as path fields. Missing parent directories of a file path are created, unless the path still carries a reference, starts with `~`, has a `..` segment, or does not name a file; such a path fails the step. |
+| `steps[].with.artifacts[]` (`human.task`) | Value-resolved | Before the human task opens | Human-task artifact path strings resolve Dagu-owned references as path fields and are then re-checked as artifact-relative paths. Spec 031 defines the path rules and the failure behavior. |
 | `steps[].stdout.outputs.fields.*` | Value-resolved | Output publication | Literal string values under field entries resolve Dagu-owned references. Selection and decode metadata remain literal unless an owning spec opts in. |
 | `steps[].output.*` | Value-resolved | Output publication | Literal string values and `path` strings under structured step `output` entries resolve Dagu-owned references. |
-| `steps[].container` | Value-resolved | Step start | Step container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `command[]`, and `shell[]` resolve Dagu-owned references. |
+| `steps[].container` | Value-resolved | Step start | Step container string form resolves Dagu-owned references. In object form, `exec`, `image`, `name`, `user`, `working_dir`, `network`, `volumes[]`, `ports[]`, `env` values, `env_file[]`, `command[]`, and `shell[]` resolve Dagu-owned references. |
 | `steps[].messages[].content` | Value-resolved | Step start | Message content strings resolve Dagu-owned references. |
 | LLM prompt, selection, and endpoint text fields | Value-resolved | Step start | For LLM-capable steps, `steps[].llm.system`, `steps[].llm.provider`, string-form `steps[].llm.model`, `steps[].llm.base_url`, and array-form `steps[].llm.model[].provider`, `steps[].llm.model[].name`, and `steps[].llm.model[].base_url` resolve Dagu-owned references. A provider name that carries a reference is checked against the supported provider list after resolution, at step start rather than at load time. When a step inherits root LLM settings, the inherited fields follow the same rule. |
 | `worker_selector` (map form) | Value-resolved | DAG build, after base-config composition | Root worker selector keys and values resolve Dagu-owned references, including references to base-config env entries. The string form `worker_selector: local` stays literal. |
@@ -276,7 +330,7 @@ Explicitly literal or excluded field surfaces:
 | LLM API key names, `steps[].llm.api_key_name` and `steps[].llm.model[].api_key_name` | This spec does not opt these fields into value resolution. The LLM step owns their meaning: the field names an environment variable, and the plain, `$`-prefixed, and braced forms all read that variable. A reference that resolves to a name rather than a key is not supported. |
 | LLM tool-name lists, such as `steps[].llm.tools[]` | This spec does not opt these fields into value resolution. They remain literal unless an LLM-owning spec explicitly opts in. A value reference cannot select a tool DAG. |
 | Template body fields owned by a template action or executor | Dagu does not resolve value references in template body text unless the template-owning spec explicitly opts in. Template data fields that are otherwise covered by `steps[].with` keep the `steps[].with` behavior. |
-| Root executor, provider, and tool configuration fields not listed in the value-resolution matrix, such as `ssh`, `kubernetes`, and `tools` | This spec does not opt these fields into value resolution. They remain literal unless an owning executor, provider, or tool spec explicitly opts in. |
+| Root executor, provider, and tool configuration fields not listed in the value-resolution matrix, such as `kubernetes` and `tools` | This spec does not opt these fields into value resolution. They remain literal unless an owning executor, provider, or tool spec explicitly opts in. |
 
 - The `steps[]` rows also apply to handler steps.
 - Handler step surfaces are `handler_on.init`, `handler_on.success`, `handler_on.failure`, `handler_on.abort`, `handler_on.exit`, and `handler_on.wait`.
@@ -338,6 +392,8 @@ Rules:
 - A parameter value selected from an earlier declaration is available to later `params[].eval` expressions.
 - A `params[].eval` expression cannot resolve its own computed value.
 - A `params[].eval` expression cannot resolve a later computed or default value that has not been selected yet.
+- A `params[].eval` expression that references the `dates` or `context` namespace waits for the run, and so does every `params[].eval` after it. Dagu evaluates them when the run starts, after its slot and dates resolve and before root `env`, with the run's dates (Spec 097) and the context it has at creation (Spec 017). Until then the parameter has no value: a load that starts no run leaves it unset.
+- A run the scheduler queues itself, a catch-up, webhook, watched-file, or backfill run, evaluates every `params[].eval` when it starts, in its own process. The scheduler runs no `eval`, and the queued run records only the params it was given. A DAG whose map-form `worker_selector` reads a value is the exception: the selector routes the run, so the scheduler evaluates the params as it queues the run.
 - Dagu does not topologically sort parameter declarations and does not retry preserved parameter references after later declarations are processed.
 - If parameter declarations form a reference cycle, at least one reference in that cycle cannot resolve under the source-order rule and follows the unresolved-reference rules.
 
@@ -390,6 +446,7 @@ Other specs that mention passive notices follow this inspection-only behavior.
 This rule applies to these misses:
 
 - Unknown const.
+- Unknown date.
 - Missing param value.
 - Unavailable env value.
 - Missing step output.
@@ -409,6 +466,9 @@ If a typed field later consumes the preserved text, that field may still fail be
 - Runtime `params` are available after Dagu builds the run input.
 
 - `dotenv[]` paths resolve before dotenv files are loaded.
+
+- Root and step `container.env_file[]` paths resolve before the files are
+  loaded. File contents are not value-resolved.
 
 - Root fields resolve before Dagu uses those fields.
 

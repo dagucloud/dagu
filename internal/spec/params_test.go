@@ -5,6 +5,7 @@ package spec
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -190,6 +191,21 @@ func TestParseStringParams(t *testing.T) {
 			expected: []paramPair{{Name: "msg", Value: `say "hello"`}},
 		},
 		{
+			name:     "QuotedPositionalEquals",
+			input:    `"a=b"`,
+			expected: []paramPair{{Value: "a=b"}},
+		},
+		{
+			name:     "QuotedPositionalAssignments",
+			input:    `"a=b bare c=\"x y\""`,
+			expected: []paramPair{{Value: `a=b bare c="x y"`}},
+		},
+		{
+			name:     "QuotedNamedAssignments",
+			input:    `msg="a=b bare c=\"x y\""`,
+			expected: []paramPair{{Name: "msg", Value: `a=b bare c="x y"`}},
+		},
+		{
 			name:     "EmptyString",
 			input:    "",
 			expected: nil,
@@ -207,6 +223,42 @@ func TestParseStringParams(t *testing.T) {
 			name:     "MultilineEscapeSequence",
 			input:    `msg="line1\nline2"`,
 			expected: []paramPair{{Name: "msg", Value: "line1\nline2"}},
+		},
+		{
+			name:     "MixedMultilineEscapes",
+			input:    "msg=\"line1\nline2\\nend\\t\\\\path\"",
+			expected: []paramPair{{Name: "msg", Value: "line1\nline2\nend\t\\path"}},
+		},
+		{
+			name:     "MultilineTrailingQuote",
+			input:    "\"line1\nline2\\\"\"",
+			expected: []paramPair{{Value: "line1\nline2\""}},
+		},
+		{
+			name: "LineContinuation",
+			input: `msg="echo one \
+  two"`,
+			expected: []paramPair{{Name: "msg", Value: "echo one \\\n  two"}},
+		},
+		{
+			name: "OddBackslashesBeforeNewline",
+			input: `"line1 \\\
+line2"`,
+			expected: []paramPair{{Value: "line1 " + strings.Repeat(`\`, 3) + "\nline2"}},
+		},
+		{
+			name: "EvenBackslashesBeforeNewline",
+			input: `msg="line1 \\
+line2"`,
+			expected: []paramPair{{Name: "msg", Value: "line1 \\\nline2"}},
+		},
+		{
+			name: "MixedLineContinuation",
+			// A line continuation retains the complete literal fallback value.
+			input: `msg="line1 \\
+line2 \
+line3\nend"`,
+			expected: []paramPair{{Name: "msg", Value: "line1 " + strings.Repeat(`\`, 2) + "\nline2 \\\nline3\\nend"}},
 		},
 		{
 			name:     "EscapedBackslash",

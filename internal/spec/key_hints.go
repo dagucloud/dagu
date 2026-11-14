@@ -27,6 +27,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"restartWaitSec":        "restart_wait_sec",
 	"histRetentionDays":     "hist_retention_days",
 	"histRetentionRuns":     "hist_retention_runs",
+	"slotRetentionDays":     "slot_retention_days",
 	"maxActiveRuns":         "max_active_runs",
 	"maxActiveSteps":        "max_active_steps",
 	"maxCleanUpTimeSec":     "max_clean_up_time_sec",
@@ -77,6 +78,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"maxContextTokens":      "max_context_tokens",
 	"observationMaxBytes":   "observation_max_bytes",
 	"observationKeepRecent": "observation_keep_recent",
+	"maxFileChars":          "max_file_chars",
 }
 
 // removedKeyHint maps keys that were renamed or removed (not just re-cased) to

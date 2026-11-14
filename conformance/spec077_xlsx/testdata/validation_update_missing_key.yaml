@@ -1,0 +1,5 @@
+steps:
+  - action: xlsx.update_rows
+    with:
+      path: out.xlsx
+      rows: "[]"

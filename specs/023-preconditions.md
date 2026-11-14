@@ -497,6 +497,8 @@ Rules:
 - If any step-level precondition is not met, the step action must not start.
 - If any step-level precondition is not met, the step reaches terminal status
   `skipped`.
+- A step skipped by preconditions is not a step failure for DAG-run status
+  calculation.
 - A step skipped by preconditions must not publish step outputs.
 - A step skipped by preconditions must not run `retry_policy`.
 - A step skipped by preconditions must not run `repeat_policy`.

@@ -93,6 +93,7 @@ func TestNonDynamicFieldsPreserveCommandSubstitutionText(t *testing.T) {
 		{name: "workflow", field: value.WorkflowField("steps[0].run")},
 		{name: "dag env", field: value.DAGEnvField("env.OUTSIDE")},
 		{name: "runtime dag env", field: value.RuntimeDAGEnvField("env.OUTSIDE")},
+		{name: "dag env completion", field: value.DAGEnvCompletionField("env.OUTSIDE")},
 		{name: "step env", field: value.StepEnvField("steps[0].env.OUTSIDE")},
 		{name: "container env", field: value.ContainerEnvField("steps[0].container.env.OUTSIDE")},
 		{name: "executor config", field: value.ExecutorConfigField("steps[0].with.value")},

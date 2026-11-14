@@ -51,6 +51,7 @@ describe('Mermaid', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('ignores stale render results after a newer definition renders', async () => {
@@ -109,6 +110,100 @@ describe('Mermaid', () => {
     });
 
     expect(screen.queryByText('Fallback graph')).not.toBeInTheDocument();
+  });
+
+  // Re-rendering removes the old SVG before the new one is ready. Content
+  // below the graph must not collapse and jump in the meantime. jsdom has no
+  // layout engine, so the rendered height is stubbed.
+  it('keeps its height while a new definition renders', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(240);
+    const { container, rerender } = render(
+      <Mermaid def="graph TD; A-->B;" scale={1} />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(1));
+    await act(async () => {
+      pendingRenderAt(0).resolve({ svg: '<svg data-def="first"></svg>' });
+    });
+    const graph = container.querySelector<HTMLElement>('.mermaid');
+    const restingMinHeight = graph?.style.minHeight;
+
+    rerender(<Mermaid def="graph TD; C-->D;" scale={1} />);
+    await waitFor(() => expect(pendingRenders).toHaveLength(2));
+    expect(graph?.style.minHeight).toBe('240px');
+
+    await act(async () => {
+      pendingRenderAt(1).resolve({ svg: '<svg data-def="second"></svg>' });
+    });
+    expect(graph?.style.minHeight).toBe(restingMinHeight);
+  });
+
+  it('sizes the drawing from its viewBox at the current scale', async () => {
+    const { container, rerender } = render(
+      <Mermaid def="graph TD; A-->B;" scale={0.5} />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(1));
+    await act(async () => {
+      pendingRenderAt(0).resolve({ svg: '<svg viewBox="0 0 200 100"></svg>' });
+    });
+    const svg = container.querySelector('svg');
+    expect(svg?.style.width).toBe('100px');
+    expect(svg?.style.height).toBe('50px');
+
+    rerender(<Mermaid def="graph TD; A-->B;" scale={2} />);
+    expect(svg?.style.width).toBe('400px');
+    expect(svg?.style.height).toBe('200px');
+  });
+
+  it('applies a zoom made while a render is pending', async () => {
+    const { container, rerender } = render(
+      <Mermaid def="graph TD; A-->B;" scale={1} />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(1));
+    rerender(<Mermaid def="graph TD; A-->B;" scale={2} />);
+
+    await act(async () => {
+      pendingRenderAt(0).resolve({ svg: '<svg viewBox="0 0 200 100"></svg>' });
+    });
+
+    expect(container.querySelector('svg')?.style.width).toBe('400px');
+  });
+
+  it('leaves an SVG without a size unscaled', async () => {
+    const { container } = render(
+      <Mermaid
+        def="graph TD; A-->B;"
+        fallback={<div>Fallback graph</div>}
+        scale={2}
+      />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(1));
+    await act(async () => {
+      pendingRenderAt(0).resolve({ svg: '<svg data-def="unsized"></svg>' });
+    });
+
+    expect(container.querySelector('svg')?.style.width).toBe('');
+    expect(screen.queryByText('Fallback graph')).not.toBeInTheDocument();
+  });
+
+  it('reports the diagram size, or null when rendering fails', async () => {
+    const onContentSize = vi.fn();
+    const { rerender } = render(
+      <Mermaid def="graph TD; A-->B;" onContentSize={onContentSize} scale={1} />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(1));
+    await act(async () => {
+      pendingRenderAt(0).resolve({ svg: '<svg viewBox="0 0 200 100"></svg>' });
+    });
+    expect(onContentSize).toHaveBeenLastCalledWith({ width: 200, height: 100 });
+
+    rerender(
+      <Mermaid def="graph TD; C-->D;" onContentSize={onContentSize} scale={1} />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(2));
+    await act(async () => {
+      pendingRenderAt(1).reject(new Error('broken definition'));
+    });
+    expect(onContentSize).toHaveBeenLastCalledWith(null);
   });
 
   it('resolves Mermaid 11.15 prefixed node ids before firing graph callbacks', async () => {

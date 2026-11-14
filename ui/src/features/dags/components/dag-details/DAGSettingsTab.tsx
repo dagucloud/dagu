@@ -19,17 +19,19 @@ import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { AlertTriangle, Save, X } from 'lucide-react';
 import React from 'react';
-import { RuntimeProfileStatus } from '../../../../api/v1/schema';
+import { useProfiles } from '../../hooks/useProfiles';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   fileName: string;
+  /** Called with true while the chosen profile differs from the saved one. */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const NO_PROFILE_VALUE = '__none__';
 
-function DAGSettingsTab({ fileName }: Props) {
+function DAGSettingsTab({ fileName, onDirtyChange }: Props) {
   const client = useClient();
   const remoteNode = useRemoteNode();
   const canManageProfiles = useCanManageProfiles();
@@ -54,27 +56,9 @@ function DAGSettingsTab({ fileName }: Props) {
     mutate: mutateSettings,
   } = useQuery('/dags/{fileName}/settings', settingsQuery);
 
-  const profilesQuery = React.useMemo(
-    () =>
-      whenEnabled(canManageProfiles, {
-        params: {
-          query: { remoteNode },
-        },
-      }),
-    [canManageProfiles, remoteNode]
-  );
-  const { data: profilesData, isLoading: profilesLoading } = useQuery(
-    '/profiles',
-    profilesQuery
-  );
-
-  const activeProfiles = React.useMemo(
-    () =>
-      (profilesData?.profiles ?? []).filter(
-        (profile) => profile.status === RuntimeProfileStatus.active
-      ),
-    [profilesData?.profiles]
-  );
+  const { activeProfiles, isLoading: profilesLoading } = useProfiles({
+    enabled: canManageProfiles,
+  });
   const currentProfile = settings?.profile ?? '';
 
   React.useEffect(() => {
@@ -89,6 +73,9 @@ function DAGSettingsTab({ fileName }: Props) {
   const selectedProtectedUnavailable =
     !!selectedProfileRecord?.protected && !canUseProtectedProfiles;
   const hasChanges = selectedProfile !== currentProfile;
+  React.useEffect(() => {
+    onDirtyChange?.(hasChanges);
+  }, [hasChanges, onDirtyChange]);
   const canSave =
     canManageProfiles &&
     hasChanges &&
@@ -145,7 +132,7 @@ function DAGSettingsTab({ fileName }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="@container space-y-4">
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
@@ -154,7 +141,7 @@ function DAGSettingsTab({ fileName }: Props) {
       )}
 
       <div className="rounded-md border border-border p-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-end @3xl:justify-between">
           <div className="w-full max-w-md space-y-2">
             <Label htmlFor="dag-default-profile"><I18nText text={"Default profile"} /></Label>
             {canManageProfiles ? (
@@ -216,7 +203,7 @@ function DAGSettingsTab({ fileName }: Props) {
           </div>
 
           {canManageProfiles && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"

@@ -1,0 +1,33 @@
+working_dir: .
+steps:
+  - id: info
+    action: xlsx.info
+    with:
+      path: hidden.xlsx
+  - id: all
+    action: xlsx.read
+    with:
+      path: hidden.xlsx
+  - id: visible
+    action: xlsx.read
+    with:
+      path: hidden.xlsx
+      skip_hidden: true
+  - id: check
+    action: xlsx.validate
+    with:
+      path: hidden.xlsx
+      skip_hidden: true
+      allowed: {状態: [済]}
+  - id: convert
+    action: xlsx.convert
+    with:
+      path: hidden.xlsx
+      output: visible.csv
+      skip_hidden: true
+  - id: out
+    depends: [info, all, visible, check, convert]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"sheets": ${steps.info.outputs.sheets}, "all": ${steps.all.outputs.count}, "visible": ${steps.visible.outputs.rows}, "checked": ${steps.check.outputs.rows}, "ok": ${steps.check.outputs.ok}, "converted": ${steps.convert.outputs.count}}'

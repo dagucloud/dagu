@@ -4,9 +4,12 @@
 package spec015_step_run_script_test
 
 import (
+	"context"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
@@ -177,4 +180,56 @@ func TestScriptDiagnosticsDoNotDumpResolvedScript(t *testing.T) {
 		"--- script content ---",
 		"dagu_script-",
 	)
+}
+
+// TestScriptFormPowerShellWhenAvailable runs a multi-line script whose
+// non-ASCII text sits on a later line. Windows PowerShell decodes a script
+// file with the ANSI code page unless it carries a UTF-8 byte order mark, so
+// the text must survive the trip through the prepared script input.
+func TestScriptFormPowerShellWhenAvailable(t *testing.T) {
+	cases := []struct {
+		name   string
+		shell  string
+		file   string
+		output string
+	}{
+		{
+			name:   "pwsh keeps UTF-8 on a later script line",
+			shell:  "pwsh",
+			file:   "powershell_utf8_multiline.yaml",
+			output: "pwsh-utf8-multiline.txt",
+		},
+		{
+			name:   "Windows PowerShell keeps UTF-8 on a later script line",
+			shell:  "powershell",
+			file:   "powershell_utf8_multiline_windows.yaml",
+			output: "powershell-utf8-multiline.txt",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			shell, err := exec.LookPath(tc.shell)
+			if err != nil {
+				t.Skipf("%s is not available", tc.shell)
+			}
+
+			// A cold PowerShell launch pays .NET start-up and module import,
+			// which on a loaded runner has exceeded the command budget. One
+			// warm-up launch absorbs that cost and sizes the timed run.
+			ctx, cancel := context.WithTimeout(context.Background(), 3*harness.WaitTimeout(t))
+			defer cancel()
+			started := time.Now()
+			if out, err := exec.CommandContext(ctx, shell, "-NoProfile", "-NonInteractive", "-Command", "exit").CombinedOutput(); err != nil {
+				t.Fatalf("%s warm-up failed after %s: %v\n%s", tc.shell, time.Since(started).Round(time.Second), err, out)
+			}
+			wait := harness.WaitTimeout(t)
+			budget := min(wait+2*time.Since(started), 4*wait)
+
+			dagu := harness.NewRunner(t).WithCommandTimeout(budget)
+			result := dagu.Run("start", tc.file)
+			result.ExpectExitCode(0)
+			dagu.ExpectFileContent(tc.output, "台帳に伝票を3件入力（未保存）")
+		})
+	}
 }

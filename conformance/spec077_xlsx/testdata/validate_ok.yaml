@@ -1,0 +1,24 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Amount, Status]
+      rows: [{"Invoice No": "INV-1", "Amount": 10, "Status": "Open"}, {"Invoice No": "INV-2", "Amount": 20.5, "Status": "Done"}]
+  - id: check
+    depends: write
+    action: xlsx.validate
+    with:
+      path: orders.xlsx
+      required: [Invoice No, Amount]
+      not_blank: [Status]
+      unique: [Invoice No]
+      types: {Amount: number}
+      allowed: {Status: [Open, Done]}
+  - id: out
+    depends: check
+    action: file.write
+    with:
+      path: out.json
+      content: '{"ok": ${steps.check.outputs.ok}, "count": ${steps.check.outputs.count}, "rows": ${steps.check.outputs.rows}, "headers": ${steps.check.outputs.headers}, "problems": ${steps.check.outputs.problems}, "range": "${steps.check.outputs.range}"}'

@@ -651,9 +651,9 @@ steps:
     with:
       method: GET
       url: http://example.com
-      key: value
-      map:
-        foo: bar
+      silent: true
+      headers:
+        X-Test: value
 `)
 		dag, err := spec.LoadYAML(context.Background(), data)
 		require.NoError(t, err)
@@ -663,9 +663,9 @@ steps:
 		assert.Equal(t, map[string]any{
 			"method": "GET",
 			"url":    "http://example.com",
-			"key":    "value",
-			"map": map[string]any{
-				"foo": "bar",
+			"silent": true,
+			"headers": map[string]any{
+				"X-Test": "value",
 			},
 		}, th.Steps[0].ExecutorConfig.Config)
 	})
@@ -983,6 +983,7 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 		wantBackoff     float64
 		wantMaxInterval time.Duration
 		wantNoCondition bool
+		wantOnLimit     ir.RepeatOnLimit
 	}{
 		{
 			name: "RepeatPolicyBasic",
@@ -1171,6 +1172,74 @@ steps:
 			wantCondition:   "echo done",
 			wantExpected:    "done",
 		},
+		{
+			name: "RepeatPolicyWhileNoCondition",
+			yaml: `
+steps:
+  - name: "while-no-condition"
+    run: "echo test"
+    repeat_policy:
+      repeat: "while"
+      interval_sec: 10
+`,
+			wantMode:        ir.RepeatModeWhile,
+			wantInterval:    10 * time.Second,
+			wantNoCondition: true,
+		},
+		{
+			name: "RepeatPolicyUntilNoCondition",
+			yaml: `
+steps:
+  - name: "until-no-condition"
+    run: "echo test"
+    repeat_policy:
+      repeat: "until"
+      interval_sec: 10
+      limit: 3
+`,
+			wantMode:        ir.RepeatModeUntil,
+			wantInterval:    10 * time.Second,
+			wantLimit:       3,
+			wantNoCondition: true,
+		},
+		{
+			name: "RepeatPolicyUntilOnLimitFail",
+			yaml: `
+steps:
+  - name: "until-on-limit-fail"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: fail
+`,
+			wantMode:      ir.RepeatModeUntil,
+			wantLimit:     2,
+			wantCondition: "pending",
+			wantExpected:  "done",
+			wantOnLimit:   ir.RepeatOnLimitFail,
+		},
+		{
+			name: "RepeatPolicyUntilOnLimitSucceed",
+			yaml: `
+steps:
+  - name: "until-on-limit-succeed"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: succeed
+`,
+			wantMode:      ir.RepeatModeUntil,
+			wantLimit:     2,
+			wantCondition: "pending",
+			wantExpected:  "done",
+			wantOnLimit:   "",
+		},
 	}
 
 	for _, tt := range repeatPolicyTests {
@@ -1200,6 +1269,7 @@ steps:
 			if tt.wantMaxInterval > 0 {
 				assert.Equal(t, tt.wantMaxInterval, rp.MaxInterval)
 			}
+			assert.Equal(t, tt.wantOnLimit, rp.OnLimit)
 		})
 	}
 	// RepeatPolicy error tests
@@ -1221,28 +1291,60 @@ steps:
 			errContains: "invalid value for repeat: 'invalid'",
 		},
 		{
-			name: "RepeatPolicyWhileNoCondition",
+			name: "RepeatPolicyInvalidOnLimit",
 			yaml: `
 steps:
-  - name: "while-no-condition"
+  - name: "invalid-on-limit"
     run: "echo test"
     repeat_policy:
-      repeat: "while"
-      interval_sec: 10
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: abort
 `,
-			errContains: "repeat mode 'while' requires either 'condition' or 'exit_code' to be specified",
+			errContains: `repeat_policy.on_limit must be "fail" or "succeed"`,
 		},
 		{
-			name: "RepeatPolicyUntilNoCondition",
+			name: "RepeatPolicyOnLimitFailRequiresUntilCondition",
 			yaml: `
 steps:
-  - name: "until-no-condition"
+  - name: "on-limit-fail-while"
     run: "echo test"
     repeat_policy:
-      repeat: "until"
-      interval_sec: 10
+      repeat: while
+      condition: "pending"
+      expected: "done"
+      limit: 2
+      on_limit: fail
 `,
-			errContains: "repeat mode 'until' requires either 'condition' or 'exit_code' to be specified",
+			errContains: "repeat_policy.on_limit: fail requires repeat: until with a condition",
+		},
+		{
+			name: "RepeatPolicyOnLimitValidatedWithoutMode",
+			yaml: `
+steps:
+  - name: "no-mode-invalid-on-limit"
+    run: "echo test"
+    repeat_policy:
+      limit: 2
+      on_limit: abort
+`,
+			errContains: `repeat_policy.on_limit must be "fail" or "succeed"`,
+		},
+		{
+			name: "RepeatPolicyOnLimitFailRequiresLimit",
+			yaml: `
+steps:
+  - name: "on-limit-fail-no-limit"
+    run: "echo test"
+    repeat_policy:
+      repeat: until
+      condition: "pending"
+      expected: "done"
+      on_limit: fail
+`,
+			errContains: "repeat_policy.on_limit: fail requires a limit",
 		},
 		{
 			name: "RepeatPolicyInvalidType",
@@ -2760,6 +2862,27 @@ steps:
 		assert.True(t, dag.Steps[0].Container.IsExecMode())
 	})
 
+	t.Run("ContainerEnvFile", func(t *testing.T) {
+		t.Parallel()
+		yaml := `
+container:
+  image: alpine
+  env_file: .env.dag
+steps:
+  - name: step1
+    run: echo test
+    container:
+      image: alpine
+      env_file:
+        - .env.base
+        - .env.local
+`
+		dag, err := spec.LoadYAML(context.Background(), []byte(yaml))
+		require.NoError(t, err)
+		assert.Equal(t, []string{".env.dag"}, dag.Container.EnvFile)
+		assert.Equal(t, []string{".env.base", ".env.local"}, dag.Steps[0].Container.EnvFile)
+	})
+
 	// Error tests
 	errorTests := []struct {
 		name        string
@@ -3079,6 +3202,51 @@ steps:
 		step2 := dag.Steps[1]
 		assert.Equal(t, "command", step2.ExecutorConfig.Type)
 	})
+}
+
+func TestSFTPStepsCarryOnlyTransferConfig(t *testing.T) {
+	// sftp.* steps must not embed DAG-level ssh settings; the executor config
+	// carries only transfer fields so the runtime falls back to the DAG-level
+	// SSH client. Connection keys in `with` remain as an explicit override.
+	yaml := `
+ssh:
+  user: testuser
+  host: example.com
+  key: ~/.ssh/id_rsa
+steps:
+  - name: upload
+    action: sftp.upload
+    with:
+      source: /local/file
+      destination: /remote/file
+  - name: download
+    action: sftp.download
+    with:
+      source: /remote/file
+      destination: /local/file
+      host: override.example.com
+`
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte(yaml))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 2)
+
+	upload := dag.Steps[0]
+	assert.Equal(t, "sftp", upload.ExecutorConfig.Type)
+	assert.Equal(t, map[string]any{
+		"direction":   "upload",
+		"source":      "/local/file",
+		"destination": "/remote/file",
+	}, upload.ExecutorConfig.Config)
+
+	download := dag.Steps[1]
+	assert.Equal(t, "sftp", download.ExecutorConfig.Type)
+	assert.Equal(t, map[string]any{
+		"direction":   "download",
+		"source":      "/remote/file",
+		"destination": "/local/file",
+		"host":        "override.example.com",
+	}, download.ExecutorConfig.Config)
 }
 
 func TestRedisInheritance(t *testing.T) {
@@ -3868,6 +4036,27 @@ steps:
 		assert.Equal(t, "from_file", envMap["LOAD_ENV_DOTENV_VAR"])
 		assert.Equal(t, "from_dag", envMap["LOAD_ENV_ENV_VAR"])
 		assert.Equal(t, "another_value", envMap["LOAD_ENV_ANOTHER_VAR"])
+	})
+
+	t.Run("LoadEnvAdjacentDotEnvFile", func(t *testing.T) {
+		// A .env file next to the DAG file is loaded even when the DAG does not
+		// declare dotenv.
+		tempDir := t.TempDir()
+		dagFile := filepath.Join(tempDir, "adjacent.yaml")
+		require.NoError(t, os.WriteFile(dagFile, []byte(`
+steps:
+  - run: echo hello
+`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(tempDir, ".env"), []byte("LOAD_ENV_ADJACENT_VAR=adjacent\n"), 0600))
+
+		dag, err := spec.Load(context.Background(), dagFile, spec.WithoutEval())
+		require.NoError(t, err)
+		require.NotNil(t, dag)
+
+		resolveDAGRuntimeEnv(t, dag)
+
+		envMap := envSliceMap(dag.Env)
+		assert.Equal(t, "adjacent", envMap["LOAD_ENV_ADJACENT_VAR"])
 	})
 
 	t.Run("LoadEnvWithMissingDotenvFile", func(t *testing.T) {

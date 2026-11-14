@@ -22,22 +22,55 @@ func accountAddress(mailbox string) string {
 	return strings.ToLower(strings.TrimSpace(mailbox))
 }
 
-func imapAccount(address string, account *ir.MailAccount) (mailbox.Account, error) {
+// mailboxClient is a signed-in mailbox, over IMAP or the Gmail API.
+type mailboxClient interface {
+	Search(mailbox.SearchOptions) ([]mailbox.Message, bool, error)
+	Organize(mailbox.OrganizeOptions) (*mailbox.OrganizeResult, error)
+	ReplyInfo(id string) (*mailbox.ReplyInfo, error)
+	Close() error
+}
+
+// mailboxAccount is a resolved mail account and how its mailbox is reached.
+type mailboxAccount struct {
+	account mailbox.Account
+	gmail   bool
+}
+
+func newMailboxAccount(address string, account *ir.MailAccount) (mailboxAccount, error) {
 	token, err := tokenSource(address, account)
 	if err != nil {
-		return mailbox.Account{}, err
+		return mailboxAccount{}, err
 	}
-	return mailbox.Account{
-		Server: mailbox.Server{
+	resolved := mailboxAccount{
+		account: mailbox.Account{Username: account.Username, Password: account.Password, Token: token},
+		gmail:   account.GmailAPI(),
+	}
+	if account.IMAP != nil {
+		resolved.account.Server = mailbox.Server{
 			Host:          account.IMAP.Host,
 			Port:          account.IMAP.Port,
 			Security:      account.IMAP.Security,
 			SkipTLSVerify: account.IMAP.SkipTLSVerify,
-		},
-		Username: account.Username,
-		Password: account.Password,
-		Token:    token,
-	}, nil
+			TLSCertSHA256: account.IMAP.TLSCertSHA256,
+		}
+	}
+	return resolved, nil
+}
+
+// open signs in to the mailbox. Canceling ctx ends the session.
+func (a mailboxAccount) open(ctx context.Context) (mailboxClient, error) {
+	if a.gmail {
+		client, err := mailbox.DialGmail(ctx, a.account)
+		if err != nil {
+			return nil, err
+		}
+		return client, nil
+	}
+	client, err := mailbox.Dial(ctx, a.account)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 func smtpConfig(address string, account *ir.MailAccount) (mailer.Config, error) {
@@ -56,6 +89,7 @@ func smtpConfig(address string, account *ir.MailAccount) (mailer.Config, error) 
 		Token:         token,
 		Security:      account.SMTP.Security,
 		SkipTLSVerify: account.SMTP.SkipTLSVerify,
+		TLSCertSHA256: account.SMTP.TLSCertSHA256,
 	}, nil
 }
 
@@ -70,14 +104,17 @@ func tokenSource(address string, account *ir.MailAccount) (func(context.Context)
 	return token, nil
 }
 
-// accountError names the account and states a revoked or expired sign-in
-// plainly.
+// accountError names the account and states a revoked or expired sign-in,
+// or one without Gmail access, plainly.
 func accountError(address string, err error) error {
 	if tokenErr, ok := errors.AsType[*oauth.TokenError](err); ok {
 		if tokenErr.Code == "invalid_grant" {
 			return fmt.Errorf("mail account %q: sign-in is no longer valid (invalid_grant)", address)
 		}
 		return fmt.Errorf("mail account %q: sign-in failed (%w)", address, tokenErr)
+	}
+	if errors.Is(err, mailbox.ErrGmailScope) {
+		return fmt.Errorf("mail account %q: %w", address, mailbox.ErrGmailScope)
 	}
 	return fmt.Errorf("mail account %q: %w", address, err)
 }

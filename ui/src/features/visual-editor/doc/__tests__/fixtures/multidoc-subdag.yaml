@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: call_child
+    action: dag.run
+    with:
+      dag: depth_child
+
+---
+
+name: depth_child
+working_dir: .
+steps:
+  - id: work
+    run: printf 'child ran\n' > child.out

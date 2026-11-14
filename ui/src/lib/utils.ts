@@ -8,6 +8,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** The keyboard focus ring that every interactive control shows. */
+export const FOCUS_RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
 /**
  * Parses a label string into its key and value components.
  * Supports both key-only labels ("production") and key=value labels ("env=prod").

@@ -154,6 +154,47 @@ func TestListEventLogsSupportsOffsetCompatibilityPagination(t *testing.T) {
 	assert.Equal(t, total, *okResp.Total)
 }
 
+// Same-status run updates are hidden unless the caller asks for that type.
+func TestListEventLogsHidesRunUpdates(t *testing.T) {
+	t.Parallel()
+
+	updatedType := string(eventstore.TypeDAGRunUpdated)
+	tests := []struct {
+		name         string
+		eventType    *string
+		excludeTypes []eventstore.EventType
+	}{
+		{
+			name:         "ByDefault",
+			excludeTypes: []eventstore.EventType{eventstore.TypeDAGRunUpdated},
+		},
+		{
+			name:      "UnlessRequested",
+			eventType: &updatedType,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &mockEventStore{result: &eventstore.QueryResult{}}
+			api := frontendapi.New(
+				nil, nil, nil, nil, runtime.Manager{},
+				&config.Config{}, nil, nil,
+				prometheus.NewRegistry(),
+				nil,
+				frontendapi.WithEventService(eventstore.New(store)),
+			)
+
+			_, err := api.ListEventLogs(context.Background(), apigen.ListEventLogsRequestObject{
+				Params: apigen.ListEventLogsParams{Type: tt.eventType},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.excludeTypes, store.lastFilter.ExcludeTypes)
+		})
+	}
+}
+
 func TestListEventLogsReturnsServiceUnavailableWithoutStore(t *testing.T) {
 	t.Parallel()
 

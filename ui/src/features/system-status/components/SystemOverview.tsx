@@ -119,7 +119,7 @@ function SystemOverview({
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Package className="h-3 w-3" />
             <span>
-              <I18nText text={'Total DAGs'} />
+              <I18nText text={'Total workflows'} />
             </span>
           </div>
           <div className="text-sm font-medium">{totalDAGs}</div>

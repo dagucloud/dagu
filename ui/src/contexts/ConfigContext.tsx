@@ -32,6 +32,15 @@ export type LicenseStatus = {
   source: string;
   warningCode: string;
   error?: string;
+  // Identity fields are absent when the server predates them.
+  serverName?: string;
+  reportedName?: string;
+  licenseId?: string;
+  workspace?: string;
+  connectedVia?: components['schemas']['LicenseStatusResponse']['connectedVia'];
+  serverId?: string;
+  lastCheckIn?: string;
+  consoleUrl?: string;
 };
 
 export type WorkspaceResponse = components['schemas']['WorkspaceResponse'];
@@ -57,6 +66,9 @@ export type Config = {
   gitSyncEnabled: boolean;
   updateAvailable: boolean;
   latestVersion: string;
+  upgradeCommand: string;
+  restartRequired: boolean;
+  restartCommand: string;
   permissions: {
     writeDags: boolean;
     runDags: boolean;
@@ -67,10 +79,6 @@ export type Config = {
 
 export const ConfigContext = createContext<Config>(null!);
 
-export const ConfigUpdateContext = createContext<
-  (patch: Partial<Config>) => void
->(() => {});
-
 /**
  * Access the application configuration from the nearest ConfigContext provider.
  *
@@ -78,8 +86,4 @@ export const ConfigUpdateContext = createContext<
  */
 export function useConfig(): Config {
   return useContext(ConfigContext);
-}
-
-export function useUpdateConfig(): (patch: Partial<Config>) => void {
-  return useContext(ConfigUpdateContext);
 }

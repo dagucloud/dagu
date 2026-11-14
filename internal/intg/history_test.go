@@ -357,6 +357,9 @@ steps:
 	assert.False(t, names[dag2.Name])
 }
 
+// captureOutput runs fn and returns what it wrote to os.Stdout and os.Stderr.
+// Both pipes are drained while fn runs, since a writer that syncs or fills the
+// pipe buffer blocks until the other end is read.
 func captureOutput(t *testing.T, fn func()) (string, string) {
 	t.Helper()
 
@@ -367,29 +370,34 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 	stderrR, stderrW, err := os.Pipe()
 	require.NoError(t, err)
 
+	stdout := drainPipe(stdoutR)
+	stderr := drainPipe(stderrR)
+
 	os.Stdout = stdoutW
 	os.Stderr = stderrW
-	defer func() {
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
+	func() {
+		defer func() {
+			os.Stdout = oldStdout
+			os.Stderr = oldStderr
+			_ = stdoutW.Close()
+			_ = stderrW.Close()
+		}()
+		fn()
 	}()
 
-	fn()
+	return <-stdout, <-stderr
+}
 
-	require.NoError(t, stdoutW.Close())
-	require.NoError(t, stderrW.Close())
-
-	var stdout bytes.Buffer
-	_, err = io.Copy(&stdout, stdoutR)
-	require.NoError(t, err)
-	require.NoError(t, stdoutR.Close())
-
-	var stderr bytes.Buffer
-	_, err = io.Copy(&stderr, stderrR)
-	require.NoError(t, err)
-	require.NoError(t, stderrR.Close())
-
-	return stdout.String(), stderr.String()
+// drainPipe reads r to EOF in the background and delivers the content.
+func drainPipe(r *os.File) <-chan string {
+	done := make(chan string, 1)
+	go func() {
+		defer func() { _ = r.Close() }()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+	return done
 }
 
 func TestHistoryCommand_Limit(t *testing.T) {

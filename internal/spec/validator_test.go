@@ -67,6 +67,17 @@ func TestIsValidStepID(t *testing.T) {
 	}
 }
 
+// A step ID given outside a definition is checked by the same rules a
+// definition's step IDs are.
+func TestValidateStepID(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, ValidateStepID("fetch_orders"))
+	assert.ErrorContains(t, ValidateStepID("fetch-orders"), "invalid step ID format")
+	assert.ErrorIs(t, ValidateStepID("s"+strings.Repeat("x", maxStepIDLen)), ir.ErrStepIDTooLong)
+	assert.ErrorContains(t, ValidateStepID("env"), "is a reserved word")
+}
+
 func TestIsReservedWord(t *testing.T) {
 	t.Parallel()
 

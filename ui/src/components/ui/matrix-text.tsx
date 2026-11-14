@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 
+import { useClock } from '@/hooks/useClock';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { cn } from '@/lib/utils';
 
 type MatrixTextProps = {
@@ -9,37 +11,17 @@ type MatrixTextProps = {
 };
 
 function MatrixText({ text, className, glowSpeed = 175 }: MatrixTextProps) {
-  const [glowPosition, setGlowPosition] = useState(0);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const prefersReducedMotion = useRef(false);
+  const reducedMotion = usePrefersReducedMotion();
   const textChars = text.split('');
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    prefersReducedMotion.current = mediaQuery.matches;
-
-    const handler = (event: MediaQueryListEvent) => {
-      prefersReducedMotion.current = event.matches;
-    };
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
-  }, []);
-
-  useEffect(() => {
-    if (prefersReducedMotion.current || textChars.length === 0) {
-      return;
-    }
-
-    intervalRef.current = setInterval(() => {
-      setGlowPosition((prev) => (prev + 1) % textChars.length);
-    }, glowSpeed);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [glowSpeed, textChars.length]);
+  // The glow reads the shared clock: all chips glow in step, on one timer,
+  // and none runs while the tab is hidden.
+  const glowPosition = useClock(
+    reducedMotion || textChars.length === 0 ? null : glowSpeed,
+    (now) =>
+      reducedMotion || textChars.length === 0
+        ? 0
+        : Math.floor(now / glowSpeed) % textChars.length
+  );
 
   return (
     <span

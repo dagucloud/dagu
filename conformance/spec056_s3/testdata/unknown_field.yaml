@@ -1,0 +1,6 @@
+steps:
+  - action: s3.upload
+    with:
+      buckets: conformance
+      source: source.txt
+      key: result.txt

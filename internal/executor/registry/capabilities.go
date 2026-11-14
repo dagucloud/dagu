@@ -39,6 +39,22 @@ type ExecutorCapabilities struct {
 	CommandContext func(ctx context.Context, step ir.Step) cmnvalue.CommandContext
 	// ScriptContext returns command execution facts for script field resolution.
 	ScriptContext func(ctx context.Context, step ir.Step) cmnvalue.CommandContext
+	// DryRunCheck reports what a dry run can tell will fail on this host, such
+	// as a file the step reads that does not exist, without running the step.
+	// It receives the declared step with its with fields resolved as far as a
+	// dry run can; a value that still holds a reference, such as a step
+	// output, is left as written and the check must skip it. The error's text
+	// is shown as a warning and never fails the dry run; several problems can
+	// be joined into one error.
+	DryRunCheck func(ctx context.Context, step ir.Step) error
+	// ConfigWarnings reports settings in the step's configuration that are
+	// valid but likely give results the author does not expect. Loading the
+	// DAG shows each message as a warning. It also receives steps that fail
+	// validation and need not report what validation already does.
+	ConfigWarnings func(step ir.Step) []string
+	// PathInputs lists the with keys whose values name filesystem paths. A
+	// backslash in those values is path text, never a Dagu escape marker.
+	PathInputs []string
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.
@@ -124,4 +140,25 @@ func ScriptResolution(ctx context.Context, s ir.Step) cmnvalue.CommandContext {
 		return caps.CommandContext(ctx, s)
 	}
 	return cmnvalue.CommandContext{}
+}
+
+// ConfigField returns the field that resolves the step's with object at path.
+func ConfigField(s ir.Step, path string) cmnvalue.Field {
+	return cmnvalue.ExecutorConfigField(path).WithPathKeys(PathInputs(s)...)
+}
+
+// PathInputs returns the with keys of the step's executor whose values name
+// filesystem paths.
+func PathInputs(s ir.Step) []string {
+	return executorCapabilities.Get(s.ExecutorConfig.Type).PathInputs
+}
+
+// StepConfigWarnings returns the configuration warnings the step's executor
+// reports.
+func StepConfigWarnings(s ir.Step) []string {
+	caps := executorCapabilities.Get(s.ExecutorConfig.Type)
+	if caps.ConfigWarnings == nil {
+		return nil
+	}
+	return caps.ConfigWarnings(s)
 }

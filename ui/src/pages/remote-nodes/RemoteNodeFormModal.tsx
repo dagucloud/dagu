@@ -188,9 +188,9 @@ export function RemoteNodeFormModal({
         <DialogHeader>
           <DialogTitle>
             {isEditing ? (
-              <I18nText text={'Edit Remote Node'} />
+              <I18nText text={'Edit remote node'} />
             ) : (
-              <I18nText text={'Add Remote Node'} />
+              <I18nText text={'Add remote node'} />
             )}
           </DialogTitle>
         </DialogHeader>
@@ -350,7 +350,7 @@ export function RemoteNodeFormModal({
               <X className="h-4 w-4" />
               <I18nText text={'Cancel'} />
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" variant="primary" disabled={isLoading}>
               {isEditing ? (
                 <Check className="h-4 w-4" />
               ) : (

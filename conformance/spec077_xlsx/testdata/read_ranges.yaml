@@ -1,0 +1,72 @@
+working_dir: .
+steps:
+  - id: write_other
+    action: xlsx.write
+    with:
+      path: book.xlsx
+      sheet: Other
+      columns: [a, b, c]
+      rows:
+        - {"a": 1, "b": 2, "c": 3}
+        - {"a": 4, "b": 5, "c": 6}
+        - {"a": 7, "b": 8, "c": 9}
+  - id: write_spaced
+    depends: write_other
+    action: xlsx.write
+    with:
+      path: book.xlsx
+      sheet: My Sheet
+      columns: [x, y, z]
+      rows:
+        - {"x": 10, "y": 11, "z": 12}
+        - {"x": 13, "y": 14, "z": 15}
+  - id: closed
+    depends: write_spaced
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: Other
+      range: A2:C3
+      header: false
+  - id: columns_only
+    depends: write_spaced
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: Other
+      range: A:C
+  - id: single
+    depends: write_spaced
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: Other
+      range: B2
+      header: false
+  - id: quoted_sheet
+    depends: write_spaced
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: Other
+      range: "'My Sheet'!A2:C"
+      header: false
+  - id: plain_sheet
+    depends: write_spaced
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: My Sheet
+      range: Other!B2:C
+      header: false
+  - id: out
+    depends: [closed, columns_only, single, quoted_sheet, plain_sheet]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"closed": {"sheet": "${steps.closed.outputs.sheet}", "range": "${steps.closed.outputs.range}", "count": ${steps.closed.outputs.count}, "headers": ${steps.closed.outputs.headers}, "rows": ${steps.closed.outputs.rows}},
+         "columns_only": {"sheet": "${steps.columns_only.outputs.sheet}", "range": "${steps.columns_only.outputs.range}", "count": ${steps.columns_only.outputs.count}, "headers": ${steps.columns_only.outputs.headers}, "rows": ${steps.columns_only.outputs.rows}},
+         "single": {"sheet": "${steps.single.outputs.sheet}", "range": "${steps.single.outputs.range}", "count": ${steps.single.outputs.count}, "headers": ${steps.single.outputs.headers}, "rows": ${steps.single.outputs.rows}},
+         "quoted_sheet": {"sheet": "${steps.quoted_sheet.outputs.sheet}", "range": "${steps.quoted_sheet.outputs.range}", "count": ${steps.quoted_sheet.outputs.count}, "headers": ${steps.quoted_sheet.outputs.headers}, "rows": ${steps.quoted_sheet.outputs.rows}},
+         "plain_sheet": {"sheet": "${steps.plain_sheet.outputs.sheet}", "range": "${steps.plain_sheet.outputs.range}", "count": ${steps.plain_sheet.outputs.count}, "headers": ${steps.plain_sheet.outputs.headers}, "rows": ${steps.plain_sheet.outputs.rows}}}

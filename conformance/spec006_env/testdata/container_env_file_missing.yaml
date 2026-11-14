@@ -1,0 +1,6 @@
+steps:
+  - name: containerized
+    container:
+      image: alpine:3.20
+      env_file: missing.env
+    run: "true"

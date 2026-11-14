@@ -29,7 +29,8 @@ func withDollarEscapes(ctx context.Context, input string) (context.Context, stri
 		ctx = context.Background()
 	}
 
-	token := uniqueToken(input, "__DAGU_DOLLAR_ESC__")
+	// A leading non-identifier rune keeps an adjacent $NAME from absorbing the token.
+	token := uniqueToken(input, "\uE000DAGU_DOLLAR_ESC_")
 	var b strings.Builder
 	b.Grow(len(input))
 

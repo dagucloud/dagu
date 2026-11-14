@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: |
+        -- count the rows
+        /* a block comment */
+        SELECT 1 AS n
+    stdout: result.json

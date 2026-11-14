@@ -1,0 +1,43 @@
+# Extract two sources, merge them and load the result.
+description: Two extract steps feed a merge step, then a load step reads the merged data.
+type: graph
+steps:
+  - id: extract_orders
+    name: extract orders
+    run: |
+      sleep 2
+      echo '{"orders": 42}'
+    output:
+      orders:
+        from: stdout
+        decode: json
+
+  - id: extract_users
+    name: extract users
+    run: |
+      sleep 3
+      echo '{"users": 7}'
+    output:
+      users:
+        from: stdout
+        decode: json
+
+  - id: merge
+    name: merge
+    depends: [extract_orders, extract_users]
+    run: |
+      cat <<'EOF'
+      orders=${steps.extract_orders.outputs.orders} users=${steps.extract_users.outputs.users}
+      EOF
+    output:
+      merged:
+        from: stdout
+        decode: text
+
+  - id: load
+    name: load
+    depends: [merge]
+    run: |
+      cat <<'EOF'
+      loaded ${steps.merge.outputs.merged}
+      EOF

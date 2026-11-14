@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: month
+    action: xlsx.sheet
+    with:
+      path: orders.xlsx
+      operation: add
+      sheet: October

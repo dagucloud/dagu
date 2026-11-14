@@ -13,7 +13,7 @@ COPY ui/ ./
 RUN pnpm build
 
 # Stage 2: Go Builder
-FROM --platform=$TARGETPLATFORM golang:1.27.0 AS go-builder
+FROM --platform=$TARGETPLATFORM golang:1.27.4 AS go-builder
 ARG LDFLAGS
 ARG TARGETOS
 ARG TARGETARCH
@@ -128,7 +128,7 @@ RUN mkdir -p "${DAGU_HOME}" && \
 WORKDIR /home/${USER}
 ENV DAGU_HOST=0.0.0.0
 ENV DAGU_PORT=8080
-ENV DAGU_HOME=/var/lib/dagu
+ENV DAGU_HOME=${DAGU_HOME}
 ENV DAGU_TZ="Etc/UTC"
 ENV PUID=${USER_UID}
 ENV PGID=${USER_GID}

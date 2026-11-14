@@ -90,6 +90,7 @@ func parseInlineParamDefinition(name string, raw map[string]any) (ir.ParamDef, d
 	allowedKeys := map[string]struct{}{
 		"default":     {},
 		"eval":        {},
+		"title":       {},
 		"description": {},
 		"type":        {},
 		"required":    {},
@@ -135,6 +136,14 @@ func parseInlineParamDefinition(name string, raw map[string]any) (ir.ParamDef, d
 		}
 	}
 
+	if value, ok := raw["title"]; ok {
+		title, ok := value.(string)
+		if !ok {
+			return def, entry, fmt.Errorf("parameter %q title must be a string", name)
+		}
+		def.Title = title
+	}
+
 	if value, ok := raw["description"]; ok {
 		description, ok := value.(string)
 		if !ok {
@@ -153,6 +162,7 @@ func parseInlineParamDefinition(name string, raw map[string]any) (ir.ParamDef, d
 			return def, entry, fmt.Errorf("parameter %q eval must not be empty", name)
 		}
 		entry.Eval = expr
+		def.Eval = expr
 	}
 
 	if value, ok := raw["required"]; ok {
@@ -338,6 +348,7 @@ func compileInlineParamSchema(defs []ir.ParamDef) (*compiledInlineParamSchema, e
 
 		property := &jsonschema.Schema{
 			Type:        def.Type,
+			Title:       def.Title,
 			Description: def.Description,
 		}
 		if def.Default != nil {

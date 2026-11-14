@@ -4,6 +4,7 @@
 package frontend
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -110,6 +111,73 @@ func (p corsPolicy) allowsAllOrigins() bool {
 		}
 	}
 	return false
+}
+
+// originWarnings describes allowed-origin entries that allow more, or less,
+// than they appear to. A bare "*" is reported by the config loader.
+func (p corsPolicy) originWarnings() []string {
+	var warnings []string
+	for _, entry := range p.allowedOrigins {
+		if problem := allowedOriginProblem(entry); problem != "" {
+			warnings = append(warnings, fmt.Sprintf("cors_allowed_origins entry %q %s",
+				redactOriginUserinfo(entry), problem))
+		}
+	}
+	return warnings
+}
+
+// redactOriginUserinfo masks everything between the scheme and the last "@",
+// so credentials put in an entry by mistake are not logged. It works on the
+// raw string because the entries it reports are often not parseable URLs, and
+// it masks generously rather than risk printing part of a secret.
+func redactOriginUserinfo(entry string) string {
+	start := 0
+	if i := strings.Index(entry, "://"); i >= 0 {
+		start = i + len("://")
+	}
+	at := strings.LastIndex(entry[start:], "@")
+	if at < 0 {
+		return entry
+	}
+	return entry[:start] + "xxxxx" + entry[start+at:]
+}
+
+// allowedOriginProblem explains how allowsOrigin treats entry differently
+// than it reads, or returns "" when the entry matches as written.
+func allowedOriginProblem(entry string) string {
+	entry = strings.ToLower(strings.TrimSpace(entry))
+	if entry == "*" {
+		return ""
+	}
+	if prefix, suffix, ok := strings.Cut(entry, "*"); ok {
+		if isSubdomainPattern(prefix, suffix) {
+			return ""
+		}
+		return "is matched as a raw prefix and suffix, so it may allow unintended origins or none; use scheme://*.domain[:port] to allow subdomains"
+	}
+	if canonicalOrigin(entry) == "" {
+		return "is not an http(s) origin of the form scheme://host[:port]"
+	}
+	if parsed, err := url.Parse(entry); err == nil &&
+		((parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "") {
+		return "includes a path, query, or fragment; only scheme://host[:port] is enforced"
+	}
+	return ""
+}
+
+// isSubdomainPattern reports whether a wildcard entry split at its "*" has the
+// form scheme://*.domain[:port], which matches only subdomains of domain.
+func isSubdomainPattern(prefix, suffix string) bool {
+	if prefix != "http://" && prefix != "https://" {
+		return false
+	}
+	if !strings.HasPrefix(suffix, ".") || strings.Contains(suffix, "*") {
+		return false
+	}
+	// Browsers send canonical origins, so a suffix that canonicalization would
+	// change, such as one with a path or default port, never matches.
+	sample := prefix + "a" + suffix
+	return canonicalOrigin(sample) == sample
 }
 
 func (p corsPolicy) isSetupPath(requestPath string) bool {

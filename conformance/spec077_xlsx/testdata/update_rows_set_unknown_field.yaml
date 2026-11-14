@@ -1,0 +1,17 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Status]
+      rows: [{"Invoice No": "INV-1", "Status": "Open"}]
+  - id: update
+    depends: write
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      rows: [{"Invoice No": "INV-1", "status": "Done"}]
+      set:
+        Status: x

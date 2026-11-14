@@ -101,6 +101,17 @@ Coordinator replicas must share the same `ReadWriteMany` volume. The durable lea
 
 Upgrades replace one coordinator at a time without creating surge replicas. With two or more replicas, at least one coordinator remains available throughout the rollout; with one replica, the replacement causes a brief coordinator outage. During the first upgrade from a version that fenced traffic by process ID, an older pod may temporarily reject traffic for work accepted by a newer pod. Workers retry final status, log, and artifact delivery through the available replicas during that mixed-version window.
 
+The scheduler also defaults to one replica. Set two replicas to keep a standby ready:
+
+```yaml
+scheduler:
+  replicas: 2
+```
+
+Scheduler replicas share the same `ReadWriteMany` volume and compete for one lock. The replica holding the lock schedules runs and consumes queues. The others wait, and one of them takes over when the lock is released or stops being renewed.
+
+Image tag `2.26.0` and earlier have a known limitation: a scheduler that stalls past `scheduler.lock_stale_threshold` can dispatch once more after a standby has taken over, so one schedule slot can run twice. Later releases stop dispatching before the lock can be taken over.
+
 Worker pools use their existing ephemeral `/data` volumes for per-run work, so the separate work root requires no additional volume. Custom deployments that instead share a durable work root across execution processes must drain those processes before upgrading from the nested work-directory layout. Old and new versions must not execute the same run concurrently during that transition.
 
 Install with those values:
@@ -255,6 +266,20 @@ config:
 ```
 
 Set `config.corsAllowedOrigins: ["*"]` only when any website should be allowed to call the API. Wildcard CORS does not allow credentials and is especially risky with `auth.mode: none`.
+
+### Allowed Host Names
+
+Where no credential is needed (every request with `auth.mode: none`, and first-admin setup), Dagu answers to IP addresses, single-label names, names under the special-use domains `localhost`, `local` (including `svc.cluster.local`), `internal`, `test`, `example`, `invalid`, `alt`, `home.arpa`, and `service.arpa`, the `config.publicUrl` host, and listed names. It also answers to its own hostname (in Kubernetes, the pod's single-label name) and to a connected Tailscale tunnel's name. This blocks DNS-rebinding pages, which need a name that public DNS answers for. The chart adds `ingress.host` when the chart ingress is enabled. List any other name Dagu is reached under:
+
+```yaml
+config:
+  allowedHosts:
+    - dagu.example.com
+    - .corp.example.com # the domain and its subdomains
+    - .lan # a private domain no standard reserves
+```
+
+`["*"]` accepts every host name and turns the check off for those requests, so any website can then reach a Dagu with `auth.mode: none`, or a fresh install's setup, through DNS rebinding. Use it only when Dagu is not reachable from users' browsers.
 
 ### IP Access Allowlist
 

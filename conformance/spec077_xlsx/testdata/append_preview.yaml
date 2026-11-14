@@ -1,0 +1,44 @@
+params:
+  - name: ROWS
+    default: "[]"
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: log.xlsx
+      columns: [when, what]
+      rows: [{"when": "2026-10-01", "what": "start"}]
+  - id: preview
+    depends: write
+    action: xlsx.append
+    with:
+      path: log.xlsx
+      rows: ${params.ROWS}
+      dry_run: true
+  - id: previewed
+    depends: preview
+    action: xlsx.read
+    with:
+      path: log.xlsx
+  - id: append
+    depends: previewed
+    action: xlsx.append
+    with:
+      path: log.xlsx
+      rows: ${params.ROWS}
+  - id: appended
+    depends: append
+    action: xlsx.read
+    with:
+      path: log.xlsx
+  - id: out
+    depends: appended
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"preview": ${steps.preview.outputs.changes}, "preview_dry_run": ${steps.preview.outputs.dry_run},
+         "previewed_count": ${steps.previewed.outputs.count},
+         "append": ${steps.append.outputs.changes}, "appended_count": ${steps.appended.outputs.count},
+         "rows": ${steps.appended.outputs.rows}}

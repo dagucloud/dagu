@@ -125,4 +125,22 @@ describe('useContentEditor', () => {
       externalContent: '# External edit',
     });
   });
+
+  it('checks the unsaved state again when isSame changes', () => {
+    const strict = (a: string, b: string) => a === b;
+    const loose = (a: string, b: string) => a.trim() === b.trim();
+    const { result, rerender } = renderHook(
+      ({ isSame }: { isSame: (a: string, b: string) => boolean }) =>
+        useContentEditor({ key: 'doc', serverContent: 'a', isSame }),
+      { initialProps: { isSame: strict } }
+    );
+
+    act(() => {
+      result.current.setCurrentValue('a ');
+    });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    rerender({ isSame: loose });
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
 });

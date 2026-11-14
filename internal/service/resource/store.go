@@ -30,6 +30,9 @@ type ResourceHistory struct {
 type Store interface {
 	Add(cpu, memory, disk, load float64, memTotal, memUsed, diskTotal, diskUsed uint64)
 	GetHistory(duration time.Duration) *ResourceHistory
+	// DiskUsedPercent returns the latest disk usage in percent, and false
+	// before any disk usage has been recorded.
+	DiskUsedPercent() (float64, bool)
 }
 
 // dataPoint stores all metrics for a single timestamp
@@ -49,6 +52,7 @@ type MemoryStore struct {
 	memoryUsedBytes  uint64
 	diskTotalBytes   uint64
 	diskUsedBytes    uint64
+	diskUsedPercent  float64
 }
 
 var _ Store = (*MemoryStore)(nil)
@@ -82,6 +86,15 @@ func (s *MemoryStore) Add(cpu, memory, disk, load float64, memTotal, memUsed, di
 	s.memoryUsedBytes = memUsed
 	s.diskTotalBytes = diskTotal
 	s.diskUsedBytes = diskUsed
+	s.diskUsedPercent = disk
+}
+
+// DiskUsedPercent implements Store.
+func (s *MemoryStore) DiskUsedPercent() (float64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// A failed disk read records a zero total.
+	return s.diskUsedPercent, s.diskTotalBytes > 0
 }
 
 // GetHistory returns metrics for the specified duration

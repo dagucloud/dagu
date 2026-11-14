@@ -1,0 +1,16 @@
+type: graph
+working_dir: .
+steps:
+  - id: spin
+    run: printf '%s\n' tick >> ticks.txt
+    repeat_policy:
+      repeat: while
+      condition: "not-a-number"
+      expected: "num:>=1"
+      interval_sec: 0
+    continue_on:
+      failure: true
+      mark_success: true
+  - id: dependent
+    depends: [spin]
+    run: printf '%s\n' dependent >> ticks.txt

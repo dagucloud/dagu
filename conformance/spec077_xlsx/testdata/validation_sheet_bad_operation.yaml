@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: month
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: move
+      sheet: Template

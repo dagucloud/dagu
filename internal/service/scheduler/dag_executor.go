@@ -126,6 +126,7 @@ func (e *DAGExecutor) HandleJob(
 	runID string,
 	triggerType ir.TriggerType,
 	scheduleTime time.Time,
+	params string,
 ) error {
 	dag := entry.DAG
 	profileName := ""
@@ -146,7 +147,7 @@ func (e *DAGExecutor) HandleJob(
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
 		)
-		dag, err := e.prepareDAGForSubprocess(ctx, dag, "")
+		dag, err := e.prepareDAGForSubprocess(ctx, dag, params)
 		if err != nil {
 			return fmt.Errorf("failed to prepare DAG env for enqueue: %w", err)
 		}
@@ -156,6 +157,7 @@ func (e *DAGExecutor) HandleJob(
 		)
 
 		spec := e.subCmdBuilder.Enqueue(dag, launcher.EnqueueOptions{
+			Params:       params,
 			DAGRunID:     runID,
 			TriggerType:  triggerType.String(),
 			ScheduleTime: stringutil.FormatTime(scheduleTime),
@@ -169,7 +171,7 @@ func (e *DAGExecutor) HandleJob(
 	}
 
 	// For all other cases (local execution or non-START operations), use ExecuteDAG
-	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, entry.DefinitionID, "")
+	return e.executeDAG(ctx, dag, operation, runID, nil, triggerType, stringutil.FormatTime(scheduleTime), profileName, entry.DefinitionID, "", params)
 }
 
 // ExecuteDAG executes or dispatches an already-persisted DAG.
@@ -190,7 +192,7 @@ func (e *DAGExecutor) ExecuteDAG(
 	triggerType ir.TriggerType,
 	scheduleTime string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), "")
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), "", "")
 }
 
 func (e *DAGExecutor) ExecuteDAGWithAdmission(
@@ -203,7 +205,7 @@ func (e *DAGExecutor) ExecuteDAGWithAdmission(
 	scheduleTime string,
 	admissionReservationToken string,
 ) error {
-	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), admissionReservationToken)
+	return e.executeDAG(ctx, dag, operation, runID, previousStatus, triggerType, scheduleTime, "", previousStatus.DAGDefinitionID(), admissionReservationToken, "")
 }
 
 func (e *DAGExecutor) executeDAG(
@@ -217,6 +219,7 @@ func (e *DAGExecutor) executeDAG(
 	defaultProfileName string,
 	definitionID string,
 	admissionReservationToken string,
+	startParams string,
 ) error {
 	if err := validateDispatchOperation(operation); err != nil {
 		return err
@@ -287,7 +290,7 @@ func (e *DAGExecutor) executeDAG(
 	}
 
 	// Local execution
-	var params any
+	var params any = startParams
 	if previousStatus != nil {
 		params = previousStatus.ParamsList
 	}
@@ -308,6 +311,7 @@ func (e *DAGExecutor) executeDAG(
 
 	case dispatch.DispatchOperationStart:
 		spec := e.subCmdBuilder.Start(dag, launcher.StartOptions{
+			Params:       startParams,
 			DAGRunID:     runID,
 			Quiet:        true,
 			TriggerType:  triggerType.String(),
@@ -327,7 +331,9 @@ func (e *DAGExecutor) executeDAG(
 			QueueDispatch: true,
 		})
 		spec.Env = append(spec.Env, e.managedOpenCodeEnv(ctx, dag)...)
-		return launcher.Run(ctx, spec)
+		// A queued run outlives the scheduler that started it, as a run started
+		// directly does.
+		return launcher.Run(context.WithoutCancel(ctx), spec)
 
 	default:
 		return fmt.Errorf("unknown operation: %s", operation)
@@ -378,6 +384,13 @@ func validateDispatchOperation(operation dispatch.DispatchOperation) error {
 // across all execution paths (API, CLI, scheduler, sub-DAG).
 func (e *DAGExecutor) shouldUseDistributedExecution(dag *ir.DAG) bool {
 	return dispatch.ShouldDispatchToCoordinator(dag, e.coordinatorCli != nil, e.defaultExecMode)
+}
+
+// executableMissing reports whether the Dagu executable that launches local
+// runs does not exist. An executor without a command builder launches no
+// local runs, so nothing is missing.
+func (e *DAGExecutor) executableMissing() bool {
+	return e != nil && e.subCmdBuilder != nil && e.subCmdBuilder.ExecutableMissing()
 }
 
 // IsDistributed returns whether the given DAG would use distributed execution.
@@ -468,7 +481,9 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
-	prepared.RuntimeResolved = true
+	// Planner entries are metadata-only and carry no dotenv list, so no dotenv
+	// was loaded here; the subprocess loads it from the full definition.
+	prepared.RuntimeResolved = dag.RuntimeResolved || len(dag.Dotenv) > 0
 	return prepared, nil
 }
 

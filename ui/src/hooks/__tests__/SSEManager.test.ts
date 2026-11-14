@@ -73,10 +73,18 @@ describe('endpointToTopic', () => {
       ['/events/dags/example.yaml', 'dag:example.yaml'],
       ['/events/dags/example.yaml/dag-runs', 'daghistory:example.yaml'],
       [
+        '/events/dags/example.yaml/dag-runs?includeBackfill=true',
+        'daghistory:example.yaml?includeBackfill=true',
+      ],
+      [
         '/events/dag-runs?page=2&status=running',
         'dagruns:page=2&status=running',
       ],
       ['/events/dag-runs/mydag/run-1', 'dagrun:mydag/run-1'],
+      [
+        '/events/dag-run-activity?workspace=ops&hours=24',
+        'dagrunactivity:hours=24&workspace=ops',
+      ],
       [
         '/events/dag-runs/mydag/run-1/sub-dag-runs/sub-1',
         'subdagrun:mydag/run-1/sub-1',
@@ -91,6 +99,8 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
+      ['/events/backfills/bf123456', 'backfill:bf123456'],
+      ['/events/service-dags?workspace=ops', 'servicedags:workspace=ops'],
       ['/events/wiki-tree?prefix=docs', 'wikitree:prefix=docs'],
       [
         '/events/wiki/docs/deploy?workspace=ops',

@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 var (
@@ -33,6 +34,7 @@ type LocalAttemptBuilder func(context.Context) (dagrun.Attempt, error)
 type LocalProcRepository interface {
 	WithLock(ctx context.Context, groupName string, fn func() error) error
 	Acquire(ctx context.Context, groupName string, meta proc.ProcMeta) (proc.ProcHandle, error)
+	FreshEntriesByDAGName(ctx context.Context, groupName, dagName string) ([]proc.ProcEntry, error)
 }
 
 // LocalRequest describes local DAG-run intake before execution starts.
@@ -48,7 +50,9 @@ type LocalRequest struct {
 	TriggerActor string
 
 	ScheduleTime string
-	ProfileName  string
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	ProfileName    string
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -75,6 +79,10 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 
 	var preparation *LocalPreparation
 	err := req.ProcRepository.WithLock(ctx, req.DAG.ProcGroup(), func() error {
+		if err := req.checkServiceProcess(ctx); err != nil {
+			return err
+		}
+
 		attempt, err := req.BuildAttempt(ctx)
 		if err != nil {
 			if errors.Is(err, dagrun.ErrDAGRunAlreadyExists) {
@@ -114,6 +122,25 @@ func PrepareLocalExecution(ctx context.Context, req LocalRequest) (*LocalPrepara
 		return nil, err
 	}
 	return preparation, nil
+}
+
+// checkServiceProcess refuses a root run of a DAG that sets restart_policy next to
+// the live process of another. It runs under the process lock, so of two starts
+// that race, the second sees the first.
+func (r LocalRequest) checkServiceProcess(ctx context.Context) error {
+	if !r.DAG.RestartPolicy.Enabled() || !r.Parent.Zero() {
+		return nil
+	}
+	entries, err := r.ProcRepository.FreshEntriesByDAGName(ctx, r.DAG.ProcGroup(), r.DAG.Name)
+	if err != nil {
+		return fmt.Errorf("failed to list live runs: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsRoot() && entry.Meta.DAGRunID != r.DAGRunID {
+			return fmt.Errorf("%w: run %s of DAG %s is running", runtime.ErrServiceRunActive, entry.Meta.DAGRunID, r.DAG.Name)
+		}
+	}
+	return nil
 }
 
 func (r LocalRequest) validate() error {
@@ -170,7 +197,7 @@ func recordPreparedAttemptFailure(
 		ir.WithRuntimeProfile(req.ProfileName, "", nil),
 	}
 	if req.ScheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime))
+		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))
 	}
 	status := ir.NewStatusBuilder(req.DAG).Create(req.DAGRunID, ir.Failed, 0, time.Now(), opts...)
 

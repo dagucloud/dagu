@@ -312,6 +312,31 @@ func TestRoundTrip(t *testing.T) {
 	assert.Equal(t, "2026-03-29T02:10:00+01:00", oneOffTime.Format(time.RFC3339))
 }
 
+// The index keeps the queue of every DAG, so a DAG read from it has the same
+// ProcGroup whether or not it sets a restart policy.
+func TestBuild_KeepsTheQueueOfEveryDAG(t *testing.T) {
+	dir := t.TempDir()
+	files := []YAMLFileMeta{}
+	for name, content := range map[string]string{
+		"batch.yaml":   "queue: shared\nsteps:\n  - name: step1\n    command: echo hi\n",
+		"service.yaml": "queue: shared\nrestart_policy: always\nsteps:\n  - name: step1\n    command: echo hi\n",
+	} {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		files = append(files, YAMLFileMeta{Name: name, Size: info.Size(), ModTime: info.ModTime().UnixNano()})
+	}
+
+	idx := Build(context.Background(), dir, files, nil)
+	require.Len(t, idx.Entries, 2)
+	for _, entry := range idx.Entries {
+		dag := DAGFromEntry(entry, dir)
+		assert.Equal(t, "shared", dag.Queue, entry.Name)
+		assert.Equal(t, "shared", dag.ProcGroup(), entry.Name)
+	}
+}
+
 func TestDAGFromEntry(t *testing.T) {
 	baseDir := filepath.FromSlash("/dags")
 	entry := &indexv1.DAGIndexEntry{
@@ -522,6 +547,7 @@ func TestSuspendFlagName(t *testing.T) {
 		{"NameWithSpaces", "my dag", "my-dag.suspend"},
 		{"NameWithSpecialChars", "my<dag>", "my-dag-.suspend"},
 		{"EmptyName", "", ".suspend"},
+		{"ReservedDeviceMultiDot", "con.foo.txt", "-.foo.txt.suspend"},
 	}
 
 	for _, tt := range tests {
@@ -530,4 +556,50 @@ func TestSuspendFlagName(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestBuild_RestartPolicy(t *testing.T) {
+	dir := t.TempDir()
+
+	service := []byte("name: svc\nrestart_policy: unless-stopped\nrestart_wait_sec: 7\nsteps:\n  - name: serve\n    command: echo serve\n")
+	plain := []byte("name: plain\nsteps:\n  - name: run\n    command: echo run\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "svc.yaml"), service, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "plain.yaml"), plain, 0600))
+
+	var files []YAMLFileMeta
+	for _, name := range []string{"svc.yaml", "plain.yaml"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		require.NoError(t, err)
+		files = append(files, YAMLFileMeta{Name: name, Size: info.Size(), ModTime: info.ModTime().UnixNano()})
+	}
+	registry.RegisterExecutorCapabilities("", registry.ExecutorCapabilities{
+		Command: true, MultipleCommands: true, Script: true, Shell: true,
+	})
+
+	idx := Build(context.Background(), dir, files, nil)
+	entries := make(map[string]*indexv1.DAGIndexEntry, len(idx.Entries))
+	for _, entry := range idx.Entries {
+		entries[entry.Name] = entry
+	}
+
+	svc := entries["svc"]
+	require.NotNil(t, svc)
+	assert.Empty(t, svc.LoadError)
+	assert.Equal(t, "unless-stopped", svc.RestartPolicy)
+	assert.Equal(t, int64(7), svc.RestartWaitSec)
+
+	dag := DAGFromEntry(svc, dir)
+	assert.Equal(t, ir.RestartPolicyUnlessStopped, dag.RestartPolicy)
+	assert.Equal(t, 7*time.Second, dag.RestartWait)
+
+	plainEntry := entries["plain"]
+	require.NotNil(t, plainEntry)
+	assert.Empty(t, plainEntry.RestartPolicy)
+	assert.Zero(t, plainEntry.RestartWaitSec)
+	assert.False(t, DAGFromEntry(plainEntry, dir).RestartPolicy.Enabled())
+}
+
+func TestDAGFromEntry_RestartPolicyIgnoresUnknownValue(t *testing.T) {
+	dag := DAGFromEntry(&indexv1.DAGIndexEntry{FilePath: "svc.yaml", Name: "svc", RestartPolicy: "bogus"}, "/dags")
+	assert.False(t, dag.RestartPolicy.Enabled())
 }

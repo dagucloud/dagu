@@ -29,6 +29,9 @@ type dagParamPlan struct {
 	schemaOrder      []string
 	schemaProperties map[string]*jsonschema.Schema
 	schemaClosed     bool
+	// inheritedNames holds the named params the base config declares and the
+	// DAG does not. Overrides of them pass through without validation.
+	inheritedNames map[string]struct{}
 }
 
 type dagParamEntry struct {
@@ -36,9 +39,19 @@ type dagParamEntry struct {
 	Value    string
 	HasValue bool
 	Eval     string
+	// Deferred marks an eval that waits for the run's values.
+	Deferred bool
 }
 
 func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
+	// A map-form worker selector resolves as the DAG loads and routes the
+	// run, so it needs the params' values: a load that would defer every eval
+	// keeps evaluating when the selector reads a value.
+	if ctx.opts.Has(buildFlagDeferParamEval) && workerSelectorReadsValues(ctx, d) {
+		opts := ctx.opts
+		opts.Flags &^= buildFlagDeferParamEval
+		ctx = ctx.WithOpts(opts)
+	}
 	plan, err := buildDAGParamPlan(ctx, d)
 	if err != nil {
 		return nil, err
@@ -46,18 +59,20 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	if err := finalizeDAGParamPlan(plan); err != nil {
 		return nil, err
 	}
+	plan.inheritedNames = inheritedParamNames(ctx.baseDAG, plan)
 
 	resolveRuntimeParams := shouldResolveRuntimeParams(ctx)
 	defaultEntries := cloneParamEntries(plan.entries)
 	defaultPairs := runtimePairsFromEntries(defaultEntries)
 	finalPairs := defaultPairs
+	var deferred []string
 
 	switch plan.kind {
 	case dagParamKindLegacy:
 		if plan.schema == nil {
 			finalPairs = defaultPairs
 			if resolveRuntimeParams {
-				finalPairs, err = resolveLegacyRuntimePairs(plan.entries, ctx.opts.Parameters, ctx.opts.ParametersList)
+				finalPairs, err = resolveLegacyRuntimePairs(plan.entries, plan.inheritedNames, ctx.opts.Parameters, ctx.opts.ParametersList)
 				if err != nil {
 					return nil, err
 				}
@@ -71,6 +86,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 				return nil, err
 			}
 			finalPairs = runtimePairsFromEntries(finalEntries)
+			deferred = deferredParamNames(finalEntries)
 
 			// Eval-backed inline params may depend on mutable state or perform command
 			// execution, so reuse the execution-time resolution instead of running
@@ -88,6 +104,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 		defaultPairs = runtimePairsFromEntries(defaultEntries)
 		if !resolveRuntimeParams {
 			finalPairs = defaultPairs
+			deferred = deferredParamNames(defaultEntries)
 		}
 
 	case dagParamKindExternalSchema:
@@ -135,12 +152,40 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	}
 
 	return &paramsResult{
-		Params:        params,
-		DefaultParams: defaultParams,
-		ParamDefs:     cloneParamDefs(plan.paramDefs),
-		ParamSchema:   paramSchema,
-		ParamsJSON:    paramsJSON,
+		Params:         params,
+		DefaultParams:  defaultParams,
+		ParamDefs:      cloneParamDefs(plan.paramDefs),
+		ParamSchema:    paramSchema,
+		ParamsJSON:     paramsJSON,
+		DeferredParams: deferred,
 	}, nil
+}
+
+// workerSelectorReadsValues reports whether the map-form worker selector the
+// DAG resolves as it loads, its own or its base config's, reads any value.
+func workerSelectorReadsValues(ctx buildContext, d *dag) bool {
+	readsValues := func(selector map[string]string) bool {
+		for key, value := range selector {
+			if cmnvalue.HasAnyReference(key) || cmnvalue.HasAnyReference(value) {
+				return true
+			}
+		}
+		return false
+	}
+	if own, _, err := buildWorkerSelector(ctx, d); err == nil && readsValues(own) {
+		return true
+	}
+	return ctx.baseDAG != nil && readsValues(ctx.baseDAG.WorkerSelector)
+}
+
+func deferredParamNames(entries []dagParamEntry) []string {
+	var names []string
+	for i, entry := range entries {
+		if entry.Deferred {
+			names = append(names, paramScopeName(entry, i))
+		}
+	}
+	return names
 }
 
 func shouldResolveRuntimeParams(ctx buildContext) bool {
@@ -190,6 +235,41 @@ func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
 	return params
 }
 
+// inheritedParamNames returns the named params the base config declares or sets
+// that the DAG does not declare itself.
+func inheritedParamNames(base *ir.DAG, plan *dagParamPlan) map[string]struct{} {
+	if base == nil {
+		return nil
+	}
+	names := make(map[string]struct{})
+	add := func(name string) {
+		if name != "" && !isPositionalName(name) {
+			names[name] = struct{}{}
+		}
+	}
+	for _, def := range base.ParamDefs {
+		add(def.Name)
+	}
+	for _, param := range base.Params {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			add(name)
+		}
+	}
+	for _, entry := range plan.entries {
+		delete(names, entry.Name)
+	}
+	for _, def := range plan.paramDefs {
+		delete(names, def.Name)
+	}
+	for name := range plan.schemaProperties {
+		delete(names, name)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
+}
+
 func paramPlanHasEval(plan *dagParamPlan) bool {
 	for _, entry := range plan.entries {
 		if strings.TrimSpace(entry.Eval) != "" {
@@ -204,7 +284,9 @@ func buildDAGParamPlan(ctx buildContext, d *dag) (*dagParamPlan, error) {
 		if ctx.opts.Has(buildFlagSkipSchemaValidation) {
 			return buildLegacyParamPlan(extractSchemaValues(d.Params))
 		}
-		return buildExternalSchemaParamPlan(d.Params, d.WorkingDir, ctx.file)
+		// A relative schema path is anchored to the file the author wrote, not
+		// to the temporary copy a worker or an in-process child runs from.
+		return buildExternalSchemaParamPlan(d.Params, d.WorkingDir, authoredFile(ctx))
 	}
 	if err := malformedInlineJSONSchemaShapeError(d.Params); err != nil {
 		return nil, err
@@ -351,16 +433,27 @@ func buildExternalSchemaParamPlan(input any, workingDir, dagLocation string) (*d
 	if err != nil {
 		return nil, err
 	}
+	entries, err := keepUntypedValueText(entriesFromTypedMap(typedDefaults, schemaOrder), typedDefaults, basePairs, resolvedSchema, schemaProperties)
+	if err != nil {
+		return nil, err
+	}
 
 	plan := &dagParamPlan{
 		kind:             dagParamKindExternalSchema,
 		schema:           resolvedSchema,
 		schemaOrder:      schemaOrder,
 		schemaProperties: schemaProperties,
-		entries:          entriesFromTypedMap(typedDefaults, schemaOrder),
+		entries:          entries,
 	}
 
-	paramDefs, ok := deriveExternalSchemaParamDefs(root, typedDefaults)
+	// The start form offers untyped values as the run would receive them.
+	formDefaults := maps.Clone(typedDefaults)
+	for _, entry := range entries {
+		if _, typed := schemaScalarType(schemaProperties[entry.Name]); !typed {
+			formDefaults[entry.Name] = entry.Value
+		}
+	}
+	paramDefs, ok := deriveExternalSchemaParamDefs(root, formDefaults)
 	if ok {
 		plan.paramDefs = paramDefs
 	}

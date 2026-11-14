@@ -1,0 +1,5 @@
+steps:
+  - action: xlsx.read
+    with:
+      path: quote.xlsx
+      llm: {provider: local, model: test-model}

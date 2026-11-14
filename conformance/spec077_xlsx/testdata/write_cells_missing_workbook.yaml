@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: fill
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B1: Acme

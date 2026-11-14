@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -43,6 +45,8 @@ const (
 	wikiDir       = "wiki"
 	legacyDocsDir = "docs"
 	baseConfigID  = "base"
+	// calendarsDir is the repository folder of business calendar files.
+	calendarsDir = "calendars"
 
 	// wikiPageAssetsDirName is the reserved subtree holding page attachments.
 	wikiPageAssetsDirName = ".attachments"
@@ -59,6 +63,9 @@ const (
 	// file extension so names inside one attachment
 	// directory differ only by extension.
 	SyncItemKindWikiPageAsset SyncItemKind = "doc-asset"
+	// SyncItemKindCalendar is a business calendar file. Its ID is the
+	// calendar name in the calendars folder.
+	SyncItemKindCalendar SyncItemKind = "calendar"
 )
 
 // SyncItemKindForID derives the item type from its normalized ID.
@@ -70,7 +77,17 @@ func SyncItemKindForID(id string) SyncItemKind {
 	if hasWikiPrefix(id, "") {
 		return SyncItemKindWikiPage
 	}
+	if isCalendarItemID(id) {
+		return SyncItemKindCalendar
+	}
 	return SyncItemKindDAG
+}
+
+// isCalendarItemID reports whether an item ID names a calendar file: a
+// valid calendar name directly in the calendars folder.
+func isCalendarItemID(id string) bool {
+	name, ok := strings.CutPrefix(normalizeDAGIDSeparators(id), calendarsDir+"/")
+	return ok && ir.ValidateCalendarName(name) == nil
 }
 
 func hasWikiPrefix(id, suffix string) bool {
@@ -271,8 +288,13 @@ func normalizeTrackedItems(state *State) {
 		}
 		switch itemState.Kind {
 		case "":
+			// A record without a kind predates calendar items, so a
+			// calendars/ ID in it names a DAG.
 			itemState.Kind = SyncItemKindForID(itemID)
-		case SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset, SyncItemKindFile:
+			if itemState.Kind == SyncItemKindCalendar {
+				itemState.Kind = SyncItemKindDAG
+			}
+		case SyncItemKindDAG, SyncItemKindWikiPage, SyncItemKindWikiPageAsset, SyncItemKindFile, SyncItemKindCalendar:
 		default:
 			delete(state.Items, itemID)
 		}
@@ -295,15 +317,8 @@ func (m *StateManager) Save(state *State) error {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	// Write atomically using temp file
-	tmpPath := m.statePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := fileutil.WriteFileAtomic(m.statePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, m.statePath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("failed to rename state file: %w", err)
 	}
 
 	m.state = state

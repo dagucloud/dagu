@@ -103,7 +103,8 @@ type Node struct {
 	RetriedAt           string               `json:"retriedAt,omitempty"`
 	RetryCount          int                  `json:"retryCount,omitempty"`
 	DoneCount           int                  `json:"doneCount,omitempty"`
-	Repeated            bool                 `json:"repeated,omitempty"` // indicates if the node has been repeated
+	Repeated            bool                 `json:"repeated,omitempty"`   // indicates if the node has been repeated
+	Continuous          bool                 `json:"continuous,omitempty"` // the step repeats without a limit (spec 083)
 	SkippedByRetry      bool                 `json:"skippedByRetry,omitempty"`
 	Error               string               `json:"error,omitempty"`
 	StatusDetails       []NodeStatusDetail   `json:"statusDetails,omitempty"`
@@ -157,7 +158,22 @@ type Node struct {
 	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
 	// AgentSession stores managed coding-agent state for display and durable resume.
 	AgentSession *AgentSession `json:"agentSession,omitempty"`
+	// ModelUsage is what the step's calls to models used, over every attempt
+	// of the step in this run.
+	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
+
+	// outputsValueFrom and stepOutputsValueFrom name the output field whose
+	// value a stored node repeats, so a status file holds that value once.
+	// Only StoredStatus sets them; reading a node restores the value.
+	outputsValueFrom     string
+	stepOutputsValueFrom string
 }
+
+// The output fields a stored node's other output fields may repeat.
+const (
+	outputValueField  = "outputValue"
+	outputsValueField = "outputsValue"
+)
 
 type nodeJSON Node
 
@@ -179,9 +195,13 @@ func (n Node) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Step stepSnapshot `json:"step,omitzero"`
 		nodeJSON
+		OutputsValueFrom     string `json:"outputsValueFrom,omitempty"`
+		StepOutputsValueFrom string `json:"stepOutputsValueFrom,omitempty"`
 	}{
-		Step:     newStepSnapshot(n.Step, n.PreconditionResults),
-		nodeJSON: nodeJSON(n),
+		Step:                 newStepSnapshot(n.Step, n.PreconditionResults),
+		nodeJSON:             nodeJSON(n),
+		OutputsValueFrom:     n.outputsValueFrom,
+		StepOutputsValueFrom: n.stepOutputsValueFrom,
 	})
 }
 
@@ -196,18 +216,72 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 		Step struct {
 			Preconditions []ConditionResult `json:"preconditions"`
 		} `json:"step"`
-		LegacyAgentState json.RawMessage `json:"controllerState"`
+		LegacyAgentState     json.RawMessage `json:"controllerState"`
+		OutputsValueFrom     string          `json:"outputsValueFrom"`
+		StepOutputsValueFrom string          `json:"stepOutputsValueFrom"`
 	}
 	if err := json.Unmarshal(data, &runtimeState); err != nil {
 		return err
 	}
 	*n = Node(decoded)
 	n.AgentState = presentRawJSON(n.AgentState, runtimeState.LegacyAgentState)
+	// A stored node keeps a repeated output once; the fields that repeat it
+	// get it back. OutputsValue is restored first, as StepOutputsValue may
+	// repeat it.
+	if n.OutputsValue == nil {
+		n.OutputsValue = n.storedOutput(runtimeState.OutputsValueFrom)
+	}
+	if n.StepOutputsValue == nil {
+		n.StepOutputsValue = n.storedOutput(runtimeState.StepOutputsValueFrom)
+	}
 	n.PreconditionResults = slices.Clone(runtimeState.Step.Preconditions)
 	if n.PreconditionResults != nil {
 		n.Step = newStepSnapshot(n.Step, n.PreconditionResults).definition()
 	}
 	return nil
+}
+
+// storedOutput returns a copy of the output field a stored node names, or nil
+// when it names none.
+func (n *Node) storedOutput(field string) *string {
+	var value *string
+	switch field {
+	case outputValueField:
+		value = n.OutputValue
+	case outputsValueField:
+		value = n.OutputsValue
+	}
+	if value == nil {
+		return nil
+	}
+	stored := *value
+	return &stored
+}
+
+// storedNode returns the node as a status file stores it: an output field
+// that repeats another one's value names that field instead of holding the
+// value again. A step's outputs usually fill all three fields with the same
+// text, so a large output would otherwise be written three times per line.
+func storedNode(n *Node) *Node {
+	if n == nil {
+		return nil
+	}
+	stored := *n
+	if sameOutput(n.OutputsValue, n.OutputValue) {
+		stored.OutputsValue, stored.outputsValueFrom = nil, outputValueField
+	}
+	switch {
+	case sameOutput(n.StepOutputsValue, n.OutputValue):
+		stored.StepOutputsValue, stored.stepOutputsValueFrom = nil, outputValueField
+	case sameOutput(n.StepOutputsValue, n.OutputsValue):
+		stored.StepOutputsValue, stored.stepOutputsValueFrom = nil, outputsValueField
+	}
+	return &stored
+}
+
+// sameOutput reports whether two set output fields hold the same text.
+func sameOutput(value, other *string) bool {
+	return value != nil && other != nil && *value == *other
 }
 
 // SubDAGRun represents a sub DAG run associated with a node

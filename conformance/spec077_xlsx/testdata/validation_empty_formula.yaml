@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B2: {formula: ""}

@@ -1,0 +1,4 @@
+schedule: "@every 90s"
+steps:
+  - id: noop
+    run: "true"

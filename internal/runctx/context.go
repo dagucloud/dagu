@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -25,17 +26,26 @@ const runtimeProfileOrigin = "runtime_profile"
 
 // Context contains the execution metadata for a dag-run.
 type Context struct {
-	DAGRunID             string
-	RootDAGRun           ir.DAGRunRef
-	RetryPath            dagrun.RetryPath
-	IncludeDownstream    bool
-	BypassPreconditions  bool
-	AttemptID            string
-	WorkerID             string
-	TriggerType          ir.TriggerType
-	TriggerActor         string
-	RunStartedAt         string
-	ScheduleTime         string
+	DAGRunID            string
+	RootDAGRun          ir.DAGRunRef
+	RetryPath           dagrun.RetryPath
+	IncludeDownstream   bool
+	BypassPreconditions bool
+	AttemptID           string
+	WorkerID            string
+	TriggerType         ir.TriggerType
+	TriggerActor        string
+	RunStartedAt        string
+	ScheduleTime        string
+	// IntervalStart, NextScheduledAt, and ScheduleTimezone describe the
+	// window the run's schedule slot owns, as resolved by context.run.*.
+	IntervalStart    string
+	NextScheduledAt  string
+	ScheduleTimezone string
+	// ScheduleWindow is the same window, as child runs inherit it.
+	ScheduleWindow ir.ScheduleWindow
+	// Dates are the run's dates, as ${dates.NAME} inserts them.
+	Dates                cmnvalue.Values
 	DAG                  *ir.DAG
 	DAGLoader            DAGLoader
 	BaseEnv              *config.BaseEnv
@@ -97,12 +107,14 @@ func (e Context) AllEnvs() []string {
 	return e.EnvScope.ToSlice()
 }
 
-// InheritedEnvs returns values passed to a child before its profile is resolved.
-func (e Context) InheritedEnvs() []string {
+// InheritedEnvs returns values passed to a child before its profile is
+// resolved. Each entry keeps the source and origin it holds in this run's
+// scope so the child can still recognise secrets, params, and host values.
+func (e Context) InheritedEnvs() []cmnvalue.EnvEntry {
 	if e.EnvScope == nil {
 		return nil
 	}
-	return e.EnvScope.ToSliceWithoutOrigin(runtimeProfileOrigin)
+	return e.EnvScope.EntriesWithoutOrigin(runtimeProfileOrigin)
 }
 
 // PassableEnvs returns the run's own environment values, excluding secrets,
@@ -139,10 +151,13 @@ type contextOptions struct {
 	Context
 
 	params             []string
+	paramsJSON         *string
 	defaultEnvs        []string
 	envs               []string
+	inheritedEnvs      []cmnvalue.EnvEntry
 	defaultSecretEnvs  []string
 	secretEnvs         []string
+	maskedSecrets      map[string]string
 	profileDefaults    []string
 	profileDefaultSec  []string
 	profileSelected    []string
@@ -233,10 +248,45 @@ func WithScheduleTime(scheduleTime string) ContextOption {
 	}
 }
 
+// WithScheduleWindow sets the window the run's schedule slot owns for value
+// resolution.
+func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
+	return func(o *contextOptions) {
+		o.IntervalStart = contextInstant(window.Start)
+		o.NextScheduledAt = contextInstant(window.Next)
+		o.ScheduleTimezone = window.Timezone
+		o.ScheduleWindow = window
+	}
+}
+
+// WithDates sets the run's dates for value resolution.
+func WithDates(dates []ir.DateValue) ContextOption {
+	return func(o *contextOptions) {
+		o.Dates = ir.DateTexts(dates)
+	}
+}
+
+// contextInstant formats an instant as context values carry it: UTC
+// RFC 3339, or empty when unknown.
+func contextInstant(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 // WithParams sets runtime parameters.
 func WithParams(params []string) ContextOption {
 	return func(o *contextOptions) {
 		o.params = params
+	}
+}
+
+// WithParamsJSON replaces the DAG's params JSON in the environment steps
+// see.
+func WithParamsJSON(paramsJSON string) ContextOption {
+	return func(o *contextOptions) {
+		o.paramsJSON = &paramsJSON
 	}
 }
 
@@ -251,6 +301,16 @@ func WithDefaultEnvVars(envs ...string) ContextOption {
 func WithEnvVars(envs ...string) ContextOption {
 	return func(o *contextOptions) {
 		o.envs = append(o.envs, envs...)
+	}
+}
+
+// WithInheritedEnvs sets environment entries a child run inherits from the
+// parent run scope. They enter at ambient precedence, just above the process
+// environment, so every value the run declares or resolves for itself wins on
+// conflict. Each entry keeps the source it held in the parent scope.
+func WithInheritedEnvs(entries []cmnvalue.EnvEntry) ContextOption {
+	return func(o *contextOptions) {
+		o.inheritedEnvs = append(o.inheritedEnvs, entries...)
 	}
 }
 
@@ -272,6 +332,14 @@ func WithDefaultSecrets(secrets []string) ContextOption {
 func WithSecrets(secrets []string) ContextOption {
 	return func(o *contextOptions) {
 		o.secretEnvs = secrets
+	}
+}
+
+// WithMaskedSecrets sets secret values that are masked in output but are not
+// environment variables, keyed by a label that is not a variable name.
+func WithMaskedSecrets(values map[string]string) ContextOption {
+	return func(o *contextOptions) {
+		o.maskedSecrets = values
 	}
 }
 
@@ -398,29 +466,40 @@ func NewContext(
 	profileSelected := stringutil.KeyValuesToMap(options.profileSelected)
 	profileSelectedSecrets := stringutil.KeyValuesToMap(options.profileSelectedSec)
 
-	baseForDAGEnv := make(map[string]string)
-	maps.Copy(baseForDAGEnv, profileDefaults)
-	maps.Copy(baseForDAGEnv, profileDefaultSecrets)
-	maps.Copy(baseForDAGEnv, defaultEnvs)
-	maps.Copy(baseForDAGEnv, defaultSecretEnvs)
+	// Run-scoped values exist only once the run is set up, so loading never saw them.
+	runScoped := make(map[string]string)
+	maps.Copy(runScoped, profileDefaults)
+	maps.Copy(runScoped, profileDefaultSecrets)
+	maps.Copy(runScoped, defaultEnvs)
+	maps.Copy(runScoped, defaultSecretEnvs)
+	maps.Copy(runScoped, managedEnvs)
+
+	baseForDAGEnv := maps.Clone(runScoped)
 	maps.Copy(baseForDAGEnv, params)
 	maps.Copy(baseForDAGEnv, managedEnvs)
 
 	runBuiltinContext := buildDAGRunBuiltinContext(dag, dagRunID, managedEnvs, options)
-	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, managedEnvs, runBuiltinContext)
+	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext, options.Dates)
 
 	secretEnvs := stringutil.KeyValuesToMap(options.secretEnvs)
 
 	// Build EnvScope with proper source tracking and layering.
 	// Seed the lowest-precedence layer from filtered BaseEnv so workflow step
 	// subprocesses stay isolated from arbitrary host env inherited by parent-
-	// spawned dagu start/retry/restart commands.
+	// spawned dagu start/retry/restart commands, and from Dagu's own
+	// credentials, which those commands need and steps do not.
 	// Precedence (highest to lowest): secrets > managed run env >
-	// execution env > DAG env > params > defaults > BaseEnv.
+	// execution env > DAG env > params > defaults > inherited parent env >
+	// BaseEnv.
 	scope := cmnvalue.NewEnvScope(nil, false)
 	if baseEnv := config.GetBaseEnv(ctx); baseEnv != nil {
-		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), cmnvalue.EnvSourceOS)
+		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.WithoutCredentials()), cmnvalue.EnvSourceOS)
 	}
+	// An in-process child run observes the parent run scope as its ambient
+	// environment. The layer sits just above the process environment so the
+	// values the step passed as the child's own params, and everything else
+	// the child declares or resolves, win on conflict.
+	scope = scope.WithEnvEntries(options.inheritedEnvs)
 	scope = scope.WithEntriesOrigin(profileDefaults, cmnvalue.EnvSourceDAGEnv, runtimeProfileOrigin)
 	scope = scope.WithEntriesOrigin(profileDefaultSecrets, cmnvalue.EnvSourceSecret, runtimeProfileOrigin)
 	scope = scope.WithEntries(defaultEnvs, cmnvalue.EnvSourceDAGEnv)
@@ -437,6 +516,7 @@ func NewContext(
 	if len(secretEnvs) > 0 {
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
+	scope = scope.WithMaskedSecrets(options.maskedSecrets)
 
 	// Fields the caller cannot set through an option, because they are derived
 	// from the required arguments or from the environment layering above.
@@ -454,8 +534,10 @@ func evaluateDAGEnvRuntime(
 	dag *ir.DAG,
 	runtimeParams map[string]string,
 	base map[string]string,
+	runScoped map[string]string,
 	protected map[string]string,
 	runBuiltinContext cmnvalue.BuiltinContext,
+	dates cmnvalue.Values,
 ) map[string]string {
 	var envList []string
 	var params cmnvalue.Values
@@ -477,16 +559,23 @@ func evaluateDAGEnvRuntime(
 		return nil
 	}
 
-	// DAG env is primarily evaluated during DAG loading. This runtime pass only
-	// resolves values that depend on run-scoped variables unavailable at load time.
+	// Loading already resolved the DAG's own root env entries, so they only
+	// complete references to run-scoped values; their inserted text stays literal.
+	// Base-config entries before them and entries added for the run after them
+	// get the full runtime pass.
+	span := dag.RootEnvSpan
+	if span.Start < 0 || span.End > len(envList) || span.Start > span.End {
+		span = ir.EnvSpan{}
+	}
 	result := make(map[string]string, len(envList))
 	scope := cmnvalue.NewEnvScope(nil, false)
 	if baseEnv := config.GetBaseEnv(ctx); baseEnv != nil {
-		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.AsSlice()), cmnvalue.EnvSourceOS)
+		scope = scope.WithEntries(stringutil.KeyValuesToMap(baseEnv.WithoutCredentials()), cmnvalue.EnvSourceOS)
 	}
 	scope = scope.WithEntries(base, cmnvalue.EnvSourceDAGEnv)
+	completionScope := cmnvalue.NewEnvScope(nil, false).WithEntries(runScoped, cmnvalue.EnvSourceDAGEnv)
 
-	for _, entry := range envList {
+	for i, entry := range envList {
 		key, value, found := strings.Cut(entry, "=")
 		if !found {
 			continue
@@ -495,19 +584,44 @@ func evaluateDAGEnvRuntime(
 			continue
 		}
 
-		resolver := cmnvalue.NewResolver(
-			cmnvalue.StaticScope{Params: paramDeclarations},
-			cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext},
-		)
-		evaluated, err := resolver.String(ctx, value, cmnvalue.RuntimeDAGEnvField("env."+key))
+		var resolver cmnvalue.Resolver
+		var field cmnvalue.Field
+		if i >= span.Start && i < span.End {
+			resolver = cmnvalue.NewResolver(
+				cmnvalue.StaticScope{Dates: dag.DateNames()},
+				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext, Dates: dates},
+			)
+			field = cmnvalue.DAGEnvCompletionField("env." + key)
+		} else {
+			resolver = cmnvalue.NewResolver(
+				cmnvalue.StaticScope{Params: paramDeclarations, Dates: dag.DateNames()},
+				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext, Dates: dates},
+			)
+			field = cmnvalue.RuntimeDAGEnvField("env." + key)
+		}
+		evaluated, err := resolver.String(ctx, value, field)
 		if err != nil {
 			evaluated = value
+		}
+		// Loading did not see base-config entries, so the DAG's own entries may still refer to them.
+		if i < span.Start {
+			completionScope = completionScope.WithEntry(key, evaluated, cmnvalue.EnvSourceDAGEnv)
 		}
 		result[key] = evaluated
 		scope = scope.WithEntry(key, evaluated, cmnvalue.EnvSourceDAGEnv)
 	}
 
 	return result
+}
+
+// CreationContext returns the context values a run has when it is created,
+// which a param's eval may read: the DAG name, the run ID, and the slot and
+// its window.
+func CreationContext(dagName, dagRunID, scheduleTime string, window ir.ScheduleWindow) cmnvalue.BuiltinContext {
+	options := &contextOptions{}
+	WithScheduleTime(scheduleTime)(options)
+	WithScheduleWindow(window)(options)
+	return buildDAGRunBuiltinContext(&ir.DAG{Name: dagName}, dagRunID, nil, options)
 }
 
 func buildDAGRunBuiltinContext(
@@ -523,6 +637,10 @@ func buildDAGRunBuiltinContext(
 	addDAGRunBuiltinValue(values, "context.run.id", dagRunID)
 	addDAGRunBuiltinValue(values, "context.attempt.started_at", options.RunStartedAt)
 	addDAGRunBuiltinValue(values, "context.run.scheduled_at", options.ScheduleTime)
+	addDAGRunBuiltinValue(values, "context.run.interval_start", options.IntervalStart)
+	addDAGRunBuiltinValue(values, "context.run.interval_end", options.ScheduleTime)
+	addDAGRunBuiltinValue(values, "context.run.next_scheduled_at", options.NextScheduledAt)
+	addDAGRunBuiltinValue(values, "context.run.timezone", options.ScheduleTimezone)
 	if rootDAGRunContextAvailable(options.RootDAGRun, dag, dagRunID) {
 		addDAGRunBuiltinValue(values, "context.run.root_name", options.RootDAGRun.Name)
 		addDAGRunBuiltinValue(values, "context.run.root_id", options.RootDAGRun.ID)

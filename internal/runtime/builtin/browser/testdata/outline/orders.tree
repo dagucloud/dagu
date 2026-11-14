@@ -1,0 +1,101 @@
+[0-39] RootWebArea: 注文一覧
+  [0-107] scrollable, html
+    [0-110] body
+      [0-111] navigation
+        [0-112] link: 注文一覧
+        [0-42] StaticText: 
+        [0-113] link: 請求書
+      [0-114] heading: 注文一覧
+      [0-115] LabelText
+        [0-47] StaticText: 状態
+        [0-106] select: 状態
+          [0-118] MenuListPopup
+            [0-119] slot
+              [0-122] option: すべて
+              [0-125] option: 未出荷 [selected]
+              [0-128] option: 出荷済み
+      [0-131] button: 検索
+      [0-132] table
+        [0-133] rowgroup
+          [0-134] row
+            [0-135] columnheader: 注文番号
+            [0-136] columnheader: 取引先
+            [0-137] columnheader: 金額
+            [0-138] columnheader: 状態
+        [0-139] tbody
+          [0-140] row
+            [0-141] cell: PO-01
+              [0-142] link: PO-01
+            [0-143] cell: Acme
+            [0-144] cell: 12,000円
+            [0-145] cell: 未出荷
+          [0-146] row
+            [0-147] cell: PO-02
+              [0-148] link: PO-02
+            [0-149] cell: Acme
+            [0-150] cell: 12,000円
+            [0-151] cell: 未出荷
+          [0-152] row
+            [0-153] cell: PO-03
+              [0-154] link: PO-03
+            [0-155] cell: Acme
+            [0-156] cell: 12,000円
+            [0-157] cell: 未出荷
+          [0-158] row
+            [0-159] cell: PO-04
+              [0-160] link: PO-04
+            [0-161] cell: Acme
+            [0-162] cell: 12,000円
+            [0-163] cell: 未出荷
+          [0-164] row
+            [0-165] cell: PO-05
+              [0-166] link: PO-05
+            [0-167] cell: Acme
+            [0-168] cell: 12,000円
+            [0-169] cell: 未出荷
+          [0-170] row
+            [0-171] cell: PO-06
+              [0-172] link: PO-06
+            [0-173] cell: Acme
+            [0-174] cell: 12,000円
+            [0-175] cell: 未出荷
+          [0-176] row
+            [0-177] cell: PO-07
+              [0-178] link: PO-07
+            [0-179] cell: Acme
+            [0-180] cell: 12,000円
+            [0-181] cell: 未出荷
+          [0-182] row
+            [0-183] cell: PO-08
+              [0-184] link: PO-08
+            [0-185] cell: Acme
+            [0-186] cell: 12,000円
+            [0-187] cell: 未出荷
+          [0-188] row
+            [0-189] cell: PO-09
+              [0-190] link: PO-09
+            [0-191] cell: Acme
+            [0-192] cell: 12,000円
+            [0-193] cell: 未出荷
+          [0-194] row
+            [0-195] cell: PO-10
+              [0-196] link: PO-10
+            [0-197] cell: Acme
+            [0-198] cell: 12,000円
+            [0-199] cell: 未出荷
+          [0-200] row
+            [0-201] cell: PO-11
+              [0-202] link: PO-11
+            [0-203] cell: Acme
+            [0-204] cell: 12,000円
+            [0-205] cell: 未出荷
+          [0-206] row
+            [0-207] cell: PO-12
+              [0-208] link: PO-12
+            [0-209] cell: Acme
+            [0-210] cell: 12,000円
+            [0-211] cell: 未出荷
+      [0-212] div
+        [0-213] button: 前へ
+        [0-104] StaticText: 12件中 1 / 3 ページ
+        [0-215] button: 次へ

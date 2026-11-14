@@ -1,0 +1,1291 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package computer
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/desktop"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
+	"github.com/stretchr/testify/require"
+)
+
+// fakeBackend is a desktop that records input and shows a screen. Each
+// left click moves on to the next of afterClicks, and each scroll to the
+// next of afterWheels, if any remain.
+type fakeBackend struct {
+	mu          sync.Mutex
+	screen      *image.RGBA
+	afterClicks []*image.RGBA
+	afterWheels []*image.RGBA
+	events      []string
+	// typeErr fails typing, and positionErr reading the pointer's
+	// position, when set.
+	typeErr, positionErr error
+	// pointer is where the pointer rests, which Position reports.
+	pointer image.Point
+	// lastEvent and personInputAt are when the desktop last received input
+	// from the step and from a person.
+	lastEvent     time.Time
+	personInputAt time.Time
+	// personChecks is how many more checks find a person using the desktop
+	// at that moment.
+	personChecks int
+	// focus is the window with the keyboard focus, and under is the window
+	// under any position; zero means the system does not say. focusNext
+	// lists windows FocusedWindow reports first, one a call, as a window
+	// that comes and goes would.
+	focus, under desktop.WindowID
+	focusNext    []desktop.WindowID
+	// app is the application the front window reports to WindowAt and
+	// FocusedWindow when no explicit window is set, so a recording captures
+	// an application; "" is a host that does not report one.
+	app string
+	// windowAt, when set, reports the window under a given position, so a
+	// test can place different windows at different points.
+	windowAt func(x, y int) desktop.WindowID
+	// windows are the visible top-level windows, front of the Z-order
+	// first, that Windows reports; raised records the ones Raise brought
+	// forward, and onRaise runs when one is raised, so a test can make the
+	// elements reader reflect it.
+	windows []desktop.WindowID
+	raised  []desktop.WindowID
+	onRaise func(desktop.WindowID)
+	// reachable are the windows only ReachableWindows lists besides
+	// windows, such as a status item's.
+	reachable []desktop.WindowID
+	// released records the buttons released.
+	released []desktop.Button
+	// captures counts the screenshots taken, of the screen or of windows.
+	captures int
+	// windowShots draw windows, by handle and in display pixels, as a
+	// window capture shows them where the screen does not, such as a window
+	// another covers; captureErr fails every window capture.
+	windowShots map[uint64]*image.RGBA
+	captureErr  error
+	// onType runs on every typing, and onKey on every key pressed, so a
+	// test can make either change a field.
+	onType func(text string)
+	onKey  func(key desktop.Key)
+	// onPress runs on every left button press, so a test can make a click
+	// change what the elements reader sees.
+	onPress func()
+	// maximized records the windows Maximize changed. A window in
+	// fixedSize cannot be maximized; one maximized once stays so.
+	maximized []desktop.WindowID
+	fixedSize map[uint64]bool
+}
+
+func newFakeBackend(width, height int) *fakeBackend {
+	return &fakeBackend{screen: pattern(width, height, 0)}
+}
+
+// pattern draws a screen whose brightness ramps across; shift moves the
+// ramp, which changes the screen's fingerprint.
+func pattern(width, height, shift int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		for x := range width {
+			v := uint8((x + shift) * 255 / (width + shift))
+			if shift != 0 && x < width/2 {
+				v = 255 - v
+			}
+			img.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+	return img
+}
+
+func (b *fakeBackend) show(screen *image.RGBA) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.screen = screen
+}
+
+func (b *fakeBackend) record(event string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.events = append(b.events, event)
+	b.lastEvent = time.Now()
+}
+
+// recordAccessibility logs what the step did to an element through
+// Accessibility, a focus or a pattern, which reaches the application without
+// passing through the desktop's input, so the desktop does not report it as
+// input.
+func (b *fakeBackend) recordAccessibility(event string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.events = append(b.events, event)
+}
+
+// personUses records input from a person now. The time is a moment ahead,
+// so it follows every earlier reading of a clock as coarse as Windows'.
+func (b *fakeBackend) personUses() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.personInputAt = time.Now().Add(time.Millisecond)
+}
+
+// personUsesAfterEcho records input from a person a moment after the
+// desktop could still be reporting the step's own input, which the driver
+// allows a second for, so the step tells the two apart however recently it
+// sent input.
+func (b *fakeBackend) personUsesAfterEcho() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.personInputAt = time.Now().Add(1100 * time.Millisecond)
+}
+
+// personKeepsUsing makes the next checks find a person using the desktop,
+// however long the step takes to make them.
+func (b *fakeBackend) personKeepsUsing(checks int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.personChecks = checks
+}
+
+func (b *fakeBackend) LastInput() time.Time {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.personChecks > 0 {
+		b.personChecks--
+		b.personInputAt = time.Now()
+	}
+	if b.personInputAt.After(b.lastEvent) {
+		return b.personInputAt
+	}
+	return b.lastEvent
+}
+
+func (b *fakeBackend) inputs() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.events...)
+}
+
+func (b *fakeBackend) Capture() (*image.RGBA, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.captures++
+	return b.screen, nil
+}
+
+// CaptureApps shows the listed windows of the applications asked for, the
+// front first, as the screen shows them unless windowShots draws them, over
+// black.
+func (b *fakeBackend) CaptureApps(apps []string) (desktop.Capture, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.captures++
+	if b.captureErr != nil {
+		return desktop.Capture{}, b.captureErr
+	}
+	var shown []desktop.WindowID
+	var area image.Rectangle
+	for _, w := range append(slices.Clone(b.windows), b.reachable...) {
+		named := slices.ContainsFunc(apps, func(app string) bool { return strings.EqualFold(app, w.App) })
+		if w.App != "" && named && w.Bounds.Overlaps(b.screen.Bounds()) {
+			shown = append(shown, w)
+			area = area.Union(w.Bounds)
+		}
+	}
+	if len(shown) == 0 {
+		return desktop.Capture{}, desktop.ErrNoWindows
+	}
+	canvas := image.NewRGBA(area.Intersect(b.screen.Bounds()))
+	draw.Draw(canvas, canvas.Bounds(), image.Black, image.Point{}, draw.Src)
+	for _, w := range slices.Backward(shown) {
+		src := b.screen
+		if shot, ok := b.windowShots[w.Handle]; ok {
+			src = shot
+		}
+		draw.Draw(canvas, w.Bounds, src, w.Bounds.Min, draw.Src)
+	}
+	return desktop.Capture{Image: canvas, Windows: shown}, nil
+}
+
+// fakeElements is a window whose elements a test lists by hand. The list
+// can change after a number of reads, as a screen does.
+type fakeElements struct {
+	mu       sync.Mutex
+	window   desktop.Element
+	elements []desktop.Element
+	// err fails every read when set.
+	err error
+	// noWindow is how many reads find no window in front, as between one
+	// window closing and the next one opening; frontErr fails every read
+	// of the window in front, as a reader that cannot reach it does.
+	noWindow int
+	frontErr error
+	// opens counts how often the executor opened the reader; reads counts
+	// the looks at the window.
+	opens, reads int
+	// then replaces elements once reads reaches after, and nextWindow
+	// the window once reads reaches windowAfter.
+	after       int
+	then        []desktop.Element
+	windowAfter int
+	nextWindow  *desktop.Element
+	closed      bool
+	// focused is the element with the keyboard focus, once one has it.
+	focused  desktop.Element
+	hasFocus bool
+	// onFocus sees every element the executor focuses.
+	onFocus func(desktop.Element)
+	// patterns lists the patterns an element offers, by id or name; an
+	// element not listed offers what its role suggests. applyErr fails a
+	// pattern on an element.
+	patterns map[string][]desktop.Pattern
+	applyErr map[string]error
+	// onApply sees every pattern the executor applies, and onRefuse every
+	// one applyErr fails, after the failure is decided.
+	onApply  func(desktop.Element, desktop.Pattern, string)
+	onRefuse func(desktop.Element, desktop.Pattern, error)
+	// tableHeaders and tableRows are the columns and rows a container
+	// exposes, for Rows; tableErr fails Rows when set.
+	tableHeaders []string
+	tableRows    [][]string
+	tableErr     error
+	// windows are the readers of windows other than this one, by handle,
+	// which InWindow returns; any other handle reads this window.
+	windows map[uint64]*fakeElements
+	// foreground lists the elements, by id or name, whose patterns bring
+	// their window forward, which a reader of one window refuses.
+	foreground map[string]bool
+}
+
+// InWindow reads the window a test listed under the handle, or this one.
+func (f *fakeElements) InWindow(w desktop.WindowID) desktop.Elements {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if other, ok := f.windows[w.Handle]; ok {
+		return windowElements{other}
+	}
+	return windowElements{f}
+}
+
+// windowElements is a fake window read through InWindow.
+type windowElements struct{ *fakeElements }
+
+// Apply refuses a pattern that brings the window forward, as Windows'
+// proxies for Win32 and Windows Forms controls do.
+func (w windowElements) Apply(e desktop.Element, pattern desktop.Pattern, value string) error {
+	w.mu.Lock()
+	refused := w.foreground[focusedID(e)]
+	w.mu.Unlock()
+	if refused {
+		return desktop.ErrForeground
+	}
+	return w.fakeElements.Apply(e, pattern, value)
+}
+
+// bringsForward makes an element's patterns bring its window forward.
+func (f *fakeElements) bringsForward(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.foreground == nil {
+		f.foreground = map[string]bool{}
+	}
+	f.foreground[id] = true
+}
+
+// behind lists a window apart from the one in front, read through InWindow
+// by its handle.
+func (f *fakeElements) behind(handle uint64, window *fakeElements) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.windows == nil {
+		f.windows = map[uint64]*fakeElements{}
+	}
+	f.windows[handle] = window
+}
+
+// Rows returns the scripted table rows, each cell under the column a
+// header names, as the real reader does.
+func (f *fakeElements) Rows(_ context.Context, _ desktop.Selector, columns []string, maxRows int) ([][]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tableErr != nil {
+		return nil, f.tableErr
+	}
+	index := map[string]int{}
+	for i, head := range f.tableHeaders {
+		index[desktop.NormalizeText(head)] = i
+	}
+	cols := make([]int, len(columns))
+	for i, name := range columns {
+		at, ok := index[desktop.NormalizeText(name)]
+		if !ok {
+			return nil, fmt.Errorf("%w: no column is headed %q", desktop.ErrNotFound, name)
+		}
+		cols[i] = at
+	}
+	var out [][]string
+	for r, row := range f.tableRows {
+		if r >= maxRows {
+			break
+		}
+		cells := make([]string, len(cols))
+		for i, at := range cols {
+			if at < len(row) {
+				cells[i] = row[at]
+			}
+		}
+		out = append(out, cells)
+	}
+	return out, nil
+}
+
+// expenseWindow and expenseElements are a form in an expense app: a saved
+// notice, a labelled amount field, and two 保存 buttons, one in a group.
+func expenseWindow() desktop.Element {
+	return desktop.Element{Role: desktop.RoleWindow, Name: "経費精算 - 請求書 1042", App: "expense", Window: "経費精算 - 請求書 1042", Bounds: image.Rect(100, 100, 700, 500)}
+}
+
+func expenseElements() []desktop.Element {
+	group := []desktop.PathStep{{Role: desktop.RoleGroup, Name: "支払情報", Index: 0}}
+	return []desktop.Element{
+		{Role: desktop.RoleText, Name: "保存しました", Bounds: image.Rect(120, 110, 300, 130), Path: []desktop.PathStep{{Role: desktop.RoleText, Name: "保存しました", Index: 0}}},
+		{Role: desktop.RoleText, Name: "金額", Bounds: image.Rect(120, 140, 180, 164), Path: []desktop.PathStep{{Role: desktop.RoleText, Name: "金額", Index: 1}}},
+		{Role: desktop.RoleTextField, ID: "amountBox", Value: "12,000", Bounds: image.Rect(190, 140, 390, 164), Path: []desktop.PathStep{{Role: desktop.RoleTextField, Index: 0}}},
+		{Role: desktop.RoleButton, Name: "保存", ID: "saveButton", Bounds: image.Rect(190, 180, 280, 208), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "保存", Index: 0}}},
+		{Role: desktop.RoleGroup, Name: "支払情報", ID: "paymentGroup", Bounds: image.Rect(120, 300, 660, 450), Path: group},
+		{Role: desktop.RoleButton, Name: "保存", ID: "paymentSaveButton", Bounds: image.Rect(210, 370, 300, 398), Path: append(group[:1:1], desktop.PathStep{Role: desktop.RoleButton, Name: "保存", Index: 0})},
+	}
+}
+
+func newFakeElements() *fakeElements {
+	return &fakeElements{window: expenseWindow(), elements: expenseElements()}
+}
+
+// arriveAfter makes the window show elements once it has been read reads
+// more times.
+func (f *fakeElements) arriveAfter(reads int, elements []desktop.Element) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.after, f.then = f.reads+reads, elements
+}
+
+// comeForwardAfter puts another window in front once the window in front has
+// been read reads more times, as another application coming forward would.
+func (f *fakeElements) comeForwardAfter(reads int, window desktop.Element) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.windowAfter, f.nextWindow = f.reads+reads, &window
+}
+
+// FrontWindow counts one look at the window, which the elements read
+// after it belong to.
+func (f *fakeElements) FrontWindow() (desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.noWindow > 0 {
+		f.noWindow--
+		return desktop.Element{}, desktop.ErrNoWindow
+	}
+	if f.frontErr != nil {
+		return desktop.Element{}, f.frontErr
+	}
+	f.reads++
+	if f.then != nil && f.reads > f.after {
+		f.elements, f.then = f.then, nil
+	}
+	if f.nextWindow != nil && f.reads > f.windowAfter {
+		f.window, f.nextWindow = *f.nextWindow, nil
+	}
+	return f.window, nil
+}
+
+// current returns the window's elements, or the error the window gives.
+func (f *fakeElements) current() (desktop.Element, []desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return desktop.Element{}, nil, f.err
+	}
+	// A reader gets the window as it is now, apart from later changes.
+	return f.window, slices.Clone(f.elements), nil
+}
+
+func (f *fakeElements) Find(sel desktop.Selector) ([]desktop.Element, error) {
+	window, elements, err := f.current()
+	if err != nil {
+		return nil, err
+	}
+	return desktop.Match(window, elements, sel)
+}
+
+func (f *fakeElements) Outline(_ desktop.Element, limit int) ([]desktop.Element, error) {
+	_, elements, err := f.current()
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(elements) > limit {
+		elements = elements[:limit]
+	}
+	return elements, nil
+}
+
+// At returns the innermost element under the point: the one with the
+// longest path, as a group precedes its button in tree order.
+func (f *fakeElements) At(x, y int) (desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var found *desktop.Element
+	for i := range f.elements {
+		e := &f.elements[i]
+		if image.Pt(x, y).In(e.Bounds) && (found == nil || len(e.Path) >= len(found.Path)) {
+			found = e
+		}
+	}
+	if found == nil {
+		return desktop.Element{}, errors.New("nothing is under the point")
+	}
+	e := *found
+	e.Window = f.window.Name
+	return e, nil
+}
+
+func (f *fakeElements) Focused() (desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.hasFocus {
+		return desktop.Element{}, errors.New("nothing has the focus")
+	}
+	return f.focused, nil
+}
+
+func (f *fakeElements) Focus(e desktop.Element) error {
+	f.mu.Lock()
+	f.focused, f.hasFocus = e, true
+	onFocus := f.onFocus
+	f.mu.Unlock()
+	if onFocus != nil {
+		onFocus(e)
+	}
+	return nil
+}
+
+// rolePatterns are the patterns an element of a role offers, as common
+// controls do.
+func rolePatterns(role string) []desktop.Pattern {
+	switch role {
+	case desktop.RoleButton, desktop.RoleMenuItem, desktop.RoleLink, desktop.RoleOther:
+		return []desktop.Pattern{desktop.PatternInvoke}
+	case desktop.RoleCheckbox:
+		return []desktop.Pattern{desktop.PatternToggle}
+	case desktop.RoleRadio, desktop.RoleListItem, desktop.RoleTab, desktop.RoleCell:
+		return []desktop.Pattern{desktop.PatternSelect}
+	case desktop.RoleComboBox:
+		return []desktop.Pattern{desktop.PatternExpand}
+	case desktop.RoleTextField:
+		return []desktop.Pattern{desktop.PatternSetValue}
+	}
+	return nil
+}
+
+// Apply performs a pattern when the element offers it, setting a field's
+// value, and reports what it did through onApply.
+func (f *fakeElements) Apply(e desktop.Element, pattern desktop.Pattern, value string) error {
+	f.mu.Lock()
+	id := focusedID(e)
+	if err, ok := f.applyErr[id]; ok {
+		onRefuse := f.onRefuse
+		f.mu.Unlock()
+		if onRefuse != nil {
+			onRefuse(e, pattern, err)
+		}
+		return err
+	}
+	offered, listed := f.patterns[id]
+	if !listed {
+		offered = rolePatterns(e.Role)
+	}
+	if !slices.Contains(offered, pattern) {
+		f.mu.Unlock()
+		return desktop.ErrNoPattern
+	}
+	for i := range f.elements {
+		if focusedID(f.elements[i]) != id {
+			continue
+		}
+		switch {
+		case pattern == desktop.PatternSetValue:
+			f.elements[i].Value = value
+		case pattern == desktop.PatternToggle:
+			// A toggle flips a checkbox's state, as a real one does.
+			f.elements[i].Value = map[string]string{"true": "false", "false": "true"}[f.elements[i].Value]
+		}
+	}
+	onApply := f.onApply
+	f.mu.Unlock()
+	if onApply != nil {
+		onApply(e, pattern, value)
+	}
+	return nil
+}
+
+// withoutPattern makes an element offer no pattern at all.
+func (f *fakeElements) withoutPattern(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.patterns == nil {
+		f.patterns = map[string][]desktop.Pattern{}
+	}
+	f.patterns[id] = nil
+}
+
+// failPattern makes every pattern on an element fail with err.
+func (f *fakeElements) failPattern(id string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.applyErr == nil {
+		f.applyErr = map[string]error{}
+	}
+	f.applyErr[id] = err
+}
+
+// shift moves the window and everything in it, as a person dragging it
+// would.
+func (f *fakeElements) shift(dx, dy int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	offset := image.Pt(dx, dy)
+	f.window.Bounds = f.window.Bounds.Add(offset)
+	for i := range f.elements {
+		f.elements[i].Bounds = f.elements[i].Bounds.Add(offset)
+	}
+	for i := range f.then {
+		f.then[i].Bounds = f.then[i].Bounds.Add(offset)
+	}
+}
+
+// show puts a window and its elements in front, as another window coming
+// up or the window changing would.
+func (f *fakeElements) show(window desktop.Element, elements []desktop.Element) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.window, f.elements, f.then = window, elements, nil
+}
+
+// retitle changes the window's title.
+func (f *fakeElements) retitle(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.window.Name, f.window.Window = name, name
+	for i := range f.elements {
+		f.elements[i].Window = name
+	}
+}
+
+// asApp sets the front window's application, as a different program in front
+// would report.
+func (f *fakeElements) asApp(app string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.window.App = app
+}
+
+// focusedID names the element the executor focused, for the input log.
+func focusedID(e desktop.Element) string {
+	if e.ID != "" {
+		return e.ID
+	}
+	return e.Name
+}
+
+func (f *fakeElements) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	return nil
+}
+
+func (b *fakeBackend) MoveTo(x, y int) error {
+	b.record(fmt.Sprintf("move %d,%d", x, y))
+	return nil
+}
+
+func (b *fakeBackend) Position() (int, int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.pointer.X, b.pointer.Y, b.positionErr
+}
+
+func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error {
+	if !down {
+		b.mu.Lock()
+		b.released = append(b.released, button)
+		b.mu.Unlock()
+		return nil
+	}
+	b.record(fmt.Sprintf("%s down #%d", button, clicks))
+	b.mu.Lock()
+	if button == desktop.ButtonLeft && len(b.afterClicks) > 0 {
+		b.screen, b.afterClicks = b.afterClicks[0], b.afterClicks[1:]
+	}
+	onPress := b.onPress
+	b.mu.Unlock()
+	if onPress != nil && button == desktop.ButtonLeft {
+		onPress()
+	}
+	return nil
+}
+
+// script shows screen now and next after each later left click.
+func (b *fakeBackend) script(screen *image.RGBA, next ...*image.RGBA) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.screen, b.afterClicks, b.events = screen, next, nil
+}
+
+// stripes draws n vertical black and white stripes, whose fingerprints
+// differ clearly for different n.
+func stripes(width, height, n int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		for x := range width {
+			v := uint8(0)
+			if (x*n/width)%2 == 1 {
+				v = 255
+			}
+			img.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+	return img
+}
+
+func (b *fakeBackend) Wheel(dx, dy int) error {
+	b.record(fmt.Sprintf("wheel %d,%d", dx, dy))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.afterWheels) > 0 {
+		b.screen, b.afterWheels = b.afterWheels[0], b.afterWheels[1:]
+	}
+	return nil
+}
+
+// nudged brightens a small block of a screen by step, a change that keeps
+// the screen's fingerprint, as a short scroll of a small list does.
+func nudged(screen *image.RGBA, step uint8) *image.RGBA {
+	return brightened(screen, image.Rect(100, 50, 140, 90), step)
+}
+
+// withCaret draws a text caret on a screen, as one that blinks shows.
+func withCaret(screen *image.RGBA) *image.RGBA {
+	return brightened(screen, image.Rect(20, 20, 24, 54), 40)
+}
+
+func brightened(screen *image.RGBA, area image.Rectangle, step uint8) *image.RGBA {
+	out := image.NewRGBA(screen.Bounds())
+	copy(out.Pix, screen.Pix)
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := out.RGBAAt(x, y)
+			out.SetRGBA(x, y, color.RGBA{R: c.R + step, G: c.G + step, B: c.B + step, A: c.A})
+		}
+	}
+	return out
+}
+
+func (b *fakeBackend) Key(key desktop.Key, down bool) error {
+	if !down {
+		return nil
+	}
+	b.record("key " + string(key))
+	b.mu.Lock()
+	onKey := b.onKey
+	b.mu.Unlock()
+	if onKey != nil {
+		onKey(key)
+	}
+	return nil
+}
+
+func (b *fakeBackend) Type(text string) error {
+	b.mu.Lock()
+	err := b.typeErr
+	b.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	b.record("type " + text)
+	b.mu.Lock()
+	onType := b.onType
+	b.mu.Unlock()
+	if onType != nil {
+		onType(text)
+	}
+	return nil
+}
+
+func (b *fakeBackend) FocusedWindow() desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.focusNext) > 0 {
+		w := b.focusNext[0]
+		b.focusNext = b.focusNext[1:]
+		return w
+	}
+	if b.focus.Known() {
+		return b.focus
+	}
+	return desktop.WindowID{App: b.app}
+}
+
+func (b *fakeBackend) WindowAt(x, y int) desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.windowAt != nil {
+		return b.windowAt(x, y)
+	}
+	if b.under.Known() {
+		return b.under
+	}
+	return desktop.WindowID{App: b.app}
+}
+
+func (b *fakeBackend) Windows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]desktop.WindowID(nil), b.windows...)
+}
+
+func (b *fakeBackend) ReachableWindows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append(append([]desktop.WindowID(nil), b.windows...), b.reachable...)
+}
+
+func (b *fakeBackend) Raise(w desktop.WindowID) error {
+	b.mu.Lock()
+	b.raised = append(b.raised, w)
+	b.focus, b.under = w, w
+	onRaise := b.onRaise
+	b.mu.Unlock()
+	if onRaise != nil {
+		onRaise(w)
+	}
+	return nil
+}
+
+func (b *fakeBackend) Maximize(w desktop.WindowID) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.fixedSize[w.Handle] || slices.ContainsFunc(b.maximized, func(m desktop.WindowID) bool { return m.Handle == w.Handle }) {
+		return false, nil
+	}
+	b.maximized = append(b.maximized, w)
+	return true, nil
+}
+
+// raisedWindows lists the windows Raise brought forward.
+func (b *fakeBackend) raisedWindows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.raised)
+}
+
+// maximizedWindows lists the windows Maximize changed.
+func (b *fakeBackend) maximizedWindows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.maximized)
+}
+
+// focusOn moves the keyboard focus to a window.
+func (b *fakeBackend) focusOn(window desktop.WindowID) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.focus = window
+}
+
+func (b *fakeBackend) Close() error { return nil }
+
+// fakeMarks records the marks a step shows. onShow, when set, runs as one
+// shows, so a test can place it among the step's input.
+type fakeMarks struct {
+	mu     sync.Mutex
+	shown  []desktop.Mark
+	closed bool
+	onShow func(desktop.Mark)
+}
+
+func (m *fakeMarks) Show(mark desktop.Mark) error {
+	m.mu.Lock()
+	m.shown = append(m.shown, mark)
+	onShow := m.onShow
+	m.mu.Unlock()
+	if onShow != nil {
+		onShow(mark)
+	}
+	return nil
+}
+
+func (m *fakeMarks) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+// marked lists each mark shown as its label and target.
+func (m *fakeMarks) marked() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.shown))
+	for i, mark := range m.shown {
+		out[i] = fmt.Sprintf("%s %v", mark.Label, mark.Target)
+	}
+	return out
+}
+
+// scriptedSession answers each observation with the next scripted turn and
+// records the observations.
+type scriptedSession struct {
+	limit        computeruse.ImageLimit
+	turns        []*computeruse.Turn
+	err          error
+	observations []computeruse.Observation
+	// onNext runs at the start of every request.
+	onNext func()
+	// elementTurns lets the session be sent the element list without a
+	// screenshot, as the generic session may be.
+	elementTurns bool
+}
+
+func (s *scriptedSession) ImageLimit() computeruse.ImageLimit { return s.limit }
+
+func (s *scriptedSession) ElementTurns() bool { return s.elementTurns }
+
+func (s *scriptedSession) Next(_ context.Context, obs computeruse.Observation) (*computeruse.Turn, error) {
+	if s.onNext != nil {
+		s.onNext()
+	}
+	s.observations = append(s.observations, obs)
+	if s.err != nil {
+		return nil, s.err
+	}
+	if len(s.turns) == 0 {
+		return nil, errors.New("no scripted turn left")
+	}
+	turn := s.turns[0]
+	s.turns = s.turns[1:]
+	return turn, nil
+}
+
+// requests lists the note of every observation and whether it asked for
+// the model's report alone.
+func (s *scriptedSession) requests() (notes []string, reportOnly []bool) {
+	for _, obs := range s.observations {
+		notes = append(notes, obs.Note)
+		reportOnly = append(reportOnly, obs.ReportOnly)
+	}
+	return notes, reportOnly
+}
+
+func done(summary string) *computeruse.Turn {
+	return &computeruse.Turn{Done: &computeruse.Done{Success: true, Summary: summary}, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
+}
+
+// said is a turn in which the model only answers in text.
+func said(text string) *computeruse.Turn {
+	return &computeruse.Turn{Text: text}
+}
+
+func actions(list ...computeruse.Action) *computeruse.Turn {
+	return &computeruse.Turn{Actions: list, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
+}
+
+func clickAt(x, y int) computeruse.Action {
+	return computeruse.Action{CallID: "c", Kind: computeruse.KindClick, Point: &computeruse.Point{X: x, Y: y}}
+}
+
+func scrollDownAt(x, y int) computeruse.Action {
+	return computeruse.Action{CallID: "s", Kind: computeruse.KindScroll, Point: &computeruse.Point{X: x, Y: y}, ScrollY: 3}
+}
+
+// visionModel answers extract and judge requests with a respond tool call.
+// Requests are told apart by the schema: judge requests ask for answer.
+type visionModel struct {
+	mu       sync.Mutex
+	extract  string
+	truths   map[string]bool
+	requests []*llmpkg.ChatRequest
+	// prose answers the first requests in plain text, one entry each,
+	// without the respond call.
+	prose []string
+	// badArgs answers the next requests with a respond call whose
+	// arguments are each entry, which need not be valid JSON.
+	badArgs []string
+	// onChat runs at the start of every request, as the screen may change
+	// while the model answers.
+	onChat func()
+}
+
+func (m *visionModel) Chat(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+	if m.onChat != nil {
+		m.onChat()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Record what this call carried: a retry appends to req.Messages.
+	sent := *req
+	sent.Messages = slices.Clone(req.Messages)
+	m.requests = append(m.requests, &sent)
+	if len(m.prose) > 0 {
+		text := m.prose[0]
+		m.prose = m.prose[1:]
+		return &llmpkg.ChatResponse{Content: text, Usage: llmpkg.Usage{PromptTokens: 5, CompletionTokens: 1}}, nil
+	}
+	if len(m.badArgs) > 0 {
+		args := m.badArgs[0]
+		m.badArgs = m.badArgs[1:]
+		return &llmpkg.ChatResponse{
+			ToolCalls: []llmpkg.ToolCall{{ID: "r", Type: "function", Function: llmpkg.ToolCallFunction{Name: agentstep.RespondToolName, Arguments: args}}},
+			Usage:     llmpkg.Usage{PromptTokens: 5, CompletionTokens: 1},
+		}, nil
+	}
+	arguments := m.extract
+	properties, _ := req.Tools[0].Function.Parameters["properties"].(map[string]any)
+	if _, judge := properties["answer"]; judge {
+		holds := false
+		for statement, truth := range m.truths {
+			if bytes.Contains([]byte(req.Messages[1].Content), []byte(statement)) {
+				holds = truth
+			}
+		}
+		arguments = fmt.Sprintf(`{"answer":%t,"reason":"checked"}`, holds)
+	}
+	return &llmpkg.ChatResponse{
+		ToolCalls: []llmpkg.ToolCall{{ID: "r", Type: "function", Function: llmpkg.ToolCallFunction{Name: agentstep.RespondToolName, Arguments: arguments}}},
+		Usage:     llmpkg.Usage{PromptTokens: 5, CompletionTokens: 1},
+	}, nil
+}
+
+func (m *visionModel) ChatStream(context.Context, *llmpkg.ChatRequest) (<-chan llmpkg.StreamEvent, error) {
+	return nil, errors.New("not used")
+}
+
+func (m *visionModel) Name() string { return "vision" }
+
+// testRun is one DAG run whose computer step executions share a data
+// directory and a desktop.
+type testRun struct {
+	t         *testing.T
+	dataDir   string
+	artifacts string
+	workDir   string
+	// runID is the DAG run the steps belong to, run-1 when empty.
+	runID string
+	// desktopLock is the desktop lock the run's steps take; runs that share
+	// it share a desktop.
+	desktopLock string
+	backend     *fakeBackend
+	// elements is the window exact checks read; nil means the host cannot
+	// read elements.
+	elements *fakeElements
+	vision   *visionModel
+	secrets  map[string]string
+	llm      *ir.LLMConfig
+	// sessions supplies the session for each act, in order.
+	sessions []*scriptedSession
+	// sessionErrors fails session creation for the named models, and
+	// sessionOptions keeps what each session was opened with.
+	sessionErrors  map[string]error
+	sessionOptions []computeruse.Options
+	// personWait, when set, bounds how long a step waits for a person.
+	personWait time.Duration
+	// checkDesktop reports whether the desktop can be automated, to the step
+	// and to opening the desktop as desktop.Open does; nil is usable.
+	checkDesktop func() desktop.Diagnostics
+	// screenPoll and screenWait, when set, space and bound the step's wait
+	// for the screen to be unlocked.
+	screenPoll, screenWait time.Duration
+	// parent, when set, is the context the step runs under, so a test can
+	// cancel it.
+	parent context.Context
+	// protect names processes, protectApps applications, and protectTitles
+	// window titles, whose windows the step must not operate.
+	protect       []uint32
+	protectApps   []string
+	protectTitles []string
+	launches      [][]string
+	// onLaunch, when set, runs on every launch, so a test can bring the
+	// launched application to the front.
+	onLaunch func()
+	// remote runs the step as if in a remote desktop session rather than
+	// at the console, where it does not wait for a person by default.
+	remote bool
+	// onProgress, when set, sees the step's session whenever it changes, as
+	// a view of a running step does.
+	onProgress func(*ir.AgentSession)
+	// marks records the marks the step shows, and marksErr fails opening
+	// them when set.
+	marks    *fakeMarks
+	marksErr error
+}
+
+func newTestRun(t *testing.T) *testRun {
+	t.Helper()
+	return &testRun{
+		t:           t,
+		dataDir:     t.TempDir(),
+		artifacts:   t.TempDir(),
+		workDir:     t.TempDir(),
+		desktopLock: filepath.Join(t.TempDir(), desktopLockName),
+		backend:     newFakeBackend(400, 200),
+		vision:      &visionModel{},
+		llm:         &ir.LLMConfig{Provider: "openai", Model: "test-model"},
+		marks:       &fakeMarks{},
+	}
+}
+
+// stepExecution is one execution of the computer step.
+type stepExecution struct {
+	exec   *computerExecutor
+	stdout bytes.Buffer
+	stderr bytes.Buffer
+	err    error
+}
+
+func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecution {
+	r.t.Helper()
+	var with map[string]any
+	require.NoError(r.t, json.Unmarshal([]byte(withJSON), &with))
+	step := ir.Step{
+		ID:             "post",
+		Name:           "post",
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: with},
+		LLM:            r.llm,
+	}
+	created, err := newExecutor(r.t.Context(), step)
+	require.NoError(r.t, err)
+	execution := &stepExecution{exec: created.(*computerExecutor)}
+	check := r.checkDesktop
+	if check == nil {
+		check = func() desktop.Diagnostics { return desktop.Diagnostics{} }
+	}
+	execution.exec.checkDesktop = check
+	execution.exec.screenPoll = time.Millisecond
+	if r.screenPoll > 0 {
+		execution.exec.screenPoll = r.screenPoll
+	}
+	if r.screenWait > 0 {
+		execution.exec.screenWait = r.screenWait
+	}
+	execution.exec.openDesktop = func() (*desktop.Driver, error) {
+		if err := check().Err(); err != nil {
+			return nil, err
+		}
+		driver := desktop.New(r.backend)
+		driver.Protect(r.protect...)
+		return driver, nil
+	}
+	execution.exec.openElements = func() (desktop.Elements, error) {
+		if r.elements == nil {
+			return nil, desktop.ErrElementsUnsupported
+		}
+		r.elements.mu.Lock()
+		r.elements.opens++
+		r.elements.mu.Unlock()
+		r.logAccessibility(r.elements)
+		return r.elements, nil
+	}
+	execution.exec.openMarks = func() (desktop.Marks, error) {
+		if r.marksErr != nil {
+			return nil, r.marksErr
+		}
+		return r.marks, nil
+	}
+	execution.exec.protectedApps = r.protectApps
+	execution.exec.protectedTitles = r.protectTitles
+	// A replay looks once for what it needs, so a miss is quick; a test
+	// that wants waiting sets find_within.
+	execution.exec.findWithin = 0
+	// Tests run as if at the console, so the person-guard behaves as it
+	// does for a local desktop; a test of a remote session sets remote.
+	execution.exec.onConsole = func() bool { return !r.remote }
+	execution.exec.launch = func(dir, command string, args []string) error {
+		r.launches = append(r.launches, append([]string{dir, command}, args...))
+		if r.onLaunch != nil {
+			r.onLaunch()
+		}
+		return nil
+	}
+	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
+		return r.vision, nil
+	}
+	execution.exec.newSession = func(_ llmpkg.ProviderType, _ llmpkg.Provider, _ computeruse.Mode, opts computeruse.Options) (computeruse.Session, error) {
+		r.sessionOptions = append(r.sessionOptions, opts)
+		if err := r.sessionErrors[opts.Model]; err != nil {
+			return nil, err
+		}
+		if len(r.sessions) == 0 {
+			return nil, errors.New("no scripted session left")
+		}
+		session := r.sessions[0]
+		r.sessions = r.sessions[1:]
+		return session, nil
+	}
+	execution.exec.settle = settleTiming{timeout: time.Millisecond}
+	// The fake backend models a Windows desktop, so pins are keyed windows
+	// regardless of the OS the test runs on.
+	execution.exec.system = systemWindows
+	execution.exec.desktopLock = r.desktopLock
+	execution.exec.idlePoll = time.Millisecond
+	if r.personWait > 0 {
+		execution.exec.personWait = r.personWait
+	}
+	execution.exec.SetStdout(&execution.stdout)
+	execution.exec.SetStderr(&execution.stderr)
+	execution.exec.SetAgentSession(session)
+	if r.onProgress != nil {
+		execution.exec.SetProgressCallback(func() { r.onProgress(execution.exec.GetAgentSession()) })
+	}
+	execution.err = execution.exec.Run(r.context())
+	return execution
+}
+
+// logAccessibility logs what the step does to the elements of a window
+// through Accessibility as the desktop's input log, unless the test watches
+// it itself.
+func (r *testRun) logAccessibility(f *fakeElements) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.onFocus == nil {
+		f.onFocus = func(e desktop.Element) { r.backend.recordAccessibility("focus " + focusedID(e)) }
+	}
+	if f.onApply == nil {
+		f.onApply = func(e desktop.Element, pattern desktop.Pattern, value string) {
+			if pattern == desktop.PatternSetValue {
+				r.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
+				return
+			}
+			r.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+		}
+	}
+}
+
+// openBehind lists window as the window with the handle, behind the one in
+// front, which a step reads in place of the one in front while it does not
+// hold the desktop.
+func (r *testRun) openBehind(handle uint64, window *fakeElements) {
+	r.logAccessibility(window)
+	r.elements.behind(handle, window)
+}
+
+func (r *testRun) context() context.Context {
+	scope := value.NewEnvScope(nil, false).WithEntry(runenv.EnvKeyDAGRunArtifactsDir, r.artifacts, value.EnvSourceDAGEnv)
+	for name, secret := range r.secrets {
+		scope = scope.WithEntry(name, secret, value.EnvSourceSecret)
+	}
+	parent := r.parent
+	if parent == nil {
+		parent = r.t.Context()
+	}
+	ctx := cmnconfig.WithConfig(parent, &cmnconfig.Config{Paths: cmnconfig.PathsConfig{DataDir: r.dataDir}})
+	return runtime.WithEnv(ctx, runtime.Env{
+		DAG:        &ir.DAG{Name: "invoices"},
+		DAGRunID:   cmp.Or(r.runID, "run-1"),
+		WorkerID:   "worker-a",
+		Scope:      scope,
+		WorkingDir: r.workDir,
+	})
+}
+
+// operationEvents lists the step's operation events, in order.
+func operationEvents(session *ir.AgentSession) []ir.AgentSessionEvent {
+	var events []ir.AgentSessionEvent
+	for _, event := range session.Events {
+		if event.Type == agentstep.EventOperation {
+			events = append(events, event)
+		}
+	}
+	return events
+}
+
+func eventNames(session *ir.AgentSession) []string {
+	names := make([]string, 0, len(session.Events))
+	for _, event := range session.Events {
+		if event.Type == agentstep.EventOperation {
+			names = append(names, event.Name+":"+event.Status)
+		}
+	}
+	return names
+}
+
+// waitReasons lists the reasons of the step's waiting events, in order.
+func waitReasons(session *ir.AgentSession) []string {
+	var reasons []string
+	for _, event := range session.Events {
+		if event.Type == agentstep.EventLifecycle && event.Status == agentstep.StatusWaiting {
+			reasons = append(reasons, event.Name)
+		}
+	}
+	return reasons
+}
+
+func lifecycleMessages(session *ir.AgentSession) []string {
+	var messages []string
+	for _, event := range session.Events {
+		if event.Type == agentstep.EventLifecycle {
+			messages = append(messages, event.Content)
+		}
+	}
+	return messages
+}
+
+// blockRead makes the only file in dir unreadable until the returned
+// function restores it. A directory stands in for the file, which no
+// process can read as a file whatever its privileges.
+func blockRead(t *testing.T, dir string) (restore func()) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	path := filepath.Join(dir, entries[0].Name())
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.Mkdir(path, 0o700))
+	return func() {
+		require.NoError(t, os.Remove(path))
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+}
+
+// setValue sets an element's value, such as a checkbox's state.
+func (f *fakeElements) setValue(id, value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.elements {
+		if focusedID(f.elements[i]) == id {
+			f.elements[i].Value = value
+		}
+	}
+}

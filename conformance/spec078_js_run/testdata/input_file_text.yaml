@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - action: js.run
+    stdout: result.out
+    with:
+      input_file: data.json
+      format: text
+      script: return typeof input

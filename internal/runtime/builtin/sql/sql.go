@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -72,6 +75,16 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse sql config: %w", err)
 	}
+	workDir := runtime.GetEnv(ctx).WorkingDir
+	cfg.OutputFile = workpath.Resolve(workDir, cfg.OutputFile)
+	if cfg.Import != nil {
+		cfg.Import.InputFile = workpath.Resolve(workDir, cfg.Import.InputFile)
+	}
+	if driverName == "sqlite" {
+		if cfg.DSN, err = resolveSQLiteDSN(workDir, cfg.DSN); err != nil {
+			return nil, fmt.Errorf("failed to resolve sqlite dsn: %w", err)
+		}
+	}
 
 	var connMgr *ConnectionManager
 	var poolManager *GlobalPoolManager
@@ -110,6 +123,70 @@ func newSQLExecutor(ctx context.Context, step ir.Step, driverName string) (execu
 		stdout:        os.Stdout,
 		stderr:        os.Stderr,
 	}, nil
+}
+
+// resolveSQLiteDSN resolves a relative database file in a SQLite DSN, such as
+// data.db or file:./data.db?mode=ro, under workDir. In-memory databases,
+// absolute paths, and query parameters are kept as written.
+func resolveSQLiteDSN(workDir, dsn string) (string, error) {
+	isURI, rest := false, dsn
+	if after, ok := strings.CutPrefix(dsn, "file:"); ok {
+		isURI, rest = true, after
+	}
+	// The driver, like SQLite, ends the database name at the first '?'.
+	name, query, hasQuery := strings.Cut(rest, "?")
+	if name == ":memory:" || isSQLiteMemoryMode(query) {
+		return dsn, nil
+	}
+	resolved := workpath.Resolve(workDir, name)
+	if resolved == name {
+		// Absolute, rooted, or empty names, or no working directory.
+		return dsn, nil
+	}
+
+	if isURI {
+		// SQLite decodes %XX in a file: URI and ends the path at '?' or '#',
+		// so the working directory is escaped; the authored name keeps its
+		// own escapes.
+		// A root directory already ends in a slash; another would read as
+		// the start of a URI authority.
+		resolved = "file:" + strings.TrimSuffix(sqliteURIPath(filepath.ToSlash(workDir)), "/") + "/" + strings.TrimPrefix(name, "./")
+	} else if strings.Contains(workDir, "?") {
+		// The driver would end the plain name at this '?'.
+		return "", fmt.Errorf("cannot resolve relative dsn %q: working directory %q contains '?'; use an absolute file: URI", dsn, workDir)
+	}
+	if hasQuery {
+		resolved += "?" + query
+	}
+	return resolved, nil
+}
+
+// sqliteURIPathEscaper escapes the characters that change the meaning of a
+// path in a SQLite file: URI.
+var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
+// sqliteURIPath writes an absolute slash-separated directory as the path of
+// a SQLite file: URI. A Windows drive path gains a leading slash, as in
+// file:/C:/data, and a UNC path an empty authority, as in
+// file:////server/share, so SQLite reads either as an absolute path.
+func sqliteURIPath(dir string) string {
+	switch {
+	case strings.HasPrefix(dir, "//"):
+		dir = "//" + dir
+	case len(dir) >= 2 && dir[1] == ':' && isASCIILetter(dir[0]):
+		dir = "/" + dir
+	}
+	return sqliteURIPathEscaper.Replace(dir)
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// isSQLiteMemoryMode reports whether a DSN query selects an in-memory database.
+func isSQLiteMemoryMode(query string) bool {
+	values, err := url.ParseQuery(query)
+	return err == nil && values.Get("mode") == "memory"
 }
 
 // newPostgresExecutor creates a new PostgreSQL executor.
@@ -361,7 +438,7 @@ func (e *sqlExecutor) executeQuery(ctx context.Context, query string) error {
 	qe := GetQueryExecutor(db, tx)
 
 	// Determine if query returns rows
-	if isSelectQuery(convertedQuery) {
+	if isSelectQuery(convertedQuery, e.commentSyntax()) {
 		rowCount, err := e.executeSelectQuery(ctx, qe, convertedQuery, params)
 		if err != nil {
 			metrics.Status = "error"
@@ -456,7 +533,7 @@ func (e *sqlExecutor) executeStatement(ctx context.Context, qe QueryExecutor, st
 		return err
 	}
 
-	if isSelectQuery(convertedStmt) {
+	if isSelectQuery(convertedStmt, e.commentSyntax()) {
 		rowCount, err := e.executeSelectQuery(ctx, qe, convertedStmt, params)
 		if err != nil {
 			metrics.Status = "error"
@@ -594,8 +671,8 @@ func (e *sqlExecutor) writeMetrics(metrics *ExecutionMetrics) {
 }
 
 // isSelectQuery determines if a query is a SELECT statement.
-func isSelectQuery(query string) bool {
-	trimmed := strings.TrimSpace(strings.ToUpper(query))
+func isSelectQuery(query string, syntax commentSyntax) bool {
+	trimmed := strings.ToUpper(trimLeadingComments(query, syntax))
 
 	// Check for RETURNING clause (PostgreSQL/SQLite)
 	// INSERT/UPDATE/DELETE with RETURNING returns rows like SELECT
@@ -609,6 +686,80 @@ func isSelectQuery(query string) bool {
 		strings.HasPrefix(trimmed, "TABLE") ||
 		strings.HasPrefix(trimmed, "VALUES") ||
 		strings.HasPrefix(trimmed, "PRAGMA")
+}
+
+// commentSyntax is how a SQL dialect ends its comments.
+type commentSyntax struct {
+	// lineEndsAtCR ends a -- comment at a carriage return as well as a newline.
+	lineEndsAtCR bool
+	// nestedBlocks lets /* */ comments nest.
+	nestedBlocks bool
+}
+
+// postgresComments follows the PostgreSQL lexer. The zero commentSyntax
+// follows SQLite, which ends a line comment only at a newline and does not
+// nest block comments.
+var postgresComments = commentSyntax{lineEndsAtCR: true, nestedBlocks: true}
+
+func (e *sqlExecutor) commentSyntax() commentSyntax {
+	if e.driver.Name() == "postgres" {
+		return postgresComments
+	}
+	return commentSyntax{}
+}
+
+// trimLeadingComments returns query without the whitespace, line comments,
+// and block comments before its first keyword.
+func trimLeadingComments(query string, syntax commentSyntax) string {
+	for {
+		query = strings.TrimSpace(query)
+		switch {
+		case strings.HasPrefix(query, "--"):
+			end := strings.IndexByte(query, '\n')
+			if syntax.lineEndsAtCR {
+				end = strings.IndexAny(query, "\r\n")
+			}
+			if end < 0 {
+				return ""
+			}
+			query = query[end+1:]
+		case strings.HasPrefix(query, "/*"):
+			end := blockCommentEnd(query, syntax.nestedBlocks)
+			if end < 0 {
+				return ""
+			}
+			query = query[end:]
+		default:
+			return query
+		}
+	}
+}
+
+// blockCommentEnd returns the index just past the block comment query starts
+// with, or -1 when the comment is not closed.
+func blockCommentEnd(query string, nested bool) int {
+	if !nested {
+		end := strings.Index(query[2:], "*/")
+		if end < 0 {
+			return -1
+		}
+		return 2 + end + 2
+	}
+	depth := 0
+	for i := 0; i+1 < len(query); i++ {
+		switch query[i : i+2] {
+		case "/*":
+			depth++
+			i++
+		case "*/":
+			depth--
+			i++
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
 }
 
 // splitStatements splits a SQL script into individual statements.
@@ -706,7 +857,11 @@ func init() {
 		"postgres",
 		newPostgresExecutor,
 		nil,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"output_file", "import.input_file"},
+		},
 	)
 
 	// Register SQLite executor
@@ -714,6 +869,10 @@ func init() {
 		"sqlite",
 		newSQLiteExecutor,
 		nil,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"dsn", "output_file", "import.input_file"},
+		},
 	)
 }

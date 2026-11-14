@@ -1,0 +1,116 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Link } from 'react-router-dom';
+import type { components } from '@/api/v1/schema';
+import { useI18n } from '@/i18n/I18nProvider';
+import type { ApiNode } from '../contracts';
+import { useWorkspaceData } from '../data/context';
+import { nodesByStep } from '../data/runFacts';
+import { buildWorkspaceUrl, useWorkspaceUrl } from '../state/workspaceUrl';
+import { stepDefinitionOf } from './stepDefinition';
+
+/**
+ * What the definition of a step declares for the steps after it: the output
+ * variable and the named outputs. It needs no run. The link selects the last
+ * run in the same tab (a push of `?run=<id>`), else the run of the host when
+ * the last run is not known. It shows only when the workspace has a run id,
+ * and not for a step that is missing from the run it would open.
+ */
+export function StepDeclared({
+  step,
+  node,
+  definition: shown,
+}: {
+  step: string;
+  node: ApiNode | undefined;
+  /** The definition that the host shows; else the run's, else the saved one. */
+  definition?: components['schemas']['Step'];
+}) {
+  const { ts } = useI18n();
+  const { fileName, dagData, run } = useWorkspaceData('StepDeclared');
+  const [url] = useWorkspaceUrl();
+  const dag = dagData.dag;
+
+  const definition = shown ?? node?.step ?? stepDefinitionOf(dag, step);
+
+  const rows: { token: string; kind?: string }[] = [];
+  if (definition?.output) rows.push({ token: `\${${definition.output}}` });
+  for (const out of definition?.outputs ?? []) {
+    rows.push({
+      token: `\${steps.${definition?.id ?? definition?.name}.outputs.${out.name}}`,
+      kind: out.type,
+    });
+  }
+  const latestRunId = run.latestRef?.runId ?? null;
+  const shownRunId = run.ref?.runId ?? null;
+  // The link opens the step in the last run, or in the shown run when the
+  // last run is not known; not in a run without the step, such as a step
+  // added after it or removed before it. The page has the details of the
+  // last run: without its nodes, the step counts as in it.
+  const latest = dagData.latestDAGRun;
+  const inLatest =
+    latestRunId === shownRunId
+      ? node !== undefined
+      : !latest?.nodes || nodesByStep(latest).has(step);
+  const runId =
+    latestRunId === null
+      ? node === undefined
+        ? null
+        : shownRunId
+      : inLatest
+        ? latestRunId
+        : null;
+  if (rows.length === 0 && runId === null) return null;
+
+  const runUrl =
+    runId === null
+      ? null
+      : buildWorkspaceUrl(fileName, {
+          ...url,
+          mode: 'workspace',
+          popout: null,
+          run: runId,
+          step,
+          ndv: null,
+          dock: null,
+          stream: null,
+          item: null,
+          body: null,
+          sub: null,
+        });
+
+  return (
+    <section
+      data-testid="ww-step-declared"
+      aria-label={ts('Declared outputs')}
+      className="space-y-1"
+    >
+      {rows.length > 0 && (
+        <>
+          <div className="text-xs font-medium text-muted-foreground">
+            {ts('Declared outputs')}
+          </div>
+          <ul className="space-y-0.5">
+            {rows.map((row) => (
+              <li key={row.token} className="flex items-baseline gap-2 text-xs">
+                <code className="min-w-0 break-all font-mono">{row.token}</code>
+                {row.kind && (
+                  <span className="text-muted-foreground">{row.kind}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {runUrl && (
+        <Link
+          to={runUrl}
+          className="inline-block text-xs underline underline-offset-2"
+        >
+          {ts('Open last run')}
+        </Link>
+      )}
+    </section>
+  );
+}

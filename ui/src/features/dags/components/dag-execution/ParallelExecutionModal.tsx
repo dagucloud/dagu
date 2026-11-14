@@ -14,8 +14,10 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { ExternalLink, Layers } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { components, StatusLabel } from '../../../../api/v1/schema';
-import { STATUS_DISPLAY_LABELS, StatusDot } from '../common';
+import { StatusDot } from '../common/StatusDot';
+import { statusLabelText } from '@/lib/status-utils';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nProps } from '@/i18n/I18nProps';
 
 type SubDAGRun = components['schemas']['SubDAGRun'];
@@ -23,6 +25,9 @@ type SubDAGRunDetail = components['schemas']['SubDAGRunDetail'];
 
 // "all" is a special filter that shows everything
 type StatusFilterValue = 'all' | StatusLabel;
+
+// Pixels the params cell of the selected row scrolls per arrow key press.
+const PARAMS_SCROLL_STEP = 80;
 
 type Props = {
   isOpen: boolean;
@@ -49,6 +54,7 @@ export function ParallelExecutionModal({
   rootDagRunId,
   parentDagRunId,
 }: Props) {
+  const { ts } = useI18n();
   const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
@@ -145,7 +151,7 @@ export function ParallelExecutionModal({
       if (count && count > 0) {
         filters.push({
           value: status,
-          label: STATUS_DISPLAY_LABELS[status],
+          label: statusLabelText(status),
           count,
         });
       }
@@ -160,11 +166,7 @@ export function ParallelExecutionModal({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (filteredSubRuns.length === 0) {
-        if (
-          e.key === 'ArrowDown' ||
-          e.key === 'ArrowUp' ||
-          e.key === 'Enter'
-        ) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
           e.preventDefault();
           setSelectedIndex(null);
         }
@@ -186,6 +188,24 @@ export function ParallelExecutionModal({
               : (prev - 1 + filteredSubRuns.length) % filteredSubRuns.length
           );
           break;
+        case 'ArrowLeft':
+        case 'ArrowRight': {
+          // Long params only scroll with a pointer otherwise: the cell sits
+          // inside the row button, so it cannot take focus itself.
+          if (selectedIndex === null) return;
+          const row = scrollContainerRef.current?.children[selectedIndex];
+          const params = row?.querySelector<HTMLElement>(
+            '[data-params-scroll]'
+          );
+          if (!params) return;
+          e.preventDefault();
+          params.scrollBy({
+            left:
+              e.key === 'ArrowRight' ? PARAMS_SCROLL_STEP : -PARAMS_SCROLL_STEP,
+            behavior: 'smooth',
+          });
+          break;
+        }
         case 'Enter':
           e.preventDefault();
           if (selectedIndex !== null && filteredSubRuns[selectedIndex]) {
@@ -238,8 +258,11 @@ export function ParallelExecutionModal({
             </DialogTitle>
             <DialogDescription className="text-xs mt-1 font-mono text-muted-foreground">
               {filteredSubRuns.length === subRuns.length
-                ? `${subRuns.length} sub DAG-runs`
-                : `${filteredSubRuns.length} of ${subRuns.length} sub DAG-runs`}
+                ? ts('{count} sub-runs', { count: subRuns.length })
+                : ts('{visible} of {total} sub-runs', {
+                    visible: filteredSubRuns.length,
+                    total: subRuns.length,
+                  })}
             </DialogDescription>
           </DialogHeader>
 
@@ -262,7 +285,7 @@ export function ParallelExecutionModal({
                       }
                     `}
                   >
-                    {filter.label}
+                    <I18nText text={filter.label} />
                     <span
                       className={`ml-1 ${isActive ? 'text-info' : 'text-muted-foreground'}`}
                     >
@@ -282,7 +305,7 @@ export function ParallelExecutionModal({
           >
             {filteredSubRuns.length === 0 ? (
               <div className="text-center py-8 text-sm text-muted-foreground">
-                <I18nText text={"No sub DAG-runs match the selected filter"} />
+                <I18nText text={'No sub-runs match the selected filter'} />
               </div>
             ) : (
               filteredSubRuns.map(({ subRun, originalIndex }, displayIndex) => {
@@ -295,7 +318,7 @@ export function ParallelExecutionModal({
                   >
                     <button
                       className={`
-                        flex-1 text-left transition-all duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
+                        flex-1 min-w-0 text-left transition-colors duration-150 border rounded px-3 py-2 flex items-center gap-3 focus:outline-none
                         ${
                           selectedIndex === displayIndex
                             ? 'border-info bg-info-muted'
@@ -321,27 +344,32 @@ export function ParallelExecutionModal({
                           />
                         </span>
                       )}
-                      <div className="flex-1 min-w-0 overflow-x-auto">
+                      <div
+                        className="flex-1 min-w-0 overflow-x-auto"
+                        data-params-scroll
+                      >
                         {subRun.params ? (
                           <code className="text-sm font-mono text-muted-foreground whitespace-nowrap">
                             {subRun.params}
                           </code>
                         ) : (
                           <span className="text-sm text-muted-foreground italic">
-                            <I18nText text={"No parameters"} />
+                            <I18nText text={'No parameters'} />
                           </span>
                         )}
                       </div>
                     </button>
-                    <I18nProps><button
-                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded hover:bg-muted focus:outline-none"
-                      onClick={() => {
-                        onSelectSubRun(originalIndex, true);
-                      }}
-                      title="Open in new tab"
-                    >
-                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                    </button></I18nProps>
+                    <I18nProps>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded hover:bg-muted focus:outline-none"
+                        onClick={() => {
+                          onSelectSubRun(originalIndex, true);
+                        }}
+                        title="Open in new tab"
+                      >
+                        <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </I18nProps>
                   </div>
                 );
               })
@@ -351,13 +379,26 @@ export function ParallelExecutionModal({
 
         <div className="px-4 py-2 bg-muted border-t border-border">
           <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
-            <span>{isMac ? '⌘' : <I18nText text={"Ctrl"} />}<I18nText text={"+Click: new tab"} /></span>
+            <span>
+              {isMac ? '⌘' : <I18nText text={'Ctrl'} />}
+              <I18nText text={'+Click: new tab'} />
+            </span>
             <span className="opacity-40">•</span>
-            <span><I18nText text={"↑↓ Navigate"} /></span>
+            <span>
+              <I18nText text={'↑↓ Navigate'} />
+            </span>
             <span className="opacity-40">•</span>
-            <span><I18nText text={"Enter: select"} /></span>
+            <span>
+              <I18nText text={'←→ Scroll'} />
+            </span>
             <span className="opacity-40">•</span>
-            <span><I18nText text={"ESC: close"} /></span>
+            <span>
+              <I18nText text={'Enter: select'} />
+            </span>
+            <span className="opacity-40">•</span>
+            <span>
+              <I18nText text={'ESC: close'} />
+            </span>
           </div>
         </div>
       </DialogContent>

@@ -1,0 +1,10 @@
+working_dir: .
+params:
+  - SHEET: Sheet1
+steps:
+  - id: read
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      sheet: ${params.SHEET}
+      columns: [Invoice No]

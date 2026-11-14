@@ -1,0 +1,16 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  # BOT_CHECK is the page the shop serves as a check: guarded, captcha, or
+  # recaptcha.
+  - BOT_CHECK: ${BOT_CHECK}
+steps:
+  - id: orders
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/${BOT_CHECK}
+      browser:
+        # A challenge frame's site is not reached.
+        allowed_domains: ["127.0.0.1"]
+      do:
+        - expect: {text: "Orders", within: 1s}

@@ -1,0 +1,21 @@
+params:
+  - name: episodes
+    default: '["alpha","beta"]'
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items: ${params.episodes}
+      max_concurrent: 2
+      steps:
+        - id: summarize
+          run: |
+            printf '%s\n' '${foreach.item}'
+          output: BODY_RESULT
+      collect:
+        markdown: ${summarize.output}
+    output: FOREACH_RESULTS
+  - name: consume
+    depends: each
+    run: |
+      printf '%s\n' "$FOREACH_RESULTS" > foreach-string-results.txt

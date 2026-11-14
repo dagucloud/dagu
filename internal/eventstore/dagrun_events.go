@@ -17,6 +17,9 @@ const (
 	dagRunStatusSnapshotDataKey       = "dag_run_status"
 	notificationStatusSnapshotDataKey = "notification_status"
 	DAGFileNameDataKey                = "dag_file"
+	// WorkerSelectorDataKey carries the worker labels a run requires, so a
+	// consumer can open matching capacity for a run that waits for a worker.
+	WorkerSelectorDataKey = "worker_selector"
 )
 
 type DAGRunCursor struct {
@@ -47,6 +50,8 @@ type DAGRunReader interface {
 }
 
 type DAGRunNodeSnapshot struct {
+	Stdout            string                `json:"stdout,omitempty"`
+	Stderr            string                `json:"stderr,omitempty"`
 	StepID            string                `json:"step_id,omitempty"`
 	StepName          string                `json:"step_name,omitempty"`
 	StartedAt         string                `json:"started_at,omitempty"`
@@ -63,6 +68,8 @@ func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
 		return nil
 	}
 	return &DAGRunNodeSnapshot{
+		Stdout:            node.Stdout,
+		Stderr:            node.Stderr,
 		StepID:            node.Step.ID,
 		StepName:          node.Step.Name,
 		StartedAt:         node.StartedAt,
@@ -80,6 +87,8 @@ func (s *DAGRunNodeSnapshot) Node() *ir.Node {
 		return nil
 	}
 	return &ir.Node{
+		Stdout:            s.Stdout,
+		Stderr:            s.Stderr,
 		Step:              ir.Step{ID: s.StepID, Name: s.StepName},
 		StartedAt:         s.StartedAt,
 		Status:            s.Status,
@@ -111,26 +120,34 @@ func (s DAGRunRefSnapshot) DAGRunRef() ir.DAGRunRef {
 }
 
 type DAGRunStatusSnapshot struct {
-	Root           DAGRunRefSnapshot    `json:"root"`
-	Parent         DAGRunRefSnapshot    `json:"parent"`
-	Name           string               `json:"name"`
-	DAGFile        string               `json:"dag_file,omitempty"`
-	Labels         []string             `json:"labels"`
-	DAGRunID       string               `json:"dag_run_id"`
-	AttemptID      string               `json:"attempt_id"`
-	ProcGroup      string               `json:"proc_group,omitempty"`
-	Status         ir.Status            `json:"status"`
-	Error          string               `json:"error,omitempty"`
-	Log            string               `json:"log,omitempty"`
-	QueuedAt       string               `json:"queued_at,omitempty"`
-	StartedAt      string               `json:"started_at,omitempty"`
-	FinishedAt     string               `json:"finished_at,omitempty"`
-	AutoRetryCount int                  `json:"auto_retry_count,omitempty"`
-	AutoRetryLimit int                  `json:"auto_retry_limit,omitempty"`
-	Nodes          []DAGRunNodeSnapshot `json:"nodes,omitempty"`
-	OnFailure      *DAGRunNodeSnapshot  `json:"on_failure,omitempty"`
-	OnExit         *DAGRunNodeSnapshot  `json:"on_exit,omitempty"`
-	OnWait         *DAGRunNodeSnapshot  `json:"on_wait,omitempty"`
+	Root           DAGRunRefSnapshot `json:"root"`
+	Parent         DAGRunRefSnapshot `json:"parent"`
+	Name           string            `json:"name"`
+	DAGFile        string            `json:"dag_file,omitempty"`
+	Labels         []string          `json:"labels"`
+	DAGRunID       string            `json:"dag_run_id"`
+	AttemptID      string            `json:"attempt_id"`
+	ProcGroup      string            `json:"proc_group,omitempty"`
+	Status         ir.Status         `json:"status"`
+	TriggerType    ir.TriggerType    `json:"trigger_type,omitempty"`
+	BackfillID     string            `json:"backfill_id,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	Log            string            `json:"log,omitempty"`
+	QueuedAt       string            `json:"queued_at,omitempty"`
+	StartedAt      string            `json:"started_at,omitempty"`
+	FinishedAt     string            `json:"finished_at,omitempty"`
+	AutoRetryCount int               `json:"auto_retry_count,omitempty"`
+	AutoRetryLimit int               `json:"auto_retry_limit,omitempty"`
+	// Conditions say why a queued run has not started, such as no worker
+	// matching its selector.
+	Conditions []ir.DAGRunCondition `json:"conditions,omitempty"`
+	Nodes      []DAGRunNodeSnapshot `json:"nodes,omitempty"`
+	OnInit     *DAGRunNodeSnapshot  `json:"on_init,omitempty"`
+	OnSuccess  *DAGRunNodeSnapshot  `json:"on_success,omitempty"`
+	OnFailure  *DAGRunNodeSnapshot  `json:"on_failure,omitempty"`
+	OnAbort    *DAGRunNodeSnapshot  `json:"on_abort,omitempty"`
+	OnExit     *DAGRunNodeSnapshot  `json:"on_exit,omitempty"`
+	OnWait     *DAGRunNodeSnapshot  `json:"on_wait,omitempty"`
 }
 
 func (s *DAGRunStatusSnapshot) Validate() error {
@@ -178,6 +195,8 @@ func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string) *DAGRunSta
 		AttemptID:      status.AttemptID,
 		ProcGroup:      status.ProcGroup,
 		Status:         status.Status,
+		TriggerType:    status.TriggerType,
+		BackfillID:     status.BackfillID,
 		Error:          status.Error,
 		Log:            status.Log,
 		QueuedAt:       status.QueuedAt,
@@ -185,8 +204,12 @@ func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string) *DAGRunSta
 		FinishedAt:     status.FinishedAt,
 		AutoRetryCount: status.AutoRetryCount,
 		AutoRetryLimit: status.AutoRetryLimit,
+		Conditions:     append([]ir.DAGRunCondition(nil), status.Conditions...),
 		Nodes:          nodes,
+		OnInit:         newDAGRunNodeSnapshot(status.OnInit),
+		OnSuccess:      newDAGRunNodeSnapshot(status.OnSuccess),
 		OnFailure:      newDAGRunNodeSnapshot(status.OnFailure),
+		OnAbort:        newDAGRunNodeSnapshot(status.OnAbort),
 		OnExit:         newDAGRunNodeSnapshot(status.OnExit),
 		OnWait:         newDAGRunNodeSnapshot(status.OnWait),
 	}
@@ -210,6 +233,8 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *ir.DAGRunStatus {
 		DAGRunID:       s.DAGRunID,
 		AttemptID:      s.AttemptID,
 		Status:         s.Status,
+		TriggerType:    s.TriggerType,
+		BackfillID:     s.BackfillID,
 		ProcGroup:      s.ProcGroup,
 		Error:          s.Error,
 		Log:            s.Log,
@@ -218,8 +243,12 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *ir.DAGRunStatus {
 		FinishedAt:     s.FinishedAt,
 		AutoRetryCount: s.AutoRetryCount,
 		AutoRetryLimit: s.AutoRetryLimit,
+		Conditions:     append([]ir.DAGRunCondition(nil), s.Conditions...),
 		Nodes:          nodes,
+		OnInit:         s.OnInit.Node(),
+		OnSuccess:      s.OnSuccess.Node(),
 		OnFailure:      s.OnFailure.Node(),
+		OnAbort:        s.OnAbort.Node(),
 		OnExit:         s.OnExit.Node(),
 		OnWait:         s.OnWait.Node(),
 	}

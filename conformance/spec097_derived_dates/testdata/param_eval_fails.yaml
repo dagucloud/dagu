@@ -1,0 +1,11 @@
+name: param_eval_fails
+working_dir: .
+schedule: "CRON_TZ=UTC 0 2 * * *"
+dates:
+  target_day: -1d
+params:
+  - name: date
+    eval: "${dates.target_day}`spec097_missing_command`"
+steps:
+  - id: never
+    run: printf 'ran\n' > ran.txt

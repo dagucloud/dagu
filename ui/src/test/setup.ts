@@ -3,7 +3,13 @@
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, beforeAll } from 'vitest';
+import { loadStaticMessages } from '@/i18n/translateStatic';
+
+// Tests see the catalogs loaded, as the app does once its first render runs.
+beforeAll(async () => {
+  await Promise.all([loadStaticMessages('zh-CN'), loadStaticMessages('ja')]);
+});
 
 afterEach(() => {
   cleanup();
@@ -33,3 +39,17 @@ Element.prototype.scrollIntoView = () => {};
 Element.prototype.hasPointerCapture = () => false;
 Element.prototype.setPointerCapture = () => {};
 Element.prototype.releasePointerCapture = () => {};
+
+// jsdom has no canvas: its getContext logs "not implemented" and returns null.
+// A test that draws installs its own context with `vi.spyOn`.
+HTMLCanvasElement.prototype.getContext = () => null;
+
+// The app page defines getConfig(). Modules such as hooks/api read it when they
+// are imported, so a test that imports one without mocking it needs a default.
+if (typeof (globalThis as { getConfig?: unknown }).getConfig === 'undefined') {
+  Object.defineProperty(globalThis, 'getConfig', {
+    configurable: true,
+    writable: true,
+    value: () => ({ apiURL: '/api/v1', basePath: '', version: 'test' }),
+  });
+}

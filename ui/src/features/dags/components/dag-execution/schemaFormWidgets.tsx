@@ -85,6 +85,13 @@ function SchemaTextareaWidget<
   );
 }
 
+/** Checkbox styling shared by the schema form checkbox widgets. */
+export const schemaCheckboxClassName = cn(
+  'border-input bg-card shadow-sm',
+  'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+  'data-[state=checked]:border-primary data-[state=checked]:bg-primary-fill data-[state=checked]:text-primary-foreground'
+);
+
 /**
  * Renders boolean schema fields with the local checkbox component styling.
  */
@@ -149,12 +156,7 @@ function SchemaCheckboxWidget<
           onCheckedChange={(checked) => onChange(Boolean(checked))}
           onBlur={() => onBlur(id, value)}
           onFocus={() => onFocus(id, value)}
-          className={cn(
-            'border-input bg-card shadow-sm',
-            'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-            'data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground',
-            className
-          )}
+          className={cn(schemaCheckboxClassName, className)}
         />
         <Label className="leading-tight" htmlFor={id}>
           {labelValue(label, hideLabel || !label)}
@@ -166,6 +168,8 @@ function SchemaCheckboxWidget<
 
 /**
  * Renders small fixed-choice schema fields as accessible radio groups.
+ * The labelledBy option names the group by an element id, since a radio
+ * group cannot take a label through htmlFor.
  */
 function SchemaRadioWidget<
   T = any,
@@ -253,8 +257,19 @@ function SchemaRadioWidget<
           );
         }}
         aria-describedby={ariaDescribedByIds(id)}
+        aria-labelledby={
+          typeof options.labelledBy === 'string'
+            ? options.labelledBy
+            : undefined
+        }
         orientation={inline ? 'horizontal' : 'vertical'}
-        className={cn('flex flex-wrap', !inline && 'flex-col', className)}
+        // The rows keep their padding for the highlight of the choice, and
+        // the group gives it back, so the radios line up with the label.
+        className={cn(
+          '-mx-2 flex flex-wrap gap-0.5',
+          !inline && 'flex-col',
+          className
+        )}
       >
         {Array.isArray(enumOptions) &&
           enumOptions.map((option, index) => {
@@ -267,13 +282,20 @@ function SchemaRadioWidget<
               optionValueFormat
             );
             const isSelected = currentValue === encodedValue;
+            const rowDisabled = disabled || readonly || itemDisabled;
 
+            // The whole row is the label, so a click anywhere on it picks
+            // the choice, not only on the small radio or its text.
             return (
-              <div
+              <Label
                 key={optionId(id, index)}
+                htmlFor={optionId(id, index)}
                 className={cn(
-                  'flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 transition-colors',
-                  isSelected && 'border-primary/20 bg-primary/5'
+                  'rounded-md border border-transparent px-2 py-1.5 leading-tight transition-colors',
+                  rowDisabled
+                    ? 'cursor-not-allowed opacity-50'
+                    : 'cursor-pointer hover:bg-muted',
+                  isSelected && 'border-primary/20 bg-primary/5 text-primary'
                 )}
               >
                 <RadioGroupItem
@@ -286,16 +308,8 @@ function SchemaRadioWidget<
                     'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 focus-visible:ring-offset-background'
                   )}
                 />
-                <Label
-                  className={cn(
-                    'leading-tight',
-                    isSelected && 'font-medium text-primary'
-                  )}
-                  htmlFor={optionId(id, index)}
-                >
-                  {option.label}
-                </Label>
-              </div>
+                {option.label}
+              </Label>
             );
           })}
       </RadioGroup>

@@ -5,7 +5,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
-import { useUserPreferences } from '@/contexts/UserPreference';
+import { useResolvedTheme } from '@/contexts/UserPreference';
 import { cn, toMermaidNodeId } from '@/lib/utils';
 import {
   ArrowDownUp,
@@ -15,7 +15,6 @@ import {
   GitGraph,
   ImageDown,
   Maximize2,
-  RotateCcw,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -23,6 +22,11 @@ import React, { useState } from 'react';
 import { components, NodeStatus } from '../../../../api/v1/schema';
 import Mermaid from '@/components/ui/mermaid';
 import { exportGraphPng, exportGraphSvg } from './exportGraph';
+import {
+  GRAPH_CONTENT_PADDING_PX,
+  GRAPH_DEFAULT_HEIGHT,
+} from './graphViewport';
+import { useGraphViewport } from './useGraphViewport';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -71,10 +75,18 @@ type Props = {
   onRightClickNode?: onRightClickNode;
   /** Whether the graph is currently displayed in an expanded modal view */
   isExpandedView?: boolean;
-  /** Custom height for the graph container */
+  /**
+   * Graph box height: a number in pixels or any CSS height ('100%' fills a
+   * parent with a definite height). When omitted the box fits the graph,
+   * or fills its parent in the expanded view.
+   */
   height?: string | number;
   /** DAG name used for export filenames */
   name?: string;
+  /** Content shown at the start of the toolbar, such as an interactions hint. */
+  toolbarStart?: React.ReactNode;
+  /** Step drawn as selected, such as the one whose details are open. */
+  selectedStepName?: string;
 };
 
 const GRAPH_STATUS_STROKES = {
@@ -90,9 +102,53 @@ const GRAPH_STATUS_STROKES = {
   rejected: '#ef5350',
 } as const;
 
+// Statuses that keep the plain card fill instead of a tint.
+const GRAPH_UNTINTED_CLASSES = new Set(['none', 'skipped']);
+const GRAPH_STATUS_TINT = 0.1;
+const GRAPH_NODE_STROKE_WIDTH = '2px';
+const GRAPH_NODE_CORNER_RADIUS = '6';
+
 const GRAPH_SUCCESS_LINK_STROKE = '#3fa76b';
 const GRAPH_RENDERED_NODE_SHAPE_SELECTOR =
   'rect, polygon, path, circle, ellipse';
+
+/** Blends two `#rrggbb` colors, taking `amount` of `color` over `base`. */
+function mixHexColors(color: string, base: string, amount: number): string {
+  const channel = (hex: string, index: number) =>
+    parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  const mixed = [0, 1, 2].map((index) =>
+    Math.round(
+      channel(color, index) * amount + channel(base, index) * (1 - amount)
+    )
+      .toString(16)
+      .padStart(2, '0')
+  );
+  return `#${mixed.join('')}`;
+}
+
+/** Ring drawn around the selected node; SVG has no outline. */
+const GRAPH_SELECTED_FILTER =
+  'drop-shadow(0 0 1.5px var(--ring)) drop-shadow(0 0 4px var(--ring))';
+
+/**
+ * Marks the rendered node of nodeId as selected and clears the others.
+ * Mermaid wraps the id in its own element id; node ids contain only id
+ * characters, so any other character delimits them.
+ */
+function markSelectedNode(container: HTMLElement, nodeId?: string): void {
+  const pattern = nodeId
+    ? new RegExp(`(^|[^A-Za-z0-9_])${nodeId}($|[^A-Za-z0-9_])`)
+    : null;
+  container.querySelectorAll<SVGGElement>('g.node').forEach((nodeElement) => {
+    const selected = !!pattern && pattern.test(nodeElement.id);
+    nodeElement.style.filter = selected ? GRAPH_SELECTED_FILTER : '';
+    if (selected) {
+      nodeElement.setAttribute('data-selected', 'true');
+    } else {
+      nodeElement.removeAttribute('data-selected');
+    }
+  });
+}
 
 function applyRenderedGraphStyles(container: HTMLDivElement): void {
   Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
@@ -103,13 +159,17 @@ function applyRenderedGraphStyles(container: HTMLDivElement): void {
           .querySelectorAll<SVGElement>(GRAPH_RENDERED_NODE_SHAPE_SELECTOR)
           .forEach((shapeElement) => {
             shapeElement.setAttribute('stroke', stroke);
-            shapeElement.setAttribute('stroke-width', '2.5px');
+            shapeElement.setAttribute('stroke-width', GRAPH_NODE_STROKE_WIDTH);
             shapeElement.style.setProperty('stroke', stroke, 'important');
             shapeElement.style.setProperty(
               'stroke-width',
-              '2.5px',
+              GRAPH_NODE_STROKE_WIDTH,
               'important'
             );
+            if (shapeElement.tagName.toLowerCase() === 'rect') {
+              shapeElement.setAttribute('rx', GRAPH_NODE_CORNER_RADIUS);
+              shapeElement.setAttribute('ry', GRAPH_NODE_CORNER_RADIUS);
+            }
           });
       });
   });
@@ -138,29 +198,30 @@ function Graph({
   isExpandedView = false,
   height,
   name,
+  toolbarStart,
+  selectedStepName,
 }: Props): React.JSX.Element {
-  const [scale, setScale] = useState(isExpandedView ? 0.8 : 1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const { preferences } = useUserPreferences();
-  const isDarkMode = preferences.theme !== 'light';
-  const applyGraphStyles = React.useCallback(applyRenderedGraphStyles, []);
-  const graphControlButtonClass = 'h-8 w-9 shrink-0 px-0 sm:w-auto sm:px-4';
-
-  /** Increase zoom level */
-  const zoomIn = () => {
-    setScale((prevScale) => Math.min(prevScale + 0.1, 2));
-  };
-
-  /** Decrease zoom level */
-  const zoomOut = () => {
-    setScale((prevScale) => Math.max(prevScale - 0.1, 0.1));
-  };
-
-  /** Reset zoom to default */
-  const resetZoom = () => {
-    setScale(1);
-  };
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const isDarkMode = useResolvedTheme() === 'dark';
+  const selectedNodeId = selectedStepName
+    ? toMermaidNodeId(selectedStepName)
+    : undefined;
+  const selectedNodeIdRef = React.useRef(selectedNodeId);
+  selectedNodeIdRef.current = selectedNodeId;
+  const applyGraphStyles = React.useCallback((container: HTMLDivElement) => {
+    applyRenderedGraphStyles(container);
+    markSelectedNode(container, selectedNodeIdRef.current);
+  }, []);
+  React.useEffect(() => {
+    if (containerRef.current) {
+      markSelectedNode(containerRef.current, selectedNodeId);
+    }
+  }, [selectedNodeId]);
+  const graphControlButtonClass = 'h-7 w-7 shrink-0 px-0 font-medium';
+  const selectedLayoutClass =
+    'bg-muted text-foreground shadow-none dark:border-0 dark:bg-muted dark:text-foreground';
 
   const handleExport = (format: 'png' | 'svg') => {
     // Scope to the mermaid wrapper; the control bar renders its own icon SVGs.
@@ -177,60 +238,22 @@ function Graph({
     }
   };
 
-  /** Fit graph to container - zoom out to show entire graph */
-  const fitToScreen = () => {
-    // Simple approach: set to a small scale that typically shows the full graph
-    // This is more reliable than trying to calculate exact dimensions
-    setScale(isExpandedView ? 0.4 : 0.3);
-  };
-
-  // Calculate width based on flowchart type and graph breadth
-  const width = React.useMemo(() => {
-    if (!steps) return '100%';
-
-    if (flowchart === 'LR') {
-      return `${steps.length * 240}px`;
-    } else {
-      // For TD layout, calculate based on maximum breadth
-      const maxBreadth = calculateGraphBreadth(steps);
-      // Assuming each node needs about 200px of width, plus some padding
-      return `${Math.max(maxBreadth * 300, 600)}px`;
-    }
-  }, [steps, flowchart]);
-
   const mermaidStyle: React.CSSProperties = React.useMemo(() => {
-    const defaultHeight = '380px';
-
-    function getHeightValue(): string {
-      if (isExpandedView) {
-        return '100%';
-      }
-      if (height === undefined) {
-        return defaultHeight;
-      }
-      return typeof height === 'number' ? `${height}px` : height;
-    }
-
-    const heightValue = getHeightValue();
     const gridBackground = isDarkMode
-      ? `linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px),
-         linear-gradient(180deg, rgba(255,255,255,0.05) 1px, transparent 1px)`
-      : `linear-gradient(90deg, rgba(0,0,0,0.08) 1px, transparent 1px),
-         linear-gradient(180deg, rgba(0,0,0,0.08) 1px, transparent 1px)`;
+      ? 'radial-gradient(circle, rgba(255,255,255,0.09) 1px, transparent 1.2px)'
+      : 'radial-gradient(circle, rgba(17,17,20,0.14) 1px, transparent 1.2px)';
 
     return {
       display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'flex-start',
-      width: width,
-      minWidth: '100%',
-      minHeight: heightValue,
-      height: heightValue,
-      borderRadius: '0.5em',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: GRAPH_CONTENT_PADDING_PX,
+      cursor: 'grab',
+      userSelect: 'none',
       background: gridBackground,
-      backgroundSize: '20px 20px',
+      backgroundSize: '16px 16px',
     };
-  }, [width, isExpandedView, height, isDarkMode]);
+  }, [isDarkMode]);
 
   const mermaidNodeIds = React.useMemo(() => {
     return (steps ?? []).map((stepOrNode) => {
@@ -238,6 +261,36 @@ function Graph({
       return toMermaidNodeId(step.name);
     });
   }, [steps]);
+
+  // Nodes and dependency edges decide the layout; status updates do not.
+  const structureKey = React.useMemo(
+    () =>
+      JSON.stringify([
+        flowchart,
+        (steps ?? []).map((stepOrNode) => {
+          const step = isRuntimeNode(stepOrNode) ? stepOrNode.step : stepOrNode;
+          return [step.name, allDepends(step)];
+        }),
+      ]),
+    [flowchart, steps]
+  );
+  const sizeToContent = height === undefined && !isExpandedView;
+  const {
+    scale,
+    autoHeight,
+    handleContentSize,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    fitToView,
+  } = useGraphViewport({
+    boxRef: containerRef,
+    viewportRef,
+    layout: flowchart,
+    structureKey,
+    initialFit: isExpandedView ? 'full' : 'readable',
+    sizeToContent,
+  });
 
   const graph = React.useMemo(() => {
     if (!steps || steps.length === 0) return '';
@@ -284,7 +337,7 @@ function Graph({
 
       // Add indicator for sub dagRun nodes in the label only
       // Escape any special characters in the label to prevent Mermaid parsing errors
-      let label = step.id || step.name;
+      let label = step.name;
       if (isSubDAGRun && subDAGName) {
         if (hasParallelExecutions && subRuns.length > 0) {
           // Show parallel execution count in the label - avoid brackets in stadium nodes
@@ -353,6 +406,17 @@ function Graph({
         });
       }
 
+      // Inferred dependencies come from step-output references rather than
+      // depends, so they are drawn dashed to stay distinguishable.
+      step.inferredDepends?.forEach((dep) => {
+        const depId = toMermaidNodeId(dep);
+        dat.push(`${depId} -.-> ${id};`);
+        linkStyles.push(
+          `linkStyle ${linkIndex} ${inferredLinkStyle(status)},stroke-dasharray:${INFERRED_LINK_DASH}`
+        );
+        linkIndex++;
+      });
+
       // We no longer add the standard Mermaid click handler
       // Double-click will be handled by our custom implementation
     }
@@ -370,40 +434,19 @@ function Graph({
 
     // Define node styles for different states
     // Use theme-appropriate colors for light/dark modes
-    const nodeFill = isDarkMode ? '#12141b' : '#fbfaf6'; // --card per mode
-    const nodeColor = isDarkMode ? '#f2f1ec' : '#14161b'; // --foreground per mode
+    const nodeFill = isDarkMode ? '#141417' : '#ffffff'; // --card per mode
+    const nodeColor = isDarkMode ? '#ededf0' : '#111114'; // --foreground per mode
 
-    // Unified status colors
-    dat.push(
-      `classDef none color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.none},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef running color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.running},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef retrying color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.retrying},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef error color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.error},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef cancel color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.cancel},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef done color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.done},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef skipped color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.skipped},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef partial color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.partial},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef waiting color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.waiting},stroke-width:2.5px`
-    );
-    dat.push(
-      `classDef rejected color:${nodeColor},fill:${nodeFill},stroke:${GRAPH_STATUS_STROKES.rejected},stroke-width:2.5px`
-    );
+    // Status shows in the border and a light tint of the same color, so a
+    // node stays readable in both themes.
+    Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
+      const fill = GRAPH_UNTINTED_CLASSES.has(className)
+        ? nodeFill
+        : mixHexColors(stroke, nodeFill, GRAPH_STATUS_TINT);
+      dat.push(
+        `classDef ${className} color:${nodeColor},fill:${fill},stroke:${stroke},stroke-width:${GRAPH_NODE_STROKE_WIDTH}`
+      );
+    });
 
     // Add custom link styles
     dat.push(...linkStyles);
@@ -418,17 +461,20 @@ function Graph({
 
   return (
     <div
-      className={cn(
-        'relative',
-        isExpandedView ? 'flex h-full min-h-0 flex-col' : ''
-      )}
+      className="relative flex min-h-0 flex-col"
+      style={{
+        height:
+          height ??
+          (isExpandedView ? '100%' : (autoHeight ?? GRAPH_DEFAULT_HEIGHT)),
+      }}
       ref={containerRef}
     >
-      <div className="absolute inset-x-2 top-2 z-10 max-w-[calc(100%-1rem)] overflow-x-auto rounded-md border border-border/50 bg-card shadow-sm sm:left-auto sm:right-4">
+      <div className="@container flex shrink-0 items-center gap-2 border-b border-border px-2 py-1">
+        {toolbarStart}
         <I18nProps>
           <ToggleGroup
             aria-label="Graph controls"
-            className="min-w-max border-0 bg-transparent"
+            className="ml-auto min-w-0 gap-0.5 overflow-x-auto rounded-none border-0 bg-transparent p-0"
           >
             {onChangeFlowchart && (
               <>
@@ -438,8 +484,12 @@ function Graph({
                     groupValue={flowchart}
                     onClick={() => onChangeFlowchart('LR')}
                     aria-label="Horizontal layout"
+                    title="Horizontal layout"
                     position="first"
-                    className={graphControlButtonClass}
+                    className={cn(
+                      graphControlButtonClass,
+                      flowchart === 'LR' && selectedLayoutClass
+                    )}
                   >
                     <ArrowRightLeft className="h-4 w-4" />
                   </ToggleButton>
@@ -450,13 +500,17 @@ function Graph({
                     groupValue={flowchart}
                     onClick={() => onChangeFlowchart('TD')}
                     aria-label="Vertical layout"
+                    title="Vertical layout"
                     position="middle"
-                    className={graphControlButtonClass}
+                    className={cn(
+                      graphControlButtonClass,
+                      flowchart === 'TD' && selectedLayoutClass
+                    )}
                   >
                     <ArrowDownUp className="h-4 w-4" />
                   </ToggleButton>
                 </I18nProps>
-                <div className="h-6 w-px shrink-0 self-center bg-border" />
+                <div className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
               </>
             )}
 
@@ -465,6 +519,7 @@ function Graph({
                 value="zoomin"
                 onClick={() => zoomIn()}
                 aria-label="Zoom in"
+                title="Zoom in"
                 position={onChangeFlowchart ? 'middle' : 'first'}
                 className={graphControlButtonClass}
               >
@@ -476,6 +531,7 @@ function Graph({
                 value="zoomout"
                 onClick={() => zoomOut()}
                 aria-label="Zoom out"
+                title="Zoom out"
                 position="middle"
                 className={graphControlButtonClass}
               >
@@ -485,8 +541,9 @@ function Graph({
             <I18nProps>
               <ToggleButton
                 value="fit"
-                onClick={() => fitToScreen()}
+                onClick={() => fitToView()}
                 aria-label="Fit to screen"
+                title="Fit to screen"
                 position="middle"
                 className={graphControlButtonClass}
               >
@@ -498,19 +555,21 @@ function Graph({
                 value="reset"
                 onClick={() => resetZoom()}
                 aria-label="Reset zoom"
+                title="Reset zoom"
                 position="middle"
-                className={graphControlButtonClass}
+                className={cn(graphControlButtonClass, 'w-auto px-1.5')}
               >
-                <RotateCcw className="h-4 w-4" />
+                <span className="tabular-nums">{Math.round(scale * 100)}%</span>
               </ToggleButton>
             </I18nProps>
 
-            <div className="h-6 w-px shrink-0 self-center bg-border" />
+            <div className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
             <I18nProps>
               <ToggleButton
                 value="export-png"
                 onClick={() => handleExport('png')}
                 aria-label="Export as PNG"
+                title="Export as PNG"
                 position="middle"
                 className={graphControlButtonClass}
               >
@@ -522,6 +581,7 @@ function Graph({
                 value="export-svg"
                 onClick={() => handleExport('svg')}
                 aria-label="Export as SVG"
+                title="Export as SVG"
                 position={isExpandedView ? 'last' : 'middle'}
                 className={graphControlButtonClass}
               >
@@ -531,12 +591,13 @@ function Graph({
 
             {!isExpandedView && (
               <>
-                <div className="h-6 w-px shrink-0 self-center bg-border" />
+                <div className="mx-1 h-4 w-px shrink-0 self-center bg-border" />
                 <I18nProps>
                   <ToggleButton
                     value="expand"
                     onClick={() => setIsModalOpen(true)}
                     aria-label="Expand graph"
+                    title="Expand graph"
                     position="last"
                     className={graphControlButtonClass}
                   >
@@ -551,16 +612,16 @@ function Graph({
 
       <div
         className={cn(
-          'custom-scrollbar overflow-auto pt-14 sm:pt-0',
-          isExpandedView
-            ? 'min-h-0 flex-1 rounded-lg border border-border/30 bg-muted/5'
-            : ''
+          'custom-scrollbar min-h-0 flex-1 overflow-hidden',
+          isExpandedView ? 'rounded-lg border border-border/30 bg-muted/5' : ''
         )}
       >
         <Mermaid
           style={mermaidStyle}
           def={graph}
           scale={scale}
+          viewportRef={viewportRef}
+          onContentSize={handleContentSize}
           nodeIds={mermaidNodeIds}
           onClick={selectOnClick ? onClickNode : undefined}
           onDoubleClick={onDoubleClickNode ?? onClickNode}
@@ -623,12 +684,31 @@ function getStepLabel(
   const hasParallelExecutions = !!step.parallel;
 
   if (!subDAGName) {
-    return step.id || step.name;
+    return step.name;
   }
   if (hasParallelExecutions && subRuns.length > 0) {
     return `${step.name} -> ${subDAGName} x${subRuns.length}`;
   }
   return `${step.name} -> ${subDAGName}`;
+}
+
+const INFERRED_LINK_DASH = '6 3';
+
+function inferredLinkStyle(status: NodeStatus): string {
+  if (status === NodeStatus.Failed) {
+    return 'stroke:#ef5350,stroke-width:1.8px';
+  }
+  if (status === NodeStatus.Success) {
+    return `stroke:${GRAPH_SUCCESS_LINK_STROKE},stroke-width:1.8px`;
+  }
+  return 'stroke:#62656f,stroke-width:1px';
+}
+
+function allDepends(step: {
+  depends?: string[];
+  inferredDepends?: string[];
+}): string[] {
+  return [...(step.depends ?? []), ...(step.inferredDepends ?? [])];
 }
 
 type FallbackNode = {
@@ -674,7 +754,7 @@ function GraphFallback({
         id: toMermaidNodeId(step.name),
         name: step.name,
         label: getStepLabel(step, node),
-        depends: step.depends ?? [],
+        depends: allDepends(step),
         status: node?.status ?? NodeStatus.NotStarted,
       };
     });
@@ -862,65 +942,6 @@ function fallbackStatusDotClassName(status: NodeStatus): string {
     default:
       return 'bg-muted-foreground/60';
   }
-}
-
-/**
- * Calculate the maximum breadth of the graph
- * This helps determine the appropriate width for the graph container
- */
-function calculateGraphBreadth(steps: Steps): number {
-  // Create a map of nodes and their dependencies
-  const nodeMap = new Map<string, string[]>();
-  const parentMap = new Map<string, string[]>();
-
-  // Initialize maps
-  steps.forEach((node) => {
-    const step = 'step' in node ? node.step : node;
-    nodeMap.set(step.name, step.depends || []);
-    step.depends?.forEach((dep) => {
-      if (!parentMap.has(dep)) {
-        parentMap.set(dep, []);
-      }
-      parentMap.get(dep)?.push(step.name);
-    });
-  });
-
-  // Calculate levels for each node
-  const nodeLevels = new Map<string, number>();
-  const visited = new Set<string>();
-
-  function calculateLevel(nodeName: string, level = 0): void {
-    if (visited.has(nodeName)) return;
-    visited.add(nodeName);
-
-    nodeLevels.set(nodeName, Math.max(level, nodeLevels.get(nodeName) || 0));
-
-    // Process children
-    const children = parentMap.get(nodeName) || [];
-    children.forEach((child) => calculateLevel(child, level + 1));
-  }
-
-  // Start from nodes with no dependencies
-  steps.forEach((node) => {
-    const step = 'step' in node ? node.step : node;
-    if (!step.depends || step.depends.length === 0) {
-      calculateLevel(step.name);
-    }
-  });
-
-  // Count nodes at each level
-  const levelCounts = new Map<number, number>();
-  nodeLevels.forEach((level) => {
-    levelCounts.set(level, (levelCounts.get(level) || 0) + 1);
-  });
-
-  // Find maximum breadth
-  let maxBreadth = 0;
-  levelCounts.forEach((count) => {
-    maxBreadth = Math.max(maxBreadth, count);
-  });
-
-  return maxBreadth;
 }
 
 export default Graph;

@@ -237,6 +237,44 @@ func TestServiceResolvesOpenIncidentAfterRoutingIsDisabled(t *testing.T) {
 	assert.Equal(t, requests[0]["dedup_key"], requests[1]["dedup_key"])
 }
 
+// A backfill run of an old slot says nothing about a DAG's live state: its
+// failure opens no incident, and its success resolves none.
+func TestServiceIgnoresBackfillRuns(t *testing.T) {
+	store := newMemoryStore(t)
+	provider := store.saveProvider(t, "PagerDuty", incidentmodel.ProviderPagerDuty)
+	store.savePolicySet(t, &incidentmodel.PolicySet{
+		Scope:   incidentmodel.PolicyScopeGlobal,
+		Enabled: true,
+		Policies: []incidentmodel.Policy{{
+			ProviderID:        provider.ID,
+			Enabled:           true,
+			ResolveOnRecovery: true,
+		}},
+	})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		_ = req.Body.Close()
+		return &http.Response{StatusCode: http.StatusAccepted, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}
+	svc := New(store, WithHTTPClient(client))
+
+	live := failedEvent("daily", "run-1")
+	destinations := svc.NotificationDestinationsForEvent(live)
+	require.Len(t, destinations, 1)
+	require.True(t, svc.FlushNotificationBatch(context.Background(), destinations[0], chatbridge.NotificationBatch{
+		Events: []chatbridge.NotificationEvent{live},
+	}, false))
+
+	backfillFailure := failedEvent("daily", "backfill-1a2b3c4d-0-20261001T020000Z")
+	backfillFailure.Status.BackfillID = "1a2b3c4d"
+	assert.Empty(t, svc.NotificationDestinationsForEvent(backfillFailure), "a failed backfill run opens no incident")
+
+	backfillSuccess := backfillFailure
+	backfillSuccess.Type = eventstore.TypeDAGRunSucceeded
+	backfillSuccess.Status = cloneStatus(backfillFailure.Status)
+	backfillSuccess.Status.Status = ir.Succeeded
+	assert.Empty(t, svc.NotificationDestinationsForEvent(backfillSuccess), "a backfill run leaves the live incident open")
+}
+
 func TestMonitorKeepsIncidentRecoveryWithinWorkspace(t *testing.T) {
 	var (
 		requestsMu sync.Mutex
@@ -467,6 +505,63 @@ func TestServiceSolarWindsTriggerAndResolvePayloads(t *testing.T) {
 	assert.Equal(t, expectedDedupKey, requests[1]["event_id"])
 	assert.NotContains(t, requests[1], "message")
 	assert.NotContains(t, requests[1], "description")
+}
+
+// A step failure leaves the run-level error empty; incident text and details
+// must fall back to the failed step's error instead of rendering blank.
+func TestIncidentRunErrorFromFailedStep(t *testing.T) {
+	t.Parallel()
+
+	event := failedEvent("daily", "run-1")
+	event.Status.Error = ""
+	event.Status.Nodes = []*ir.Node{{
+		Step:   ir.Step{Name: "fetch"},
+		Status: ir.NodeFailed,
+		Error:  "exit status 11",
+	}}
+
+	description := renderIncidentTemplate(incidentmodel.DefaultDescriptionTemplate, event, "")
+	assert.Equal(t, "Run run-1 finished with status failed.\n\nfetch: exit status 11", description)
+	assert.Equal(t, "fetch: exit status 11", incidentCustomDetails(event, "")["error"])
+}
+
+// A message template that renders step errors can exceed the Events API v2
+// summary limit, so the summary must be cut to fit.
+func TestPagerDutySummaryFitsLimit(t *testing.T) {
+	t.Parallel()
+
+	var summary string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		defer func() { _ = req.Body.Close() }()
+		var body struct {
+			Payload struct {
+				Summary string `json:"summary"`
+			} `json:"payload"`
+		}
+		require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
+		summary = body.Payload.Summary
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+		}, nil
+	})}
+	svc := New(newMemoryStore(t), WithHTTPClient(client))
+	provider := &incidentmodel.Provider{PagerDuty: &incidentmodel.PagerDutyProvider{RoutingKey: "routing-key"}}
+	policy := incidentmodel.Policy{MessageTemplate: "{{dag.name}} failed: {{run.error}}"}
+	event := failedEvent("daily", "run-1")
+	event.Status.Error = ""
+	event.Status.Nodes = []*ir.Node{{
+		Step:   ir.Step{Name: "fetch"},
+		Status: ir.NodeFailed,
+		Error:  strings.Repeat("é", pagerDutyMaxSummaryLength),
+	}}
+
+	_, err := svc.sendPagerDuty(context.Background(), provider, providerActionTrigger, "dedup-key", policy, event)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(summary), pagerDutyMaxSummaryLength)
+	assert.True(t, strings.HasPrefix(summary, "daily failed: fetch: é"))
+	assert.True(t, strings.HasSuffix(summary, "…"))
 }
 
 func failedEvent(dagName, runID string) chatbridge.NotificationEvent {

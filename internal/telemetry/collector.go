@@ -48,6 +48,11 @@ var (
 	}
 )
 
+const (
+	schedulerStatusActive  = "active"
+	schedulerStatusStandby = "standby"
+)
+
 // Collector implements prometheus.Collector interface
 var _ prometheus.Collector = (*Collector)(nil)
 
@@ -63,15 +68,16 @@ type Collector struct {
 	now                  func() time.Time
 
 	// Metric descriptors (aggregate - backward compatible)
-	infoDesc              *prometheus.Desc
-	uptimeDesc            *prometheus.Desc
-	dagRunsCurrentlyDesc  *prometheus.Desc
-	dagRunsQueuedDesc     *prometheus.Desc
-	dagRunsTotalDesc      *prometheus.Desc
-	dagsTotalDesc         *prometheus.Desc
-	schedulerRunningDesc  *prometheus.Desc
-	workersRegisteredDesc *prometheus.Desc
-	workerInfoDesc        *prometheus.Desc
+	infoDesc               *prometheus.Desc
+	uptimeDesc             *prometheus.Desc
+	dagRunsCurrentlyDesc   *prometheus.Desc
+	dagRunsQueuedDesc      *prometheus.Desc
+	dagRunsTotalDesc       *prometheus.Desc
+	dagsTotalDesc          *prometheus.Desc
+	schedulerRunningDesc   *prometheus.Desc
+	schedulerInstancesDesc *prometheus.Desc
+	workersRegisteredDesc  *prometheus.Desc
+	workerInfoDesc         *prometheus.Desc
 
 	// Metric descriptors (per-DAG)
 	dagRunsCurrentlyByDAGDesc *prometheus.Desc
@@ -156,6 +162,12 @@ func NewCollector(
 			"dagu_scheduler_running",
 			"Whether the scheduler is running",
 			nil,
+			nil,
+		),
+		schedulerInstancesDesc: prometheus.NewDesc(
+			"dagu_scheduler_instances",
+			"Number of scheduler instances by status",
+			[]string{"status"},
 			nil,
 		),
 		workersRegisteredDesc: prometheus.NewDesc(
@@ -275,6 +287,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.dagRunsTotalDesc
 	ch <- c.dagsTotalDesc
 	ch <- c.schedulerRunningDesc
+	ch <- c.schedulerInstancesDesc
 	ch <- c.workersRegisteredDesc
 	ch <- c.workerInfoDesc
 
@@ -338,13 +351,19 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	if c.serviceRegistry != nil {
 		members, err := c.serviceRegistry.GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
 		if err == nil {
-			// Check if any scheduler instance is active
+			var activeSchedulers, standbySchedulers float64
 			for _, member := range members {
-				if member.Status == serviceregistry.ServiceStatusActive {
+				switch member.Status {
+				case serviceregistry.ServiceStatusActive:
 					schedulerRunning = 1
-					break
+					activeSchedulers++
+				case serviceregistry.ServiceStatusInactive:
+					standbySchedulers++
+				case serviceregistry.ServiceStatusUnknown:
 				}
 			}
+			ch <- prometheus.MustNewConstMetric(c.schedulerInstancesDesc, prometheus.GaugeValue, activeSchedulers, schedulerStatusActive)
+			ch <- prometheus.MustNewConstMetric(c.schedulerInstancesDesc, prometheus.GaugeValue, standbySchedulers, schedulerStatusStandby)
 		}
 	}
 	ch <- prometheus.MustNewConstMetric(

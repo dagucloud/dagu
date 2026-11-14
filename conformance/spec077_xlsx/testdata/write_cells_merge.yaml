@@ -1,0 +1,51 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: template.xlsx
+      header: false
+      rows: [["Title"], ["Customer", ""], ["Total", 10]]
+  - id: fill
+    depends: template
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      merge: [A1:C1, "Sheet1!A5:B5"]
+      cells:
+        B1: Quote
+        B2: Acme
+        A5: notes
+  - id: again
+    depends: fill
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      merge: [A1:C1]
+      cells:
+        B2: Acme
+  - id: changes
+    depends: again
+    action: file.write
+    with:
+      path: changes.json
+      content: '{"fill": ${steps.fill.outputs.changes}, "again": ${steps.again.outputs.changes}}'
+  - id: read
+    depends: again
+    action: xlsx.read
+    with:
+      path: template.xlsx
+      header: false
+  - id: first
+    depends: again
+    action: xlsx.read
+    with:
+      path: template.xlsx
+      header: false
+      merged: first
+  - id: out
+    depends: [read, first]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"fill": ${steps.read.outputs.rows}, "first": ${steps.first.outputs.rows}}'

@@ -63,7 +63,7 @@ steps:
 
   const remoteNodeName = uniqueName('remote-node');
   await page.goto('/remote-nodes');
-  await page.getByRole('button', { name: 'Add Node' }).click();
+  await page.getByRole('button', { name: 'Add node' }).click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -77,7 +77,7 @@ steps:
   const row = page.getByRole('row').filter({ hasText: remoteNodeName });
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: 'Actions' }).click();
-  await page.getByRole('menuitem', { name: 'Test Connection' }).click();
+  await page.getByRole('menuitem', { name: 'Test connection' }).click();
   await expect(row).toContainText('OK');
 
   await selectRemoteNode(page, remoteNodeName);

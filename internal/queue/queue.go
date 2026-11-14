@@ -6,6 +6,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -45,6 +46,21 @@ type QueueStore interface {
 	QueueWatcher(ctx context.Context) QueueWatcher
 }
 
+// Summary is one queue that holds queued items: how many wait, and the
+// next of them in line, by its item ID and when it was queued.
+type Summary struct {
+	Name         string
+	Queued       int
+	Next         string
+	NextQueuedAt time.Time
+}
+
+// Summarizer sums up the queues that hold queued items, in name order,
+// without reading the items.
+type Summarizer interface {
+	Summaries(ctx context.Context) ([]Summary, error)
+}
+
 // QueueWatcher watches the queue state
 type QueueWatcher interface {
 	// Start start swatching queue data and signal when a queue state changed
@@ -60,6 +76,16 @@ const (
 	QueuePriorityHigh QueuePriority = iota
 	QueuePriorityLow
 )
+
+// PriorityOf returns the queue priority of a run. A backfill run waits
+// behind every other run of its queue; the others keep their order among
+// themselves.
+func PriorityOf(status *ir.DAGRunStatus) QueuePriority {
+	if status != nil && status.BackfillID != "" {
+		return QueuePriorityLow
+	}
+	return QueuePriorityHigh
+}
 
 // QueuedItemData represents a dag-run reference that is queued for execution.
 type QueuedItemData interface {

@@ -44,10 +44,41 @@ type Extension struct {
 
 // Probe reports whether a browser answers on its DevTools endpoint.
 func Probe(ctx context.Context, cdpURL string) error {
+	_, err := BrowserID(ctx, cdpURL)
+	return err
+}
+
+// BrowserID identifies the browser answering at cdpURL. A browser started
+// later on the same address has another identity. The error wraps
+// ErrUnreachable when nothing accepts connections there.
+func BrowserID(ctx context.Context, cdpURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	_, err := browserWebSocketURL(ctx, cdpURL)
-	return err
+	return browserWebSocketURL(ctx, cdpURL)
+}
+
+// Version is what a browser reports about itself.
+type Version struct {
+	// Product names the browser and its version, such as
+	// Chrome/155.0.8059.80, whatever user agent the browser was given.
+	Product string
+	// UserAgent is the user agent the browser's pages send.
+	UserAgent string
+}
+
+// BrowserVersion reports what the browser at cdpURL says about itself. The
+// error wraps ErrUnreachable when nothing accepts connections there.
+func BrowserVersion(ctx context.Context, cdpURL string) (Version, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	version, err := readVersion(ctx, cdpURL)
+	if err != nil {
+		return Version{}, err
+	}
+	if version.Browser == "" || version.UserAgent == "" {
+		return Version{}, errors.New("browser DevTools endpoint did not report its product and user agent")
+	}
+	return Version{Product: version.Browser, UserAgent: version.UserAgent}, nil
 }
 
 // StagehandExtension returns the enabled Stagehand runtime extension loaded
@@ -84,6 +115,31 @@ func BrowserProcessID(ctx context.Context, cdpURL string) (int, error) {
 		}
 	}
 	return 0, errors.New("browser process not reported")
+}
+
+// UsesProfile reports whether the browser at cdpURL was started with dir as
+// its user data directory. Each launch uses its own directory, so a match
+// identifies the browser that launch started.
+func UsesProfile(ctx context.Context, cdpURL, dir string) (bool, error) {
+	var info struct {
+		CommandLine string `json:"commandLine"`
+	}
+	if err := call(ctx, cdpURL, "SystemInfo.getInfo", map[string]any{}, &info); err != nil {
+		return false, err
+	}
+	flag := "--user-data-dir=" + dir
+	rest := info.CommandLine
+	for {
+		i := strings.Index(rest, flag)
+		if i < 0 {
+			return false, nil
+		}
+		rest = rest[i+len(flag):]
+		// A longer path that starts with dir names another directory.
+		if rest == "" || rest[0] == ' ' || rest[0] == '"' {
+			return true, nil
+		}
+	}
 }
 
 // CloseBrowser asks the browser at cdpURL to exit. A browser that no longer
@@ -135,24 +191,37 @@ func classifyDialError(err error) error {
 	return err
 }
 
-func browserWebSocketURL(ctx context.Context, cdpURL string) (string, error) {
+// devToolsVersion is what a browser's DevTools endpoint reports about it.
+type devToolsVersion struct {
+	Browser              string `json:"Browser"`
+	UserAgent            string `json:"User-Agent"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
+
+func readVersion(ctx context.Context, cdpURL string) (devToolsVersion, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cdpURL, "/")+"/json/version", nil)
 	if err != nil {
-		return "", err
+		return devToolsVersion{}, err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return "", classifyDialError(err)
+		return devToolsVersion{}, classifyDialError(err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("browser DevTools endpoint returned %s", response.Status)
+		return devToolsVersion{}, fmt.Errorf("browser DevTools endpoint returned %s", response.Status)
 	}
-	var version struct {
-		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-	}
+	var version devToolsVersion
 	if err := json.NewDecoder(response.Body).Decode(&version); err != nil {
-		return "", fmt.Errorf("decode browser DevTools version: %w", err)
+		return devToolsVersion{}, fmt.Errorf("decode browser DevTools version: %w", err)
+	}
+	return version, nil
+}
+
+func browserWebSocketURL(ctx context.Context, cdpURL string) (string, error) {
+	version, err := readVersion(ctx, cdpURL)
+	if err != nil {
+		return "", err
 	}
 	if version.WebSocketDebuggerURL == "" {
 		return "", errors.New("browser DevTools endpoint did not report a WebSocket URL")

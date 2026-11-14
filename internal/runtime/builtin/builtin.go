@@ -10,7 +10,9 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/artifact"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/browser"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/chat"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/clickhouse"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/computer"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/data"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/decision"
@@ -21,6 +23,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/http"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/jq"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/js"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/kubernetes"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/log"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/mail"
@@ -36,4 +39,5 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/state"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/template"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/wait"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/xlsx"
 )

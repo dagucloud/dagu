@@ -29,7 +29,8 @@ var pipelineCommandSchema = &jsonschema.Schema{
 
 // configSchema defines the JSON schema for Redis executor configuration.
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		// Connection - Basic
 		"url":      {Type: "string", Format: "uri", Description: "Redis connection URL (redis://user:pass@host:port/db)"},
@@ -123,7 +124,7 @@ var configSchema = &jsonschema.Schema{
 
 		// Execution
 		"timeout":         {Type: "integer", Description: "Command timeout in seconds"},
-		"max_result_size": {Type: "integer", Description: "Max result size in bytes"},
+		"max_result_size": {Type: "integer", Minimum: new(float64(0)), Description: "Largest result output in bytes. A larger result fails the step and writes nothing. 0 means no limit. Default: 10MB."},
 	},
 }
 

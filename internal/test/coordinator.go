@@ -82,6 +82,7 @@ func SetupCoordinator(t *testing.T, opts ...HelperOption) *Coordinator {
 	if helper.StaleLeaseThreshold > 0 {
 		cfg.StaleLeaseThreshold = helper.StaleLeaseThreshold
 	}
+	cfg.WorkerWaitTimeout = helper.WorkerWaitTimeout
 	cfg.StateStore = helper.StateStore
 	cfg.DAGRepository = helper.DAGRepository
 	cfg.SecretStore = file.NewSecretStore(helper.Context, helper.Config, helper.Backend.Collection(persis.CollectionSecrets))

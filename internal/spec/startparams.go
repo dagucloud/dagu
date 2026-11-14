@@ -18,7 +18,8 @@ type paramToken struct {
 }
 
 // StartParamInput describes start params regardless of caller (CLI/API).
-// Use DashArgs for params passed after "--", or RawParams for --params style input.
+// Use DashArgs for parameter tokens or RawParams for parameter text. Quotes in
+// RawParams delimit values rather than wrapping the complete input.
 type StartParamInput struct {
 	DashArgs  []string
 	RawParams string
@@ -26,7 +27,7 @@ type StartParamInput struct {
 
 // paramTokenRegex matches positional and named params similarly to spec.parseStringParams.
 var paramTokenRegex = regexp.MustCompile(
-	`(?:([^\s=]+)=)?("(?:\\"|[^"])*"|` + "`[^`]*`" + `|[^"\s]+)`,
+	`(?:([^\s="]+)=)?("(?:\\"|[^"])*"|` + "`[^`]*`" + `|[^"\s]+)`,
 )
 
 func ValidateStartArgs(hasDash bool, args []string) error {
@@ -37,6 +38,22 @@ func ValidateStartArgs(hasDash bool, args []string) error {
 		"unexpected arguments after DAG definition: %s (use '--' before parameters)",
 		strings.Join(args[1:], " "),
 	)
+}
+
+// ParamNames returns the names a params string gives values to, such as day
+// in `day=2026-11-01`. A positional value has no name and is left out.
+func ParamNames(raw string) ([]string, error) {
+	pairs, err := parseOverridePairs(raw, nil)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, pair := range pairs {
+		if pair.Name != "" {
+			names = append(names, pair.Name)
+		}
+	}
+	return names, nil
 }
 
 // ValidateStartParams validates positional params against declared defaults.
@@ -74,8 +91,7 @@ func extractProvidedParamTokens(input StartParamInput) ([]paramToken, bool) {
 		return parseParamsFromArgs(input.DashArgs), false
 	}
 
-	raw := stringutil.RemoveQuotes(input.RawParams)
-	raw = strings.TrimSpace(raw)
+	raw := strings.TrimSpace(input.RawParams)
 	if raw == "" {
 		return nil, false
 	}

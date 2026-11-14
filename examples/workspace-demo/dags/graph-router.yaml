@@ -1,0 +1,32 @@
+# Route on a status code to one of two handlers.
+description: Produce a status code, route it to a handler and run the lifecycle handlers.
+type: graph
+steps:
+  - id: produce
+    name: produce code
+    run: echo $((200 + $(od -An -N1 -tu1 /dev/urandom) % 2 * 304))
+    output:
+      code:
+        from: stdout
+        decode: text
+
+  - name: route code
+    depends: [produce]
+    action: router.route
+    with:
+      value: "${steps.produce.outputs.code}"
+      routes:
+        "re:^2\\d\\d$": [handle_ok]
+        "re:^[^2]\\d\\d$": [handle_other]
+
+  - name: handle_ok
+    run: echo "ok branch"
+
+  - name: handle_other
+    run: echo "other branch"
+
+handler_on:
+  success:
+    run: echo "dag succeeded"
+  failure:
+    run: echo "dag failed"

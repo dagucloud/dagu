@@ -5,9 +5,12 @@ package spec045_http_request_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -50,6 +53,44 @@ func TestHTTPRequest(t *testing.T) {
 	require.Equal(t, "value", response.Body["key"])
 }
 
+func TestHTTPSilentJSON(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		status int
+		keys   []string
+	}{
+		{"success", http.StatusAccepted, []string{"body"}},
+		{"failure", http.StatusServiceUnavailable, []string{"body", "headers", "status_code"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"id":"j1"}`))
+			}))
+			t.Cleanup(server.Close)
+
+			dagu := harness.NewRunner(t)
+			result := dagu.RunWithEnv([]string{"HTTP_URL=" + server.URL}, "start", "silent_json_format.yaml")
+			if tc.status < 300 {
+				result.ExpectExitCode(0)
+			} else {
+				result.ExpectNonZeroExitCode()
+			}
+			data, err := os.ReadFile(dagu.ProjectPath("response.json"))
+			require.NoError(t, err)
+			var response map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(data, &response))
+			require.ElementsMatch(t, tc.keys, slices.Collect(maps.Keys(response)))
+			require.JSONEq(t, `{"id":"j1"}`, string(response["body"]))
+		})
+	}
+}
+
 func TestHTTPErrorOutput(t *testing.T) {
 	t.Parallel()
 
@@ -66,6 +107,38 @@ func TestHTTPErrorOutput(t *testing.T) {
 	result.ExpectStderrContains("http status code not 2xx")
 	dagu.ExpectFileContent("response_body.out", "existing content")
 	dagu.ExpectFileContains("failure.out", "service failed")
+}
+
+// A mapped status is the step exit code, so retry_policy and continue_on act
+// on it, even when a format: json failure has a non-JSON body. A status mapped
+// to 0 writes the response body.
+func TestHTTPStatusExitCodes(t *testing.T) {
+	t.Parallel()
+
+	var flakyRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/missing":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not here"))
+		case "/flaky":
+			if flakyRequests.Add(1) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("<html>busy</html>"))
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "/gone":
+			w.WriteHeader(http.StatusGone)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv([]string{"HTTP_URL=" + server.URL}, "start", "status_exit_codes.yaml")
+	dagu.ExpectFileContains("tolerated.out", "not here")
+	require.Equal(t, int32(2), flakyRequests.Load())
+	dagu.ExpectFileContains("after.out", "done")
 }
 
 func TestHTTPTLS(t *testing.T) {
@@ -103,6 +176,8 @@ func TestHTTPConfig(t *testing.T) {
 	for _, tc := range []struct{ file, field string }{
 		{"missing_method.yaml", "with.method"},
 		{"missing_url.yaml", "with.url"},
+		{"unknown_field.yaml", `unexpected additional properties ["header"]; did you mean "headers" instead of "header"?`},
+		{"status_exit_codes_invalid.yaml", "status_exit_codes"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

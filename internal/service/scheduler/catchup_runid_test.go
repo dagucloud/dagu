@@ -156,3 +156,19 @@ func TestGenerateLegacyScheduledRunIDs(t *testing.T) {
 func scheduledRunIDPattern(prefix, timestamp string) string {
 	return fmt.Sprintf(`^%s[0-9a-f]{%d}-%s$`, prefix, hashLen, timestamp)
 }
+
+func TestGenerateSlotRunID(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+
+	const dataDir = "/var/lib/dagu"
+	id := GenerateSlotRunID(dataDir, "etl-pipeline", slot)
+	assert.Regexp(t, `^sched-[0-9a-f]{12}-20260207T120000$`, id)
+	assert.LessOrEqual(t, len(id), maxRunIDLen)
+
+	assert.Equal(t, id, GenerateSlotRunID(dataDir, "etl-pipeline", slot.In(time.FixedZone("JST", 9*3600))))
+	assert.NotEqual(t, id, GenerateSlotRunID(dataDir, "other", slot))
+	assert.NotEqual(t, id, GenerateSlotRunID("/srv/other-install", "etl-pipeline", slot))
+	assert.NotEqual(t, id, GenerateSlotRunID(dataDir, "etl-pipeline", slot.Add(time.Minute)))
+}

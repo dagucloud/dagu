@@ -22,7 +22,15 @@ func Enqueue() *cobra.Command {
 			Short: "Enqueue a DAG-run to the queue.",
 			Long: `Enqueue a DAG-run to the queue.
 
+With --params-stdin, parameters can be provided on piped or redirected stdin
+(e.g. 'echo "P1=foo" | dagu enqueue --params-stdin my_dag'). Input is read until
+EOF, up to 1 MiB. Arguments after "--" and --params take precedence.
+Quote individual stdin values to preserve spaces; "" supplies an empty value.
+Empty or whitespace-only stdin uses DAG defaults.
+Without --params-stdin, stdin is left unread.
+
 Examples:
+	echo '"hello world"' | dagu enqueue --params-stdin my_dag
 	dagu enqueue --run-id=run_id my_dag -- P1=foo P2=bar
 	dagu enqueue --name my_custom_name my_dag.yaml -- P1=foo P2=bar
 `,
@@ -31,7 +39,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, queueFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, noReuseFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, noReuseFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -64,6 +72,9 @@ func runEnqueue(ctx *Context, args []string) error {
 	if queueOverride != "" {
 		dag.Queue = queueOverride
 	}
+	if err := applyWorkerLabelsOverride(ctx, dag); err != nil {
+		return err
+	}
 
 	if err := parseAndAppendLabels(ctx, dag); err != nil {
 		return err
@@ -78,26 +89,35 @@ func runEnqueue(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to get trigger actor: %w", err)
 	}
 
-	scheduleTime, err := parseScheduleTimeParam(ctx)
-	if err != nil {
-		return err
-	}
 	profileName, err := runtimeProfileNameParam(ctx)
 	if err != nil {
 		return err
 	}
+	slot, err := runSlotParams(ctx, dag, profileName, false)
+	if err != nil {
+		return err
+	}
+	slot = withDefaultSlot(ctx, dag, profileName, slot)
+	dates, err := slotDates(ctx, dag, profileName, slot)
+	if err != nil {
+		return err
+	}
+	reportRunDates(ctx, slot, dates)
 	noReuse, err := ctx.Command.Flags().GetBool("no-reuse")
 	if err != nil {
 		return fmt.Errorf("failed to read no-reuse: %w", err)
 	}
 
 	return enqueueDAGRun(ctx, dag, runID, runOptions{
-		triggerType:  triggerType,
-		triggerActor: triggerActor,
-		scheduleTime: scheduleTime,
-		profileName:  profileName,
-		definitionID: dagDefinitionIDFromEnv(),
-		noReuse:      noReuse,
+		triggerType:    triggerType,
+		triggerActor:   triggerActor,
+		scheduleTime:   slot.scheduleTime,
+		scheduleWindow: slot.window,
+		dates:          dates,
+		defaultSlot:    slot.isDefault,
+		profileName:    profileName,
+		definitionID:   dagDefinitionIDFromEnv(),
+		noReuse:        noReuse,
 	})
 }
 
@@ -117,6 +137,10 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		return fmt.Errorf("DAG %q with ID %q already exists", dag.Name, dagRunID)
 	}
 
+	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
+		return err
+	}
+
 	queued, err := intake.EnqueueRun(ctx.Context, intake.QueueRequest{
 		DAGRunRepository:        ctx.Persistence.DAGRunRepository,
 		QueueStore:              ctx.Persistence.QueueStore,
@@ -127,6 +151,9 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		TriggerType:             opts.triggerType,
 		TriggerActor:            opts.triggerActor,
 		ScheduleTime:            opts.scheduleTime,
+		ScheduleWindow:          opts.scheduleWindow,
+		Dates:                   opts.dates,
+		DefaultSlot:             opts.defaultSlot,
 		ProfileName:             opts.profileName,
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,

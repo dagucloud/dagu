@@ -31,8 +31,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 
@@ -119,11 +121,482 @@ func agentRunStartTimeout() time.Duration {
 	return 5 * time.Second
 }
 
+// The cleanup deadline includes steps and pauses between executions.
+func TestStopCleanupDeadline(t *testing.T) {
+	for _, scenario := range []string{"Repeat", "RepeatInterval", "RetryInterval", "Delay"} {
+		t.Run(scenario, func(t *testing.T) {
+			th := test.Setup(t)
+			dir := t.TempDir()
+			ready := filepath.Join(dir, "ready")
+			release := filepath.Join(dir, "release")
+			blocking := signalFileThenWaitScript(ready, release, 50*time.Millisecond)
+			yaml := fmt.Sprintf("max_clean_up_time_sec: 1\nsteps:\n  - name: probe\n    script: %q\n", blocking)
+			switch scenario {
+			case "Repeat":
+				yaml += "    repeat_policy:\n      repeat: while\n      condition: \"true\"\n      expected: \"true\"\n"
+			case "RepeatInterval":
+				yaml = fmt.Sprintf("max_clean_up_time_sec: 1\nsteps:\n  - name: probe\n    script: %q\n    repeat_policy:\n      repeat: while\n      condition: \"true\"\n      expected: \"true\"\n      interval_sec: 30\n", writeFileCommand(ready, "started"))
+			case "RetryInterval":
+				yaml = fmt.Sprintf("max_clean_up_time_sec: 1\nsteps:\n  - name: probe\n    script: %q\n    retry_policy:\n      limit: 1\n      interval_sec: 30\n", writeFileCommand(ready, "started")+"\nexit 1")
+			case "Delay":
+				yaml = "delay_sec: 30\n" + yaml
+			}
+			dag := th.DAG(t, yaml)
+			dagAgent := dag.Agent()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_ = dagAgent.Run(th.Context)
+			}()
+			t.Cleanup(func() {
+				_ = os.WriteFile(release, nil, 0600)
+				dagAgent.Signal(th.Context, os.Kill)
+				select {
+				case <-done:
+				case <-time.After(agentRunCompletionTimeout()):
+					t.Error("run did not exit after releasing cleanup")
+				}
+			})
+			waitForTestFile(t, ready, agentRunStartTimeout())
+			if scenario == "RepeatInterval" || scenario == "RetryInterval" {
+				require.Eventually(t, func() bool {
+					node := dagAgent.Status(th.Context).Nodes[0]
+					return node.DoneCount > 0 || node.RetryCount > 0
+				}, agentRunStartTimeout(), 10*time.Millisecond)
+			}
+			go dagAgent.Signal(th.Context, os.Interrupt)
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("run exceeded its cleanup deadline")
+			}
+			dag.AssertLatestStatus(t, ir.Aborted)
+		})
+	}
+}
+
+// Cleanup escalation cannot terminate an init or terminal handler.
+func TestStopHandlerBudgets(t *testing.T) {
+	for _, handler := range []string{"init", "abort", "exit", "timeout-exit"} {
+		t.Run(handler, func(t *testing.T) {
+			th := test.Setup(t)
+			dir := t.TempDir()
+			ready := filepath.Join(dir, "ready")
+			handlerReady := filepath.Join(dir, "handler-ready")
+			release := filepath.Join(dir, "release")
+			finished := filepath.Join(dir, "finished")
+			exited := filepath.Join(dir, "exited")
+			step := signalFileThenWaitScript(ready, release, 50*time.Millisecond)
+			blockedHandler := signalFileThenWaitScript(handlerReady, release, 50*time.Millisecond) + "\n" + writeFileCommand(finished, "done")
+			yaml := fmt.Sprintf("max_clean_up_time_sec: 1\nsteps:\n  - script: %q\nhandler_on:\n  %s:\n    script: %q\n", step, handler, blockedHandler)
+			if handler == "timeout-exit" {
+				yaml = fmt.Sprintf("timeout_sec: 1\nmax_clean_up_time_sec: 1\nsteps:\n  - script: %q\nhandler_on:\n  exit:\n    script: %q\n", test.Sleep(30*time.Second), blockedHandler)
+			}
+			if handler != "exit" && handler != "timeout-exit" {
+				yaml += fmt.Sprintf("  exit:\n    script: %q\n", writeFileCommand(exited, "done"))
+			}
+			dag := th.DAG(t, yaml)
+			dagAgent := dag.Agent()
+			done := make(chan struct{})
+			go func() { defer close(done); _ = dagAgent.Run(th.Context) }()
+			t.Cleanup(func() {
+				_ = os.WriteFile(release, nil, 0600)
+				dagAgent.Signal(th.Context, os.Kill)
+				waitForCancel(t, done, agentRunCompletionTimeout())
+			})
+			if handler == "abort" || handler == "exit" {
+				waitForTestFile(t, ready, agentRunStartTimeout())
+			} else {
+				waitForTestFile(t, handlerReady, agentRunStartTimeout())
+			}
+			go dagAgent.Signal(th.Context, os.Interrupt)
+			waitForTestFile(t, handlerReady, agentRunStartTimeout())
+			select {
+			case <-done:
+				t.Fatal("cleanup escalation terminated a lifecycle handler")
+			case <-time.After(2 * time.Second):
+			}
+			require.NoError(t, os.WriteFile(release, nil, 0600))
+			waitForCancel(t, done, agentRunCompletionTimeout())
+			data, err := os.ReadFile(finished)
+			require.NoError(t, err)
+			require.Equal(t, "done", string(data))
+			status := dagAgent.Status(th.Context)
+			require.Equal(t, ir.NodeSucceeded, status.OnExit.Status)
+			if handler == "init" {
+				require.Equal(t, ir.NodeSucceeded, status.OnInit.Status)
+				require.Equal(t, ir.NodeNotStarted, status.Nodes[0].Status)
+			} else if handler == "abort" {
+				require.Equal(t, ir.NodeSucceeded, status.OnAbort.Status)
+			}
+		})
+	}
+}
+
+// A second stop shares the first stop's cleanup deadline. Both calls return
+// once that deadline forces termination; a restarted deadline would hold them
+// until about five seconds. Process teardown time is not part of the bound.
+func TestStopConcurrentDeadline(t *testing.T) {
+	th := test.Setup(t)
+	ready := filepath.Join(t.TempDir(), "ready")
+	dag := th.DAG(t, fmt.Sprintf(`
+max_clean_up_time_sec: 3
+steps:
+  - script: %q
+    repeat_policy:
+      repeat: while
+      condition: "true"
+      expected: "true"
+`, writeFileCommand(ready, "started")+"\n"+test.Sleep(30*time.Second)))
+	dagAgent := dag.Agent()
+	done := make(chan struct{})
+	go func() { defer close(done); _ = dagAgent.Run(th.Context) }()
+	t.Cleanup(func() {
+		dagAgent.Signal(th.Context, os.Kill)
+		waitForCancel(t, done, agentRunCompletionTimeout())
+	})
+	waitForTestFile(t, ready, agentRunStartTimeout())
+	started := time.Now()
+	firstStop, secondStop := make(chan struct{}), make(chan struct{})
+	go func() { defer close(firstStop); dagAgent.Signal(th.Context, os.Interrupt) }()
+	time.Sleep(2 * time.Second)
+	go func() { defer close(secondStop); dagAgent.Signal(th.Context, os.Interrupt) }()
+	deadline := started.Add(4 * time.Second)
+	waitForCancel(t, firstStop, time.Until(deadline))
+	waitForCancel(t, secondStop, time.Until(deadline))
+	waitForCancel(t, done, agentRunCompletionTimeout())
+	dag.AssertLatestStatus(t, ir.Aborted)
+}
+
 func agentRunCompletionTimeout() time.Duration {
 	if runtime.GOOS == "windows" {
 		return 3 * time.Minute
 	}
 	return 10 * time.Second
+}
+
+type startupBarrier struct {
+	started  chan struct{}
+	release  chan struct{}
+	returned chan struct{}
+	once     sync.Once
+}
+
+func (b *startupBarrier) wait() {
+	close(b.started)
+	<-b.release
+	close(b.returned)
+}
+
+func (b *startupBarrier) unblock() {
+	b.once.Do(func() { close(b.release) })
+}
+
+type startupSecretResolver struct{ barrier *startupBarrier }
+
+func (r startupSecretResolver) ResolveReference(context.Context, secretref.Ref) (string, error) {
+	r.barrier.wait()
+	return "late-secret", nil
+}
+
+func (startupSecretResolver) CheckReferenceAccessibility(context.Context, secretref.Ref) error {
+	return nil
+}
+
+type startupProfileResolver struct {
+	barrier    *startupBarrier
+	panicValue any
+}
+
+func (r startupProfileResolver) ResolveRuntime(context.Context, profilepkg.RuntimeRequest) (*profilepkg.RuntimeResolved, error) {
+	r.barrier.wait()
+	if r.panicValue != nil {
+		panic(r.panicValue)
+	}
+	return &profilepkg.RuntimeResolved{Selected: &profilepkg.Resolved{Name: "late-profile"}}, nil
+}
+
+type startupSocketServer struct{ barrier *startupBarrier }
+
+func (s startupSocketServer) Serve(ctx context.Context, listen chan error) error {
+	close(s.barrier.started)
+	<-ctx.Done()
+	listen <- ctx.Err()
+	close(s.barrier.returned)
+	return ctx.Err()
+}
+
+func (startupSocketServer) Shutdown(context.Context) error { return nil }
+
+// Startup termination cannot wait for a provider that ignores cancellation.
+func TestStopStartup(t *testing.T) {
+	for _, phase := range []string{"BeforeRun", "Dry", "Secrets", "Profile", "LatePanic", "Factory", "Socket"} {
+		for _, signal := range []os.Signal{os.Interrupt, os.Kill} {
+			t.Run(phase+"/"+signal.String(), func(t *testing.T) {
+				th := test.Setup(t)
+				marker := filepath.Join(t.TempDir(), "executed")
+				script := writeFileCommand(marker, "started")
+				yaml := fmt.Sprintf("max_clean_up_time_sec: 1\nsteps:\n  - script: %q\nhandler_on:\n  init:\n    script: %q\n  abort:\n    script: %q\n  exit:\n    script: %q\n", script, script, script, script)
+				barrier := &startupBarrier{started: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{})}
+				opts := agent.Options{Dry: phase == "Dry"}
+				// blocksInProvider is whether the phase blocks inside a provider
+				// that ignores cancellation.
+				blocksInProvider := false
+				if phase == "Secrets" {
+					blocksInProvider = true
+					yaml += "secrets:\n  - name: TOKEN\n    ref: prod/token\n"
+					opts.SecretReferenceResolver = startupSecretResolver{barrier: barrier}
+				} else if phase == "Profile" || phase == "LatePanic" {
+					blocksInProvider = true
+					opts.ProfileName = "initial-profile"
+					resolver := startupProfileResolver{barrier: barrier}
+					if phase == "LatePanic" {
+						resolver.panicValue = "late startup panic"
+					}
+					opts.ProfileResolver = resolver
+				} else if phase == "Factory" {
+					opts.SubWorkflowRunnerFactory = func(ctx context.Context) (runtimeexec.SubWorkflowRunner, error) {
+						close(barrier.started)
+						<-ctx.Done()
+						close(barrier.returned)
+						return nil, ctx.Err()
+					}
+				} else if phase == "Socket" {
+					opts.SocketServerFactory = func(string, sock.HTTPHandlerFunc) (agent.SocketServer, error) {
+						return startupSocketServer{barrier: barrier}, nil
+					}
+				}
+				dag := th.DAG(t, yaml)
+				dagAgent := dag.Agent(test.WithAgentOptions(opts))
+				done := make(chan struct{})
+				var runErr error
+				t.Cleanup(func() {
+					barrier.unblock()
+					dagAgent.Signal(th.Context, os.Kill)
+					waitForCancel(t, done, agentRunCompletionTimeout())
+				})
+				beforeRun := phase == "BeforeRun" || phase == "Dry"
+				if beforeRun {
+					dagAgent.Signal(th.Context, signal)
+				}
+				go func() {
+					defer close(done)
+					runErr = dagAgent.Run(th.Context)
+				}()
+				if !beforeRun {
+					waitForCancel(t, barrier.started, agentRunStartTimeout())
+					go dagAgent.Signal(th.Context, signal)
+				}
+				// Aborting startup only records the aborted attempt; no cleanup
+				// budget applies, so the run is bounded by the platform completion
+				// timeout and must return while the provider is still blocked.
+				waitForCancel(t, done, agentRunCompletionTimeout())
+				if blocksInProvider {
+					select {
+					case <-barrier.returned:
+						t.Fatal("startup termination waited for the provider")
+					default:
+					}
+				}
+				require.NoError(t, runErr)
+				if opts.Dry {
+					dag.AssertDAGRunCount(t, 0)
+				} else {
+					dag.AssertLatestStatus(t, ir.Aborted)
+				}
+				status := dagAgent.Status(th.Context)
+				require.Equal(t, ir.Aborted, status.Status)
+				require.NotEmpty(t, status.FinishedAt)
+				if !beforeRun {
+					barrier.unblock()
+					waitForCancel(t, barrier.returned, time.Second)
+				}
+				require.Never(t, func() bool {
+					_, err := os.Stat(marker)
+					return err == nil || dagAgent.Status(th.Context).ProfileName != opts.ProfileName
+				}, 200*time.Millisecond, 10*time.Millisecond, "late startup completion changed an aborted run")
+			})
+		}
+	}
+}
+
+func TestStartupPanic(t *testing.T) {
+	th := test.Setup(t, test.WithCaptureLoggingOutput())
+	barrier := &startupBarrier{started: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{})}
+	barrier.unblock()
+	dag := th.DAG(t, "steps:\n  - run: echo done\n")
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{ProfileResolver: startupProfileResolver{barrier: barrier, panicValue: "startup panic"}}))
+	require.PanicsWithValue(t, "startup panic", func() { _ = dagAgent.Run(th.Context) })
+	require.Contains(t, th.LoggingOutput.String(), "startupProfileResolver.ResolveRuntime")
+}
+
+func TestStopStartupDuplicate(t *testing.T) {
+	th := test.Setup(t)
+	dag := th.DAG(t, "steps:\n  - run: echo done\n")
+	first := dag.Agent()
+	first.RunSuccess(t)
+	second := dag.Agent(test.WithDAGRunID(first.Status(th.Context).DAGRunID))
+	second.Signal(th.Context, os.Interrupt)
+	require.ErrorIs(t, second.Run(th.Context), dagrun.ErrDAGRunAlreadyExists)
+	dag.AssertLatestStatus(t, ir.Succeeded)
+}
+
+type rejectedAttempt struct{}
+
+func (rejectedAttempt) Error() string                 { return "attempt rejected" }
+func (rejectedAttempt) AttemptRejectedReason() string { return "stale attempt" }
+
+type rejectingStatusPusher struct {
+	status   ir.NodeStatus
+	rejected chan struct{}
+	once     sync.Once
+}
+
+func (p *rejectingStatusPusher) Push(_ context.Context, status ir.DAGRunStatus) error {
+	if len(status.Nodes) == 0 || status.Nodes[0].Status != p.status {
+		return nil
+	}
+	var err error
+	p.once.Do(func() {
+		close(p.rejected)
+		err = rejectedAttempt{}
+	})
+	return err
+}
+
+// Rejection must not block the consumer that drains runner progress and handlers.
+func TestRejectedStatus(t *testing.T) {
+	for _, nodeStatus := range []ir.NodeStatus{ir.NodeNotStarted, ir.NodeRunning, ir.NodeSucceeded} {
+		t.Run(nodeStatus.String(), func(t *testing.T) {
+			th := test.Setup(t)
+			marker := filepath.Join(t.TempDir(), "exit")
+			script := "echo done"
+			if nodeStatus == ir.NodeRunning {
+				script = test.Sleep(30 * time.Second)
+			}
+			dag := th.DAG(t, fmt.Sprintf("max_clean_up_time_sec: 5\nsteps:\n  - script: %q\nhandler_on:\n  abort:\n    run: echo abort\n  exit:\n    script: %q\n", script, writeFileCommand(marker, "done")))
+			pusher := &rejectingStatusPusher{status: nodeStatus, rejected: make(chan struct{})}
+			dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{StatusPusher: pusher}))
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_ = dagAgent.Run(th.Context)
+			}()
+			t.Cleanup(func() {
+				dagAgent.Signal(th.Context, os.Kill)
+				waitForCancel(t, done, agentRunCompletionTimeout())
+			})
+			waitForCancel(t, pusher.rejected, agentRunStartTimeout())
+			waitForCancel(t, done, agentRunCompletionTimeout())
+			data, err := os.ReadFile(marker)
+			if nodeStatus == ir.NodeNotStarted {
+				require.ErrorIs(t, err, os.ErrNotExist, "handler ran before startup completed")
+				require.Equal(t, ir.Aborted, dagAgent.Status(th.Context).Status)
+				return
+			}
+			require.NoError(t, err, "exit handler was skipped after rejection")
+			require.Equal(t, "done", string(data))
+		})
+	}
+}
+
+func TestStopSharedDeadline(t *testing.T) {
+	th := test.Setup(t)
+	dir := t.TempDir()
+	ready, release := filepath.Join(dir, "ready"), filepath.Join(dir, "release")
+	handlerReady, handlerRelease := filepath.Join(dir, "handler-ready"), filepath.Join(dir, "handler-release")
+	dag := th.DAG(t, fmt.Sprintf(`
+max_clean_up_time_sec: 3
+steps:
+  - name: probe
+    script: %q
+    repeat_policy:
+      repeat: while
+      condition: "true"
+      expected: "true"
+handler_on:
+  exit:
+    script: %q
+`, signalFileThenWaitScript(ready, release, 50*time.Millisecond), signalFileThenWaitScript(handlerReady, handlerRelease, 50*time.Millisecond)))
+	dagAgent := dag.Agent()
+	done := make(chan struct{})
+	go func() { defer close(done); _ = dagAgent.Run(th.Context) }()
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0600)
+		_ = os.WriteFile(handlerRelease, nil, 0600)
+		dagAgent.Signal(th.Context, os.Kill)
+		waitForCancel(t, done, agentRunCompletionTimeout())
+	})
+	waitForTestFile(t, ready, agentRunStartTimeout())
+	firstStop := make(chan struct{})
+	started := time.Now()
+	go func() { defer close(firstStop); dagAgent.Signal(th.Context, os.Interrupt) }()
+	// Finishing steps releases stop callers without limiting the exit handler.
+	time.Sleep(2 * time.Second)
+	require.NoError(t, os.WriteFile(release, nil, 0600))
+	waitForTestFile(t, handlerReady, agentRunStartTimeout())
+	waitForCancel(t, firstStop, time.Second)
+	secondStop := make(chan struct{})
+	go func() { defer close(secondStop); dagAgent.Signal(th.Context, os.Interrupt) }()
+	waitForCancel(t, secondStop, time.Second)
+	time.Sleep(time.Until(started.Add(4 * time.Second)))
+	dagAgent.Signal(th.Context, os.Kill)
+	select {
+	case <-done:
+		t.Fatal("step cleanup stopped the exit handler")
+	default:
+	}
+	require.NoError(t, os.WriteFile(handlerRelease, nil, 0600))
+	waitForCancel(t, done, agentRunCompletionTimeout())
+	dag.AssertLatestStatus(t, ir.Succeeded)
+	require.Equal(t, ir.NodeSucceeded, dagAgent.Status(th.Context).OnExit.Status)
+}
+
+func TestStopCallerCancellation(t *testing.T) {
+	for _, alreadyCanceled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("AlreadyCanceled=%t", alreadyCanceled), func(t *testing.T) {
+			th := test.Setup(t)
+			dir := t.TempDir()
+			ready, release := filepath.Join(dir, "ready"), filepath.Join(dir, "release")
+			dag := th.DAG(t, fmt.Sprintf(`
+max_clean_up_time_sec: 2
+steps:
+  - name: probe
+    script: %q
+    repeat_policy:
+      repeat: while
+      condition: "true"
+      expected: "true"
+`, signalFileThenWaitScript(ready, release, 50*time.Millisecond)))
+			dagAgent := dag.Agent()
+			done := make(chan struct{})
+			go func() { defer close(done); _ = dagAgent.Run(th.Context) }()
+			t.Cleanup(func() {
+				_ = os.WriteFile(release, nil, 0600)
+				dagAgent.Signal(th.Context, os.Kill)
+				waitForCancel(t, done, agentRunCompletionTimeout())
+			})
+			waitForTestFile(t, ready, agentRunStartTimeout())
+			ctx, cancel := context.WithCancel(th.Context)
+			defer cancel()
+			if alreadyCanceled {
+				cancel()
+			}
+			stopped := make(chan struct{})
+			go func() { defer close(stopped); dagAgent.Signal(ctx, os.Interrupt) }()
+			time.Sleep(100 * time.Millisecond)
+			cancel()
+			select {
+			case <-done:
+				t.Fatal("caller cancellation interrupted run cleanup")
+			case <-time.After(100 * time.Millisecond):
+			}
+			require.NoError(t, os.WriteFile(release, nil, 0600))
+			waitForCancel(t, done, agentRunCompletionTimeout())
+			waitForCancel(t, stopped, time.Second)
+			dag.AssertLatestStatus(t, ir.Succeeded)
+		})
+	}
 }
 
 func pwdCommand() string {
@@ -201,6 +674,44 @@ func (a *observedRunStateAttempt) RecordStatus(ctx context.Context, status ir.DA
 	return a.Attempt.RecordStatus(ctx, status)
 }
 
+type blockedOutputRunStateStore struct {
+	runstate.Store
+	outputStarted chan struct{}
+	releaseOutput chan struct{}
+}
+
+func (s *blockedOutputRunStateStore) BeginAttempt(
+	ctx context.Context,
+	req runstate.BeginAttemptRequest,
+) (runstate.Attempt, error) {
+	attempt, err := s.Store.BeginAttempt(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &blockedOutputRunStateAttempt{
+		Attempt:       attempt,
+		outputStarted: s.outputStarted,
+		releaseOutput: s.releaseOutput,
+	}, nil
+}
+
+type blockedOutputRunStateAttempt struct {
+	runstate.Attempt
+	outputStarted     chan struct{}
+	releaseOutput     <-chan struct{}
+	outputStartedOnce sync.Once
+}
+
+func (a *blockedOutputRunStateAttempt) RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
+	a.outputStartedOnce.Do(func() { close(a.outputStarted) })
+	select {
+	case <-a.releaseOutput:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return a.Attempt.RecordOutputs(ctx, outputs)
+}
+
 func TestAgent_Run(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Parallel()
@@ -272,6 +783,95 @@ func TestAgent_Run(t *testing.T) {
 		require.False(t, observer.observedInvalidContext())
 		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
+	for _, tc := range []struct {
+		name       string
+		runID      string
+		command    string
+		finalState ir.Status
+		wantErr    bool
+	}{
+		{name: "Success", runID: "outputs-before-completion-success", command: `echo "result"`, finalState: ir.Succeeded},
+		{name: "Failure", runID: "outputs-before-completion-failure", command: `echo "result"; exit 1`, finalState: ir.Failed, wantErr: true},
+	} {
+		t.Run("PersistsOutputsBeforeTerminalStatus/"+tc.name, func(t *testing.T) {
+			th := test.Setup(t)
+			dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: emit
+    run: %q
+    output: RESULT
+`, tc.command))
+			outputStarted := make(chan struct{})
+			releaseOutput := make(chan struct{})
+			var releaseOutputOnce sync.Once
+			release := func() { releaseOutputOnce.Do(func() { close(releaseOutput) }) }
+			stateStore := &blockedOutputRunStateStore{
+				Store:         persis.NewRunStateStore(th.DAGRunRepository, nil),
+				outputStarted: outputStarted,
+				releaseOutput: releaseOutput,
+			}
+			dagAgent := dag.Agent(
+				test.WithDAGRunID(tc.runID),
+				test.WithAgentOptions(agent.Options{
+					RunStateStore:       stateStore,
+					SocketServerFactory: fakeSocketServerFactory(nil),
+				}),
+			)
+
+			runDone := make(chan error, 1)
+			runExited := make(chan struct{})
+			t.Cleanup(func() {
+				release()
+				select {
+				case <-runExited:
+				case <-time.After(agentRunCompletionTimeout()):
+					t.Error("timed out waiting for DAG run cleanup")
+				}
+			})
+			go func() {
+				defer close(runExited)
+				runDone <- dagAgent.Run(th.Context)
+			}()
+
+			select {
+			case <-outputStarted:
+			case <-time.After(agentRunCompletionTimeout()):
+				t.Fatal("timed out waiting for output write")
+			}
+
+			storedAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, tc.runID))
+			require.NoError(t, err)
+			storedStatus, err := storedAttempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, ir.Running, storedStatus.Status)
+			storedOutputs, err := storedAttempt.ReadOutputs(th.Context)
+			require.NoError(t, err)
+			require.Nil(t, storedOutputs)
+
+			release()
+			select {
+			case err := <-runDone:
+				if tc.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(agentRunCompletionTimeout()):
+				t.Fatal("timed out waiting for DAG run to finish")
+			}
+
+			storedStatus, err = storedAttempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, tc.finalState, storedStatus.Status)
+			storedOutputs, err = storedAttempt.ReadOutputs(th.Context)
+			require.NoError(t, err)
+			require.NotNil(t, storedOutputs)
+			require.Equal(t, dag.Name, storedOutputs.Metadata.DAGName)
+			require.Equal(t, tc.runID, storedOutputs.Metadata.DAGRunID)
+			require.Equal(t, storedStatus.AttemptID, storedOutputs.Metadata.AttemptID)
+			require.Equal(t, storedStatus.Status.String(), storedOutputs.Metadata.Status)
+			require.Equal(t, "result", storedOutputs.Outputs["result"])
+		})
+	}
 	t.Run("RecordsTriggerActor", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:
@@ -416,6 +1016,64 @@ func TestAgent_Run(t *testing.T) {
 			}
 			t.Errorf("expected node %q to be in success state, got %q", node.Step.Name, node.Status.String())
 		}
+	})
+	t.Run("RejectsAlreadyExecutedAttempt", func(t *testing.T) {
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - run: exit 0
+`)
+		runID := "duplicate-attempt-run"
+		prepared, err := th.DAGRunRepository.CreateAttempt(
+			th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{},
+		)
+		require.NoError(t, err)
+		require.NoError(t, prepared.Open(th.Context))
+		recorded := ir.NewStatusBuilder(dag.DAG).Create(
+			runID, ir.Failed, 0, time.Now(), ir.WithAttemptID(prepared.ID()),
+		)
+		require.NoError(t, prepared.Write(th.Context, recorded))
+		require.NoError(t, prepared.Close(th.Context))
+
+		// The same attempt must not be executed again, and its recorded
+		// status must survive; a re-run of `exit 0` would record success.
+		dagAgent := dag.Agent(
+			test.WithDAGRunID(runID),
+			test.WithAgentOptions(agent.Options{
+				RunStateStore: persis.NewRunStateStore(th.DAGRunRepository, prepared),
+			}),
+		)
+		err = dagAgent.Run(th.Context)
+		require.ErrorIs(t, err, dagrun.ErrDAGRunAlreadyExists)
+		dag.AssertLatestStatus(t, ir.Failed)
+	})
+	t.Run("ResumesQueuedAttempt", func(t *testing.T) {
+		// Queue dispatch and seeded step selections persist a queued status
+		// before the agent resumes the attempt, so reopening the attempt file
+		// must not be rejected as a duplicate.
+		th := test.Setup(t)
+		dag := th.DAG(t, `steps:
+  - run: exit 0
+`)
+		runID := "queued-attempt-run"
+		prepared, err := th.DAGRunRepository.CreateAttempt(
+			th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{},
+		)
+		require.NoError(t, err)
+		require.NoError(t, prepared.Open(th.Context))
+		queued := ir.NewStatusBuilder(dag.DAG).Create(
+			runID, ir.Queued, 0, time.Time{}, ir.WithAttemptID(prepared.ID()),
+		)
+		require.NoError(t, prepared.Write(th.Context, queued))
+		require.NoError(t, prepared.Close(th.Context))
+
+		dagAgent := dag.Agent(
+			test.WithDAGRunID(runID),
+			test.WithAgentOptions(agent.Options{
+				RunStateStore: persis.NewRunStateStore(th.DAGRunRepository, prepared),
+			}),
+		)
+		dagAgent.RunSuccess(t)
+		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
 	t.Run("PreConditionNotMet", func(t *testing.T) {
 		th := test.Setup(t)
@@ -1384,6 +2042,52 @@ steps:
 	require.NotContains(t, string(statusJSON), secretValue)
 }
 
+// A precondition that compares a secret quotes the resolved value in its
+// error, while stored run status keeps only the mask.
+func TestAgent_PreconditionSecretMasking(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{"DAG", `preconditions:
+  - condition: "${API_TOKEN}"
+    expected: "nope"
+steps:
+  - run: echo gated
+`},
+		{"Step", `steps:
+  - name: gated
+    preconditions:
+      - condition: "${API_TOKEN}"
+        expected: "nope"
+    run: echo gated
+`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			th := test.Setup(t)
+
+			secretValue := "precondition-secret-8c1d"
+			secretFile := th.TempFile(t, "secret.txt", []byte(secretValue))
+			dag := th.DAG(t, `secrets:
+  - name: API_TOKEN
+    provider: file
+    key: `+secretFile+"\n"+tc.yaml)
+			require.NoError(t, dag.Agent().Run(th.Context))
+
+			latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+			statusJSON, err := json.Marshal(latest)
+			require.NoError(t, err)
+			require.Contains(t, string(statusJSON), `expected \"nope\"`)
+			require.NotContains(t, string(statusJSON), secretValue)
+		})
+	}
+}
+
 func TestAgent_RegistryRefSecretResolution(t *testing.T) {
 	t.Parallel()
 	th := test.Setup(t)
@@ -1623,6 +2327,72 @@ steps:
 	require.NoError(t, err)
 	require.NotContains(t, string(statusJSON), "workspace-default-secret")
 	require.Contains(t, string(statusJSON), "*******")
+}
+
+// The env secret provider reads runtime profile entries, both inherited
+// defaults and the selected profile, as steps do.
+func TestAgent_EnvSecretReadsRuntimeProfile(t *testing.T) {
+	t.Parallel()
+	th := test.Setup(t)
+
+	backend := testutil.NewMemoryBackend()
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(backend.Collection("secrets"), enc)
+	require.NoError(t, err)
+	profileStore, err := store.NewProfileStore(backend.Collection("profiles"))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	globalRef := profilepkg.GlobalInheritedRef()
+	globalDefaults, err := profilepkg.NewInherited(globalRef, profilepkg.InheritedCreateInput{
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	token, err := secretpkg.New(secretpkg.CreateInput{
+		Ref:          globalRef.SecretRef("TEST_KEY"),
+		ProviderType: secretpkg.ProviderDaguManaged,
+		CreatedBy:    "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(context.Background(), token, &secretpkg.WriteValueInput{
+		Value:     "global-secret",
+		CreatedBy: "alice",
+		CreatedAt: now,
+	}))
+	require.NoError(t, globalDefaults.SetSecret("TEST_KEY", token.ID, "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), globalDefaults))
+
+	selected, err := profilepkg.New(profilepkg.CreateInput{
+		Name:      "prod",
+		CreatedBy: "alice",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, selected.SetVariable("REGION", "eu", "alice", now))
+	require.NoError(t, profileStore.Create(context.Background(), selected))
+
+	dag := th.DAG(t, `
+secrets:
+  - name: TOKEN
+    provider: env
+    key: TEST_KEY
+  - name: SECRET_REGION
+    provider: env
+    key: REGION
+steps:
+  - name: step1
+    run: test "$TOKEN|$SECRET_REGION" = "global-secret|eu" && echo ok
+    output: RESPONSE`)
+
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		ProfileStore: profileStore,
+		SecretStore:  secretStore,
+		ProfileName:  "prod",
+	}))
+	dagAgent.RunSuccess(t)
+
+	outputs := dag.ReadOutputs(t)
+	require.Equal(t, "ok", outputs["response"])
 }
 
 func TestAgent_SubDAGRunVisibleWhileRunning(t *testing.T) {

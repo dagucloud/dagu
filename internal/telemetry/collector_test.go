@@ -230,8 +230,8 @@ func TestCollector_Describe(t *testing.T) {
 		count++
 	}
 
-	// 9 aggregate/info + 6 per-DAG + 5 per-worker + 1 cache metrics
-	assert.Equal(t, 21, count)
+	// 10 aggregate/info + 6 per-DAG + 5 per-worker + 1 cache metrics
+	assert.Equal(t, 22, count)
 }
 
 func TestCollector_Collect_BasicMetrics(t *testing.T) {
@@ -848,4 +848,73 @@ func metricLabelsMatch(metric *dto.Metric, expected map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// One instance holds the lock while the others wait, so an operator can see
+// that a standby is ready before it is needed.
+func TestCollector_SchedulerInstances(t *testing.T) {
+	dagRepository := &mockDAGLister{}
+	dagRunRepository := &mockDAGRunStore{}
+	queueStore := &mockQueueStore{}
+	dagRepository.On("List", mock.Anything, mock.Anything).Return(
+		pagination.PaginatedResult[persis.DAGListItem]{Items: []persis.DAGListItem{}, TotalCount: 0},
+		[]string{},
+		nil,
+	)
+	dagRunRepository.On("ListStatuses", mock.Anything, mock.Anything).Return([]*ir.DAGRunStatus{}, nil)
+	queueStore.On("All", mock.Anything).Return([]queue.QueuedItemData{}, nil)
+
+	collect := func(t *testing.T, members []serviceregistry.HostInfo) map[string]float64 {
+		t.Helper()
+		serviceRegistry := &mockServiceRegistry{}
+		serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameScheduler).Return(members, nil).Maybe()
+		serviceRegistry.On("GetServiceMembers", mock.Anything, serviceregistry.ServiceNameCoordinator).Return([]serviceregistry.HostInfo{}, nil).Maybe()
+
+		collector := NewCollector("1.0.0", dagRepository, dagRunRepository.repository(), queueStore, serviceRegistry)
+		registry := prometheus.NewRegistry()
+		require.NoError(t, registry.Register(collector))
+		families, err := registry.Gather()
+		require.NoError(t, err)
+
+		got := map[string]float64{}
+		for _, family := range families {
+			if family.GetName() != "dagu_scheduler_instances" {
+				continue
+			}
+			for _, metric := range family.GetMetric() {
+				require.Len(t, metric.GetLabel(), 1)
+				got[metric.GetLabel()[0].GetValue()] = metric.GetGauge().GetValue()
+			}
+		}
+		return got
+	}
+
+	t.Run("active and standby", func(t *testing.T) {
+		got := collect(t, []serviceregistry.HostInfo{
+			{Host: "a", Status: serviceregistry.ServiceStatusActive},
+			{Host: "b", Status: serviceregistry.ServiceStatusInactive},
+			{Host: "c", Status: serviceregistry.ServiceStatusInactive},
+		})
+		assert.Equal(t, map[string]float64{"active": 1, "standby": 2}, got)
+	})
+
+	t.Run("none", func(t *testing.T) {
+		assert.Equal(t, map[string]float64{"active": 0, "standby": 0}, collect(t, nil))
+	})
+
+	// An unreadable registry says nothing about the standby, so no count is
+	// reported rather than a count of zero.
+	t.Run("lookup error", func(t *testing.T) {
+		serviceRegistry := &mockServiceRegistry{}
+		serviceRegistry.On("GetServiceMembers", mock.Anything, mock.Anything).Return([]serviceregistry.HostInfo(nil), errors.New("unreadable"))
+
+		collector := NewCollector("1.0.0", dagRepository, dagRunRepository.repository(), queueStore, serviceRegistry)
+		registry := prometheus.NewRegistry()
+		require.NoError(t, registry.Register(collector))
+		families, err := registry.Gather()
+		require.NoError(t, err)
+		for _, family := range families {
+			assert.NotEqual(t, "dagu_scheduler_instances", family.GetName())
+		}
+	})
 }

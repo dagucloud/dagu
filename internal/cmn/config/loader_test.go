@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +58,24 @@ dag_discovery:
 		cfg := testLoad(t)
 		assert.True(t, cfg.DAGDiscovery.Recursive)
 		assert.True(t, cfg.DAGDiscovery.Symlinks)
+	})
+
+	t.Run("SkipDirectories", func(t *testing.T) {
+		t.Run("YAML", func(t *testing.T) {
+			cfg := loadFromYAML(t, `
+dag_discovery:
+  recursive: true
+  skip_directories:
+    - jobs
+    - builds
+`)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
+		})
+		t.Run("Environment", func(t *testing.T) {
+			t.Setenv("DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES", "./jobs, builds/")
+			cfg := testLoad(t)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
+		})
 	})
 }
 
@@ -154,6 +173,7 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_SUSPEND_FLAGS_DIR":    filepath.Join(testPaths, "suspend"),
 		"DAGU_ADMIN_LOG_DIR":        filepath.Join(testPaths, "admin"),
 		"DAGU_BASE_CONFIG":          filepath.Join(testPaths, "base.yaml"),
+		"DAGU_CALENDARS_DIR":        filepath.Join(testPaths, "calendars"),
 		"DAGU_DAG_RUNS_DIR":         filepath.Join(testPaths, "runs"),
 		"DAGU_PROC_DIR":             filepath.Join(testPaths, "proc"),
 		"DAGU_QUEUE_DIR":            filepath.Join(testPaths, "queue"),
@@ -169,12 +189,16 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_COORDINATOR_PORT":        "50099",
 		"DAGU_COORDINATOR_HEALTH_PORT": "50101",
 
+		"DAGU_COORDINATOR_WORKER_WAIT_TIMEOUT": "90s",
+
 		"DAGU_WORKER_ID":              "test-worker-123",
 		"DAGU_WORKER_MAX_ACTIVE_RUNS": "200",
 		"DAGU_WORKER_HEALTH_PORT":     "50102",
 
 		"DAGU_SCHEDULER_PORT":                      "9999",
 		"DAGU_SCHEDULER_ZOMBIE_DETECTION_INTERVAL": "90s",
+		"DAGU_SCHEDULER_WAKE_HOLD":                 "4m",
+		"DAGU_SCHEDULER_BACKFILL_MAX_SLOTS":        "500",
 
 		"DAGU_AUTH_OIDC_CLIENT_ID":     "test-client-id",
 		"DAGU_AUTH_OIDC_CLIENT_SECRET": "test-secret",
@@ -305,6 +329,7 @@ func TestLoad_Env(t *testing.T) {
 			AdminLogsDir:       filepath.Join(testPaths, "admin"),
 			EventStoreDir:      cfg.Paths.EventStoreDir,
 			BaseConfig:         filepath.Join(testPaths, "base.yaml"),
+			CalendarsDir:       filepath.Join(testPaths, "calendars"),
 			DAGRunsDir:         filepath.Join(testPaths, "runs"),
 			DAGRunWorkDir:      filepath.Join(testPaths, "data", "dag-run-work"),
 			ProcDir:            filepath.Join(testPaths, "proc"),
@@ -341,16 +366,18 @@ func TestLoad_Env(t *testing.T) {
 		},
 		Queues: Queues{Enabled: false},
 		Coordinator: Coordinator{
-			Enabled:    true,
-			Host:       "0.0.0.0",
-			Advertise:  "dagu-coordinator",
-			Port:       50099,
-			HealthPort: 50101,
+			Enabled:           true,
+			Host:              "0.0.0.0",
+			Advertise:         "dagu-coordinator",
+			Port:              50099,
+			HealthPort:        50101,
+			WorkerWaitTimeout: 90 * time.Second,
 		},
 		Worker: Worker{
-			ID:            "test-worker-123",
-			MaxActiveRuns: 200,
-			HealthPort:    50102,
+			ID:              "test-worker-123",
+			MaxActiveRuns:   200,
+			HealthPort:      50102,
+			ShutdownTimeout: 60 * time.Second,
 			PostgresPool: PostgresPoolConfig{
 				MaxOpenConns:    25,
 				MaxIdleConns:    5,
@@ -368,7 +395,10 @@ func TestLoad_Env(t *testing.T) {
 			LockRetryInterval:       5 * time.Second,
 			ZombieDetectionInterval: 90 * time.Second,
 			RetryFailureWindow:      24 * time.Hour,
+			FailoverRecoveryWindow:  2 * time.Minute,
 			FailureThreshold:        3,
+			WakeHold:                4 * time.Minute,
+			BackfillMaxSlots:        500,
 		},
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
@@ -427,6 +457,78 @@ worker:
 
 	assert.Zero(t, cfg.Coordinator.HealthPort)
 	assert.Zero(t, cfg.Worker.HealthPort)
+}
+
+// The hold for a matching worker defaults to two minutes; "0" turns it into
+// an immediate refusal, and an unparsable value keeps the default.
+func TestLoad_WorkerWaitTimeout(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		want time.Duration
+	}{
+		"default":  {yaml: "# minimal config", want: 2 * time.Minute},
+		"set":      {yaml: "coordinator:\n  worker_wait_timeout: 45s\n", want: 45 * time.Second},
+		"disabled": {yaml: "coordinator:\n  worker_wait_timeout: \"0\"\n", want: 0},
+		"invalid":  {yaml: "coordinator:\n  worker_wait_timeout: soon\n", want: 2 * time.Minute},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configFile := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(configFile, []byte(tc.yaml), 0600))
+
+			cfg := testLoad(t, WithConfigFile(configFile))
+
+			assert.Equal(t, tc.want, cfg.Coordinator.WorkerWaitTimeout)
+		})
+	}
+}
+
+func TestLoad_WorkerShutdownTimeout(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# empty")
+		assert.Equal(t, 60*time.Second, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("FromYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  shutdown_timeout: 5m
+`)
+		assert.Equal(t, 5*time.Minute, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("ZeroDisablesBound", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  shutdown_timeout: 0
+`)
+		assert.Zero(t, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("FromEnv", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_WORKER_SHUTDOWN_TIMEOUT": "45s",
+		})
+		assert.Equal(t, 45*time.Second, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("InvalidFallsBackToDefault", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  shutdown_timeout: soon
+`)
+		assert.Equal(t, 60*time.Second, cfg.Worker.ShutdownTimeout)
+		require.NotEmpty(t, cfg.Warnings)
+		assert.Contains(t, cfg.Warnings[len(cfg.Warnings)-1], "Invalid worker.shutdown_timeout value: soon")
+	})
+
+	t.Run("NegativeIsRejected", func(t *testing.T) {
+		err := loadWithErrorFromYAML(t, `
+worker:
+  shutdown_timeout: -1s
+`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "worker.shutdown_timeout must be >= 0")
+	})
 }
 
 func TestLoad_WithAppHomeDir(t *testing.T) {
@@ -566,6 +668,120 @@ opencode:
 	require.Equal(t, []string{"OPENAI_API_KEY"}, cfg.OpenCode.EnvPassthrough)
 }
 
+func TestLoad_LicenseServerName(t *testing.T) {
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_LICENSE_SERVER_NAME", "")
+		cfg := loadFromYAML(t, `
+license:
+  server_name: build-01
+`)
+		require.Equal(t, "build-01", cfg.License.ServerName)
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_LICENSE_SERVER_NAME", "prod-eu-1")
+		require.Equal(t, "prod-eu-1", testLoad(t).License.ServerName)
+	})
+}
+
+func TestLoad_CloudReport(t *testing.T) {
+	t.Run("DefaultReportsNothing", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "")
+		report := testLoad(t).Cloud.Report
+		require.Equal(t, ReportLevel(""), report)
+		require.False(t, report.Reports())
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "")
+		cfg := loadFromYAML(t, `
+cloud:
+  report: health
+`)
+		require.Equal(t, ReportHealth, cfg.Cloud.Report)
+		require.True(t, cfg.Cloud.Report.Reports())
+	})
+
+	t.Run("Runs", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "runs")
+		report := testLoad(t).Cloud.Report
+		require.Equal(t, ReportRuns, report)
+		require.True(t, report.Reports())
+	})
+
+	t.Run("Errors", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "errors")
+		report := testLoad(t).Cloud.Report
+		require.Equal(t, ReportErrors, report)
+		require.True(t, report.Reports())
+		require.True(t, report.ReportsRuns(), "the errors level reports runs too")
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "Health")
+		require.Equal(t, ReportHealth, testLoad(t).Cloud.Report)
+	})
+
+	t.Run("Off", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "off")
+		require.False(t, testLoad(t).Cloud.Report.Reports())
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "")
+		for _, value := range []string{"true", "all"} {
+			err := loadWithErrorFromYAML(t, "cloud:\n  report: "+value+"\n")
+			require.ErrorContains(t, err, "invalid cloud.report", value)
+		}
+	})
+}
+
+func TestLoad_CloudRemoteAccess(t *testing.T) {
+	t.Run("DefaultIsChosenInTheUI", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "")
+		cloud := testLoad(t).Cloud
+		require.Equal(t, RemoteAccessLevel(""), cloud.RemoteAccess)
+		require.Nil(t, cloud.RemoteApprovals)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "")
+		cfg := loadFromYAML(t, `
+cloud:
+  remote_access: Operator
+  remote_approvals: false
+`)
+		require.Equal(t, RemoteAccessOperator, cfg.Cloud.RemoteAccess)
+		require.Equal(t, new(false), cfg.Cloud.RemoteApprovals)
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "developer")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "true")
+		cloud := testLoad(t).Cloud
+		require.Equal(t, RemoteAccessDeveloper, cloud.RemoteAccess)
+		require.Equal(t, new(true), cloud.RemoteApprovals)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		for _, value := range []string{"admin", "manager", "true"} {
+			err := loadWithErrorFromYAML(t, "cloud:\n  remote_access: "+value+"\n")
+			require.ErrorContains(t, err, "invalid cloud.remote_access", value)
+		}
+	})
+
+	// A typo in the environment must not lock approvals off.
+	t.Run("InvalidApprovals", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
+		t.Setenv("DAGU_CLOUD_REMOTE_APPROVALS", "yes please")
+		err := loadWithErrorFromYAML(t, "cloud:\n  report: off\n")
+		require.ErrorContains(t, err, "cloud.remote_approvals")
+	})
+}
+
 func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
 	t.Setenv("DAGU_OPENCODE_EXECUTABLE", "/opt/opencode")
 	t.Setenv("DAGU_OPENCODE_ENV_PASSTHROUGH", "OPENAI_API_KEY,ANTHROPIC_API_KEY")
@@ -587,6 +803,118 @@ func TestLoad_BrowserSandbox(t *testing.T) {
 func TestLoad_BrowserSandboxFromEnv(t *testing.T) {
 	t.Setenv("DAGU_BROWSER_SANDBOX", "false")
 	require.True(t, testLoad(t).Browser.NoSandbox)
+}
+
+// Open browsers are unlimited unless the config file or the environment sets
+// browser.max_open.
+func TestLoad_BrowserMaxOpen(t *testing.T) {
+	require.Zero(t, testLoad(t).Browser.MaxOpen, "no limit by default")
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  max_open: 4\n"), 0o600))
+	require.Equal(t, 4, testLoad(t, WithConfigFile(configFile)).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "2")
+	require.Equal(t, 2, testLoad(t).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "-1")
+	require.ErrorContains(t, testLoadWithError(t), "browser.max_open must not be negative")
+}
+
+// The write gate floor and policy come from the config file or the
+// environment.
+func TestLoad_BrowserWriteGate(t *testing.T) {
+	cfg := testLoad(t)
+	require.Empty(t, cfg.Browser.WriteGate, "no gate by default")
+	require.Empty(t, cfg.Browser.WritePolicy)
+
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	policy := filepath.Join(dir, "policy.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  write_gate: rehearse\n  write_policy: "+policy+"\n"), 0o600))
+	cfg = testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, "rehearse", cfg.Browser.WriteGate)
+	require.Equal(t, policy, cfg.Browser.WritePolicy)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "off")
+	require.Equal(t, "off", testLoad(t, WithConfigFile(configFile)).Browser.WriteGate)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "loose")
+	require.ErrorContains(t, testLoadWithError(t), `browser.write_gate must be one of off, record, ask, rehearse, got "loose"`)
+}
+
+func TestLoad_BrowserClientCertificates(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+browser:
+  client_certificates:
+    - hosts: [portal.example.com, "*.corp.example"]
+      pfx_file: `+filepath.Join(dir, "client.p12")+`
+      passphrase_file: `+filepath.Join(dir, "client.passphrase")+`
+    - hosts: ["*"]
+      cert_file: `+filepath.Join(dir, "client.pem")+`
+      key_file: `+filepath.Join(dir, "client.key")+`
+      ca_file: `+filepath.Join(dir, "ca.pem")+`
+`), 0o600))
+
+	cfg := testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, []BrowserClientCertificate{
+		{
+			Hosts:          []string{"portal.example.com", "*.corp.example"},
+			PFXFile:        filepath.Join(dir, "client.p12"),
+			PassphraseFile: filepath.Join(dir, "client.passphrase"),
+		},
+		{
+			Hosts:    []string{"*"},
+			CertFile: filepath.Join(dir, "client.pem"),
+			KeyFile:  filepath.Join(dir, "client.key"),
+			CAFile:   filepath.Join(dir, "ca.pem"),
+		},
+	}, cfg.Browser.ClientCertificates)
+}
+
+func TestLoad_BrowserTrustedCAs(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	caFile := filepath.Join(dir, "ca.pem")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  trusted_cas:\n    - hosts: [portal.example.com, '*.corp.example']\n      ca_file: "+caFile+"\n"), 0o600))
+	cfg := testLoad(t, WithConfigFile(configFile))
+	assert.Equal(t, []BrowserTrustedCA{{Hosts: []string{"portal.example.com", "*.corp.example"}, CAFile: caFile}}, cfg.Browser.TrustedCAs)
+	for _, value := range []string{"hosts: []\n      ca_file: ca.pem", "hosts: [https://portal.example.com]\n      ca_file: ca.pem", "hosts: [portal.example.com]"} {
+		err := loadWithErrorFromYAML(t, "browser:\n  trusted_cas:\n    - "+value+"\n")
+		require.ErrorContains(t, err, "browser.trusted_cas[0]")
+	}
+}
+
+// The certificate guard follows the browser's certificates unless the
+// config file or the environment turns it on or off.
+func TestLoad_BrowserGuardClientCertificates(t *testing.T) {
+	require.Nil(t, testLoad(t).Browser.GuardClientCertificates, "unset, the guard follows the certificates")
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  guard_client_certificates: false\n"), 0o600))
+	guard := testLoad(t, WithConfigFile(configFile)).Browser.GuardClientCertificates
+	require.NotNil(t, guard)
+	require.False(t, *guard)
+
+	t.Setenv("DAGU_BROWSER_GUARD_CLIENT_CERTIFICATES", "true")
+	guard = testLoad(t).Browser.GuardClientCertificates
+	require.NotNil(t, guard)
+	require.True(t, *guard)
+}
+
+func TestLoad_BrowserClientCertificatesRejectsMalformed(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+browser:
+  client_certificates:
+    - hosts: [portal.example.com]
+      cert_file: /tmp/client.pem
+`), 0o600))
+
+	err := testLoadWithError(t, WithConfigFile(configFile))
+	require.ErrorContains(t, err, "browser.client_certificates[0]: set pfx_file, or cert_file and key_file")
 }
 
 func TestLoad_OpenCodeRejectsReservedPassthrough(t *testing.T) {
@@ -627,6 +955,7 @@ paths:
   suspend_flags_dir: "/var/dagu/suspend"
   admin_logs_dir: "/var/dagu/adminlogs"
   base_config: "/var/dagu/base.yaml"
+  calendars_dir: "/var/dagu/calendars"
   executable: "/usr/local/bin/dagu"
 ui:
   navbar_title: "Test Dagu"
@@ -695,6 +1024,8 @@ scheduler:
   lock_stale_threshold: 50s
   lock_retry_interval: 10s
   zombie_detection_interval: 60s
+  failover_recovery_window: 0s
+  wake_hold: 3m
 `)
 
 	utcLoc, _ := time.LoadLocation("UTC")
@@ -817,6 +1148,7 @@ scheduler:
 			AdminLogsDir:       resolvedTestPath(t, "/var/dagu/adminlogs"),
 			EventStoreDir:      cfg.Paths.EventStoreDir,
 			BaseConfig:         resolvedTestPath(t, "/var/dagu/base.yaml"),
+			CalendarsDir:       resolvedTestPath(t, "/var/dagu/calendars"),
 			Executable:         resolvedTestPath(t, "/usr/local/bin/dagu"),
 			DAGRunsDir:         resolvedTestPath(t, "/var/dagu/data/dag-runs"),
 			DAGRunWorkDir:      resolvedTestPath(t, "/var/dagu/data/dag-run-work"),
@@ -849,15 +1181,17 @@ scheduler:
 			},
 		},
 		Coordinator: Coordinator{
-			Enabled:    true,
-			Host:       "coordinator.example.com",
-			Port:       8081,
-			HealthPort: 8091,
+			Enabled:           true,
+			Host:              "coordinator.example.com",
+			Port:              8081,
+			HealthPort:        8091,
+			WorkerWaitTimeout: 2 * time.Minute,
 		},
 		Worker: Worker{
-			ID:            "worker-1",
-			MaxActiveRuns: 50,
-			HealthPort:    8092,
+			ID:              "worker-1",
+			MaxActiveRuns:   50,
+			HealthPort:      8092,
+			ShutdownTimeout: 60 * time.Second,
 			Labels: map[string]string{
 				"env":    "production",
 				"region": "us-west-2",
@@ -880,6 +1214,8 @@ scheduler:
 			ZombieDetectionInterval: 60 * time.Second,
 			RetryFailureWindow:      24 * time.Hour,
 			FailureThreshold:        3,
+			WakeHold:                3 * time.Minute,
+			BackfillMaxSlots:        10000,
 		},
 		Monitoring: MonitoringConfig{
 			Retention: 24 * time.Hour,
@@ -1550,6 +1886,49 @@ func TestLoad_OIDCWorkspaceAccessDefaultsToAll(t *testing.T) {
 	require.False(t, cfg.Server.Auth.OIDC.RoleMapping.WorkspaceAccessPolicyActive())
 }
 
+func TestLoad_WorkspaceAccessKeys(t *testing.T) {
+	t.Run("None", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# minimal config")
+
+		require.Empty(t, cfg.WorkspaceAccessKeys)
+	})
+
+	t.Run("FromYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+  oidc:
+    role_mapping:
+      default_workspace_access: all
+  proxy:
+    role_mapping:
+      workspace_mappings:
+        sre-team:
+          - workspace: payments
+            role: viewer
+      default_workspace_access: none
+`)
+
+		require.Equal(t, []string{
+			"auth.oidc.role_mapping.default_workspace_access",
+			"auth.proxy.role_mapping.workspace_mappings",
+			"auth.proxy.role_mapping.default_workspace_access",
+		}, cfg.WorkspaceAccessKeys)
+	})
+
+	t.Run("FromEnvironment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# minimal config", map[string]string{
+			"DAGU_AUTH_OIDC_WORKSPACE_MAPPINGS":       `{"sre-team":[{"workspace":"payments","role":"viewer"}]}`,
+			"DAGU_AUTH_OIDC_DEFAULT_WORKSPACE_ACCESS": "none",
+		})
+
+		require.Equal(t, []string{
+			"auth.oidc.role_mapping.workspace_mappings",
+			"auth.oidc.role_mapping.default_workspace_access",
+		}, cfg.WorkspaceAccessKeys)
+	})
+}
+
 func TestLoad_OIDCWorkspaceMappingCamelCaseKeyHints(t *testing.T) {
 	tests := []struct {
 		legacy string
@@ -2010,6 +2389,248 @@ auth:
 	})
 }
 
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+func TestLoad_SecretFiles(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		got  func(*Config) string
+	}{
+		{
+			name: "BasicPassword",
+			yaml: "auth:\n  mode: basic\n  basic:\n    username: admin\n    password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Basic.Password },
+		},
+		{
+			name: "OIDCClientSecret",
+			yaml: "auth:\n  mode: none\n  oidc:\n    client_secret_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.OIDC.ClientSecret },
+		},
+		{
+			name: "BuiltinTokenSecret",
+			yaml: "auth:\n  mode: builtin\n  builtin:\n    token:\n      secret_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Builtin.Token.Secret },
+		},
+		{
+			name: "InitialAdminPassword",
+			yaml: "auth:\n  mode: builtin\n  builtin:\n    initial_admin:\n      username: admin\n      password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Builtin.InitialAdmin.Password },
+		},
+		{
+			name: "RemoteNodeBasicAuthPassword",
+			yaml: "remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: basic\n    basic_auth_username: admin\n    basic_auth_password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.RemoteNodes[0].BasicAuthPassword },
+		},
+		{
+			name: "RemoteNodeAuthToken",
+			yaml: "remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: token\n    auth_token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.RemoteNodes[0].AuthToken },
+		},
+		{
+			name: "GitSyncToken",
+			yaml: "git_sync:\n  enabled: true\n  repository: https://github.com/example/dags.git\n  auth:\n    token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.GitSync.Auth.Token },
+		},
+		{
+			name: "GitSyncSSHPassphrase",
+			yaml: "git_sync:\n  enabled: true\n  repository: git@github.com:example/dags.git\n  auth:\n    type: ssh\n    ssh_key_path: /keys/id_ed25519\n    ssh_passphrase_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.GitSync.Auth.SSHPassphrase },
+		},
+		{
+			name: "VaultToken",
+			yaml: "secrets:\n  vault:\n    address: https://vault.example.com\n    token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Secrets.Vault.Token },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeSecretFile(t, "s3cr3t-from-file\n")
+			cfg := loadFromYAML(t, fmt.Sprintf(tt.yaml, path))
+			assert.Equal(t, "s3cr3t-from-file", tt.got(cfg))
+		})
+	}
+}
+
+func TestLoad_SecretFileFromEnv(t *testing.T) {
+	path := writeSecretFile(t, "env-file-secret\r\n")
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_AUTH_MODE":              "builtin",
+		"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+	})
+	assert.Equal(t, "env-file-secret", cfg.Server.Auth.Builtin.Token.Secret)
+}
+
+func TestLoad_SecretFileWithEmptyEnv(t *testing.T) {
+	path := writeSecretFile(t, "env-file-secret\n")
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_AUTH_MODE":              "builtin",
+		"DAGU_AUTH_TOKEN_SECRET":      "",
+		"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+	})
+	assert.Equal(t, "env-file-secret", cfg.Server.Auth.Builtin.Token.Secret)
+}
+
+// An empty inline secret counts as unset, so a template that renders every
+// key, such as the Helm chart, can still name the file.
+func TestLoad_SecretFileWithEmptyInline(t *testing.T) {
+	t.Run("FileFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file\n")
+		cfg := loadWithEnv(t, "auth:\n  mode: builtin\n  builtin:\n    token:\n      secret: \"\"\n      ttl: \"24h\"\n", map[string]string{
+			"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+		})
+		assert.Equal(t, "from-file", cfg.Server.Auth.Builtin.Token.Secret)
+	})
+
+	t.Run("RemoteNode", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file\n")
+		cfg := loadFromYAML(t, fmt.Sprintf("remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: token\n    auth_token: \"\"\n    auth_token_file: %s\n", path))
+		assert.Equal(t, "from-file", cfg.Server.RemoteNodes[0].AuthToken)
+	})
+}
+
+func TestLoad_SecretFileErrors(t *testing.T) {
+	t.Run("BothSet", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+auth:
+  mode: builtin
+  builtin:
+    token:
+      secret: inline-secret
+      secret_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or auth.builtin.token.secret_file, not both")
+	})
+
+	t.Run("BothSetWithTheFileFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		t.Setenv("DAGU_AUTH_TOKEN_SECRET_FILE", path)
+		err := loadWithErrorFromYAML(t, `
+auth:
+  mode: builtin
+  builtin:
+    token:
+      secret: inline-secret
+`)
+		require.Error(t, err)
+		// The file is named by the variable, so the message names the variable.
+		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or DAGU_AUTH_TOKEN_SECRET_FILE, not both")
+	})
+
+	t.Run("BothSetFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		t.Setenv("DAGU_GITSYNC_AUTH_TOKEN", "inline-token")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+git_sync:
+  enabled: true
+  repository: https://github.com/example/dags.git
+  auth:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		// The inline value is in the environment, so the message names it.
+		assert.Contains(t, err.Error(), "set either DAGU_GITSYNC_AUTH_TOKEN or git_sync.auth.token_file, not both")
+	})
+
+	t.Run("MissingFile", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+remote_nodes:
+  - name: other
+    api_base_url: https://other.example.com/api/v1
+    auth_type: token
+    auth_token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read remote_nodes[0].auth_token_file:")
+		assert.Contains(t, err.Error(), path)
+	})
+
+	t.Run("BlankFile", func(t *testing.T) {
+		path := writeSecretFile(t, " \t\n")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+secrets:
+  vault:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secrets.vault.token_file "+path+" is empty")
+	})
+
+	t.Run("EmptyFile", func(t *testing.T) {
+		path := writeSecretFile(t, "\n")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+secrets:
+  vault:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secrets.vault.token_file "+path+" is empty")
+	})
+}
+
+// loadServerRemoteNodes copies the fields one by one, so a field added to
+// RemoteNodeDef and RemoteNode but not to the copy would be dropped without a
+// compile error. Each field of the definition, except the _file keys that
+// loadSecretFiles consumes, must arrive in the runtime node.
+func TestLoadServerRemoteNodesCopiesEveryField(t *testing.T) {
+	var def RemoteNodeDef
+	defValue := reflect.ValueOf(&def).Elem()
+	for i := range defValue.NumField() {
+		switch field := defValue.Field(i); field.Kind() {
+		case reflect.String:
+			field.SetString("value-" + defValue.Type().Field(i).Name)
+		case reflect.Bool:
+			field.SetBool(true)
+		case reflect.Int:
+			field.SetInt(7)
+		default:
+			t.Fatalf("RemoteNodeDef.%s has the kind %s: teach this test to fill it", defValue.Type().Field(i).Name, field.Kind())
+		}
+	}
+
+	var cfg Config
+	(&ConfigLoader{}).loadServerRemoteNodes(&cfg, Definition{RemoteNodes: []RemoteNodeDef{def}})
+	require.Len(t, cfg.Server.RemoteNodes, 1)
+
+	node := reflect.ValueOf(cfg.Server.RemoteNodes[0])
+	for i := range defValue.NumField() {
+		name := defValue.Type().Field(i).Name
+		// The two _file fields that loadSecretFiles consumes. A path that the
+		// runtime node should carry, such as a future CA file, must arrive.
+		if name == "BasicAuthPasswordFile" || name == "AuthTokenFile" {
+			continue
+		}
+		got := node.FieldByName(name)
+		require.True(t, got.IsValid(), "RemoteNode has no field %s", name)
+		assert.Equal(t, defValue.Field(i).Interface(), got.Interface(), "RemoteNode.%s", name)
+	}
+}
+
+func TestLoad_SecretFileSkippedForOtherServices(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+auth:
+  mode: basic
+  basic:
+    username: admin
+    password_file: /nonexistent/password
+`), 0o600))
+
+	_ = testLoad(t, WithConfigFile(configFile), WithService(ServiceWorker))
+	err := testLoadWithError(t, WithConfigFile(configFile), WithService(ServiceServer))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read auth.basic.password_file:")
+}
+
 func TestLoad_MetricsAccess(t *testing.T) {
 	t.Run("MetricsAccessPublic", func(t *testing.T) {
 		cfg := loadFromYAML(t, `
@@ -2130,6 +2751,51 @@ ip_access:
 
 		assert.Equal(t, []string{"203.0.113.10", "2001:db8::/32"}, cfg.Server.IPAccess.AllowedIPs)
 		assert.Equal(t, []string{"127.0.0.1", "::1"}, cfg.Server.IPAccess.TrustedProxies)
+	})
+}
+
+func TestLoad_AllowedHosts(t *testing.T) {
+	t.Run("YAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+allowed_hosts:
+  - dagu.lan
+  - .corp.example
+`)
+
+		assert.Equal(t, []string{"dagu.lan", ".corp.example"}, cfg.Server.AllowedHosts)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_ALLOWED_HOSTS": "dagu.lan, .corp.example",
+		})
+
+		assert.Equal(t, []string{"dagu.lan", ".corp.example"}, cfg.Server.AllowedHosts)
+	})
+
+	// A wildcard accepts every name even beside specific entries.
+	t.Run("WildcardWarning", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: builtin
+allowed_hosts:
+  - dagu.lan
+  - "*"
+`)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "first-admin setup through DNS rebinding")
+	})
+
+	t.Run("WildcardWithoutAuthWarning", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+allowed_hosts:
+  - "*"
+`)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], `auth.mode "none"`)
+		assert.Contains(t, cfg.Warnings[0], "execute workflows without authentication")
 	})
 }
 
@@ -2644,5 +3310,80 @@ default_execution_mode: invalid
 `)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid default_execution_mode")
+	})
+}
+
+func TestLoad_SignalHandling(t *testing.T) {
+	t.Run("DefaultDisabled", func(t *testing.T) {
+		cfg := testLoad(t)
+		assert.False(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+signal_handling:
+  enable_propagation: true
+`)
+		assert.True(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_SIGNAL_PROPAGATION": "true",
+		})
+		assert.True(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	t.Run("EnvironmentOverridesYAML", func(t *testing.T) {
+		cfg := loadWithEnv(t, `
+signal_handling:
+  enable_propagation: false
+`, map[string]string{
+			"DAGU_SIGNAL_PROPAGATION": "true",
+		})
+		assert.True(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	// The camelCase spelling is rejected in config.yaml like every other
+	// legacy key, but remains accepted in admin.yaml for compatibility.
+	t.Run("CamelCaseYAMLRejected", func(t *testing.T) {
+		err := loadWithErrorFromYAML(t, `
+signalHandling:
+  enablePropagation: true
+`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "signal_handling.enable_propagation")
+	})
+
+	t.Run("CamelCaseAdminYAML", func(t *testing.T) {
+		homeDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(homeDir, "admin.yaml"), []byte(`
+signalHandling:
+  enablePropagation: true
+`), 0600))
+		cfg := testLoad(t, WithAppHomeDir(homeDir))
+		assert.True(t, cfg.SignalHandling.EnablePropagation)
+	})
+
+	for _, camelCase := range []bool{false, true} {
+		t.Run(fmt.Sprintf("EnvironmentDisablesAdmin/%t", camelCase), func(t *testing.T) {
+			homeDir := t.TempDir()
+			yaml := "signal_handling:\n  enable_propagation: true\n"
+			if camelCase {
+				yaml = "signalHandling:\n  enablePropagation: true\n"
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(homeDir, "admin.yaml"), []byte(yaml), 0600))
+			t.Setenv("DAGU_SIGNAL_PROPAGATION", "false")
+			cfg := testLoad(t, WithAppHomeDir(homeDir))
+			assert.False(t, cfg.SignalHandling.EnablePropagation)
+		})
+	}
+
+	t.Run("CanonicalDisablesLegacy", func(t *testing.T) {
+		homeDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(homeDir, "admin.yaml"), []byte("signalHandling:\n  enablePropagation: true\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(homeDir, "config.yaml"), []byte("signal_handling:\n  enable_propagation: false\n"), 0600))
+		cfg := testLoad(t, WithAppHomeDir(homeDir))
+		assert.False(t, cfg.SignalHandling.EnablePropagation)
 	})
 }

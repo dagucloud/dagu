@@ -1,15 +1,16 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   components,
   NodeStatus,
   NodeStatusLabel,
   RepeatMode,
+  ReusedInputVia,
   Status,
   StatusLabel,
 } from '@/api/v1/schema';
@@ -131,13 +132,18 @@ function renderChart(
   options: {
     appBarOverride?: Partial<typeof appBarValue>;
     onOpenSubRun?: (entry: { name: string; dagRunId: string }) => void;
+    visible?: boolean;
   } = {}
 ) {
   return render(
     <AppBarContext.Provider
       value={{ ...appBarValue, ...options.appBarOverride }}
     >
-      <TimelineChart status={status} onOpenSubRun={options.onOpenSubRun} />
+      <TimelineChart
+        status={status}
+        onOpenSubRun={options.onOpenSubRun}
+        visible={options.visible}
+      />
     </AppBarContext.Provider>
   );
 }
@@ -163,6 +169,27 @@ describe('TimelineChart', () => {
     expect(queryCalls).toContainEqual({
       path: '/dag-runs/{name}/{dagRunId}/sub-dag-runs',
       init: null,
+    });
+  });
+
+  // A run that waits for a person can have children that still change.
+  it('keeps the children of a waiting run fresh', () => {
+    const options: unknown[] = [];
+    useQueryMock.mockImplementation((_path, _init, config) => {
+      options.push(config);
+      return { data: { subRuns: [] }, mutate: vi.fn() } as never;
+    });
+
+    renderChart(
+      dagRun({
+        status: Status.Waiting,
+        statusLabel: StatusLabel.waiting,
+        nodes: [parallelNode('parallel-call', [subRun('child-1')])],
+      })
+    );
+
+    expect(options[options.length - 1]).toMatchObject({
+      refreshInterval: 3000,
     });
   });
 
@@ -700,5 +727,405 @@ describe('TimelineChart', () => {
     expect(
       within(tooltip as HTMLElement).queryByText('Skipped')
     ).not.toBeInTheDocument();
+  });
+
+  // A sub-run that waits for an approval has the finish time of its pause:
+  // its duration counts up to now.
+  it('counts the duration of a waiting child up to now', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-01-01T00:02:01Z'));
+    try {
+      useQueryMock.mockReturnValue({
+        data: {
+          subRuns: [
+            subRunDetail('waiting-run', {
+              status: Status.Waiting,
+              statusLabel: StatusLabel.waiting,
+            }),
+          ],
+        },
+        mutate: vi.fn(),
+      });
+
+      renderChart(
+        dagRun({
+          status: Status.Waiting,
+          statusLabel: StatusLabel.waiting,
+          nodes: [parallelNode('parallel-call', [subRun('waiting-run')])],
+        })
+      );
+
+      await userEvent.hover(
+        screen.getByTestId('timeline-bar-subdag:parallel-call:waiting-run')
+      );
+
+      expect(await screen.findAllByText('2m 0s')).not.toHaveLength(0);
+      expect(screen.queryByText('4s')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // The first and last tick labels were cut by the edges of the chart.
+  it('anchors the first axis label at the left edge and the last at the right', () => {
+    const { container } = renderChart(
+      dagRun({ nodes: [node({ step: { name: 'a' } })] })
+    );
+
+    const labels = Array.from(
+      container.querySelectorAll<HTMLElement>('.font-mono')
+    )
+      .map((span) => span.parentElement as HTMLElement)
+      .filter((el) => el.style.left.endsWith('%'));
+    expect(labels).toHaveLength(6);
+    expect(labels[0]!.style.transform).toBe('none');
+    expect(labels[1]!.style.transform).toBe('translateX(-50%)');
+    expect(labels[5]!.style.transform).toBe('translateX(-100%)');
+    // Both keep a gap to the edge, so no digit touches the border.
+    expect(labels[0]).toHaveClass('pl-2');
+    expect(labels[5]).toHaveClass('pr-2');
+  });
+
+  // A short run repeated '06:40:46' on several ticks.
+  it('writes no axis label twice on a run shorter than 10 seconds', () => {
+    const { container } = renderChart(
+      dagRun({
+        nodes: [
+          node({
+            step: { name: 'a' },
+            startedAt: '2026-01-01T00:00:00Z',
+            finishedAt: '2026-01-01T00:00:03Z',
+          }),
+        ],
+      })
+    );
+
+    const labels = Array.from(
+      container.querySelectorAll<HTMLElement>('.font-mono')
+    )
+      .filter((span) => span.parentElement?.style.left.endsWith('%'))
+      .map((span) => span.textContent);
+    expect(labels).toHaveLength(6);
+    expect(new Set(labels).size).toBe(6);
+  });
+
+  // A skipped step did not run: no bar of the length of its timestamps.
+  it('draws a skipped step as a dotted hairline and a ran step as a bar', () => {
+    renderChart(
+      dagRun({
+        nodes: [
+          node({ step: { name: 'ran' } }),
+          node({
+            step: { name: 'skipped' },
+            status: NodeStatus.Skipped,
+            statusLabel: NodeStatusLabel.skipped,
+          }),
+        ],
+      })
+    );
+
+    expect(screen.getByTestId('timeline-bar-step:ran')).toHaveClass('h-5');
+    const skipped = screen.getByTestId('timeline-bar-step:skipped');
+    expect(skipped).toHaveClass('h-0', 'border-dotted', 'before:h-5');
+    expect(skipped).not.toHaveClass('h-5');
+  });
+
+  it('shows a row for each lifecycle handler', () => {
+    renderChart(
+      dagRun({
+        nodes: [node({ step: { name: 'a' } })],
+        onExit: node({
+          step: { name: 'onExit' },
+          startedAt: '2026-01-01T00:00:12Z',
+          finishedAt: '2026-01-01T00:00:13Z',
+        }),
+      })
+    );
+
+    expect(
+      screen.getByTestId('timeline-bar-handler:onExit')
+    ).toBeInTheDocument();
+  });
+
+  // The times of a run that an older version stored have a resolution of one
+  // second: three fast steps of a chain carry the same second, and the bars
+  // still read left to right.
+  describe('steps of 0 ms in a chain', () => {
+    const same = {
+      startedAt: '2026-01-01T00:00:05Z',
+      finishedAt: '2026-01-01T00:00:05Z',
+    };
+    const chain = () =>
+      dagRun({
+        nodes: [
+          node({ ...same, step: { name: 'third', depends: ['second'] } }),
+          node({ ...same, step: { name: 'first' } }),
+          node({ ...same, step: { name: 'second', depends: ['first'] } }),
+        ],
+      });
+    const percent = (el: HTMLElement, key: 'left' | 'width') =>
+      parseFloat(el.style[key]);
+
+    it('orders the rows by dependency and starts each bar after the previous one', () => {
+      renderChart(chain());
+
+      expect(
+        screen
+          .getAllByTestId('timeline-row')
+          .map((row) => row.getAttribute('data-row-id'))
+      ).toEqual(['step:first', 'step:second', 'step:third']);
+      const bars = ['first', 'second', 'third'].map((name) =>
+        screen.getByTestId(`timeline-bar-step:${name}`)
+      );
+      for (let i = 1; i < bars.length; i++) {
+        const before = bars[i - 1]!;
+        expect(percent(bars[i]!, 'left')).toBeGreaterThanOrEqual(
+          percent(before, 'left') + percent(before, 'width')
+        );
+      }
+    });
+
+    it('keeps the real times in the tooltip and says why the bar moved', async () => {
+      renderChart(chain());
+
+      await userEvent.hover(screen.getByTestId('timeline-bar-step:second'));
+
+      expect(await screen.findAllByText('<1s')).not.toHaveLength(0);
+      expect(
+        screen.getAllByText(
+          'Shown after first (times are rounded to the second)'
+        )
+      ).not.toHaveLength(0);
+      expect(screen.queryByText('0ms')).not.toBeInTheDocument();
+      const times = screen.getAllByText(/→/)[0]!.textContent!;
+      const [from, to] = times.split(' → ');
+      expect(from).toBe(to);
+    });
+
+    it('reads the real small durations of a run with millisecond times', async () => {
+      renderChart(
+        dagRun({
+          nodes: [
+            node({
+              startedAt: '2026-01-01T00:00:05.010Z',
+              finishedAt: '2026-01-01T00:00:05.197Z',
+              step: { name: 'first' },
+            }),
+            node({
+              startedAt: '2026-01-01T00:00:05.200Z',
+              finishedAt: '2026-01-01T00:00:05.212Z',
+              step: { name: 'second', depends: ['first'] },
+            }),
+          ],
+        })
+      );
+
+      await userEvent.hover(screen.getByTestId('timeline-bar-step:second'));
+
+      expect(await screen.findAllByText('12ms')).not.toHaveLength(0);
+      expect(screen.queryByText('<1s')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Shown after/)).not.toBeInTheDocument();
+    });
+
+    it('does not claim a shift for the first step', async () => {
+      renderChart(chain());
+
+      await userEvent.hover(screen.getByTestId('timeline-bar-step:first'));
+
+      expect(await screen.findAllByText('<1s')).not.toHaveLength(0);
+      expect(screen.queryByText(/Shown after/)).not.toBeInTheDocument();
+    });
+  });
+});
+
+// A running step has no end time in its data: its bar ends at now. The run
+// data does not change while the step runs, so the same details object stays
+// rendered and only the clock can move the bar.
+describe('TimelineChart running step', () => {
+  const liveRun = () =>
+    dagRun({
+      status: Status.Running,
+      statusLabel: StatusLabel.running,
+      finishedAt: '',
+      nodes: [
+        node({ step: { name: 'done' } }),
+        node({
+          step: { name: 'live', depends: ['done'] },
+          status: NodeStatus.Running,
+          statusLabel: NodeStatusLabel.running,
+          startedAt: '2026-01-01T00:00:10Z',
+          finishedAt: '',
+        }),
+      ],
+    });
+  const liveWidth = () =>
+    parseFloat(screen.getByTestId('timeline-bar-step:live').style.width);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-01-01T00:00:11Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('widens the bar of a running step as time passes', () => {
+    renderChart(liveRun());
+    const before = liveWidth();
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(liveWidth()).toBeGreaterThan(before);
+  });
+
+  it('keeps the bar still while the chart is not visible', () => {
+    renderChart(liveRun(), { visible: false });
+    const before = liveWidth();
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(liveWidth()).toBe(before);
+  });
+});
+
+// The time that a reused step took in its source run is carried into the
+// timeline of the run that reuses it, as a hatched ghost row.
+describe('TimelineChart ghost rows', () => {
+  const reused = () =>
+    dagRun({
+      startedAt: '2026-01-08T10:00:00Z',
+      finishedAt: '2026-01-08T10:00:05Z',
+      reusedInputs: [
+        {
+          step: 'slow',
+          runId: '034mroF1udXVyvPz00bn5a',
+          startedAt: '2026-01-01T00:00:00Z',
+          finishedAt: '2026-01-01T00:00:20Z',
+          capturedAt: '2026-01-01T00:00:20Z',
+          via: ReusedInputVia.run,
+        },
+      ],
+      nodes: [
+        node({
+          step: { name: 'slow' },
+          status: NodeStatus.Skipped,
+          startedAt: '2026-01-01T00:00:00Z',
+          finishedAt: '2026-01-01T00:00:20Z',
+        }),
+        node({
+          step: { name: 'use', depends: ['slow'] },
+          startedAt: '2026-01-08T10:00:00Z',
+          finishedAt: '2026-01-08T10:00:05Z',
+        }),
+      ],
+    });
+
+  it('draws a hatched bar with the run and the time that the step took', () => {
+    renderChart(reused());
+    const bar = screen.getByTestId('timeline-bar-step:slow');
+    expect(bar).toHaveAttribute('data-ghost', 'true');
+    expect(bar.style.backgroundImage).toContain('repeating-linear-gradient');
+    expect(screen.getByTestId('timeline-ghost-label')).toHaveTextContent(
+      'run 034mroF1 · 20s'
+    );
+    // The step that ran has a plain bar.
+    const ran = screen.getByTestId('timeline-bar-step:use');
+    expect(ran).not.toHaveAttribute('data-ghost');
+    expect(ran.style.backgroundImage).toBe('');
+  });
+
+  it('scales the ghost like the other bars: 20 s against 5 s', () => {
+    renderChart(reused());
+    const width = (id: string) =>
+      Number.parseFloat(
+        screen.getByTestId(`timeline-bar-step:${id}`).style.width
+      );
+    expect(width('slow') / width('use')).toBeCloseTo(4, 0);
+  });
+
+  it('draws the ghost before the start of the run and fits the axis around it', () => {
+    renderChart(reused());
+    const left = (id: string) =>
+      Number.parseFloat(
+        screen.getByTestId(`timeline-bar-step:${id}`).style.left
+      );
+    const width = (id: string) =>
+      Number.parseFloat(
+        screen.getByTestId(`timeline-bar-step:${id}`).style.width
+      );
+    // The ghost ends where the step that ran starts: no overlap.
+    expect(left('slow') + width('slow')).toBeCloseTo(left('use'), 5);
+    expect(left('slow')).toBeLessThan(left('use'));
+    // Nothing is clipped: the axis starts before the ghost.
+    expect(left('slow')).toBeGreaterThanOrEqual(0);
+    expect(left('use') + width('use')).toBeLessThanOrEqual(100);
+  });
+
+  it('marks the start of the run and hatches the cached time before it', () => {
+    renderChart(reused());
+    expect(screen.getByTestId('timeline-run-start')).toHaveTextContent(
+      /Run starts \d\d:\d\d:\d\d/
+    );
+    const zones = screen.getAllByTestId('timeline-cached-zone');
+    // One for the strip of the label, one for each row.
+    expect(zones).toHaveLength(3);
+    expect(zones[0]!.style.backgroundImage).toContain(
+      'repeating-linear-gradient'
+    );
+    const use = screen.getByTestId('timeline-bar-step:use');
+    expect(Number.parseFloat(zones[0]!.style.width)).toBeCloseTo(
+      Number.parseFloat(use.style.left),
+      5
+    );
+  });
+
+  it('says in the tooltip that the step was reused, from which run, and when it ran there', async () => {
+    renderChart(reused());
+    await userEvent.hover(screen.getByTestId('timeline-bar-step:slow'));
+    const source = (await screen.findAllByTestId('timeline-ghost-source'))[0]!;
+    expect(source).toHaveTextContent('Reused from run 034mroF1udXVyvPz00bn5a');
+    expect(source).toHaveTextContent(/In that run: 2026-01-01 .* → /);
+    expect(screen.getAllByText('Reused').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('20s').length).toBeGreaterThan(0);
+  });
+
+  it('puts the label of a ghost near the right edge on the left of its bar', () => {
+    const run = reused();
+    run.reusedInputs = [
+      ...(run.reusedInputs ?? []),
+      {
+        step: 'late',
+        runId: '034mroF1udXVyvPz00bn5a',
+        startedAt: '2026-01-01T00:00:20Z',
+        finishedAt: '2026-01-01T00:00:21Z',
+        via: ReusedInputVia.run,
+      },
+    ];
+    run.nodes = [
+      ...run.nodes,
+      node({
+        step: { name: 'late', depends: ['slow'] },
+        status: NodeStatus.Skipped,
+        startedAt: '2026-01-01T00:00:20Z',
+        finishedAt: '2026-01-01T00:00:21Z',
+      }),
+    ];
+    renderChart(run);
+    const labels = screen.getAllByTestId('timeline-ghost-label');
+    // The first ghost starts at the left: its label stands on its bar. The
+    // chained ghost starts after it, at the right: its label stands before it.
+    expect(labels[0]!.style.left).not.toBe('');
+    expect(labels[labels.length - 1]!.style.right).not.toBe('');
+  });
+
+  it('draws a run that reused nothing as before', () => {
+    renderChart(dagRun());
+    expect(screen.queryByTestId('timeline-ghost-label')).toBeNull();
+    expect(screen.queryByTestId('timeline-run-start')).toBeNull();
+    expect(screen.queryByTestId('timeline-cached-zone')).toBeNull();
   });
 });

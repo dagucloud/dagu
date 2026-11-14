@@ -60,10 +60,16 @@ func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64
 				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: err.Error()})
 				return
 			}
-			ctx := context.WithValue(r.Context(), humanTaskInputContextKey{}, input)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(WithHumanTaskInput(r.Context(), input)))
 		})
 	}
+}
+
+// WithHumanTaskInput returns a context carrying validated human-task input.
+// In-process callers of CompleteHumanTask and PushBackHumanTask must pass such
+// a context; the HTTP router supplies it for API requests.
+func WithHumanTaskInput(ctx context.Context, input humantask.Input) context.Context {
+	return context.WithValue(ctx, humanTaskInputContextKey{}, input)
 }
 
 // isHumanTaskInputPath reports whether path is a human-task operation whose

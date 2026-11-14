@@ -354,4 +354,38 @@ describe('useBoundedDAGRunDetails', () => {
       name: 'child-dag',
     });
   });
+
+  // A page renders its error state from `error && !data`, so clearing the
+  // error while a retry is in flight would blank the page between attempts.
+  it('keeps the last error while a refetch is in flight', async () => {
+    const notFound = new Error('dag-run not found');
+    fetchDAGRunDetailsMock.mockRejectedValueOnce(notFound);
+
+    const { result } = renderHook(() =>
+      useBoundedDAGRunDetails({
+        target: createTarget(),
+        pollIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.error).toBe(notFound);
+
+    const retry = createDeferred<{ dagRunId: string; name: string }>();
+    fetchDAGRunDetailsMock.mockReturnValueOnce(retry.promise);
+    let refreshPromise: Promise<void> | undefined;
+    act(() => {
+      refreshPromise = result.current.refresh();
+    });
+    expect(result.current.error).toBe(notFound);
+
+    await act(async () => {
+      retry.resolve({ dagRunId: 'run-1', name: 'billing' });
+      await refreshPromise;
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.data).toMatchObject({ dagRunId: 'run-1' });
+  });
 });

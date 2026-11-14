@@ -11,7 +11,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	runtimeenvtransport "github.com/dagucloud/dagu/v2/internal/runtimeenv/transport"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
@@ -27,6 +30,7 @@ func TestEnqueueCatchupRun_PersistsQueuedCatchupMetadata(t *testing.T) {
 
 	th := test.Setup(t)
 	dag := th.DAG(t, `name: enqueue-catchup-dag
+params: {mode: default, region: north}
 steps:
   - name: step1
     run: echo enqueue
@@ -34,6 +38,11 @@ steps:
 
 	runID := "catchup-run-1"
 	scheduleTime := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	window := ir.ScheduleWindow{
+		Start:    time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC),
+		Next:     time.Date(2026, 2, 7, 13, 0, 0, 0, time.UTC),
+		Timezone: "Asia/Tokyo",
+	}
 
 	err := scheduler.EnqueueCatchupRun(
 		th.Context,
@@ -48,7 +57,9 @@ steps:
 		runID,
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
+		window,
 		"prod",
+		`{"mode":"z"}`,
 	)
 	require.NoError(t, err)
 
@@ -61,7 +72,9 @@ steps:
 	require.Equal(t, ir.Queued, status.Status)
 	require.Equal(t, ir.TriggerTypeCatchUp, status.TriggerType)
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
+	require.Equal(t, window, status.ScheduleWindow())
 	require.Equal(t, "prod", status.ProfileName)
+	require.ElementsMatch(t, []string{"mode=z", "region=north"}, status.ParamsList)
 	require.NotEmpty(t, status.Log)
 	assert.Contains(t, status.Log, filepath.Join(th.Config.Paths.LogDir, dag.Name))
 
@@ -72,6 +85,77 @@ steps:
 	ref, err := items[0].Data()
 	require.NoError(t, err)
 	assert.Equal(t, ir.NewDAGRunRef(dag.Name, runID), *ref)
+}
+
+// A restart run whose creation was cut short before its status was written is
+// created again: the next restart is derived from the run before it, so the
+// same run ID comes back at every scan.
+func TestEnqueueCatchupRun_ReplacesIncompleteRestartRun(t *testing.T) {
+	t.Parallel()
+
+	for name, cutShort := range map[string]func(t *testing.T, attempt dagrun.Attempt, dagRunsDir string){
+		"NoStatusFile": func(*testing.T, dagrun.Attempt, string) {},
+		// The status file is created when the attempt is opened, and stays
+		// empty until the first status is written.
+		"EmptyStatusFile": func(t *testing.T, attempt dagrun.Attempt, _ string) {
+			require.NoError(t, attempt.Open(t.Context()))
+			require.NoError(t, attempt.Close(t.Context()))
+		},
+		// A crash in the middle of the first write leaves part of a line.
+		"PartialStatusLine": func(t *testing.T, attempt dagrun.Attempt, dagRunsDir string) {
+			require.NoError(t, attempt.Open(t.Context()))
+			require.NoError(t, attempt.Close(t.Context()))
+			files, err := filepath.Glob(filepath.Join(dagRunsDir, "*", "dag-runs", "*", "*", "*", "*", "*", filedagrun.JSONLStatusFile))
+			require.NoError(t, err)
+			require.Len(t, files, 1)
+			require.NoError(t, os.WriteFile(files[0], []byte(`{"name":"cut short`), 0600))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t)
+			dag := th.DAG(t, `name: enqueue-incomplete-restart
+restart_policy: always
+restart_wait_sec: 1
+steps:
+  - run: echo ok
+`)
+			runID := scheduler.GenerateRestartRunID(dag.Name, "", time.Time{})
+			incomplete, err := th.DAGRunRepository.CreateAttempt(th.Context, dag.DAG, time.Now(), runID, persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+			cutShort(t, incomplete, th.Config.Paths.DAGRunsDir)
+
+			err = scheduler.EnqueueCatchupRun(
+				th.Context,
+				th.DAGRunRepository,
+				th.QueueStore,
+				th.Config.Paths.LogDir,
+				th.Config.Paths.ArtifactDir,
+				th.Config.Paths.BaseConfig,
+				"",
+				dag.Name,
+				dag.DAG,
+				runID,
+				ir.TriggerTypeRestart,
+				time.Now(),
+				ir.ScheduleWindow{},
+				"",
+				"",
+			)
+			require.NoError(t, err)
+
+			attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			assert.Equal(t, ir.Queued, status.Status)
+
+			items, err := th.QueueStore.List(th.Context, dag.ProcGroup())
+			require.NoError(t, err)
+			assert.Len(t, items, 1)
+		})
+	}
 }
 
 func TestEnqueueCatchupRun_RehydratesFullDAGBeforePersisting(t *testing.T) {
@@ -116,6 +200,8 @@ steps:
 		runID,
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
+		ir.ScheduleWindow{},
+		"",
 		"",
 	)
 	require.NoError(t, err)
@@ -198,6 +284,8 @@ steps:
 			runID,
 			ir.TriggerTypeCatchUp,
 			time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+			ir.ScheduleWindow{},
+			"",
 			"",
 		)
 		require.NoError(t, err)
@@ -220,4 +308,53 @@ steps:
 	env := buildenv.ToMap(resolvedEnv.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])
 	require.Equal(t, "only-in-workspace", env["OPS_ONLY"])
+}
+
+// A queued catch-up run evaluates its params when it starts, in its own
+// process: the scheduler runs no eval and records the params it was given.
+func TestEnqueueCatchupRun_LeavesParamEvalToTheRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `name: enqueue-catchup-eval
+params:
+  - name: mode
+    default: full
+  - name: stamp
+    eval: "${params.mode}-x"
+steps:
+  - name: step1
+    run: echo ${params.stamp}
+`)
+	metadataOnly, err := spec.Load(th.Context, dag.Location, spec.OnlyMetadata(), spec.WithoutEval(), spec.SkipSchemaValidation())
+	require.NoError(t, err)
+
+	const runID = "catchup-run-eval"
+	err = scheduler.EnqueueCatchupRun(
+		th.Context,
+		th.DAGRunRepository,
+		th.QueueStore,
+		th.Config.Paths.LogDir,
+		th.Config.Paths.ArtifactDir,
+		th.Config.Paths.BaseConfig,
+		"",
+		metadataOnly.FileName(),
+		metadataOnly,
+		runID,
+		ir.TriggerTypeCatchUp,
+		time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		ir.ScheduleWindow{},
+		"",
+		"",
+	)
+	require.NoError(t, err)
+
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	require.NoError(t, err)
+	persisted, err := attempt.ReadDAG(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"stamp"}, persisted.DeferredParams)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mode=full"}, status.ParamsList)
 }

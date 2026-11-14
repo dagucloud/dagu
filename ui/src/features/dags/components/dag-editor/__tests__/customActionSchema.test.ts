@@ -8,6 +8,7 @@ import {
   type JSONSchema,
 } from '@/lib/schema-utils';
 import { describe, expect, it } from 'vitest';
+import { realSchema } from '@/features/visual-editor/inspector/__tests__/realSchema';
 import {
   buildAugmentedDAGSchema,
   extractLocalCustomDefinitionHints,
@@ -740,4 +741,211 @@ steps:
     expect(result.legacyDefinitions).toEqual([]);
     expect(result.actions).toEqual([]);
   });
+
+  // A null entry removes an inherited harness, so it names no harness.
+  it('extracts the names of local harnesses from YAML', () => {
+    const result = extractLocalCustomDefinitionHints(`
+harnesses:
+  team-agent:
+    binary: team-agent
+  inherited: null
+  alpha:
+    binary: alpha
+`);
+
+    expect(result.harnesses).toEqual(['alpha', 'team-agent']);
+  });
+
+  it('extracts the definitions of the first document of a file', () => {
+    const result = extractLocalCustomDefinitionHints(`
+harnesses:
+  team-agent:
+    binary: team-agent
+steps:
+  - call: child
+---
+name: child
+steps:
+  - run: echo child
+`);
+
+    expect(result.ok).toBe(true);
+    expect(result.harnesses).toEqual(['team-agent']);
+  });
+
+  // The editors get a dereferenced schema: each provider field holds its
+  // own copy of the provider definition.
+  it('suggests local harnesses after the builtin providers', () => {
+    const schema = buildAugmentedDAGSchema(
+      dereferenceSchema({
+        properties: {
+          steps: {
+            type: 'array',
+            items: {
+              properties: {
+                with: {
+                  properties: {
+                    provider: { $ref: '#/definitions/harnessProvider' },
+                  },
+                },
+              },
+            },
+          },
+        },
+        definitions: {
+          harnessProvider: {
+            anyOf: [
+              { type: 'string', enum: ['claude', 'codex'] },
+              { type: 'string' },
+            ],
+          },
+        },
+      }),
+      [],
+      [],
+      ['codex', 'team-agent']
+    );
+
+    expect(
+      getSchemaAtPath(schema, ['steps', '0', 'with', 'provider'])?.anyOf
+    ).toEqual([
+      { type: 'string', enum: ['claude', 'codex'] },
+      {
+        type: 'string',
+        enum: ['team-agent'],
+        description: 'Custom harness declared in harnesses.',
+      },
+      { type: 'string' },
+    ]);
+  });
+
+  // The editor receives a dereferenced schema, where each calendar field is
+  // an inline copy of the definition with its own description.
+  it('offers calendar names on every calendar field of a resolved schema', () => {
+    const calendarName = {
+      type: 'string',
+      pattern: '^[A-Za-z0-9_-]+$',
+      examples: ['weekdays', 'none'],
+    };
+    const resolved = dereferenceSchema({
+      ...baseSchema,
+      properties: {
+        ...baseSchema.properties,
+        calendar: {
+          $ref: '#/definitions/calendarName',
+          description: 'DAG calendar',
+        },
+        schedule: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              calendar: {
+                $ref: '#/definitions/calendarName',
+                description: 'Entry calendar',
+              },
+            },
+          },
+        },
+      },
+      definitions: { ...baseSchema.definitions, calendarName },
+    });
+
+    const schema = buildAugmentedDAGSchema(
+      resolved,
+      [],
+      [],
+      [],
+      ['jp-banking']
+    );
+
+    const examples = ['jp-banking', 'none'];
+    expect(getSchemaAtPath(schema, ['calendar'])?.examples).toEqual(examples);
+    expect(
+      getSchemaAtPath(schema, ['schedule', '0', 'calendar'])?.examples
+    ).toEqual(examples);
+  });
 });
+
+// The dereferenced base shares one object for each use of a definition. A
+// build keeps that sharing for speed: its result must be the one of a build
+// on a copy that shares nothing, and the base must stay as it was.
+describe.skipIf(realSchema === null)(
+  'buildAugmentedDAGSchema on the repository schema',
+  () => {
+    const base = realSchema!;
+    const unshared = () => JSON.parse(JSON.stringify(base)) as JSONSchema;
+    const notify = {
+      name: 'notify',
+      description: 'Send a note.',
+      inputSchema: {
+        type: 'object',
+        properties: { channel: { type: 'string' } },
+      },
+    };
+    const greet = {
+      name: 'greet',
+      targetType: 'command',
+      inputSchema: {
+        type: 'object',
+        properties: { count: { type: 'integer' } },
+      },
+    };
+    type Inputs =
+      Parameters<typeof buildAugmentedDAGSchema> extends [
+        unknown,
+        ...infer Rest,
+      ]
+        ? Rest
+        : never;
+    const cases: Array<[string, Inputs]> = [
+      ['no hints', [[], [], [], []]],
+      ['harnesses and calendars', [[], [], ['my-harness'], ['nightly']]],
+      ['custom actions and legacy types', [[greet], [notify], [], []]],
+    ];
+
+    it.each(cases)(
+      'builds the schema of a copy that shares nothing, with %s',
+      (_, inputs) => {
+        expect(JSON.stringify(buildAugmentedDAGSchema(base, ...inputs))).toBe(
+          JSON.stringify(buildAugmentedDAGSchema(unshared(), ...inputs))
+        );
+      }
+    );
+
+    it('leaves the base schema as it was', () => {
+      // A copy with its shared objects and no built schemas: each call builds.
+      const fresh = structuredClone(base);
+      const before = JSON.stringify(fresh);
+      for (const [, inputs] of cases) buildAugmentedDAGSchema(fresh, ...inputs);
+      expect(JSON.stringify(fresh)).toBe(before);
+    });
+
+    it('marks the properties of the step rules as not suggested, with no hints', () => {
+      const step = buildAugmentedDAGSchema(base, [], [], [], []).definitions
+        ?.step as JSONSchema;
+      const rules = (step.allOf ?? []).filter(
+        (rule) => (rule.if as JSONSchema | undefined)?.properties
+      );
+      expect(rules.length).toBeGreaterThan(0);
+      for (const rule of rules) {
+        for (const property of Object.values(
+          (rule.if as JSONSchema).properties ?? {}
+        )) {
+          expect(property).toMatchObject({ doNotSuggest: true });
+        }
+      }
+    });
+
+    // The editor and the issue checks keep their caches by schema object.
+    it('gives the same schema for the same inputs, and a new one for new inputs', () => {
+      const first = buildAugmentedDAGSchema(base, [], [], [], ['nightly']);
+      expect(buildAugmentedDAGSchema(base, [], [], [], ['nightly'])).toBe(
+        first
+      );
+      expect(buildAugmentedDAGSchema(base, [], [], [], ['weekly'])).not.toBe(
+        first
+      );
+    });
+  }
+);

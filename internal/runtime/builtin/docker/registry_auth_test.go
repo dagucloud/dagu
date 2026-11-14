@@ -124,6 +124,18 @@ func TestConvertToDockerAuth(t *testing.T) {
 			},
 		},
 		{
+			name: "JSONStringAuthWithLeadingWhitespace",
+			auth: &ir.AuthConfig{
+				Auth: "  {\n  \"username\":\"user\",\n  \"password\":\"pass\"\n}",
+			},
+			serverAddress: "gcr.io",
+			expected: &registry.AuthConfig{
+				Username:      "user",
+				Password:      "pass",
+				ServerAddress: "gcr.io",
+			},
+		},
+		{
 			name:          "NilAuth",
 			auth:          nil,
 			serverAddress: "docker.io",
@@ -216,6 +228,165 @@ func TestGetAuthFromDockerConfig(t *testing.T) {
 	}
 }
 
+func TestGetAuthFromDockerConfigIndexDockerIO(t *testing.T) {
+	// Legacy and alias Docker Hub keys must resolve for docker.io images.
+	tests := []struct {
+		name   string
+		config string
+	}{
+		{
+			name:   "LegacyIndexKey",
+			config: `{"auths":{"https://index.docker.io/v1/":{"auth":"bGVnYWN5OnBhc3M="}}}`,
+		},
+		{
+			name:   "IndexHostKey",
+			config: `{"auths":{"index.docker.io":{"auth":"bGVnYWN5OnBhc3M="}}}`,
+		},
+		{
+			name:   "IndexHostWithPath",
+			config: `{"auths":{"index.docker.io/v1/":{"auth":"bGVnYWN5OnBhc3M="}}}`,
+		},
+		{
+			name:   "IndexImage",
+			config: `{"auths":{"docker.io":{"auth":"bGVnYWN5OnBhc3M="}}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			imageName := "alpine:latest"
+			if tt.name == "IndexImage" {
+				imageName = "index.docker.io/library/alpine:latest"
+			}
+			auth, err := getAuthFromDockerConfig(tt.config, imageName)
+			require.NoError(t, err)
+			require.NotNil(t, auth)
+			assert.Equal(t, "bGVnYWN5OnBhc3M=", auth.Auth)
+			assert.Equal(t, extractRegistry(imageName), auth.ServerAddress)
+		})
+	}
+}
+
+func TestGetAuthFromDockerConfigIPv6(t *testing.T) {
+	// IPv6 registry hosts must not be mangled when stripping the port.
+	tests := []struct {
+		name        string
+		config      string
+		imageName   string
+		wantAuth    string
+		wantAddress string
+	}{
+		{
+			name:        "BracketedIPv6WithPort",
+			config:      `{"auths":{"[::1]:5000":{"auth":"aXB2NjpwYXNz"}}}`,
+			imageName:   "[::1]:5000/repo/image:tag",
+			wantAuth:    "aXB2NjpwYXNz",
+			wantAddress: "[::1]:5000",
+		},
+		{
+			name:        "BracketedIPv6MatchesBareHostKey",
+			config:      `{"auths":{"::1":{"auth":"aXB2NjpwYXNz"}}}`,
+			imageName:   "[::1]:5000/repo/image:tag",
+			wantAuth:    "aXB2NjpwYXNz",
+			wantAddress: "[::1]:5000",
+		},
+		{
+			name:        "BareIPv6NoPort",
+			config:      `{"auths":{"[::1]":{"auth":"aXB2NjpwYXNz"}}}`,
+			imageName:   "::1/repo/image:tag",
+			wantAuth:    "aXB2NjpwYXNz",
+			wantAddress: "::1",
+		},
+		{
+			name:        "HostWithoutPortMatchesHostPortImage",
+			config:      `{"auths":{"reg.example.com":{"auth":"aXB2NjpwYXNz"}}}`,
+			imageName:   "reg.example.com:5000/image:tag",
+			wantAuth:    "aXB2NjpwYXNz",
+			wantAddress: "reg.example.com:5000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth, err := getAuthFromDockerConfig(tt.config, tt.imageName)
+			require.NoError(t, err)
+			require.NotNil(t, auth)
+			assert.Equal(t, tt.wantAuth, auth.Auth)
+			assert.Equal(t, tt.wantAddress, auth.ServerAddress)
+		})
+	}
+}
+
+func TestGetAuthFromDockerConfigConflictingAliases(t *testing.T) {
+	// Multiple keys can alias the same registry; differing credentials must
+	// be rejected instead of picked nondeterministically.
+	t.Run("Conflicting", func(t *testing.T) {
+		config := `{"auths":{
+			"index.docker.io":{"auth":"b25lOnBhc3M="},
+			"https://index.docker.io/v1/":{"auth":"dHdvOnBhc3M="}
+		}}`
+		_, err := getAuthFromDockerConfig(config, "alpine:latest")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "conflicting auth entries")
+	})
+
+	// Aliases carrying identical credentials collapse into a single result.
+	t.Run("Identical", func(t *testing.T) {
+		config := `{"auths":{
+			"index.docker.io":{"auth":"c2FtZTpwYXNz"},
+			"https://index.docker.io/v1/":{"auth":"c2FtZTpwYXNz"}
+		}}`
+		auth, err := getAuthFromDockerConfig(config, "alpine:latest")
+		require.NoError(t, err)
+		require.NotNil(t, auth)
+		assert.Equal(t, "c2FtZTpwYXNz", auth.Auth)
+		assert.Equal(t, "docker.io", auth.ServerAddress)
+	})
+
+	// An exact registry key takes precedence over conflicting aliases.
+	t.Run("ExactMatchPrecedence", func(t *testing.T) {
+		config := `{"auths":{
+			"docker.io":{"auth":"ZXhhY3Q6cGFzcw=="},
+			"index.docker.io":{"auth":"b3RoZXI6cGFzcw=="},
+			"https://index.docker.io/v1/":{"auth":"dGhpcmQ6cGFzcw=="}
+		}}`
+		auth, err := getAuthFromDockerConfig(config, "alpine:latest")
+		require.NoError(t, err)
+		require.NotNil(t, auth)
+		assert.Equal(t, "ZXhhY3Q6cGFzcw==", auth.Auth)
+	})
+}
+
+func TestRegistryAuthManager_ConflictingAliases(t *testing.T) {
+	// DAG-level auth follows the same collision policy as DOCKER_AUTH_CONFIG.
+	t.Run("Conflicting", func(t *testing.T) {
+		manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
+			"index.docker.io":             {Username: "one", Password: "pass"},
+			"https://index.docker.io/v1/": {Username: "two", Password: "pass"},
+		})
+
+		_, err := manager.GetAuthHeader("alpine:latest")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "conflicting auth entries")
+	})
+
+	t.Run("Identical", func(t *testing.T) {
+		manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
+			"index.docker.io":             {Username: "user", Password: "pass"},
+			"https://index.docker.io/v1/": {Username: "user", Password: "pass"},
+		})
+
+		header, err := manager.GetAuthHeader("alpine:latest")
+		require.NoError(t, err)
+		require.NotEmpty(t, header)
+
+		decoded, err := authconfig.Decode(header)
+		require.NoError(t, err)
+		assert.Equal(t, "user", decoded.Username)
+		assert.Equal(t, "pass", decoded.Password)
+	})
+}
+
 func TestRegistryAuthManager_GetAuthHeader(t *testing.T) {
 	// Test with DAG-level auth
 	t.Run("DAGLevelAuth", func(t *testing.T) {
@@ -236,6 +407,48 @@ func TestRegistryAuthManager_GetAuthHeader(t *testing.T) {
 		assert.Equal(t, "user", decoded.Username)
 		assert.Equal(t, "pass", decoded.Password)
 		assert.Equal(t, "docker.io", decoded.ServerAddress)
+	})
+
+	// Test with the legacy Docker Hub key in DAG-level auth
+	t.Run("LegacyDockerHubKey", func(t *testing.T) {
+		manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
+			"https://index.docker.io/v1/": {
+				Username: "user",
+				Password: "pass",
+			},
+		})
+
+		header, err := manager.GetAuthHeader("alpine:latest")
+		require.NoError(t, err)
+		assert.NotEmpty(t, header)
+
+		// Decode and verify
+		decoded, err := authconfig.Decode(header)
+		require.NoError(t, err)
+		assert.Equal(t, "user", decoded.Username)
+		assert.Equal(t, "pass", decoded.Password)
+		assert.Equal(t, "docker.io", decoded.ServerAddress)
+	})
+
+	// Test with an IPv6 registry host in DAG-level auth
+	t.Run("IPv6Registry", func(t *testing.T) {
+		manager := NewRegistryAuthManager(map[string]*ir.AuthConfig{
+			"::1": {
+				Username: "v6user",
+				Password: "v6pass",
+			},
+		})
+
+		header, err := manager.GetAuthHeader("[::1]:5000/repo/image:tag")
+		require.NoError(t, err)
+		assert.NotEmpty(t, header)
+
+		// Decode and verify
+		decoded, err := authconfig.Decode(header)
+		require.NoError(t, err)
+		assert.Equal(t, "v6user", decoded.Username)
+		assert.Equal(t, "v6pass", decoded.Password)
+		assert.Equal(t, "[::1]:5000", decoded.ServerAddress)
 	})
 
 	// Test with DOCKER_AUTH_CONFIG env var

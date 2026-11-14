@@ -124,3 +124,20 @@ func TestDownloadWatcherReportsFailedDownloads(t *testing.T) {
 		})
 	}
 }
+
+// A wait for a download to begin returns once one more begins than were
+// counted, and waits on while none does.
+func TestDownloadWatcherAwaitsADownloadToBegin(t *testing.T) {
+	t.Parallel()
+
+	cdpURL := serveDownloads(t, []downloadEvent{begin("g1", "report.csv"), progress("g1", "completed")})
+	watcher, err := browserhost.WatchDownloads(context.Background(), cdpURL, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = watcher.Close() })
+
+	require.NoError(t, watcher.AwaitBegun(t.Context(), 0))
+	assert.Equal(t, 1, watcher.Begun())
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	assert.ErrorIs(t, watcher.AwaitBegun(ctx, 1), context.DeadlineExceeded)
+}

@@ -310,6 +310,24 @@ func TestAPIKeys_CreateExpiredLicenseUsesCommunityLimit(t *testing.T) {
 		WithBearerToken(token).ExpectStatus(http.StatusForbidden).Send(t)
 }
 
+func TestAPIKeys_CreateFreePlanUsesCommunityLimit(t *testing.T) {
+	t.Parallel()
+	server := setupBuiltinAuthTestServer(t, frontend.WithLicenseManager(license.NewFreeTestManager()))
+	token := getAdminToken(t, server)
+
+	for _, name := range []string{"free-key-1", "free-key-2"} {
+		server.Client().Post("/api/v1/api-keys", newCreateAPIKeyRequest(name, api.UserRoleViewer)).
+			WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	}
+
+	resp := server.Client().Post("/api/v1/api-keys", newCreateAPIKeyRequest("free-key-3", api.UserRoleViewer)).
+		WithBearerToken(token).ExpectStatus(http.StatusForbidden).Send(t)
+
+	var errResp api.Error
+	resp.Unmarshal(t, &errResp)
+	assert.Equal(t, "The Free plan supports up to 2 API keys. Team and Pro remove the limit.", errResp.Message)
+}
+
 func TestAPIKeys_CreateLicensedAllowsMoreThanCommunityLimit(t *testing.T) {
 	t.Parallel()
 	server := setupBuiltinAuthServer(t)

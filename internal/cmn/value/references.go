@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // referenceKind classifies a placeholder found in a value string.
@@ -39,22 +40,34 @@ type StepOutputReference struct {
 	Path       []string
 }
 
-// scanReferences classifies strict references and eval refs.
-func scanReferences(raw string) []reference {
+// StepTextReference is a reference that inserts text a step produced, as opposed
+// to metadata such as its exit code or the path of its log.
+type StepTextReference struct {
+	// Expression is the reference as written.
+	Expression string
+	// StepName is the step the reference reads.
+	StepName string
+	// Field is the top-level output field read. It is empty for the whole output.
+	Field string
+}
+
+// scanReferences classifies strict references and eval refs. When escapes is
+// set, a reference whose dollar carries a backslash escape is skipped.
+func scanReferences(raw string, escapes bool) []reference {
 	if raw == "" {
 		return nil
 	}
 
 	refs := make([]reference, 0)
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(raw, -1) {
-		if isEscapedDollar(raw, loc[0]) {
+		if escapes && isEscapedDollar(raw, loc[0]) {
 			continue
 		}
 		expr := strings.TrimSpace(raw[loc[2]:loc[3]])
 		refs = append(refs, classifyBracedReference(raw[loc[0]:loc[1]], expr, loc[0], loc[1]))
 	}
 	for _, loc := range referencePattern.FindAllStringSubmatchIndex(raw, -1) {
-		if isEscapedDollar(raw, loc[0]) {
+		if escapes && isEscapedDollar(raw, loc[0]) {
 			continue
 		}
 		if loc[0]+1 < len(raw) && raw[loc[0]+1] == '{' {
@@ -83,8 +96,25 @@ func scanReferences(raw string) []reference {
 
 // HasValueReference reports whether raw contains a supported value-reference form.
 func HasValueReference(raw string) bool {
-	for _, ref := range scanReferences(raw) {
+	return Field{}.HasValueReference(raw)
+}
+
+// HasValueReference reports whether raw, read as a value of the field,
+// contains a supported value-reference form.
+func (f Field) HasValueReference(raw string) bool {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind == referenceStrict || ref.Kind == referenceEval {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyReference reports whether raw contains an unescaped ${...}, $NAME, or
+// $N reference anywhere in the text, in any form value resolution may expand.
+func HasAnyReference(raw string) bool {
+	for _, loc := range reVarSubstitution.FindAllStringIndex(raw, -1) {
+		if !isEscapedDollar(raw, loc[0]) {
 			return true
 		}
 	}
@@ -93,7 +123,7 @@ func HasValueReference(raw string) bool {
 
 // HasReferenceToNamespace reports whether raw references one of the named scopes.
 func HasReferenceToNamespace(raw string, namespaces ...string) bool {
-	for _, ref := range scanReferences(raw) {
+	for _, ref := range scanReferences(raw, true) {
 		if ref.Kind != referenceStrict && ref.Kind != referenceEval {
 			continue
 		}
@@ -134,7 +164,7 @@ func IsExactRef(token string) bool {
 }
 
 func parseExactRef(token string) (reference, bool) {
-	refs := scanReferences(token)
+	refs := scanReferences(token, true)
 	if len(refs) != 1 {
 		return reference{}, false
 	}
@@ -147,7 +177,7 @@ func parseExactRef(token string) (reference, bool) {
 	}
 
 	switch ref.Namespace {
-	case "consts", "env", "steps", "foreach", "inputs", "outputs", "context":
+	case "consts", "env", "steps", "foreach", "inputs", "outputs", "context", "dates":
 		return ref, true
 	case "params":
 		// The aggregate ${params} form is JSON data, not a named value reference.
@@ -213,7 +243,13 @@ func IsStepOutputReferenceToken(token string) bool {
 
 // HasStepRuntimeOutputReference reports whether raw reads an attempt result from stepID.
 func HasStepRuntimeOutputReference(raw, stepID string) bool {
-	for _, ref := range scanReferences(raw) {
+	return Field{}.HasStepRuntimeOutputReference(raw, stepID)
+}
+
+// HasStepRuntimeOutputReference reports whether raw, read as a value of the
+// field, reads an attempt result from stepID.
+func (f Field) HasStepRuntimeOutputReference(raw, stepID string) bool {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind != referenceEval {
 			continue
 		}
@@ -224,6 +260,69 @@ func HasStepRuntimeOutputReference(raw, stepID string) bool {
 		return true
 	}
 	return false
+}
+
+// StepTextReferences returns the references in raw, read as a value of the
+// field, that insert text a step produced.
+func (f Field) StepTextReferences(raw string) []StepTextReference {
+	var out []StepTextReference
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
+		if ref.StepOutput != nil {
+			out = append(out, StepTextReference{
+				Expression: ref.Raw,
+				StepName:   ref.StepOutput.StepName,
+				Field:      ref.StepOutput.Path[0],
+			})
+			continue
+		}
+		if ref.Kind != referenceEval {
+			continue
+		}
+		name, path, ok := referenceParts(ref.Raw)
+		if !ok {
+			continue
+		}
+		if field, ok := stepTextPathField(path); ok {
+			out = append(out, StepTextReference{Expression: ref.Raw, StepName: name, Field: field})
+		}
+	}
+	return out
+}
+
+// stepTextPathField reports whether a step reference path reads produced text,
+// and returns its top-level field, if it names one.
+func stepTextPathField(path string) (string, bool) {
+	for _, prefix := range []string{".outputs", ".output"} {
+		rest, ok := strings.CutPrefix(path, prefix)
+		if !ok {
+			continue
+		}
+		switch {
+		case rest == "" || rest[0] == ':' || rest[0] == '[':
+			return "", true
+		case rest[0] == '.':
+			field, _, _ := strings.Cut(rest[1:], ".")
+			field, _, _ = strings.Cut(field, "[")
+			return field, true
+		}
+	}
+	return "", false
+}
+
+// unqualifiedItemFieldReferences returns each unescaped ${alias.field} token in
+// raw: a foreach item field written without the foreach namespace. Only fields
+// that ${foreach.alias.field} accepts unquoted are reported.
+func unqualifiedItemFieldReferences(raw, alias string, escapes bool) []string {
+	var tokens []string
+	for _, ref := range scanReferences(raw, escapes) {
+		if ref.Kind != referenceEval || !ref.Braced || ref.Raw != "${"+ref.Expr+"}" {
+			continue
+		}
+		if len(ref.Segments) == 2 && ref.Segments[0] == alias && validItemFieldSegment(ref.Segments[1]) {
+			tokens = append(tokens, ref.Raw)
+		}
+	}
+	return tokens
 }
 
 func isStepRuntimeOutputPath(path string) bool {
@@ -271,6 +370,24 @@ func validOutputPathSegment(segment string) bool {
 			continue
 		}
 		return false
+	}
+	return true
+}
+
+// validItemFieldSegment reports whether segment names a foreach item field
+// without quoting: a letter or underscore followed by letters, marks, digits,
+// or underscores, in any script.
+func validItemFieldSegment(segment string) bool {
+	if segment == "" {
+		return false
+	}
+	for i, r := range segment {
+		switch {
+		case unicode.IsLetter(r) || r == '_':
+		case i > 0 && (unicode.IsMark(r) || unicode.IsDigit(r)):
+		default:
+			return false
+		}
 	}
 	return true
 }

@@ -1,0 +1,5 @@
+steps:
+  - action: xlsx.read
+    with:
+      path: orders.xlsx
+      merged: join

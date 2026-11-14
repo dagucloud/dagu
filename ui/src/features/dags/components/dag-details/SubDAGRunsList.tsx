@@ -5,11 +5,11 @@ import { components, StatusLabel } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
-import dayjs from '@/lib/dayjs';
+import RelativeTime from '@/components/ui/relative-time';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { StatusDot } from '../common/StatusDot';
-import { STATUS_DISPLAY_LABELS } from '../common/statusLabels';
+import { statusLabelText } from '@/lib/status-utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -195,7 +195,7 @@ export function SubDAGRunsList({
       if (count && count > 0) {
         filters.push({
           value: status,
-          label: STATUS_DISPLAY_LABELS[status],
+          label: statusLabelText(status),
           count,
         });
       }
@@ -280,7 +280,7 @@ export function SubDAGRunsList({
                   }
                 `}
               >
-                {filter.label}
+                <I18nText text={filter.label} />
                 <span
                   className={`ml-1 ${isActive ? 'text-primary' : 'text-muted-foreground'}`}
                 >
@@ -324,9 +324,10 @@ export function SubDAGRunsList({
                       </div>
                     </I18nProps>
                     {startedAt && (
-                      <div className="text-xs text-muted-foreground">
-                        {dayjs(startedAt).format('MMM D, HH:mm:ss')}
-                      </div>
+                      <RelativeTime
+                        className="block text-xs text-muted-foreground"
+                        timestamp={startedAt}
+                      />
                     )}
                     {status && (
                       <StatusDot status={status} statusLabel={statusLabel} />

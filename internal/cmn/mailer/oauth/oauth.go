@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,8 @@ const (
 	googleMailScope = "https://mail.google.com/"
 	// microsoftMailScope covers the IMAP and SMTP permissions a person granted.
 	microsoftMailScope = "https://outlook.office.com/.default"
+	// offlineAccessScope keeps a refreshed Microsoft token refreshable.
+	offlineAccessScope = "offline_access"
 	googleTokenURL     = "https://oauth2.googleapis.com/token" //nolint:gosec // Fixed provider endpoint, not a credential.
 
 	maxCacheEntries     = 32
@@ -82,7 +85,7 @@ func NewRefreshTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, e
 	case oauthconfig.ProviderGoogleRefresh:
 		refresh = refreshTokenGrant(cfgCopy, googleTokenURL, nil)
 	case oauthconfig.ProviderMicrosoftRefresh:
-		refresh = refreshTokenGrant(cfgCopy, microsoftTokenURL(cfgCopy.TenantID), []string{microsoftMailScope, "offline_access"})
+		refresh = refreshTokenGrant(cfgCopy, microsoftTokenURL(cfgCopy.TenantID), microsoftScopes(cfgCopy))
 	}
 	key, err := cacheKey(strings.TrimSpace(username), cfgCopy)
 	if err != nil {
@@ -103,6 +106,22 @@ func (e *TokenError) Error() string {
 		return "token endpoint returned " + e.Code
 	}
 	return fmt.Sprintf("token endpoint returned %s: %s", e.Code, e.Description)
+}
+
+// microsoftScopes returns the configured scopes, or every mail permission the
+// person granted, always with offline_access.
+func microsoftScopes(cfg oauthconfig.Config) []string {
+	if len(cfg.Scopes) == 0 {
+		return []string{microsoftMailScope, offlineAccessScope}
+	}
+	scopes := make([]string, 0, len(cfg.Scopes)+1)
+	for _, scope := range cfg.Scopes {
+		scopes = append(scopes, strings.TrimSpace(scope))
+	}
+	if !slices.Contains(scopes, offlineAccessScope) {
+		scopes = append(scopes, offlineAccessScope)
+	}
+	return scopes
 }
 
 func microsoftTokenURL(tenant string) string {

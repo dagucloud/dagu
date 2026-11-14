@@ -6,11 +6,14 @@ package value
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
 
 // internalSecretPrefix must match secrets.PresolvedEnvPrefix.
@@ -53,7 +56,10 @@ type EnvEntry struct {
 type EnvScope struct {
 	mu      sync.RWMutex
 	entries map[string]EnvEntry
-	parent  *EnvScope
+	// masked holds secret values that are not environment variables, keyed
+	// by label. Only AllSecrets returns them.
+	masked map[string]string
+	parent *EnvScope
 }
 
 // NewEnvScope creates a new EnvScope, optionally inheriting from parent.
@@ -65,21 +71,36 @@ func NewEnvScope(parent *EnvScope, includeOS bool) *EnvScope {
 	}
 	if includeOS {
 		for _, env := range os.Environ() {
-			if k, v, ok := strings.Cut(env, "="); ok {
-				// Skip internal transport vars for pre-resolved secrets.
-				// These are only consumed by the env secret resolver via
-				// direct os.LookupEnv; they must not appear in step environments.
-				// Must match secrets.PresolvedEnvPrefix (duplicated to avoid
-				// circular import: eval <- secrets).
-				normalizedKey := strings.ToUpper(k)
-				if strings.HasPrefix(normalizedKey, internalSecretPrefix) || strings.HasPrefix(normalizedKey, internalTransportPrefix) || normalizedKey == internalBuildEnvFileKey {
-					continue
-				}
+			if k, v, ok := strings.Cut(env, "="); ok && !hiddenFromWorkflows(k) {
 				e.entries[k] = EnvEntry{Key: k, Value: v, Source: EnvSourceOS}
 			}
 		}
 	}
 	return e
+}
+
+// hiddenFromWorkflows reports whether a process environment variable stays
+// out of everything a workflow sees or expands. The internal transport
+// variables for pre-resolved secrets are consumed only by the env secret
+// resolver, through a direct os.LookupEnv; Dagu's own credentials are for the
+// processes Dagu starts for itself.
+func hiddenFromWorkflows(key string) bool {
+	// Must match secrets.PresolvedEnvPrefix (duplicated to avoid circular
+	// import: eval <- secrets).
+	normalizedKey := strings.ToUpper(key)
+	return strings.HasPrefix(normalizedKey, internalSecretPrefix) ||
+		strings.HasPrefix(normalizedKey, internalTransportPrefix) ||
+		normalizedKey == internalBuildEnvFileKey ||
+		config.IsCredentialEnv(key)
+}
+
+// lookupProcessEnv looks name up in the process environment as a workflow
+// sees it: the expansion fallback when no scope applies.
+func lookupProcessEnv(name string) (string, bool) {
+	if hiddenFromWorkflows(name) {
+		return "", false
+	}
+	return os.LookupEnv(name)
 }
 
 // WithEntry returns a new EnvScope with the given entry added.
@@ -161,14 +182,32 @@ func (e *EnvScope) ToSlice() []string {
 
 // ToSliceWithoutOrigin returns variables except entries from one origin.
 func (e *EnvScope) ToSliceWithoutOrigin(origin string) []string {
+	entries := e.EntriesWithoutOrigin(origin)
+	result := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry.Key+"="+entry.Value)
+	}
+	return result
+}
+
+// EntriesWithoutOrigin returns the effective entries except those carrying the
+// given origin. Each entry keeps the source and origin metadata it holds in
+// this scope, so provenance survives transport into another run's scope.
+// When an excluded entry shadows a lower-precedence entry with the same name,
+// the shadowed entry is still collected. The result is sorted by key for a
+// stable representation.
+func (e *EnvScope) EntriesWithoutOrigin(origin string) []EnvEntry {
 	if e == nil {
 		return nil
 	}
-	all := e.collectAll(func(entry EnvEntry) bool { return entry.Origin != origin })
-	result := make([]string, 0, len(all))
-	for key, value := range all {
-		result = append(result, key+"="+value)
+	entries := make(map[string]EnvEntry)
+	keys := make(map[string]string)
+	e.collectEntries(entries, keys, func(entry EnvEntry) bool { return entry.Origin != origin })
+	result := make([]EnvEntry, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Key < result[j].Key })
 	return result
 }
 
@@ -209,6 +248,19 @@ func (e *EnvScope) WithEntriesOrigin(entries map[string]string, source EnvSource
 	newScope := &EnvScope{entries: make(map[string]EnvEntry, len(entries)), parent: e}
 	for key, value := range entries {
 		newScope.entries[key] = EnvEntry{Key: key, Value: value, Source: source, Origin: origin}
+	}
+	return newScope
+}
+
+// WithEnvEntries returns a new scope holding the given entries as one layer.
+// Each entry keeps the source and origin it already carries.
+func (e *EnvScope) WithEnvEntries(entries []EnvEntry) *EnvScope {
+	if len(entries) == 0 {
+		return e
+	}
+	newScope := &EnvScope{entries: make(map[string]EnvEntry, len(entries)), parent: e}
+	for _, entry := range entries {
+		newScope.entries[entry.Key] = entry
 	}
 	return newScope
 }
@@ -278,6 +330,16 @@ func (e *EnvScope) Expand(s string) string {
 	return expandWithLookup(s, e.Get, true)
 }
 
+// ExpandPath expands ${VAR} and $VAR in the filesystem path s using this
+// scope. A backslash in s is path text, never an escape marker. Variables not
+// found in the scope are preserved in their original form.
+func (e *EnvScope) ExpandPath(s string) string {
+	if e == nil {
+		return s
+	}
+	return expandWithLookup(s, e.Get, false)
+}
+
 // Debug returns a string representation for debugging
 func (e *EnvScope) Debug() string {
 	if e == nil {
@@ -323,10 +385,37 @@ func (e *EnvScope) AllBySource(source EnvSource) map[string]string {
 	return e.collectAll(func(entry EnvEntry) bool { return entry.Source == source })
 }
 
-// AllSecrets returns all entries with EnvSourceSecret.
-// This is a convenience method for output masking.
+// WithMaskedSecrets returns a new EnvScope whose AllSecrets also returns
+// values, keyed by label. The values are masked as secrets are, but they are
+// not environment variables: lookups, expansion, and exported environments
+// never see them. Labels must not collide with variable names.
+func (e *EnvScope) WithMaskedSecrets(values map[string]string) *EnvScope {
+	if len(values) == 0 {
+		return e
+	}
+	return &EnvScope{
+		entries: make(map[string]EnvEntry),
+		masked:  maps.Clone(values),
+		parent:  e,
+	}
+}
+
+// AllSecrets returns all entries with EnvSourceSecret and every value added
+// with WithMaskedSecrets. It is meant for output masking.
 func (e *EnvScope) AllSecrets() map[string]string {
-	return e.AllBySource(EnvSourceSecret)
+	secrets := e.AllBySource(EnvSourceSecret)
+	e.collectMasked(secrets)
+	return secrets
+}
+
+func (e *EnvScope) collectMasked(result map[string]string) {
+	if e == nil {
+		return
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	e.parent.collectMasked(result)
+	maps.Copy(result, e.masked)
 }
 
 // AllUserEnvs returns all entries excluding OS environment.
@@ -337,16 +426,25 @@ func (e *EnvScope) AllUserEnvs() map[string]string {
 // collectAllEntries gathers the effective entry for every name across the full
 // scope chain, so callers can decide on the entry that actually wins.
 func (e *EnvScope) collectAllEntries() map[string]EnvEntry {
+	return e.collectMatchingEntries(nil)
+}
+
+// collectMatchingEntries gathers the effective entry for every name matching
+// include across the full scope chain. A nil include collects everything. When
+// a winning entry is excluded, a shadowed entry it covered is collected
+// instead, so the result reflects the scope as if the excluded entries were
+// absent.
+func (e *EnvScope) collectMatchingEntries(include func(EnvEntry) bool) map[string]EnvEntry {
 	if e == nil {
 		return make(map[string]EnvEntry)
 	}
 	result := make(map[string]EnvEntry)
 	keys := make(map[string]string)
-	e.collectEntries(result, keys)
+	e.collectEntries(result, keys, include)
 	return result
 }
 
-func (e *EnvScope) collectEntries(result map[string]EnvEntry, keys map[string]string) {
+func (e *EnvScope) collectEntries(result map[string]EnvEntry, keys map[string]string, include func(EnvEntry) bool) {
 	if e == nil {
 		return
 	}
@@ -354,9 +452,12 @@ func (e *EnvScope) collectEntries(result map[string]EnvEntry, keys map[string]st
 	defer e.mu.RUnlock()
 
 	if e.parent != nil {
-		e.parent.collectEntries(result, keys)
+		e.parent.collectEntries(result, keys, include)
 	}
 	for k, entry := range e.entries {
+		if include != nil && !include(entry) {
+			continue
+		}
 		id := envScopeKeyID(k)
 		if previous, ok := keys[id]; ok && previous != k {
 			delete(result, previous)

@@ -1,0 +1,14 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+steps:
+  - id: fetch
+    action: browser.run
+    with:
+      url: ${SHOP_URL}
+      do:
+        - goto: ${SHOP_URL}/report.csv
+          timeout: 30s
+  - id: check
+    depends: fetch
+    run: cat "$DAG_RUN_ARTIFACTS_DIR/browser/fetch/downloads/report.csv" > report.out

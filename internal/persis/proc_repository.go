@@ -4,7 +4,9 @@
 package persis
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"sort"
 	"time"
 
@@ -144,26 +146,24 @@ func (r *ProcRepository) ListEntries(ctx context.Context, groupName string) ([]p
 	return r.store.ListEntries(ctx, groupName)
 }
 
-// LatestFreshEntryByDAGName returns the newest fresh entry for a DAG in a group.
-func (r *ProcRepository) LatestFreshEntryByDAGName(ctx context.Context, groupName, dagName string) (*proc.ProcEntry, error) {
+// FreshEntriesByDAGName returns the fresh entries for a DAG in a group, the
+// latest started first, and of those started together the latest heartbeat
+// first.
+func (r *ProcRepository) FreshEntriesByDAGName(ctx context.Context, groupName, dagName string) ([]proc.ProcEntry, error) {
 	entries, err := r.store.ListEntries(ctx, groupName)
 	if err != nil {
 		return nil, err
 	}
-	var freshest *proc.ProcEntry
-	for i := range entries {
-		entry := entries[i]
-		if !entry.Fresh || entry.Meta.Name != dagName {
-			continue
+	fresh := slices.DeleteFunc(entries, func(entry proc.ProcEntry) bool {
+		return !entry.Fresh || entry.Meta.Name != dagName
+	})
+	slices.SortStableFunc(fresh, func(a, b proc.ProcEntry) int {
+		if c := cmp.Compare(b.Meta.StartedAt, a.Meta.StartedAt); c != 0 {
+			return c
 		}
-		if freshest == nil ||
-			entry.Meta.StartedAt > freshest.Meta.StartedAt ||
-			(entry.Meta.StartedAt == freshest.Meta.StartedAt && entry.LastHeartbeatAt > freshest.LastHeartbeatAt) {
-			copy := entry
-			freshest = &copy
-		}
-	}
-	return freshest, nil
+		return cmp.Compare(b.LastHeartbeatAt, a.LastHeartbeatAt)
+	})
+	return fresh, nil
 }
 
 // LatestHeartbeat returns the latest heartbeat observation for a DAG run.

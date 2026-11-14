@@ -1130,6 +1130,152 @@ func TestLoadConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "IPv6PortWithIPAddress",
+			input: ir.Container{
+				Image: "nginx",
+				Ports: []string{"[::1]:8080:80"},
+			},
+			expected: &Config{
+				Image:      "nginx",
+				AutoRemove: true,
+				Container: &container.Config{
+					Image: "nginx",
+					ExposedPorts: network.PortSet{
+						mustPort("80/tcp"): {},
+					},
+				},
+				Host: &container.HostConfig{
+					PortBindings: network.PortMap{
+						mustPort("80/tcp"): []network.PortBinding{
+							{
+								HostIP:   mustAddr("::1"),
+								HostPort: "8080",
+							},
+						},
+					},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			name: "IPv6UdpPort",
+			input: ir.Container{
+				Image: "dns-server",
+				Ports: []string{"[2001:db8::1]:5353:53/udp"},
+			},
+			expected: &Config{
+				Image:      "dns-server",
+				AutoRemove: true,
+				Container: &container.Config{
+					Image: "dns-server",
+					ExposedPorts: network.PortSet{
+						mustPort("53/udp"): {},
+					},
+				},
+				Host: &container.HostConfig{
+					PortBindings: network.PortMap{
+						mustPort("53/udp"): []network.PortBinding{
+							{
+								HostIP:   mustAddr("2001:db8::1"),
+								HostPort: "5353",
+							},
+						},
+					},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			// An empty host port is valid; Docker allocates an ephemeral port.
+			name: "IPv6PortWithEmptyHostPort",
+			input: ir.Container{
+				Image: "nginx",
+				Ports: []string{"[::]::80"},
+			},
+			expected: &Config{
+				Image:      "nginx",
+				AutoRemove: true,
+				Container: &container.Config{
+					Image: "nginx",
+					ExposedPorts: network.PortSet{
+						mustPort("80/tcp"): {},
+					},
+				},
+				Host: &container.HostConfig{
+					PortBindings: network.PortMap{
+						mustPort("80/tcp"): []network.PortBinding{
+							{
+								HostIP:   mustAddr("::"),
+								HostPort: "",
+							},
+						},
+					},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			name: "IPv4PortWithEmptyHostPort",
+			input: ir.Container{
+				Image: "nginx",
+				Ports: []string{"0.0.0.0::80"},
+			},
+			expected: &Config{
+				Image:      "nginx",
+				AutoRemove: true,
+				Container: &container.Config{
+					Image: "nginx",
+					ExposedPorts: network.PortSet{
+						mustPort("80/tcp"): {},
+					},
+				},
+				Host: &container.HostConfig{
+					PortBindings: network.PortMap{
+						mustPort("80/tcp"): []network.PortBinding{
+							{
+								HostIP:   mustAddr("0.0.0.0"),
+								HostPort: "",
+							},
+						},
+					},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
+			name: "EmptyHostPort",
+			input: ir.Container{
+				Image: "nginx",
+				Ports: []string{":80"},
+			},
+			expected: &Config{
+				Image:      "nginx",
+				AutoRemove: true,
+				Container: &container.Config{
+					Image: "nginx",
+					ExposedPorts: network.PortSet{
+						mustPort("80/tcp"): {},
+					},
+				},
+				Host: &container.HostConfig{
+					PortBindings: network.PortMap{
+						mustPort("80/tcp"): []network.PortBinding{
+							{
+								HostIP:   mustAddr("0.0.0.0"),
+								HostPort: "",
+							},
+						},
+					},
+				},
+				Network:     &network.NetworkingConfig{},
+				ExecOptions: &client.ExecCreateOptions{},
+			},
+		},
+		{
 			name: "InvalidVolumeFormatTooFewParts",
 			input: ir.Container{
 				Image:   "alpine",
@@ -1182,6 +1328,26 @@ func TestLoadConfig(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "invalid port format: invalid protocol invalid in 80/invalid",
+		},
+		{
+			// A bare IPv6 host is ambiguous with port fields; Docker
+			// requires brackets on IPv6 host IPs.
+			name: "InvalidPortFormatBareIPv6",
+			input: ir.Container{
+				Image: "nginx",
+				Ports: []string{"::1:8080:80"},
+			},
+			expectError: true,
+			errorMsg:    "invalid port format: ::1:8080:80",
+		},
+		{
+			name: "InvalidPortFormatUnclosedBracket",
+			input: ir.Container{
+				Image: "nginx",
+				Ports: []string{"[::1:8080:80"},
+			},
+			expectError: true,
+			errorMsg:    "invalid port format: [::1:8080:80",
 		},
 		{
 			name: "SctpPortProtocol",

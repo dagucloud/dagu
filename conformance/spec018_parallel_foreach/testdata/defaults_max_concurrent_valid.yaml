@@ -1,0 +1,23 @@
+defaults:
+  max_concurrent: 50
+
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child
+    parallel: [one, two]
+
+  - name: each
+    foreach:
+      items: [one, two]
+      steps:
+        - name: echo
+          run: echo ${foreach.item}
+
+---
+
+name: child
+steps:
+  - name: ok
+    run: "true"

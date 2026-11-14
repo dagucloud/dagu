@@ -871,6 +871,29 @@ func TestEnvScope_ExcludesInternalTransportVars(t *testing.T) {
 	require.Equal(t, "visible", val)
 }
 
+// Dagu's own credentials stay out of a scope seeded from the process
+// environment and out of the expansion fallback that runs without a scope,
+// while Dagu's other settings pass.
+func TestEnvScope_ExcludesDaguCredentials(t *testing.T) {
+	t.Setenv("DAGU_AUTH_BASIC_PASSWORD", "server-password")
+	t.Setenv("DAGU_ENCRYPTION_KEY", "store-key")
+	t.Setenv("DAGU_HOME", "/srv/dagu")
+
+	scope := NewEnvScope(nil, true)
+	for _, name := range []string{"DAGU_AUTH_BASIC_PASSWORD", "DAGU_ENCRYPTION_KEY"} {
+		_, exists := scope.Get(name)
+		require.False(t, exists, "%s must not enter scope", name)
+	}
+	home, exists := scope.Get("DAGU_HOME")
+	require.True(t, exists)
+	require.Equal(t, "/srv/dagu", home)
+
+	raw := "${DAGU_AUTH_BASIC_PASSWORD}|${DAGU_ENCRYPTION_KEY}|${DAGU_HOME}"
+	want := "${DAGU_AUTH_BASIC_PASSWORD}|${DAGU_ENCRYPTION_KEY}|/srv/dagu"
+	require.Equal(t, want, ExpandEnvContext(context.Background(), raw))
+	require.Equal(t, want, regexExpandEnv(context.Background(), raw, &options{ExpandOS: true}))
+}
+
 // A name whose winning entry is excluded must be dropped, not resolved to the
 // value it shadows. Falling back would hand a caller a stale value under a name
 // it believes it filtered out.
@@ -894,4 +917,28 @@ func TestEnvScope_ToSliceWithoutOriginOrSources_KeepsShadowingPlainEntry(t *test
 	got := scope.ToSliceWithoutOriginOrSources("some-origin", EnvSourceSecret)
 
 	require.Equal(t, []string{"API_KEY=plain"}, got)
+}
+
+// Masked secrets reach maskers through AllSecrets but are never variables:
+// lookups, expansion, and exported environments do not see them.
+func TestEnvScope_WithMaskedSecrets(t *testing.T) {
+	t.Parallel()
+
+	scope := NewEnvScope(nil, false).
+		WithEntry("TOKEN", "token-value", EnvSourceSecret).
+		WithMaskedSecrets(map[string]string{"ssh.key": "key-value"}).
+		WithEntry("PLAIN", "plain-value", EnvSourceDAGEnv)
+
+	assert.Equal(t, map[string]string{
+		"TOKEN":   "token-value",
+		"ssh.key": "key-value",
+	}, scope.AllSecrets())
+
+	_, ok := scope.Get("ssh.key")
+	assert.False(t, ok)
+	assert.NotContains(t, scope.AllUserEnvs(), "ssh.key")
+	assert.ElementsMatch(t, []string{"TOKEN=token-value", "PLAIN=plain-value"}, scope.ToSlice())
+	assert.Equal(t, "${ssh.key}", scope.Expand("${ssh.key}"))
+
+	assert.Same(t, scope, scope.WithMaskedSecrets(nil))
 }

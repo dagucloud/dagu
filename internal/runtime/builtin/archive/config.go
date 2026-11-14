@@ -90,8 +90,9 @@ func validateConfig(operation string, cfg *Config) error {
 }
 
 var configSchema = &jsonschema.Schema{
-	Type:     "object",
-	Required: []string{"source"},
+	Type:                 "object",
+	Required:             []string{"source"},
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"source":            {Type: "string", Description: "File or directory to archive/extract"},
 		"destination":       {Type: "string", Description: "Archive file path (required for create)"},

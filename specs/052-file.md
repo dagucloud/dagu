@@ -125,6 +125,16 @@ directory entries; otherwise only regular files are listed.
 `with.pattern`, when set, is a glob matched against each candidate's
 slash-separated path relative to `with.path`.
 
+### Dry run
+
+`dagu dry` (Spec 064) warns, without failing, when a file the step reads is
+not on this host. `file.read` and `file.list` need `with.path`.
+`file.stat` and `file.delete` need `with.path` unless `with.missing_ok` is
+set. `file.copy` and `file.move` need `with.source`, unless `with.dry_run`
+is set. A path that still holds a `$` reference once params and environment
+resolve, such as an earlier step's output variable, is skipped. `file.write`
+and `file.mkdir` create their path, so a missing destination is not a warning.
+
 ## Errors
 
 ### Validation
@@ -157,6 +167,7 @@ validate`), not only when the step runs:
 ## Related Specs
 
 - Run context: [Spec 017: Built-In Run Context](017-built-in-run-context.md)
+- Dry-run step checks: [Spec 064: Dry-Run Step Checks](064-dry-run-step-checks.md)
 
 ## Examples
 

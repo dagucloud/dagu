@@ -19,12 +19,6 @@ function dagDefinitionsEntry(page: Page, dagName: string) {
     .first();
 }
 
-function localScopedURL(baseURL: string, path: string) {
-  const url = new URL(path, baseURL);
-  url.searchParams.set('remoteNode', 'local');
-  return url.toString();
-}
-
 test.describe('DAG CRUD operations', () => {
   test.beforeEach(async ({ page }) => {
     const stack = await loadStack();
@@ -40,16 +34,23 @@ test.describe('DAG CRUD operations', () => {
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await dialog.getByLabel('DAG Name').fill(dagName);
+    await dialog.getByLabel('Workflow name').fill(dagName);
     await dialog.getByRole('button', { name: 'Create' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/dags/${dagName}/spec$`));
+    // The workflow page is the workspace; the new file opens in its editor.
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toMatch(new RegExp(`^/dags/${dagName}(/spec)?$`));
+    await expect(page.getByTestId('ww-bar')).toBeVisible();
     await expect(
       page.getByRole('heading', { level: 1, name: dagName, exact: true })
     ).toBeVisible();
   });
 
-  test('saves harness warnings and clears them after configuring a directory', async ({ page, request }) => {
+  test('saves harness warnings and clears them after configuring a directory', async ({
+    page,
+    request,
+  }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(
       request,
@@ -67,11 +68,16 @@ steps:
 `;
     const fileName = await writeLocalDAG(dagName, definition);
     await waitForDAGAvailable(request, token, fileName);
-    await page.goto(`/dags/${encodeURIComponent(fileName)}/spec`);
+    await page.goto(`/dags/${encodeURIComponent(fileName)}`);
 
-    const warning = page
-      .getByRole('status')
-      .filter({ hasText: 'has no explicit working_dir' });
+    // Warnings do not block a save: an amber Issues button beside Save lists
+    // them.
+    const warningCount = page.getByTestId('issues-slot');
+    const expectWarning = async (shown: boolean) => {
+      await expect(warningCount).toHaveCount(shown ? 1 : 0, {
+        timeout: 30_000,
+      });
+    };
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     const saveSpec = async () => {
       const response = page.waitForResponse(
@@ -80,118 +86,162 @@ steps:
           new URL(response.url()).pathname.endsWith('/spec')
       );
       await saveButton.click();
+      // The editor shows the YAML diff before it saves.
+      await page
+        .getByRole('dialog', { name: 'Review changes' })
+        .getByRole('button', { name: 'Save', exact: true })
+        .click();
       expect((await response).ok()).toBeTruthy();
       await expect(saveButton).toBeDisabled();
     };
-    await expect(warning).toBeVisible();
+    await expectWarning(true);
+    // The warnings stay listed while the YAML drawer is open.
+    await page.getByRole('button', { name: 'YAML', exact: true }).click();
+    await expectWarning(true);
     const editor = page.locator('.monaco-editor textarea').first();
     await editor.focus();
     await page.keyboard.press('ControlOrMeta+End');
     await page.keyboard.insertText('\n# edited\n');
-    await expect(page.getByText('Valid with warnings', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText('Valid with warnings', { exact: true })
+    ).toBeVisible();
     await saveSpec();
-    await expect(warning).toBeVisible();
+    await expectWarning(true);
 
     await editor.focus();
     await page.keyboard.press('ControlOrMeta+Home');
     await page.keyboard.insertText('working_dir: ./repo\n');
     await expect(page.getByText('Valid', { exact: true })).toBeVisible();
-    await expect(warning).toHaveCount(0);
+    await expectWarning(false);
     await saveSpec();
     await page.reload();
-    await expect(page.locator('.monaco-editor')).toBeVisible();
-    await expect(warning).toHaveCount(0);
+    await expectWarning(false);
   });
 
-  test('renames a DAG from the UI', async ({ page, request }) => {
+  // Live validation redraws the canvas and the messages. None of that may move
+  // the YAML drawer while the user types.
+  test('keeps the spec editor in place while the canvas updates', async ({
+    page,
+    request,
+  }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(
       request,
       stack.auth.adminUsername,
       stack.auth.adminPassword
     );
-
-    const dagName = uniqueName('e2e-rename');
-    const newName = uniqueName('e2e-renamed');
-    const fileName = await writeLocalDAG(
-      dagName,
-      `
-name: ${dagName}
+    const dagName = uniqueName('e2e-spec-anchor');
+    const definition = `name: ${dagName}
 steps:
-  - name: echo
-    run: echo "rename test"
-`
-    );
+  - name: first
+    run: echo first
+`;
+    const fileName = await writeLocalDAG(dagName, definition);
     await waitForDAGAvailable(request, token, fileName);
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto(`/dags/${encodeURIComponent(fileName)}`);
 
-    await page.goto(`/dags/${encodeURIComponent(fileName)}/spec`);
-    await expect(
-      page.getByRole('heading', { level: 1, name: dagName, exact: true })
-    ).toBeVisible();
-    await page.getByRole('button', { name: 'Rename', exact: true }).click();
+    await page.getByRole('button', { name: 'YAML', exact: true }).click();
+    const monaco = page.locator('.monaco-editor').first();
+    await expect(monaco).toBeInViewport();
+    const editorTop = async () => (await monaco.boundingBox())?.y ?? NaN;
+    const initialTop = await editorTop();
+    // Scroll positions snap to whole pixels while preview heights do not.
+    const expectEditorInPlace = async () =>
+      expect(Math.abs((await editorTop()) - initialTop)).toBeLessThan(2);
 
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel('DAG Name').clear();
-    await dialog.getByLabel('DAG Name').fill(newName);
-    await dialog.getByRole('button', { name: 'Rename' }).click();
+    // Single-line flow YAML sidesteps Monaco's auto-indent on typed newlines.
+    // Brackets Monaco auto-closes and does not overtype end up after the
+    // cursor, so the rest of the line is dropped. Select-all right after
+    // focusing is occasionally lost, so the replacement is retried until the
+    // buffer is that single line.
+    const replaceSpec = async (spec: string) => {
+      await expect(async () => {
+        await page.keyboard.press('ControlOrMeta+A');
+        await page.keyboard.insertText(spec);
+        await page.keyboard.press('Shift+End');
+        await page.keyboard.press('Delete');
+        await expect(monaco.locator('.view-line')).toHaveCount(1, {
+          timeout: 500,
+        });
+      }).toPass();
+    };
+    const step = (name: string, extra = '') =>
+      `{name: ${name}, run: echo ${name}${extra}}`;
+    await page.locator('.monaco-editor textarea').first().focus();
+    await expect(monaco).toHaveClass(/\bfocused\b/);
 
-    await expect(page).toHaveURL(
-      localScopedURL(
-        stack.local.baseURL,
-        `/dags/${encodeURIComponent(newName)}`
-      )
+    await replaceSpec(
+      `steps: [${step('first')}, ${step('second')}, ${step('third')}]`
     );
+    await expect(page.getByText('Valid', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('ve-canvas-node-steps[2]')).toBeVisible();
+    await expectEditorInPlace();
+
+    await replaceSpec(
+      `steps: [${step('first')}, ${step('second')}, ` +
+        `${step('third', ', depends: [missing]')}]`
+    );
+    await expect(page.getByText(/^\d+ issues?$/).first()).toBeAttached();
+    await expectEditorInPlace();
   });
 
-  test('deletes a DAG from the UI', async ({ page, request }) => {
+  // Rename and delete from the workflow bar: e2e/workspace/shell.spec.ts.
+
+  // Pins are shared by every user of the server, so the test always unpins.
+  test('pins and unpins a workflow', async ({ page, request }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(
       request,
       stack.auth.adminUsername,
       stack.auth.adminPassword
     );
+    const headers = { Authorization: `Bearer ${token}` };
 
-    const dagName = uniqueName('e2e-delete');
+    const dagName = uniqueName('e2e-pin');
     const fileName = await writeLocalDAG(
       dagName,
       `
 name: ${dagName}
 steps:
   - name: echo
-    run: echo "delete test"
+    run: echo "pin test"
 `
     );
     await waitForDAGAvailable(request, token, fileName);
+    const isPinned = async () => {
+      const resp = await request.get(
+        `/api/v1/dags/${encodeURIComponent(fileName)}?remoteNode=local`,
+        { headers }
+      );
+      return ((await resp.json()) as { pinned: boolean }).pinned;
+    };
 
-    await page.goto(`/dags/${encodeURIComponent(fileName)}/spec`);
-    await expect(
-      page.getByRole('heading', { level: 1, name: dagName, exact: true })
-    ).toBeVisible();
+    try {
+      await page.goto('/dags/');
+      const dagEntry = dagDefinitionsEntry(page, dagName);
+      await expect(dagEntry).toBeVisible();
+      await dagEntry
+        .getByRole('button', { name: `Pin workflow ${dagName}` })
+        .click();
+      await expect.poll(isPinned, { timeout: 15_000 }).toBe(true);
+      await expect(
+        page.getByText('Pinned', { exact: true }).first()
+      ).toBeVisible();
 
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
-
-    const deleteDialog = page.getByRole('dialog');
-    await expect(deleteDialog).toBeVisible();
-    await expect(deleteDialog).toContainText('Delete DAG');
-    await expect(deleteDialog).toContainText(fileName);
-    await deleteDialog
-      .getByRole('button', { name: 'Delete', exact: true })
-      .click();
-
-    await expect(page).toHaveURL(localScopedURL(stack.local.baseURL, '/dags'));
-
-    // Verify DAG is gone via API
-    const response = await request.get(
-      `/api/v1/dags/${encodeURIComponent(fileName)}?remoteNode=local`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-    expect(response.ok()).toBeFalsy();
+      await page.goto(`/dags/${encodeURIComponent(fileName)}`);
+      const headerPin = page.getByRole('button', {
+        name: `Pin workflow ${dagName}`,
+      });
+      await expect(headerPin).toHaveAttribute('aria-pressed', 'true');
+      await headerPin.click();
+      await expect.poll(isPinned, { timeout: 15_000 }).toBe(false);
+    } finally {
+      await request.delete(
+        `/api/v1/dags/${encodeURIComponent(fileName)}/pin?remoteNode=local`,
+        { headers }
+      );
+    }
   });
 
   test('suspends and resumes a DAG schedule', async ({ page, request }) => {
@@ -225,7 +275,7 @@ steps:
     await scheduleToggle.click();
     const disableDialog = page.getByRole('dialog');
     await expect(disableDialog).toBeVisible();
-    await expect(disableDialog).toContainText('Disable Schedule');
+    await expect(disableDialog).toContainText('Disable schedule');
     await disableDialog.getByRole('button', { name: 'Disable' }).click();
     await expect(disableDialog).toBeHidden();
 
@@ -253,7 +303,7 @@ steps:
     await scheduleToggle.click();
     const enableDialog = page.getByRole('dialog');
     await expect(enableDialog).toBeVisible();
-    await expect(enableDialog).toContainText('Enable Schedule');
+    await expect(enableDialog).toContainText('Enable schedule');
     await enableDialog.getByRole('button', { name: 'Enable' }).click();
     await expect(enableDialog).toBeHidden();
 
@@ -284,7 +334,7 @@ steps:
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await dialog.getByLabel('DAG Name').fill('invalid name with spaces!');
+    await dialog.getByLabel('Workflow name').fill('invalid name with spaces!');
     await dialog.getByRole('button', { name: 'Create' }).click();
 
     // Dialog stays open — validation prevents creation

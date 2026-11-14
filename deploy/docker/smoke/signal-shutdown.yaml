@@ -1,0 +1,32 @@
+# Copyright (C) 2026 Yota Hamada
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+type: graph
+max_clean_up_time_sec: 4
+steps:
+  - id: probe
+    run: |
+      cleanup() {
+        trap '' TERM INT
+        printf '%s' "$1" > /data/signal
+        sleep 3
+        printf done > /data/cleaned
+        exit 0
+      }
+      trap 'cleanup TERM' TERM
+      trap 'cleanup INT' INT
+      printf ready > /data/ready
+      while :; do sleep 0.05; done
+    with:
+      shell: /bin/sh
+handler_on:
+  abort:
+    run: |
+      sleep 5
+      printf done > /data/aborted
+    with:
+      shell: /bin/sh
+  exit:
+    run: printf done > /data/exited
+    with:
+      shell: /bin/sh

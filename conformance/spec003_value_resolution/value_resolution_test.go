@@ -4,6 +4,8 @@
 package spec003_value_resolution_test
 
 import (
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -91,15 +93,84 @@ func TestStringInsertionCoercion(t *testing.T) {
 	})
 }
 
+func TestInsertedTextStaysLiteral(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "--run-id=spec003-insertion", "insertion_literal_text.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("insertion.txt", "p\\$INSERTED\n$INSERTED/data\n$INSERTED/data\nexpanded\nexpanded$INSERTED/data\n"+
+		"$INSERTED/data\n$INSERTED\np\\$INSERTED\n$INSERTED/data-spec003-insertion\n")
+}
+
+// TestPathFieldBackslashIsPathText proves the "Path Fields" rule: a backslash
+// before a reference in a path field is path text, so the reference resolves
+// and the backslash stays, for Dagu-owned and unqualified references alike.
+// The content field is not a path field and keeps the escape.
+func TestPathFieldBackslashIsPathText(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "path_field_backslash.yaml").ExpectExitCode(0)
+
+	// Windows reads the backslash as a separator; other systems keep it in
+	// the file name.
+	path := func(dir, name string) string {
+		if runtime.GOOS == "windows" {
+			return filepath.Join(dir, name)
+		}
+		return dir + `\` + name
+	}
+	dagu.ExpectFileContent(path("out", "prod.txt"), "${NAME}")
+	dagu.ExpectFileContent(path("out", "order-1.txt"), "${NAME}")
+}
+
+// TestRedirectMissingParent proves the stdout and stderr path rows: missing
+// parents are created for a resolved path, and a path that still carries a
+// reference fails the step instead of creating a literally named directory.
+func TestRedirectMissingParent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolved path", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "redirect_missing_parent.yaml").ExpectExitCode(0)
+		dagu.ExpectFileContent("logs/deep/out.txt", "out")
+		dagu.ExpectFileContent("logs/other/err.txt", "err")
+	})
+
+	t.Run("unresolved reference", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "redirect_unresolved_parent.yaml").ExpectNonZeroExitCode()
+		dagu.ExpectNoFile("${REDIRECT_UNSET}")
+	})
+}
+
+// A retry rebuilds the DAG from its stored definition, and root env inserted
+// at the first load must stay literal on that path too.
+func TestRootEnvInsertionOnRetry(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec003-root-env-retry"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "root_env_retry.yaml").ExpectNonZeroExitCode()
+	dagu.WriteFile("ready", "")
+	dagu.RunWithEnv(env, "retry", "--run-id="+runID, "root_env_retry.yaml").ExpectExitCode(0)
+	dagu.ExpectTextFileContent("root_copy.out", "$INSERTED/data\n$INSERTED/data\n")
+}
+
 // TestDefectAndRuntimeOnlyNoticeClassification proves the two notice classes
 // from "Unresolved Supported References" are actually distinguished, not just
 // both labeled generically:
 //
-//   - A defect (a reference the spec statically cannot resolve — either an
-//     undeclared const name, or a step-output reference in a field whose
-//     owning spec does not provide the lookup scope because the consuming
-//     step never authored the dependency) must be reported by `dagu validate`
-//     even without `--show-unresolved`.
+//   - A defect (a reference the spec statically cannot resolve, such as an
+//     undeclared const name) must be reported by `dagu validate` even without
+//     `--show-unresolved`.
 //   - A runtime-only notice (a well-formed reference whose availability
 //     depends on a value only the caller can supply at run start, such as a
 //     required param not yet provided at validate time) must stay out of
@@ -119,13 +190,23 @@ func TestDefectAndRuntimeOnlyNoticeClassification(t *testing.T) {
 		result.ExpectStderrContains("${consts.unknown_name}", "steps[0].run")
 	})
 
-	t.Run("defect: step-output reference missing its authored dependency is reported without --show-unresolved", func(t *testing.T) {
+	t.Run("defect: unknown const in root ssh is reported without --show-unresolved", func(t *testing.T) {
 		t.Parallel()
 
 		dagu := harness.NewRunner(t)
-		result := dagu.Run("validate", "notice_defect_missing_dependency.yaml")
+		result := dagu.Run("validate", "notice_defect_unknown_const_ssh.yaml")
 		result.ExpectExitCode(0)
-		result.ExpectStderrContains("${steps.build.outputs.image}", "does not depend on the producing step")
+		result.ExpectStderrContains("${consts.unknown_host}", "ssh.host")
+	})
+
+	t.Run("step-output reference without depends is an inferred dependency, not a notice", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("validate", "inferred_dependency_env.yaml")
+		result.ExpectExitCode(0)
+		result.ExpectStderrContains("inferred: build -> deploy (steps[1].env[0])")
+		result.ExpectStderrNotContains("${steps.build.outputs.image}")
 	})
 
 	t.Run("runtime-only: missing required param stays quiet by default", func(t *testing.T) {
@@ -145,4 +226,16 @@ func TestDefectAndRuntimeOnlyNoticeClassification(t *testing.T) {
 		result.ExpectExitCode(0)
 		result.ExpectStderrContains("${params.environment}")
 	})
+}
+
+// TestStepWorkingDirResolvesStepOutput proves that steps[].working_dir is
+// value-resolved at step start: a predecessor's published output selects the
+// directory the step runs in.
+func TestStepWorkingDirResolvesStepOutput(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "step_output_working_dir.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("worktree/marker.txt", "resolved\n")
 }

@@ -118,10 +118,19 @@ export function endpointToTopic(endpoint: string): string {
     segments[1] === 'dags' &&
     segments[3] === 'dag-runs'
   ) {
-    return buildTopic('daghistory', segments[2]);
+    return buildTopic(
+      'daghistory',
+      query ? `${segments[2]}?${query}` : segments[2]
+    );
   }
   if (segments.length === 2 && segments[1] === 'dag-runs') {
     return buildTopic('dagruns', query);
+  }
+  if (segments.length === 2 && segments[1] === 'service-dags') {
+    return buildTopic('servicedags', query);
+  }
+  if (segments.length === 2 && segments[1] === 'dag-run-activity') {
+    return buildTopic('dagrunactivity', query);
   }
   if (segments.length === 4 && segments[1] === 'dag-runs') {
     return buildTopic('dagrun', `${segments[2]}/${segments[3]}`);
@@ -167,6 +176,9 @@ export function endpointToTopic(endpoint: string): string {
     segments[3] === 'items'
   ) {
     return buildTopic('queueitems', segments[2]);
+  }
+  if (segments.length === 3 && segments[1] === 'backfills') {
+    return buildTopic('backfill', segments[2]);
   }
   if (segments.length === 2 && segments[1] === 'wiki-tree') {
     return buildTopic('wikitree', query);

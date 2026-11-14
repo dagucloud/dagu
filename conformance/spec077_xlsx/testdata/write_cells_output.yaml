@@ -1,0 +1,39 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: template.xlsx
+      header: false
+      rows: [["Customer", ""]]
+  - id: fill
+    depends: template
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      output: filled.xlsx
+      cells: {B1: Acme}
+  - id: read_template
+    depends: fill
+    action: xlsx.read
+    with:
+      path: template.xlsx
+      header: false
+  - id: read_filled
+    depends: fill
+    action: xlsx.read
+    with:
+      path: filled.xlsx
+      header: false
+  - id: out
+    depends: [read_template, read_filled]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"template": ${steps.read_template.outputs.rows}, "filled": ${steps.read_filled.outputs.rows}}'
+  - id: path
+    depends: fill
+    action: file.write
+    with:
+      path: path.txt
+      content: ${steps.fill.outputs.path}

@@ -16,9 +16,12 @@ func TestScheduleDescriptors(t *testing.T) {
 	validCases := []string{
 		"valid_hourly.yaml",
 		"valid_daily.yaml",
+		"valid_midnight.yaml",
 		"valid_weekly.yaml",
 		"valid_monthly.yaml",
 		"valid_yearly.yaml",
+		"valid_annually.yaml",
+		"valid_every.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -31,14 +34,48 @@ func TestScheduleDescriptors(t *testing.T) {
 		})
 	}
 
-	t.Run("unknown descriptor is rejected", func(t *testing.T) {
-		t.Parallel()
+	rejectedCases := []string{
+		"invalid_unknown_descriptor.yaml",
+		"invalid_reboot.yaml",
+		"invalid_every_seconds.yaml",
+		"invalid_every_timezone.yaml",
+	}
+	for _, file := range rejectedCases {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
 
-		dagu := harness.NewRunner(t)
-		result := dagu.Run("validate", "invalid_unknown_descriptor.yaml")
-		result.ExpectNonZeroExitCode()
-		result.ExpectStderrContains("schedule")
-	})
+			dagu := harness.NewRunner(t)
+			result := dagu.Run("validate", file)
+			result.ExpectNonZeroExitCode()
+			result.ExpectStderrContains("schedule")
+		})
+	}
+}
+
+func TestScheduleParams(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	valid := dagu.Run("validate", "valid_schedule_params.yaml")
+	valid.ExpectExitCode(0)
+	valid.ExpectStderr("")
+
+	invalid := dagu.Run("validate", "invalid_schedule_params.yaml")
+	invalid.ExpectNonZeroExitCode()
+	invalid.ExpectStderrContains("schedule[0].params")
+}
+
+// Named time zones must resolve on a host without a time zone database, such
+// as Windows without Go installed. Pointing GOROOT at an empty directory
+// removes the fallback to the build machine's Go installation.
+func TestNamedTimeZone(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"GOROOT=" + t.TempDir(), "ZONEINFO="}
+	result := dagu.RunWithEnv(env, "validate", "valid_named_timezone.yaml")
+	result.ExpectExitCode(0)
+	result.ExpectStderr("")
 }
 
 func TestHourlyMatchesCron(t *testing.T) {

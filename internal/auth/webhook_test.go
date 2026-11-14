@@ -72,6 +72,20 @@ func TestWebhook_StorageRoundtrip(t *testing.T) {
 	assert.Equal(t, *original.LastUsedAt, *recovered.LastUsedAt)
 }
 
+func TestWebhook_StorageRoundtripProfileTokens(t *testing.T) {
+	t.Parallel()
+	token := NewWebhookProfileToken("customer-a", "customer-a", "token-hash", "dagu_wh_abcd", "admin")
+	wh := &Webhook{ID: "id", DAGName: "dag", TokenHash: "hash", ProfileTokens: []WebhookProfileToken{token}}
+
+	data, err := json.Marshal(wh.ToStorage())
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "token-hash")
+
+	var stored WebhookForStorage
+	require.NoError(t, json.Unmarshal(data, &stored))
+	assert.Equal(t, []WebhookProfileToken{token}, stored.ToWebhook().ProfileTokens)
+}
+
 func TestWebhook_StorageRoundtripNilLastUsed(t *testing.T) {
 	t.Parallel()
 	wh := &Webhook{ID: "id", DAGName: "dag", TokenHash: "hash"}
@@ -98,6 +112,21 @@ func TestWebhook_JSONExcludesTokenHash(t *testing.T) {
 	// TokenHash should NOT appear in JSON (json:"-" tag)
 	assert.NotContains(t, string(data), "secret-hash")
 	assert.NotContains(t, string(data), "tokenHash")
+}
+
+func TestWebhook_JSONExcludesProfileTokenHash(t *testing.T) {
+	t.Parallel()
+	wh := &Webhook{
+		ID:            "id",
+		DAGName:       "dag.yaml",
+		TokenHash:     "hash",
+		ProfileTokens: []WebhookProfileToken{NewWebhookProfileToken("a", "a", "secret-hash", "dagu_wh_abcd", "admin")},
+	}
+
+	data, err := json.Marshal(wh)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "dagu_wh_abcd")
+	assert.NotContains(t, string(data), "secret-hash")
 }
 
 func TestWebhookForStorage_JSONIncludesTokenHash(t *testing.T) {

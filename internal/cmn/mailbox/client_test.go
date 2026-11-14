@@ -6,13 +6,19 @@ package mailbox
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 
 	"github.com/dagucloud/dagu/v2/internal/test/mailtest"
 )
@@ -21,17 +27,42 @@ import (
 // except stalled, which it leaves waiting forever.
 func startStallingServer(t *testing.T, stalled string) (host, port string) {
 	t.Helper()
-	listener, err := tls.Listen("tcp", "127.0.0.1:0", mailtest.ServerTLSConfig(t))
+	return startScriptedServer(t, map[string]string{stalled: ""})
+}
+
+// startScriptedServer accepts one IMAP session. A command named in replies
+// gets that tagged status reply, or none when it is empty; any other command
+// succeeds.
+func startScriptedServer(t *testing.T, replies map[string]string) (host, port string) {
+	t.Helper()
+	return startScriptedServerTLS(t, mailtest.ServerTLSConfig(t), false, replies)
+}
+
+// startScriptedServerTLS is startScriptedServer with the given certificate.
+// With startTLS the connection starts in plain text and upgrades when the
+// client sends STARTTLS; otherwise it is TLS from the first byte.
+func startScriptedServerTLS(
+	t *testing.T, config *tls.Config, startTLS bool, replies map[string]string,
+) (host, port string) {
+	t.Helper()
+	var listener net.Listener
+	var err error
+	if startTLS {
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+	} else {
+		listener, err = tls.Listen("tcp", "127.0.0.1:0", config)
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 	go func() {
-		conn, err := listener.Accept()
+		accepted, err := listener.Accept()
 		if err != nil {
 			return
 		}
+		conn := accepted
 		defer func() { _ = conn.Close() }()
 		reader := bufio.NewReader(conn)
-		_, _ = conn.Write([]byte("* OK [CAPABILITY IMAP4rev1] ready\r\n"))
+		_, _ = conn.Write([]byte("* OK [CAPABILITY IMAP4rev1 MOVE UIDPLUS] ready\r\n"))
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
@@ -42,11 +73,21 @@ func startStallingServer(t *testing.T, stalled string) (host, port string) {
 				continue
 			}
 			tag, command := fields[0], strings.ToUpper(fields[1])
-			if command == stalled {
+			if startTLS && command == "STARTTLS" {
+				_, _ = conn.Write([]byte(tag + " OK begin TLS\r\n"))
+				conn = tls.Server(conn, config)
+				reader = bufio.NewReader(conn)
+				startTLS = false
+				continue
+			}
+			if reply, scripted := replies[command]; scripted {
+				if reply != "" {
+					_, _ = conn.Write([]byte(tag + " " + reply + "\r\n"))
+				}
 				continue
 			}
 			if command == "CAPABILITY" {
-				_, _ = conn.Write([]byte("* CAPABILITY IMAP4rev1\r\n"))
+				_, _ = conn.Write([]byte("* CAPABILITY IMAP4rev1 MOVE UIDPLUS\r\n"))
 			}
 			_, _ = conn.Write([]byte(tag + " OK done\r\n"))
 		}
@@ -54,6 +95,75 @@ func startStallingServer(t *testing.T, stalled string) (host, port string) {
 	host, port, err = net.SplitHostPort(listener.Addr().String())
 	require.NoError(t, err)
 	return host, port
+}
+
+// A pinned certificate is accepted without chain verification; any other
+// certificate fails the handshake. Both the implicit TLS and the STARTTLS
+// upgrade apply the pin.
+func TestDialWithPinnedCertificate(t *testing.T) {
+	config := mailtest.ServerTLSConfig(t)
+	sum := sha256.Sum256(config.Certificates[0].Certificate[0])
+	for _, security := range []string{SecurityTLS, SecurityStartTLS} {
+		dial := func(pin string) (*Client, error) {
+			host, port := startScriptedServerTLS(t, config, security == SecurityStartTLS, nil)
+			return Dial(context.Background(), Account{
+				Server:   Server{Host: host, Port: port, Security: security, TLSCertSHA256: pin},
+				Username: "user",
+				Password: "password",
+			})
+		}
+
+		_, err := dial(strings.Repeat("00", 32))
+		require.ErrorContains(t, err, "does not match tls_cert_sha256", security)
+
+		client, err := dial(hex.EncodeToString(sum[:]))
+		require.NoError(t, err, security)
+		require.NoError(t, client.Close())
+	}
+}
+
+func dialScripted(t *testing.T, replies map[string]string) *Client {
+	t.Helper()
+	host, port := startScriptedServer(t, replies)
+	client, err := Dial(context.Background(), Account{
+		Server:   Server{Host: host, Port: port, Security: SecurityTLS, SkipTLSVerify: true},
+		Username: "user",
+		Password: "password",
+	})
+	require.NoError(t, err)
+	client.logoutTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+// Only a folder the server says does not exist makes its emails gone; any
+// other refusal is an error that keeps the server's reason.
+func TestFolderRefusals(t *testing.T) {
+	t.Parallel()
+
+	id := emailRef{folder: "Shared", uidValidity: 1, uid: 1}.id()
+	missingFolder := map[string]string{
+		"EXAMINE": "NO [NONEXISTENT] Unknown mailbox",
+		"SELECT":  "NO [NONEXISTENT] Unknown mailbox",
+	}
+	denied := map[string]string{
+		"EXAMINE": "NO [NOPERM] Permission denied",
+		"SELECT":  "NO [NOPERM] Permission denied",
+	}
+
+	_, err := dialScripted(t, missingFolder).ReplyInfo(id)
+	require.ErrorIs(t, err, ErrEmailGone)
+
+	result, err := dialScripted(t, missingFolder).Organize(OrganizeOptions{Items: []Item{{ID: id}}, Mark: MarkRead})
+	require.NoError(t, err)
+	assert.Equal(t, []string{id}, result.Missing)
+
+	_, err = dialScripted(t, denied).ReplyInfo(id)
+	require.ErrorContains(t, err, "Permission denied")
+	assert.NotErrorIs(t, err, ErrEmailGone)
+
+	_, err = dialScripted(t, denied).Organize(OrganizeOptions{Items: []Item{{ID: id}}, Mark: MarkRead})
+	require.ErrorContains(t, err, "Permission denied")
 }
 
 func TestCloseDoesNotWaitForeverForLogout(t *testing.T) {
@@ -96,7 +206,7 @@ func TestSearchFailsWhenServerStopsAnswering(t *testing.T) {
 
 	failed := make(chan error, 1)
 	go func() {
-		_, err := client.Search(SearchOptions{Limit: 1})
+		_, _, err := client.Search(SearchOptions{Limit: 1})
 		failed <- err
 	}()
 	select {
@@ -105,4 +215,64 @@ func TestSearchFailsWhenServerStopsAnswering(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Search waited forever for a server that stopped answering")
 	}
+}
+
+// A Gmail API response bounds the time between bytes, not the whole transfer:
+// a server that stops sending fails the request, while one that keeps sending
+// slowly finishes it.
+func TestGmailIdleBound(t *testing.T) {
+	t.Parallel()
+
+	const idle = 500 * time.Millisecond
+	search := func(t *testing.T, handler http.HandlerFunc) error {
+		t.Helper()
+		server := httptest.NewServer(handler)
+		t.Cleanup(server.Close)
+		client, err := dialGmail(context.Background(), Account{
+			GmailEndpoint: server.URL + "/",
+			Token: func(context.Context) (*oauth2.Token, error) {
+				return &oauth2.Token{AccessToken: "token"}, nil
+			},
+		}, idle)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = client.Close() })
+
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := client.Search(SearchOptions{Limit: 1})
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(10 * time.Second):
+			t.Fatal("Search did not finish")
+			return nil
+		}
+	}
+
+	t.Run("Stalled", func(t *testing.T) {
+		t.Parallel()
+		err := search(t, func(_ http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("SlowButSteady", func(t *testing.T) {
+		t.Parallel()
+		err := search(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			flusher, _ := w.(http.Flusher)
+			// Leading whitespace is valid JSON; the whole response takes twice
+			// the idle bound, a fifth of it between writes.
+			for range 10 {
+				_, _ = w.Write([]byte(" "))
+				flusher.Flush()
+				time.Sleep(idle / 5)
+			}
+			_, _ = w.Write([]byte(`{"messages": []}`))
+		})
+		require.NoError(t, err)
+	})
 }

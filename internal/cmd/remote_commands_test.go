@@ -4,16 +4,26 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +71,55 @@ func TestToExecStatus_MapsRemoteFieldsExplicitly(t *testing.T) {
 	require.Len(t, status.Nodes[0].Step.Commands, 1)
 	assert.Equal(t, "echo", status.Nodes[0].Step.Commands[0].Command)
 	assert.Equal(t, []string{"hello"}, status.Nodes[0].Step.Commands[0].Args)
+}
+
+func TestIsLikelyLocalDAGArg(t *testing.T) {
+	t.Parallel()
+
+	// A forward slash always reads as a local path. A bare backslash can be a
+	// valid character in a remote file ID, so only Windows drive-letter and
+	// UNC prefixes read as local.
+	tests := []struct {
+		name string
+		arg  string
+		want bool
+	}{
+		{name: "yaml suffix", arg: "workflow.yaml", want: true},
+		{name: "yml suffix", arg: "workflow.yml", want: true},
+		{name: "uppercase yaml suffix", arg: "workflow.YAML", want: true},
+		{name: "mixed case yml suffix", arg: "workflow.Yml", want: true},
+		{name: "misleading yaml suffix", arg: "workflow.yaml.bak", want: false},
+		{name: "posix separator", arg: "dir/workflow", want: true},
+		{name: "windows drive path", arg: `C:\dags\workflow`, want: true},
+		{name: "windows unc path", arg: `\\server\dags\workflow`, want: true},
+		{name: "windows forward slashes", arg: "C:/dags/workflow", want: true},
+		{name: "remote dag name", arg: "workflow", want: false},
+		{name: "remote dag fileName", arg: "etl-dag", want: false},
+		{name: "remote id with backslash", arg: `dir\workflow`, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isLikelyLocalDAGArg(tt.arg))
+		})
+	}
+}
+
+// TestRemoteResolveLocalYAML verifies mixed-case local YAML arguments are rejected before HTTP.
+func TestRemoteResolveLocalYAML(t *testing.T) {
+	t.Parallel()
+
+	var requested atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requested.Store(true)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.resolveDAG(context.Background(), "FLOW.YAML")
+	require.ErrorContains(t, err, "remote contexts only operate on DAGs")
+	assert.False(t, requested.Load())
 }
 
 func TestRemoteStatusValueRejectsNone(t *testing.T) {
@@ -169,6 +228,55 @@ func TestRemoteClientRetryDAGRunSendsChildTarget(t *testing.T) {
 	assert.Equal(t, "child-run", *got.body.SubDAGRunId)
 }
 
+func TestRemoteDAGLookup(t *testing.T) {
+	t.Parallel()
+
+	details := &api.DAGDetails{Name: "declared"}
+	listed := api.DAGFile{FileName: "actual", Dag: api.DAG{Name: "declared"}}
+	for _, tt := range []struct {
+		name     string
+		status   int
+		details  *api.DAGDetails
+		listed   []api.DAGFile
+		fileName string
+		wantErr  string
+	}{
+		{name: "Details", status: http.StatusOK, details: details, fileName: "lookup"},
+		{name: "NameFallback", status: http.StatusNotFound, listed: []api.DAGFile{listed}, fileName: "actual"},
+		{name: "MissingDetails", status: http.StatusOK, wantErr: "missing DAG identity"},
+		{name: "EmptyName", status: http.StatusOK, details: &api.DAGDetails{}, wantErr: "missing DAG identity"},
+		{name: "NotFound", status: http.StatusNotFound, wantErr: "was not found"},
+		{name: "Ambiguous", status: http.StatusNotFound, listed: []api.DAGFile{listed, listed}, wantErr: "ambiguous"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/dags" {
+					assert.Equal(t, "lookup", r.URL.Query().Get("name"))
+					assert.NoError(t, json.NewEncoder(w).Encode(struct {
+						Dags []api.DAGFile `json:"dags"`
+					}{Dags: tt.listed}))
+					return
+				}
+				assert.Equal(t, "/dags/lookup", r.URL.Path)
+				w.WriteHeader(tt.status)
+				assert.NoError(t, json.NewEncoder(w).Encode(api.GetDAGDetails200JSONResponse{Dag: tt.details}))
+			}))
+			defer server.Close()
+			client := &remoteClient{baseURL: server.URL, client: server.Client()}
+			dag, err := client.resolveDAG(context.Background(), "lookup")
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.fileName, dag.FileName)
+			assert.Equal(t, "declared", dag.Dag.Name)
+		})
+	}
+}
+
 func TestRemoteStartSendsSteps(t *testing.T) {
 	t.Parallel()
 
@@ -176,7 +284,7 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`{"fileName":"etl"}`))
+			_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
 			return
 		}
 		var body api.ExecuteDAGJSONBody
@@ -190,7 +298,8 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	initFlags(command, startFlags...)
 	require.NoError(t, command.Flags().Set("only", "load"))
 	require.NoError(t, command.Flags().Set("outputs-from", "source"))
-	require.NoError(t, command.Flags().Set("output", "extract.rows=3"))
+	require.NoError(t, command.Flags().Set("output-from", "extract=run-9"))
+	require.NoError(t, command.Flags().Set("output", "transform.rows=3"))
 	ctx := &Context{
 		Context: context.Background(),
 		Command: command,
@@ -204,8 +313,468 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	assert.Equal(t, []string{"load"}, *body.Steps)
 	require.NotNil(t, body.OutputsFromRunId)
 	assert.Equal(t, "source", *body.OutputsFromRunId)
+	require.NotNil(t, body.OutputsFromRuns)
+	assert.Equal(t, map[string]string{"extract": "run-9"}, *body.OutputsFromRuns)
 	require.NotNil(t, body.Outputs)
-	assert.Equal(t, map[string]map[string]string{"extract": {"rows": "3"}}, *body.Outputs)
+	assert.Equal(t, map[string]map[string]string{"transform": {"rows": "3"}}, *body.Outputs)
+}
+
+// A remote start prints no summary, so it rejects the flag that expands one.
+func TestRemoteStartRejectsRecursiveOutput(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("recursive-output", "true"))
+	ctx := &Context{Context: context.Background(), Command: command, Remote: &remoteClient{}}
+
+	err := remoteRunStart(ctx, []string{"etl"})
+	require.ErrorContains(t, err, "--recursive-output is only supported in the local context")
+}
+
+// Once the budget has passed since the first lookup, later sub-runs are not
+// looked up at all.
+func TestSubRunLookupBudget(t *testing.T) {
+	t.Parallel()
+
+	lookups := 0
+	resolve := withSubRunLookupBudget(20*time.Millisecond, func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		lookups++
+		return &ir.DAGRunStatus{}, nil
+	})
+
+	_, err := resolve(ir.SubDAGRun{})
+	require.NoError(t, err)
+	time.Sleep(40 * time.Millisecond)
+	_, err = resolve(ir.SubDAGRun{})
+	require.ErrorIs(t, err, errSubRunLookupBudgetSpent)
+	require.Equal(t, 1, lookups)
+}
+
+// The server resolves the slot, so the CLI sends --scheduled-at as given and
+// prints the warnings the server returns.
+func TestRemoteStartSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan api.ExecuteDAGJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+			return
+		}
+		var body api.ExecuteDAGJSONBody
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		bodies <- body
+		_, _ = w.Write([]byte(`{"dagRunId":"run-1","warnings":["off schedule"]}`))
+	}))
+	defer server.Close()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("scheduled-at", "2026-11-09"))
+	var stderr bytes.Buffer
+	command.SetErr(&stderr)
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
+
+	require.NoError(t, remoteRunStart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.ScheduleTime)
+	assert.Equal(t, "2026-11-09", *body.ScheduleTime)
+	assert.Equal(t, "Warning: off schedule\n", stderr.String())
+}
+
+// A remote rerun goes through reschedule, which carries the slot the flag
+// names for the server to resolve.
+func TestRemoteRerunSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan api.RescheduleDAGRunJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/reschedule") {
+			var body api.RescheduleDAGRunJSONBody
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			bodies <- body
+			_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+	}))
+	defer server.Close()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("from-run-id", "run-1"))
+	require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
+
+	require.NoError(t, remoteRunStart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.ScheduleTime)
+	assert.Equal(t, "latest", *body.ScheduleTime)
+}
+
+// A remote restart checks the replacement with a dry run before it stops the
+// run, then reruns for the slot the server resolved.
+func TestRemoteRestartSendsScheduledAt(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+	var mu sync.Mutex
+	record := func(event string) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, event)
+	}
+	newServer := func(t *testing.T, rejectSlot bool) *httptest.Server {
+		var stopped atomic.Bool
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/stop"):
+				stopped.Store(true)
+				record("stop")
+			case strings.HasSuffix(r.URL.Path, "/reschedule"):
+				var body api.RescheduleDAGRunJSONBody
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				if body.DryRun != nil && *body.DryRun {
+					record("dry-run " + *body.ScheduleTime)
+					if rejectSlot {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write([]byte(`{"code":"bad_request","message":"invalid scheduleTime"}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":false,"scheduleTime":"2026-11-09T02:00:00+09:00"}`))
+					return
+				}
+				record("reschedule " + *body.ScheduleTime)
+				_, _ = w.Write([]byte(`{"dagRunId":"run-2","queued":true}`))
+			case strings.Contains(r.URL.Path, "/dag-runs/"):
+				status := ir.Running
+				if stopped.Load() {
+					status = ir.Aborted
+				}
+				_, _ = fmt.Fprintf(w, `{"dagRunId":"run-1","status":%d}`, status)
+			default:
+				_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+			}
+		}))
+	}
+	restart := func(server *httptest.Server) error {
+		command := &cobra.Command{Use: "restart"}
+		initFlags(command, restartFlags...)
+		require.NoError(t, command.Flags().Set("scheduled-at", "latest"))
+		ctx := &Context{
+			Context: context.Background(),
+			Command: command,
+			Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+		}
+		return remoteRunRestart(ctx, []string{"etl"})
+	}
+
+	server := newServer(t, false)
+	defer server.Close()
+	require.NoError(t, restart(server))
+	assert.Equal(t, []string{"dry-run latest", "stop", "reschedule 2026-11-08T17:00:00Z"}, events)
+
+	events = nil
+	rejecting := newServer(t, true)
+	defer rejecting.Close()
+	require.Error(t, restart(rejecting))
+	assert.Equal(t, []string{"dry-run latest"}, events, "a rejected slot leaves the run going")
+}
+
+// These cases replace process stdin and must remain sequential.
+func TestRemoteRunParams(t *testing.T) {
+	commands := []struct {
+		name  string
+		flags []commandLineFlag
+		run   func(*Context, []string) error
+	}{
+		{name: "start", flags: startFlags, run: remoteRunStart},
+		{name: "enqueue", flags: enqueueFlags, run: remoteRunEnqueue},
+	}
+	oversizedInput := strings.Repeat("x", maxStdinParamsSize+1)
+	tests := []struct {
+		name       string
+		args       []string
+		stdin      string
+		wantParams *string
+		wantValues []string
+		wantErr    string
+		wantUnread bool
+		startOnly  bool
+		closed     bool
+	}{
+		{
+			name:    "ClosedStdinRejected",
+			args:    []string{"--params-stdin", "etl"},
+			closed:  true,
+			wantErr: "params from stdin",
+		},
+		{
+			name:       "FlagSkipsClosedStdin",
+			args:       []string{"--params-stdin", "--params=P1=flag", "etl"},
+			closed:     true,
+			wantParams: new("P1=flag"),
+		},
+		{
+			name:   "EmptyFlagSkipsClosedStdin",
+			args:   []string{"--params-stdin", "--params=", "etl"},
+			closed: true,
+		},
+		{
+			name:       "DashSkipsClosedStdin",
+			args:       []string{"--params-stdin", "etl", "--", "P1=dash"},
+			closed:     true,
+			wantParams: new(`P1="dash"`),
+		},
+		{
+			name:   "EmptyDashSkipsClosedStdin",
+			args:   []string{"--params-stdin", "etl", "--"},
+			closed: true,
+		},
+		{
+			name:       "InheritedStdinIgnored",
+			args:       []string{"etl"},
+			stdin:      "P1=stdin",
+			wantUnread: true,
+		},
+		{
+			name:       "DisabledStdinIgnored",
+			args:       []string{"--params-stdin=false", "etl"},
+			stdin:      "P1=stdin",
+			wantUnread: true,
+		},
+		{
+			name:       "InheritedOversizedStdinIgnored",
+			args:       []string{"etl"},
+			stdin:      oversizedInput,
+			wantUnread: true,
+		},
+		{
+			name:       "NamedStdin",
+			args:       []string{"--params-stdin", "etl"},
+			stdin:      "P1=foo P2=bar",
+			wantParams: new("P1=foo P2=bar"),
+		},
+		{
+			name:      "FromRunIDRejectsStdin",
+			args:      []string{"--params-stdin", "--from-run-id=source", "etl"},
+			stdin:     "P1=stdin",
+			wantErr:   "parameters cannot be provided when using --from-run-id",
+			startOnly: true,
+		},
+		{
+			name:       "FlagBeatsStdin",
+			args:       []string{"--params-stdin", "--params=P1=flag", "etl"},
+			stdin:      "P1=stdin",
+			wantParams: new("P1=flag"),
+		},
+		{
+			name:  "EmptyFlagBeatsStdin",
+			args:  []string{"--params-stdin", "--params=", "etl"},
+			stdin: "P1=stdin",
+		},
+		{
+			name:       "DashBeatsFlagAndStdin",
+			args:       []string{"--params-stdin", "--params=P1=flag", "etl", "--", "P1=dash"},
+			stdin:      "P1=stdin",
+			wantParams: new(`P1="dash"`),
+		},
+		{
+			name:  "EmptyDashBeatsFlagAndStdin",
+			args:  []string{"--params-stdin", "--params=P1=flag", "etl", "--"},
+			stdin: "P1=stdin",
+		},
+		{
+			name:  "EmptyFlagSkipsOversizedStdin",
+			args:  []string{"--params-stdin", "--params=", "etl"},
+			stdin: oversizedInput,
+		},
+		{
+			name:       "FlagSkipsOversizedStdin",
+			args:       []string{"--params-stdin", "--params=P1=flag", "etl"},
+			stdin:      oversizedInput,
+			wantParams: new("P1=flag"),
+		},
+		{
+			name:       "DashSkipsOversizedStdin",
+			args:       []string{"--params-stdin", "etl", "--", "P1=dash"},
+			stdin:      oversizedInput,
+			wantParams: new(`P1="dash"`),
+		},
+		{
+			name:    "OversizedStdinRejected",
+			args:    []string{"--params-stdin", "etl"},
+			stdin:   oversizedInput,
+			wantErr: "params from stdin exceed",
+		},
+		{
+			name:  "WhitespaceStdin",
+			args:  []string{"--params-stdin", "etl"},
+			stdin: " \n\t\n",
+		},
+		{
+			name:       "JSONStdin",
+			args:       []string{"--params-stdin", "etl"},
+			stdin:      `{"P1":"foo","P2":"bar"}`,
+			wantParams: new(`{"P1":"foo","P2":"bar"}`),
+		},
+		{
+			name:       "NamedQuotedStdin",
+			args:       []string{"--params-stdin", "etl"},
+			stdin:      "  P1=\"foo bar\" P2=\"\"\n",
+			wantParams: new(`P1="foo bar" P2=""`),
+			wantValues: []string{"P1=foo bar", "P2="},
+		},
+		{
+			name:       "QuotedFlag",
+			args:       []string{"--params-stdin", `--params="P1=foo P2=bar"`, "etl"},
+			stdin:      "P1=stdin",
+			wantParams: new("P1=foo P2=bar"),
+			wantValues: []string{"P1=foo", "P2=bar"},
+		},
+		{
+			name:       "DashSpacedValue",
+			args:       []string{"etl", "--", "hello world"},
+			wantParams: new(`"hello world"`),
+			wantValues: []string{"P1=default1", "P2=default2", "1=hello world"},
+		},
+		{
+			name:       "DashEmptyValue",
+			args:       []string{"etl", "--", ""},
+			wantParams: new(`""`),
+			wantValues: []string{"P1=default1", "P2=default2", "1="},
+		},
+		{
+			name:       "QuotedValueStdin",
+			args:       []string{"--params-stdin", "etl"},
+			stdin:      `"hello world"`,
+			wantParams: new(`"hello world"`),
+			wantValues: []string{"P1=default1", "P2=default2", "1=hello world"},
+		},
+		{
+			name:       "EmptyValueStdin",
+			args:       []string{"--params-stdin", "etl"},
+			stdin:      `""`,
+			wantParams: new(`""`),
+			wantValues: []string{"P1=default1", "P2=default2", "1="},
+		},
+		{
+			name:       "SpacedValueStdin",
+			args:       []string{"--params-stdin", "etl"},
+			stdin:      `" hello world "`,
+			wantParams: new(`" hello world "`),
+			wantValues: []string{"P1=default1", "P2=default2", "1= hello world "},
+		},
+	}
+	for _, commandSpec := range commands {
+		t.Run(commandSpec.name, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					if tt.startOnly && commandSpec.name != "start" {
+						t.Skip("enqueue does not support --from-run-id")
+					}
+					if tt.closed {
+						stdin, err := os.Open(os.DevNull)
+						require.NoError(t, err)
+						require.NoError(t, stdin.Close())
+						original := os.Stdin
+						os.Stdin = stdin
+						t.Cleanup(func() { os.Stdin = original })
+					} else if len(tt.stdin) > maxStdinParamsSize {
+						// Files avoid blocking on pipe capacity before the command reads.
+						path := filepath.Join(t.TempDir(), "params.txt")
+						require.NoError(t, os.WriteFile(path, []byte(tt.stdin), 0o600))
+						file, err := os.Open(path)
+						require.NoError(t, err)
+						original := os.Stdin
+						os.Stdin = file
+						t.Cleanup(func() {
+							os.Stdin = original
+							require.NoError(t, file.Close())
+						})
+					} else {
+						pipeStdin(t, tt.stdin)
+					}
+
+					requests := make(chan *string, 1)
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						if r.Method == http.MethodGet {
+							_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+							return
+						}
+						var body struct {
+							Params *string `json:"params"`
+						}
+						if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
+							w.WriteHeader(http.StatusBadRequest)
+							return
+						}
+						requests <- body.Params
+						_, _ = w.Write([]byte(`{"dagRunId":"run-1"}`))
+					}))
+					defer server.Close()
+
+					command := &cobra.Command{Use: commandSpec.name}
+					initFlags(command, commandSpec.flags...)
+					require.NoError(t, command.Flags().Parse(tt.args))
+					ctx := &Context{
+						Context: context.Background(),
+						Command: command,
+						Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+					}
+
+					err := commandSpec.run(ctx, command.Flags().Args())
+					if tt.wantErr != "" {
+						require.ErrorContains(t, err, tt.wantErr)
+						select {
+						case <-requests:
+							t.Fatal("run submitted after invalid stdin")
+						default:
+						}
+						return
+					}
+					require.NoError(t, err)
+					if tt.wantUnread {
+						remaining, err := io.ReadAll(os.Stdin)
+						require.NoError(t, err)
+						assert.Equal(t, tt.stdin, string(remaining))
+					}
+					select {
+					case params := <-requests:
+						if tt.wantParams == nil {
+							require.Nil(t, params)
+							return
+						}
+						require.NotNil(t, params)
+						assert.Equal(t, *tt.wantParams, *params)
+						if tt.wantValues != nil {
+							source := []byte("params: P1=default1 P2=default2\nsteps:\n  - name: print\n    run: echo ok\n")
+							dag, err := spec.LoadYAML(ctx, source, spec.WithParams(*params))
+							require.NoError(t, err)
+							assert.Equal(t, tt.wantValues, dag.Params)
+						}
+					default:
+						t.Fatal("run was not submitted")
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestWaitForRemoteStopHonorsContextCancellation(t *testing.T) {
@@ -251,4 +820,68 @@ func TestEnrichRemoteHistoryStatusPopulatesErrorAndMetadata(t *testing.T) {
 	assert.Equal(t, []string{"env=prod"}, status.Labels)
 	assert.Equal(t, "worker-a", status.WorkerID)
 	assert.Contains(t, status.Error, "boom")
+}
+
+func TestRemoteClientDecodesAPIErrorMessage(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"boom"}`))
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.getCurrentUser(context.Background())
+	require.Error(t, err)
+
+	var rerr *remoteError
+	require.ErrorAs(t, err, &rerr)
+	assert.Equal(t, http.StatusBadRequest, rerr.StatusCode)
+	assert.Equal(t, "boom", rerr.Message)
+}
+
+func TestRemoteClientCapsErrorResponseBody(t *testing.T) {
+	t.Parallel()
+
+	// Multibyte content makes the byte cap land mid-rune; the surfaced
+	// message must stay bounded and valid UTF-8.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("界", maxRemoteErrorBodyBytes)))
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.getCurrentUser(context.Background())
+	require.Error(t, err)
+
+	var rerr *remoteError
+	require.ErrorAs(t, err, &rerr)
+	assert.Equal(t, http.StatusInternalServerError, rerr.StatusCode)
+	assert.LessOrEqual(t, len(rerr.Message), maxRemoteErrorBodyBytes)
+	assert.True(t, utf8.ValidString(rerr.Message))
+	assert.True(t, strings.HasSuffix(rerr.Message, "…"))
+}
+
+func TestRemoteClientPreservesExactLimitErrorResponseBody(t *testing.T) {
+	t.Parallel()
+
+	// A body at exactly the limit must pass through unmodified, without the
+	// truncation ellipsis.
+	body := strings.Repeat("x", maxRemoteErrorBodyBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.getCurrentUser(context.Background())
+	require.Error(t, err)
+
+	var rerr *remoteError
+	require.ErrorAs(t, err, &rerr)
+	assert.Equal(t, body, rerr.Message)
 }

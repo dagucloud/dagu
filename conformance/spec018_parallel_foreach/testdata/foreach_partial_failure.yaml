@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items: ["a", "b", "c"]
+      key: ${foreach.item}
+      steps:
+        - id: body
+          run: test "${foreach.item}" != "b"
+      collect:
+        item: ${foreach.item}
+    output: RESULTS
+  - name: consume
+    depends: each
+    action: file.write
+    with:
+      path: foreach-partial-results.txt
+      content: ${RESULTS}

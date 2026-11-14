@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      columns: [Item]
+      rows: [{"Item": "Rent"}]
+  - id: delete
+    depends: write
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: delete
+      sheet: Sheet1

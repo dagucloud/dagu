@@ -6,6 +6,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -58,6 +59,7 @@ type DispatchTask struct {
 	ProfileName    string
 	DefinitionID   string
 	TriggerActor   string
+	TriggerType    ir.TriggerType
 
 	PreviousStatus *ir.DAGRunStatus
 
@@ -65,10 +67,20 @@ type DispatchTask struct {
 	BaseConfigWorkspace *string
 	Labels              string
 	ScheduleTime        string
-	SourceFile          string
-	SourceWorkDir       string
+	// ScheduleWindow is the window the slot at ScheduleTime owns.
+	ScheduleWindow ir.ScheduleWindow
+	// Dates are the run's dates, or nil when the run resolves them as it
+	// starts.
+	Dates         []ir.DateValue
+	SourceFile    string
+	SourceWorkDir string
 
 	WorkerSelector map[string]string
+
+	// HoldUntil is set when the task was accepted with no healthy worker
+	// matching it. Until then the task waits for one to register; after it
+	// the coordinator fails the run instead.
+	HoldUntil time.Time
 
 	ExternalStepRetry   bool
 	IncludeDownstream   bool
@@ -103,4 +115,18 @@ type Dispatcher interface {
 	Cleanup(ctx context.Context) error
 	GetDAGRunStatus(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) (*DAGRunStatusResult, error)
 	RequestCancel(ctx context.Context, dagName, dagRunID string, rootRef *ir.DAGRunRef) error
+}
+
+// DefinitionError reports a dispatch rejected because its DAG definition
+// cannot be built. Dispatching the same definition again cannot succeed.
+type DefinitionError struct {
+	Err error
+}
+
+func (e *DefinitionError) Error() string {
+	return "invalid DAG definition: " + e.Err.Error()
+}
+
+func (e *DefinitionError) Unwrap() error {
+	return e.Err
 }

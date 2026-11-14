@@ -52,6 +52,8 @@ import {
 } from '../../../../../api/v1/schema';
 import {
   blankChannel,
+  CHANNEL_PROVIDER_OPTIONS,
+  DEFAULT_COMMAND_PLACEHOLDER,
   DEFAULT_MESSAGE_TEMPLATE,
   DEFAULT_SUBJECT_TEMPLATE,
   DeliveryDraft,
@@ -74,13 +76,30 @@ import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import {
+  useCanManageCommandChannels,
+  useCommandChannelsEnabled,
+} from '@/contexts/AuthContext';
 
 type ProviderFieldsProps = {
   draft: DeliveryDraft;
   onChange: (next: DeliveryDraft) => void;
 };
 
-function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
+/**
+ * Provider fields adapt to the width of their own box, as the same fields sit
+ * in the narrow Workflow panel and in a dialog.
+ */
+function ProviderFields(props: ProviderFieldsProps) {
+  return (
+    <div className="@container">
+      <ProviderFieldsBody {...props} />
+    </div>
+  );
+}
+
+function ProviderFieldsBody({ draft, onChange }: ProviderFieldsProps) {
   const { ts } = useI18n();
   const fieldId = useId();
   const update = (patch: Partial<DeliveryDraft>) =>
@@ -88,7 +107,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
 
   if (draft.type === NotificationProviderType.email) {
     return (
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xl:grid-cols-2">
         <label className="block space-y-2">
           <span className="text-sm font-medium">
             <I18nText text={'To'} />
@@ -161,13 +180,13 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             />
           </I18nProps>
         </label>
-        <label className="block space-y-2 md:col-span-2">
+        <label className="block space-y-2 @xl:col-span-2">
           <span className="text-sm font-medium">
             <I18nText text={'Email subject template'} />
           </span>
           <I18nProps>
             <Textarea
-              className="md:col-span-2"
+              className="@xl:col-span-2"
               aria-label="Email subject template"
               value={draft.email.subjectTemplate}
               placeholder={DEFAULT_SUBJECT_TEMPLATE}
@@ -182,13 +201,13 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             />
           </I18nProps>
         </label>
-        <label className="block space-y-2 md:col-span-2">
+        <label className="block space-y-2 @xl:col-span-2">
           <span className="text-sm font-medium">
             <I18nText text={'Email body template'} />
           </span>
           <I18nProps>
             <Textarea
-              className="min-h-24 py-1 md:col-span-2"
+              className="min-h-24 py-1 @xl:col-span-2"
               aria-label="Email body template"
               value={draft.email.bodyTemplate}
               placeholder={DEFAULT_MESSAGE_TEMPLATE}
@@ -366,7 +385,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             <code>{'{"text": "{{message}}"}'}</code>
           </div>
         </div>
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid gap-2 @xl:grid-cols-2">
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
               checked={draft.webhook.clearHeaders}
@@ -467,6 +486,49 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
     );
   }
 
+  if (draft.type === NotificationProviderType.command) {
+    return (
+      <div className="space-y-2">
+        <Label htmlFor={`${fieldId}-command`}>
+          <I18nText text={'Command'} />
+        </Label>
+        <Textarea
+          id={`${fieldId}-command`}
+          className="min-h-24 py-1 font-mono text-xs"
+          required
+          spellCheck={false}
+          value={draft.command.command}
+          placeholder={DEFAULT_COMMAND_PLACEHOLDER}
+          onChange={(event) =>
+            update({
+              command: { command: event.target.value },
+            })
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          <I18nText
+            text={
+              'The Dagu server runs this command. Unix uses sh -c and Windows uses PowerShell. The server stops it after 30 seconds, and a non-zero exit fails delivery.'
+            }
+          />
+        </p>
+        <p className="text-xs text-muted-foreground">
+          <I18nTemplate
+            text="The command runs as written. Run values are environment variables, such as {dagEnv}, {statusEnv}, {errorEnv}, DAG_RUN_ID, and RUN_URL. Quote them, as in {quotedError}. {logEnv} is a temporary file with up to 1 MiB of the run log, including lifecycle-handler output, and is removed after the command exits. On Windows, PowerShell reads these as {windowsEnv} and so on."
+            values={{
+              dagEnv: <code>$DAG_NAME</code>,
+              statusEnv: <code>$STATUS</code>,
+              errorEnv: <code>$ERROR</code>,
+              quotedError: <code>"$ERROR"</code>,
+              logEnv: <code>$EXECUTION_LOG</code>,
+              windowsEnv: <code>$env:ERROR</code>,
+            }}
+          />
+        </p>
+      </div>
+    );
+  }
+
   if (draft.type === NotificationProviderType.teams) {
     return (
       <div className="space-y-3">
@@ -551,7 +613,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xl:grid-cols-2">
         <label className="block space-y-2">
           <span className="text-sm font-medium">
             <I18nText text={'Bot token'} />
@@ -665,7 +727,7 @@ function EventFilterEditor({ events, onChange }: EventFilterEditorProps) {
       })}
       {events.length > 0 && (
         <Button variant="ghost" size="sm" onClick={() => onChange([])}>
-          <I18nText text={'Use DAG events'} />
+          <I18nText text={'Use workflow events'} />
         </Button>
       )}
     </div>
@@ -722,15 +784,15 @@ export function NotificationOverviewCard({
 }: NotificationOverviewCardProps) {
   return (
     <Card>
-      <CardHeader className="grid-cols-[1fr_auto]">
-        <div className="flex items-center gap-2">
-          <Bell className="h-4 w-4 text-muted-foreground" />
+      <CardHeader className="grid-cols-[minmax(0,1fr)_auto]">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Bell className="h-4 w-4 shrink-0 text-muted-foreground" />
           <CardTitle className="text-sm">
-            <I18nText text={'Notification Source'} />
+            <I18nText text={'Notification source'} />
           </CardTitle>
           <Badge variant={isDAGConfigured ? 'success' : 'default'}>
             {isDAGConfigured ? (
-              <I18nText text={'DAG override'} />
+              <I18nText text={'Workflow override'} />
             ) : (
               <I18nText text={'Inherited'} />
             )}
@@ -779,7 +841,7 @@ export function NotificationOverviewCard({
         {isDAGConfigured ? (
           <div className="space-y-2">
             <div className="text-sm font-medium text-foreground">
-              <I18nText text={'Send notifications when this DAG is'} />
+              <I18nText text={'Send notifications when this workflow is'} />
             </div>
             <div className="flex flex-wrap gap-2">
               {EVENT_OPTIONS.map((event) => {
@@ -809,7 +871,7 @@ export function NotificationOverviewCard({
             <div className="text-xs text-muted-foreground">
               <I18nText
                 text={
-                  'This DAG override replaces workspace and Global rules for future runs. Send test verifies delivery now.'
+                  'This workflow override replaces workspace and Global rules for future runs. Send test verifies delivery now.'
                 }
               />
             </div>
@@ -817,7 +879,7 @@ export function NotificationOverviewCard({
               <div className="rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-foreground">
                 <I18nText
                   text={
-                    'This DAG override has no destinations. Inherited rules are not used while the override exists.'
+                    'This workflow override has no destinations. Inherited rules are not used while the override exists.'
                   }
                 />
               </div>
@@ -833,17 +895,17 @@ export function NotificationOverviewCard({
             )}
           </div>
         ) : (
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-4">
+          <div>
             <div className="text-sm font-medium text-foreground">
               <I18nText
-                text="This DAG inherits {source}."
+                text="This workflow inherits {source}."
                 values={{ source: inheritedSourceLabel }}
               />
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
               <I18nText
                 text={
-                  'Create a DAG override only when this DAG needs different events or destinations. The effective order is DAG, then workspace, then Global.'
+                  'Create a workflow override only when this workflow needs different events or destinations. The effective order is workflow, then workspace, then Global.'
                 }
               />
             </div>
@@ -851,7 +913,7 @@ export function NotificationOverviewCard({
         )}
 
         {testResults.length > 0 && (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 @xl:grid-cols-2">
             {testResults.map((result) => (
               <div
                 key={`${result.targetId}-${result.provider}`}
@@ -905,7 +967,7 @@ export function InheritedNotificationRoutesCard({
 
   return (
     <Card>
-      <CardHeader className="grid-cols-[1fr_auto]">
+      <CardHeader className="grid-cols-[minmax(0,1fr)_auto]">
         <div className="flex min-w-0 items-center gap-2">
           <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
           <CardTitle className="truncate text-sm">
@@ -925,7 +987,9 @@ export function InheritedNotificationRoutesCard({
       <CardContent>
         {routes.length === 0 ? (
           <div className="text-sm text-muted-foreground">
-            <I18nText text={'No inherited route is configured for this DAG.'} />
+            <I18nText
+              text={'No inherited route is configured for this workflow.'}
+            />
           </div>
         ) : (
           <div className="divide-y divide-border rounded-md border border-border">
@@ -935,7 +999,7 @@ export function InheritedNotificationRoutesCard({
               return (
                 <div
                   key={route.id}
-                  className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-2 px-3 py-3 text-sm @xl:flex-row @xl:items-center @xl:justify-between"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -963,6 +1027,24 @@ export function InheritedNotificationRoutesCard({
   );
 }
 
+/**
+ * Explains why the current user cannot add, toggle, test, or edit local command
+ * channels on the selected node, or returns undefined when they can.
+ */
+export function useCommandChannelLockReason(): string | undefined {
+  const remoteNode = useRemoteNode();
+  const enabled = useCommandChannelsEnabled();
+  const canManage = useCanManageCommandChannels();
+  // A remote node checks its own role and permissions, which this server's
+  // configuration does not describe, so its API decides instead.
+  if (canManage || remoteNode !== 'local') {
+    return undefined;
+  }
+  return enabled
+    ? 'Only admins can change or test local command channels.'
+    : 'This server does not run local commands. Enable permissions.write_dags and permissions.run_dags to deliver to this channel.';
+}
+
 type NotificationChannelsSectionProps = {
   channels: DraftChannel[];
   onSave: (channel: DraftChannel) => Promise<void>;
@@ -985,17 +1067,22 @@ function channelDestination(channel: DraftChannel): string {
       } catch {
         return 'Webhook destination';
       }
+    case NotificationProviderType.command:
+      return channel.command.command.split('\n', 1)[0] ?? '';
   }
 }
 
 function ChannelListRow({
   channel,
+  lockedReason,
   onEdit,
   onDelete,
   onSave,
   onTest,
 }: {
   channel: DraftChannel;
+  // lockedReason explains why the channel cannot be toggled, tested, or edited.
+  lockedReason?: string;
   onEdit: () => void;
   onDelete: () => void;
   onSave: NotificationChannelsSectionProps['onSave'];
@@ -1075,6 +1162,11 @@ function ChannelListRow({
               {error}
             </p>
           )}
+          {lockedReason && (
+            <p className="break-words text-sm text-warning">
+              <I18nText text={lockedReason} />
+            </p>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-3 sm:gap-4">
@@ -1082,7 +1174,7 @@ function ChannelListRow({
           <I18nText text={channel.enabled ? 'Enabled' : 'Disabled'} />
           <Switch
             checked={channel.enabled}
-            disabled={pending !== null}
+            disabled={pending !== null || lockedReason !== undefined}
             onCheckedChange={toggle}
             aria-label={ts('Toggle {title}', { title: label })}
           />
@@ -1091,7 +1183,7 @@ function ChannelListRow({
         <Button
           variant="outline"
           className="px-5"
-          disabled={pending !== null}
+          disabled={pending !== null || lockedReason !== undefined}
           onClick={test}
         >
           {pending === 'test' && <Loader2 className="size-4 animate-spin" />}
@@ -1100,7 +1192,7 @@ function ChannelListRow({
         <Button
           variant="outline"
           className="px-5"
-          disabled={pending !== null}
+          disabled={pending !== null || lockedReason !== undefined}
           onClick={onEdit}
         >
           <I18nText text={'Edit'} />
@@ -1146,6 +1238,16 @@ export function NotificationChannelsSection({
   const [deleting, setDeleting] = useState<DraftChannel | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const commandLockReason = useCommandChannelLockReason();
+  const providerOptions = CHANNEL_PROVIDER_OPTIONS.filter(
+    (provider) =>
+      provider.value !== NotificationProviderType.command ||
+      commandLockReason === undefined
+  );
+  const editorIncomplete =
+    !editor?.name.trim() ||
+    (editor.type === NotificationProviderType.command &&
+      !editor.command.command.trim());
   const query = search.trim().toLocaleLowerCase();
   const filteredChannels = channels.filter((channel) =>
     [
@@ -1251,6 +1353,11 @@ export function NotificationChannelsSection({
             <ChannelListRow
               key={channel.id}
               channel={channel}
+              lockedReason={
+                channel.type === NotificationProviderType.command
+                  ? commandLockReason
+                  : undefined
+              }
               onSave={onSave}
               onTest={onTest}
               onEdit={() => edit(channel)}
@@ -1358,7 +1465,7 @@ export function NotificationChannelsSection({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {PROVIDER_OPTIONS.map((provider) => (
+                        {providerOptions.map((provider) => (
                           <SelectItem
                             key={provider.value}
                             value={provider.value}
@@ -1397,7 +1504,7 @@ export function NotificationChannelsSection({
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={saving || !editor.name.trim()}
+                  disabled={saving || editorIncomplete}
                 >
                   {saving && <Loader2 className="size-4 animate-spin" />}
                   <I18nText
@@ -1463,6 +1570,7 @@ export function DAGSubscriptionsSection({
   const [expandedEventRows, setExpandedEventRows] = useState<Set<string>>(
     () => new Set()
   );
+  const commandLockReason = useCommandChannelLockReason();
   const channelsById = useMemo(() => {
     const map = new Map<string, DraftChannel>();
     channels.forEach((channel) => {
@@ -1515,12 +1623,12 @@ export function DAGSubscriptionsSection({
         <Card>
           <CardContent className="space-y-2 py-8 text-sm text-muted-foreground">
             <div>
-              <I18nText text={'No DAG override channels selected.'} />
+              <I18nText text={'No workflow override channels selected.'} />
             </div>
             <div>
               <I18nText
                 text={
-                  'Inherited rules are not used while this DAG override exists. Add a channel or reset to inherit.'
+                  'Inherited rules are not used while this workflow override exists. Add a channel or reset to inherit.'
                 }
               />
             </div>
@@ -1531,6 +1639,10 @@ export function DAGSubscriptionsSection({
           {draft.subscriptions.map((subscription, index) => {
             const channel = channelsById.get(subscription.channelId);
             const Icon = providerIcon(channel?.type);
+            const lockReason =
+              channel?.type === NotificationProviderType.command
+                ? commandLockReason
+                : undefined;
             const usedChannelIds = new Set(
               draft.subscriptions
                 .filter((_, subIndex) => subIndex !== index)
@@ -1595,7 +1707,11 @@ export function DAGSubscriptionsSection({
                           subscription.id &&
                           onTest(subscription.id, subscription.events)
                         }
-                        disabled={!subscription.id || testingTargetId !== null}
+                        disabled={
+                          !subscription.id ||
+                          testingTargetId !== null ||
+                          lockReason !== undefined
+                        }
                       >
                         {testingTargetId === subscription.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1615,7 +1731,12 @@ export function DAGSubscriptionsSection({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
+                  {lockReason && (
+                    <p className="text-sm text-warning">
+                      <I18nText text={lockReason} />
+                    </p>
+                  )}
+                  <div className="grid gap-3 @xl:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
                     <Select
                       value={subscription.channelId}
                       onValueChange={(channelId) =>
@@ -1652,12 +1773,12 @@ export function DAGSubscriptionsSection({
                           events={subscription.events}
                           fallback={
                             subscription.events.length === 0
-                              ? 'Same as DAG events'
+                              ? 'Same as workflow events'
                               : 'Custom events'
                           }
                         />
                       </span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {hasCustomEvents && (
                           <Button
                             variant="ghost"
@@ -1669,7 +1790,7 @@ export function DAGSubscriptionsSection({
                               }))
                             }
                           >
-                            <I18nText text={'Use DAG events'} />
+                            <I18nText text={'Use workflow events'} />
                           </Button>
                         )}
                         <Button
@@ -1813,7 +1934,7 @@ export function DAGLocalTargetsSection({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                <div className="grid gap-3 @xl:grid-cols-[minmax(0,1fr)_180px]">
                   <I18nProps>
                     <Input
                       value={target.name}

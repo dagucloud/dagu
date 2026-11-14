@@ -19,17 +19,25 @@ import (
 // seededRun describes a new DAG-run whose node states are fixed before it
 // starts, so only the steps left not started execute.
 type seededRun struct {
-	dag         *ir.DAG
-	dagRunID    string
-	nodes       []runtime.NodeData
-	source      *ir.DAGRunStatus
-	params      string
-	profileName string
-	labels      string
-	noReuse     bool
-	triggerType ir.TriggerType
+	dag      *ir.DAG
+	dagRunID string
+	nodes    []runtime.NodeData
+	reused   []ir.ReusedInput
+	// skipHandlers marks a run that does not call the end-of-run handlers.
+	skipHandlers bool
+	source       *ir.DAGRunStatus
+	params       string
+	profileName  string
+	labels       string
+	noReuse      bool
+	ephemeral    bool
+	triggerType  ir.TriggerType
 	// enqueue sends the run to the DAG's queue when one is configured.
 	enqueue bool
+	// slot is the schedule slot the run is for, or nil.
+	slot *requestedSlot
+	// backfillID names the backfill the run belongs to.
+	backfillID string
 }
 
 // launchSeededDAGRun persists run as a queued attempt and hands it to the
@@ -46,12 +54,18 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		DAG:              run.dag,
 		DAGRunID:         run.dagRunID,
 		Nodes:            run.nodes,
+		ReusedInputs:     run.reused,
+		SkipHandlers:     run.skipHandlers,
 		Source:           run.source,
 		Params:           run.params,
 		TriggerType:      run.triggerType,
 		TriggerActor:     triggerActorFromContext(ctx),
 		ProfileName:      run.profileName,
 		NoReuse:          run.noReuse,
+		Ephemeral:        run.ephemeral,
+		ScheduleTime:     run.slot.scheduleTimeOrEmpty(),
+		ScheduleWindow:   run.slot.windowOrZero(),
+		BackfillID:       run.backfillID,
 		LogBaseDir:       a.config.Paths.LogDir,
 		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
 	})
@@ -68,7 +82,7 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		if a.queueStore == nil {
 			return false, fmt.Errorf("queue store is not configured")
 		}
-		if err := a.queueStore.Enqueue(ctx, run.dag.ProcGroup(), queue.QueuePriorityLow, seedStatus.DAGRun()); err != nil {
+		if err := a.queueStore.Enqueue(ctx, run.dag.ProcGroup(), queue.PriorityOf(seedStatus), seedStatus.DAGRun()); err != nil {
 			return false, fmt.Errorf("failed to enqueue seeded dag-run: %w", err)
 		}
 		return true, nil

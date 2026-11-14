@@ -1,0 +1,19 @@
+working_dir: .
+steps:
+  - id: probe
+    run: |
+      Set-Content -LiteralPath started.out -Value started -Encoding ascii
+      Start-Sleep -Seconds 30
+    with:
+      shell: powershell
+handler_on:
+  abort:
+    run: |
+      Start-Sleep -Seconds 10
+      Add-Content -LiteralPath handlers.out -Value abort -Encoding ascii
+    with:
+      shell: powershell
+  exit:
+    run: Add-Content -LiteralPath handlers.out -Value exit -Encoding ascii
+    with:
+      shell: powershell

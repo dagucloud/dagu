@@ -1,0 +1,47 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: amounts.xlsx
+      columns: [Amount]
+      rows: [{"Amount": "N/A"}, {"Amount": 7}]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number}
+      on_type_error: warn
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"rows": ${steps.read.outputs.rows}, "warnings": ${steps.read.outputs.warnings}}'
+  - id: read_null
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number}
+      on_type_error: "null"
+  - id: out_null
+    depends: read_null
+    action: file.write
+    with:
+      path: out_null.json
+      content: '{"rows": ${steps.read_null.outputs.rows}, "warnings": ${steps.read_null.outputs.warnings}}'
+  - id: read_keep
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number}
+      on_type_error: keep
+  - id: out_keep
+    depends: read_keep
+    action: file.write
+    with:
+      path: out_keep.json
+      content: '{"rows": ${steps.read_keep.outputs.rows}, "warnings": ${steps.read_keep.outputs.warnings}}'

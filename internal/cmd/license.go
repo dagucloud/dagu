@@ -4,13 +4,26 @@
 package cmd
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/url"
+	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cloudaccess"
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/spf13/cobra"
 )
 
@@ -32,33 +45,64 @@ func License() *cobra.Command {
 func licenseActivate() *cobra.Command {
 	return NewCommand(
 		&cobra.Command{
-			Use:   "activate <key>",
-			Short: "Activate a license key",
-			Args:  cobra.ExactArgs(1),
-		}, nil, func(ctx *Context, args []string) error {
-			key := args[0]
+			Use:   "activate [key]",
+			Short: "Activate this server's license",
+			Long: `Activate this server's Dagu license.
 
-			mgr, err := newLicenseManager(ctx, key)
+With a key, activate the server key or license key from Dagu Console.
+
+Without a key, request a license from Dagu Console: open the printed URL in
+any browser and approve the request as a workspace owner. The license is
+saved once approved; restart a running Dagu server to load it. --report sets
+what the server then reports to Dagu Console, which is asked when omitted.
+Without a terminal, a key is required.
+
+--remote-access lets MCP clients use this server through the Dagu Cloud MCP
+endpoint once the license is installed, up to the role it names: viewer,
+operator, or developer. Remote access stays as it was when omitted.`,
+			Args: cobra.MaximumNArgs(1),
+		}, []commandLineFlag{reportFlag, remoteAccessFlag}, func(ctx *Context, args []string) error {
+			remoteAccess, err := remoteAccessLevelFlag(ctx)
 			if err != nil {
 				return err
 			}
-
-			result, err := mgr.ActivateWithKey(ctx, key)
+			var status license.Status
+			if len(args) == 1 {
+				status, err = activateWithKey(ctx, args[0])
+			} else if !isTerminal(os.Stdin) {
+				// Waiting for a browser approval would stall a script that lost its key.
+				return errors.New("a license key is required when not running in a terminal: dagu license activate <key>")
+			} else {
+				status, err = activateFromConsole(ctx)
+			}
 			if err != nil {
-				return fmt.Errorf("activation failed: %w", err)
+				return err
 			}
-			defer mgr.Stop()
-
-			fmt.Printf("License activated successfully!\n")
-			fmt.Printf("  Plan:     %s\n", result.Plan)
-			fmt.Printf("  Features: %s\n", strings.Join(result.Features, ", "))
-			if !result.Expiry.IsZero() {
-				fmt.Printf("  Expires:  %s\n", result.Expiry.Format("2006-01-02"))
-			}
-
-			return nil
+			return saveRemoteAccessLevel(ctx, remoteAccess, status.ConsoleURL)
 		},
 	)
+}
+
+func activateWithKey(ctx *Context, key string) (license.Status, error) {
+	mgr, err := newLicenseManager(ctx, key)
+	if err != nil {
+		return license.Status{}, err
+	}
+
+	result, err := mgr.ActivateWithKey(ctx, key)
+	if err != nil {
+		return license.Status{}, fmt.Errorf("activation failed: %w", err)
+	}
+	defer mgr.Stop()
+
+	fmt.Printf("License activated successfully!\n")
+	fmt.Printf("  Plan:     %s\n", result.Plan)
+	fmt.Printf("  Features: %s\n", strings.Join(result.Features, ", "))
+	if !result.Expiry.IsZero() {
+		fmt.Printf("  Expires:  %s\n", result.Expiry.Format("2006-01-02"))
+	}
+
+	return mgr.Status(), nil
 }
 
 func licenseDeactivate() *cobra.Command {
@@ -77,11 +121,16 @@ func licenseDeactivate() *cobra.Command {
 			}
 			defer mgr.Stop()
 
-			if err := mgr.Deactivate(ctx); err != nil {
+			consoleURL := mgr.Status().ConsoleURL
+			result, err := mgr.Deactivate(ctx)
+			if err != nil {
 				return fmt.Errorf("deactivation failed: %w", err)
 			}
 
 			fmt.Println("License deactivated. Running in community mode.")
+			if result.ReleaseFailed && consoleURL != "" {
+				fmt.Printf("Dagu Console could not be reached; this server still uses a slot until you disconnect it at %s\n", consoleURL)
+			}
 			return nil
 		},
 	)
@@ -103,29 +152,280 @@ func licenseCheck() *cobra.Command {
 			}
 			defer mgr.Stop()
 
-			checker := mgr.Checker()
-			if checker.IsCommunity() {
-				fmt.Println("License: Community mode (no license)")
-				return nil
-			}
-
-			fmt.Printf("License Status\n")
-			fmt.Printf("  Plan:         %s\n", checker.Plan())
-			if claims := checker.Claims(); claims != nil {
-				fmt.Printf("  Features:     %s\n", strings.Join(claims.Features, ", "))
-				if claims.ExpiresAt != nil {
-					fmt.Printf("  Expires:      %s\n", claims.ExpiresAt.Format("2006-01-02"))
-				}
-			}
-			if checker.IsGracePeriod() {
-				fmt.Printf("  Status:       EXPIRED (grace period active)\n")
-			} else {
-				fmt.Printf("  Status:       Active\n")
-			}
-
+			printLicenseStatus(os.Stdout, mgr.Status())
 			return nil
 		},
 	)
+}
+
+var remoteAccessFlag = commandLineFlag{
+	name:  "remote-access",
+	usage: "Highest role MCP calls through Dagu Cloud get once connected: off, viewer, operator, or developer (unchanged when omitted)",
+}
+
+// remoteAccessLevelFlag returns the level --remote-access names, or "" when
+// it is omitted.
+func remoteAccessLevelFlag(ctx *Context) (config.RemoteAccessLevel, error) {
+	flag, err := ctx.Command.Flags().GetString(remoteAccessFlag.name)
+	if err != nil {
+		return "", fmt.Errorf("failed to read --remote-access: %w", err)
+	}
+	level := config.RemoteAccessLevel(strings.ToLower(strings.TrimSpace(flag)))
+	switch level {
+	case "", config.RemoteAccessOff, config.RemoteAccessViewer, config.RemoteAccessOperator, config.RemoteAccessDeveloper:
+		return level, nil
+	default:
+		return "", errors.New("--remote-access must be one of off, viewer, operator, or developer")
+	}
+}
+
+// saveRemoteAccessLevel records level as the administrator's choice of how
+// far MCP calls through Dagu Cloud may go, unless level is empty or
+// cloud.remote_access fixes it, and says where MCP clients connect: the MCP
+// endpoint of the console whose servers page is consoleURL.
+func saveRemoteAccessLevel(ctx *Context, level config.RemoteAccessLevel, consoleURL string) error {
+	if level == "" {
+		return nil
+	}
+	err := newCloudAccessSettings(ctx.Config).Set(ctx, &level, nil)
+	switch {
+	case errors.Is(err, cloudaccess.ErrConfigured):
+		fmt.Printf("cloud.remote_access in the configuration sets remote access to %s; --remote-access was not applied.\n", ctx.Config.Cloud.RemoteAccess)
+		return nil
+	case err != nil:
+		return fmt.Errorf("failed to save remote access: %w", err)
+	case level == config.RemoteAccessOff:
+		fmt.Println("Remote access: off.")
+		return nil
+	}
+	if endpoint := mcpURL(consoleURL); endpoint != "" {
+		fmt.Printf("Remote access: %s. Add %s to your MCP client as a remote MCP server.\n", level, endpoint)
+	} else {
+		fmt.Printf("Remote access: %s. Add the MCP URL shown in Settings to your MCP client.\n", level)
+	}
+	return nil
+}
+
+// mcpURL returns the MCP endpoint of the Dagu Cloud console whose servers
+// page is consoleURL, or "" when consoleURL names none.
+func mcpURL(consoleURL string) string {
+	u, err := url.Parse(consoleURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	u.Path = strings.TrimSuffix(u.Path, "/servers") + "/mcp"
+	u.RawQuery = ""
+	return u.String()
+}
+
+var reportFlag = commandLineFlag{
+	name:  "report",
+	usage: "What this server reports to Dagu Console once connected: errors, runs, health, or off (asked when omitted)",
+}
+
+// reportChoices are the levels a server connected from the CLI may report
+// at, in the order the question lists them.
+var reportChoices = []struct {
+	level config.ReportLevel
+	label string
+}{
+	{config.ReportErrors, "Health, run status, and error messages (recommended)"},
+	{config.ReportRuns, "Health and run status"},
+	{config.ReportHealth, "Health only"},
+	{config.ReportOff, "Nothing"},
+}
+
+// chooseReportLevel returns what a server connected from the CLI reports: the
+// level cloud.report fixes, else the level flag names, else the answer read
+// from in to a question written to out.
+func chooseReportLevel(in io.Reader, out io.Writer, flag string, configured config.ReportLevel) (config.ReportLevel, error) {
+	if configured != "" {
+		return configured, nil
+	}
+	if flag != "" {
+		level := config.ReportLevel(strings.ToLower(strings.TrimSpace(flag)))
+		for _, choice := range reportChoices {
+			if choice.level == level {
+				return level, nil
+			}
+		}
+		return "", errors.New("--report must be one of errors, runs, health, or off")
+	}
+	_, _ = fmt.Fprintln(out, "What should this server report to Dagu Console?")
+	for i, choice := range reportChoices {
+		_, _ = fmt.Fprintf(out, "  %d) %s\n", i+1, choice.label)
+	}
+	_, _ = fmt.Fprintln(out, "Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.")
+	_, _ = fmt.Fprint(out, "Choose [1]: ")
+	answer, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("failed to read the answer: %w", err)
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return reportChoices[0].level, nil
+	}
+	n, err := strconv.Atoi(answer)
+	if err != nil || n < 1 || n > len(reportChoices) {
+		return "", errors.New("choose 1, 2, 3, or 4")
+	}
+	return reportChoices[n-1].level, nil
+}
+
+// activateFromConsole requests a license from Dagu Console and waits until a
+// workspace owner approves this server in a browser. What the server reports
+// once connected is chosen first, so that the approval page can state it.
+func activateFromConsole(ctx *Context) (license.Status, error) {
+	flag, err := ctx.Command.Flags().GetString(reportFlag.name)
+	if err != nil {
+		return license.Status{}, fmt.Errorf("failed to read --report: %w", err)
+	}
+	level, err := chooseReportLevel(os.Stdin, os.Stdout, flag, ctx.Config.Cloud.Report)
+	if err != nil {
+		return license.Status{}, err
+	}
+
+	mgr, err := newLicenseManager(ctx, ctx.Config.License.Key)
+	if err != nil {
+		return license.Status{}, err
+	}
+	if err := mgr.Start(ctx); err != nil {
+		return license.Status{}, err
+	}
+	defer mgr.Stop()
+
+	status, err := mgr.Connect()
+	if err != nil {
+		return license.Status{}, fmt.Errorf("activation failed: %w", err)
+	}
+	approveURL := status.URL
+	if level.Reports() {
+		approveURL = withReportLevel(approveURL, level)
+	}
+	fmt.Printf("\nOpen this URL in a browser and approve the request:\n\n  %s\n\n", approveURL)
+	fmt.Printf("Confirm that Dagu Console shows the code %s. The request expires at %s.\n",
+		status.Code, status.ExpiresAt.Format(time.Kitchen))
+	fmt.Println("Waiting for approval... (press Ctrl-C to cancel)")
+
+	waitCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-waitCtx.Done():
+			mgr.CancelConnect()
+			return license.Status{}, errors.New("activation cancelled")
+		case <-ticker.C:
+		}
+
+		status := mgr.ConnectStatus()
+		switch status.State {
+		case license.ConnectPending:
+			continue
+		case license.ConnectGranted:
+			fmt.Println("License activated from Dagu Console. Restart a running Dagu server to load it.")
+			if err := saveReportLevel(ctx, level); err != nil {
+				return license.Status{}, err
+			}
+			printLicenseStatus(os.Stdout, mgr.Status())
+			return mgr.Status(), nil
+		case license.ConnectIdle, license.ConnectFailed, license.ConnectExpired:
+			reason := status.Error
+			if reason == "" {
+				reason = "the request to Dagu Console ended"
+			}
+			return license.Status{}, fmt.Errorf("activation failed: %s", reason)
+		}
+	}
+}
+
+// withReportLevel names level in the approval URL, so that Dagu Console states
+// what the server reports once connected.
+func withReportLevel(raw string, level config.ReportLevel) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	query := u.Query()
+	query.Set("report", string(level))
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+// saveReportLevel records level as the administrator's choice of what the
+// server reports, unless cloud.report fixes it.
+func saveReportLevel(ctx *Context, level config.ReportLevel) error {
+	if ctx.Config.Cloud.Report != "" {
+		return nil
+	}
+	monitoring := cloudreport.NewMonitoring("", filemonitor.NewStateStore(cloudReportSettingsFile(ctx.Config)))
+	if err := monitoring.SetLevel(ctx, level); err != nil {
+		return fmt.Errorf("failed to save what this server reports: %w", err)
+	}
+	return nil
+}
+
+// printLicenseStatus writes the license summary shown by `license check`.
+func printLicenseStatus(w io.Writer, st license.Status) {
+	if st.Community {
+		_, _ = fmt.Fprintln(w, "License: Community mode (no license)")
+		if st.Failure != "" {
+			_, _ = fmt.Fprintf(w, "  Problem:      %s\n", st.Failure)
+		}
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "License Status\n")
+	_, _ = fmt.Fprintf(w, "  Plan:         %s\n", st.Plan)
+	_, _ = fmt.Fprintf(w, "  Features:     %s\n", strings.Join(st.Features, ", "))
+	if !st.Expiry.IsZero() {
+		_, _ = fmt.Fprintf(w, "  Expires:      %s\n", st.Expiry.Format("2006-01-02"))
+	}
+	if st.GracePeriod {
+		_, _ = fmt.Fprintf(w, "  Status:       EXPIRED (grace period active)\n")
+	} else {
+		_, _ = fmt.Fprintf(w, "  Status:       Active\n")
+	}
+
+	rows := []struct{ label, value string }{
+		{"Workspace", st.Workspace},
+		{"Server", st.ServerName},
+		{"Server ID", st.ServerID},
+		{"License ID", st.LicenseID},
+		{"Connected", connectedViaLabel(st.ConnectedVia)},
+		{"Checked in", formatCheckIn(st.LastCheckIn)},
+		{"Manage", st.ConsoleURL},
+		{"Problem", st.Failure},
+	}
+	for _, row := range rows {
+		if row.value != "" {
+			_, _ = fmt.Fprintf(w, "  %-14s%s\n", row.label+":", row.value)
+		}
+	}
+}
+
+func connectedViaLabel(via string) string {
+	switch via {
+	case license.ConnectedViaConsole:
+		return "via Dagu Console"
+	case license.ConnectedViaKey:
+		return "with a license key"
+	case license.ConnectedViaEnv:
+		return "by environment variable"
+	case license.ConnectedViaConfig:
+		return "by license.key in the config file"
+	case license.ConnectedViaFile:
+		return "by license file"
+	}
+	return via
+}
+
+func formatCheckIn(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
 func newLicenseManager(ctx *Context, configKey string) (*license.Manager, error) {
@@ -140,5 +440,6 @@ func newLicenseManager(ctx *Context, configKey string) (*license.Manager, error)
 		LicenseDir: licenseDir,
 		ConfigKey:  configKey,
 		CloudURL:   ctx.Config.License.CloudURL,
+		ServerName: ctx.Config.License.ServerName,
 	}, pubKey, store, slog.Default()), nil
 }

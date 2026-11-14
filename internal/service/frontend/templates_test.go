@@ -6,10 +6,7 @@ package frontend
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"sync"
 	"testing"
 	"text/template"
 	"time"
@@ -51,36 +48,25 @@ func (s stubWorkspaceStore) Delete(context.Context, string) error {
 	return nil
 }
 
-func resetAssetVersionCache() {
-	assetVersion = ""
-	assetVersionOnce = sync.Once{}
-}
+const testBundleHash = "0123456789abcdef"
 
 func TestFormatAssetVersionUsesBundleHashForDevBuilds(t *testing.T) {
-	bundle := []byte("bundle")
-	sum := sha256.Sum256(bundle)
-	want := "0.0.0-" + hex.EncodeToString(sum[:8])
-
-	assert.Equal(t, want, formatAssetVersion("0.0.0", bundle))
+	assert.Equal(t, "0.0.0-"+testBundleHash, formatAssetVersion("0.0.0", testBundleHash))
 }
 
 func TestFormatAssetVersionSupportsEmptyVersion(t *testing.T) {
-	bundle := []byte("bundle")
-	sum := sha256.Sum256(bundle)
-	want := hex.EncodeToString(sum[:8])
+	assert.Equal(t, testBundleHash, formatAssetVersion("", testBundleHash))
+}
 
-	assert.Equal(t, want, formatAssetVersion("", bundle))
+func TestFormatAssetVersionFallsBackToVersionWithoutBundleHash(t *testing.T) {
+	assert.Equal(t, "1.2.3", formatAssetVersion("1.2.3", ""))
 }
 
 func TestCurrentAssetVersionUsesReleaseVersionAndBundleHashWhenSet(t *testing.T) {
 	originalVersion := config.Version
-	t.Cleanup(func() {
-		config.Version = originalVersion
-		resetAssetVersionCache()
-	})
+	t.Cleanup(func() { config.Version = originalVersion })
 
 	config.Version = "1.2.3"
-	resetAssetVersionCache()
 
 	data, err := assetsFS.ReadFile("assets/bundle.js")
 	if err != nil {
@@ -88,7 +74,7 @@ func TestCurrentAssetVersionUsesReleaseVersionAndBundleHashWhenSet(t *testing.T)
 		return
 	}
 
-	assert.Equal(t, formatAssetVersion("1.2.3", data), currentAssetVersion())
+	assert.Equal(t, formatAssetVersion("1.2.3", hashBundle(data)), currentAssetVersion())
 }
 
 func TestDefaultFunctionsExposeInitialWorkspacesJSON(t *testing.T) {
@@ -151,22 +137,68 @@ func TestDefaultFunctionsExposeLicensedTrustedProxyLogin(t *testing.T) {
 	assert.Equal(t, "false", enabled())
 }
 
-func TestBaseTemplateEscapesProxyButtonLabelForJavaScript(t *testing.T) {
-	t.Parallel()
+type stubUpdateChecker struct {
+	status UpdateStatus
+}
 
-	const label = `</script><script>alert("injected")</script>`
-	tmpl, err := template.New("base").Funcs(defaultFunctions(&funcsConfig{
-		ProxyEnabled:     true,
-		ProxyButtonLabel: label,
-	})).ParseFS(assetsFS, "templates/base.gohtml")
+func (s stubUpdateChecker) UpdateStatus() UpdateStatus {
+	return s.status
+}
+
+func renderBaseTemplate(t *testing.T, cfg *funcsConfig) string {
+	t.Helper()
+
+	tmpl, err := template.New("base").Funcs(defaultFunctions(cfg)).ParseFS(assetsFS, "templates/base.gohtml")
 	require.NoError(t, err)
 	tmpl, err = tmpl.Parse(`{{define "content"}}{{end}}`)
 	require.NoError(t, err)
 
 	var output bytes.Buffer
 	require.NoError(t, tmpl.ExecuteTemplate(&output, "base", nil))
-	assert.NotContains(t, output.String(), label)
-	assert.NotContains(t, output.String(), `</script><script>alert`)
+	return output.String()
+}
+
+func TestBaseTemplateEscapesProxyButtonLabelForJavaScript(t *testing.T) {
+	t.Parallel()
+
+	const label = `</script><script>alert("injected")</script>`
+	output := renderBaseTemplate(t, &funcsConfig{
+		ProxyEnabled:     true,
+		ProxyButtonLabel: label,
+	})
+	assert.NotContains(t, output, label)
+	assert.NotContains(t, output, `</script><script>alert`)
+}
+
+func TestBaseTemplateRendersUpdateStatus(t *testing.T) {
+	t.Parallel()
+
+	output := renderBaseTemplate(t, &funcsConfig{
+		UpdateChecker: stubUpdateChecker{status: UpdateStatus{
+			UpdateAvailable: true,
+			LatestVersion:   "v2.1.0",
+			UpgradeCommand:  "brew upgrade dagu",
+			RestartRequired: true,
+			RestartCommand:  `</script><script>alert("injected")</script>`,
+		}},
+	})
+
+	assert.Contains(t, output, `updateAvailable: "true" === "true"`)
+	assert.Contains(t, output, `latestVersion: "v2.1.0"`)
+	assert.Contains(t, output, `upgradeCommand: "brew upgrade dagu"`)
+	assert.Contains(t, output, `restartRequired: "true" === "true"`)
+	assert.NotContains(t, output, `</script><script>alert`)
+}
+
+func TestBaseTemplateRendersUpdateStatusWithoutChecker(t *testing.T) {
+	t.Parallel()
+
+	output := renderBaseTemplate(t, &funcsConfig{})
+
+	assert.Contains(t, output, `updateAvailable: "false" === "true"`)
+	assert.Contains(t, output, `upgradeCommand: ""`)
+	assert.Contains(t, output, `restartRequired: "false" === "true"`)
+	assert.Contains(t, output, `restartCommand: ""`)
 }
 
 func TestDefaultFunctionsExposeLicenseGraceEndsAt(t *testing.T) {

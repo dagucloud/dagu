@@ -71,6 +71,41 @@ func TestRenderDAGStatus_BasicSuccess(t *testing.T) {
 	require.Contains(t, output, "Result: Succeeded")
 }
 
+// How many times a repeated step ran is the main signal for a closed loop, and
+// a step that used up its limit still reads as succeeded.
+func TestRenderDAGStatus_RepeatCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		repeated  bool
+		doneCount int
+		want      string
+	}{
+		{name: "RepeatedManyTimes", repeated: true, doneCount: 5, want: "loop [succeeded] ×5\n"},
+		{name: "RepeatedOnce", repeated: true, doneCount: 1, want: "loop [succeeded]\n"},
+		{name: "NotRepeated", doneCount: 2, want: "loop [succeeded]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := &ir.DAGRunStatus{
+				Status: ir.Succeeded,
+				Nodes: []*ir.Node{{
+					Step:      ir.Step{Name: "loop"},
+					Status:    ir.NodeSucceeded,
+					Repeated:  tt.repeated,
+					DoneCount: tt.doneCount,
+				}},
+			}
+
+			output := newTestRenderer().RenderDAGStatus(&ir.DAG{Name: "test-dag"}, status)
+			require.Contains(t, output, tt.want)
+		})
+	}
+}
+
 func TestRenderDAGStatus_BuildDecision(t *testing.T) {
 	t.Parallel()
 	dag := &ir.DAG{Name: "build-dag"}
@@ -465,6 +500,237 @@ func TestRenderDAGStatus_WithSubRunsNoParams(t *testing.T) {
 	output := newTestRenderer().RenderDAGStatus(dag, status)
 
 	require.Contains(t, output, "sub-run-456")
+}
+
+func TestRenderDAGStatus_SubRunExpansion(t *testing.T) {
+	t.Parallel()
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "call-child"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "sub-run-1", DAGName: "child-dag"},
+				},
+			},
+		},
+	}
+	childStatus := &ir.DAGRunStatus{
+		Name:   "child-dag",
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "child-step"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "grand-run-1", DAGName: "grand-dag"},
+				},
+			},
+		},
+	}
+	grandStatus := &ir.DAGRunStatus{
+		Name:   "grand-dag",
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "grand-step"}, Status: ir.NodeSucceeded},
+		},
+	}
+	resolver := func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		switch sub.DAGRunID {
+		case "sub-run-1":
+			return childStatus, nil
+		case "grand-run-1":
+			return grandStatus, nil
+		}
+		return nil, fmt.Errorf("unknown sub-run")
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = resolver
+	}).RenderDAGStatus(dag, status)
+
+	require.Contains(t, output, "subdag: sub-run-1 (child-dag: succeeded)")
+	require.Contains(t, output, "child-step")
+	require.Contains(t, output, "subdag: grand-run-1 (grand-dag: succeeded)")
+	require.Contains(t, output, "grand-step")
+	require.NotContains(t, output, "Sub-runs not expanded")
+}
+
+func TestRenderDAGStatus_SubRunExpansionDepthCap(t *testing.T) {
+	t.Parallel()
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "call-child"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "sub-run-1", DAGName: "child-dag"},
+				},
+			},
+		},
+	}
+	childStatus := &ir.DAGRunStatus{
+		Name:   "child-dag",
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "child-step"}, Status: ir.NodeSucceeded},
+		},
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.MaxSubRunDepth = 0
+		c.SubRunResolver = func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			return childStatus, nil
+		}
+	}).RenderDAGStatus(dag, status)
+
+	require.Contains(t, output, "subdag: sub-run-1")
+	require.NotContains(t, output, "child-step")
+}
+
+func TestRenderDAGStatus_SubRunExpansionResolverError(t *testing.T) {
+	t.Parallel()
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "call-child"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "sub-run-1", DAGName: "child-dag"},
+				},
+			},
+		},
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			return nil, fmt.Errorf("no stored status")
+		}
+	}).RenderDAGStatus(dag, status)
+
+	// The bare reference line stays when the sub-run cannot be resolved.
+	require.Contains(t, output, "subdag: sub-run-1\n")
+	require.Contains(t, output, "Sub-runs not expanded: 1 not loaded\n")
+}
+
+// fanOutStatus returns a run whose single step started the given sub-runs.
+func fanOutStatus(subRunIDs ...string) *ir.DAGRunStatus {
+	subRuns := make([]ir.SubDAGRun, 0, len(subRunIDs))
+	for _, id := range subRunIDs {
+		subRuns = append(subRuns, ir.SubDAGRun{DAGRunID: id, DAGName: "child-dag"})
+	}
+	return &ir.DAGRunStatus{
+		Name:     "parent-dag",
+		DAGRunID: "root-run",
+		Status:   ir.Failed,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "fan-out"}, Status: ir.NodeFailed, SubRuns: subRuns},
+		},
+	}
+}
+
+// subRunStatus returns a sub-run status with one step named after the run.
+func subRunStatus(id string, status ir.Status) *ir.DAGRunStatus {
+	return &ir.DAGRunStatus{
+		Name:   "child-dag",
+		Status: status,
+		Nodes:  []*ir.Node{{Step: ir.Step{Name: "step-of-" + id}, Status: ir.NodeSucceeded}},
+	}
+}
+
+// A failed sub-run is expanded even when more succeeded sub-runs than the
+// budget allows come before it, and the notice counts what was left out.
+func TestRenderDAGStatus_SubRunExpansionFailedFirst(t *testing.T) {
+	t.Parallel()
+	ids := make([]string, 0, maxExpandedSubRuns+6)
+	for i := range maxExpandedSubRuns + 5 {
+		ids = append(ids, fmt.Sprintf("ok-%03d", i))
+	}
+	ids = append(ids, "bad-run")
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			if sub.DAGRunID == "bad-run" {
+				return subRunStatus(sub.DAGRunID, ir.Failed), nil
+			}
+			return subRunStatus(sub.DAGRunID, ir.Succeeded), nil
+		}
+	}).RenderDAGStatus(&ir.DAG{Name: "parent-dag"}, fanOutStatus(ids...))
+
+	require.Contains(t, output, "subdag: bad-run (child-dag: failed)")
+	require.Contains(t, output, "step-of-bad-run")
+	require.Contains(t, output, "step-of-ok-000")
+	require.NotContains(t, output, fmt.Sprintf("step-of-ok-%03d", maxExpandedSubRuns))
+	require.Contains(t, output, "Sub-runs not expanded: 5 not failed\n")
+	require.Contains(t, output, "dagu status parent-dag --run-id root-run --sub-run-id <sub-run-id>")
+}
+
+func TestRenderDAGStatus_SubRunExpansionFailedBudget(t *testing.T) {
+	t.Parallel()
+	ids := make([]string, 0, maxExpandedFailedSubRuns+2)
+	for i := range maxExpandedFailedSubRuns + 2 {
+		ids = append(ids, fmt.Sprintf("bad-%03d", i))
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			return subRunStatus(sub.DAGRunID, ir.Failed), nil
+		}
+	}).RenderDAGStatus(&ir.DAG{Name: "parent-dag"}, fanOutStatus(ids...))
+
+	require.Contains(t, output, "step-of-bad-000")
+	require.NotContains(t, output, fmt.Sprintf("step-of-bad-%03d", maxExpandedFailedSubRuns))
+	require.Contains(t, output, "Sub-runs not expanded: 2 failed\n")
+}
+
+// Sub-runs nested below the depth limit keep the reference line and are
+// reported without being looked up.
+func TestRenderDAGStatus_SubRunExpansionBelowDepth(t *testing.T) {
+	t.Parallel()
+	child := subRunStatus("child-run", ir.Succeeded)
+	child.Nodes[0].SubRuns = []ir.SubDAGRun{{DAGRunID: "grand-run", DAGName: "grand-dag"}}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.MaxSubRunDepth = 1
+		c.SubRunResolver = func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			if sub.DAGRunID == "child-run" {
+				return child, nil
+			}
+			return subRunStatus(sub.DAGRunID, ir.Succeeded), nil
+		}
+	}).RenderDAGStatus(&ir.DAG{Name: "parent-dag"}, fanOutStatus("child-run"))
+
+	require.Contains(t, output, "step-of-child-run")
+	require.Contains(t, output, "subdag: grand-run\n")
+	require.NotContains(t, output, "step-of-grand-run")
+	require.Contains(t, output, "Sub-runs not expanded: 1 below depth 1\n")
+}
+
+// Lookups are capped whether or not they succeed, and the sub-runs that were
+// not loaded are reported.
+func TestRenderDAGStatus_SubRunExpansionLookupCap(t *testing.T) {
+	t.Parallel()
+	ids := make([]string, 0, maxSubRunLookups+3)
+	for i := range maxSubRunLookups + 3 {
+		ids = append(ids, fmt.Sprintf("run-%04d", i))
+	}
+
+	lookups := 0
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			lookups++
+			return nil, fmt.Errorf("no stored status")
+		}
+	}).RenderDAGStatus(&ir.DAG{Name: "parent-dag"}, fanOutStatus(ids...))
+
+	require.Equal(t, maxSubRunLookups, lookups)
+	require.Contains(t, output, fmt.Sprintf("Sub-runs not expanded: %d not loaded\n", maxSubRunLookups+3))
 }
 
 func TestRenderDAGStatus_DisabledOutputs(t *testing.T) {
@@ -1291,4 +1557,18 @@ func TestRenderDAGStatus_SchedulerLogLastBranchWhenNoSteps(t *testing.T) {
 	output := newTestRenderer().RenderDAGStatus(dag, status)
 
 	require.Contains(t, output, "└─log:")
+}
+
+func TestWrapTextMultibyteBoundary(t *testing.T) {
+	t.Parallel()
+
+	// A word wider than maxWidth is split into chunks; a byte-width cut must
+	// not split a multibyte rune.
+	word := strings.Repeat("界", 20)
+	lines := wrapText(word, 20)
+	require.NotEmpty(t, lines)
+	for _, line := range lines {
+		assert.True(t, utf8.ValidString(line))
+	}
+	assert.Equal(t, word, strings.Join(lines, ""))
 }

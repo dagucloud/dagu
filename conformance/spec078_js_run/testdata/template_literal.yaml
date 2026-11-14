@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - action: js.run
+    stdout: result.out
+    with:
+      input:
+        city: Metropolis
+      script: |
+        const greeting = `Hello ${input.city}`;
+        return greeting;

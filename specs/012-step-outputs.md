@@ -19,7 +19,7 @@ steps:
 
 It does not define the existing singular `output` field, `stdout.outputs`, `outputs.write`, or the `outputs` schema in `dagu-action.yaml`.
 
-Object-form `output`, `stdout.outputs`, `outputs.write`, and the `outputs` schema in `dagu-action.yaml` publish named outputs of their own, and Spec 007 defines how references read them. String-form `output: VAR` captures a variable rather than a named step output, so Spec 007 does not read it.
+Object-form `output`, `stdout.outputs`, `outputs.write`, and the `outputs` schema in `dagu-action.yaml` publish named outputs of their own, and Spec 007 defines how references read them. String-form `output: VAR` captures a variable rather than a named step output, so Spec 007 does not read it, and the rules below about failed attempts do not govern it: the variable is set from the attempt's stdout even when the step fails, which Spec 018 relies on for the aggregate of a `foreach` whose items partly failed.
 
 Value-resolution references to published outputs are defined by [Spec 007: Value Resolution Steps](007-value-resolution-steps.md).
 
@@ -42,7 +42,7 @@ dagu validate <path/to/dag_file>
 Workflow execution uses:
 
 ```sh
-dagu run <workflow_target>
+dagu start <path/to/dag_file>
 ```
 
 Rules:
@@ -258,7 +258,7 @@ steps:
     run: ./deploy.sh '${steps.build.outputs.image_tag}'
 ```
 
-Warning-only missing dependency:
+Inferred dependency without `depends`:
 
 ```yaml
 steps:

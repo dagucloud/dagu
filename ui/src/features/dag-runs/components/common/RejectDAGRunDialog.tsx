@@ -21,8 +21,11 @@ import { I18nProps } from '@/i18n/I18nProps';
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The name and the ID of the root run, for a step of a sub-run. */
   dagName: string;
   dagRunId: string;
+  /** The sub-run that holds the step, when the step is not in the root run. */
+  subDAGRunId?: string;
   stepName: string;
   onSettled: () => void;
 };
@@ -32,6 +35,7 @@ export function RejectDAGRunDialog({
   onOpenChange,
   dagName,
   dagRunId,
+  subDAGRunId,
   stepName,
   onSettled,
 }: Props) {
@@ -52,16 +56,28 @@ export function RejectDAGRunDialog({
     const rejectionReason = reason || undefined;
     handleOpenChange(false);
     try {
-      const { error } = await client.POST(
-        '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
-        {
-          params: {
-            path: { name: dagName, dagRunId, stepName },
-            query: { remoteNode },
-          },
-          body: { reason: rejectionReason },
-        }
-      );
+      const body = { reason: rejectionReason };
+      const { error } = subDAGRunId
+        ? await client.POST(
+            '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/reject',
+            {
+              params: {
+                path: { name: dagName, dagRunId, subDAGRunId, stepName },
+                query: { remoteNode },
+              },
+              body,
+            }
+          )
+        : await client.POST(
+            '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
+            {
+              params: {
+                path: { name: dagName, dagRunId, stepName },
+                query: { remoteNode },
+              },
+              body,
+            }
+          );
 
       if (error) {
         showError(
@@ -85,7 +101,7 @@ export function RejectDAGRunDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[450px]">
         <DialogHeader>
-          <DialogTitle><I18nText text={"Reject DAG Run"} /></DialogTitle>
+          <DialogTitle><I18nText text={"Reject run"} /></DialogTitle>
         </DialogHeader>
         <div className="py-2">
           <label htmlFor="rejection-reason" className="sr-only">

@@ -28,8 +28,11 @@ func TestEnqueueWebhookRun_PropagatesFindAttemptErrors(t *testing.T) {
 		t.TempDir(),
 		t.TempDir(),
 		"",
+		"",
+		"ci.yaml",
 		&ir.DAG{Name: "ci"},
 		"run-1",
+		"",
 		"",
 		time.Now(),
 	)
@@ -55,10 +58,12 @@ func TestEnqueueCatchupRunPropagatesFindAttemptErrors(t *testing.T) {
 		"run-1",
 		ir.TriggerTypeCatchUp,
 		time.Now(),
+		ir.ScheduleWindow{},
+		"",
 		"",
 	)
 	require.ErrorIs(t, err, storeErr)
-	assert.Contains(t, err.Error(), "failed to check existing catchup run")
+	assert.Contains(t, err.Error(), "failed to check existing run")
 }
 
 type findAttemptErrStore struct {

@@ -1,0 +1,9 @@
+calendar: jp-banking
+schedule:
+  - "CRON_TZ=Asia/Tokyo 0 18 * * *"
+  - expression: "CRON_TZ=Asia/Tokyo 0 23 * * *"
+    business_days: [3, -1]
+  - expression: "0 3 * * *"
+    calendar: none
+steps:
+  - run: echo scheduled

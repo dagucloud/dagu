@@ -1,0 +1,10 @@
+consts:
+  - known: value
+ssh:
+  host: ${consts.unknown_host}
+  user: deploy
+  key: ~/.ssh/id_ed25519
+steps:
+  - action: ssh.run
+    with:
+      command: echo hello

@@ -42,6 +42,7 @@ func TestArchiveValidation(t *testing.T) {
 	for _, tc := range []struct{ command, file, message string }{
 		{"validate", "missing_source.yaml", "source"},
 		{"validate", "negative_strip_components.yaml", "minimum"},
+		{"validate", "unknown_field.yaml", `unexpected additional properties ["destinations"]; did you mean "destination" instead of "destinations"?`},
 		{"start", "missing_destination_for_create.yaml", "destination is required for create"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
@@ -52,4 +53,18 @@ func TestArchiveValidation(t *testing.T) {
 			result.ExpectStderrContains(tc.message)
 		})
 	}
+}
+
+// Relative paths resolve under the step working directory, and extraction
+// without a destination writes into it, not into the process directory.
+func TestArchiveRelativeWorkingDir(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("work/data/a.txt", "alpha")
+	dagu.Run("start", "relative_working_dir.yaml").ExpectExitCode(0)
+	dagu.ExpectFileContent("work/data/a.txt", "alpha")
+	_, err := os.Stat(dagu.ProjectPath("work/out/data.tar.gz"))
+	require.NoError(t, err)
+	dagu.ExpectNoFile("out")
+	dagu.ExpectNoFile("data")
 }

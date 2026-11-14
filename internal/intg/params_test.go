@@ -183,6 +183,47 @@ steps:
 	assert.JSONEq(t, `["region=us-west-2","count=5","debug=true"]`, subOutputs.Metadata.Params)
 }
 
+// A dag.run step that passes no params must still enforce the child's
+// required params instead of running the child with the value unset.
+func TestInlineParams_LocalSubDAGFailsWhenRequiredMissing(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dagFile := th.CreateDAGFile(t, "inline-subdag-required.yaml", `
+name: inline-subdag-required-parent
+steps:
+  - name: invoke-child
+    action: dag.run
+    with:
+      dag: inline-subdag-required-child
+
+---
+name: inline-subdag-required-child
+params:
+  - name: region
+    type: string
+    required: true
+steps:
+  - name: should-not-run
+    run: echo "region=$region"
+`)
+
+	runID := uuid.Must(uuid.NewV7()).String()
+	err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+		Args: []string{"start", "--run-id", runID, dagFile},
+	})
+	require.Error(t, err)
+
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef("inline-subdag-required-parent", runID))
+	require.NoError(t, err)
+	parentStatus, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.Equal(t, ir.Failed, parentStatus.Status)
+	require.Len(t, parentStatus.Nodes, 1)
+	require.Equal(t, ir.NodeFailed, parentStatus.Nodes[0].Status)
+	assert.Contains(t, parentStatus.Nodes[0].Error, "region")
+}
+
 func readAttemptStatusAndOutputs(t *testing.T, th test.Command, dagName, runID string) (*ir.DAGRunStatus, *ir.DAGRunOutputs) {
 	t.Helper()
 

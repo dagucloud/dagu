@@ -1,0 +1,52 @@
+# Graph: two extractions run in parallel, then merge, validate and load.
+description: Extract orders and users in parallel, merge them, validate the result and load it.
+
+schedule:
+  - 0 9 * * *
+  - 0 9 * * 1-5
+
+params:
+  - TARGET: staging
+type: graph
+
+steps:
+  - id: extract_orders
+    name: extract orders
+    run: echo '{"orders":42}'
+    output:
+      orders:
+        from: stdout
+        decode: json
+
+  - id: extract_users
+    name: extract users
+    run: echo '{"users":7}'
+    output:
+      users:
+        from: stdout
+        decode: json
+
+  - id: merge
+    name: merge
+    run: echo "merging ${steps.extract_orders.outputs.orders} and ${steps.extract_users.outputs.users}"
+    depends: [extract_orders, extract_users]
+
+  - id: merge_3
+    name: merge_3
+    run: echo "merging ${steps.extract_orders.outputs.orders} and ${steps.extract_users.outputs.users}"
+    depends: [extract_orders, extract_users]
+
+  - id: merge_2
+    name: merge_2
+    run: echo "merging ${steps.extract_orders.outputs.orders} and ${steps.extract_users.outputs.users}"
+    depends: [extract_orders, extract_users]
+
+  - id: validate
+    name: validate
+    run: echo "validating for ${params.TARGET}"
+    depends: [merge]
+
+  - id: load
+    name: load
+    run: echo "loaded into ${params.TARGET}"
+    depends: [validate]

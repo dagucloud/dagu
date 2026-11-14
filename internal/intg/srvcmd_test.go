@@ -93,11 +93,9 @@ steps:
 func TestServer_BasePath(t *testing.T) {
 	listener, port := test.ReserveServerListener(t)
 	configFile := writeServerConfig(t, port, "/dagu", false)
-	stopServer := startServer(t, configFile, port, "/dagu", listener)
+	startServer(t, configFile, port, "/dagu", listener)
 
 	requireHealthy(t, fmt.Sprintf("http://127.0.0.1:%s/dagu/api/v1/health", port))
-
-	stopServer()
 }
 
 // TestServer_RemoteNode verifies that remote node health checks work with and without a base path.
@@ -113,12 +111,10 @@ func TestServer_RemoteNode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			listener, port := test.ReserveServerListener(t)
 			configFile := writeServerConfig(t, port, tc.basePath, true)
-			stopServer := startServer(t, configFile, port, tc.basePath, listener)
+			startServer(t, configFile, port, tc.basePath, listener)
 
 			url := fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health?remoteNode=dev", port, tc.basePath)
 			requireHealthy(t, url)
-
-			stopServer()
 		})
 	}
 }
@@ -131,6 +127,7 @@ func writeServerConfig(t *testing.T, port, basePath string, includeRemoteNodes b
 	configContent := fmt.Sprintf(`host: "127.0.0.1"
 port: %s
 base_path: "%s"
+skip_examples: true
 auth:
   mode: none
 `, port, basePath)
@@ -146,27 +143,26 @@ auth:
 	return configFile
 }
 
-func startServer(t *testing.T, configFile, port, basePath string, listener net.Listener) func() {
+func startServer(t *testing.T, configFile, port, basePath string, listener net.Listener) {
 	t.Helper()
 	th := test.SetupCommand(t)
 
 	serverErr := make(chan error, 1)
-	go func() {
-		serverErr <- th.ExecuteCommand(cmd.Server(frontend.WithListener(listener)), test.CmdTest{
-			Args:        []string{"server", "--config", configFile, "--port=" + port},
-			ExpectedOut: []string{"Server is starting"},
-		})
-	}()
-
-	waitForServer(t, fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health", port, basePath))
-
-	return func() {
+	t.Cleanup(func() {
 		th.Cancel()
 		err := <-serverErr
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			require.NoError(t, err)
 		}
-	}
+	})
+	go func() {
+		serverErr <- th.ExecuteCommand(cmd.Server(frontend.WithListener(listener)), test.CmdTest{
+			Args:        []string{"server", "--config", configFile, "--port=" + port, "--dagu-home", filepath.Dir(th.Config.Paths.DataDir)},
+			ExpectedOut: []string{"Server is starting"},
+		})
+	}()
+
+	waitForServer(t, fmt.Sprintf("http://127.0.0.1:%s%s/api/v1/health", port, basePath))
 }
 
 func waitForServer(t *testing.T, url string) {

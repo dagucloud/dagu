@@ -79,9 +79,6 @@ function extractFileFromTarball(tarballBuffer, filepath) {
 }
 
 async function downloadBinaryFromNpm() {
-  console.log({
-    getPlatformPackage,
-  });
   // Determine package name for this platform
   const platformSpecificPackageName = getPlatformPackage();
   if (!platformSpecificPackageName) {
@@ -93,8 +90,6 @@ async function downloadBinaryFromNpm() {
   // Download the tarball of the right binary distribution package
   const tarballDownloadBuffer = await makeRequest(url);
   const tarballBuffer = zlib.unzipSync(tarballDownloadBuffer);
-
-  console.log(fallbackBinaryPath);
 
   // Extract binary from package and write to disk
   fs.writeFileSync(
@@ -109,7 +104,10 @@ if (!isPlatformSpecificPackageInstalled()) {
   console.log(
     "Platform specific package not found. Will manually download binary."
   );
-  downloadBinaryFromNpm();
+  downloadBinaryFromNpm().catch((error) => {
+    console.error(`Failed to install the Dagu binary: ${error.message}`);
+    process.exitCode = 1;
+  });
 } else {
   console.log(
     "Platform specific package already installed. Skipping manual binary download."

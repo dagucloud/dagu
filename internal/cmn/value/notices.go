@@ -24,12 +24,12 @@ type ValueReferenceNoticeReason string
 const (
 	ValueReferenceReasonUnknownStepID        ValueReferenceNoticeReason = "unknown_step_id"
 	ValueReferenceReasonUnknownOutputName    ValueReferenceNoticeReason = "unknown_output_name"
-	ValueReferenceReasonMissingDependency    ValueReferenceNoticeReason = "missing_dependency"
 	ValueReferenceReasonSelfReference        ValueReferenceNoticeReason = "self_reference"
 	ValueReferenceReasonNamespaceUnavailable ValueReferenceNoticeReason = "namespace_unavailable"
 	ValueReferenceReasonUnknownContextField  ValueReferenceNoticeReason = "unknown_context_field"
 	ValueReferenceReasonUnknownEnvBinding    ValueReferenceNoticeReason = "unknown_env_binding"
 	ValueReferenceReasonUnknownConstName     ValueReferenceNoticeReason = "unknown_const_name"
+	ValueReferenceReasonUnknownDateName      ValueReferenceNoticeReason = "unknown_date_name"
 )
 
 // ValueReferenceNoticeClass separates references that no run can resolve from
@@ -54,10 +54,10 @@ func (r ValueReferenceNoticeReason) Class() ValueReferenceNoticeClass {
 	switch r {
 	case ValueReferenceReasonUnknownStepID,
 		ValueReferenceReasonUnknownOutputName,
-		ValueReferenceReasonMissingDependency,
 		ValueReferenceReasonSelfReference,
 		ValueReferenceReasonUnknownContextField,
-		ValueReferenceReasonUnknownConstName:
+		ValueReferenceReasonUnknownConstName,
+		ValueReferenceReasonUnknownDateName:
 		return NoticeClassDefect
 	case ValueReferenceReasonNamespaceUnavailable,
 		ValueReferenceReasonUnknownEnvBinding:
@@ -182,15 +182,13 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 		message = fmt.Sprintf("%s was left unchanged because the referenced step id does not exist when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonUnknownOutputName:
 		message = fmt.Sprintf("%s was left unchanged because the referenced output name is not declared when %s was evaluated.", token, evaluatedField)
-	case ValueReferenceReasonMissingDependency:
-		message = fmt.Sprintf("%s was left unchanged because the owning step does not depend on the producing step when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonSelfReference:
 		message = fmt.Sprintf("%s was left unchanged because a step cannot reference its own output when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonNamespaceUnavailable:
 		message = fmt.Sprintf("%s was left unchanged because %s has no step-output lookup scope.", token, evaluatedField)
 	case ValueReferenceReasonUnknownContextField:
 		message = fmt.Sprintf("%s was left unchanged because the context field is not defined when %s was evaluated.", token, evaluatedField)
-	case ValueReferenceReasonUnknownEnvBinding, ValueReferenceReasonUnknownConstName:
+	case ValueReferenceReasonUnknownEnvBinding, ValueReferenceReasonUnknownConstName, ValueReferenceReasonUnknownDateName:
 		// Not reachable from a step-output reference; keep the generic message.
 	}
 	class := reason.Class()
@@ -208,15 +206,16 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 	})
 }
 
-// ReportUnresolvedEnvExpansionNotices reports missing simple shell-style env references in input.
-func ReportUnresolvedEnvExpansionNotices(input, field string, scope *EnvScope, sink ValueReferenceNoticeSink) {
+// ReportUnresolvedEnvExpansionNotices reports missing simple shell-style env
+// references in input, read as a value of field.
+func ReportUnresolvedEnvExpansionNotices(input string, field Field, scope *EnvScope, sink ValueReferenceNoticeSink) {
 	if sink == nil {
 		return
 	}
 	matches := reVarSubstitution.FindAllStringSubmatchIndex(input, -1)
 	for _, loc := range matches {
 		match := input[loc[0]:loc[1]]
-		if isSingleQuotedVar(input, loc[0], loc[1]) || isEscapedDollar(input, loc[0]) {
+		if isSingleQuotedVar(input, loc[0], loc[1]) || (field.escapesDollar() && isEscapedDollar(input, loc[0])) {
 			continue
 		}
 
@@ -227,7 +226,7 @@ func ReportUnresolvedEnvExpansionNotices(input, field string, scope *EnvScope, s
 		if _, found := scope.Get(key); found {
 			continue
 		}
-		addUnresolvedReferenceNotice(sink, field, match, newNoticeReasonError(
+		addUnresolvedReferenceNotice(sink, field.path, match, newNoticeReasonError(
 			ValueReferenceReasonUnknownEnvBinding,
 			fmt.Sprintf("unknown env.%s binding", key),
 		))

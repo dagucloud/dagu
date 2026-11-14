@@ -53,6 +53,36 @@ func TestCreateCommandShimKeepsMatchingSymlink(t *testing.T) {
 	assert.Equal(t, target, linkTarget)
 }
 
+func TestCreateCommandShimResolvesSymlinkedTarget(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink behavior is platform-specific")
+	}
+
+	dir := t.TempDir()
+	pkgBin := filepath.Join(dir, "pkg", "bin")
+	realScript := filepath.Join(dir, "pkg", "lib", "npm-cli.js")
+	require.NoError(t, os.MkdirAll(pkgBin, 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Dir(realScript), 0o750))
+	require.NoError(t, os.WriteFile(realScript, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	target := filepath.Join(pkgBin, "npm")
+	require.NoError(t, os.Symlink("../lib/npm-cli.js", target))
+	binDir := filepath.Join(dir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o750))
+	// A dangling shim left by an earlier version must be replaced.
+	require.NoError(t, os.Symlink("../lib/npm-cli.js", filepath.Join(binDir, "npm")))
+
+	shim, err := createCommandShim(binDir, "npm", target, "linux/amd64")
+
+	require.NoError(t, err)
+	info, err := os.Stat(shim)
+	require.NoError(t, err, "shim must not dangle")
+	assert.NotZero(t, info.Mode()&0o111)
+	linkTarget, err := os.Readlink(shim)
+	require.NoError(t, err)
+	assert.Equal(t, target, linkTarget)
+}
+
 func TestCommandShimNameAddsWindowsExecutableExtension(t *testing.T) {
 	t.Parallel()
 

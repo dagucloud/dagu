@@ -1,0 +1,15 @@
+params:
+  - name: command
+    type: string
+    required: true
+  - name: prefix
+    type: string
+    required: true
+working_dir: .
+steps:
+  - id: loop
+    run: |
+      while IFS= read -r name; do
+        "$DAGU_EXECUTABLE" "$command" --run-id="$prefix-$name" params_stdin.yaml || exit 1
+        printf '%s\n' "$name" >> stdin_loop.out
+      done < stdin_loop.txt

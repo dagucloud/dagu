@@ -24,27 +24,26 @@ const codeBlockInnerStyle: CSSProperties = {
   color: 'var(--foreground)',
 };
 
+// The base styles size headings for pages and drop list markers, so the
+// rendered elements are restyled here to read at the size of the text.
+const elementStyles = [
+  '[&_p]:my-1 [&_p]:leading-relaxed',
+  '[&_pre]:my-1',
+  '[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-4',
+  '[&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-4',
+  '[&_li]:my-0.5',
+  '[&_:is(h1,h2,h3,h4,h5,h6)]:mt-2 [&_:is(h1,h2,h3,h4,h5,h6)]:mb-1 [&_:is(h1,h2,h3,h4,h5,h6)]:font-semibold',
+  '[&_h1]:text-[1.15em] [&_h2]:text-[1.1em] [&_:is(h3,h4,h5,h6)]:text-[1em]',
+  '[&_blockquote]:my-1 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-2 [&_blockquote]:text-muted-foreground',
+  '[&_table]:my-1 [&_table]:text-xs [&_:is(th,td)]:border [&_:is(th,td)]:border-border [&_:is(th,td)]:px-1.5 [&_:is(th,td)]:py-0.5',
+  '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2',
+  '[&>:first-child]:mt-0 [&>:last-child]:mb-0',
+];
+
 // Compact markdown renderer for chat messages
 export function Markdown({ content, className }: MarkdownProps) {
   return (
-    <div
-      className={cn(
-        'text-xs prose prose-sm prose-slate dark:prose-invert max-w-none break-words',
-        // Compact spacing
-        'prose-p:my-1 prose-p:leading-relaxed',
-        'prose-pre:my-1 prose-pre:p-2 prose-pre:text-xs prose-pre:bg-muted prose-pre:text-foreground prose-pre:rounded prose-pre:border prose-pre:border-border',
-        'prose-code:text-xs prose-code:bg-muted prose-code:text-foreground prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none',
-        'prose-ul:my-1 prose-ul:pl-4',
-        'prose-ol:my-1 prose-ol:pl-4',
-        'prose-li:my-0.5',
-        'prose-headings:my-1 prose-headings:font-semibold',
-        'prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs',
-        'prose-blockquote:my-1 prose-blockquote:pl-2 prose-blockquote:border-l-2',
-        'prose-table:my-1 prose-table:text-xs',
-        'prose-a:text-violet-700 dark:prose-a:text-violet-400',
-        className
-      )}
-    >
+    <div className={cn('text-xs break-words', elementStyles, className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

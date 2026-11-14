@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -45,6 +46,7 @@ func ValidateSteps(dag *ir.DAG) error {
 	resolveStepDependencies(dag)
 	resolveForeachStepDependencies(dag.Steps)
 	validateDependenciesExist(dag, stepNames, &errs)
+	inferStepOutputDependencies(dag, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
 	validateHumanTaskRewindTargets(dag, stepNames, &errs)
 	validateBuildSteps(dag, &errs)
@@ -171,7 +173,7 @@ func validateBuildRuntimeOutputReferences(dag *ir.DAG, errs *ir.ErrorList) {
 	}
 	for _, field := range ReferenceFields(dag) {
 		for _, producer := range producers {
-			if !cmnvalue.HasStepRuntimeOutputReference(field.Value, producer.ID) {
+			if !field.Field.HasStepRuntimeOutputReference(field.Value, producer.ID) {
 				continue
 			}
 			*errs = append(*errs, ir.NewValidationError(field.Path, field.Value,
@@ -291,7 +293,7 @@ func validateNoAttemptOutputCondition(errs *ir.ErrorList, field string, conditio
 	}
 	if containsAttemptOutputReference(condition.Condition) ||
 		containsAttemptOutputReference(condition.Eval) ||
-		containsAttemptOutputReference(condition.Expected) {
+		slices.ContainsFunc(condition.ExpectedPatterns(), containsAttemptOutputReference) {
 		*errs = append(*errs, ir.NewValidationError(field, condition,
 			fmt.Errorf("path output references are available only during executor attempts")))
 	}
@@ -458,29 +460,10 @@ func validateHumanTaskRewindTargets(dag *ir.DAG, stepNames map[string]struct{}, 
 }
 
 func isUpstreamDependency(stepByName map[string]ir.Step, stepName, target string) bool {
-	start, ok := stepByName[stepName]
-	if !ok {
-		return false
-	}
-
-	queue := append([]string(nil), start.Depends...)
-	visited := make(map[string]struct{}, len(queue))
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if current == target {
-			return true
-		}
-		if _, ok := visited[current]; ok {
-			continue
-		}
-		visited[current] = struct{}{}
-		if step, ok := stepByName[current]; ok {
-			queue = append(queue, step.Depends...)
-		}
-	}
-
-	return false
+	return reachesStep(func(name string) (ir.Step, bool) {
+		step, ok := stepByName[name]
+		return step, ok
+	}, stepName, target)
 }
 
 func validateStep(step ir.Step) ir.ErrorList {
@@ -538,6 +521,10 @@ func validateParallelConfig(step ir.Step) ir.ErrorList {
 
 	if len(step.Parallel.Items) == 0 && step.Parallel.Variable == "" {
 		errs = append(errs, ir.NewValidationError("parallel", step.Parallel, fmt.Errorf("parallel must have either items array or variable reference")))
+	}
+
+	if step.Parallel.Separator != "" && step.Parallel.Variable == "" {
+		errs = append(errs, ir.NewValidationError("parallel.separator", step.Parallel.Separator, fmt.Errorf("parallel.separator requires a string item source")))
 	}
 
 	return errs
@@ -628,6 +615,21 @@ func validateHumanTaskStep(step ir.Step) error {
 	if len(step.Commands) > 0 || step.Command != "" || step.CmdWithArgs != "" || step.CmdArgsSys != "" ||
 		step.ShellCmdArgs != "" || step.Script != "" || len(step.Args) > 0 {
 		return ir.NewValidationError("command", nil, fmt.Errorf("human task cannot execute commands"))
+	}
+	return nil
+}
+
+// ValidateStepID reports whether id can identify a step: it starts with a
+// letter, holds only letters, digits, and underscores, is not too long,
+// and is not a reserved word.
+func ValidateStepID(id string) error {
+	switch {
+	case !isValidStepID(id):
+		return fmt.Errorf("invalid step ID format: must match %s (use '_' instead of '-')", stepIDPattern.String())
+	case len(id) > maxStepIDLen:
+		return ir.ErrStepIDTooLong
+	case isReservedWord(id):
+		return fmt.Errorf("step ID '%s' is a reserved word", id)
 	}
 	return nil
 }

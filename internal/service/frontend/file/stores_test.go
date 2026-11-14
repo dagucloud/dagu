@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 )
 
 func storesTestConfig(tmpDir string, ia config.InitialAdmin) *config.Config {
@@ -295,4 +296,49 @@ func TestNewWikiStoreDataLayoutCompatibility(t *testing.T) {
 		assert.Nil(t, wikiStore)
 		assert.Contains(t, err.Error(), "both")
 	})
+}
+
+// TestStoresBumpDAGChangeMarker verifies that editing the global or a workspace
+// base configuration signals DAG changes to schedulers on other hosts.
+func TestStoresBumpDAGChangeMarker(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		update func(t *testing.T, stores frontend.Stores)
+	}{
+		{
+			name: "GlobalBaseConfig",
+			update: func(t *testing.T, stores frontend.Stores) {
+				require.NotNil(t, stores.BaseConfig)
+				require.NoError(t, stores.BaseConfig.UpdateSpec(t.Context(), []byte("env:\n  - A=1\n")))
+			},
+		},
+		{
+			name: "WorkspaceBaseConfig",
+			update: func(t *testing.T, stores frontend.Stores) {
+				store, err := stores.WorkspaceBaseConfig("team")
+				require.NoError(t, err)
+				require.NoError(t, store.UpdateSpec(t.Context(), []byte("env:\n  - A=1\n")))
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			cfg := storesTestConfig(tmpDir, config.InitialAdmin{})
+			cfg.Paths.DAGsDir = filepath.Join(tmpDir, "dags")
+			cfg.Paths.BaseConfig = filepath.Join(tmpDir, "base.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Join(cfg.Paths.DAGsDir, "workspaces", "team"), 0o750))
+
+			stores, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+			require.NoError(t, err)
+
+			markerPath := persisfile.DAGChangeMarkerPath(cfg)
+			require.NotEmpty(t, markerPath)
+			require.NoFileExists(t, markerPath)
+			tc.update(t, stores)
+			assert.FileExists(t, markerPath)
+		})
+	}
 }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -61,6 +62,82 @@ func (f *fakePolicyNotificationTransport) ShouldDeliverNotificationBatch(batch N
 		return true
 	}
 	return f.shouldDeliverFn(batch)
+}
+
+// partialProgressTransport delivers to dest-1. Its first flush acknowledges
+// run-1 and then fails once beforeFail returns; later flushes succeed. It
+// records the run IDs of every flushed batch.
+type partialProgressTransport struct {
+	beforeFail func(context.Context)
+
+	mu      sync.Mutex
+	batches [][]string
+}
+
+func (f *partialProgressTransport) NotificationDestinations() []string {
+	return []string{"dest-1"}
+}
+
+func (f *partialProgressTransport) FlushNotificationBatch(context.Context, string, NotificationBatch, bool) bool {
+	return false
+}
+
+func (f *partialProgressTransport) FlushNotificationBatchWithProgress(ctx context.Context, _ string, batch NotificationBatch, _ bool, delivered func(NotificationEvent)) bool {
+	var runIDs []string
+	for _, event := range batch.Events {
+		runIDs = append(runIDs, event.Status.DAGRunID)
+	}
+	f.mu.Lock()
+	f.batches = append(f.batches, runIDs)
+	first := len(f.batches) == 1
+	f.mu.Unlock()
+	if !first {
+		return true
+	}
+	for _, event := range batch.Events {
+		if event.Status.DAGRunID == "run-1" {
+			delivered(event)
+		}
+	}
+	if f.beforeFail != nil {
+		f.beforeFail(ctx)
+	}
+	return false
+}
+
+func (f *partialProgressTransport) flushedBatches() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.batches)
+}
+
+// notifyTwoFailedRuns queues failures for run-1 and run-2, which land in one
+// urgent batch.
+func notifyTwoFailedRuns(t *testing.T, monitor *NotificationMonitor) (*ir.DAGRunStatus, *ir.DAGRunStatus) {
+	t.Helper()
+	first := &ir.DAGRunStatus{Name: "briefing", Status: ir.Failed, DAGRunID: "run-1", AttemptID: "attempt-1"}
+	second := &ir.DAGRunStatus{Name: "briefing", Status: ir.Failed, DAGRunID: "run-2", AttemptID: "attempt-2"}
+	require.True(t, monitor.NotifyCompletion(first))
+	require.True(t, monitor.NotifyCompletion(second))
+	return first, second
+}
+
+// startPartialProgressMonitor runs a monitor over transport and waits until it
+// has loaded its state, which would otherwise replace events queued earlier.
+func startPartialProgressMonitor(t *testing.T, transport *partialProgressTransport) (*NotificationMonitor, func()) {
+	t.Helper()
+	cfg := DefaultNotificationMonitorConfig()
+	cfg.UrgentWindow = 50 * time.Millisecond
+	cfg.PollInterval = 20 * time.Millisecond
+	cfg.SeenEvictInterval = time.Hour
+	monitor := NewNotificationMonitor(nil, nil, nil, transport, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	stop := testutil.StartContextRunner(t, monitor)
+	require.Eventually(t, func() bool {
+		monitor.stateMu.Lock()
+		defer monitor.stateMu.Unlock()
+		return monitor.state.Bootstrapped
+	}, time.Second, 10*time.Millisecond)
+	return monitor, stop
 }
 
 type stubNotificationStore struct {
@@ -990,6 +1067,54 @@ func TestNotificationMonitor_SuccessEventsAreAcknowledgedWithoutDelivery(t *test
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Empty(t, calls, "successful completions should be acknowledged without transport delivery")
+}
+
+// A flush that fails after acknowledging some events retries only the rest,
+// so a slow event late in a batch cannot make the earlier ones repeat forever.
+func TestNotificationMonitor_RetrySkipsAcknowledgedEvents(t *testing.T) {
+	t.Parallel()
+
+	transport := &partialProgressTransport{}
+	monitor, stopMonitor := startPartialProgressMonitor(t, transport)
+	defer stopMonitor()
+	first, second := notifyTwoFailedRuns(t, monitor)
+
+	require.Eventually(t, func() bool {
+		return monitor.IsDelivered("dest-1", first) && monitor.IsDelivered("dest-1", second)
+	}, 2*time.Second, 10*time.Millisecond)
+
+	batches := transport.flushedBatches()
+	require.Len(t, batches, 2)
+	assert.ElementsMatch(t, []string{"run-1", "run-2"}, batches[0])
+	assert.Equal(t, []string{"run-2"}, batches[1])
+}
+
+// Shutdown retries the batch that was in flight, without the events the
+// interrupted flush already acknowledged.
+func TestNotificationMonitor_ShutdownRetrySkipsAcknowledgedEvents(t *testing.T) {
+	t.Parallel()
+
+	interrupted := make(chan struct{})
+	transport := &partialProgressTransport{beforeFail: func(ctx context.Context) {
+		close(interrupted)
+		<-ctx.Done()
+	}}
+	monitor, stopMonitor := startPartialProgressMonitor(t, transport)
+	first, second := notifyTwoFailedRuns(t, monitor)
+
+	select {
+	case <-interrupted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("batch was never flushed")
+	}
+	stopMonitor()
+
+	assert.True(t, monitor.IsDelivered("dest-1", first))
+	assert.True(t, monitor.IsDelivered("dest-1", second))
+	batches := transport.flushedBatches()
+	require.Len(t, batches, 2)
+	assert.ElementsMatch(t, []string{"run-1", "run-2"}, batches[0])
+	assert.Equal(t, []string{"run-2"}, batches[1])
 }
 
 func TestNotificationMonitor_PartiallySucceededEventsCanBeDeliveredByOptInTransport(t *testing.T) {

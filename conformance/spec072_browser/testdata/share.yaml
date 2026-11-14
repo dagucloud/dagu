@@ -1,0 +1,32 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+steps:
+  - id: sign_in
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/session/login
+      browser:
+        share: shop
+      do:
+        - expect: {text: "Welcome back"}
+  # With no url, the step starts on the page the step before left, and the
+  # sign-in, whose cookie lasts only as long as the browser, carries over.
+  - id: orders
+    depends: sign_in
+    action: browser.run
+    with:
+      browser:
+        share: shop
+      do:
+        - expect: {url: "/session/login"}
+        - goto: ${SHOP_URL}/session/orders
+        - expect: {text: "Signed in"}
+  # A step that shares no browser starts signed out.
+  - id: alone
+    depends: orders
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/session/orders
+      do:
+        - expect: {text: "Please sign in"}

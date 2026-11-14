@@ -172,6 +172,16 @@ message Task {
   // Resolved "KEY=value" pairs the parent opted to share with the child run via
   // the step's pass_env field.
   repeated string passed_envs = 41;
+  // How the DAG run was initiated. Workers record this on a started run.
+  string trigger_type = 42;
+  // Window the slot at schedule_time owns: RFC 3339 bounds and the zone of
+  // the slot's schedule. Empty when unknown.
+  string interval_start = 43;
+  string next_scheduled_at = 44;
+  string schedule_timezone = 45;
+  // The run's dates as JSON, resolved when the run was created. Empty when
+  // the run resolves them as it starts.
+  string dates_json = 46;
 }
 
 enum Operation {
@@ -217,6 +227,39 @@ message HeartbeatRequest {
   string worker_id = 1;
   map<string, string> labels = 2;
   WorkerStats stats = 3;
+  string host = 4;            // Name of the machine the worker runs on
+  MachineSample machine = 5;  // Unset until the worker samples its machine
+}
+
+// A reading of the resources of the machine a worker runs on, or of its
+// container when the container has limits. An unset part failed to read.
+message MachineSample {
+  int32 cpus = 1;        // Logical CPUs of the machine
+  double cpu_limit = 2;  // CPUs the container may use; 0 without a limit
+  // CPU use from 0 to 100 of cpu_limit when set, averaged over the last
+  // minute, and the highest sample in that minute.
+  optional double cpu_percent = 3;
+  optional double cpu_peak_percent = 4;
+  MachineUsage memory = 5;
+  MachineUsage disk = 6;      // Disk holding the data directory
+  MachineUsage log_disk = 7;  // Disk holding the log directory, when another
+  MachineLoad load = 8;
+}
+
+// How much of a memory or a disk is in use.
+message MachineUsage {
+  double used_percent = 1;
+  uint64 used_bytes = 2;
+  uint64 total_bytes = 3;
+  bool limited = 4;  // Memory counted against a container's limit
+  optional double inodes_used_percent = 5;
+}
+
+// System load averaged over 1, 5, and 15 minutes.
+message MachineLoad {
+  double load1 = 1;
+  double load5 = 2;
+  double load15 = 3;
 }
 
 // Response message for heartbeat.
