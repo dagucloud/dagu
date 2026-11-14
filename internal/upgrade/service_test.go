@@ -186,3 +186,36 @@ func TestKeepRunsCommandsKeepRuns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "daemon-reload\n--user daemon-reload\n", string(recorded))
 }
+
+// Only the process the service runs is restarted by it; a Dagu started by
+// hand on the same machine is not.
+func TestRunsUnderService(t *testing.T) {
+	env := func(vars map[string]string) func(string) string {
+		return func(key string) string { return vars[key] }
+	}
+	none := env(nil)
+
+	tests := []struct {
+		name   string
+		goos   string
+		getenv func(string) string
+		cgroup string
+		want   bool
+	}{
+		{name: "systemd system unit", goos: "linux", getenv: none, cgroup: "0::/system.slice/dagu.service\n", want: true},
+		{name: "systemd user unit", goos: "linux", getenv: none, cgroup: "0::/user.slice/user-1000.slice/user@1000.service/app.slice/dagu.service\n", want: true},
+		{name: "systemd v1 hierarchy", goos: "linux", getenv: none, cgroup: "12:pids:/system.slice/dagu.service\n1:name=systemd:/system.slice/dagu.service\n", want: true},
+		{name: "terminal session", goos: "linux", getenv: none, cgroup: "0::/user.slice/user-1000.slice/session-3.scope\n", want: false},
+		{name: "another unit", goos: "linux", getenv: none, cgroup: "0::/system.slice/my-dagu.service\n", want: false},
+		{name: "launchd agent", goos: "darwin", getenv: env(map[string]string{"XPC_SERVICE_NAME": "local.dagu.server"}), want: true},
+		{name: "macOS terminal", goos: "darwin", getenv: env(map[string]string{"XPC_SERVICE_NAME": "0"}), want: false},
+		{name: "WinSW service", goos: "windows", getenv: env(map[string]string{"SERVICE_ID": "Dagu", "BASE": "/opt/dagu"}), want: true},
+		{name: "WinSW service of another binary", goos: "windows", getenv: env(map[string]string{"SERVICE_ID": "Dagu", "BASE": "/opt/other"}), want: false},
+		{name: "Windows terminal", goos: "windows", getenv: none, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, runsUnderService(tt.goos, tt.getenv, tt.cgroup, "/opt/dagu"))
+		})
+	}
+}
