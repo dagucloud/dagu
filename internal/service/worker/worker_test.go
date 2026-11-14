@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -561,7 +562,7 @@ func TestWorkerStopWithoutStart(t *testing.T) {
 func TestWorkerStopDeadline(t *testing.T) {
 	// startWorkerWithRun starts a worker whose only task runs handle and
 	// returns once that task has started.
-	startWorkerWithRun := func(t *testing.T, handle func(context.Context) error) *worker.Worker {
+	startWorkerWithRun := func(t *testing.T, cfg *config.Config, handle func(context.Context) error) *worker.Worker {
 		t.Helper()
 		mockCoordinatorCli := newMockCoordinatorCli()
 		var dispatched atomic.Bool
@@ -574,7 +575,7 @@ func TestWorkerStopDeadline(t *testing.T) {
 		})
 
 		started := make(chan struct{})
-		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, cfg)
 		w.SetHandler(&mockHandler{
 			ExecuteFunc: func(ctx context.Context, _ *coordinatorv1.Task) error {
 				close(started)
@@ -596,7 +597,7 @@ func TestWorkerStopDeadline(t *testing.T) {
 		// The run ignores the drain and only ends once its context is
 		// canceled, then needs a moment to report its final status.
 		var runCanceled, runExited atomic.Bool
-		w := startWorkerWithRun(t, func(ctx context.Context) error {
+		w := startWorkerWithRun(t, &config.Config{}, func(ctx context.Context) error {
 			<-ctx.Done()
 			runCanceled.Store(true)
 			time.Sleep(300 * time.Millisecond)
@@ -619,7 +620,7 @@ func TestWorkerStopDeadline(t *testing.T) {
 
 	t.Run("NoDeadlineWaitsForRunWithoutCanceling", func(t *testing.T) {
 		var canceledBeforeExit atomic.Bool
-		w := startWorkerWithRun(t, func(ctx context.Context) error {
+		w := startWorkerWithRun(t, &config.Config{}, func(ctx context.Context) error {
 			time.Sleep(300 * time.Millisecond)
 			canceledBeforeExit.Store(ctx.Err() != nil)
 			return nil
@@ -629,6 +630,46 @@ func TestWorkerStopDeadline(t *testing.T) {
 		require.NoError(t, w.Stop(context.Background()))
 		require.GreaterOrEqual(t, time.Since(begin), 250*time.Millisecond)
 		require.False(t, canceledBeforeExit.Load(), "without a deadline Stop should let the task finish")
+	})
+
+	// drainConfig sets signal_handling.drain_timeout.
+	drainConfig := func(timeout time.Duration) *config.Config {
+		cfg := &config.Config{}
+		cfg.SignalHandling.DrainTimeout = timeout
+		return cfg
+	}
+
+	t.Run("DrainLetsRunFinishWithoutSignal", func(t *testing.T) {
+		var signaled atomic.Bool
+		w := startWorkerWithRun(t, drainConfig(time.Minute), func(ctx context.Context) error {
+			worker.OnShutdownSignalForTest(ctx, func(context.Context, os.Signal) { signaled.Store(true) })
+			time.Sleep(300 * time.Millisecond)
+			return nil
+		})
+
+		begin := time.Now()
+		require.NoError(t, w.Stop(context.Background()))
+		require.GreaterOrEqual(t, time.Since(begin), 250*time.Millisecond)
+		require.Less(t, time.Since(begin), 30*time.Second, "the drain should end once the task finished")
+		require.False(t, signaled.Load(), "a task that finishes within the drain gets no signal")
+	})
+
+	t.Run("DrainTimeoutSignalsRun", func(t *testing.T) {
+		received := make(chan os.Signal, 1)
+		w := startWorkerWithRun(t, drainConfig(200*time.Millisecond), func(ctx context.Context) error {
+			signaled := make(chan struct{})
+			worker.OnShutdownSignalForTest(ctx, func(_ context.Context, sig os.Signal) {
+				received <- sig
+				close(signaled)
+			})
+			<-signaled
+			return nil
+		})
+
+		begin := time.Now()
+		require.NoError(t, w.Stop(context.Background()))
+		require.GreaterOrEqual(t, time.Since(begin), 200*time.Millisecond, "the signal waits for the drain")
+		require.Equal(t, syscall.SIGTERM, <-received)
 	})
 }
 

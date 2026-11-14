@@ -1066,12 +1066,13 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 		signal.Stop(sig)
 		var received os.Signal
 		_ = errors.As(context.Cause(ctx), &received)
-		<-launcher.PropagateSignal(ctx, received)
+		<-launcher.StopRuns(ctx, received, s.config.SignalHandling.DrainTimeout)
 		return false
 	case received := <-sig:
 		signalctx.AbsorbRepeatedTerminate(ctx)
 		signal.Stop(sig)
-		runsDone := launcher.PropagateSignal(ctx, received)
+		// Stop releases the lock, so a standby schedules while runs drain.
+		runsDone := launcher.StopRuns(ctx, received, s.config.SignalHandling.DrainTimeout)
 		s.Stop(ctx)
 		<-runsDone
 		return false

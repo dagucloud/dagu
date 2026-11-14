@@ -77,7 +77,7 @@ func TestPropagationStopsProcessTree(t *testing.T) {
 				return err == nil && procutil.IsAlive(childPID)
 			}, 20*time.Second, 20*time.Millisecond)
 			require.True(t, procutil.IsAlive(result.PID))
-			done := launcher.PropagateSignal(ctx, sig)
+			done := launcher.StopRuns(ctx, sig, 0)
 			select {
 			case <-done:
 			case <-time.After(20 * time.Second):

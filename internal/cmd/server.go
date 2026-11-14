@@ -112,7 +112,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	defer stop()
 
 	// Create a signal-aware context for services
-	serviceCtx := ctx.WithContext(ctx.withSignalPropagation(signalCtx))
+	serviceCtx := ctx.WithContext(ctx.withRunRegistry(signalCtx))
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 	startBrowserReaper(signalCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)

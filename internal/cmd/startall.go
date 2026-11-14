@@ -120,7 +120,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	defer stop()
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
-	serviceCtx := ctx.WithContext(ctx.withSignalPropagation(signalCtx))
+	serviceCtx := ctx.WithContext(ctx.withRunRegistry(signalCtx))
 	if _, err := persisfile.NewDAGSettingsStore(
 		serviceCtx.Config,
 		serviceCtx.backend.Collection(persis.CollectionDAGSettings),
@@ -299,7 +299,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	var received os.Signal
 	_ = errors.As(context.Cause(signalCtx), &received)
 	// Capture the signal before scheduler.Stop cancels its service context.
-	runsDone := launcher.PropagateSignal(serviceCtx, received)
+	runsDone := launcher.StopRuns(serviceCtx, received, serviceCtx.Config.SignalHandling.DrainTimeout)
 	stop() // Let a second SIGINT end graceful shutdown; SIGTERM stays absorbed.
 
 	// Stop all services gracefully
