@@ -28,12 +28,9 @@ func within(t *testing.T, timeout time.Duration, what string, fn func()) {
 	}
 }
 
-// A client that leaves stdin open still gets the exit status once the
-// command exits.
-func TestSSHServerReturnsExitStatusWithStdinOpen(t *testing.T) {
-	t.Parallel()
-
-	server := StartSSHServer(t, SSHServerOptions{User: "tester", Password: "secret"})
+// dial connects to a server started with user "tester" and password "secret".
+func dial(t *testing.T, server *SSHServer) *ssh.Client {
+	t.Helper()
 	client, err := ssh.Dial("tcp", net.JoinHostPort("127.0.0.1", server.Port), &ssh.ClientConfig{
 		User:            "tester",
 		Auth:            []ssh.AuthMethod{ssh.Password("secret")},
@@ -41,7 +38,16 @@ func TestSSHServerReturnsExitStatusWithStdinOpen(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
-	session, err := client.NewSession()
+	return client
+}
+
+// A client that leaves stdin open still gets the exit status once the
+// command exits.
+func TestSSHServerReturnsExitStatusWithStdinOpen(t *testing.T) {
+	t.Parallel()
+
+	server := StartSSHServer(t, SSHServerOptions{User: "tester", Password: "secret"})
+	session, err := dial(t, server).NewSession()
 	require.NoError(t, err)
 	_, err = session.StdinPipe()
 	require.NoError(t, err)
@@ -52,6 +58,20 @@ func TestSSHServerReturnsExitStatusWithStdinOpen(t *testing.T) {
 	require.True(t, ok, "want an exit status, got %v", runErr)
 	require.Equal(t, 3, exitErr.ExitStatus())
 	require.Equal(t, 1, server.AuthAttempts())
+}
+
+// Stopping the server kills a command still running for a connected client,
+// instead of waiting for it to finish.
+func TestSSHServerCloseStopsRunningCommands(t *testing.T) {
+	t.Parallel()
+
+	server := StartSSHServer(t, SSHServerOptions{User: "tester", Password: "secret"})
+	session, err := dial(t, server).NewSession()
+	require.NoError(t, err)
+	require.NoError(t, session.Start("sleep 30"))
+	require.Eventually(t, func() bool { return len(server.Commands()) == 1 }, 5*time.Second, 10*time.Millisecond)
+
+	within(t, 10*time.Second, "closing the server", server.close)
 }
 
 // Stopping the server closes a connection that never finished its

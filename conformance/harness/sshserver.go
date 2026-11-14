@@ -4,6 +4,7 @@
 package harness
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -13,9 +14,9 @@ import (
 	"net"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -134,12 +135,6 @@ func (s *SSHServer) close() {
 	s.wg.Wait()
 }
 
-// HostKeyLine returns the host key in authorized_keys form, as a node's
-// host_key takes it.
-func (s *SSHServer) HostKeyLine() string {
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(s.HostKey)))
-}
-
 // AuthAttempts returns how many times a client offered a credential.
 func (s *SSHServer) AuthAttempts() int {
 	s.mu.Lock()
@@ -256,7 +251,7 @@ func (s *SSHServer) session(newChannel ssh.NewChannel) {
 				command = payload.Command
 			}
 			_ = req.Reply(true, nil)
-			s.run(channel, command)
+			s.run(channel, requests, command)
 			return
 		default:
 			// Environment and terminal requests are accepted and ignored.
@@ -267,16 +262,30 @@ func (s *SSHServer) session(newChannel ssh.NewChannel) {
 	}
 }
 
-func (s *SSHServer) run(channel ssh.Channel, command string) {
+// run runs command and sends its exit status. Later requests on the channel
+// are declined. They end when the client closes the channel or the
+// connection drops, and the command is killed then, so a command cannot
+// outlive its client and hold the server's cleanup.
+func (s *SSHServer) run(channel ssh.Channel, requests <-chan *ssh.Request, command string) {
 	s.mu.Lock()
 	s.commands = append(s.commands, command)
 	s.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		ssh.DiscardRequests(requests)
+		cancel()
+	}()
 
 	args := []string{}
 	if command != "" {
 		args = append(args, "-c", command)
 	}
-	cmd := exec.Command(s.shell, args...) //nolint:gosec // The test chooses the command.
+	cmd := exec.CommandContext(ctx, s.shell, args...) //nolint:gosec // The test chooses the command.
+	// A background process that keeps the output open after the shell exits
+	// or is killed cannot hold Wait for longer than this.
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Stdout = channel
 	cmd.Stderr = channel.Stderr()
 	// Stdin is copied apart from the command, so a client that never closes
@@ -297,8 +306,9 @@ func (s *SSHServer) run(channel ssh.Channel, command string) {
 	status := uint32(0)
 	if err != nil {
 		status = 255
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			status = uint32(exitErr.ExitCode()) //nolint:gosec // Exit codes fit.
+		// ExitCode is -1 for a process ended by a signal, which keeps 255.
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() >= 0 {
+			status = uint32(exitErr.ExitCode()) //nolint:gosec // Non-negative exit codes fit.
 		}
 	}
 	_, _ = channel.SendRequest("exit-status", false, binary.BigEndian.AppendUint32(nil, status))
