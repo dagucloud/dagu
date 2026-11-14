@@ -86,11 +86,12 @@ func TestDiscoverRecursive(t *testing.T) {
 func TestDiscoverRecursiveSkipsConfiguredDirectories(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "jobs", "unit-a"), 0750))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "pipelines"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "pipelines", "jobs"), 0750))
 
 	for _, path := range []string{
 		filepath.Join(root, "entrypoint.yaml"),
 		filepath.Join(root, "pipelines", "batch.yaml"),
+		filepath.Join(root, "pipelines", "jobs", "nested.yaml"),
 		filepath.Join(root, "jobs", "unit-a", "child.yaml"),
 	} {
 		require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
@@ -99,7 +100,7 @@ func TestDiscoverRecursiveSkipsConfiguredDirectories(t *testing.T) {
 	// Without a skip list the child subtree is indexed.
 	result, err := Discover(root, DiscoveryOptions{Recursive: true})
 	require.NoError(t, err)
-	assert.Len(t, result.Files, 3)
+	assert.Len(t, result.Files, 4)
 
 	// With skip_directories the child subtree is omitted from discovery but
 	// its files stay resolvable by path (Discover is read separately).
@@ -109,16 +110,8 @@ func TestDiscoverRecursiveSkipsConfiguredDirectories(t *testing.T) {
 	for _, file := range result.Files {
 		files = append(files, file.RelPath)
 	}
-	assert.Equal(t, []string{"entrypoint.yaml", "pipelines/batch.yaml"}, files)
-
-	// A non-root directory name is not skipped.
-	result, err = Discover(root, DiscoveryOptions{Recursive: true, SkipDirs: []string{"pipelines"}})
-	require.NoError(t, err)
-	files = files[:0]
-	for _, file := range result.Files {
-		files = append(files, file.RelPath)
-	}
-	assert.Equal(t, []string{"entrypoint.yaml", "jobs/unit-a/child.yaml"}, files)
+	// A directory deeper in the tree with a skipped name is still read.
+	assert.Equal(t, []string{"entrypoint.yaml", "pipelines/batch.yaml", "pipelines/jobs/nested.yaml"}, files)
 }
 
 func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {

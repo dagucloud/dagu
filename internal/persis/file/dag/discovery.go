@@ -32,10 +32,9 @@ type DiscoveredFile struct {
 type DiscoveryOptions struct {
 	Recursive bool
 	Symlinks  bool
-	// SkipDirs names root-level directories (relative to root, matching the
-	// rule for the dot-directories and workspaces/ skip) that recursive
+	// SkipDirs names directories directly under root that recursive
 	// discovery omits, so child-DAG subtrees stay resolvable by path but out
-	// of the catalog and scheduler. Empty means no extra skips.
+	// of the catalog and scheduler. A name deeper in the tree is not skipped.
 	SkipDirs []string
 }
 
@@ -115,7 +114,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			if relPath != "." {
 				if strings.HasPrefix(entry.Name(), ".") ||
 					relPath == workspace.BaseConfigDirName ||
-					slices.Contains(opts.SkipDirs, entry.Name()) {
+					slices.Contains(opts.SkipDirs, relPath) {
 					return filepath.SkipDir
 				}
 			}
