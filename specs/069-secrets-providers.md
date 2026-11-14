@@ -89,11 +89,11 @@ which retries the child run and restores its steps. A step in a child run of a
 `parallel:` step that retries under its own retry policy is retried that way
 too, within the same run of the parent. Stored outputs stay masked, and stored
 status records which outputs masking changed. A step that reads a recorded
-output after such a restore fails before it runs, with an error that names the
-step and the output and says the producing step has to run again, together with
-the steps after it. When both are steps of a child run, that takes a retry of
-the child run, not of the parent. A step reads an output where value resolution
-inserts it into one of the step's fields:
+output after such a restore fails, before it runs except where described below,
+with an error that names the step and the output and says the producing step has
+to run again, together with the steps after it. When both are steps of a child
+run, that takes a retry of the child run, not of the parent. A step reads an
+output where value resolution inserts it into one of the step's fields:
 
 - `${steps.<id>.outputs.<name>}` reads that published output.
 - `${<id>.outputs}` and any path or slice under it read the published outputs
