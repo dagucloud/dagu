@@ -36,9 +36,9 @@ func slotDateContext(sched SlotSchedule, at time.Time) ir.DateContext {
 	}
 }
 
-// slotDates resolves the dates the run of the slot at gets, or nil when the
+// SlotDates resolves the dates the run of the slot at gets, or nil when the
 // DAG declares none or they do not resolve.
-func slotDates(dag *ir.DAG, sched SlotSchedule, at time.Time) []ir.DateValue {
+func SlotDates(dag *ir.DAG, sched SlotSchedule, at time.Time) []ir.DateValue {
 	if len(dag.Dates) == 0 {
 		return nil
 	}

@@ -794,6 +794,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		DefinitionID:         ie.DefinitionID,
 		ArchiveDir:           ie.ArchiveDir,
 		BackfillID:           ie.BackfillID,
+		Dates:                ie.Dates,
 	}
 }
 

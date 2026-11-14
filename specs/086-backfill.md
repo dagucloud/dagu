@@ -290,7 +290,7 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /api/v1/dags/{fileName}/backfills` | Plan and submit, with the options of `dagu backfill start`. `dryRun` returns the plan only. |
-| `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`. |
+| `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`; the trigger of the run its state comes from; and, for a DAG with `dates`, the dates its run gets. |
 | `GET /api/v1/backfills` | Backfills, oldest first, of every DAG or of `dag`. |
 | `GET /api/v1/backfills/{id}` | A backfill's status, the number of slots in each state, and `waiting`, the reason `status` gives. |
 | `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |

@@ -154,6 +154,7 @@ func (store *Store) resolveStatus(
 			DefinitionID:         s.DefinitionID,
 			ArchiveDir:           s.ArchiveDir,
 			BackfillID:           s.BackfillID,
+			Dates:                s.Dates,
 		}
 	}
 

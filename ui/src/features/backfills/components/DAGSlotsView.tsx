@@ -9,6 +9,11 @@ import { Button } from '@/components/ui/button';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
+import { triggerTypeLabels } from '@/features/dags/components/common/TriggerTypeIndicator';
+import {
+  dateSummary,
+  dateText,
+} from '@/features/dags/components/dag-execution/SlotDatesPreview';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
@@ -45,8 +50,23 @@ const READ_ONCE = {
   refreshInterval: 0,
 } as const;
 
-const slotKey = (slot: DAGSlot, unit: 'day' | 'month') =>
-  dayjs(slot.slot).format(unit === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM');
+// labelDate returns the calendar date a slot loads: the day its first date
+// names, when that date is one.
+function labelDate(slot: DAGSlot): string | undefined {
+  const first = slot.dates?.[0];
+  const value = first?.list ? first.values?.[0] : first?.value;
+  return value && /^\d{4}-\d{2}-\d{2}/.test(value)
+    ? value.slice(0, 10)
+    : undefined;
+}
+
+// A slot of a DAG with dates falls in the row of the day or month it loads,
+// so choosing October chooses the cells that load October.
+const slotKey = (slot: DAGSlot, unit: 'day' | 'month') => {
+  const date = labelDate(slot);
+  if (date) return unit === 'day' ? date : date.slice(0, 7);
+  return dayjs(slot.slot).format(unit === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM');
+};
 
 /**
  * A DAG's history by slot rather than by run: each fire time of its schedule
@@ -210,6 +230,7 @@ export function DAGSlotsView({
                     <SlotCell
                       key={slot.slot}
                       slot={slot}
+                      dayLabel={group.key.length === 7}
                       fileName={fileName}
                       remoteNode={remoteNode}
                       selected={picked.has(slot.slot)}
@@ -307,14 +328,22 @@ export function DAGSlotsView({
   );
 }
 
+/**
+ * A slot's cell: its state by icon and color, and, in a row of a month, the
+ * day it loads. Its name gives the slot, the dates it loads, and its state;
+ * hovering it adds the window, every date, and how its run started.
+ */
 function SlotCell({
   slot,
+  dayLabel,
   fileName,
   remoteNode,
   selected,
   onPick,
 }: {
   slot: DAGSlot;
+  /** The row is a month, so the cell shows the day it loads. */
+  dayLabel: boolean;
   fileName: string;
   remoteNode: string;
   selected: boolean;
@@ -323,13 +352,31 @@ function SlotCell({
   const { ts } = useI18n();
   const look = DAG_SLOT_LOOK[slot.status];
   const Icon = look.icon;
-  const label = `${ts('Slot {time}', {
-    time: formatAbsoluteTime(slot.slot, { seconds: false }) ?? slot.slot,
-  })} · ${ts(look.label)}`;
+  const time = (value?: string) =>
+    formatAbsoluteTime(value, { seconds: false }) ?? value ?? '';
+  const first = slot.dates?.[0];
+  const label = [
+    ts('Slot {time}', { time: time(slot.slot) }),
+    first && ts('loads {date}', { date: dateSummary(first) }),
+    ts(look.label),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const details = [
+    label,
+    slot.windowStart &&
+      ts('window from {time}', { time: time(slot.windowStart) }),
+    ...(slot.dates ?? []).map((date) => `${date.name} ${dateText(date)}`),
+    slot.trigger && ts(triggerTypeLabels[slot.trigger] ?? slot.trigger),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const day = dayLabel ? labelDate(slot)?.slice(8, 10) : undefined;
   const cell = (
     <span
       className={cn(
-        'flex h-5 w-5 items-center justify-center rounded',
+        'flex h-5 min-w-5 items-center justify-center gap-0.5 rounded',
+        day && 'px-1',
         selected && 'ring-2 ring-primary ring-offset-1 ring-offset-background'
       )}
       style={{
@@ -341,6 +388,11 @@ function SlotCell({
         style={{ color: look.color }}
         aria-hidden="true"
       />
+      {day && (
+        <span className="font-mono text-[10px] tabular-nums text-foreground">
+          {day}
+        </span>
+      )}
     </span>
   );
   const focus =
@@ -349,7 +401,7 @@ function SlotCell({
     return (
       <button
         type="button"
-        title={label}
+        title={details}
         aria-label={label}
         aria-pressed={selected}
         className={focus}
@@ -363,7 +415,7 @@ function SlotCell({
     return (
       <Link
         to={`${workflowPath(fileName, remoteNode)}&run=${encodeURIComponent(slot.runId)}`}
-        title={label}
+        title={details}
         aria-label={label}
         className={focus}
       >
@@ -372,7 +424,7 @@ function SlotCell({
     );
   }
   return (
-    <span role="img" title={label} aria-label={label}>
+    <span role="img" title={details} aria-label={label}>
       {cell}
     </span>
   );

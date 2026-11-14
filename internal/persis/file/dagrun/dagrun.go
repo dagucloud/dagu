@@ -92,6 +92,7 @@ type DAGRunSummary struct {
 	DefinitionID         string
 	BackfillID           string
 	ArchiveDir           string
+	Dates                []ir.DateValue
 }
 
 // DAGRun represents a dag-run with its associated timestamp and run ID.

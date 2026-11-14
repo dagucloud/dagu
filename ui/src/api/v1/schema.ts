@@ -5187,6 +5187,9 @@ export interface components {
             runId?: string;
             /** Format: date-time */
             coveredBy?: string;
+            trigger?: components["schemas"]["TriggerType"];
+            /** @description Dates the slot's run gets, in declaration order; absent when the DAG declares none */
+            dates?: components["schemas"]["RunDateValue"][];
         };
         /** @description Generic error response object */
         Error: {

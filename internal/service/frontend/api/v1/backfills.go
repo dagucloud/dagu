@@ -117,10 +117,22 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 				Status:      dagSlotStatus(state.Status),
 				RunId:       stringOrNil(state.RunID),
 				CoveredBy:   timeOrNil(state.CoveredAt),
+				Trigger:     toTriggerType(state.Trigger),
+				Dates:       toAPIRunDates(slotDates(dag, sched, state)),
 			})
 		}
 	}
 	return api.ListDAGSlots200JSONResponse{Slots: slots}, nil
+}
+
+// slotDates returns the dates a slot's run recorded, or, for a slot without
+// a run, whose run is no longer in history, or whose run recorded none, the
+// dates the DAG would give it now.
+func slotDates(dag *ir.DAG, sched backfill.SlotSchedule, state backfill.Slot) []ir.DateValue {
+	if state.RunRecorded && len(state.Dates) > 0 {
+		return state.Dates
+	}
+	return backfill.SlotDates(dag, sched, state.At)
 }
 
 func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsRequestObject) (api.ListBackfillsResponseObject, error) {
