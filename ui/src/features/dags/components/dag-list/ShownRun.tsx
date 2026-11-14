@@ -7,15 +7,17 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
+import { isActiveRunStatus } from '@/lib/status-utils';
 
 type DAGFile = components['schemas']['DAGFile'];
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 type SubDAGRunSummary = components['schemas']['SubDAGRunSummary'];
 
 /**
- * The run the list shows for a DAG: its own latest run, or a newer run that
- * another DAG started with dag.run, given as sub. Run actions keep using the
- * DAG's own latest run.
+ * The run the list shows for a DAG: its own latest run, or a run that another
+ * DAG started with dag.run, given as sub. A run that is still active wins over
+ * one that has finished, and otherwise the later start wins, as on the server.
+ * Run actions keep using the DAG's own latest run.
  */
 export function shownRun(dag: DAGFile): {
   run: DAGRunSummary;
@@ -23,12 +25,23 @@ export function shownRun(dag: DAGFile): {
 } {
   const sub = dag.latestSubDAGRun;
   if (!sub) return { run: dag.latestDAGRun };
-  const own = dayjs(dag.latestDAGRun.startedAt);
-  const other = dayjs(sub.run.startedAt);
-  if (other.isValid() && (!own.isValid() || other.isAfter(own))) {
+  const ownActive = isActiveRunStatus(dag.latestDAGRun.status);
+  if (ownActive !== isActiveRunStatus(sub.run.status)) {
+    return ownActive ? { run: dag.latestDAGRun } : { run: sub.run, sub };
+  }
+  const own = startTime(dag.latestDAGRun.startedAt);
+  const other = startTime(sub.run.startedAt);
+  if (other && (!own || other.isAfter(own))) {
     return { run: sub.run, sub };
   }
   return { run: dag.latestDAGRun };
+}
+
+/** The start time of a run, or null for one that never started. */
+function startTime(startedAt?: string) {
+  if (!startedAt || startedAt === '-') return null;
+  const time = dayjs(startedAt);
+  return time.isValid() ? time : null;
 }
 
 /** Links a run that another DAG started to its page under the root run. */

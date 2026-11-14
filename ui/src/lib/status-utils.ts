@@ -70,6 +70,15 @@ export function isActiveNodeStatus(status?: NodeStatus): boolean {
   return status === NodeStatus.Running || status === NodeStatus.Retrying;
 }
 
+/** A run that has not finished: it runs, is queued, or waits. */
+export function isActiveRunStatus(status?: Status): boolean {
+  return (
+    status === Status.Running ||
+    status === Status.Queued ||
+    status === Status.Waiting
+  );
+}
+
 /**
  * A run whose time still counts: it runs, or it waits for a person. A
  * waiting run has a finish time from the moment it paused, which is not its
