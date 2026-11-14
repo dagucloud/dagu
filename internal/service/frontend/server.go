@@ -20,6 +20,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -162,6 +163,7 @@ type Server struct {
 	licenseManager       *license.Manager
 	remoteNodeResolver   *remotenode.Resolver
 	upgradeStore         upgrade.CacheStore
+	restartRequested     <-chan struct{} // Closes once an upgrade needs a restart
 	routeRegistrars      []RouteRegistrar
 	workspaceDeprecation deprecation.Sources
 
@@ -640,7 +642,13 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 
 	upgradeStore := stores.Upgrade
-	updateInfoChecker := newUpdateChecker(ctx, upgradeStore)
+	restartRequested := make(chan struct{})
+	var restartOnce sync.Once
+	upgrader := newSelfUpgrader(ctx, cfg, upgradeStore, func() {
+		restartOnce.Do(func() { close(restartRequested) })
+	})
+	apiOpts = append(apiOpts, apiv1.WithSelfUpgrader(upgrader))
+	updateInfoChecker := newUpdateChecker(ctx, upgradeStore, upgrader.available)
 
 	workspaceDeprecation := workspaceDeprecationSources(cfg, dr, stores, authSvc)
 	apiOpts = append(apiOpts, apiv1.WithWorkspaceDeprecation(workspaceDeprecation))
@@ -667,6 +675,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		dagRunRepository:     dagRunRepository,
 		remoteNodeResolver:   remoteNodeResolver,
 		upgradeStore:         upgradeStore,
+		restartRequested:     restartRequested,
 		workspaceDeprecation: workspaceDeprecation,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
@@ -778,9 +787,10 @@ type updateChecker struct {
 	store         upgrade.CacheStore // nil when update checks are disabled
 	binary        *upgrade.RunningBinary
 	installMethod upgrade.InstallMethod
+	webUpgrade    bool // An administrator can upgrade from the web UI
 }
 
-func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChecker {
+func newUpdateChecker(ctx context.Context, store upgrade.CacheStore, webUpgrade bool) *updateChecker {
 	binary, err := upgrade.CaptureRunningBinary()
 	if err != nil {
 		logger.Debug(ctx, "Cannot detect replacement of the running binary", tag.Error(err))
@@ -789,6 +799,7 @@ func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChec
 		store:         store,
 		binary:        binary,
 		installMethod: upgrade.DetectInstallMethod(),
+		webUpgrade:    webUpgrade,
 	}
 }
 
@@ -798,21 +809,21 @@ func (u *updateChecker) UpdateStatus() UpdateStatus {
 		InstallMethod:   u.installMethod.String(),
 		RestartRequired: u.binary != nil && u.binary.Replaced(),
 	}
-	// The service is read only once a restart is due, so the notice reflects
-	// changes made to it after the upgrade, such as keeping runs.
-	if status.RestartRequired {
+	if u.store != nil {
+		if cache := upgrade.GetCachedUpdateInfo(u.store); cache != nil {
+			status.UpdateAvailable = cache.UpdateAvailable
+			status.LatestVersion = cache.LatestVersion
+		}
+	}
+	status.WebUpgradeAvailable = u.webUpgrade && status.UpdateAvailable && !status.RestartRequired
+	// The service is read only once a restart is due or offered, so the
+	// notice reflects changes made to it since, such as keeping runs.
+	if status.RestartRequired || status.WebUpgradeAvailable {
 		if service := upgrade.DetectService(); service != nil {
 			status.RestartCommand = service.RestartCommand
 			status.RestartStopsRuns = service.StopsRuns
 			status.RestartCanKeepRuns = service.KeepRunsCommand != ""
 		}
-	}
-	if u.store == nil {
-		return status
-	}
-	if cache := upgrade.GetCachedUpdateInfo(u.store); cache != nil {
-		status.UpdateAvailable = cache.UpdateAvailable
-		status.LatestVersion = cache.LatestVersion
 	}
 	return status
 }
@@ -1897,6 +1908,8 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 		case <-ctx.Done():
 			logger.Info(ctx, "Context done, shutting down server")
 		case failure = <-serveErr:
+		case <-srv.restartRequested:
+			failure = errRestartRequested
 		}
 	} else {
 		quit := make(chan os.Signal, 1)
@@ -1909,6 +1922,8 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 			received = sig
 			logger.Info(ctx, "Received shutdown signal", slog.String("signal", sig.String()))
 		case failure = <-serveErr:
+		case <-srv.restartRequested:
+			failure = errRestartRequested
 		}
 		signal.Stop(quit)
 	}

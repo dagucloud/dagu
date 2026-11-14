@@ -336,6 +336,7 @@ type Server struct {
 	APIBasePath       string
 	Headless          bool
 	CheckUpdates      bool
+	AllowWebUpgrade   bool
 	AccessLog         AccessLogMode // "all", "non-public", or "none" (default)
 	LatestStatusToday bool
 	TLS               *TLSConfig
