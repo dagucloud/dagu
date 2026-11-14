@@ -162,6 +162,10 @@ func runWorker(ctx *Context, _ []string) error {
 		// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
 		stop()
 		shutdownTimeout := ctx.Config.Worker.ShutdownTimeout
+		if shutdownTimeout > 0 {
+			// Tasks may first run to their end for the drain timeout.
+			shutdownTimeout += ctx.Config.SignalHandling.DrainTimeout
+		}
 		logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
 		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
 		defer cancel()

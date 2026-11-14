@@ -1465,8 +1465,11 @@
       "properties": {
         "enable_propagation": {
           "type": "boolean",
-          "description": "Forward shutdown signals (SIGINT, SIGTERM) received by a supervising process to the process groups of running DAG-run subprocesses it launched. Default: false.",
-          "default": false
+          "description": "Forward shutdown signals (SIGINT, SIGTERM) received by a supervising process to the process groups of running DAG-run subprocesses it launched. Default: true in a container, false otherwise."
+        },
+        "drain_timeout": {
+          "type": "string",
+          "description": "How long a process stopping on SIGINT or SIGTERM (start-all, scheduler, server, worker) waits for the DAG runs it started to finish, starting no new ones, before it stops them (with enable_propagation) or leaves them running. Default: '0', no wait. Set the supervisor's stop timeout above this value (docker stop defaults to 10s, Kubernetes terminationGracePeriodSeconds to 30s)."
         }
       }
     },

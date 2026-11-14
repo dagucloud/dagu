@@ -90,6 +90,9 @@ jobs:
       - name: Check graceful signal shutdown through Tini
         run: bash deploy/docker/smoke/signal-shutdown.sh
 
+      - name: Check that a stopping container drains its runs
+        run: bash deploy/docker/smoke/drain-shutdown.sh
+
       # The documented command copies the bundled profile out of the image.
       - name: Check the bundled seccomp profile
         run: |

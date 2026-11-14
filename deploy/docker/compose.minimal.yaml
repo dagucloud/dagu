@@ -15,8 +15,14 @@ services:
     #   docker compose -f compose.dev.yaml run --rm dagu dagu server
     command: ["dagu", "start-all"]
 
+    # Stopping the container ends the DAG runs inside it. Dagu first waits up
+    # to DAGU_SIGNAL_DRAIN_TIMEOUT for them to finish; the grace period adds
+    # room for their abort and exit handlers.
+    stop_grace_period: 6m
+
     # Recommended dev environment variables
     environment:
+      - DAGU_SIGNAL_DRAIN_TIMEOUT=5m
       # Frontend server
       - DAGU_HOST=0.0.0.0 # Bind inside container
       - DAGU_PORT=8080 # Web/UI port inside container

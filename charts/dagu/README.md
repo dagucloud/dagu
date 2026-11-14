@@ -124,6 +124,17 @@ helm upgrade --install dagu dagu/dagu \
   --wait
 ```
 
+### Graceful Shutdown
+
+Stopping a pod ends the DAG runs inside it, and an upgrade stops every pod. A stopping pod starts no new runs and waits up to `shutdown.drainTimeoutSeconds` (default 300) for its running runs to finish. It then stops the rest, which run their abort and exit handlers and record that they were aborted. Each pod's `terminationGracePeriodSeconds` is the drain plus room for that cleanup.
+
+```yaml
+shutdown:
+  drainTimeoutSeconds: 900
+```
+
+In standalone mode an upgrade waits for the drain, because only one pod can use the data volume. In distributed mode, the server and scheduler pods carry only runs that stay local, and each worker pod drains its own runs. Set `0` to stop runs at once. Image tag `2.26.0` and earlier do not drain.
+
 ## Configuration
 
 Leave `nameOverride` and `fullnameOverride` empty to use release-derived resource names. Set them only when cluster naming conventions require a different prefix.

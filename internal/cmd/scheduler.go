@@ -145,7 +145,7 @@ func runScheduler(ctx *Context, _ []string) error {
 		slog.String("log-format", ctx.Config.Core.LogFormat),
 	)
 
-	ctx.Context = ctx.withSignalPropagation(ctx.Context)
+	ctx.Context = ctx.withRunRegistry(ctx.Context)
 	schedulerCtx := ctx.WithEventSource(eventstore.SourceServiceScheduler)
 	startBrowserReaper(schedulerCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
 	scheduler, err := newScheduler(schedulerCtx, deps)

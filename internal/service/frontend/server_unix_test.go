@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,7 @@ func TestShutdownPreservesSignalCause(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	cancel(shutdownSignalCause{signal: syscall.SIGTERM})
-	srv := &Server{}
+	srv := &Server{config: &config.Config{}}
 	require.NoError(t, srv.setupGracefulShutdown(ctx, nil))
 	select {
 	case err := <-res.Done:
@@ -91,7 +92,7 @@ func TestShutdownWithoutSignalKeepsRuns(t *testing.T) {
 		}
 	})
 	cancel()
-	srv := &Server{}
+	srv := &Server{config: &config.Config{}}
 	require.NoError(t, srv.setupGracefulShutdown(ctx, nil))
 	select {
 	case err := <-res.Done:

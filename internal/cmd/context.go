@@ -93,15 +93,24 @@ func (c *Context) WithEventSource(service string) *Context {
 	}))
 }
 
-// withSignalPropagation returns a context carrying a launcher.ProcessRegistry
-// when signal_handling.enable_propagation is enabled. Supervising commands use
-// the registry to forward shutdown signals to the process groups of DAG-run
-// subprocesses they launched. When disabled the context is returned unchanged.
-func (c *Context) withSignalPropagation(ctx context.Context) context.Context {
-	if c == nil || c.Config == nil || !c.Config.SignalHandling.EnablePropagation {
+// withRunRegistry returns a context carrying a launcher.ProcessRegistry when
+// signal_handling.enable_propagation is enabled or drain_timeout is set.
+// Supervising commands use the registry to wait for the DAG-run subprocesses
+// they launched and to forward shutdown signals to their process groups.
+// Otherwise the context is returned unchanged.
+func (c *Context) withRunRegistry(ctx context.Context) context.Context {
+	if c == nil || c.Config == nil {
 		return ctx
 	}
-	return launcher.ContextWithProcessRegistry(ctx, launcher.NewProcessRegistry())
+	handling := c.Config.SignalHandling
+	if !handling.EnablePropagation && handling.DrainTimeout <= 0 {
+		return ctx
+	}
+	var opts []launcher.RegistryOption
+	if !handling.EnablePropagation {
+		opts = append(opts, launcher.WithoutSignalForwarding())
+	}
+	return launcher.ContextWithProcessRegistry(ctx, launcher.NewProcessRegistry(opts...))
 }
 
 func (c *Context) withEvent(service *eventstore.Service) *Context {

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -49,6 +50,30 @@ func TestSignalPropagation(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A supervisor with a drain timeout waits for a run to end on its own, and
+// sends it no signal.
+func TestSignalDrain(t *testing.T) {
+	for _, commandName := range []string{"server", "scheduler", "start-all"} {
+		t.Run(commandName, func(t *testing.T) {
+			run := startSignalRunWithEnv(t, commandName, 10, []string{"DAGU_SIGNAL_DRAIN_TIMEOUT=60s"}, finishOnRelease)
+			require.NoError(t, run.command.Process.Signal(syscall.SIGTERM))
+			run.assertAlive(t, 500*time.Millisecond)
+			require.NoFileExists(t, run.stopped, "the run was signaled during the drain")
+			releaseHoldFile(t, run.release)
+			require.NoError(t, run.wait(t))
+			require.NoFileExists(t, run.stopped, "the run was signaled")
+			run.assertStatus(t, ir.Succeeded)
+		})
+	}
+}
+
+// finishOnRelease makes the probe of startSignalRun end on its own, and
+// succeed, once its release file appears.
+func finishOnRelease(yaml string) string {
+	release := regexp.MustCompile(`while \[ ! -f (\S+) \]`).FindStringSubmatch(yaml)[1]
+	return strings.Replace(yaml, "while :; do", "while [ ! -f "+release+" ]; do", 1) + "      exit 0\n"
 }
 
 // A supervisor must finish shutdown while a runner's startup secret stays blocked.
@@ -448,6 +473,13 @@ type signalRun struct {
 
 func startSignalRun(t *testing.T, commandName string, maxCleanup int, edits ...func(string) string) *signalRun {
 	t.Helper()
+	return startSignalRunWithEnv(t, commandName, maxCleanup, nil, edits...)
+}
+
+// startSignalRunWithEnv starts the supervisor of startSignalRun with env added
+// to its environment.
+func startSignalRunWithEnv(t *testing.T, commandName string, maxCleanup int, env []string, edits ...func(string) string) *signalRun {
+	t.Helper()
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
@@ -496,7 +528,7 @@ steps:
 		startupLog = "Server is starting"
 	}
 	run.command = exec.Command(th.Config.Paths.Executable, test.WithConfigFlag(args, th.Config)...) //nolint:gosec // Test executes the repository binary.
-	run.command.Env = append(th.ChildEnv, "DAGU_SIGNAL_PROPAGATION=true", "GOMAXPROCS=1")
+	run.command.Env = append(append(th.ChildEnv, "DAGU_SIGNAL_PROPAGATION=true", "GOMAXPROCS=1"), env...)
 	logFile, err := os.CreateTemp(dir, "supervisor-*.log")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = logFile.Close() })

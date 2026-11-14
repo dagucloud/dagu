@@ -1916,7 +1916,7 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 	if received == nil {
 		_ = errors.As(context.Cause(ctx), &received)
 	}
-	runsDone := launcher.PropagateSignal(ctx, received)
+	runsDone := launcher.StopRuns(ctx, received, srv.config.SignalHandling.DrainTimeout)
 
 	shutdownCtx, cancel := newGracefulShutdownContext(ctx)
 	defer cancel()

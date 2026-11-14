@@ -57,7 +57,10 @@ services:
   dagu-scheduler:
     image: ghcr.io/dagucloud/dagu:latest
     command: ["dagu", "scheduler"]
+    # Room to drain runs in progress on stop, then for their handlers.
+    stop_grace_period: 6m
     environment:
+      - DAGU_SIGNAL_DRAIN_TIMEOUT=5m
       - DAGU_COORDINATOR_HOST=dagu-coordinator
       - DAGU_COORDINATOR_PORT=50055
       - DAGU_SCHEDULER_PORT=8090
@@ -83,7 +86,10 @@ services:
   dagu-server:
     image: ghcr.io/dagucloud/dagu:latest
     command: ["dagu", "server"]
+    # Room to drain runs in progress on stop, then for their handlers.
+    stop_grace_period: 6m
     environment:
+      - DAGU_SIGNAL_DRAIN_TIMEOUT=5m
       - DAGU_COORDINATOR_HOST=dagu-coordinator
       - DAGU_COORDINATOR_PORT=50055
       - DAGU_HOST=0.0.0.0
@@ -116,7 +122,11 @@ services:
   dagu-worker:
     image: ghcr.io/dagucloud/dagu:latest
     command: ["dagu", "worker"]
+    # Room to drain runs in progress on stop, then for worker.shutdown_timeout
+    # (60s) and the worker's own cleanup.
+    stop_grace_period: 375s
     environment:
+      - DAGU_SIGNAL_DRAIN_TIMEOUT=5m
       - DAGU_WORKER_COORDINATORS=dagu-coordinator:50055
       - DAGU_PEER_INSECURE=false
       - DAGU_PEER_CERT_FILE=/etc/dagu/tls/client.crt

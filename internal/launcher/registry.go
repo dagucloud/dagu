@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -21,17 +22,38 @@ import (
 type processRegistryKey struct{}
 
 // ProcessRegistry tracks subprocesses launched through this package so a
-// supervising process (server, scheduler, start-all) can forward shutdown
-// signals to them when signal_handling.enable_propagation is enabled.
+// supervising process (server, scheduler, start-all) can wait for them to
+// finish when it stops, and forward shutdown signals to them when
+// signal_handling.enable_propagation is enabled.
 type ProcessRegistry struct {
 	mu    sync.Mutex
 	procs map[*exec.Cmd]chan struct{}
 	done  chan struct{}
+	// idle closes when the last tracked process exits; nil until a caller
+	// waits for that.
+	idle chan struct{}
+	// stopped closes once StopRuns has ended its work; nil before it runs.
+	stopped        chan struct{}
+	forwardSignals bool
 }
 
-// NewProcessRegistry returns an empty ProcessRegistry.
-func NewProcessRegistry() *ProcessRegistry {
-	return &ProcessRegistry{procs: make(map[*exec.Cmd]chan struct{})}
+// RegistryOption configures a ProcessRegistry.
+type RegistryOption func(*ProcessRegistry)
+
+// WithoutSignalForwarding makes a registry track its subprocesses for a
+// supervisor to wait on, and leave them running when the supervisor stops.
+func WithoutSignalForwarding() RegistryOption {
+	return func(r *ProcessRegistry) { r.forwardSignals = false }
+}
+
+// NewProcessRegistry returns an empty ProcessRegistry, which forwards shutdown
+// signals unless an option says otherwise.
+func NewProcessRegistry(opts ...RegistryOption) *ProcessRegistry {
+	r := &ProcessRegistry{procs: make(map[*exec.Cmd]chan struct{}), forwardSignals: true}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // ContextWithProcessRegistry attaches reg to ctx so launcher entry points can
@@ -44,7 +66,7 @@ func ContextWithProcessRegistry(ctx context.Context, reg *ProcessRegistry) conte
 }
 
 // ProcessRegistryFrom returns the ProcessRegistry attached to ctx, or nil when
-// signal propagation is not enabled for this context.
+// the supervisor neither drains nor signals its subprocesses.
 func ProcessRegistryFrom(ctx context.Context) *ProcessRegistry {
 	if ctx == nil {
 		return nil
@@ -53,15 +75,103 @@ func ProcessRegistryFrom(ctx context.Context) *ProcessRegistry {
 	return reg
 }
 
-// PropagateSignal forwards SIGINT or SIGTERM to tracked subprocesses. The
-// returned channel closes after those processes exit. Without a registry or
-// for any other signal, the returned channel is already closed.
-func PropagateSignal(ctx context.Context, sig os.Signal) <-chan struct{} {
-	if sig == syscall.SIGINT || sig == syscall.SIGTERM {
-		if reg := ProcessRegistryFrom(ctx); reg != nil {
-			return reg.Propagate(ctx, sig)
-		}
+// StopRuns ends the subprocesses tracked in ctx for a supervisor stopping on
+// sig. It waits up to drain for them to exit, then forwards SIGINT or SIGTERM
+// to those left when the registry forwards signals. The returned channel
+// closes once the forwarded signal has ended them, or once the drain ends when
+// none is forwarded. Every call on a registry returns the channel of the
+// first. Without a registry, the returned channel is already closed.
+func StopRuns(ctx context.Context, sig os.Signal, drain time.Duration) <-chan struct{} {
+	reg := ProcessRegistryFrom(ctx)
+	if reg == nil {
+		return closedChannel()
 	}
+	reg.mu.Lock()
+	if reg.stopped != nil {
+		stopped := reg.stopped
+		reg.mu.Unlock()
+		return stopped
+	}
+	stopped := make(chan struct{})
+	reg.stopped = stopped
+	reg.mu.Unlock()
+
+	if drain <= 0 {
+		// The signal goes out before the caller stops its services.
+		propagated := reg.forward(ctx, sig)
+		select {
+		case <-propagated:
+			close(stopped)
+		default:
+			go func() {
+				<-propagated
+				close(stopped)
+			}()
+		}
+		return stopped
+	}
+	go func() {
+		defer close(stopped)
+		reg.drain(ctx, drain)
+		<-reg.forward(ctx, sig)
+	}()
+	return stopped
+}
+
+// forward forwards SIGINT or SIGTERM to the tracked subprocesses when the
+// registry forwards signals.
+func (r *ProcessRegistry) forward(ctx context.Context, sig os.Signal) <-chan struct{} {
+	if r.forwardSignals && (sig == syscall.SIGINT || sig == syscall.SIGTERM) {
+		return r.Propagate(ctx, sig)
+	}
+	return closedChannel()
+}
+
+// drain waits up to timeout for every tracked subprocess to exit, including
+// ones that start meanwhile.
+func (r *ProcessRegistry) drain(ctx context.Context, timeout time.Duration) {
+	idle := r.Idle()
+	select {
+	case <-idle:
+		return
+	default:
+	}
+	logger.Info(ctx, "Waiting for running DAG processes to finish",
+		slog.Int("processes", r.running()),
+		slog.Duration("timeout", timeout),
+	)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-idle:
+		logger.Info(ctx, "Running DAG processes finished")
+	case <-timer.C:
+		logger.Warn(ctx, "DAG processes still running after the drain timeout",
+			slog.Int("processes", r.running()),
+		)
+	}
+}
+
+// Idle returns a channel that closes once no tracked subprocess is running.
+func (r *ProcessRegistry) Idle() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.procs) == 0 {
+		return closedChannel()
+	}
+	if r.idle == nil {
+		r.idle = make(chan struct{})
+	}
+	return r.idle
+}
+
+func (r *ProcessRegistry) running() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.procs)
+}
+
+func closedChannel() <-chan struct{} {
 	done := make(chan struct{})
 	close(done)
 	return done
@@ -88,6 +198,10 @@ func startTracked(ctx context.Context, cmd *exec.Cmd) (func(), error) {
 		reg.mu.Lock()
 		delete(reg.procs, cmd)
 		close(done)
+		if len(reg.procs) == 0 && reg.idle != nil {
+			close(reg.idle)
+			reg.idle = nil
+		}
 		reg.mu.Unlock()
 	}, nil
 }

@@ -15,6 +15,10 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
+// OnShutdownSignalForTest registers a task's handler for the worker shutdown
+// signal.
+var OnShutdownSignalForTest = onShutdownSignal
+
 type captureCoordinatorClientForTest struct {
 	coordinator.Client
 	status *ir.DAGRunStatus

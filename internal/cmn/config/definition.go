@@ -477,6 +477,8 @@ type SignalHandlingDef struct {
 	// EnablePropagation forwards shutdown signals received by a supervising
 	// process (server, scheduler, start-all) to running DAG-run subprocesses.
 	EnablePropagation *bool `mapstructure:"enable_propagation"`
+	// DrainTimeout is a duration string such as "5m". Default: 0.
+	DrainTimeout string `mapstructure:"drain_timeout"`
 }
 
 // QueueDef configures an individual queue.
