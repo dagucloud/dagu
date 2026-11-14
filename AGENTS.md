@@ -149,8 +149,6 @@ Defaults:
   spends when no DAG is running.
 - Storage may be slow. NFS, EFS, shared Kubernetes volumes, and Windows
   make every file read, stat, and rename slower. Read fewer files.
-- File watches see only changes made on the same host. Also re-read on a
-  timer.
 - On Windows, use `internal/cmn/fileutil` to read, rename, and delete
   files. It retries when another process briefly holds the file.
 
