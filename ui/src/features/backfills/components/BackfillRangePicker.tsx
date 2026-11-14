@@ -36,11 +36,24 @@ const OFFSET = /(Z|[+-]\d{2}:\d{2})$/;
 /** A time input's value, which has no seconds. */
 const MINUTE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
+/** Minutes east of UTC of an offset such as Z or +09:00. */
+function offsetMinutes(offset: string): number {
+  if (offset === 'Z') return 0;
+  const [hours = 0, minutes = 0] = offset.slice(1).split(':').map(Number);
+  return (offset.startsWith('-') ? -1 : 1) * (hours * 60 + minutes);
+}
+
 /**
- * A bound as a time input shows it. A bound with an offset shows its wall
- * time in that offset.
+ * A bound as a time input shows it: a bound with an offset shows its wall
+ * time in the given offset, or else in its own.
  */
-function inputValue(bound: string): string {
+function inputValue(bound: string, offset: string | undefined): string {
+  const instant = Date.parse(bound);
+  if (offset && OFFSET.test(bound) && !Number.isNaN(instant)) {
+    return new Date(instant + offsetMinutes(offset) * 60_000)
+      .toISOString()
+      .slice(0, 16);
+  }
   return WALL_TIME.exec(bound)?.[0] ?? bound;
 }
 
@@ -54,9 +67,9 @@ function inOffset(value: string, offset: string | undefined): string {
  * Picks the range of a backfill: the last 7 or 30 days, since the last
  * success, or fire times typed in. Times typed without an offset are read in
  * the schedule's zone. A given initial range starts as fire times, and each
- * of its bounds is kept as given until edited; a bound typed then is read
- * in the offset the initial range carries. The DAG's slots are read once,
- * to find the last success, when the panel opens.
+ * of its bounds is kept as given until edited. Both bounds show, and a
+ * bound typed then is read, in the offset of the initial start. The DAG's
+ * slots are read once, to find the last success, when the panel opens.
  */
 export function BackfillRangePicker({
   fileName,
@@ -193,7 +206,7 @@ export function BackfillRangePicker({
             type="datetime-local"
             aria-label={ts('First fire time')}
             className="w-52"
-            value={inputValue(from)}
+            value={inputValue(from, offset)}
             onChange={(event) =>
               typed(inOffset(event.target.value, offset), to)
             }
@@ -205,7 +218,7 @@ export function BackfillRangePicker({
             type="datetime-local"
             aria-label={ts('Last fire time')}
             className="w-52"
-            value={inputValue(to)}
+            value={inputValue(to, offset)}
             onChange={(event) =>
               typed(from, inOffset(event.target.value, offset))
             }
