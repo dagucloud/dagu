@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -159,4 +160,20 @@ func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A dry run executes nothing, so it succeeds, and reports that the real run
+// would refuse node targeting.
+func TestAgent_NodeTargetingDryRunReportsRefusal(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, "steps:\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n")
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{Dry: true}))
+	dagAgent.RunSuccess(t)
+
+	require.Contains(t, dagAgent.DryRunChecks(), runtime.DryRunCheck{
+		Field:   "nodes",
+		Message: `step "clean" sets nodes, and running a step on inventory nodes is not available yet`,
+	})
 }
