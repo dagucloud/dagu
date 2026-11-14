@@ -6,6 +6,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"sync/atomic"
@@ -13,8 +14,10 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"net/http/httptest"
 )
 
 func TestToolError(t *testing.T) {
@@ -176,7 +179,47 @@ func TestArgumentsReference(t *testing.T) {
 	assert.Error(t, validateStep(step("plain")))
 	cfg, err := decodeConfig(step(`{"a":1}`), false)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]any{"a": float64(1)}, cfg.Arguments)
+	assert.Equal(t, map[string]any{"a": json.Number("1")}, cfg.Arguments)
 	_, err = decodeConfig(step("not json"), false)
+	assert.Error(t, err)
+}
+
+func TestShortHeaderSecretsRedacted(t *testing.T) {
+	t.Parallel()
+	server := sdk.NewServer(&sdk.Implementation{Name: "short", Version: "1"}, nil)
+	server.AddTool(tool("ok", func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{Content: text("value xq9")}, nil
+	}))
+	server.AddTool(tool("bad", func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{IsError: true, Content: text("denied xq9")}, nil
+	}))
+	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	cfg := func(name string) map[string]any {
+		return map[string]any{"url": srv.URL, "tool": name, "headers": map[string]any{"Authorization": "Bearer xq9"}}
+	}
+
+	out, err := run(t.Context(), t, cfg("ok"))
+	require.NoError(t, err)
+	assert.NotContains(t, out, "xq9")
+	assert.Contains(t, out, "value ***")
+
+	out, err = run(t.Context(), t, cfg("bad"))
+	require.Error(t, err)
+	assert.NotContains(t, err.Error()+out, "xq9")
+	assert.Contains(t, err.Error(), "***")
+}
+
+func TestLargeIntegerArgumentsKeepPrecision(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	const big = "9007199254740993"
+
+	out, err := run(t.Context(), t, f.cfg("echo", map[string]any{"arguments": `{"id": ` + big + `}`}))
+	require.NoError(t, err)
+	assert.Contains(t, out, big)
+
+	_, err = newCaller(t.Context(), ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "mcp", Config: f.cfg("echo", map[string]any{"arguments": `{"a":1} {"b":2}`})}})
 	assert.Error(t, err)
 }

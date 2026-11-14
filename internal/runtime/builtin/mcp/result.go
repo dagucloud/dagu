@@ -70,44 +70,47 @@ func writeJSON(w io.Writer, v any) error {
 }
 
 // redactor masks header values, and the credential part of scheme-prefixed
-// values such as "Bearer <token>", in text.
-type redactor []string
+// values such as "Bearer <token>", at any length. URL query values are masked
+// only above minQuerySecretLen to avoid hitting ubiquitous short substrings.
+type redactor struct {
+	headers []string
+	query   []string
+}
+
+const minQuerySecretLen = 4
 
 func newRedactor(headers map[string]string, rawURL string) redactor {
-	var secrets redactor
+	var r redactor
 	for _, v := range headers {
 		if v == "" {
 			continue
 		}
-		secrets = append(secrets, v)
+		r.headers = append(r.headers, v)
 		if _, rest, ok := strings.Cut(v, " "); ok && rest != "" {
-			secrets = append(secrets, rest)
+			r.headers = append(r.headers, rest)
 		}
 	}
 	if u, err := url.Parse(rawURL); err == nil {
 		for _, vals := range u.Query() {
 			for _, v := range vals {
-				if v != "" {
-					secrets = append(secrets, v)
+				if len(v) >= minQuerySecretLen {
+					r.query = append(r.query, v)
 				}
 			}
 		}
 	}
-	return secrets
+	return r
 }
 
 func (r redactor) apply(s string) string {
-	for _, secret := range r {
-		if len(secret) < minSecretLen {
-			continue
-		}
+	for _, secret := range r.headers {
+		s = strings.ReplaceAll(s, secret, "***")
+	}
+	for _, secret := range r.query {
 		s = strings.ReplaceAll(s, secret, "***")
 	}
 	return s
 }
-
-// minSecretLen avoids masking ubiquitous short substrings.
-const minSecretLen = 4
 
 // walk masks secrets in decoded string values only, so JSON syntax, numbers,
 // booleans and keys are never altered.

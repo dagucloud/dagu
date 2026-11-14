@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/url"
 	"reflect"
@@ -35,8 +36,13 @@ func argumentsHook(from, to reflect.Type, data any) (any, error) {
 	if !ok || from.Kind() != reflect.String || to.Kind() != reflect.Map {
 		return data, nil
 	}
+	dec := json.NewDecoder(strings.NewReader(str))
+	dec.UseNumber()
 	var obj map[string]any
-	if err := json.Unmarshal([]byte(str), &obj); err != nil || obj == nil {
+	if err := dec.Decode(&obj); err != nil || obj == nil || dec.More() {
+		return nil, errors.New("arguments must be a JSON object")
+	}
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, errors.New("arguments must be a JSON object")
 	}
 	return obj, nil
