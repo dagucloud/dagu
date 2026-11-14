@@ -375,6 +375,7 @@ function DAGCard({
         >
           <DAGActions
             dag={dag.dag}
+            // Actions act on the DAG's own runs, not on one a parent started.
             status={dag.latestDAGRun}
             fileName={fileName}
             label={false}
@@ -963,6 +964,7 @@ const defaultColumns = [
         >
           <DAGActions
             dag={data.dag.dag}
+            // Actions act on the DAG's own runs, not on one a parent started.
             status={data.dag.latestDAGRun}
             fileName={data.dag.fileName}
             label={false}
@@ -1898,7 +1900,7 @@ function DAGTable({
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
                         : 'cursor-pointer hover:bg-muted/50'
-                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
+                    } ${isDAGRow && 'dag' in row.original && shownRun((row.original as DAGRow).dag).run.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
                     tabIndex={isDAGRow ? 0 : undefined}
                     onKeyDown={
                       isDAGRow && 'dag' in row.original

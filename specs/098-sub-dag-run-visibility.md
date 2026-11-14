@@ -35,6 +35,9 @@ exists.
 - When the root run is removed, the DAG has no latest sub DAG-run until
   another parent runs it.
 - A run under an ephemeral root run is not reported.
+- A sub DAG-run is reported for the DAG with its name. A local DAG defined
+  inside a parent's file shares its name with a separate DAG file of the same
+  name, so that DAG reports the local DAG's runs too.
 
 ## Conformance
 
