@@ -14,6 +14,7 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  RunBackfillFilter,
   RunDateMode,
   RunDatePreset,
   RunSpecificPeriod,
@@ -687,6 +688,41 @@ describe('DAGRuns page', () => {
     expect(
       screen.getByRole('button', { name: 'Run view: Nightly runs' })
     ).toBeVisible();
+  });
+
+  it('narrows the list to backfill runs or leaves them out', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(lastRunQuery()['backfill']).toBeUndefined();
+
+    await user.click(screen.getByRole('combobox', { name: 'Backfill runs' }));
+    await user.click(
+      screen.getByRole('option', { name: 'Backfill runs only' })
+    );
+    await waitFor(() => expect(lastRunQuery()['backfill']).toBe('only'));
+    expect(locationSearchParams().get('backfill')).toBe('only');
+
+    await user.click(screen.getByRole('combobox', { name: 'Backfill runs' }));
+    await user.click(screen.getByRole('option', { name: 'All runs' }));
+    await waitFor(() => expect(lastRunQuery()['backfill']).toBeUndefined());
+    expect(locationSearchParams().has('backfill')).toBe(false);
+  });
+
+  it('applies the backfill filter of a run view', async () => {
+    sharedRunViewState.views.push(
+      makeRunView({
+        id: 'manual-view',
+        name: 'Manual runs',
+        backfill: RunBackfillFilter.exclude,
+      })
+    );
+
+    renderPage(vi.fn(), '/dag-runs?view=manual-view');
+
+    await waitFor(() => expect(lastRunQuery()['backfill']).toBe('exclude'));
+    expect(
+      screen.getByRole('combobox', { name: 'Backfill runs' })
+    ).toHaveTextContent('Without backfills');
   });
 
   it('gives explicit URL filters precedence over the requested run view', async () => {

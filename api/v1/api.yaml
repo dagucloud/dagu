@@ -5811,6 +5811,15 @@ paths:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/QueueListLimit"
         - $ref: "#/components/parameters/QueueListCursor"
+        - name: "backfill"
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "exclude"
+              - "only"
+          description: "Leave out backfill runs (exclude), or list only them (only)"
         - name: name
           in: path
           description: "Queue name"
@@ -21348,6 +21357,14 @@ components:
         - desc
       description: "Direction used to sort workflows."
 
+    RunBackfillFilter:
+      type: string
+      description: "Runs by whether a backfill queued them: every run (all), only those it did not (exclude), or only those it did (only)"
+      enum:
+        - "all"
+        - "exclude"
+        - "only"
+
     RunDateMode:
       type: string
       enum:
@@ -21430,6 +21447,8 @@ components:
           type: string
           maxLength: 16
           description: "Run status filter: 'all' or a status number. Empty matches any."
+        backfill:
+          $ref: "#/components/schemas/RunBackfillFilter"
         dateMode:
           $ref: "#/components/schemas/RunDateMode"
         datePreset:
@@ -21528,6 +21547,8 @@ components:
         runStatus:
           type: string
           description: "Run status filter: 'all' or a status number."
+        backfill:
+          $ref: "#/components/schemas/RunBackfillFilter"
         dateMode:
           $ref: "#/components/schemas/RunDateMode"
         datePreset:

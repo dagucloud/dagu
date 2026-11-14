@@ -185,6 +185,9 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	if request.Body.RunStatus == nil {
 		updated.RunStatus = existing.RunStatus
 	}
+	if request.Body.Backfill == nil {
+		updated.Backfill = existing.Backfill
+	}
 	if request.Body.DateMode == nil {
 		updated.DateMode = existing.DateMode
 	}
@@ -308,6 +311,9 @@ func viewFromSpec(spec api.ViewSpec) *view.View {
 	if spec.Type != nil {
 		v.Type = string(*spec.Type)
 	}
+	if spec.Backfill != nil {
+		v.Backfill = string(*spec.Backfill)
+	}
 	if spec.Labels != nil {
 		v.Labels = slices.Clone(*spec.Labels)
 	}
@@ -373,6 +379,8 @@ func toViewResponse(v *view.View) api.View {
 	if v.Type == view.TypeRun {
 		resp.DagRunId = ptrOf(v.DAGRunID)
 		resp.RunStatus = ptrOf(v.RunStatus)
+		backfill := api.RunBackfillFilter(v.Backfill)
+		resp.Backfill = &backfill
 		dateMode := api.RunDateMode(v.DateMode)
 		datePreset := api.RunDatePreset(v.DatePreset)
 		specificPeriod := api.RunSpecificPeriod(v.SpecificPeriod)

@@ -331,7 +331,8 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
 | `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
 | `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
 | `GET /api/v1/dag-runs?backfillId={id}` | The runs of a backfill, from its submission on unless `fromDate` or `toDate` is set. Every run carries `backfillId`, which a retry keeps. |
-| `GET /api/v1/dag-runs?backfill=exclude` or `only` | The run list without backfill runs, or with only them. |
+| `GET /api/v1/dag-runs?backfill=exclude` or `only` | The run list without backfill runs, or with only them. A saved run view keeps the choice as `backfill`: `all`, `exclude`, or `only`. |
+| `GET /api/v1/queues/{name}/items?backfill=exclude` or `only` | A queue's queued runs without backfill runs, or with only them. |
 
 - A plan carries the number of slots each `rerun` value would run and a
   `revision`. A submit or resume that sends a `revision` the plan no longer
