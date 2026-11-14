@@ -103,6 +103,9 @@ func TestDataRootRuns(t *testing.T) {
 
 		oldRun := dr.CreateTestDAGRun(t, "same-day-duplicate-id", persis.NewUTC(time.Date(2021, 1, 2, 1, 0, 0, 0, time.UTC)))
 		newRun := dr.CreateTestDAGRun(t, "same-day-duplicate-id", persis.NewUTC(time.Date(2021, 1, 2, 2, 0, 0, 0, time.UTC)))
+		// Created last but older than newRun, so the newest run is neither the
+		// first nor the last one created in the day directory.
+		_ = dr.CreateTestDAGRun(t, "same-day-duplicate-id", persis.NewUTC(time.Date(2021, 1, 2, 1, 30, 0, 0, time.UTC)))
 
 		actual, err := dr.FindByDAGRunID(ctx, "same-day-duplicate-id")
 		require.NoError(t, err)
