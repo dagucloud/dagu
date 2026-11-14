@@ -1075,17 +1075,34 @@ function Install-WinSWWrapper {
     Write-Success "Downloaded the Windows service wrapper"
 }
 
+# Test-ServiceStopSupport reports whether the Dagu binary has the
+# service-stop command. The wrapper waits for a stop that never comes when
+# the binary lacks it, as a release before it does.
+function Test-ServiceStopSupport {
+    if ($DryRun -or -not (Test-Path $Script:DaguExe)) {
+        return $false
+    }
+    & $Script:DaguExe service-stop --help *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Write-ServiceXml {
     param([switch]$IncludeBootstrap)
 
     $logDir = Join-Path $DaguHome "logs"
+    # Stopping through Dagu leaves runs in progress running; by default the
+    # wrapper ends the whole process tree.
+    $stopArguments = ""
+    if (Test-ServiceStopSupport) {
+        $stopArguments = "`n  <stoparguments>service-stop</stoparguments>"
+    }
     $xml = @"
 <service>
   <id>$($Script:ServiceName)</id>
   <name>Dagu</name>
   <description>Dagu Workflow Engine</description>
   <executable>$(Escape-XmlValue $Script:DaguExe)</executable>
-  <arguments>start-all</arguments>
+  <arguments>start-all</arguments>$stopArguments
   <workingdirectory>$(Escape-XmlValue $Script:DaguHome)</workingdirectory>
   <startmode>Automatic</startmode>
   <onfailure action="restart" delay="10 sec"/>

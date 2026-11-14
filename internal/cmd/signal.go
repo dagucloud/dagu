@@ -36,6 +36,13 @@ func (e shutdownSignalError) As(target any) bool {
 // Once a signal arrives, a repeated SIGTERM is absorbed for the rest of the
 // process; a repeated SIGINT takes its default action after stop.
 func notifyShutdownContext(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+	return notifyShutdownOrRequestContext(parent, nil, signals...)
+}
+
+// notifyShutdownOrRequestContext is notifyShutdownContext that also shuts
+// down when requests delivers a signal, as a service wrapper's stop request
+// does. A nil requests channel never delivers.
+func notifyShutdownOrRequestContext(parent context.Context, requests <-chan os.Signal, signals ...os.Signal) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancelCause(parent)
 	if signalctx.OSSignalsDisabled(parent) {
 		return ctx, func() { cancel(nil) }
@@ -46,6 +53,9 @@ func notifyShutdownContext(parent context.Context, signals ...os.Signal) (contex
 		select {
 		case sig := <-quit:
 			signalctx.AbsorbRepeatedTerminate(parent)
+			signal.Stop(quit)
+			cancel(shutdownSignalError{signal: sig})
+		case sig := <-requests:
 			signal.Stop(quit)
 			cancel(shutdownSignalError{signal: sig})
 		case <-ctx.Done():
