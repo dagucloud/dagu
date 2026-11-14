@@ -1177,6 +1177,16 @@ func TestApprovalMutationsRecordAuthenticatedSubjectID(t *testing.T) {
 	assert.Equal(t, "user-1", rejected.RejectedByID)
 }
 
+// An approval input replaces the output variable of the same name, so a
+// resumed step reads the input instead of failing on the masked value.
+func TestApprovalInputReplacesMaskedOutput(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{MaskedOutputs: &ir.MaskedOutputs{Variables: []string{"TOKEN", "REGION"}, Captured: true}}
+	applyApproval(context.Background(), node, &openapiv1.ApproveStepRequest{Inputs: ptrOf(map[string]string{"TOKEN": "real"})})
+	assert.Equal(t, &ir.MaskedOutputs{Variables: []string{"REGION"}, Captured: true}, node.MaskedOutputs)
+}
+
 func TestApplyInlineEnqueueLabels_ArrayLabels(t *testing.T) {
 	t.Parallel()
 

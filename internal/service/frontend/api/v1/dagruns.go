@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -4207,6 +4208,13 @@ func applyApproval(ctx context.Context, node *ir.Node, body *api.ApproveStepRequ
 			camelInputs[stringutil.ScreamingSnakeToCamel(k)] = v
 		}
 		node.ApprovalInputs = camelInputs
+		// An input replaces a masked output variable of the same name.
+		if node.MaskedOutputs != nil {
+			node.MaskedOutputs.Variables = slices.DeleteFunc(node.MaskedOutputs.Variables, func(name string) bool {
+				_, ok := (*body.Inputs)[name]
+				return ok
+			})
+		}
 	}
 }
 
