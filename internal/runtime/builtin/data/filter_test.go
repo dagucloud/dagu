@@ -120,6 +120,20 @@ func TestFilterReadsNumbersTheInputHolds(t *testing.T) {
 	assert.Equal(t, []string{"large"}, names(t, out))
 }
 
+// A field without a condition sorts as the kind most of its values read as,
+// so one name holding a number does not make names sort as numbers.
+func TestFilterSortsAFieldAsMostOfItsValuesRead(t *testing.T) {
+	t.Parallel()
+
+	out, _ := runDataFilter(t, map[string]any{
+		"from":  "json",
+		"data":  `[{"name":"Bハイツ","area":"北区"},{"name":"第2ビル","area":"北区"},{"name":"Aハウス","area":"北区"}]`,
+		"where": map[string]any{"area": map[string]any{"is": "北区"}},
+		"sort":  "name",
+	})
+	assert.Equal(t, []string{"Aハウス", "Bハイツ", "第2ビル"}, names(t, out))
+}
+
 // A filter given an object picks its list of rows with select.
 func TestFilterSelectsItsRows(t *testing.T) {
 	t.Parallel()

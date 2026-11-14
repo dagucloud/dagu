@@ -440,8 +440,9 @@ func sortValues(rows []any, field, kind string) []sortValue {
 }
 
 // likelyKind is a date when at least half of values read as dates, else a
-// number when any reads as one, else text. A date also reads as a number,
-// its year, so dates are counted first.
+// number when at least half read as numbers, else text, so a few values of
+// another kind do not decide how a field sorts. A date also reads as a
+// number, its year, so dates are counted first.
 func likelyKind(values []any) string {
 	dates, numbers := 0, 0
 	for _, value := range values {
@@ -455,7 +456,7 @@ func likelyKind(values []any) string {
 	switch {
 	case dates > 0 && dates*2 >= len(values):
 		return kindDate
-	case numbers > 0:
+	case numbers > 0 && numbers*2 >= len(values):
 		return kindNumber
 	default:
 		return kindText
