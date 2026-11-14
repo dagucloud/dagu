@@ -1,0 +1,40 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Item, Qty, Done, When]
+      rows: [{"Item": "pear, \"ripe\"", "Qty": 3, "Done": true, "When": "2026-10-01"}, {"Item": "fig", "Qty": null, "Done": false, "When": null}]
+  - id: csv
+    depends: write
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: out.csv
+  - id: json
+    depends: write
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: out.json
+      columns: [Qty, {Item: name}]
+  - id: jsonl
+    depends: write
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: out.ndjson
+      format: jsonl
+  - id: result
+    depends: [csv, json, jsonl]
+    action: file.write
+    with:
+      path: result.json
+      content: '{"csv": {"format": "${steps.csv.outputs.format}", "count": ${steps.csv.outputs.count}, "range": "${steps.csv.outputs.range}"}, "jsonl_format": "${steps.jsonl.outputs.format}"}'
+  - id: path
+    depends: csv
+    action: file.write
+    with:
+      path: path.txt
+      content: ${steps.csv.outputs.path}

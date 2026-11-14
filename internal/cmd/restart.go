@@ -16,6 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +43,7 @@ Example:
 	)
 }
 
-var restartFlags = []commandLineFlag{dagRunIDFlagRestart, scheduleTimeFlag}
+var restartFlags = []commandLineFlag{dagRunIDFlagRestart, scheduleTimeFlag, scheduledAtFlag}
 
 func runRestart(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -51,12 +53,19 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get dag-run ID: %w", err)
 	}
-	scheduleTime, err := parseScheduleTimeParam(ctx)
-	if err != nil {
-		return err
-	}
-
 	name := args[0]
+
+	// The scheduler follows the current definition, so it decides whether the
+	// DAG is a service. The snapshot of a run decides only once the definition
+	// is gone.
+	current, loadErr := spec.Load(ctx, args[0],
+		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
+		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+	)
+	if loadErr == nil && current.RestartPolicy.Enabled() {
+		return errRestartServiceDAG(current.Name, current.RestartPolicy)
+	}
 
 	var attempt dagrun.Attempt
 	if dagRunID != "" {
@@ -77,13 +86,17 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read status: %w", err)
 	}
+
+	dag, readErr := attempt.ReadDAG(ctx)
+	if readErr == nil && loadErr != nil && dag.RestartPolicy.Enabled() {
+		return errRestartServiceDAG(dag.Name, dag.RestartPolicy)
+	}
+
 	if dagStatus.Status != ir.Running {
 		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
 	}
-
-	dag, err := attempt.ReadDAG(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to read DAG from execution history: %w", err)
+	if readErr != nil {
+		return fmt.Errorf("failed to read DAG from execution history: %w", readErr)
 	}
 
 	dag, err = restoreDAGFromStatus(ctx.Context, dag, dagStatus, ctx.Persistence.DAGRunRepository)
@@ -91,21 +104,61 @@ func runRestart(ctx *Context, args []string) error {
 		return fmt.Errorf("failed to restore DAG from status: %w", err)
 	}
 
-	definitionID := dagStatus.DAGDefinitionID()
-	if err := handleRestartProcess(ctx, dag, dagRunID, scheduleTime, definitionID, dagStatus.NoReuse); err != nil {
+	slot, err := runSlotParams(ctx, dag, dagStatus.ProfileName, false)
+	if err != nil {
+		return err
+	}
+	// The restarted run is for the same slot unless the flags name another.
+	if slot.scheduleTime == "" {
+		slot = runSlot{scheduleTime: dagStatus.ScheduleTime, window: dagStatus.ScheduleWindow()}
+	}
+	// Without a slot, the restarted run settles its slot and dates when it
+	// starts, after the restart wait. They are checked now, so a restart
+	// whose dates cannot resolve is refused before the original run stops.
+	dates, err := slotDates(ctx, dag, dagStatus.ProfileName, withDefaultSlot(ctx, dag, dagStatus.ProfileName, slot))
+	if err != nil {
+		return err
+	}
+	if slot.scheduleTime == "" {
+		dates = nil
+	}
+	opts := runOptions{
+		triggerType:    ir.TriggerTypeUnknown,
+		scheduleTime:   slot.scheduleTime,
+		scheduleWindow: slot.window,
+		dates:          dates,
+		profileName:    dagStatus.ProfileName,
+		definitionID:   dagStatus.DAGDefinitionID(),
+		noReuse:        dagStatus.NoReuse,
+	}
+	// A slot an operator names makes the run manual, so the scheduler reads
+	// it by when it ran and it cannot stand in for the scheduler's run.
+	if slot.operatorChosen {
+		opts.triggerType = ir.TriggerTypeManual
+	}
+	if err := handleRestartProcess(ctx, dag, dagRunID, opts); err != nil {
 		return fmt.Errorf("restart process failed for DAG %s: %w", dag.Name, err)
 	}
 
 	return nil
 }
 
+// errRestartServiceDAG rejects the restart of a DAG that sets restart_policy:
+// the scheduler starts its runs, and a run started by the command next to them
+// would race with the scheduler's own restart.
+func errRestartServiceDAG(name string, policy ir.RestartPolicy) error {
+	return fmt.Errorf(
+		"DAG %s sets restart_policy %q, so the scheduler starts its runs: stop the running run instead "+
+			"(with unless-stopped, start the DAG again after the stop)",
+		name, policy,
+	)
+}
+
 func handleRestartProcess(
 	ctx *Context,
 	d *ir.DAG,
 	oldDagRunID string,
-	scheduleTime string,
-	definitionID string,
-	noReuse bool,
+	opts runOptions,
 ) error {
 	if err := stopDAGIfRunning(ctx, ctx.DAGRunMgr, d, oldDagRunID); err != nil {
 		return err
@@ -120,23 +173,18 @@ func handleRestartProcess(
 	if err != nil {
 		return fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
+	opts.root = ir.NewDAGRunRef(d.Name, newDagRunID)
 
 	return withPreparedLocalExecution(
 		ctx,
 		d,
 		newDagRunID,
-		runOptions{
-			root:         ir.NewDAGRunRef(d.Name, newDagRunID),
-			triggerType:  ir.TriggerTypeUnknown,
-			scheduleTime: scheduleTime,
-			definitionID: definitionID,
-			noReuse:      noReuse,
-		},
+		opts,
 		func(execCtx context.Context) (dagrun.Attempt, error) {
 			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, d, time.Now(), newDagRunID, persis.DAGRunCreateAttemptOptions{})
 		},
 		func(preparedAttempt dagrun.Attempt) error {
-			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, scheduleTime, definitionID, noReuse, preparedAttempt)
+			return executeDAGWithRunID(ctx, ctx.DAGRunMgr, d, newDagRunID, opts, preparedAttempt)
 		},
 	)
 }
@@ -147,9 +195,7 @@ func executeDAGWithRunID(
 	cli runtime.Manager,
 	dag *ir.DAG,
 	dagRunID string,
-	scheduleTime string,
-	definitionID string,
-	noReuse bool,
+	opts runOptions,
 	preparedAttempt dagrun.Attempt,
 ) error {
 	logFile, err := ctx.OpenLogFile(dag, dagRunID)
@@ -198,8 +244,10 @@ func executeDAGWithRunID(
 			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, preparedAttempt),
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
-			NoReuse:                  noReuse,
-			DAGDefinitionID:          definitionID,
+			NoReuse:                  opts.noReuse,
+			DAGDefinitionID:          opts.definitionID,
+			ProfileName:              opts.profileName,
+			TriggerType:              opts.triggerType,
 			ParallelItem:             parallelItemFromEnv(dag.Env),
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
@@ -208,7 +256,9 @@ func executeDAGWithRunID(
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),
 			PeerConfig:               ctx.Config.Core.Peer,
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
-			ScheduleTime:             scheduleTime,
+			ScheduleTime:             opts.scheduleTime,
+			ScheduleWindow:           opts.scheduleWindow,
+			Dates:                    opts.dates,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,

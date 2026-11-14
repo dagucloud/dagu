@@ -4,41 +4,45 @@
 import { useErrorModal } from '@/components/ui/error-modal';
 import { Tab, Tabs } from '@/components/ui/tabs';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   ActivitySquare,
   AlertTriangle,
   Archive,
+  ArrowRight,
   Bot,
   ClipboardCheck,
   FileCode,
   ListChecks,
   GanttChart,
-  GripHorizontal,
   MessageSquare,
-  MousePointerClick,
   Package,
   ShieldCheck,
   ScrollText,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useCookies } from 'react-cookie';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { components, NodeStatus, Status, Stream } from '../../../api/v1/schema';
 import { useConfig } from '../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../hooks/api';
 import { cn, toMermaidNodeId } from '../../../lib/utils';
+import { useScrollFade } from '@/hooks/useScrollFade';
 import BorderedBox from '@/components/ui/bordered-box';
 import { DAGRunOutputs } from '../../dag-runs/components/dag-run-details';
-import { getManualActionState } from '../../dag-runs/lib/manualActionState';
+import { buildDAGRunPageURL } from '../../dag-runs/lib/dagRunUrls';
 import { DAGContext } from '../contexts/DAGContext';
 import { getEventHandlers } from '../lib/getEventHandlers';
 import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
+import {
+  autoRunTab,
+  fallbackRunTab,
+  runViewFacts,
+  visibleRunTabs,
+  type RunViewTab,
+} from '../lib/runViewTabs';
+import { canChangeStepStatus } from '../lib/stepStatusGate';
 import { ApprovalTab } from './approval';
+import { ApprovalResumeAlert } from './approval/ApprovalResumeAlert';
 import { AgentSessionTab } from './agent-session';
 import ArtifactsTab from './artifacts/ArtifactsTab';
 import { ChatHistoryTab } from './chat-history';
@@ -50,14 +54,20 @@ import {
   type SubRunStackEntry,
 } from './common';
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
-import { DAGSpecReadOnly } from './dag-editor';
+import DAGSpecReadOnly from './dag-editor/DAGSpecReadOnly';
 import { StepDetailsDrawer } from './step-details';
+import type { ForeachLogTarget } from '../hooks/useStepLogQuery';
 import {
   LogViewer,
   ParallelExecutionModal,
   StatusUpdateModal,
 } from './dag-execution';
 import { FlowchartType, Graph, TimelineChart } from './visualization';
+import { GraphInteractionsHint } from './visualization/GraphInteractionsHint';
+import {
+  GraphResizeHandle,
+  useResizableGraphHeight,
+} from './visualization/GraphResizeHandle';
 import { HumanTasksTab } from './human-task';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -71,19 +81,22 @@ type Props = {
   activeTab?: StatusTab;
   onTabChange?: (tab: StatusTab) => void;
   fillHeight?: boolean;
+  /**
+   * Shows only the run's status and any action waiting on a person, with a
+   * link to the run page for the other run views.
+   */
+  summary?: boolean;
+  /** Called when the user picks a tab; automatic switches do not call it. */
+  onTabSelect?: (tab: StatusTab) => void;
+  /** Step whose details open on load, such as one named in the URL. */
+  initialStepName?: string;
+  /** Called with the step whose details open, or undefined when they close. */
+  onStepSelect?: (stepName: string | undefined) => void;
+  /** Repeats run metadata above the steps; off where a header shows it. */
+  showRunMeta?: boolean;
 };
 
-export type StatusTab =
-  | 'status'
-  | 'timeline'
-  | 'outputs'
-  | 'artifacts'
-  | 'agent'
-  | 'chat'
-  | 'tasks'
-  | 'spec'
-  | 'approval'
-  | 'human-tasks';
+export type StatusTab = RunViewTab;
 
 /** Check if the current DAG run is a sub DAG-run (has a different root) */
 function isSubDAGRun(dagRun: components['schemas']['DAGRunDetails']): boolean {
@@ -91,6 +104,47 @@ function isSubDAGRun(dagRun: components['schemas']['DAGRunDetails']): boolean {
     dagRun.rootDAGRunId &&
     dagRun.rootDAGRunName &&
     dagRun.rootDAGRunId !== dagRun.dagRunId
+  );
+}
+
+/**
+ * Points an agent that waits for an answer to the run page, since its
+ * conversation needs the full view. Otherwise nothing shows: the run ID of the
+ * header links to the run page, where the timeline, outputs, artifacts and run
+ * spec live.
+ */
+function RunSummaryBar({
+  dagRun,
+  remoteNode,
+  waitingAgentCount,
+}: {
+  dagRun: components['schemas']['DAGRunDetails'];
+  remoteNode: string;
+  waitingAgentCount: number;
+}) {
+  if (waitingAgentCount === 0) {
+    return null;
+  }
+  const subRun = isSubDAGRun(dagRun);
+  const runURL = buildDAGRunPageURL({
+    rootDAGRunName: subRun ? dagRun.rootDAGRunName : dagRun.name,
+    rootDAGRunId: subRun ? dagRun.rootDAGRunId : dagRun.dagRunId,
+    subDAGRunId: subRun ? dagRun.dagRunId : undefined,
+    remoteNode,
+  });
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-muted-foreground">
+        <I18nText text={'An agent is waiting for an answer.'} />
+      </p>
+      <Link
+        to={runURL}
+        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+      >
+        <I18nText text={'Open run'} />
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+      </Link>
+    </div>
   );
 }
 
@@ -102,6 +156,11 @@ function DAGStatus({
   activeTab: controlledActiveTab,
   onTabChange,
   fillHeight = false,
+  summary = false,
+  onTabSelect,
+  initialStepName,
+  onStepSelect,
+  showRunMeta = true,
 }: Props) {
   const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
@@ -113,8 +172,15 @@ function DAGStatus({
   const [internalActiveTab, setInternalActiveTab] = useState<StatusTab>(initialTab);
   const activeTab = controlledActiveTab ?? internalActiveTab;
   const isTabControlled = controlledActiveTab !== undefined;
+  // Follows a tab change from the URL, such as navigating to another run.
+  useEffect(() => {
+    if (!isTabControlled) {
+      setInternalActiveTab(initialTab);
+    }
+  }, [initialTab, isTabControlled]);
   const [selectedAgentStep, setSelectedAgentStep] = useState('');
   const [displayDAGRun, setDisplayDAGRun] = useState(dagRun);
+  const [tabRowRef, tabRowFade] = useScrollFade<HTMLDivElement>('x');
 
   function setActiveTab(value: React.SetStateAction<StatusTab>): void {
     if (!isTabControlled) {
@@ -127,6 +193,11 @@ function DAGStatus({
     }
   }
 
+  function selectTab(tab: StatusTab): void {
+    setActiveTab(tab);
+    onTabSelect?.(tab);
+  }
+
   useEffect(() => {
     setDisplayDAGRun(dagRun);
   }, [dagRun]);
@@ -137,7 +208,11 @@ function DAGStatus({
     cookie['flowchart']
   );
 
-  const [graphHeight, setGraphHeight] = useState(380);
+  const {
+    height: graphHeight,
+    graphBoxRef,
+    handleProps: graphResizeHandleProps,
+  } = useResizableGraphHeight();
 
   const [selectedStep, setSelectedStep] = useState<
     components['schemas']['Step'] | undefined
@@ -149,34 +224,54 @@ function DAGStatus({
   >(undefined);
   const [isStepDetailsOpen, setIsStepDetailsOpen] = useState(false);
 
+  // Held in a ref so a parent's inline callback does not churn the
+  // callbacks below.
+  const onStepSelectRef = React.useRef(onStepSelect);
+  onStepSelectRef.current = onStepSelect;
+
   const closeStepDetails = React.useCallback(() => {
     setIsStepDetailsOpen(false);
+    onStepSelectRef.current?.(undefined);
   }, []);
+
+  const openStepDetails = React.useCallback((stepName: string) => {
+    setSelectedDetailStepName(stepName);
+    setIsStepDetailsOpen(true);
+    onStepSelectRef.current?.(stepName);
+  }, []);
+
+  // Each step named by the URL opens once the run lists it, and the drawer
+  // closes when the URL stops naming one. The run is part of the key because
+  // the page stays mounted when the URL moves to another run.
+  const appliedStep = React.useRef<string | undefined>(undefined);
+  const stepLinked = React.useRef(initialStepName);
+  stepLinked.current = initialStepName;
+  const linkedStepKey = initialStepName
+    ? JSON.stringify([dagRun.name, dagRun.dagRunId, initialStepName])
+    : undefined;
+  useEffect(() => {
+    if (linkedStepKey === appliedStep.current) {
+      return;
+    }
+    if (!initialStepName) {
+      appliedStep.current = undefined;
+      setIsStepDetailsOpen(false);
+      return;
+    }
+    if (!dagRun.nodes?.some((node) => node.step.name === initialStepName)) {
+      return;
+    }
+    appliedStep.current = linkedStepKey;
+    setSelectedDetailStepName(initialStepName);
+    setIsStepDetailsOpen(true);
+  }, [dagRun.nodes, initialStepName, linkedStepKey]);
 
   useEffect(() => {
     if (activeTab !== 'status') {
-      closeStepDetails();
+      setIsStepDetailsOpen(false);
     }
-  }, [activeTab, closeStepDetails]);
+  }, [activeTab]);
 
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = graphHeight;
-
-    const handleMouseMove = (mv: MouseEvent) => {
-      const newHeight = startHeight + (mv.clientY - startY);
-      setGraphHeight(Math.max(200, newHeight));
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
   // State for log viewer
   const [logViewer, setLogViewer] = useState<{
     isOpen: boolean;
@@ -185,6 +280,8 @@ function DAGStatus({
     dagRunId: string;
     stream: Stream;
     node?: components['schemas']['Node'];
+    foreach?: ForeachLogTarget;
+    bodyStepStatus?: NodeStatus;
   }>({
     isOpen: false,
     logType: 'step',
@@ -290,7 +387,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, fileName, remoteNode]
+    [displayDAGRun, navigate, remoteNode]
   );
 
   const onInspectStepOnGraph = React.useCallback(
@@ -301,11 +398,12 @@ function DAGStatus({
       if (!n) {
         return;
       }
-      setSelectedDetailStepName(n.step.name);
-      setIsStepDetailsOpen(true);
+      openStepDetails(n.step.name);
     },
-    [displayDAGRun]
+    [displayDAGRun, openStepDetails]
   );
+
+  const openStepName = isStepDetailsOpen ? selectedDetailStepName : undefined;
 
   const selectedDetailNode = React.useMemo(
     () =>
@@ -330,7 +428,8 @@ function DAGStatus({
         pushOntoOpenStack(entry);
         return;
       }
-      setChildRunStack([entry]);
+      // Pushes in one event open a path of runs.
+      setChildRunStack((stack) => [...stack, entry]);
     },
     [pushOntoOpenStack]
   );
@@ -365,50 +464,12 @@ function DAGStatus({
       const subDAGRun = allSubRuns[childIndex];
 
       if (subDAGRun && subDAGRun.dagRunId) {
-        // Navigate to the sub DAG-run status page
-        const dagRunId = displayDAGRun.rootDAGRunId || displayDAGRun.dagRunId;
-
-        // Check if we're in a dagRun context or a DAG context
-        const currentPath = window.location.pathname;
-        const isModal =
-          document.querySelector('.dagRun-modal-content') !== null;
-        const isDAGRunContext = currentPath.startsWith('/dag-runs/') || isModal;
-
-        let url: string;
-        if (isDAGRunContext) {
-          // For DAG runs, use query parameters to navigate to the DAG-run details page
-          const searchParams = new URLSearchParams();
-          searchParams.set('remoteNode', remoteNode);
-          searchParams.set('subDAGRunId', subDAGRun.dagRunId);
-
-          // Use root DAG-run information
-          if (displayDAGRun.rootDAGRunId) {
-            searchParams.set('dagRunId', displayDAGRun.rootDAGRunId);
-            searchParams.set('dagRunName', displayDAGRun.rootDAGRunName);
-          } else {
-            searchParams.set('dagRunId', displayDAGRun.dagRunId);
-            searchParams.set('dagRunName', displayDAGRun.name);
-          }
-
-          searchParams.set('step', node.step.name);
-
-          // Determine root DAG name
-          const rootDAGName =
-            displayDAGRun.rootDAGRunName || displayDAGRun.name;
-          url = `/dag-runs/${rootDAGName}/${dagRunId}?${searchParams.toString()}`;
-        } else {
-          // For DAGs, use the existing approach with query parameters
-          const searchParams = new URLSearchParams();
-          searchParams.set('remoteNode', remoteNode);
-          searchParams.set('subDAGRunId', subDAGRun.dagRunId);
-          searchParams.set('dagRunId', dagRunId);
-          searchParams.set('step', node.step.name);
-          searchParams.set(
-            'dagRunName',
-            displayDAGRun.rootDAGRunName || displayDAGRun.name
-          );
-          url = `/dags/${fileName}?${searchParams.toString()}`;
-        }
+        const url = buildDAGRunPageURL({
+          rootDAGRunName: displayDAGRun.rootDAGRunName || displayDAGRun.name,
+          rootDAGRunId: displayDAGRun.rootDAGRunId || displayDAGRun.dagRunId,
+          subDAGRunId: subDAGRun.dagRunId,
+          remoteNode,
+        });
 
         if (openInNewTab) {
           window.open(url, '_blank');
@@ -417,7 +478,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, fileName, remoteNode]
+    [displayDAGRun, navigate, remoteNode]
   );
 
   const openAgentChildRun = React.useCallback(
@@ -434,25 +495,15 @@ function DAGStatus({
   // Handle right-click on graph node (show status update modal)
   const onRightClickStepOnGraph = React.useCallback(
     (id: string) => {
-      // Check if user has permission to run DAGs
-      if (!config.permissions.runDags) {
-        return;
-      }
-
-      const status = displayDAGRun.status;
-      if (
-        status === Status.NotStarted ||
-        status === Status.Running ||
-        status === Status.Queued ||
-        status === Status.Waiting
-      ) {
-        return;
-      }
-
       const node = displayDAGRun.nodes?.find(
         (candidate) => toMermaidNodeId(candidate.step.name) === id
       );
-      if (!node || node.step.humanTask) {
+      if (
+        !node ||
+        !canChangeStepStatus(displayDAGRun, node, {
+          runDags: config.permissions.runDags,
+        }).ok
+      ) {
         return;
       }
 
@@ -484,29 +535,17 @@ function DAGStatus({
     });
   };
 
-  // Check if timeline should be shown (any status except not started)
-  const showTimeline = displayDAGRun.status !== Status.NotStarted;
-
-  // Chat and agent steps both persist an LLM transcript. Runs recorded before
-  // agent DAGs were renamed still carry the 'controller' executor type.
-  const hasChatSteps = !!displayDAGRun.nodes?.some((node) =>
-    ['chat', 'agent', 'controller'].includes(
-      node.step.executorConfig?.type ?? ''
-    )
-  );
-  const agentNodes = (displayDAGRun.nodes || []).filter(
-    (node) => !!node.agentSession
-  );
-  const hasAgentSessions = agentNodes.length > 0;
-  const waitingAgentCount = agentNodes.filter(
-    (node) =>
-      node.agentSession?.state === 'waiting' ||
-      node.agentSession?.state === 'unavailable'
-  ).length;
+  const runFacts = runViewFacts(displayDAGRun, { artifactEnabled });
+  const visibleTabs = visibleRunTabs(runFacts);
+  const isTabVisible = (tab: StatusTab) => visibleTabs.includes(tab);
+  const showTimeline = isTabVisible('timeline');
+  const hasChatSteps = isTabVisible('chat');
+  const hasAgentSessions = isTabVisible('agent');
+  const waitingAgentCount = runFacts.agentWaiting;
 
   // Agent DAG-runs track goal progress alongside their steps.
   const agentTasks = displayDAGRun.agentTasks ?? [];
-  const hasAgentTasks = agentTasks.length > 0;
+  const hasAgentTasks = isTabVisible('tasks');
   const failedNode = displayDAGRun.nodes?.find(
     (node) =>
       node.status === NodeStatus.Failed || node.status === NodeStatus.Rejected
@@ -517,12 +556,11 @@ function DAGStatus({
   const agentEvents = displayDAGRun.agentEvents ?? [];
   const isAgentRun = hasAgentTasks || agentEvents.length > 0;
 
-  const { waitingApprovalNodes, waitingHumanTaskNodes, hasHumanTaskWork } =
-    getManualActionState(displayDAGRun);
-  const waitingApprovalCount = waitingApprovalNodes.length;
-  const waitingHumanTaskCount = waitingHumanTaskNodes.length;
-  const hasWaitingApprovals = waitingApprovalCount > 0;
-  const hasArtifacts = artifactEnabled || !!displayDAGRun.artifactsAvailable;
+  const waitingApprovalCount = runFacts.waitingApprovals;
+  const waitingHumanTaskCount = runFacts.humanTasksWaiting;
+  const hasHumanTaskWork = isTabVisible('human-tasks');
+  const hasWaitingApprovals = isTabVisible('approval');
+  const hasArtifacts = isTabVisible('artifacts');
   const displayDAGRunIdentity = JSON.stringify([
     remoteNode,
     displayDAGRun.name,
@@ -540,61 +578,31 @@ function DAGStatus({
   }, [displayDAGRunIdentity]);
 
   // Reset to status tab if selected tab is not available
+  const visibleTabsKey = visibleTabs.join(',');
   useEffect(() => {
-    if (activeTab === 'timeline' && !showTimeline) {
-      setActiveTab('status');
+    const nextTab = fallbackRunTab(activeTab, visibleTabs);
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
     }
-    if (activeTab === 'chat' && !hasChatSteps) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'agent' && !hasAgentSessions) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'tasks' && !hasAgentTasks) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'approval' && !hasWaitingApprovals) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'human-tasks' && !hasHumanTaskWork) {
-      setActiveTab('status');
-    }
-    if (activeTab === 'artifacts' && !hasArtifacts) {
-      setActiveTab('status');
-    }
-  }, [
-    showTimeline,
-    hasChatSteps,
-    hasAgentSessions,
-    hasAgentTasks,
-    hasWaitingApprovals,
-    hasHumanTaskWork,
-    hasArtifacts,
-    activeTab,
-  ]);
+  }, [visibleTabsKey, activeTab]);
 
   // Surface a newly available manual action from the default status tab.
+  // A summary shows the action inline instead, and a step named by the URL
+  // stays in view.
   useEffect(() => {
-    setActiveTab((currentTab) => {
-      if (currentTab !== 'status') {
-        return currentTab;
-      }
-      if (waitingAgentCount > 0) {
-        return 'agent';
-      }
-      if (hasHumanTaskWork) {
-        return 'human-tasks';
-      }
-      if (hasWaitingApprovals) {
-        return 'approval';
-      }
-      return currentTab;
-    });
+    if (summary || stepLinked.current) {
+      return;
+    }
+    const autoTab = autoRunTab(runFacts);
+    setActiveTab((currentTab) =>
+      currentTab === 'status' && autoTab ? autoTab : currentTab
+    );
   }, [
     displayDAGRunIdentity,
     waitingAgentCount,
     hasHumanTaskWork,
     hasWaitingApprovals,
+    summary,
   ]);
 
   const scrollPaneClassName = fillHeight
@@ -611,6 +619,7 @@ function DAGStatus({
         )}
       >
         {/* Status Detail Tabs */}
+        {!summary && (
         <div
           className={cn(
             'w-full min-w-0 max-w-full overflow-hidden',
@@ -618,13 +627,17 @@ function DAGStatus({
           )}
         >
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-            <div className="min-w-0 flex-1 overflow-x-auto">
+            <div
+              ref={tabRowRef}
+              style={tabRowFade}
+              className="min-w-0 flex-1 overflow-x-auto"
+            >
               <Tabs className="min-w-max whitespace-nowrap">
                 <I18nProps>
                   <Tab
                     aria-label="Status"
                     isActive={activeTab === 'status'}
-                    onClick={() => setActiveTab('status')}
+                    onClick={() => selectTab('status')}
                     className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                   >
                     <ActivitySquare className="h-4 w-4" />
@@ -638,7 +651,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Agent"
                       isActive={activeTab === 'agent'}
-                      onClick={() => setActiveTab('agent')}
+                      onClick={() => selectTab('agent')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <Bot className="h-4 w-4" />
@@ -658,7 +671,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Human tasks"
                       isActive={activeTab === 'human-tasks'}
-                      onClick={() => setActiveTab('human-tasks')}
+                      onClick={() => selectTab('human-tasks')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <ClipboardCheck className="h-4 w-4" />
@@ -678,7 +691,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Approval"
                       isActive={activeTab === 'approval'}
-                      onClick={() => setActiveTab('approval')}
+                      onClick={() => selectTab('approval')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <ShieldCheck className="h-4 w-4" />
@@ -696,7 +709,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Timeline"
                       isActive={activeTab === 'timeline'}
-                      onClick={() => setActiveTab('timeline')}
+                      onClick={() => selectTab('timeline')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <GanttChart className="h-4 w-4" />
@@ -710,7 +723,7 @@ function DAGStatus({
                   <Tab
                     aria-label="Outputs"
                     isActive={activeTab === 'outputs'}
-                    onClick={() => setActiveTab('outputs')}
+                    onClick={() => selectTab('outputs')}
                     className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                   >
                     <Package className="h-4 w-4" />
@@ -724,7 +737,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Artifacts"
                       isActive={activeTab === 'artifacts'}
-                      onClick={() => setActiveTab('artifacts')}
+                      onClick={() => selectTab('artifacts')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <Archive className="h-4 w-4" />
@@ -739,7 +752,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Tasks"
                       isActive={activeTab === 'tasks'}
-                      onClick={() => setActiveTab('tasks')}
+                      onClick={() => selectTab('tasks')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <ListChecks className="h-4 w-4" />
@@ -754,7 +767,7 @@ function DAGStatus({
                     <Tab
                       aria-label="Chat"
                       isActive={activeTab === 'chat'}
-                      onClick={() => setActiveTab('chat')}
+                      onClick={() => selectTab('chat')}
                       className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                     >
                       <MessageSquare className="h-4 w-4" />
@@ -768,7 +781,7 @@ function DAGStatus({
                   <Tab
                     aria-label="Spec"
                     isActive={activeTab === 'spec'}
-                    onClick={() => setActiveTab('spec')}
+                    onClick={() => selectTab('spec')}
                     className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                   >
                     <FileCode className="h-4 w-4" />
@@ -781,6 +794,15 @@ function DAGStatus({
             </div>
           </div>
         </div>
+        )}
+
+        {displayDAGRun.status === Status.Waiting &&
+          displayDAGRun.approvalResumePending && (
+            <ApprovalResumeAlert
+              key={displayDAGRunIdentity}
+              dagRun={displayDAGRun}
+            />
+          )}
 
         {/* Status Tab Content */}
         {childRunStack.length > 0 && (
@@ -791,6 +813,41 @@ function DAGStatus({
             stack={childRunStack}
             onChange={setChildRunStack}
           />
+        )}
+
+        {summary && (
+          <RunSummaryBar
+            dagRun={displayDAGRun}
+            remoteNode={remoteNode}
+            waitingAgentCount={waitingAgentCount}
+          />
+        )}
+        {summary && (hasWaitingApprovals || hasHumanTaskWork) && (
+          <section
+            aria-labelledby="action-required-title"
+            className="space-y-3 rounded-lg border border-warning/40 bg-warning/5 p-4"
+          >
+            <h2
+              id="action-required-title"
+              className="text-sm font-semibold text-foreground"
+            >
+              <I18nText text={'Action required'} />
+            </h2>
+            {hasHumanTaskWork && (
+              <HumanTasksTab
+                key={displayDAGRunIdentity}
+                dagRun={displayDAGRun}
+                onChanged={dagContext.refresh}
+              />
+            )}
+            {hasWaitingApprovals && (
+              <ApprovalTab
+                dagRun={displayDAGRun}
+                dagName={displayDAGRun.name}
+                onChanged={dagContext.refresh}
+              />
+            )}
+          </section>
         )}
 
         {activeTab === 'status' && (
@@ -865,40 +922,16 @@ function DAGStatus({
               displayDAGRun.nodes &&
               displayDAGRun.nodes.length > 0 && (
                 <div className="flex flex-col">
-                  <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-                    <div className="flex justify-end mb-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                            aria-label={ts('Graph interactions')}
-                          >
-                            <MousePointerClick className="h-3.5 w-3.5" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div className="space-y-1">
-                            <p>
-                              <I18nText text={'Click: Inspect step details'} />
-                            </p>
-                            <p>
-                              <I18nText
-                                text={'Double-click: Navigate to sub dagRun'}
-                              />
-                            </p>
-                            {config.permissions.runDags && (
-                              <p>
-                                <I18nText
-                                  text={'Right-click: Update node status'}
-                                />
-                              </p>
-                            )}
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <div className="w-full min-w-0 max-w-full overflow-x-auto">
+                  <BorderedBox className="flex flex-col items-stretch gap-0 overflow-hidden p-0">
+                    <div ref={graphBoxRef} className="w-full min-w-0">
                       <Graph
+                        toolbarStart={
+                          <GraphInteractionsHint
+                            inspect
+                            openSubRun
+                            updateStatus={config.permissions.runDags}
+                          />
+                        }
                         steps={displayDAGRun.nodes}
                         name={displayDAGRun.name}
                         type="status"
@@ -913,14 +946,10 @@ function DAGStatus({
                             : undefined
                         }
                         height={graphHeight}
+                        selectedStepName={openStepName}
                       />
                     </div>
-                    <div
-                      className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
-                      onMouseDown={handleResizeMouseDown}
-                    >
-                      <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
-                    </div>
+                    <GraphResizeHandle {...graphResizeHandleProps} />
                   </BorderedBox>
                 </div>
               )}
@@ -930,6 +959,7 @@ function DAGStatus({
               <div className="bg-surface border border-border rounded-lg p-4">
                 <DAGStatusOverview
                   status={displayDAGRun}
+                  showRunMeta={showRunMeta}
                   onViewLog={(dagRunId) => {
                     setLogViewer({
                       isOpen: true,
@@ -949,19 +979,26 @@ function DAGStatus({
                 fileName={fileName}
                 onViewLog={handleViewLog}
                 onNodeStatusUpdated={applyDisplayNodeStatus}
+                selectedStepName={openStepName}
+                onInspectStep={openStepDetails}
               />
             </div>
 
             {/* Lifecycle Hooks */}
             {handlers?.length ? (
-              <NodeStatusTable
-                nodes={handlers}
-                status={displayDAGRun}
-                fileName={fileName}
-                onViewLog={handleViewLog}
-                onNodeStatusUpdated={applyDisplayNodeStatus}
-                hideActions
-              />
+              <section className="space-y-2">
+                <h2 className="text-sm font-semibold text-foreground">
+                  <I18nText text={'Lifecycle handlers'} />
+                </h2>
+                <NodeStatusTable
+                  nodes={handlers}
+                  status={displayDAGRun}
+                  fileName={fileName}
+                  onViewLog={handleViewLog}
+                  onNodeStatusUpdated={applyDisplayNodeStatus}
+                  hideActions
+                />
+              </section>
             ) : null}
           </div>
         )}
@@ -993,7 +1030,11 @@ function DAGStatus({
         {/* Approval Tab Content */}
         {activeTab === 'approval' && hasWaitingApprovals && (
           <div className={scrollPaneClassName}>
-            <ApprovalTab dagRun={displayDAGRun} dagName={displayDAGRun.name} />
+            <ApprovalTab
+              dagRun={displayDAGRun}
+              dagName={displayDAGRun.name}
+              onChanged={dagContext.refresh}
+            />
           </div>
         )}
 
@@ -1075,6 +1116,7 @@ function DAGStatus({
           isOpen={isStepDetailsOpen}
           step={selectedDetailNode?.step}
           node={selectedDetailNode}
+          dagRun={displayDAGRun}
           onClose={closeStepDetails}
           onViewLog={(node, stream) =>
             handleViewLog(
@@ -1082,6 +1124,17 @@ function DAGStatus({
               displayDAGRun.dagRunId,
               node
             )
+          }
+          onViewBodyStepLog={(bodyStepName, foreach, stream, bodyStepStatus) =>
+            setLogViewer({
+              isOpen: true,
+              logType: 'step',
+              stepName: bodyStepName,
+              dagRunId: displayDAGRun.dagRunId,
+              stream,
+              foreach,
+              bodyStepStatus,
+            })
           }
           onOpenSubRun={(node, subRunIndex) => openSubRunAt(node, subRunIndex)}
         />
@@ -1092,11 +1145,14 @@ function DAGStatus({
           onClose={() => setLogViewer((prev) => ({ ...prev, isOpen: false }))}
           logType={logViewer.logType}
           dagName={displayDAGRun.name}
+          fileName={fileName}
           dagRunId={logViewer.dagRunId}
           stepName={logViewer.stepName}
           dagRun={displayDAGRun}
           stream={logViewer.stream}
           node={logViewer.node}
+          foreach={logViewer.foreach}
+          bodyStepStatus={logViewer.bodyStepStatus}
         />
 
         {/* Parallel execution selection modal */}

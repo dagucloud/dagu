@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,20 @@ func TestHarnessWarningsAfterBaseMerge(t *testing.T) {
       prompt: Summarize changes.
 `)
 	dag, err := spec.LoadYAML(context.Background(), []byte("working_dir: ./repo\nsteps:\n  - run: echo done\n"), spec.WithBaseConfigContent(base))
+	require.NoError(t, err)
+	assert.Empty(t, dag.BuildWarnings)
+}
+
+func TestBaseConfigParamsWarning(t *testing.T) {
+	t.Parallel()
+	data := []byte("name: parent\nsteps:\n  - run: echo parent\n---\nname: child\nsteps:\n  - run: echo child\n")
+
+	dag, err := spec.LoadYAML(context.Background(), data, spec.WithBaseConfigContent([]byte("params:\n  - DAY_OF_WEEK: 3\n")))
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 1)
+	assert.Contains(t, dag.BuildWarnings[0], "params in the base config are not supported")
+
+	dag, err = spec.LoadYAML(context.Background(), data, spec.WithBaseConfigContent([]byte("consts:\n  - DAY_OF_WEEK: 3\n")))
 	require.NoError(t, err)
 	assert.Empty(t, dag.BuildWarnings)
 }
@@ -283,6 +298,7 @@ steps:
 		assert.Equal(t, time.Second*5, dag.MaxCleanUpTime)
 		assert.Equal(t, 30, dag.HistRetentionDays)
 		assert.Equal(t, 0, dag.HistRetentionRuns)
+		assert.Equal(t, 730, dag.SlotRetentionDays)
 
 		// Step level
 		require.Len(t, dag.Steps, 1)
@@ -303,6 +319,24 @@ steps:
 
 		assert.Equal(t, 0, dag.HistRetentionDays)
 		assert.Equal(t, 3, dag.HistRetentionRuns)
+	})
+	t.Run("SlotRetentionDays", func(t *testing.T) {
+		t.Parallel()
+
+		testDAG := createTempYAMLFile(t, `slot_retention_days: 90
+steps:
+  - run: "true"
+`)
+		dag, err := spec.Load(context.Background(), testDAG)
+		require.NoError(t, err)
+		assert.Equal(t, 90, dag.SlotRetentionDays)
+
+		testDAG = createTempYAMLFile(t, `slot_retention_days: 0
+steps:
+  - run: "true"
+`)
+		_, err = spec.Load(context.Background(), testDAG)
+		require.ErrorContains(t, err, "slot_retention_days must be > 0")
 	})
 	t.Run("RejectBothHistoryRetentionModesInSameDocument", func(t *testing.T) {
 		t.Parallel()
@@ -1067,6 +1101,10 @@ steps:
 		assert.Contains(t, dag.Env, "BASE_ENV=base_value")
 		assert.Contains(t, dag.Env, "SUB_ENV=sub_value")
 		assert.Contains(t, dag.Env, "OVERWRITE_ENV=sub_overwrite_value")
+
+		// The root env span covers the child's own entries, not the base ones.
+		span := dag.RootEnvSpan
+		assert.ElementsMatch(t, []string{"SUB_ENV=sub_value", "OVERWRITE_ENV=sub_overwrite_value"}, dag.Env[span.Start:span.End])
 
 		// Other fields should be inherited
 		assert.Equal(t, "/base/logs", dag.LogDir)
@@ -2412,14 +2450,16 @@ steps:
 		})
 	}
 
-	t.Run("EmptyDocumentSeparator", func(t *testing.T) {
-		t.Parallel()
-
-		// TODO: The YAML parser has limitations with empty documents (---)
-		// The behavior is inconsistent - sometimes it skips them, sometimes it errors.
-		// For now, we test that it loads something, but the sub DAG after
-		// the empty document may or may not be loaded.
-		multiDAGContent := `steps:
+	// Empty documents (bare `---` separators) and comment-only documents are
+	// skipped; every real document in the stream must still be loaded.
+	emptyDocTests := []struct {
+		name      string
+		content   string
+		wantLocal string
+	}{
+		{
+			name: "EmptyDocumentBetweenDAGs",
+			content: `steps:
   - name: step1
     run: echo "main"
 
@@ -2430,16 +2470,89 @@ name: child
 steps:
   - name: step1
     run: echo "child"
-`
-		tmpFile := createTempYAMLFile(t, multiDAGContent)
+`,
+			wantLocal: "child",
+		},
+		{
+			name: "CommentOnlyDocumentBetweenDAGs",
+			content: `steps:
+  - name: step1
+    run: echo "main"
 
-		// The behavior with empty documents is unpredictable
-		_, err := spec.Load(context.Background(), tmpFile)
-		if err != nil {
-			// If it errors, it should be a decode error
-			assert.Contains(t, err.Error(), "failed to decode document")
-		}
-	})
+---
+# this document only contains a comment
+---
+name: child
+steps:
+  - name: step1
+    run: echo "child"
+`,
+			wantLocal: "child",
+		},
+		{
+			name: "LeadingEmptyDocuments",
+			content: `---
+---
+steps:
+  - name: step1
+    run: echo "main"
+`,
+		},
+		{
+			name: "TrailingEmptyDocuments",
+			content: `steps:
+  - name: step1
+    run: echo "main"
+---
+name: child
+steps:
+  - name: step1
+    run: echo "child"
+---
+---
+`,
+			wantLocal: "child",
+		},
+	}
+
+	for _, tt := range emptyDocTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpFile := createTempYAMLFile(t, tt.content)
+			dag, err := spec.Load(context.Background(), tmpFile)
+			require.NoError(t, err)
+			assert.Len(t, dag.Steps, 1)
+			if tt.wantLocal == "" {
+				assert.Empty(t, dag.LocalDAGs)
+				return
+			}
+			local, ok := dag.LocalDAGs[tt.wantLocal]
+			require.True(t, ok, "document after an empty document must be loaded")
+			assert.Equal(t, tt.wantLocal, local.Name)
+		})
+	}
+
+	// A stream without a single real document is an error.
+	emptyStreamTests := []struct {
+		name    string
+		content string
+	}{
+		{name: "EmptyFile", content: ``},
+		{name: "OnlySeparator", content: "---\n"},
+		{name: "OnlySeparators", content: "---\n---\n"},
+		{name: "OnlyComment", content: "# just a comment\n"},
+		{name: "OnlySeparatorAndComment", content: "---\n# just a comment\n"},
+	}
+
+	for _, tt := range emptyStreamTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpFile := createTempYAMLFile(t, tt.content)
+			_, err := spec.Load(context.Background(), tmpFile)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "no DAGs found")
+		})
+	}
 
 	t.Run("ComplexMultiDAGWithParameters", func(t *testing.T) {
 		t.Parallel()
@@ -2854,6 +2967,34 @@ steps:
 		}
 		assert.Equal(t, 2, found, "Both params should be applied")
 	})
+}
+
+// TestLoadYAMLCase verifies configured DAG directory lookup preserves mixed-case YAML filenames.
+func TestLoadYAMLCase(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		file string
+		dag  string
+	}{
+		{name: "YAML", file: "FLOW.YAML", dag: "authored-yaml"},
+		{name: "Yml", file: "flow.Yml", dag: "authored-yml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagsDir := t.TempDir()
+			path := filepath.Join(dagsDir, tc.file)
+			require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("name: %s\nsteps: []\n", tc.dag)), 0600))
+
+			dag, err := spec.Load(context.Background(), tc.file, spec.WithDAGsDir(dagsDir))
+			require.NoError(t, err)
+			require.NotNil(t, dag)
+			assert.Equal(t, tc.dag, dag.Name)
+			assert.Equal(t, path, dag.Location)
+		})
+	}
 }
 
 // TestLoadWithoutEval tests the WithoutEval loader option
@@ -3386,6 +3527,88 @@ steps:
 		require.Contains(t, err.Error(), "defaults")
 	})
 
+	t.Run("ForeachBodyStepsInheritDefaults", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := spec.LoadYAML(context.Background(), []byte(`
+defaults:
+  timeout_sec: 300
+  env:
+    - DEFAULT_VAR: default_value
+steps:
+  - id: each
+    foreach:
+      items: [a]
+      steps:
+        - id: inherits
+          run: echo inherits
+        - id: overrides
+          run: echo overrides
+          timeout_sec: 60
+`))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 1)
+		require.NotNil(t, dag.Steps[0].Foreach)
+		body := dag.Steps[0].Foreach.Steps
+		require.Len(t, body, 2)
+		require.Equal(t, 300*time.Second, body[0].Timeout)
+		require.Contains(t, body[0].Env, "DEFAULT_VAR=default_value")
+		require.Equal(t, 60*time.Second, body[1].Timeout)
+	})
+
+	// The decoder matches keys case-insensitively, so precedence must treat
+	// a key written in another case as set.
+	t.Run("KeyCaseFollowsDecoder", func(t *testing.T) {
+		t.Parallel()
+
+		base := createTempYAMLFile(t, `
+defaults:
+  timeout_sec: 300
+  max_concurrent: 50
+`)
+		child := createTempYAMLFile(t, `
+defaults:
+  MAX_CONCURRENT: 20
+steps:
+  - id: own_timeout
+    run: echo own
+    TIMEOUT_SEC: 5
+  - id: fanout
+    action: dag.run
+    with: {dag: child}
+    parallel: [a]
+
+---
+
+name: child
+steps:
+  - run: echo child
+`)
+		dag, err := spec.Load(context.Background(), child, spec.WithBaseConfig(base))
+		require.NoError(t, err)
+		require.Len(t, dag.Steps, 2)
+		require.Equal(t, 5*time.Second, dag.Steps[0].Timeout)
+		require.NotNil(t, dag.Steps[1].Parallel)
+		require.Equal(t, 20, dag.Steps[1].Parallel.MaxConcurrent)
+	})
+
+	t.Run("InvalidDefaultsReportedOnce", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := spec.LoadYAML(context.Background(), []byte(`
+defaults:
+  unknown_field: value
+handler_on:
+  exit:
+    run: echo exit
+steps:
+  - run: echo ok
+`), spec.SkipSchemaValidation())
+		require.Error(t, err)
+		require.Equal(t, 1, strings.Count(err.Error(), "invalid keys: unknown_field"), err.Error())
+		require.NotContains(t, err.Error(), "field 'handlers'")
+	})
+
 	t.Run("ContinueOnDefault", func(t *testing.T) {
 		t.Parallel()
 
@@ -3419,6 +3642,169 @@ steps:
 		require.Len(t, dag.Steps, 1)
 		require.Equal(t, "SIGTERM", dag.Steps[0].SignalOnStop)
 	})
+}
+
+// TestDefaultMaxConcurrent covers the limit that parallel and foreach steps,
+// including those nested in a foreach body, inherit when
+// defaults.max_concurrent is layered across the global base, the workspace
+// base, and the DAG.
+func TestDefaultMaxConcurrent(t *testing.T) {
+	t.Parallel()
+
+	const steps = `
+steps:
+  - id: plain
+    run: echo plain
+  - id: variable
+    action: dag.run
+    with: {dag: child}
+    parallel: ${ITEMS}
+  - id: array
+    action: dag.run
+    with: {dag: child}
+    parallel: [a, b]
+  - id: object
+    action: dag.run
+    with: {dag: child}
+    parallel:
+      items: [a]
+  - id: each
+    foreach:
+      items: [a]
+      steps:
+        - id: nested_parallel
+          action: dag.run
+          with: {dag: child}
+          parallel: [x]
+        - id: nested_each
+          foreach:
+            items: [x]
+            steps:
+              - run: echo item
+  - id: explicit_parallel
+    action: dag.run
+    with: {dag: child}
+    parallel:
+      items: [a]
+      max_concurrent: 3
+  - id: explicit_foreach
+    foreach:
+      items: [a]
+      max_concurrent: 4
+      steps:
+        - run: echo item
+
+---
+
+name: child
+steps:
+  - run: echo child
+`
+	const (
+		globalDefault    = "defaults:\n  max_concurrent: 50\n"
+		workspaceDefault = "defaults:\n  max_concurrent: 30\n"
+	)
+
+	tests := []struct {
+		name          string
+		globalBase    string
+		workspaceBase string
+		dagDefaults   string
+		want          int
+	}{
+		{name: "BuiltIn", want: ir.DefaultMaxConcurrent},
+		{name: "GlobalBase", globalBase: globalDefault, want: 50},
+		{name: "WorkspaceBase", globalBase: globalDefault, workspaceBase: workspaceDefault, want: 30},
+		{name: "DAG", globalBase: globalDefault, workspaceBase: workspaceDefault, dagDefaults: "defaults:\n  max_concurrent: 20\n", want: 20},
+		{name: "UnrelatedDAGDefaults", globalBase: globalDefault, dagDefaults: "defaults:\n  continue_on: failed\n", want: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			globalBase := filepath.Join(root, "base.yaml")
+			require.NoError(t, os.WriteFile(globalBase, []byte(tt.globalBase), 0600))
+			workspaceDir := filepath.Join(root, "workspaces")
+			require.NoError(t, os.MkdirAll(filepath.Join(workspaceDir, "ops"), 0750))
+			require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "ops", "base.yaml"), []byte(tt.workspaceBase), 0600))
+			path := createTempYAMLFile(t, "labels: [workspace=ops]\n"+tt.dagDefaults+steps)
+
+			dag, err := spec.Load(context.Background(), path,
+				spec.WithBaseConfig(globalBase),
+				spec.WithWorkspaceBaseConfigDir(workspaceDir),
+			)
+			require.NoError(t, err)
+
+			byID := make(map[string]ir.Step, len(dag.Steps))
+			for _, step := range dag.Steps {
+				byID[step.ID] = step
+			}
+			for _, id := range []string{"variable", "array", "object"} {
+				require.NotNil(t, byID[id].Parallel, id)
+				assert.Equal(t, tt.want, byID[id].Parallel.MaxConcurrent, id)
+			}
+			require.NotNil(t, byID["each"].Foreach)
+			assert.Equal(t, tt.want, byID["each"].Foreach.MaxConcurrent)
+			body := make(map[string]ir.Step, len(byID["each"].Foreach.Steps))
+			for _, step := range byID["each"].Foreach.Steps {
+				body[step.ID] = step
+			}
+			require.NotNil(t, body["nested_parallel"].Parallel)
+			assert.Equal(t, tt.want, body["nested_parallel"].Parallel.MaxConcurrent)
+			require.NotNil(t, body["nested_each"].Foreach)
+			assert.Equal(t, tt.want, body["nested_each"].Foreach.MaxConcurrent)
+			assert.Equal(t, 3, byID["explicit_parallel"].Parallel.MaxConcurrent)
+			assert.Equal(t, 4, byID["explicit_foreach"].Foreach.MaxConcurrent)
+			// The default sets a limit; it never turns a step into a fan-out.
+			assert.Nil(t, byID["plain"].Parallel)
+			assert.Nil(t, byID["plain"].Foreach)
+		})
+	}
+}
+
+func TestDefaultMaxConcurrentValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		key      string
+		value    string
+		wantPart string
+	}{
+		{name: "Zero", value: "0", wantPart: "1 through 1000"},
+		{name: "AboveLimit", value: "1001", wantPart: "1 through 1000"},
+		{name: "Fraction", value: "1.5", wantPart: "must be an integer"},
+		{name: "Variable", value: `"${MC}"`, wantPart: "must be an integer"},
+		{name: "UpperCaseKey", key: "MAX_CONCURRENT", value: "1.5", wantPart: "must be an integer"},
+	}
+
+	for _, tt := range tests {
+		key := tt.key
+		if key == "" {
+			key = "max_concurrent"
+		}
+		defaults := "defaults:\n  " + key + ": " + tt.value + "\n"
+		for _, source := range []string{"DAG", "Base"} {
+			t.Run(tt.name+"/"+source, func(t *testing.T) {
+				t.Parallel()
+
+				doc := "steps:\n  - run: echo ok\n"
+				opts := []spec.LoadOption{spec.SkipSchemaValidation()}
+				if source == "DAG" {
+					doc = defaults + doc
+				} else {
+					opts = append(opts, spec.WithBaseConfigContent([]byte(defaults)))
+				}
+
+				_, err := spec.LoadYAML(context.Background(), []byte(doc), opts...)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "defaults.max_concurrent")
+				assert.Contains(t, err.Error(), tt.wantPart)
+			})
+		}
+	}
 }
 
 func TestMetadataBaseSkipsRuntimeFields(t *testing.T) {

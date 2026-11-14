@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package mailbox reads and organizes email in an IMAP mailbox.
+// Package mailbox reads and organizes email in an IMAP mailbox or, through the
+// Gmail API, in a Gmail mailbox.
 package mailbox
 
 import (
@@ -16,6 +17,8 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	"golang.org/x/oauth2"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 )
 
 // Security modes of Server.
@@ -32,8 +35,11 @@ const (
 
 // Account is a mail account whose values are already resolved.
 type Account struct {
-	Server   Server
-	Username string
+	Server Server
+	// GmailEndpoint is the Gmail API endpoint DialGmail uses; empty for
+	// Google's.
+	GmailEndpoint string
+	Username      string
 	// Password authenticates with LOGIN. Token is used when Password is empty.
 	Password string
 	Token    func(context.Context) (*oauth2.Token, error)
@@ -45,6 +51,9 @@ type Server struct {
 	Port          string
 	Security      string
 	SkipTLSVerify bool
+	// TLSCertSHA256 accepts only the server certificate with this SHA-256
+	// hash, without chain verification.
+	TLSCertSHA256 string
 }
 
 // Client is an authenticated IMAP connection.
@@ -70,6 +79,9 @@ func dial(ctx context.Context, account Account, idle time.Duration) (*Client, er
 		MinVersion: tls.VersionTLS12,
 		// Operators opt in per server, for self-signed certificates.
 		InsecureSkipVerify: server.SkipTLSVerify, //nolint:gosec
+	}
+	if err := mailer.ApplyCertPin(tlsConfig, server.TLSCertSHA256); err != nil {
+		return nil, err
 	}
 	if server.Security != SecurityTLS && server.Security != SecurityStartTLS {
 		return nil, fmt.Errorf("unsupported IMAP security %q", server.Security)

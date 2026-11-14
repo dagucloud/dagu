@@ -64,8 +64,8 @@ describe('RunOutput', () => {
     expect(screen.getByText('step-1 stdout output')).toBeVisible();
     expect(screen.getByText('1 failed')).toBeVisible();
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-      'step-1running',
-      'step-2failed',
+      'step-1Running',
+      'step-2Failed',
     ]);
 
     view.rerender(

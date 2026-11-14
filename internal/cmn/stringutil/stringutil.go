@@ -16,10 +16,27 @@ import (
 
 const (
 	legacyTimeFormat = "2006-01-02 15:04:05"
+
+	// TimestampLayout is the layout of the run and step timestamps that
+	// FormatTime writes. It always has three fractional digits, so values keep
+	// a stable length and sort as plain strings when they share a zone.
+	TimestampLayout = "2006-01-02T15:04:05.000Z07:00"
 )
 
-// FormatTime returns formatted time.
+// FormatTime returns the time with millisecond precision in TimestampLayout.
+// A zero time gives an empty string.
 func FormatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.Format(TimestampLayout)
+}
+
+// FormatTimeSeconds returns the time with second precision in RFC 3339. A zero
+// time gives an empty string. Use it for a time that is not a run or step
+// timestamp, such as a license date or a time shown to the user.
+func FormatTimeSeconds(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
@@ -27,11 +44,15 @@ func FormatTime(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-// ParseTime parses time string.
+// ParseTime parses a time string. It accepts TimestampLayout, RFC 3339 values
+// with or without a fraction (the format of older status files), and the
+// legacy layout. An empty string and "-" give the zero time.
 func ParseTime(val string) (time.Time, error) {
 	if val == "" || val == "-" {
 		return time.Time{}, nil
 	}
+	// The RFC3339 layout also accepts a fractional second, so it reads both
+	// second-precision and millisecond-precision values.
 	if t, err := time.ParseInLocation(time.RFC3339, val, time.Local); err == nil {
 		return t, nil
 	}
@@ -107,13 +128,7 @@ func ScreamingSnakeToCamel(s string) string {
 			result.WriteString(lower)
 			isFirst = false
 		} else {
-			// Capitalize first letter of subsequent parts
-			if len(lower) > 0 {
-				result.WriteString(strings.ToUpper(lower[:1]))
-				if len(lower) > 1 {
-					result.WriteString(lower[1:])
-				}
-			}
+			result.WriteString(UpperFirst(lower))
 		}
 	}
 
@@ -127,25 +142,31 @@ func KebabToCamel(s string) string {
 		return ""
 	}
 
-	// Find the first non-empty part for the initial word
-	result := ""
-	startIdx := 0
-	for i := range parts {
-		if len(parts[i]) > 0 {
-			result = parts[i]
-			startIdx = i + 1
-			break
+	var result strings.Builder
+	isFirst := true
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if isFirst {
+			result.WriteString(part)
+			isFirst = false
+		} else {
+			result.WriteString(UpperFirst(part))
 		}
 	}
 
-	// Capitalize remaining parts
-	for i := startIdx; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
+	return result.String()
+}
 
-	return result
+// UpperFirst returns s with its first rune converted to title case.
+// An empty string is returned unchanged.
+func UpperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	return string(unicode.ToTitle(r)) + s[size:]
 }
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -238,6 +259,58 @@ func DetectSeparatorType(s string) SeparatorType {
 	}
 
 	return separatorType
+}
+
+// ParseSeparatorName maps a user-facing separator name to its SeparatorType.
+// Names are exact lowercase tokens. JSON and quoted-string detection have no
+// name because they are only reachable through automatic detection.
+func ParseSeparatorName(name string) (SeparatorType, bool) {
+	switch name {
+	case "newline":
+		return SeparatorTypeNewline, true
+	case "comma":
+		return SeparatorTypeComma, true
+	case "semicolon":
+		return SeparatorTypeSemicolon, true
+	case "pipe":
+		return SeparatorTypePipe, true
+	case "tab":
+		return SeparatorTypeTab, true
+	case "space":
+		return SeparatorTypeSpace, true
+	default:
+		return 0, false
+	}
+}
+
+// SeparatorNames lists the names accepted by ParseSeparatorName.
+func SeparatorNames() []string {
+	return []string{"newline", "comma", "semicolon", "pipe", "tab", "space"}
+}
+
+// SplitBySeparator splits s on exactly the given separator, trims each token
+// and drops empty tokens. Unlike ParseSeparatedValues it never inspects the
+// content to guess a separator, so a token may contain any other delimiter
+// character, and JSON text is split like any other text.
+func SplitBySeparator(s string, separator SeparatorType) []string {
+	switch separator {
+	case SeparatorTypeNewline:
+		return parseNewlineSeparated(s)
+	case SeparatorTypeComma:
+		return parseDelimited(s, ",")
+	case SeparatorTypeSemicolon:
+		return parseDelimited(s, ";")
+	case SeparatorTypePipe:
+		return parseDelimited(s, "|")
+	case SeparatorTypeTab:
+		return parseDelimited(s, "\t")
+	case SeparatorTypeSpace, SeparatorTypeJSON, SeparatorTypeQuoted:
+		// JSON and quoted detection have no explicit splitting form; whitespace
+		// is the only non-guessing behavior left for them.
+		return parseSpaceSeparated(s)
+	default:
+		return parseSpaceSeparated(s)
+	}
 }
 
 // ParseSeparatedValues intelligently parses a string into separate values

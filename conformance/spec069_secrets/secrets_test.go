@@ -30,6 +30,20 @@ func TestEnvProviderMasksValue(t *testing.T) {
 	require.NotContains(t, result.Stdout(), "supersecret123")
 }
 
+// Masking keeps a final line that has no trailing newline, in the step log
+// and in a stdout redirect file.
+func TestMaskedLogKeepsFinalLine(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv([]string{"SOURCE_SECRET_VALUE=supersecret123"}, "start", "log_unterminated_line.yaml")
+	result.ExpectExitCode(0)
+	require.Contains(t, result.Stdout(), "hello world")
+	require.Contains(t, result.Stdout(), "tail *******")
+	require.NotContains(t, result.Stdout(), "supersecret123")
+	dagu.ExpectTextFileContent("tail.out", "tail *******")
+}
+
 func TestEnvProviderMissingVariable(t *testing.T) {
 	t.Parallel()
 

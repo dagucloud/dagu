@@ -5,6 +5,7 @@ package cmd_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
@@ -41,11 +42,49 @@ func TestSchemaCommand(t *testing.T) {
 		assert.Contains(t, out, "license")
 	})
 
+	t.Run("CalendarHolidays", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "calendar", "holidays")
+		require.NoError(t, err)
+		assert.Contains(t, out, "inclusive range")
+	})
+
 	t.Run("DAGSteps", func(t *testing.T) {
 		out, err := runSchemaCmd("schema", "dag", "steps")
 		require.NoError(t, err)
 		assert.Contains(t, out, "name")
 		assert.Contains(t, out, "command")
+	})
+
+	t.Run("DAGStepContainer", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "dag", "steps.container")
+		require.NoError(t, err)
+		assert.Contains(t, out, `"pull_policy"`)
+	})
+
+	t.Run("DAGStepContainerField", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "dag", "steps.container.image")
+		require.NoError(t, err)
+		assert.Contains(t, out, "Container image to use")
+	})
+
+	t.Run("ConfigReferencedSection", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "config", "auth")
+		require.NoError(t, err)
+		assert.Contains(t, out, `"oidc"`)
+
+		out, err = runSchemaCmd("schema", "config", "auth.mode")
+		require.NoError(t, err)
+		assert.Contains(t, out, "Authentication mode")
+	})
+
+	// Every example in the help text names a path that resolves.
+	t.Run("HelpExamples", func(t *testing.T) {
+		for line := range strings.Lines(cmd.Schema().Example) {
+			command, _, _ := strings.Cut(strings.TrimSpace(line), "  ")
+			args := strings.Fields(command)[1:]
+			_, err := runSchemaCmd(args...)
+			assert.NoError(t, err, command)
+		}
 	})
 
 	t.Run("InvalidSchema", func(t *testing.T) {

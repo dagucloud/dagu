@@ -9,13 +9,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/google/uuid"
 )
@@ -46,6 +51,9 @@ type StreamConfig struct {
 
 // TopicAuthorizer validates whether the current request may subscribe to a topic.
 type TopicAuthorizer func(ctx context.Context, identifier string) error
+
+// TopicValidator rejects a topic identifier that the topic's fetcher cannot serve.
+type TopicValidator func(ctx context.Context, identifier string) error
 
 // TopicMutationError reports a partial subscribe failure.
 type TopicMutationError struct {
@@ -99,7 +107,10 @@ type Multiplexer struct {
 	fetchers            map[TopicType]FetchFunc
 	refreshModes        map[TopicType]TopicRefreshMode
 	publishOnWake       map[TopicType]bool
+	minIntervals        map[TopicType]time.Duration
+	maxIntervals        map[TopicType]time.Duration
 	authorizers         map[TopicType]TopicAuthorizer
+	validators          map[TopicType]TopicValidator
 	maxClients          int
 	maxTopicsPerConn    int
 	heartbeatInterval   time.Duration
@@ -140,7 +151,10 @@ func NewMultiplexer(cfg StreamConfig, metrics *Metrics) *Multiplexer {
 		fetchers:            make(map[TopicType]FetchFunc),
 		refreshModes:        make(map[TopicType]TopicRefreshMode),
 		publishOnWake:       make(map[TopicType]bool),
+		minIntervals:        make(map[TopicType]time.Duration),
+		maxIntervals:        make(map[TopicType]time.Duration),
 		authorizers:         make(map[TopicType]TopicAuthorizer),
+		validators:          make(map[TopicType]TopicValidator),
 		maxClients:          cfg.MaxClients,
 		maxTopicsPerConn:    cfg.MaxTopicsPerConnection,
 		heartbeatInterval:   cfg.HeartbeatInterval,
@@ -185,6 +199,32 @@ func (m *Multiplexer) SetPublishOnWake(topicType TopicType, enabled bool) {
 	m.publishOnWake[topicType] = true
 }
 
+// SetMinInterval sets the shortest time between two refetches of a topic of
+// this type. Wakes that arrive sooner are merged into one deferred refetch, so
+// bursts of run events cost one read per interval. Zero removes the limit.
+func (m *Multiplexer) SetMinInterval(topicType TopicType, interval time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if interval <= 0 {
+		delete(m.minIntervals, topicType)
+		return
+	}
+	m.minIntervals[topicType] = interval
+}
+
+// SetMaxInterval sets the longest time an on-demand topic of this type goes
+// without a refetch, for state that changes without a wake. Zero removes the
+// limit.
+func (m *Multiplexer) SetMaxInterval(topicType TopicType, interval time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if interval <= 0 {
+		delete(m.maxIntervals, topicType)
+		return
+	}
+	m.maxIntervals[topicType] = interval
+}
+
 // RegisterAuthorizer registers an optional topic-specific authorizer.
 func (m *Multiplexer) RegisterAuthorizer(topicType TopicType, authorizer TopicAuthorizer) {
 	m.mu.Lock()
@@ -192,8 +232,20 @@ func (m *Multiplexer) RegisterAuthorizer(topicType TopicType, authorizer TopicAu
 	m.authorizers[topicType] = authorizer
 }
 
-// WakeTopic requests an immediate refetch for an active exact topic.
+// RegisterValidator registers an optional topic-specific identifier validator.
+func (m *Multiplexer) RegisterValidator(topicType TopicType, validator TopicValidator) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.validators[topicType] = validator
+}
+
+// WakeTopic requests an immediate refetch for an active exact topic. A DAG
+// or DAG history topic matches its file with or without a YAML extension.
 func (m *Multiplexer) WakeTopic(topicType TopicType, identifier string) {
+	if topicType == TopicTypeDAG || topicType == TopicTypeDAGHistory {
+		m.wakeDAGFileTopics(topicType, identifier)
+		return
+	}
 	parsed, err := ParseTopic(string(topicType) + ":" + identifier)
 	if err != nil {
 		return
@@ -220,6 +272,36 @@ func (m *Multiplexer) WakeTopicType(topicType TopicType) {
 	for _, topic := range topics {
 		topic.requestPoll(batch)
 	}
+}
+
+// wakeDAGFileTopics requests an immediate refetch for the active topics of the
+// given type that name the DAG file. A run event names the file without its
+// YAML extension, as ir.DAG.FileName returns it; a client or an API write can
+// name it with or without one.
+func (m *Multiplexer) wakeDAGFileTopics(topicType TopicType, fileName string) {
+	if fileName == "" {
+		return
+	}
+	name := fileutil.TrimYAMLFileExtension(fileName)
+	m.mu.RLock()
+	var topics []*multiplexTopic
+	for _, topic := range m.topics {
+		if topic != nil && topic.topicType == topicType &&
+			fileutil.TrimYAMLFileExtension(topicDAGFile(topic.identifier)) == name {
+			topics = append(topics, topic)
+		}
+	}
+	m.mu.RUnlock()
+	for _, topic := range topics {
+		topic.requestPoll(nil)
+	}
+}
+
+// topicDAGFile returns the DAG file a DAG or DAG history topic names,
+// without the query of a history topic.
+func topicDAGFile(identifier string) string {
+	fileName, _, _ := strings.Cut(identifier, "?")
+	return fileName
 }
 
 func (m *Multiplexer) wakeTopicKey(key string) {
@@ -357,39 +439,7 @@ func (m *Multiplexer) applyMutation(ctx context.Context, session *streamSession,
 		}
 	}
 
-	// TODO: Extract add-topic classification into a helper when we can do a
-	// broader cleanup without mixing behavior changes into this regression fix.
-	mutationErrors := make([]TopicMutationError, 0)
-	authorizedAdds := make([]ParsedTopic, 0, len(addedParsed))
-	for _, parsed := range addedParsed {
-		authorizer := m.getAuthorizer(parsed.Type)
-		if authorizer == nil {
-			authorizedAdds = append(authorizedAdds, parsed)
-			continue
-		}
-		if err := authorizer(ctx, parsed.Identifier); err != nil {
-			mutationErrors = append(mutationErrors, TopicMutationError{
-				Topic:   parsed.Key,
-				Code:    "unauthorized",
-				Message: err.Error(),
-			})
-			continue
-		}
-		authorizedAdds = append(authorizedAdds, parsed)
-	}
-
-	supportedAdds := make([]ParsedTopic, 0, len(authorizedAdds))
-	for _, parsed := range authorizedAdds {
-		if m.hasFetcher(parsed.Type) {
-			supportedAdds = append(supportedAdds, parsed)
-			continue
-		}
-		mutationErrors = append(mutationErrors, TopicMutationError{
-			Topic:   parsed.Key,
-			Code:    "unsupported_topic",
-			Message: fmt.Sprintf("topic type %q is not supported by this server", parsed.Type),
-		})
-	}
+	supportedAdds, mutationErrors := m.classifyAddedTopics(ctx, addedParsed)
 
 	resolvedAdds, createdTopics, err := m.resolveTopicsForMutation(supportedAdds)
 	if err != nil {
@@ -476,6 +526,63 @@ func (m *Multiplexer) applyMutation(ctx context.Context, session *streamSession,
 	}, nil
 }
 
+// classifyAddedTopics filters requested topics by authorization, identifier
+// validity, and fetcher support, collecting a mutation error for each
+// rejected topic.
+func (m *Multiplexer) classifyAddedTopics(ctx context.Context, addedParsed []ParsedTopic) ([]ParsedTopic, []TopicMutationError) {
+	mutationErrors := make([]TopicMutationError, 0)
+	authorizedAdds := make([]ParsedTopic, 0, len(addedParsed))
+	for _, parsed := range addedParsed {
+		authorizer := m.getAuthorizer(parsed.Type)
+		if authorizer == nil {
+			authorizedAdds = append(authorizedAdds, parsed)
+			continue
+		}
+		if err := authorizer(ctx, parsed.Identifier); err != nil {
+			mutationErrors = append(mutationErrors, TopicMutationError{
+				Topic:   parsed.Key,
+				Code:    "unauthorized",
+				Message: err.Error(),
+			})
+			continue
+		}
+		authorizedAdds = append(authorizedAdds, parsed)
+	}
+
+	validAdds := make([]ParsedTopic, 0, len(authorizedAdds))
+	for _, parsed := range authorizedAdds {
+		validator := m.getValidator(parsed.Type)
+		if validator == nil {
+			validAdds = append(validAdds, parsed)
+			continue
+		}
+		if err := validator(ctx, parsed.Identifier); err != nil {
+			mutationErrors = append(mutationErrors, TopicMutationError{
+				Topic:   parsed.Key,
+				Code:    "invalid_topic",
+				Message: err.Error(),
+			})
+			continue
+		}
+		validAdds = append(validAdds, parsed)
+	}
+
+	supportedAdds := make([]ParsedTopic, 0, len(validAdds))
+	for _, parsed := range validAdds {
+		if m.hasFetcher(parsed.Type) {
+			supportedAdds = append(supportedAdds, parsed)
+			continue
+		}
+		mutationErrors = append(mutationErrors, TopicMutationError{
+			Topic:   parsed.Key,
+			Code:    "unsupported_topic",
+			Message: fmt.Sprintf("topic type %q is not supported by this server", parsed.Type),
+		})
+	}
+
+	return supportedAdds, mutationErrors
+}
+
 func (m *Multiplexer) attachTopicToSession(session *streamSession, parsed ParsedTopic, candidate *multiplexTopic) (*multiplexTopic, error) {
 	for range 3 {
 		topic, err := m.ensureAttachableTopic(parsed, candidate)
@@ -516,6 +623,12 @@ func (m *Multiplexer) getAuthorizer(topicType TopicType) TopicAuthorizer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.authorizers[topicType]
+}
+
+func (m *Multiplexer) getValidator(topicType TopicType) TopicValidator {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.validators[topicType]
 }
 
 func (m *Multiplexer) hasFetcher(topicType TopicType) bool {
@@ -584,6 +697,8 @@ func (m *Multiplexer) getOrCreateTopicForMutation(parsed ParsedTopic) (*multiple
 		m.refreshModeFor(parsed.Type),
 		m.shouldPublishOnWake(parsed.Type),
 	)
+	topic.minInterval = m.minIntervals[parsed.Type]
+	topic.maxInterval = m.maxIntervals[parsed.Type]
 	m.topics[parsed.Key] = topic
 	return topic, true, nil
 }
@@ -1172,6 +1287,9 @@ type multiplexTopic struct {
 	errorBackoff             backoff.Retrier
 	backoffUntil             time.Time
 	currentInterval          time.Duration
+	minInterval              time.Duration
+	maxInterval              time.Duration
+	lastPollAt               time.Time
 }
 
 func newMultiplexTopic(
@@ -1274,8 +1392,26 @@ func (t *multiplexTopic) start() {
 		defer timer.Stop()
 
 		var timerCh <-chan time.Time
+		// deferredWake marks a timer that stands in for a wake held back by
+		// the minimum interval; idle marks one set only by the maximum
+		// interval, which a wake may bring forward.
+		deferredWake, idle := false, false
+		// scheduleNext arms the timer for the next refetch no wake asks for.
+		scheduleNext := func() {
+			switch {
+			case t.refreshMode == TopicRefreshModePolling:
+				t.resetTimer(timer, &timerCh, t.pollInterval())
+			case t.maxInterval > 0:
+				t.resetTimer(timer, &timerCh, t.maxInterval)
+				idle = true
+			default:
+				t.stopTimer(timer, &timerCh)
+			}
+		}
 		if t.refreshMode == TopicRefreshModePolling {
 			t.resetTimer(timer, &timerCh, 0)
+		} else {
+			scheduleNext()
 		}
 
 		for {
@@ -1286,28 +1422,49 @@ func (t *multiplexTopic) start() {
 				return
 			case <-timerCh:
 				timerCh = nil
-				t.poll(false, nil)
+				idle = false
+				t.poll(deferredWake && t.publishOnWake, nil)
+				deferredWake = false
 				if delay, shouldRetry := t.nextRetryDelay(); shouldRetry {
 					t.resetTimer(timer, &timerCh, delay)
 					continue
 				}
-				if t.refreshMode == TopicRefreshModePolling {
-					t.resetTimer(timer, &timerCh, t.currentInterval)
-				}
+				scheduleNext()
 			case <-t.notifyCh:
-				t.poll(t.publishOnWake, t.takePendingBatch())
+				batch := t.takePendingBatch()
+				if wait := t.wakeDelay(); wait > 0 {
+					// A pending timer refetches soon enough; otherwise defer
+					// this wake to the end of the interval.
+					if timerCh == nil || idle {
+						t.resetTimer(timer, &timerCh, wait)
+						deferredWake, idle = true, false
+					}
+					continue
+				}
+				idle = false
+				t.poll(t.publishOnWake, batch)
 				if delay, shouldRetry := t.nextRetryDelay(); shouldRetry {
 					t.resetTimer(timer, &timerCh, delay)
 					continue
 				}
-				if t.refreshMode == TopicRefreshModePolling {
-					t.resetTimer(timer, &timerCh, t.currentInterval)
-					continue
-				}
-				t.stopTimer(timer, &timerCh)
+				scheduleNext()
 			}
 		}
 	})
+}
+
+// pollInterval is the polling period, never shorter than the minimum interval.
+func (t *multiplexTopic) pollInterval() time.Duration {
+	return max(t.currentInterval, t.minInterval)
+}
+
+// wakeDelay is how long a wake must wait to respect the minimum interval,
+// which stretches to the adaptive interval when fetches are slow.
+func (t *multiplexTopic) wakeDelay() time.Duration {
+	if t.minInterval <= 0 || t.lastPollAt.IsZero() {
+		return 0
+	}
+	return max(t.minInterval, t.currentInterval) - time.Since(t.lastPollAt)
 }
 
 func (t *multiplexTopic) stop() {
@@ -1368,6 +1525,7 @@ func (t *multiplexTopic) poll(forcePublish bool, batch *persis.DAGRunListReadBat
 	if time.Now().Before(t.backoffUntil) {
 		return
 	}
+	t.lastPollAt = time.Now()
 
 	t.clientsMu.RLock()
 	sessions := make([]*streamSession, 0, len(t.sessions))
@@ -1496,7 +1654,17 @@ func (t *multiplexTopic) sendSnapshotPayload(
 	return nil
 }
 
-func (t *multiplexTopic) fetchPayload(ctx context.Context) ([]byte, error) {
+func (t *multiplexTopic) fetchPayload(ctx context.Context) (_ []byte, err error) {
+	// Fetches run on background goroutines, where a panic would end the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("fetch for topic %s panicked: %v", t.key, r)
+			logger.Error(ctx, "SSE topic fetch panicked",
+				tag.Error(err),
+				slog.String("stack", string(debug.Stack())),
+			)
+		}
+	}()
 	response, err := t.fetcher(ctx, t.identifier)
 	if err != nil {
 		return nil, err

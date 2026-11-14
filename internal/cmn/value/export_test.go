@@ -25,6 +25,7 @@ func SemanticFieldsForTest(path string) []SemanticFieldForTest {
 		{Name: "HostConfigObject", Field: HostConfigObjectField(path)},
 		{Name: "DAGEnv", Field: DAGEnvField(path)},
 		{Name: "RuntimeDAGEnv", Field: RuntimeDAGEnvField(path)},
+		{Name: "DAGEnvCompletion", Field: DAGEnvCompletionField(path)},
 		{Name: "DynamicParamEval", Field: DynamicParamEvalField(path)},
 		{Name: "DotenvPath", Field: DotenvPathField(path)},
 		{Name: "StepDir", Field: StepDirField(path)},
@@ -79,5 +80,5 @@ const (
 )
 
 func ScanReferencesForTest(raw string) []ReferenceForTest {
-	return scanReferences(raw)
+	return scanReferences(raw, true)
 }

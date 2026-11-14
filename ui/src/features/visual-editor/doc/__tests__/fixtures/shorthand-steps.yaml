@@ -1,0 +1,9 @@
+name: shorthand
+steps:
+  - echo one
+  - echo two   # shorthand step
+  - name: three
+    run: echo three
+  - ./script.sh --flag "quoted arg"
+  - 'echo single quoted'
+  - "echo double quoted"

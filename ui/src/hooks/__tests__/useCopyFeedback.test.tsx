@@ -34,6 +34,74 @@ describe('useCopyFeedback', () => {
     expect(result.current.copied).toBe(false);
   });
 
+  it('clears copied at once on reset', async () => {
+    vi.useFakeTimers();
+    copyTextMock.mockResolvedValue(true);
+    const { result } = renderHook(() => useCopyFeedback());
+
+    await act(async () => {
+      await result.current.copy('hello');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.copied).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // A reset timer that outlives the component would fire after teardown.
+  it('leaves no reset pending after unmount', async () => {
+    vi.useFakeTimers();
+    copyTextMock.mockResolvedValue(true);
+    const { result, unmount } = renderHook(() => useCopyFeedback());
+
+    await act(async () => {
+      await result.current.copy('hello');
+    });
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // A clipboard write still in progress at reset or unmount must not show
+  // feedback or start a timer once it finishes.
+  it.each(['reset', 'unmount'] as const)(
+    'ignores a copy that finishes after %s',
+    async (event) => {
+      vi.useFakeTimers();
+      let finish: (copied: boolean) => void = () => undefined;
+      copyTextMock.mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        })
+      );
+      const onCopied = vi.fn();
+      const { result, unmount } = renderHook(() =>
+        useCopyFeedback(2000, onCopied)
+      );
+
+      let pending: Promise<void> = Promise.resolve();
+      act(() => {
+        pending = result.current.copy('hello');
+      });
+      if (event === 'reset') {
+        act(() => {
+          result.current.reset();
+        });
+      } else {
+        unmount();
+      }
+      await act(async () => {
+        finish(true);
+        await pending;
+      });
+
+      expect(result.current.copied).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(onCopied).not.toHaveBeenCalled();
+    }
+  );
+
   it('stays unset when the clipboard write fails', async () => {
     copyTextMock.mockResolvedValue(false);
     const { result } = renderHook(() => useCopyFeedback());

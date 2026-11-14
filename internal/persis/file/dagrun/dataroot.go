@@ -85,6 +85,16 @@ func dagDirName(dagName string) string {
 	return name + "-" + hex.EncodeToString(hash[:])[:4]
 }
 
+// dagDirNames returns the names of the directories that hold the runs of the
+// DAGs, so that a list can leave a DAG out without reading its runs.
+func dagDirNames(names []string) map[string]struct{} {
+	dirs := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		dirs[dagDirName(name)] = struct{}{}
+	}
+	return dirs
+}
+
 const dagRunTimestampLen = len("20060102_150405Z")
 
 // FindByDAGRunID locates a dag-run by its ID.
@@ -783,6 +793,8 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		ProcGroup:            ie.ProcGroup,
 		DefinitionID:         ie.DefinitionID,
 		ArchiveDir:           ie.ArchiveDir,
+		BackfillID:           ie.BackfillID,
+		Dates:                ie.Dates,
 	}
 }
 

@@ -1,0 +1,10 @@
+# Commentaire en français : à é ü ñ ç
+# 日本語のコメント 😀 (surrogate pair)
+name: unicode
+steps:
+  - name: 日本語の手順   # nom non ASCII
+    run: echo "héllo wörld 🌍"
+  - name: emoji
+    run: echo 😀
+    env:
+      GREETING: こんにちは

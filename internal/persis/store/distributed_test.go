@@ -8,6 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1270,6 +1272,8 @@ func TestDispatchTaskStore_NoMatchCacheIsCapped(t *testing.T) {
 
 	ctx := context.Background()
 	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	// The cache is only populated while a pending task exists.
+	seedNeverMatchingDispatchTask(t, ctx, s)
 
 	for i := range 1025 {
 		claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
@@ -1437,6 +1441,40 @@ func TestDispatchTaskStore_NoMatchCacheDistinguishesSeparatorCharacters(t *testi
 	assert.Equal(t, "run-label-collision", claimed.Task.DAGRunID)
 }
 
+// A worker ID that embeds the label encoding must not share a cache entry
+// with a different worker whose labels spell the same bytes.
+func TestDispatchTaskStore_NoMatchCacheDistinguishesWorkerIDFromLabels(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID:       "run-worker-collision",
+		Target:         "dag-worker-collision",
+		AttemptID:      "attempt-worker-collision",
+		AttemptKey:     "attempt-key-worker-collision",
+		TargetWorkerID: "b",
+	}))
+
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+		WorkerID: "b\x001:a1:",
+		Labels:   map[string]string{"os": "linux"},
+		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	claimed, err = s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+		WorkerID: "b",
+		Labels:   map[string]string{"a": "\x00", "os": "linux"},
+		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-worker-collision", claimed.Task.DAGRunID)
+}
+
 func TestDispatchTaskStore_RepeatedNoMatchWithClaimsUsesIndexedMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -1483,6 +1521,8 @@ func TestDispatchTaskStore_EnqueueInvalidatesIndexedNoMatch(t *testing.T) {
 
 	ctx := context.Background()
 	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	// The cache is only populated while a pending task exists.
+	seedNeverMatchingDispatchTask(t, ctx, s)
 
 	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
 		WorkerID: "worker-cpu",
@@ -1507,6 +1547,20 @@ func TestDispatchTaskStore_EnqueueInvalidatesIndexedNoMatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
 	assert.Equal(t, "run-cpu", claimed.Task.DAGRunID)
+}
+
+// seedNeverMatchingDispatchTask enqueues a pending task whose selector no
+// test worker satisfies, so ClaimNext exercises the no-match cache instead
+// of the empty-store fast path.
+func seedNeverMatchingDispatchTask(t *testing.T, ctx context.Context, s *store.DispatchTaskStore) {
+	t.Helper()
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID:       "run-never",
+		Target:         "dag-never",
+		AttemptID:      "attempt-never",
+		AttemptKey:     "attempt-key-never",
+		WorkerSelector: map[string]string{"type": "never"},
+	}))
 }
 
 func TestDispatchTaskStore_ClaimNextRebuildsWhenIndexedPendingDisappears(t *testing.T) {
@@ -1742,66 +1796,6 @@ func TestDispatchTaskStore_ClaimNextRefreshesStaleSelectorMismatch(t *testing.T)
 	assert.Equal(t, "run-selector-refresh", claimed.Task.DAGRunID)
 }
 
-func TestDispatchTaskStore_ClaimNextRemovesExternallyExpiredPendingPayload(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(500*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-expired-pending-payload",
-		Target:     "dag-expired-pending-payload",
-		AttemptID:  "attempt-expired-pending-payload",
-		AttemptKey: "attempt-key-expired-pending-payload",
-	}))
-	rewritePendingDispatchRecords(t, col, func(payload *dispatchTaskRecord) {
-		payload.EnqueuedAt = time.Now().Add(-2 * time.Second).UTC().UnixMilli()
-	})
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-
-	pending, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, pending.Records)
-}
-
-func TestDispatchTaskStore_ClaimNextRetriesWhenExpiredPendingDeleteConflicts(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	col := &conflictingPendingDeleteCollection{Collection: baseCol}
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(500*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-expired-pending-conflict",
-		Target:     "dag-expired-pending-conflict",
-		AttemptID:  "attempt-expired-pending-conflict",
-		AttemptKey: "attempt-key-expired-pending-conflict",
-	}))
-	rewritePendingDispatchRecords(t, baseCol, func(payload *dispatchTaskRecord) {
-		payload.EnqueuedAt = time.Now().Add(-2 * time.Second).UTC().UnixMilli()
-	})
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-	assert.True(t, col.conflicted.Load())
-
-	pending, err := baseCol.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, pending.Records)
-}
-
 func TestDispatchTaskStore_CountOutstandingKeepsFreshenedClaimWhenIndexLooksExpired(t *testing.T) {
 	t.Parallel()
 
@@ -1831,80 +1825,6 @@ func TestDispatchTaskStore_CountOutstandingKeepsFreshenedClaimWhenIndexLooksExpi
 	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
-}
-
-func TestDispatchTaskStore_ClaimNextCleansIndexedExpiredPendingBeforeClaim(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(100*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-index-expired-pending",
-		Target:     "dag-index-expired-pending",
-		AttemptID:  "attempt-index-expired-pending",
-		AttemptKey: "attempt-key-index-expired-pending",
-	}))
-	time.Sleep(150 * time.Millisecond)
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-
-	pending, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, pending.Records)
-}
-
-func TestDispatchTaskStore_CountOutstandingKeepsFreshenedPendingWhenIndexLooksExpired(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(&opaqueCollection{Collection: baseCol}, store.WithDispatchReservationTTL(100*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-freshened-pending",
-		Target:     "dag-freshened-pending",
-		QueueName:  "queue-a",
-		AttemptID:  "attempt-freshened-pending",
-		AttemptKey: "attempt-key-freshened-pending",
-	}))
-	time.Sleep(150 * time.Millisecond)
-	rewritePendingDispatchRecords(t, baseCol, func(payload *dispatchTaskRecord) {
-		payload.EnqueuedAt = time.Now().UTC().UnixMilli()
-	})
-
-	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-}
-
-func TestDispatchTaskStore_CountOutstandingRemovesPendingMissingDuringCleanup(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	col := &disappearingRecordGetCollection{Collection: baseCol, prefix: "pending/"}
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(100*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-missing-pending-cleanup",
-		Target:     "dag-missing-pending-cleanup",
-		QueueName:  "queue-a",
-		AttemptID:  "attempt-missing-pending-cleanup",
-		AttemptKey: "attempt-key-missing-pending-cleanup",
-	}))
-	time.Sleep(150 * time.Millisecond)
-
-	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
-	require.NoError(t, err)
-	assert.Zero(t, count)
-	assert.True(t, col.removed.Load())
 }
 
 func TestDispatchTaskStore_CountOutstandingRemovesClaimMissingDuringCleanup(t *testing.T) {
@@ -2049,42 +1969,6 @@ func TestDispatchTaskStore_CountOutstandingByQueueAndAttempt(t *testing.T) {
 	hasOutstanding, err = s.HasOutstandingAttempt(ctx, "attempt-key-a", time.Second)
 	require.NoError(t, err)
 	assert.False(t, hasOutstanding)
-}
-
-func TestDispatchTaskStore_StalePendingReservationsExpire(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(50*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-stale",
-		Target:     "dag-stale",
-		QueueName:  "queue-a",
-		AttemptID:  "attempt-stale",
-		AttemptKey: "attempt-key-stale",
-	}))
-	var count int
-	var countErr error
-	require.Eventually(t, func() bool {
-		count, countErr = s.CountOutstandingByQueue(ctx, "queue-a", time.Millisecond)
-		return countErr == nil && count == 0
-	}, 500*time.Millisecond, 10*time.Millisecond)
-	require.NoError(t, countErr)
-	assert.Zero(t, count)
-
-	hasOutstanding, err := s.HasOutstandingAttempt(ctx, "attempt-key-stale", time.Millisecond)
-	require.NoError(t, err)
-	assert.False(t, hasOutstanding)
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1"})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-
-	page, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, page.Records)
 }
 
 func TestDispatchTaskStore_UsesStoreReservationTTLForCleanup(t *testing.T) {
@@ -2247,6 +2131,73 @@ func BenchmarkDispatchTaskStoreClaimNextConcurrentNoMatch(b *testing.B) {
 			}
 		}
 	})
+}
+
+// Idle pollers call ClaimNext on every fallback timer tick, so the empty
+// store path must not build label keys or allocate at all.
+func TestDispatchTaskStore_IdleClaimNextDoesNotAllocate(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	claim := dispatch.DispatchTaskClaim{
+		WorkerID: "worker-idle",
+		PollerID: "poller-idle",
+		Labels:   map[string]string{"os": "linux", "arch": "amd64"},
+		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
+	}
+
+	claimed, err := s.ClaimNext(ctx, claim)
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	allocs, err := minAllocsPerRun(200, func() error {
+		claimed, err := s.ClaimNext(ctx, claim)
+		if err != nil {
+			return err
+		}
+		if claimed != nil {
+			return errors.New("unexpected claim on empty store")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Zero(t, allocs)
+}
+
+// minAllocsPerRun returns the lowest allocation count across several
+// AllocsPerRun samples. GC and scheduler noise only inflate counts, so the
+// minimum is the stable estimate.
+func minAllocsPerRun(runs int, fn func() error) (float64, error) {
+	const samples = 5
+	best := math.MaxFloat64
+	for range samples {
+		var err error
+		allocs := testing.AllocsPerRun(runs, func() {
+			err = fn()
+		})
+		if err != nil {
+			return 0, err
+		}
+		best = min(best, allocs)
+	}
+	return best, nil
+}
+
+func BenchmarkDispatchTaskStoreClaimNextIdle(b *testing.B) {
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+	claim := dispatch.DispatchTaskClaim{WorkerID: "worker-idle", Labels: map[string]string{"os": "linux", "arch": "amd64"}}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		claimed, err := s.ClaimNext(ctx, claim)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if claimed != nil {
+			b.Fatalf("unexpected claim %q", claimed.Task.DAGRunID)
+		}
+	}
 }
 
 func seedBenchmarkDispatchTasks(b *testing.B, ctx context.Context, s *store.DispatchTaskStore, count int, selector map[string]string, suffix string) {

@@ -268,6 +268,28 @@ func TestSchedulerStateSaveSkipsStateWriteForCheckpointOnlyChange(t *testing.T) 
 	assert.Equal(t, state.LastTick, got.LastTick)
 }
 
+// A reader in another process sees each tick the scheduler checkpoints,
+// even while the rest of the state stays unchanged.
+func TestSchedulerStateLoadSeesAnotherWritersTick(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("scheduler")
+	writer, reader := store.NewSchedulerStateStore(col), store.NewSchedulerStateStore(col)
+	state := &schedulerstate.State{
+		LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		DAGs:     map[string]schedulerstate.DAGWatermark{"my-dag": {}},
+	}
+	require.NoError(t, writer.Save(ctx, state))
+	_, err := reader.Load(ctx)
+	require.NoError(t, err)
+
+	state.LastTick = state.LastTick.Add(time.Minute)
+	require.NoError(t, writer.Save(ctx, state))
+
+	got, err := reader.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, state.LastTick, got.LastTick)
+}
+
 func TestSchedulerStateSaveSkipsSameCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("scheduler")

@@ -13,13 +13,13 @@ import (
 )
 
 // startBrowserReaper closes browsers that browser steps left open for input
-// once no step can resume them. It stops when ctx is cancelled.
+// once no step can resume them, and browser sessions that went idle. It
+// stops when ctx is cancelled.
 func startBrowserReaper(ctx context.Context, dataDir string, repository *persis.DAGRunRepository) {
 	if dataDir == "" {
 		return
 	}
-	store := browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName))
-	go browserhost.RunReaper(ctx, store, browserStepResumable(repository))
+	go browserhost.RunReaper(ctx, filepath.Join(dataDir, browserhost.DataDirName), browserStepResumable(repository))
 }
 
 // browserStepResumable keeps a browser while its step has not finished. A run

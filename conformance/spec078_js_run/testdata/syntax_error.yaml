@@ -1,0 +1,6 @@
+steps:
+  - action: js.run
+    with:
+      script: |
+        const x = ;
+        return x;

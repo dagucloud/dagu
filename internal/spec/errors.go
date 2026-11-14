@@ -3,7 +3,10 @@
 
 package spec
 
-import "errors"
+import (
+	"errors"
+	"io/fs"
+)
 
 var (
 	ErrInvalidSchedule                     = errors.New("invalid schedule")
@@ -30,3 +33,15 @@ var (
 	ErrTimeoutSecMustBeNonNegative         = errors.New("timeout_sec must be >= 0")
 	ErrExecutorDoesNotSupportMultipleCmd   = errors.New("action does not support multiple commands")
 )
+
+// IsSourceUnavailable reports whether a DAG load error was caused by an
+// external source that could not be read, such as a missing file or an
+// unreachable schema URL, rather than by the definition itself. Such errors
+// may resolve without changing the definition.
+func IsSourceUnavailable(err error) bool {
+	var pathErr *fs.PathError
+	return errors.Is(err, errSchemaUnavailable) ||
+		errors.As(err, &pathErr) ||
+		errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, fs.ErrPermission)
+}

@@ -1,0 +1,239 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NodeStatus, Status } from '@/api/v1/schema';
+import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
+import { node, run } from '../../data/__tests__/fixtures';
+import { nodesByStep, NO_WAITING } from '../../data/runFacts';
+import type { ApiDAGRunDetails, WorkspaceRunValue } from '../../data/types';
+import { RunStepPicker, RunStepsNav } from '../RunStepsNav';
+
+const h = vi.hoisted(() => ({
+  run: null as unknown as WorkspaceRunValue,
+  dock: {
+    openStep: vi.fn(),
+    openRunLog: vi.fn(),
+    autoStep: null as { step: string; stream?: 'stderr' } | null,
+  },
+  revealStep: vi.fn(),
+}));
+
+vi.mock('../../data', () => ({ useWorkspaceRun: () => h.run }));
+vi.mock('../DockContext', () => ({
+  useDock: () => h.dock,
+  useDockCommands: () => h.dock,
+}));
+// The picker of several sub-runs reads their statuses.
+vi.mock('@/hooks/api', () => ({
+  useQuery: () => ({ data: undefined, isLoading: false, mutate: vi.fn() }),
+}));
+vi.mock('../../canvas/WorkspaceEditorContext', () => ({
+  useWorkspaceEditor: () => ({ handle: { revealStep: h.revealStep } }),
+}));
+
+function makeRun(details: ApiDAGRunDetails | null): WorkspaceRunValue {
+  return {
+    selection: 'latest',
+    ref: details ? { name: details.name, runId: details.dagRunId } : null,
+    details,
+    hasRun: !!details,
+    isLatest: true,
+    isActive: false,
+    notFound: false,
+    latestRef: null,
+    overlay: {},
+    nodeByStep: nodesByStep(details),
+    handlers: [],
+    waiting: NO_WAITING,
+    failedStep: null,
+    select: vi.fn(),
+    applyNodeStatus: vi.fn(),
+    refresh: vi.fn(async () => {}),
+  };
+}
+
+function renderNav(url = '/dags/demo/executions') {
+  render(
+    <MemoryRouter initialEntries={[url]}>
+      <RunStepsNav dag={{ name: 'demo' } as never} />
+    </MemoryRouter>
+  );
+}
+
+const list = () => screen.getByRole('list', { name: 'Run steps' });
+// A row is named by its title: the step name, or 'Run summary'.
+const row = (name: string) => within(list()).getByRole('listitem', { name });
+const rows = () =>
+  within(list())
+    .getAllByRole('listitem')
+    .map((li) => li.title);
+
+beforeEach(() => {
+  h.run = makeRun(
+    run('r1', [node('a'), node('b', NodeStatus.Failed)], Status.Failed)
+  );
+  h.dock.openStep.mockReset();
+  h.dock.openRunLog.mockReset();
+  h.dock.autoStep = null;
+  h.revealStep.mockReset();
+});
+
+describe('RunStepsNav', () => {
+  it('lists the summary row and the steps of the selected run', () => {
+    renderNav();
+    expect(rows()).toEqual(['Run summary', 'a', 'b']);
+    expect(row('Run summary')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('selects the step of ?step', () => {
+    renderNav('/dags/demo/executions?step=b');
+    expect(row('b')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('selects the step that the auto-open chose when ?step is empty', () => {
+    h.dock.autoStep = { step: 'b', stream: 'stderr' };
+    renderNav();
+    expect(row('b')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('opens the log of a picked step and selects it on the canvas', () => {
+    renderNav();
+    fireEvent.click(within(row('a')).getByRole('button', { name: 'a' }));
+    expect(h.dock.openStep).toHaveBeenCalledWith('a', { keepTab: true });
+    expect(h.revealStep).toHaveBeenCalledWith('a');
+  });
+
+  it('reports a pick', () => {
+    const onPicked = vi.fn();
+    render(
+      <MemoryRouter initialEntries={['/dags/demo/executions']}>
+        <RunStepsNav dag={{ name: 'demo' } as never} onPicked={onPicked} />
+      </MemoryRouter>
+    );
+    fireEvent.click(within(row('b')).getByRole('button', { name: 'b' }));
+    expect(onPicked).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the run log from the summary row', () => {
+    renderNav('/dags/demo/executions?step=a');
+    fireEvent.click(
+      within(row('Run summary')).getByRole('button', { name: 'Run summary' })
+    );
+    expect(h.dock.openRunLog).toHaveBeenCalled();
+    expect(h.dock.openStep).not.toHaveBeenCalled();
+  });
+
+  it('shows no rows for a workflow that never ran, and a note while the run loads', () => {
+    h.run = makeRun(null);
+    renderNav();
+    expect(screen.queryByRole('list')).toBeNull();
+
+    h.run = { ...makeRun(run('r1')), details: null };
+    cleanup();
+    renderNav();
+    expect(screen.getByText('Loading run...')).toBeInTheDocument();
+  });
+});
+
+// A narrow Run panel shows the selected row as one row that opens the list.
+describe('RunStepPicker', () => {
+  function renderPicker(url: string) {
+    const onToggle = vi.fn();
+    render(
+      <MemoryRouter initialEntries={[url]}>
+        <RunStepPicker open={false} controls="steps" onToggle={onToggle} />
+      </MemoryRouter>
+    );
+    return onToggle;
+  }
+
+  it('names the selected step with its status and opens the list', () => {
+    const onToggle = renderPicker('/dags/demo/executions?step=b');
+    const button = screen.getByRole('button', { name: 'b, Failed' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveAttribute('aria-controls', 'steps');
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  // The status of the run is no status of a step that the run does not have.
+  it('names a step that the run does not have as not in this run', () => {
+    renderPicker('/dags/demo/executions?step=gone');
+    expect(
+      screen.getByRole('button', { name: 'gone, Not in this run' })
+    ).toBeInTheDocument();
+  });
+
+  it('names the run summary and the run status when no step is selected', () => {
+    renderPicker('/dags/demo/executions');
+    expect(
+      screen.getByRole('button', { name: 'Run summary, Failed' })
+    ).toBeInTheDocument();
+  });
+});
+
+// The sub-run badge of a row opens the runs of the step (#3488).
+describe('RunStepsNav sub-runs', () => {
+  const openOnStack = vi.fn();
+
+  beforeEach(() => {
+    openOnStack.mockReset();
+    h.run = makeRun(
+      run(
+        'r1',
+        [
+          node('one', NodeStatus.Success, {
+            step: { call: 'child' },
+            subRuns: [{ dagRunId: 'c1', dagName: 'child' }],
+          }),
+          node('fan', NodeStatus.Success, {
+            step: { call: 'worker' },
+            subRuns: [
+              { dagRunId: 'w1', dagName: 'worker', params: 'N=1' },
+              { dagRunId: 'w2', dagName: 'worker', params: 'N=2' },
+            ],
+          }),
+        ],
+        Status.Success
+      )
+    );
+    render(
+      <MemoryRouter>
+        <SubRunOpenProvider value={openOnStack}>
+          <RunStepsNav dag={{ name: 'demo' } as never} />
+        </SubRunOpenProvider>
+      </MemoryRouter>
+    );
+  });
+
+  it('opens the one sub-run of a step on the stack', () => {
+    fireEvent.click(
+      within(row('one')).getByRole('button', { name: 'Open sub-run: child' })
+    );
+    expect(openOnStack).toHaveBeenCalledWith({ name: 'child', dagRunId: 'c1' });
+    expect(h.dock.openStep).not.toHaveBeenCalled();
+  });
+
+  it('lets the user choose one of several sub-runs', () => {
+    fireEvent.click(
+      within(row('fan')).getByRole('button', {
+        name: 'Choose one of 2 sub-runs of worker',
+      })
+    );
+    expect(screen.getByText('2 sub-runs')).toBeVisible();
+    fireEvent.click(screen.getByText('N=2'));
+    expect(openOnStack).toHaveBeenCalledWith({
+      name: 'worker',
+      dagRunId: 'w2',
+    });
+  });
+});

@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: read
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      columns: [{Invoice No: invoice}]
+      where: {invoice: INV-1}

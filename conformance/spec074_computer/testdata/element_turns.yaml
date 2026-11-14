@@ -1,0 +1,20 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: task
+    action: computer.run
+    with:
+      cache: false
+      idle: "0"
+      do:
+        - launch:
+            command: powershell.exe
+            args: [-NoProfile, -ExecutionPolicy, Bypass, -File, elements.ps1]
+        - expect: {window: "Dagu elements test", within: 30s}
+        - act: 金額に 1200 を入れて保存する
+        - expect: {text: 保存しました, within: 10s}

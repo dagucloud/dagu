@@ -84,6 +84,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 		helper.Config.DAGDiscovery.Recursive,
 		helper.Config.Paths.BaseConfig,
 		workspace.BaseConfigDir(helper.Config.Paths.DAGsDir),
+		filedag.WatchCalendars(helper.Config.Paths.CalendarsDir),
 	)
 
 	// Update helper with scheduler-specific stores

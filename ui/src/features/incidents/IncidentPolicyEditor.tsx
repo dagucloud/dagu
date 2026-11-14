@@ -176,7 +176,7 @@ export function IncidentPolicyEditor({
               <p className="mt-1 text-sm text-muted-foreground">
                 <I18nText
                   text={
-                    'Existing open incidents still resolve when the DAG recovers.'
+                    'Existing open incidents still resolve when the workflow recovers.'
                   }
                 />
               </p>

@@ -40,6 +40,16 @@ Prerequisites depend on your track:
 - Go is also needed for the UI development loop, since starting the backend builds it.
 - Docs-only changes do not require the Go toolchain.
 
+### Nix
+
+If you use [Nix](https://nixos.org/download/), the flake gives you Go, Node.js, pnpm, make and the host tools the Makefile calls:
+
+```bash
+nix develop
+```
+
+The Makefile installs its Go tools and `protoc` into `.local` itself. Docker and Zig, used only by the image and keepalive targets, are not included.
+
 Building frontend assets:
 
 ```bash
@@ -127,6 +137,11 @@ Before submitting:
 
 - All PRs are reviewed by [maintainers](https://github.com/dagucloud/dagu/graphs/contributors).
 - Community members are encouraged to review and provide feedback.
+- CI runs lint and the Linux unit and integration tests on every push. The
+  Windows, conformance, and E2E checks run once a maintainer adds the
+  `full-ci` label, usually after review. The Windows tests also run when a PR
+  changes Go code built only for Windows, or with the `windows-ci` label.
+  Draft PRs run no checks.
 
 ## Issues
 

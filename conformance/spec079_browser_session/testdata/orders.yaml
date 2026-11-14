@@ -1,0 +1,45 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+params:
+  - user: alice
+secrets:
+  - name: SHOP_PASSWORD
+    provider: env
+    key: SHOP_PASSWORD
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: fetch
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/login
+      variables:
+        password: ${SHOP_PASSWORD}
+        user: ${user}
+      do:
+        - act: Type %user% into the Username field
+        - act: Type %password% into the Password field
+        - act: Click the Sign in button
+        - expect:
+            url: /orders
+            within: 10s
+        - act: Select 'Shipped' in the Status select
+        - act: Click the Apply button
+        - extract:
+            instruction: The order numbers shown
+            schema:
+              type: object
+              properties:
+                orders:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - orders
+  - id: record
+    depends: fetch
+    run: echo "${steps.fetch.outputs.orders}" > orders.out

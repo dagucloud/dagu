@@ -1,0 +1,59 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [order_id, amount, Status]
+      rows:
+        - {"order_id": "INV-1", "amount": 10, "Status": ""}
+        - {"order_id": "INV-2", "amount": 20, "Status": ""}
+        - {"order_id": "INV-3", "amount": 30, "Status": "Done"}
+        - {"order_id": "INV-4", "amount": 40, "Status": ""}
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      where: {Status: ""}
+  - id: each
+    depends: read
+    foreach:
+      items: ${steps.read.outputs.rows}
+      key: ${foreach.item.order_id}
+      steps:
+        - id: submit
+          run: |
+            echo 'result=submitted' >> "$DAGU_OUTPUT_FILE"
+            test "${foreach.item.order_id}" != "INV-2"
+          outputs:
+            - name: result
+      collect:
+        order_id: ${foreach.item.order_id}
+        status: ${steps.submit.outputs.result}
+    output: RESULTS
+  - id: mark
+    depends: each
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      key: order_id
+      rows: ${RESULTS}
+      set:
+        Status: status
+      wait_for_unlock: 5m
+  - id: after
+    depends: mark
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      sheet: Orders
+  - id: out
+    depends: after
+    action: file.write
+    with:
+      path: out.json
+      content: '{"changes": ${steps.mark.outputs.changes}, "rows": ${steps.after.outputs.rows}, "results": ${RESULTS}}'

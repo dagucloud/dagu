@@ -6,7 +6,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { sseFallbackOptions } from '../useSSECacheSync';
-import { buildSSEEndpoint, useSSE } from '../useSSE';
+import { buildSSEEndpoint, SSEPausedContext, useSSE } from '../useSSE';
 import { sseManager } from '../SSEManager';
 
 class MockEventSource {
@@ -136,6 +136,7 @@ describe('useSSE', () => {
 
   afterEach(() => {
     sseManager.disposeAll();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -191,5 +192,60 @@ describe('useSSE', () => {
 
     first.unmount();
     second.unmount();
+  });
+
+  // The paused context is read whether or not the hook is enabled, so the
+  // order of the hooks of a component does not change when it turns on.
+  it('keeps the order of the hooks when it turns on and off', () => {
+    vi.spyOn(sseManager, 'subscribe').mockReturnValue(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let enabled = false;
+    const view = renderHook(
+      () => useSSE('/events/dags/test.yaml', enabled, 'local'),
+      { wrapper }
+    );
+    enabled = true;
+    view.rerender();
+    enabled = false;
+    view.rerender();
+    expect(
+      error.mock.calls.some((call) =>
+        String(call[0]).includes('order of Hooks')
+      )
+    ).toBe(false);
+    view.unmount();
+  });
+
+  // A hidden part of the page holds no subscription: the server reads a
+  // topic for each one.
+  it('holds no subscription while paused, and subscribes once shown', () => {
+    const unsubscribe = vi.fn();
+    const subscribe = vi
+      .spyOn(sseManager, 'subscribe')
+      .mockReturnValue(unsubscribe);
+    let paused = true;
+    const pausedWrapper = ({ children }: { children: React.ReactNode }) =>
+      wrapper({
+        children: React.createElement(
+          SSEPausedContext.Provider,
+          { value: paused },
+          children
+        ),
+      });
+    const view = renderHook(
+      () => useSSE('/events/dag-runs/demo/run-1/logs', true, 'local'),
+      { wrapper: pausedWrapper }
+    );
+    expect(subscribe).not.toHaveBeenCalled();
+
+    paused = false;
+    view.rerender();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    paused = true;
+    view.rerender();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 });

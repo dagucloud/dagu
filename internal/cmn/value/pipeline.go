@@ -6,7 +6,6 @@ package value
 import (
 	"context"
 	"fmt"
-	"os"
 )
 
 // phase represents a single step in the evaluation pipeline.
@@ -101,12 +100,13 @@ func substitutePhase(ctx context.Context, input string, opts *options) (string, 
 }
 
 // regexExpandEnv performs regex-based variable expansion. When ExpandOS is true,
-// os.LookupEnv is available as a fallback; otherwise only scoped entries are used.
+// the process environment, as a workflow sees it, is available as a fallback;
+// otherwise only scoped entries are used.
 func regexExpandEnv(ctx context.Context, input string, opts *options) string {
 	if opts.ExpandOS {
 		scope := GetEnvScope(ctx)
 		if scope == nil {
-			return expandWithLookup(input, os.LookupEnv, opts.RecognizeEscapedDollar)
+			return expandWithLookup(input, lookupProcessEnv, opts.RecognizeEscapedDollar)
 		}
 		return expandWithLookup(input, scope.Get, opts.RecognizeEscapedDollar)
 	}

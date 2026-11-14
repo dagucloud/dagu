@@ -22,6 +22,9 @@ type defaults struct {
 	SignalOnStop  *string               `yaml:"signal_on_stop,omitempty"`
 	Env           types.EnvValue        `yaml:"env,omitempty"`
 	Preconditions any                   `yaml:"preconditions,omitempty"`
+	// MaxConcurrent is the concurrency limit for parallel and foreach steps
+	// that omit max_concurrent. Zero means no default is configured.
+	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
 }
 
 // decodeDefaults decodes a raw value (from YAML) into a typed *defaults struct.
@@ -29,6 +32,9 @@ type defaults struct {
 func decodeDefaults(raw any) (*defaults, error) {
 	if raw == nil {
 		return nil, nil
+	}
+	if err := validateDefaultMaxConcurrent(raw); err != nil {
+		return nil, err
 	}
 	d := new(defaults)
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
@@ -44,6 +50,45 @@ func decodeDefaults(raw any) (*defaults, error) {
 		return nil, ir.NewValidationError("defaults", raw, withLegacyKeyHint(err))
 	}
 	return d, nil
+}
+
+// maxConcurrent returns the limit for a parallel or foreach step that omits
+// max_concurrent. A nil receiver yields the built-in default.
+func (d *defaults) maxConcurrent() int {
+	if d != nil && d.MaxConcurrent > 0 {
+		return d.MaxConcurrent
+	}
+	return ir.DefaultMaxConcurrent
+}
+
+// validateDefaultMaxConcurrent checks defaults.max_concurrent against the
+// step-level rules, which reject fractional values the decoder would truncate.
+func validateDefaultMaxConcurrent(raw any) error {
+	rawMap, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	for key, value := range rawMap {
+		if !strings.EqualFold(key, "max_concurrent") {
+			continue
+		}
+		if _, err := parseMaxConcurrent("defaults.max_concurrent", value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hasRawKey reports whether raw sets key. Keys match case-insensitively, the
+// way the decoder matches them to fields, so a value written in another case
+// still counts as set.
+func hasRawKey(raw map[string]any, key string) bool {
+	for k := range raw {
+		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // applyDefaults merges default values into a step. Override fields are set only
@@ -65,8 +110,7 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	// When raw is nil, falls back to checking the step field's zero value.
 	shouldApply := func(key string, isZero bool) bool {
 		if raw != nil {
-			_, ok := raw[key]
-			return !ok
+			return !hasRawKey(raw, key)
 		}
 		return isZero
 	}
@@ -92,6 +136,9 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	if shouldApply("continue_on", s.ContinueOn.IsZero()) && !d.ContinueOn.IsZero() {
 		s.ContinueOn = d.ContinueOn
 	}
+	// Kept for the fields built from it later: the max_concurrent fallback,
+	// which never adds parallel or foreach to a step, and foreach body steps.
+	s.stepDefaults = d
 
 	// Additive fields: prepend defaults before step values
 	if !d.Env.IsZero() {
@@ -106,6 +153,10 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	}
 }
 
+// mergeDefaults layers override on top of base. A field replaces the base
+// value when overrideRaw sets its key, even to a zero value. Env and
+// preconditions append to the base values instead, and an empty value clears
+// them. Without overrideRaw, only non-zero override fields apply.
 func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaults {
 	if base == nil {
 		return override
@@ -118,8 +169,7 @@ func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaul
 
 	shouldOverride := func(key string, hasValue bool) bool {
 		if overrideRaw != nil {
-			_, ok := overrideRaw[key]
-			return ok
+			return hasRawKey(overrideRaw, key)
 		}
 		return hasValue
 	}
@@ -141,6 +191,9 @@ func mergeDefaults(base, override *defaults, overrideRaw map[string]any) *defaul
 	}
 	if shouldOverride("signal_on_stop", override.SignalOnStop != nil) {
 		merged.SignalOnStop = override.SignalOnStop
+	}
+	if shouldOverride("max_concurrent", override.MaxConcurrent != 0) {
+		merged.MaxConcurrent = override.MaxConcurrent
 	}
 	if shouldOverride("env", !override.Env.IsZero()) {
 		if len(override.Env.Entries()) == 0 {

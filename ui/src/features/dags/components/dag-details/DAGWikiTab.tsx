@@ -234,7 +234,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
         <>
           {folderWikiPages.length > 0 && (
             <div>
-              <div className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground">
                 <I18nText text={'In'} /> {dagName}/
               </div>
               {folderWikiPages.map((item) => (
@@ -248,7 +248,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
           )}
           {backlinkWikiPages.length > 0 && (
             <div>
-              <div className="flex items-center gap-1 px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="flex items-center gap-1 px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground">
                 <Link2 className="h-3 w-3" />
                 <I18nText text={'Linking to this DAG'} />
               </div>

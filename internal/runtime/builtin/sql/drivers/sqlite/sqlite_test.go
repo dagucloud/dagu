@@ -267,12 +267,39 @@ func TestExtractDBPath(t *testing.T) {
 			dsn:  "file:/var/data/test.db",
 			want: "/var/data/test.db",
 		},
+		{
+			name: "file URI with escapes",
+			dsn:  "file:/srv/a%3Fb%23c/test%20db.db?mode=rwc",
+			want: "/srv/a?b#c/test db.db",
+		},
+		{
+			name: "file URI with an empty authority",
+			dsn:  "file:///var/data/test.db?mode=rwc",
+			want: "/var/data/test.db",
+		},
+		{
+			name: "file URI with localhost",
+			dsn:  "file://localhost/var/data/test.db",
+			want: "/var/data/test.db",
+		},
+		{
+			name: "file URI with a fragment",
+			dsn:  "file:/var/data/test.db#part",
+			want: "/var/data/test.db",
+		},
+		{
+			// A stray % stays; the valid escapes around it still decode.
+			name: "file URI with a stray percent",
+			dsn:  "file:/srv/a%25b/100%.db",
+			want: "/srv/a%b/100%.db",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := extractDBPath(tt.dsn)
+			// A file: URI path comes back in the OS's separator form.
+			got := filepath.ToSlash(extractDBPath(tt.dsn))
 			assert.Equal(t, tt.want, got)
 		})
 	}

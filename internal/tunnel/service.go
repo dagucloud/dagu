@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 // Config holds the configuration for tunnel services.
@@ -174,7 +176,7 @@ func (s *Service) saveURL(url string) {
 		return
 	}
 
-	_ = os.WriteFile(s.urlFile, []byte(url), 0600)
+	_ = fileutil.WriteFileAtomic(s.urlFile, []byte(url), 0600)
 }
 
 // LoadLastURL loads the last known tunnel URL from file.

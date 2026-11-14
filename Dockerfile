@@ -13,7 +13,7 @@ COPY ui/ ./
 RUN pnpm build
 
 # Stage 2: Go Builder
-FROM --platform=$TARGETPLATFORM golang:1.27.0 AS go-builder
+FROM --platform=$TARGETPLATFORM golang:1.27.4 AS go-builder
 ARG LDFLAGS
 ARG TARGETOS
 ARG TARGETARCH
@@ -43,6 +43,9 @@ ARG DAGU_HOME="/var/lib/dagu"
 # these signatures, causing “invalid signature” errors on apt update.
 # Temporarily disable signature checking just long enough to install the
 # new keyring, then re-enable normal verification for everything else.
+# Package downloads run without retries until apt is upgraded below:
+# unpatched apt can install a tampered package when it retries a download
+# (CVE-2026-109518).
 RUN set -eux; \
     for attempt in 1 2 3 4 5; do \
       rm -rf /var/lib/apt/lists/*; \
@@ -52,7 +55,7 @@ RUN set -eux; \
       apt-cache show ubuntu-keyring >/dev/null && \
       apt-cache show ca-certificates >/dev/null && \
       DEBIAN_FRONTEND=noninteractive \
-        apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        apt-get -o Acquire::Retries=0 install -y --no-install-recommends \
         ubuntu-keyring ca-certificates && break; \
       if [ "$attempt" = 5 ]; then exit 1; fi; \
       apt-get clean; \
@@ -60,13 +63,15 @@ RUN set -eux; \
     done; \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install common tools
+# Install common tools. The upgrade picks up security fixes released after
+# the base image was published, including apt, so later installs can retry.
 ENV DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
     for attempt in 1 2 3 4 5; do \
       rm -rf /var/lib/apt/lists/*; \
       apt-get update -o Acquire::Retries=5 \
                      -o APT::Update::Error-Mode=any && \
+      apt-get -o Acquire::Retries=0 upgrade -y && \
       apt-get -o Acquire::Retries=5 install -y \
       sudo \
       tini \

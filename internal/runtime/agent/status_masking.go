@@ -78,7 +78,7 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.OutputValue = maskStringPointer(masker, node.OutputValue)
 	node.OutputsValue = maskOutputDocument(masker, node.OutputsValue)
 	node.StepOutputsValue = maskStepOutputs(masker, node)
-	node.AgentSession = maskAgentSession(masker, node.AgentSession)
+	node.AgentSession = ir.MaskAgentSession(node.AgentSession, masker.MaskString)
 }
 
 // maskStepOutputs masks the outputs a step published. Human-task outputs are
@@ -157,20 +157,6 @@ func maskJSONLiteral(masker *masking.Masker, literal string, value any) any {
 		return masked
 	}
 	return value
-}
-
-// maskAgentSession masks the displayed text of an agent session. Answers are
-// kept because a resumed step reads them back from status.
-func maskAgentSession(masker *masking.Masker, session *ir.AgentSession) *ir.AgentSession {
-	if session == nil {
-		return nil
-	}
-	masked := ir.CloneAgentSession(session)
-	masked.LastError = masker.MaskString(masked.LastError)
-	for i := range masked.Events {
-		masked.Events[i].Content = masker.MaskString(masked.Events[i].Content)
-	}
-	return masked
 }
 
 func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail) []ir.NodeStatusDetail {

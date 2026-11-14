@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -52,15 +53,18 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 
 	// Create a listener and keep it alive until the server binds.
 	// This prevents race conditions where parallel tests could steal the port
-	// between finding it and binding to it.
-	listener, err := net.Listen("tcp", "localhost:0")
+	// between finding it and binding to it. The server and its clients use the
+	// literal IPv4 loopback address: "localhost" can resolve to ::1 for
+	// clients while the listener holds only 127.0.0.1, so a request could reach
+	// another test's socket that owns the same port number on ::1.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err, "failed to create listener")
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	opts = append(opts, WithServerConfig(
 		&config.Server{
-			Host: "localhost",
+			Host: "127.0.0.1",
 			Port: port,
 			Permissions: map[config.Permission]bool{
 				config.PermissionWriteDAGs: true,
@@ -119,7 +123,8 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		SchedulerPauseStore: store.NewSchedulerPauseStore(
 			srv.Backend.Collection(persis.CollectionSchedulerState),
 		),
-		Stores: stores,
+		BackfillStore: filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
+		Stores:        stores,
 	}, serverOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server: %w", err)

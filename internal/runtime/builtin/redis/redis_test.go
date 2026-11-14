@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -898,6 +899,9 @@ func TestTruncateString(t *testing.T) {
 		{"hi", 2, "hi"},
 		{"hello", 3, "hel"}, // When maxLen <= 3, no room for ellipsis
 		{"ab", 1, "a"},
+		// The byte cut lands inside 界; it must not split the rune.
+		{"ab界cdef", 6, "ab..."},
+		{"ab界", 4, "a..."},
 	}
 
 	for _, tt := range tests {
@@ -905,6 +909,7 @@ func TestTruncateString(t *testing.T) {
 			t.Parallel()
 			result := redisexec.TruncateString(tt.input, tt.maxLen)
 			assert.Equal(t, tt.expected, result)
+			assert.True(t, utf8.ValidString(result))
 		})
 	}
 }
@@ -978,91 +983,4 @@ func TestGetBuiltinScript(t *testing.T) {
 			}
 		})
 	}
-}
-
-// --- Global Pool Manager Tests ---
-
-func TestGlobalRedisPoolManager_NewAndClose(t *testing.T) {
-	t.Parallel()
-
-	cfg := redisexec.GlobalPoolConfig{
-		MaxClients: 10,
-	}
-
-	pm := redisexec.NewGlobalRedisPoolManager(cfg)
-	require.NotNil(t, pm)
-
-	// Close should not error
-	err := pm.Close()
-	assert.NoError(t, err)
-
-	// Double close should not error
-	err = pm.Close()
-	assert.NoError(t, err)
-}
-
-func TestGlobalRedisPoolManager_Stats(t *testing.T) {
-	t.Parallel()
-
-	pm := redisexec.NewGlobalRedisPoolManager(redisexec.GlobalPoolConfig{})
-	t.Cleanup(func() { _ = pm.Close() })
-
-	stats := pm.Stats()
-	require.NotNil(t, stats)
-	assert.Equal(t, 0, stats["clientCount"])
-	assert.Equal(t, false, stats["closed"])
-}
-
-func TestGlobalRedisPoolManager_Context(t *testing.T) {
-	t.Parallel()
-
-	pm := redisexec.NewGlobalRedisPoolManager(redisexec.GlobalPoolConfig{})
-	t.Cleanup(func() { _ = pm.Close() })
-
-	ctx := context.Background()
-
-	// Without pool manager
-	assert.Nil(t, redisexec.GetRedisPoolManager(ctx))
-
-	// With pool manager
-	ctx = redisexec.WithRedisPoolManager(ctx, pm)
-	assert.Equal(t, pm, redisexec.GetRedisPoolManager(ctx))
-}
-
-func TestGlobalRedisPoolManager_Integration(t *testing.T) {
-	host := skipIfNoRedis(t)
-
-	pm := redisexec.NewGlobalRedisPoolManager(redisexec.GlobalPoolConfig{
-		MaxClients: 5,
-	})
-	t.Cleanup(func() { _ = pm.Close() })
-
-	ctx := redisexec.WithRedisPoolManager(context.Background(), pm)
-
-	// Create executor using global pool
-	step := ir.Step{
-		Name: "test-pool",
-		ExecutorConfig: ir.ExecutorConfig{
-			Type: "redis",
-			Config: map[string]any{
-				"host":    host,
-				"command": "PING",
-			},
-		},
-	}
-
-	exec, err := newRedisExecutor(ctx, step)
-	require.NoError(t, err)
-
-	var stdout bytes.Buffer
-	exec.SetStdout(&stdout)
-
-	err = exec.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Contains(t, stdout.String(), "PONG")
-
-	// Check pool stats
-	stats := pm.Stats()
-	assert.GreaterOrEqual(t, stats["clientCount"], 1)
 }

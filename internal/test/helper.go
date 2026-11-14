@@ -40,6 +40,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -55,6 +56,19 @@ var setupLock sync.Mutex
 var builtExecutableOnce sync.Once
 var builtExecutablePath string
 var builtExecutableErr error
+var removeStaleDirsOnce sync.Once
+
+const (
+	// executableDirPattern names the directory holding the executable a test
+	// process builds.
+	executableDirPattern = "dagu-test-bin-*"
+	// homeDirPattern matches the home directory Setup creates, named after a
+	// UUID.
+	homeDirPattern = "dagu-test-????????-????-????-????-????????????*"
+	// staleDirAge is how old a directory left by a test process must be
+	// before a later process removes it. No test process runs this long.
+	staleDirAge = 6 * time.Hour
+)
 
 var (
 	latestStatusAssertTimeout  = helperLatestStatusAssertTimeout()
@@ -86,6 +100,7 @@ type Options struct {
 	WithArtifactPersistence bool          // Enable artifact persistence to filesystem
 	StaleHeartbeatThreshold time.Duration // Override for handler's stale heartbeat threshold
 	StaleLeaseThreshold     time.Duration // Override for handler's stale lease threshold
+	WorkerWaitTimeout       time.Duration // How long the coordinator holds a dispatch for a matching worker; 0 refuses at once
 }
 
 // WithCaptureLoggingOutput creates a logging capture option
@@ -163,6 +178,15 @@ func WithStaleThresholds(heartbeat, lease time.Duration) HelperOption {
 	}
 }
 
+// WithWorkerWaitTimeout makes the test coordinator hold a dispatch with no
+// healthy matching worker for this long before failing the run. Tests that do
+// not set it keep the immediate refusal.
+func WithWorkerWaitTimeout(timeout time.Duration) HelperOption {
+	return func(opts *Options) {
+		opts.WorkerWaitTimeout = timeout
+	}
+}
+
 // WithBuiltExecutable makes Setup build the current ./cmd binary once and use it
 // as cfg.Paths.Executable for subprocess-based tests.
 func WithBuiltExecutable() HelperOption {
@@ -177,6 +201,7 @@ func WithBuiltExecutable() HelperOption {
 func Setup(t *testing.T, opts ...HelperOption) Helper {
 	setupLock.Lock()
 	defer setupLock.Unlock()
+	removeStaleDirsOnce.Do(removeStaleDirs)
 
 	// Save the original working directory and restore it after the test.
 	// This is important because some tests (via agent) may change the working
@@ -331,6 +356,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 		ServerOptions:             options.ServerOptions,
 		StaleHeartbeatThreshold:   options.StaleHeartbeatThreshold,
 		StaleLeaseThreshold:       options.StaleLeaseThreshold,
+		WorkerWaitTimeout:         options.WorkerWaitTimeout,
 
 		tmpDir: tmpDir,
 	}
@@ -543,6 +569,7 @@ type Helper struct {
 	ServerOptions             []frontend.ServerOption
 	StaleHeartbeatThreshold   time.Duration
 	StaleLeaseThreshold       time.Duration
+	WorkerWaitTimeout         time.Duration
 
 	tmpDir string
 }
@@ -807,20 +834,21 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 	if helper.opts.SubWorkflowRunnerFactory == nil {
 		helper.opts.SubWorkflowRunnerFactory = coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-			DAGRunMgr:         d.DAGRunMgr,
-			DAGRepository:     d.DAGRepository,
-			DAGRunRepository:  d.DAGRunRepository,
-			RunStateStore:     helper.opts.RunStateStore,
-			QueueStore:        d.QueueStore,
-			StateStore:        d.StateStore,
-			SecretStore:       helper.opts.SecretStore,
-			ProfileStore:      helper.opts.ProfileStore,
-			ServiceRegistry:   d.ServiceRegistry,
-			PeerConfig:        d.Config.Core.Peer,
-			DefaultExecMode:   d.Config.DefaultExecMode,
-			WorkerID:          "local",
-			DAGRunLogDir:      d.Config.Paths.LogDir,
-			DAGRunArtifactDir: d.Config.Paths.ArtifactDir,
+			DAGRunMgr:          d.DAGRunMgr,
+			DAGRepository:      d.DAGRepository,
+			DAGRunRepository:   d.DAGRunRepository,
+			RunStateStore:      helper.opts.RunStateStore,
+			QueueStore:         d.QueueStore,
+			StateStore:         d.StateStore,
+			SecretStore:        helper.opts.SecretStore,
+			ProfileStore:       helper.opts.ProfileStore,
+			ServiceRegistry:    d.ServiceRegistry,
+			PeerConfig:         d.Config.Core.Peer,
+			WorkspaceBundleDir: workspacebundle.StoreDir(d.Config.Paths.DataDir),
+			DefaultExecMode:    d.Config.DefaultExecMode,
+			WorkerID:           "local",
+			DAGRunLogDir:       d.Config.Paths.LogDir,
+			DAGRunArtifactDir:  d.Config.Paths.ArtifactDir,
 		})
 	}
 
@@ -1133,7 +1161,7 @@ func buildCurrentExecutable(t *testing.T, root string) string {
 			}
 		}
 
-		tmpDir, err := os.MkdirTemp("", "dagu-test-bin-*")
+		tmpDir, err := os.MkdirTemp("", executableDirPattern)
 		if err != nil {
 			builtExecutableErr = fmt.Errorf("failed to create temp dir for test executable: %w", err)
 			return
@@ -1164,4 +1192,18 @@ func buildCurrentExecutable(t *testing.T, root string) string {
 	require.NotEmpty(t, builtExecutablePath)
 
 	return builtExecutablePath
+}
+
+// removeStaleDirs removes what ended test processes left in the temporary
+// directory: the executable a process builds, which it cannot remove when it
+// exits, and the home of a test that was killed before its cleanup ran.
+func removeStaleDirs() {
+	for _, pattern := range []string{executableDirPattern, homeDirPattern} {
+		dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
+		for _, dir := range dirs {
+			if info, err := os.Stat(dir); err == nil && time.Since(info.ModTime()) > staleDirAge {
+				_ = os.RemoveAll(dir)
+			}
+		}
+	}
 }

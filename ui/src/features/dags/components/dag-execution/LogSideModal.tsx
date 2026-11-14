@@ -9,10 +9,8 @@ type LogSideModalProps = {
   title: string;
   children: React.ReactNode;
   isInModal?: boolean;
-  dagName?: string;
-  dagRunId?: string;
-  stepName?: string;
-  logType?: 'execution' | 'step';
+  /** Full-page address of the log; without it the panel offers no new tab */
+  newTabUrl?: string;
 };
 
 /**
@@ -25,10 +23,7 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
   title,
   children,
   isInModal = false,
-  dagName = '',
-  dagRunId = '',
-  stepName = '',
-  logType = 'execution',
+  newTabUrl,
 }) => {
   // State to track whether the modal is expanded
   const [isExpanded, setIsExpanded] = useState(false);
@@ -78,8 +73,9 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
   // Add keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Close modal with Escape key
-      if (event.key === 'Escape') {
+      // Close modal with Escape key, unless a dialog or menu inside it
+      // already handled the key.
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         onClose();
       }
     };
@@ -115,26 +111,9 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
     setIsExpanded(!isExpanded);
   };
 
-  // Generate URL for opening log in new tab
-  const getLogUrl = () => {
-    const baseUrl = `/dags/${dagName}`;
-    const searchParams = new URLSearchParams();
-
-    if (dagRunId) {
-      searchParams.set('dagRunId', dagRunId);
-    }
-
-    if (logType === 'step' && stepName) {
-      searchParams.set('step', stepName);
-      return `${baseUrl}/log?${searchParams.toString()}`;
-    } else {
-      return `${baseUrl}/dagRun-log?${searchParams.toString()}`;
-    }
-  };
-
   // Open log in new tab
   const openInNewTab = () => {
-    window.open(getLogUrl(), '_blank');
+    window.open(newTabUrl, '_blank');
   };
 
   return (
@@ -152,7 +131,7 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
           isMobile
             ? 'border border-border rounded-none'
             : 'border-l border-border'
-        } overflow-hidden flex flex-col transition-all duration-150 ease-out ${
+        } overflow-hidden flex flex-col transition-[translate,opacity] duration-150 ease-out ${
           isMobile
             ? isVisible
               ? 'translate-y-0 opacity-100'
@@ -188,15 +167,17 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
                   </Button>
                 </I18nProps>
               )}
-              <I18nProps>
-                <Button
-                  size="icon"
-                  onClick={openInNewTab}
-                  title="Open in new tab"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              </I18nProps>
+              {newTabUrl && (
+                <I18nProps>
+                  <Button
+                    size="icon"
+                    onClick={openInNewTab}
+                    title="Open in new tab"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </I18nProps>
+              )}
               <I18nProps>
                 <Button size="icon" onClick={onClose} title="Close (Esc)">
                   <X className="h-4 w-4" />

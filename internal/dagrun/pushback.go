@@ -184,7 +184,14 @@ func ApplyPushBack(status *ir.DAGRunStatus, source *ir.Node, pb PushBack) (int, 
 
 	for _, node := range rewound {
 		previousStdout := node.Stdout
+		if previousStdout == "" {
+			// Reset again before it ran again: its last stdout is still current.
+			previousStdout = node.PushBackPreviousStdout
+		}
+		// What the rewound attempt spent on models stays: the run spent it.
+		modelUsage := node.ModelUsage
 		*node = *ir.NewNodeFromStep(node.Step)
+		node.ModelUsage = modelUsage
 		node.ApprovalIteration = iteration
 		node.PushBackInputs = maps.Clone(inputs)
 		node.PushBackHistory = ClonePushBackHistory(history)
@@ -268,10 +275,10 @@ func dependentNodes(nodes []*ir.Node, stepName string) []*ir.Node {
 	return result
 }
 
-// stepDependencies returns each step's declared dependencies plus the build
-// producers whose output paths it consumes, since build steps link through
-// declared paths without declaring depends. Stored steps carry the paths the
-// run resolved.
+// stepDependencies returns each step's declared and inferred dependencies plus
+// the build producers whose output paths it consumes, since build steps link
+// through declared paths without declaring depends. Stored steps carry the
+// paths the run resolved.
 func stepDependencies(nodes []*ir.Node) map[string][]string {
 	dependencies := make(map[string][]string, len(nodes))
 	hasInputs := false
@@ -279,7 +286,7 @@ func stepDependencies(nodes []*ir.Node) map[string][]string {
 		if node == nil {
 			continue
 		}
-		dependencies[node.Step.Name] = node.Step.Depends
+		dependencies[node.Step.Name] = node.Step.AllDepends()
 		hasInputs = hasInputs || len(node.Step.Inputs) > 0
 	}
 	if !hasInputs {

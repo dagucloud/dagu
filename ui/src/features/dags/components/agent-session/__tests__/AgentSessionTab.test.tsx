@@ -5,11 +5,16 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSessionState, NodeStatus } from '@/api/v1/schema';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useClient } from '@/hooks/api';
 import { AgentSessionTab } from '../AgentSessionTab';
 
 vi.mock('@/hooks/api', () => ({
   useClient: vi.fn(),
+}));
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecuteForWorkspace: vi.fn(),
 }));
 
 vi.mock('@/contexts/RemoteNodeContext', () => ({
@@ -79,6 +84,7 @@ function renderAgentSessions(nodes: ReturnType<typeof agentNode>[]) {
 describe('AgentSessionTab', () => {
   beforeEach(() => {
     useClientMock.mockReturnValue({ POST: vi.fn() } as never);
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(true);
   });
 
   it('shows the provider error when the session failed', () => {
@@ -303,6 +309,67 @@ describe('AgentSessionTab', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows a computer question with screenshot thumbnails', async () => {
+    const GET = vi.fn().mockResolvedValue({
+      data: new Blob(['png'], { type: 'image/png' }),
+      response: new Response(),
+    });
+    useClientMock.mockReturnValue({ GET, POST: vi.fn() } as never);
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'blob:screen'),
+      revokeObjectURL: vi.fn(),
+    });
+
+    const post = {
+      step: { name: 'post' },
+      status: NodeStatus.Waiting,
+      agentSession: {
+        provider: 'computer',
+        state: AgentSessionState.waiting,
+        events: [
+          {
+            sequence: 1,
+            id: 'computer-1-1',
+            type: 'tool',
+            name: 'act',
+            content: 'Open the invoice',
+            files: ['computer/post/01-act.png'],
+          },
+        ],
+        interactions: [
+          {
+            id: 'ask-1-1',
+            kind: 'question',
+            status: 'pending',
+            questions: [
+              {
+                header: 'Computer input',
+                question: 'Approve posting?',
+                custom: true,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    renderAgentSessions([post as never]);
+
+    expect(
+      screen.getByText('The computer step needs an answer')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Computer session')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('img', { name: '01-act.png' })
+    ).toHaveAttribute('src', 'blob:screen');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Start clean session/ })
+    );
+    expect(
+      screen.getByText('Start this computer step over?')
+    ).toBeInTheDocument();
+  });
+
   it('does not offer a restart for providers that cannot restart', () => {
     const other = agentNode(
       'review',
@@ -315,5 +382,36 @@ describe('AgentSessionTab', () => {
     expect(
       screen.queryByRole('button', { name: /Start clean session/ })
     ).not.toBeInTheDocument();
+  });
+
+  it('disables agent actions without execute permission', () => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
+    const node = agentNode(
+      'implement',
+      AgentSessionState.waiting,
+      NodeStatus.Waiting
+    );
+    Object.assign(node.agentSession, {
+      interactions: [
+        {
+          id: 'perm-1',
+          kind: 'permission',
+          status: 'pending',
+          permission: 'bash',
+        },
+      ],
+    });
+    renderAgentSessions([node]);
+
+    expect(screen.getByRole('button', { name: /Allow once/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Reject/ })).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: /Start clean session/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Execute permission is required to answer or restart this session.'
+      )
+    ).toBeInTheDocument();
   });
 });

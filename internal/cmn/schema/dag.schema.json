@@ -72,11 +72,11 @@
       }
     },
     "schedule": {
-      "examples": ["@daily", "0 * * * *", "*/15 8-18 * * MON-FRI"],
+      "examples": ["@daily", "@every 1h", "0 * * * *", "*/15 8-18 * * MON-FRI"],
       "oneOf": [
         {
           "type": "string",
-          "description": "Single cron expression or schedule alias for starting the DAG (e.g., '@daily' runs at midnight)"
+          "description": "Single cron expression or descriptor for starting the DAG (e.g., '@daily' runs at midnight, '@every 1h' runs hourly)"
         },
         {
           "type": "array",
@@ -94,7 +94,7 @@
                   "type": "string",
                   "description": "Single cron expression for starting the DAG"
                 },
-                { "$ref": "#/definitions/scheduleCronEntry" },
+                { "$ref": "#/definitions/scheduleStartCronEntry" },
                 { "$ref": "#/definitions/scheduleAtEntry" },
                 {
                   "type": "array",
@@ -142,7 +142,72 @@
           "description": "Advanced scheduling with separate start, stop, and restart schedules."
         }
       ],
-      "description": "Schedule configuration for the DAG. Start schedules support cron expressions and schedule aliases, profile-scoped cron object entries, and one-off RFC 3339 timestamps with explicit offsets. Stop and restart remain cron-only but may still use profile-scoped cron objects."
+      "description": "Schedule configuration for the DAG. Start schedules support cron expressions and descriptors (e.g. '@daily', '@weekly', '@every 1h30m'), profile-scoped cron object entries, and one-off RFC 3339 timestamps with explicit offsets. Stop and restart remain cron-only but may still use profile-scoped cron objects."
+    },
+    "calendar": {
+      "$ref": "#/definitions/calendarName",
+      "description": "Business calendar for the start schedules that name none: 'weekdays' or a calendar file in paths.calendars_dir. Entries opt out with calendar: none."
+    },
+    "dates": {
+      "type": "object",
+      "description": "Dates derived from the run's schedule slot, read as ${dates.NAME}. An entry written as a string or a list is its shift, such as -1d or [-1d, month_start].",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "not": {
+          "enum": ["scheduled_at", "interval_start", "interval_end", "next_scheduled_at"]
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/dateShiftOperation"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/dateShiftOperation"
+            },
+            "description": "Shift operations applied left to right."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "The instant the date starts from: scheduled_at (default), interval_start, interval_end, next_scheduled_at, or the name of another entry."
+              },
+              "each": {
+                "type": "string",
+                "pattern": "^[0-9]+(min|h|d|w|mo|y|bd)$",
+                "description": "A step through the run's window, such as 1d or 1bd. The entry becomes a list from interval_start up to, but not including, interval_end."
+              },
+              "shift": {
+                "oneOf": [
+                  {
+                    "$ref": "#/definitions/dateShiftOperation"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/dateShiftOperation"
+                    }
+                  }
+                ],
+                "description": "One operation, or a list applied left to right."
+              },
+              "format": {
+                "type": "string",
+                "description": "date (default), date_compact, datetime, rfc3339, unix, or a strftime pattern such as %Y/%m/%d."
+              },
+              "timezone": {
+                "type": "string",
+                "description": "The zone used for shifting and formatting. Defaults to the zone of the entry it builds on, else context.run.timezone, else the server tz."
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
     },
     "skip_if_successful": {
       "type": "boolean",
@@ -325,7 +390,7 @@
           "description": "Shorthand list of aqua packages, for example tools: ['jqlang/jq@jq-1.7.1']."
         }
       ],
-      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to Dagu's pinned standard registry commit."
+      "description": "DAG-level CLI tool dependencies installed on the worker before any step runs. Can be an object for advanced options or shorthand package refs like jqlang/jq@jq-1.7.1. Provider defaults to aqua, and registry defaults to the latest release of the standard aqua registry."
     },
     "defaults": {
       "type": "object",
@@ -375,6 +440,11 @@
             },
             "interval_sec": { "type": "integer" },
             "limit": { "type": "integer", "minimum": 1 },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result"
+            },
             "backoff": {
               "oneOf": [
                 { "type": "boolean" },
@@ -433,6 +503,12 @@
             }
           ],
           "description": "Default preconditions for all steps (additive with step-level preconditions)"
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Default max_concurrent for parallel and foreach steps that omit it (built-in default: 10, maximum: 1000). Does not add parallel or foreach to a step."
         }
       },
       "description": "Default values for step configuration fields. Steps inherit these defaults and can override them individually. Most fields use full replacement when overridden; env and preconditions are additive."
@@ -529,6 +605,18 @@
         "password": {
           "type": "string",
           "description": "SMTP authentication password"
+        },
+        "oauth": {
+          "$ref": "#/definitions/smtpOAuth"
+        }
+      },
+      "dependencies": {
+        "oauth": {
+          "required": ["username"],
+          "properties": {
+            "username": { "pattern": "\\S" },
+            "password": { "not": { "pattern": "\\S" } }
+          }
         }
       },
       "description": "SMTP server configuration for sending email notifications."
@@ -550,9 +638,13 @@
         "success": {
           "type": "boolean",
           "description": "Send email notification when DAG succeeds"
+        },
+        "wait": {
+          "type": "boolean",
+          "description": "Send email notification when the DAG run starts waiting, such as for an approval or a human task. Uses wait_mail."
         }
       },
-      "description": "Configuration for sending email notifications on DAG success or failure."
+      "description": "Configuration for sending email notifications on DAG success, failure, or wait."
     },
     "error_mail": {
       "$ref": "#/definitions/mailConfig",
@@ -561,6 +653,10 @@
     "info_mail": {
       "$ref": "#/definitions/mailConfig",
       "description": "Email configuration for informational notifications."
+    },
+    "wait_mail": {
+      "$ref": "#/definitions/mailConfig",
+      "description": "Email configuration for notifications sent when the DAG run starts waiting. Sent when mail_on.wait is true."
     },
     "timeout_sec": {
       "examples": [3600],
@@ -573,7 +669,16 @@
     },
     "restart_wait_sec": {
       "type": "integer",
-      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor."
+      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor. With restart_policy, it is the wait between the end of a run and the start of the next one, and must be at least 1; each run in a row that fails within 10 seconds of its start doubles it, up to 5 minutes."
+    },
+    "restart_policy": {
+      "type": "string",
+      "anyOf": [
+        { "enum": ["no", "always", "unless-stopped"] },
+        { "pattern": "^\\s*([Nn][Oo]|[Aa][Ll][Ww][Aa][Yy][Ss]|[Uu][Nn][Ll][Ee][Ss][Ss]-[Ss][Tt][Oo][Pp][Pp][Ee][Dd])?\\s*$" }
+      ],
+      "default": "no",
+      "description": "Keeps a run of the DAG alive, like a service. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run follows a run that an operator stopped. A suspended DAG gets no new run, and no DAG does while queues are disabled. While a run is active, a manual run of the DAG is refused. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
     },
     "hist_retention_days": {
       "type": "integer",
@@ -583,6 +688,12 @@
       "type": "integer",
       "minimum": 1,
       "description": "Number of DAG runs to retain in execution history. Mutually exclusive with hist_retention_days."
+    },
+    "slot_retention_days": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 730,
+      "description": "Number of days to keep the record of each schedule slot: which runs it had and, after history retention removes a run, its final status. Backfill reads this record to find the slots that still need a run."
     },
     "max_active_runs": {
       "examples": [1],
@@ -657,7 +768,7 @@
           "$ref": "#/definitions/dagParamExternalSchema"
         }
       ],
-      "description": "Default parameters that can be overridden when triggering the DAG. Supports five formats: 1) String format: space-separated positional parameters (e.g., 'arg1 arg2') accessible as $1, $2. 2) Array/Object format: named parameters as key-value pairs accessible as ${KEY}. 3) Inline rich definitions in array form, where each definition is an object with a required 'name' field plus optional fields such as type, default, enum, minimum, maximum, min_length, max_length, pattern, description, and required. 4) Top-level inline JSON Schema format using `type: object` plus `properties`. 5) Schema validation format: object with 'schema' (JSON Schema path/URL, inline object, or boolean schema) and optional 'values' (parameter values) for runtime validation and defaults."
+      "description": "Default parameters that can be overridden when triggering the DAG. Supports five formats: 1) String format: space-separated positional parameters (e.g., 'arg1 arg2') accessible as $1, $2. 2) Array/Object format: named parameters as key-value pairs accessible as ${KEY}. 3) Inline rich definitions in array form, where each definition is an object with a required 'name' field plus optional fields such as type, default, enum, minimum, maximum, min_length, max_length, pattern, title, description, and required. 4) Top-level inline JSON Schema format using `type: object` plus `properties`. 5) Schema validation format: object with 'schema' (JSON Schema path/URL, inline object, or boolean schema) and optional 'values' (parameter values) for runtime validation and defaults."
     },
     "container": {
       "$ref": "#/definitions/container",
@@ -709,7 +820,7 @@
     },
     "ssh": {
       "$ref": "#/definitions/sshConfig",
-      "description": "Default SSH configuration for all steps in the DAG. Steps can override this configuration with their own SSH settings. Note: SSH and container configurations are mutually exclusive at the DAG level."
+      "description": "Default SSH configuration for all steps in the DAG. Steps can override this configuration with their own SSH settings. String fields other than timeout support value references such as ${params.host}, resolved with the same rules as step with values. Note: SSH and container configurations are mutually exclusive at the DAG level."
     },
     "s3": {
       "allOf": [
@@ -784,6 +895,27 @@
       },
       "description": "DAG-level webhook trigger behavior. Use this to forward selected request headers into webhook-triggered runs."
     },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The folder watched; a leading ~ is the home directory. Each file that arrives in it starts one run, with the file's path as WATCH_FILE and its name as WATCH_NAME. A file counts as arrived once its size and modification time hold still between two readings, so a file still being copied waits. Files the folder holds when the watch starts are left alone. A file runs again only when it is replaced."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "A glob the file's name must match, such as *.pdf. Files whose names start with . or ~$ and files still being written (.tmp, .part, .crdownload) never match."
+        },
+        "interval": {
+          "type": "string",
+          "description": "How often the folder is read, such as 30s. Defaults to 10s; at least 1s."
+        }
+      },
+      "description": "Start a run for each file that arrives in a folder."
+    },
     "worker_selector": {
       "oneOf": [
         {
@@ -834,7 +966,8 @@
           "$ref": "#/definitions/redisConnectionConfig"
         }
       ],
-      "description": "Default Redis configuration for all Redis actions in the DAG. Steps with action: redis.<operation> inherit this configuration if they don't specify their own connection settings."
+      "propertyNames": { "not": { "enum": ["tls_ca", "tls_cert", "tls_key"] } },
+      "description": "Default Redis configuration for all Redis actions in the DAG. Steps with action: redis.<operation> inherit this configuration if they don't specify their own connection settings. TLS client files (tls_ca, tls_cert, tls_key) are set on the step's with block."
     },
     "kubernetes": {
       "$ref": "#/definitions/kubernetesDefaultsConfig",
@@ -847,7 +980,7 @@
         {
           "type": "string"
         },
-        { "$ref": "#/definitions/scheduleCronEntry" },
+        { "$ref": "#/definitions/scheduleStartCronEntry" },
         { "$ref": "#/definitions/scheduleAtEntry" }
       ]
     },
@@ -869,7 +1002,7 @@
         },
         "expression": {
           "type": "string",
-          "description": "Cron expression for a recurring schedule entry"
+          "description": "Cron expression or descriptor (e.g. '@daily', '@every 30m') for a recurring schedule entry"
         },
         "profile": {
           "type": "string",
@@ -881,6 +1014,60 @@
       },
       "additionalProperties": false,
       "description": "Cron schedule entry, optionally scoped to a runtime profile."
+    },
+    "scheduleStartCronEntry": {
+      "type": "object",
+      "required": ["expression"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["cron"]
+        },
+        "expression": {
+          "type": "string",
+          "description": "Cron expression or descriptor (e.g. '@daily', '@every 30m') for a recurring schedule entry"
+        },
+        "params": {
+          "type": "object",
+          "description": "Literal named parameter overrides for this scheduled run."
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "description": "Runtime profile name that activates this schedule entry"
+        },
+        "calendar": {
+          "$ref": "#/definitions/calendarName",
+          "description": "Business calendar whose business days this entry fires on: 'weekdays', a calendar file in paths.calendars_dir, or 'none' to ignore the DAG's calendar."
+        },
+        "business_days": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": -23,
+            "maximum": 23,
+            "not": { "const": 0 }
+          },
+          "examples": [[1], [-1], [3, -1]],
+          "description": "Keep only the fires on these business days of each month: 1 is the first, -1 the last. Needs a calendar and * in the day-of-month and day-of-week fields."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Cron start schedule entry, optionally scoped to a runtime profile and to the business days of a calendar."
+    },
+    "dateShiftOperation": {
+      "type": "string",
+      "pattern": "^([+-][0-9]+(min|h|d|w|mo|y|bd)|hour_start|day_start|week_start|month_start|year_start|bd_or_next|bd_or_prev)$",
+      "description": "+N or -N with min, h, d, w, mo, y, or bd; the start of an hour, day, week (Monday), month, or year; or bd_or_next and bd_or_prev, which move a date that is not a business day to the next or previous one."
+    },
+    "calendarName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "examples": ["weekdays", "none"]
     },
     "scheduleAtEntry": {
       "type": "object",
@@ -894,6 +1081,10 @@
           "type": "string",
           "format": "date-time",
           "description": "RFC 3339 timestamp with explicit offset and minute precision for a one-off schedule entry"
+        },
+        "params": {
+          "type": "object",
+          "description": "Literal named parameter overrides for this scheduled run."
         },
         "profile": {
           "type": "string",
@@ -1098,6 +1289,10 @@
         "eval": {
           "type": "string"
         },
+        "title": {
+          "type": "string",
+          "description": "Human-readable label shown in forms instead of the name. The name remains the identifier used in commands and references."
+        },
         "description": {
           "type": "string"
         },
@@ -1281,7 +1476,7 @@
       "properties": {
         "schema": {
           "$ref": "#/definitions/jsonSchemaDeclaration",
-          "description": "JSON Schema declaration used for parameter validation."
+          "description": "JSON Schema declaration used for parameter validation. A relative file path is looked up in the current working directory of the Dagu process, then in the DAG's working_dir, then next to the DAG file as authored (so it also works for a child dispatched to a worker). `~` and `$VAR` in the path expand from the Dagu process environment, not from the DAG's env or base config."
         },
         "values": {
           "type": "object",
@@ -1419,7 +1614,7 @@
         },
         "registry": {
           "$ref": "#/definitions/toolRegistry",
-          "description": "Optional aqua registry override. Omit this to use Dagu's pinned standard aqua registry."
+          "description": "Optional aqua registry override. Omit this to use the latest release of the standard aqua registry."
         },
         "packages": {
           "type": "array",
@@ -1442,9 +1637,9 @@
         },
         "type": {
           "type": "string",
-          "enum": ["standard", "github_content"],
+          "enum": ["standard", "github_content", "local"],
           "default": "standard",
-          "description": "Aqua registry type. Local registries are not supported for worker-local installation."
+          "description": "Aqua registry type. A local registry points to an absolute path on the worker filesystem."
         },
         "repo_owner": {
           "type": "string",
@@ -1457,11 +1652,11 @@
         "ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; Dagu uses its pinned default commit when omitted. Required for github_content registries."
+          "description": "Registry tag or commit hash. Prefer a commit hash for immutability. Optional for the standard registry; when omitted, Dagu resolves the latest release, cached for 24 hours. Required for github_content registries."
         },
         "path": {
           "type": "string",
-          "description": "Registry file path inside a github_content registry repository."
+          "description": "Repository-relative file for github_content, or worker-absolute file for local registries. POSIX, Windows drive, and UNC absolute paths are accepted."
         }
       },
       "allOf": [
@@ -1474,6 +1669,23 @@
           },
           "then": {
             "required": ["repo_owner", "repo_name", "ref", "path"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "local" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "pattern": "^\\s*(/|[A-Za-z]:[/\\\\]|\\\\\\\\[^\\\\]+\\\\[^\\\\]+)"
+              }
+            }
           }
         }
       ]
@@ -1491,11 +1703,11 @@
     },
     "toolPackageRef": {
       "type": "string",
-      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "pattern": "^[^\\s@#]+@[^\\s@#]+(#[Ss][Hh][Aa]256:[0-9A-Fa-f]{64})?$",
       "not": {
-        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt]$"
+        "pattern": "@[Ll][Aa][Tt][Ee][Ss][Tt](#|$)"
       },
-      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1. Prefer immutable commit hashes where aqua supports them."
+      "description": "Aqua package shorthand in package@version form, for example jqlang/jq@jq-1.7.1, optionally followed by #sha256:<64 hex> to pin the artifact. Prefer immutable commit hashes where aqua supports them."
     },
     "toolPackageObject": {
       "type": "object",
@@ -1531,6 +1743,11 @@
         "registry": {
           "type": "string",
           "description": "Optional registry name for this package. Defaults to the configured registry."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[Ss][Hh][Aa]256:[0-9A-Fa-f]{64}$",
+          "description": "SHA-256 of the downloaded artifact as sha256:<64 hex>. The run fails when the installed artifact does not match."
         }
       }
     },
@@ -1693,7 +1910,7 @@
           "oneOf": [
             {
               "type": "string",
-              "description": "File path where the step's standard output (stdout) will be written."
+              "description": "File path where the step's standard output (stdout) will be written. Missing parent directories are created."
             },
             {
               "type": "object",
@@ -1718,7 +1935,7 @@
           "oneOf": [
             {
               "type": "string",
-              "description": "File path where the step's standard error (stderr) will be written."
+              "description": "File path where the step's standard error (stderr) will be written. Missing parent directories are created."
             },
             {
               "type": "object",
@@ -1760,7 +1977,7 @@
         "output_schema": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Inline JSON Schema object used to validate stdout JSON before publishing step output."
+          "description": "Inline JSON Schema object used to validate stdout JSON before publishing step output. On a chat.completion step the model answers in this shape: the schema needs type: object and at least one property, and only the listed properties are published."
         },
         "outputs": {
           "type": "array",
@@ -1898,6 +2115,11 @@
               "type": "integer",
               "minimum": 1,
               "description": "Maximum number of times this step will be executed. Once reached, the step stops repeating regardless of other conditions."
+            },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result. fail requires repeat: until, a condition, and a limit."
             },
             "backoff": {
               "oneOf": [
@@ -2078,12 +2300,17 @@
                     }
                   ]
                 },
+                "separator": {
+                  "type": "string",
+                  "enum": ["newline", "comma", "semicolon", "pipe", "tab", "space"],
+                  "description": "Separator used to split a string item source into items. When omitted, the separator is detected from the resolved string. Requires a string items value."
+                },
                 "max_concurrent": {
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 1000,
                   "default": 10,
-                  "description": "Maximum number of concurrent executions (default: 10, maximum: 1000)"
+                  "description": "Maximum number of concurrent executions (default: defaults.max_concurrent or 10, maximum: 1000)"
                 }
               },
               "required": ["items"],
@@ -2132,7 +2359,7 @@
               "minimum": 1,
               "maximum": 1000,
               "default": 10,
-              "description": "Maximum number of foreach item bodies running concurrently"
+              "description": "Maximum number of foreach item bodies running concurrently (default: defaults.max_concurrent or 10, maximum: 1000)"
             },
             "steps": {
               "type": "array",
@@ -2156,25 +2383,15 @@
           "description": "Inline item-body iteration. The body steps run once for each item and may publish collected outputs."
         },
         "worker_selector": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": {
-                "oneOf": [
-                  { "type": "string" },
-                  { "type": "number" },
-                  { "type": "boolean" }
-                ]
-              },
-              "description": "Key-value pairs specifying worker label requirements. Values can be strings, numbers, or booleans (non-string values are coerced to strings). For example: {\"gpu\": true, \"memory\": \"64G\"} requires a worker with gpu=true and memory=64G labels."
-            },
-            {
-              "type": "string",
-              "enum": ["local"],
-              "description": "Set to \"local\" to force this step to run locally even when the server default execution mode is distributed."
-            }
-          ],
-          "description": "Worker selection for this step. Use a map of label key-value pairs to target specific workers, or the string \"local\" to force local execution. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel sub-DAG children can reference the item via ${ITEM}. The string form \"local\" is literal."
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          },
+          "description": "Worker labels for a sub-DAG step. Values can be strings, numbers, or booleans (non-string values are coerced to strings). For example: {\"gpu\": true, \"memory\": \"64G\"} requires a worker with gpu=true and memory=64G labels. Use a map of label key-value pairs to target specific workers. Map keys and values support variable substitution (e.g. ${VAR}) resolved from the runtime environment; parallel sub-DAG children can reference the item via ${ITEM}."
         },
         "env": {
           "oneOf": [
@@ -2472,7 +2689,7 @@
           "then": {
             "required": ["with"],
             "properties": {
-              "with": { "$ref": "#/definitions/commandActionConfig" }
+              "with": { "$ref": "#/definitions/sshRunActionConfig" }
             }
           }
         },
@@ -2643,6 +2860,122 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets", "xlsx.write", "xlsx.append", "xlsx.update_rows", "xlsx.validate", "xlsx.write_cells", "xlsx.sheet", "xlsx.convert", "xlsx.extract"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/xlsxActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "enum": ["xlsx.write", "xlsx.append"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "anyOf": [{ "required": ["rows"] }, { "required": ["input"] }]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.update_rows" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["key", "rows"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.validate" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "anyOf": [
+                  { "required": ["required"] },
+                  { "required": ["not_blank"] },
+                  { "required": ["unique"] },
+                  { "required": ["types"] },
+                  { "required": ["allowed"] }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.write_cells" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["cells"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.sheet" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["operation", "sheet"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": { "const": "xlsx.sheet" },
+              "with": {
+                "properties": { "operation": { "enum": ["copy", "rename"] } },
+                "required": ["operation"]
+              }
+            },
+            "required": ["action", "with"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["to"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.convert" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["output"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.extract" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["instruction", "schema"] }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
             "required": ["action"]
           },
@@ -2686,6 +3019,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/importActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "clickhouse.query" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/clickhouseQueryActionConfig" }
             }
           }
         },
@@ -2757,6 +3102,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/jqFilterActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "js.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/jsRunActionConfig" }
             }
           }
         },
@@ -2839,6 +3196,30 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/browserRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "computer.extract" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/computerExtractActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "computer.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/computerRunActionConfig" }
             }
           }
         },
@@ -2989,6 +3370,19 @@
               "with": { "$ref": "#/definitions/fileActionConfig" },
               "config": {
                 "$ref": "#/definitions/fileActionConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "xlsx" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/xlsxActionConfig" },
+              "config": {
+                "$ref": "#/definitions/xlsxActionConfig",
                 "deprecated": true,
                 "doNotSuggest": true
               }
@@ -3197,7 +3591,7 @@
         },
         "endpoint": {
           "type": "string",
-          "description": "OTLP endpoint URL for exporting traces. Supports both gRPC (e.g., http://localhost:4317) and HTTP (e.g., http://localhost:4318/v1/traces) protocols."
+          "description": "OTLP endpoint for exporting traces. An endpoint that ends with /v1/traces uses OTLP/HTTP (e.g., http://localhost:4318/v1/traces or localhost:4318/v1/traces); for a URL, the scheme selects HTTP or HTTPS. Any other value is a gRPC host:port (e.g., localhost:4317)."
         },
         "headers": {
           "type": "object",
@@ -3278,7 +3672,7 @@
       "properties": {
         "exec": {
           "type": "string",
-          "description": "Name of an existing running container to exec into. Dagu waits up to 120 seconds for the container to be running; fails if not running within timeout. Mutually exclusive with 'image'. When used, only 'user', 'working_dir', and 'env' are applicable."
+          "description": "Name of an existing running container to exec into. Dagu waits up to 120 seconds for the container to be running; fails if not running within timeout. Mutually exclusive with 'image'. When used, only 'user', 'working_dir', 'env', 'env_file', and 'shell' are applicable."
         },
         "name": {
           "type": "string",
@@ -3326,6 +3720,22 @@
             }
           ],
           "description": "Environment variables to set in the container. Supports maps or arrays combining maps and KEY=value strings. Entries are evaluated in YAML source order, and names must match ^[A-Za-z_][A-Za-z0-9_]*$. Values can include variable expansion (e.g., 'API_KEY=${API_KEY}')."
+        },
+        "env_file": {
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Path to a .env file whose variables are injected into the container environment"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of paths to .env files whose variables are injected into the container environment"
+            }
+          ],
+          "description": ".env files to load into the container environment. Files use the same dotenv syntax as root 'dotenv', not docker's literal --env-file format: surrounding quotes are removed, and $VAR or ${VAR} in unquoted or double-quoted values expands from variables defined earlier in the same file; single-quoted values are literal. Files are read in order; later files override earlier values, and 'env' entries override file variables with the same name. Relative paths are searched in the working directory first, then in the DAG file directory. Unlike 'dotenv', a missing file fails the run."
         },
         "volumes": {
           "type": "array",
@@ -3430,6 +3840,94 @@
       },
       "description": "Container configuration object. Either 'exec' (to run in an existing container) or 'image' (to create a new container) must be specified, but not both."
     },
+    "sshKey": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Path to the private key file."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path to the private key file."
+            }
+          }
+        },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH private key: a file path, {file: <path>}, or {secret: <ref>}. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
+    },
+    "sshPassword": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH password: a string or {secret: <ref>}. Used only when no key is set."
+    },
+    "sshPassphrase": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "Passphrase of an encrypted private key, including a default key: a string or {secret: <ref>}. Ignored when the key is not encrypted."
+    },
+    "sshSecretCredential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret"],
+      "properties": {
+        "secret": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$",
+          "description": "Registry ref of a Dagu-managed secret, resolved once at run start in the DAG's workspace, then the global workspace. It is literal: ${...} is not resolved."
+        }
+      },
+      "description": "A credential read from the secret registry."
+    },
+    "sshBastionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Bastion host address."
+        },
+        "port": {
+          "oneOf": [{ "type": "string" }, { "type": "integer" }],
+          "description": "Bastion SSH port."
+        },
+        "user": {
+          "type": "string",
+          "description": "Bastion SSH username."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" }
+      },
+      "description": "Bastion/jump host configuration."
+    },
+    "sshRunActionConfig": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command to run on the remote host."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
+      },
+      "description": "ssh.run configuration: the remote command and the SSH connection fields, which replace the DAG-level ssh."
+    },
     "sshConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -3454,14 +3952,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to the SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication (not recommended; prefer key-based auth)."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -3487,7 +3980,12 @@
             }
           ],
           "description": "Shell for remote command execution. Commands are wrapped as: shell -c 'command'. Providing arguments (via string or array form) enables shell features like variable expansion, pipes, and command chaining on the remote server."
-        }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Connection timeout such as '30s' or '1m'. Defaults to 30s."
+        },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "required": ["user", "host"],
       "description": "SSH configuration for remote command execution. Can be specified at DAG level for reuse across steps, or at step level for specific overrides. Password authentication is supported but key-based auth is recommended."
@@ -3730,6 +4228,12 @@
           "type": "boolean",
           "description": "Skip TLS certificate verification. WARNING: Only use for testing with self-signed certificates."
         },
+        "status_exit_codes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[3-5]([0-9]{2}|xx)$" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "description": "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). An exact code wins over a class. A status mapped to 0 is a success; an unmapped one exits 1."
+        },
         "output": {
           "type": "string",
           "minLength": 1,
@@ -3771,14 +4275,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -3830,14 +4329,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -3868,33 +4362,7 @@
           "minLength": 1,
           "description": "Destination path. For upload, this is a remote path; for download, this is a local path."
         },
-        "bastion": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Bastion host address."
-            },
-            "port": {
-              "oneOf": [{ "type": "string" }, { "type": "integer" }],
-              "description": "Bastion SSH port."
-            },
-            "user": {
-              "type": "string",
-              "description": "Bastion SSH username."
-            },
-            "key": {
-              "type": "string",
-              "description": "Path to bastion private key file."
-            },
-            "password": {
-              "type": "string",
-              "description": "Bastion SSH password."
-            }
-          },
-          "description": "Bastion/jump host configuration."
-        }
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "description": "SFTP executor configuration for file transfers over SSH."
     },
@@ -3984,7 +4452,7 @@
         "provider": {
           "type": "string",
           "enum": ["google", "microsoft", "imap"],
-          "description": "Sets the default IMAP and SMTP servers. Defaults to imap, which requires imap.host."
+          "description": "Sets the default IMAP and SMTP servers. Defaults to imap, which requires imap.host. A google account with oauth uses the Gmail API instead and takes no imap, smtp, or username."
         },
         "imap": {
           "$ref": "#/definitions/mailServer",
@@ -4010,6 +4478,19 @@
         { "required": ["password"] },
         { "required": ["oauth"] }
       ],
+      "if": {
+        "properties": { "provider": { "const": "google" } },
+        "required": ["provider", "oauth"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["imap"] },
+            { "required": ["smtp"] },
+            { "required": ["username"] }
+          ]
+        }
+      },
       "description": "A mailbox that mail actions read from and send through."
     },
     "mailServer": {
@@ -4032,8 +4513,97 @@
         "skip_tls_verify": {
           "type": "boolean",
           "description": "Accept any server certificate, such as a self-signed one."
+        },
+        "tls_cert_sha256": {
+          "type": "string",
+          "pattern": "^\\s*([0-9A-Fa-f]{2}:?){31}[0-9A-Fa-f]{2}\\s*$",
+          "description": "SHA-256 fingerprint of the server's leaf certificate, as 64 hex characters (colons allowed). Chain verification is skipped and the connection fails unless the certificate matches."
         }
       }
+    },
+    "smtpOAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["microsoft", "google_service_account", "google_refresh"],
+          "description": "OAuth provider. Sets the default SMTP host and port when smtp.host is omitted."
+        },
+        "tenant_id": {
+          "type": "string",
+          "description": "Microsoft Entra tenant. Required for microsoft."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "OAuth client ID. Required for microsoft and google_refresh."
+        },
+        "client_secret": {
+          "type": "string",
+          "description": "OAuth client secret. Required for microsoft and google_refresh."
+        },
+        "service_account_json": {
+          "type": "string",
+          "description": "Google service account key JSON. Required for google_service_account."
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Refresh token. Required for google_refresh."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "microsoft" } } },
+          "then": {
+            "required": ["tenant_id", "client_id", "client_secret"],
+            "properties": {
+              "tenant_id": { "pattern": "\\S" },
+              "client_id": { "pattern": "\\S" },
+              "client_secret": { "pattern": "\\S" }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["service_account_json"], "properties": { "service_account_json": { "pattern": "\\S" } } },
+                { "required": ["refresh_token"], "properties": { "refresh_token": { "pattern": "\\S" } } }
+              ]
+            }
+          }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "google_service_account" } } },
+          "then": {
+            "required": ["service_account_json"],
+            "properties": { "service_account_json": { "pattern": "\\S" } },
+            "not": {
+              "anyOf": [
+                { "required": ["tenant_id"], "properties": { "tenant_id": { "pattern": "\\S" } } },
+                { "required": ["client_id"], "properties": { "client_id": { "pattern": "\\S" } } },
+                { "required": ["client_secret"], "properties": { "client_secret": { "pattern": "\\S" } } },
+                { "required": ["refresh_token"], "properties": { "refresh_token": { "pattern": "\\S" } } }
+              ]
+            }
+          }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "google_refresh" } } },
+          "then": {
+            "required": ["client_id", "client_secret", "refresh_token"],
+            "properties": {
+              "client_id": { "pattern": "\\S" },
+              "client_secret": { "pattern": "\\S" },
+              "refresh_token": { "pattern": "\\S" }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["tenant_id"], "properties": { "tenant_id": { "pattern": "\\S" } } },
+                { "required": ["service_account_json"], "properties": { "service_account_json": { "pattern": "\\S" } } }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "OAuth 2.0 credentials for SMTP. smtp.username names the mailbox to authenticate as."
     },
     "mailAccountOAuth": {
       "type": "object",
@@ -4043,7 +4613,7 @@
         "provider": {
           "type": "string",
           "enum": ["google_refresh", "microsoft_refresh"],
-          "description": "Refresh-token provider."
+          "description": "Refresh-token provider. A google_refresh grant needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/, with the Gmail API enabled in the client's Google Cloud project."
         },
         "tenant_id": {
           "type": "string",
@@ -4060,6 +4630,11 @@
         "refresh_token": {
           "type": "string",
           "description": "Refresh token exchanged for an access token before each connection."
+        },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "microsoft_refresh only: scopes to refresh for, replacing https://outlook.office.com/.default. offline_access is always requested."
         }
       },
       "description": "OAuth refresh-token credentials."
@@ -4102,13 +4677,26 @@
     "mailExecutorConfig": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["to", "subject", "message"],
-      "if": { "not": { "required": ["mailbox"] } },
-      "then": { "required": ["from"] },
+      "required": ["message"],
+      "allOf": [
+        {
+          "if": { "not": { "required": ["mailbox"] } },
+          "then": { "required": ["from"] }
+        },
+        {
+          "if": { "not": { "required": ["in_reply_to"] } },
+          "then": { "required": ["to", "subject"] }
+        }
+      ],
+      "dependencies": { "in_reply_to": ["mailbox"] },
       "properties": {
         "mailbox": {
           "type": "string",
           "description": "Send through this mail account from mail_accounts instead of the DAG-level smtp configuration."
+        },
+        "in_reply_to": {
+          "oneOf": [{ "type": "string" }, { "type": "object" }],
+          "description": "Reply to this email: an ID or an email from mail.search. Requires mailbox. to defaults to the email's Reply-To or sender, subject to Re: and its subject, and the reply is threaded under it."
         },
         "from": {
           "type": "string",
@@ -4311,24 +4899,6 @@
           "type": "string",
           "description": "PostgreSQL connection string. Format: postgres://user:pass@host:port/dbname?sslmode=disable"
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
-        "conn_max_lifetime": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 300,
-          "description": "Maximum connection lifetime in seconds. 0 = no limit. Default: 300."
-        },
         "params": {
           "oneOf": [
             {
@@ -4412,18 +4982,6 @@
           "type": "string",
           "description": "SQLite connection string. Format: file:./path/to/db.sqlite or :memory: for in-memory database."
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5. Recommended: 1 for SQLite."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
         "params": {
           "oneOf": [
             {
@@ -4449,9 +5007,23 @@
           "type": "boolean",
           "description": "Wrap execution in a transaction."
         },
+        "isolation_level": {
+          "type": "string",
+          "enum": [
+            "default",
+            "read_committed",
+            "repeatable_read",
+            "serializable"
+          ],
+          "description": "Transaction isolation level."
+        },
         "file_lock": {
           "type": "boolean",
           "description": "Use file locking for exclusive database access. Creates a .lock file."
+        },
+        "shared_memory": {
+          "type": "boolean",
+          "description": "Enable shared cache for :memory: databases to share data across DAG steps."
         },
         "output_format": {
           "type": "string",
@@ -4487,6 +5059,78 @@
         }
       },
       "description": "SQLite executor configuration for database operations. Uses pure Go SQLite with automatic pragmas: foreign_keys=ON, busy_timeout=5000."
+    },
+    "clickhouseQueryActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "oneOf": [{ "required": ["query"] }, { "required": ["file"] }],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ClickHouse HTTP endpoint, such as http://localhost:8123 or https://host:8443. Must not hold credentials or a query string."
+        },
+        "user": {
+          "type": "string",
+          "description": "ClickHouse user, sent in the X-ClickHouse-User header."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password of the user, sent in the X-ClickHouse-Key header. Use a secret."
+        },
+        "database": {
+          "type": "string",
+          "description": "Default database. A script selects it once with USE, so a USE in the script takes effect for later statements."
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SQL to run. It may hold several statements separated by semicolons; they run in order and the step stops at the first error."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path of a .sql file to run instead of query. A relative path is resolved against the step working directory."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Server-side query parameters. Each entry is bound to the {name:Type} placeholder of the same name."
+        },
+        "settings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          },
+          "description": "ClickHouse settings applied to every statement, such as readonly: 1 or max_execution_time: 30."
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["jsonl", "json", "csv"],
+          "default": "jsonl",
+          "description": "Result format for statements without their own FORMAT clause. jsonl is JSONEachRow; json is a JSON array of row objects; csv is CSV."
+        },
+        "headers": {
+          "type": ["boolean", "string"],
+          "description": "Include a header row in CSV output (CSVWithNames). A string is a ${...} reference resolved when the step runs."
+        },
+        "timeout": {
+          "type": ["integer", "string"],
+          "minimum": 0,
+          "default": 60,
+          "description": "Timeout of the whole step in seconds. 0 disables it. Default: 60. A string is a ${...} reference resolved when the step runs."
+        },
+        "tls_skip_verify": {
+          "type": ["boolean", "string"],
+          "description": "Skip verification of the server certificate for https URLs. A string is a ${...} reference resolved when the step runs."
+        },
+        "tls_ca": {
+          "type": "string",
+          "description": "Path to a PEM bundle of additional root CAs trusted for https URLs. A relative path is resolved against the step working directory."
+        }
+      },
+      "description": "Configuration for action: clickhouse.query. Statements run over the ClickHouse HTTP interface. Exactly one of query and file is required."
     },
     "redisConnectionConfig": {
       "type": "object",
@@ -4845,7 +5489,7 @@
               "type": "integer",
               "minimum": 0,
               "default": 10485760,
-              "description": "Maximum result size in bytes. Default: 10MB."
+              "description": "Largest result output in bytes. A larger result fails the step and writes nothing. 0 means no limit. Default: 10MB."
             }
           }
         }
@@ -4877,8 +5521,57 @@
     "harnessNamedDefinition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["binary"],
       "allOf": [
+        {
+          "if": {"required": ["transport"]},
+          "then": {
+            "required": ["protocol"],
+            "properties": {"protocol": {"const": "acp"}}
+          }
+        },
+        {
+          "if": {
+            "required": ["transport"],
+            "properties": {"transport": {"enum": ["websocket", "http"]}}
+          },
+          "then": {
+            "required": ["url", "cwd"],
+            "not": {"anyOf": [
+              {"required": ["binary"]},
+              {"required": ["prefix_args"]},
+              {"required": ["option_flags"]},
+              {"required": ["flag_style"]}
+            ]}
+          },
+          "else": {
+            "required": ["binary"],
+            "not": {"anyOf": [
+              {"required": ["url"]},
+              {"required": ["headers"]},
+              {"required": ["cwd"]},
+              {"required": ["ca_file"]}
+            ]}
+          }
+        },
+        {
+          "if": {"required": ["bearer_subprotocol"]},
+          "then": {"properties": {"transport": {"const": "websocket"}}, "required": ["transport"]}
+        },
+        {
+          "if": {
+            "properties": {"protocol": {"const": "acp"}},
+            "required": ["protocol"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["prompt_mode"]},
+                {"required": ["prompt_flag"]},
+                {"required": ["prompt_position"]}
+              ]
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -4903,6 +5596,36 @@
         }
       ],
       "properties": {
+        "transport": {
+          "type": "string",
+          "enum": ["stdio", "websocket", "http"],
+          "description": "ACP transport: stdio (default), websocket (ws/wss), or http (Streamable HTTP)."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Remote endpoint matching the transport: ws/wss or http/https. Supports workflow variable references."
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute working directory on the remote agent host."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {"type": "string"},
+          "description": "Remote request headers, such as Authorization. Values support workflow variable references."
+        },
+        "ca_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional PEM CA roots for this remote connection, in addition to system roots. Relative paths use the local step working directory."
+        },
+        "bearer_subprotocol": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to bearer.<token> WebSocket subprotocol authentication for compatible bridges. Tokens must be valid HTTP tokens; keep disabled when Authorization headers suffice."
+        },
         "binary": {
           "type": "string",
           "description": "CLI binary name or path for the custom harness."
@@ -4913,6 +5636,11 @@
             "type": "string"
           },
           "description": "Arguments that always appear before prompt placement and runtime flags."
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["cli", "acp"],
+          "description": "Communication protocol. Defaults to cli; acp connects to an ACP agent using the selected transport."
         },
         "prompt_mode": {
           "type": "string",
@@ -4952,6 +5680,20 @@
       },
       "description": "Reusable named custom harness definitions. Null entries remove inherited definitions from base config."
     },
+    "harnessProvider": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["aider", "amp", "claude", "cline", "codex", "copilot", "cursor", "deepseek", "droid", "gemini", "goose", "kilo", "kiro", "opencode", "pi", "qwen"],
+          "description": "Built-in CLI harness provider."
+        },
+        {
+          "type": "string",
+          "description": "Custom harness from the top-level harnesses, or a ${VAR} reference."
+        }
+      ],
+      "description": "Harness provider name: a built-in CLI provider or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+    },
     "harnessProviderConfig": {
       "type": "object",
       "propertyNames": {
@@ -4961,8 +5703,7 @@
       },
       "properties": {
         "provider": {
-          "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "$ref": "#/definitions/harnessProvider"
         },
         "model": {
           "type": "string",
@@ -4984,8 +5725,7 @@
       },
       "properties": {
         "provider": {
-          "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "$ref": "#/definitions/harnessProvider"
         },
         "fallback": {
           "type": "array",
@@ -6164,7 +6904,6 @@
         {
           "enum": [
             "openai",
-            "openai-codex",
             "anthropic",
             "gemini",
             "google",
@@ -6181,11 +6920,16 @@
           ]
         },
         {
-          "pattern": "\\$\\{[^}]+\\}",
-          "description": "Value reference resolved at runtime, e.g. ${params.PROVIDER} or ${env.LLM_PROVIDER}."
+          "pattern": "\\$\\{[^}]+\\}|\\$[A-Za-z0-9_]\\w*\\.\\S+",
+          "description": "Value reference resolved at runtime, e.g. ${params.PROVIDER}, ${env.LLM_PROVIDER}, or $fetch.stdout."
         }
       ],
       "description": "LLM provider name. Supports value references such as ${params.PROVIDER} resolved when the step runs."
+    },
+    "llmProviderOrder": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OpenRouter upstream providers to try first, in order, such as [azure/eu]. A model entry's provider_order replaces the shared one. Only the openrouter provider accepts it."
     },
     "llmConfig": {
       "type": "object",
@@ -6210,7 +6954,8 @@
                   "max_tokens": { "type": "integer" },
                   "top_p": { "type": "number" },
                   "base_url": { "type": "string" },
-                  "api_key_name": { "type": "string" }
+                  "api_key_name": { "type": "string" },
+                  "provider_order": { "$ref": "#/definitions/llmProviderOrder" }
                 }
               }
             }
@@ -6246,6 +6991,9 @@
           "type": "string",
           "description": "Name of the environment variable containing the API key. If not specified, the default for the provider is used (e.g., OPENAI_API_KEY)."
         },
+        "provider_order": {
+          "$ref": "#/definitions/llmProviderOrder"
+        },
         "stream": {
           "type": "boolean",
           "default": true,
@@ -6267,6 +7015,16 @@
           "default": 524288,
           "description": "Maximum UTF-8 byte size of one agent-facing tool observation. Only valid in an agent DAG's root llm configuration. Set to zero to disable the limit. The full step output remains stored on the step."
         },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Names of DAGs that chat.completion steps may call as tools."
+        },
+        "max_tool_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum tool-calling rounds for a chat.completion step, 10 by default. In an agent DAG root, the maximum agent turns, 50 by default."
+        },
         "observation_keep_recent": {
           "type": "integer",
           "minimum": 0,
@@ -6276,6 +7034,15 @@
         "web_search": {
           "$ref": "#/definitions/webSearchConfig",
           "description": "Provider-native web search configuration. Supported by Anthropic, Gemini, and OpenRouter."
+        },
+        "files": {
+          "$ref": "#/definitions/modelFiles"
+        },
+        "max_file_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000000,
+          "description": "Maximum characters of text the files of a chat.completion step may hold together, 1,000,000 by default. Raise it for a model whose context window holds more, lower it for one that holds less."
         }
       },
       "description": "LLM configuration. Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and local models (Ollama/vLLM)."
@@ -6344,13 +7111,13 @@
         },
         "effort": {
           "type": "string",
-          "enum": ["low", "medium", "high", "xhigh"],
-          "description": "Reasoning effort level. Maps to provider-specific settings: low (minimal reasoning), medium (default), high (thorough), xhigh (maximum, OpenAI GPT-5.2+ only)."
+          "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "description": "Reasoning effort level, from least to most: none, minimal, low, medium (default), high, xhigh, max. Each provider maps a level it does not support to its nearest supported one, so a fallback model on another provider still runs. 'none' turns thinking off where the provider allows it."
         },
         "budget_tokens": {
           "type": "integer",
           "minimum": 1,
-          "description": "Explicit token budget for thinking (provider-specific). Anthropic: 1024-128K, Gemini 2.5: 128-32768. Overrides effort-based defaults."
+          "description": "Explicit token budget for thinking (provider-specific). Anthropic: 1024-128K, for models without adaptive thinking such as Claude Haiku 4.5; current Claude models reject it. Gemini 2.5: 128-32768. Overrides effort."
         },
         "include_in_output": {
           "type": "boolean",
@@ -6409,7 +7176,8 @@
         "action",
         "outputs",
         "sftp",
-        "template"
+        "template",
+        "xlsx"
       ],
       "description": "Type of executor to use for this step, including aliases such as k8s / kubernetes."
     },
@@ -6440,6 +7208,9 @@
             "browser.extract",
             "browser.run",
             "chat.completion",
+            "clickhouse.query",
+            "computer.extract",
+            "computer.run",
             "container.run",
             "dag.enqueue",
             "dag.run",
@@ -6463,6 +7234,7 @@
             "http.request",
             "human.task",
             "jq.filter",
+            "js.run",
             "k8s.run",
             "kubernetes.run",
             "log.write",
@@ -6492,7 +7264,18 @@
             "wait.duration",
             "wait.file",
             "wait.http",
-            "wait.until"
+            "wait.until",
+            "xlsx.append",
+            "xlsx.convert",
+            "xlsx.extract",
+            "xlsx.info",
+            "xlsx.list_sheets",
+            "xlsx.read",
+            "xlsx.sheet",
+            "xlsx.update_rows",
+            "xlsx.validate",
+            "xlsx.write",
+            "xlsx.write_cells"
           ],
           "description": "Builtin action name."
         },
@@ -6762,7 +7545,7 @@
           "type": "string",
           "minLength": 1,
           "pattern": "\\S",
-          "description": "Instructions shown to the operator completing the task."
+          "description": "Instructions shown to the operator completing the task. The web UI renders them as Markdown."
         },
         "form": {
           "$ref": "#/definitions/humanTaskFormSchema",
@@ -6958,6 +7741,40 @@
       },
       "description": "Configuration for action: jq.filter."
     },
+    "jsRunActionConfig": {
+      "type": "object",
+      "required": ["script"],
+      "not": {
+        "required": ["input", "input_file"]
+      },
+      "additionalProperties": false,
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JavaScript function body. The configured input is available as `input`; `return` a value to write it to stdout (strings as-is, other values as JSON). The text is used as written: Dagu does not resolve ${...} inside it, so pass workflow values through `input`."
+        },
+        "input": {
+          "description": "Value bound to `input`. Any YAML value; strings may use ${...} references. Mutually exclusive with input_file."
+        },
+        "input_file": {
+          "type": "string",
+          "description": "File whose contents are bound to `input`. Mutually exclusive with input."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["auto", "text", "json"],
+          "default": "auto",
+          "description": "How string input is interpreted. auto parses a JSON object or array (such as a captured output from an earlier step) and binds any other string as-is; text always binds the string as-is; json always parses and fails on invalid JSON. Applies to input_file contents and to a string input."
+        },
+        "timeout": {
+          "type": ["integer", "string"],
+          "minimum": 1,
+          "description": "Maximum script run time in seconds, or a duration such as 2m. Defaults to the step timeout, or 60s when the step has none."
+        }
+      },
+      "description": "Configuration for action: js.run. The script may use await; promises settle only through the microtask queue, since there is no event loop. The sandbox exposes ECMAScript builtins, console (to stderr), URL, and URLSearchParams; it has no require, fetch, filesystem, or timers."
+    },
     "dataConvertActionConfig": {
       "type": "object",
       "required": ["from", "to"],
@@ -7087,7 +7904,7 @@
               "minLength": 1
             }
           },
-          "description": "Map of patterns to target step names. A pattern is an exact string, a regex with 're:' prefix, or a numeric comparison with 'num:' prefix (e.g., 'num:>=0.8')."
+          "description": "Map of patterns to target steps, each named by step id or name. A pattern is an exact string, a regex with 're:' prefix, or a numeric comparison with 'num:' prefix (e.g., 'num:>=0.8'). A step listed under several patterns runs once when any of them matches."
         }
       },
       "description": "Configuration for action: router.route."
@@ -7242,9 +8059,28 @@
             "$ref": "#/definitions/llmMessage"
           },
           "description": "Explicit chat messages."
+        },
+        "files": {
+          "$ref": "#/definitions/modelFiles"
+        },
+        "max_file_chars": {
+          "$ref": "#/definitions/llmConfig/properties/max_file_chars"
+        },
+        "provider": {
+          "$ref": "#/definitions/llmConfig/properties/provider"
+        },
+        "model": {
+          "$ref": "#/definitions/llmConfig/properties/model"
         }
       },
       "description": "Configuration for action: chat.completion."
+    },
+    "modelFiles": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      ],
+      "description": "Files the model reads with the prompt: paths or glob patterns, one per entry or per line, or a list an earlier step published, such as the emails mail.search found with their attachments saved. PDF, Word (.docx), Excel (.xlsx) and text files are given as text, images as images, and a PDF page without text as an image."
     },
     "browserExtractActionConfig": {
       "type": "object",
@@ -7262,7 +8098,7 @@
           "description": "What to extract, in natural language. Its text is sent to the model; pass secrets through variables."
         },
         "schema": {
-          "$ref": "#/definitions/browserExtractSchema"
+          "$ref": "#/definitions/extractSchema"
         },
         "timeout": {
           "type": "string",
@@ -7293,10 +8129,11 @@
           "items": { "$ref": "#/definitions/browserOperation" },
           "description": "Operations run in order in one browser session."
         },
+        "ai": { "$ref": "#/definitions/browserAI" },
         "cache": {
           "type": "boolean",
           "default": true,
-          "description": "Record the act operations of a step that succeeds and replay them on later runs without a model call."
+          "description": "Set false to ask the model every run, the same as ai: every_run. Set ai or cache, not both."
         },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
@@ -7307,6 +8144,12 @@
       },
       "description": "Configuration for action: browser.run. Extract operations publish their schema fields as step outputs."
     },
+    "browserAI": {
+      "type": "string",
+      "enum": ["every_run", "on_miss", "never"],
+      "default": "on_miss",
+      "description": "How much the model decides for act operations and uploads with into: every_run asks it every run; on_miss replays the acts and uploads of a step that succeeded while the page shows their elements and lets the model repair a replay that fails; never replays only, fails the step when there is no recording or a replay fails, and needs no llm when nothing in the step can call the model. A step under never refuses extract and statement conditions."
+    },
     "browserOptions": {
       "type": "object",
       "additionalProperties": false,
@@ -7314,7 +8157,7 @@
         "headless": {
           "type": "boolean",
           "default": true,
-          "description": "Run Chrome without a window."
+          "description": "Run Chrome without a window. Pages see the user agent the same Chrome sends with one, and a screen that holds the window."
         },
         "executable": {
           "type": "string",
@@ -7339,7 +8182,7 @@
         "allowed_domains": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "description": "Domains the browser may navigate to, such as example.com or *.example.com."
+          "description": "Hosts the page's HTTP(S) requests may reach, such as example.com or *.example.com. List the CDN and sign-in hosts the site loads from."
         },
         "screenshots": {
           "type": "string",
@@ -7347,13 +8190,77 @@
           "default": "on_failure",
           "description": "Automatic screenshots stored as run artifacts, unmasked: on_failure only when the step fails, final also at the end of a successful step, each also after every operation, never none."
         },
+        "on_confirm": {
+          "type": "string",
+          "enum": ["accept", "dismiss", "fail"],
+          "default": "accept",
+          "description": "What a confirm dialog gets: accept agrees to it, dismiss cancels it, fail cancels it and fails the operation that opened it with the dialog's message. Alerts, prompts, and beforeunload dialogs are always accepted."
+        },
         "profile": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
           "description": "Persistent profile name. Cookies and storage are kept across runs; runs sharing a profile wait for each other."
+        },
+        "share": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Shared browser name. The steps of a run that give the same name use one browser in turn, each starting on the page the step before left, signed in as it left it; it closes when the run ends. They give the same headless, executable, viewport, proxy, profile, client_certificates, and write_gate."
+        },
+        "write_gate": {
+          "type": "string",
+          "enum": ["off", "record", "ask", "rehearse"],
+          "description": "Write gate mode: rehearse blocks the writes the page sends (any request but GET, HEAD, or OPTIONS), except sign-ins the host's browser.write_policy lists, and reports what it would have sent; the step stops at the first blocked write of the work and ends partially succeeded. record sends only the writes an act's approved commit points name, replaying that act's recorded actions, and fails the step with write_blocked on any other. ask does what record does and, before each act or upload that is a commit point, waits for a person to answer once, session, reject, or skip, which ends the step there, sending nothing further. The browser runs in the stricter of this and the host's browser.write_gate, so a step can only tighten it."
+        },
+        "client_certificates": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/browserClientCertificate" },
+          "description": "TLS client certificates presented to the hosts each names, before those in the Dagu config. The first entry whose hosts match is used."
         }
       },
       "description": "Browser launch options."
+    },
+    "browserClientCertificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hosts"],
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Hosts the certificate is presented to: a host name or IP address, *.example.com for the subdomains of example.com, or * for every host."
+        },
+        "pfx_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PKCS#12 (.pfx or .p12) file holding the certificate, its private key, and optionally its chain. Relative to the step's working directory."
+        },
+        "cert_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PEM certificate, followed by its chain. Used with key_file instead of pfx_file."
+        },
+        "key_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unencrypted PEM private key for cert_file."
+        },
+        "ca_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PEM certificates to trust for these hosts' servers, in addition to the system's."
+        },
+        "passphrase": {
+          "type": "string",
+          "description": "Passphrase of pfx_file. Reference a secret, such as ${env.CERT_PASSPHRASE}."
+        },
+        "passphrase_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File holding the passphrase of pfx_file."
+        }
+      },
+      "description": "A TLS client certificate and the hosts it is presented to."
     },
     "browserVariables": {
       "type": "object",
@@ -7361,7 +8268,7 @@
       "additionalProperties": { "type": "string" },
       "description": "Values referenced as %name% in act instructions. The browser receives the values; the model sees only the names."
     },
-    "browserExtractSchema": {
+    "extractSchema": {
       "type": "object",
       "required": ["type"],
       "properties": {
@@ -7415,6 +8322,7 @@
       "oneOf": [
         { "required": ["goto"] },
         { "required": ["act"] },
+        { "required": ["upload"] },
         { "required": ["extract"] },
         { "required": ["expect"] },
         { "required": ["wait"] },
@@ -7436,14 +8344,50 @@
               "required": ["instruction"],
               "properties": {
                 "instruction": { "type": "string", "minLength": 1 },
+                "ai": {
+                  "$ref": "#/definitions/browserAI",
+                  "description": "How much the model decides for this act, in place of with.ai."
+                },
                 "cache": {
                   "type": "boolean",
-                  "description": "Replay recorded actions for this operation. Defaults to with.cache."
+                  "description": "Set false to ask the model every run for this act, the same as ai: every_run. Set ai or cache, not both."
                 }
               }
             }
           ],
           "description": "Perform an action described in natural language, such as clicking or typing. Reference variables as %name%."
+        },
+        "upload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["files"],
+          "properties": {
+            "files": {
+              "oneOf": [
+                { "type": "string", "minLength": 1 },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              ],
+              "description": "Files to upload, each up to 50 MB: a path or glob pattern relative to the step's working directory, several one per line, or a value an earlier step published as a JSON list of paths, of objects with a path, or of mail.search emails, whose saved attachments are uploaded."
+            },
+            "into": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The file input, or the button or drop area that opens the file picker, in plain words. The model finds it once and later runs replay it. Leave it out when the page has only one file input."
+            },
+            "ai": {
+              "$ref": "#/definitions/browserAI",
+              "description": "How much the model decides for finding into, in place of with.ai."
+            },
+            "cache": {
+              "type": "boolean",
+              "description": "Set false to ask the model every run for into, the same as ai: every_run. Set ai or cache, not both."
+            }
+          },
+          "description": "Give local files to a file input of the page. The model sees the into text and the page, never the files."
         },
         "extract": {
           "type": "object",
@@ -7451,7 +8395,32 @@
           "required": ["instruction", "schema"],
           "properties": {
             "instruction": { "type": "string", "minLength": 1 },
-            "schema": { "$ref": "#/definitions/browserExtractSchema" }
+            "schema": { "$ref": "#/definitions/extractSchema" },
+            "pages": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["next"],
+              "properties": {
+                "next": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The act that turns to the next page, such as 'Click the Next page button'. It is recorded and replayed like an act."
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 100,
+                  "default": 20,
+                  "description": "The most pages read, the first included."
+                },
+                "within": {
+                  "type": "string",
+                  "default": "10s",
+                  "description": "How long a page gets to change after next before the list counts as ended."
+                }
+              },
+              "description": "Read a list across the pages a button turns: the items of the schema's top-level array properties are collected from every page, in order. The list ends when next finds nothing to click, the page does not change, or a page gives the items the page before gave."
+            }
           },
           "description": "Extract structured data from the page into step outputs."
         },
@@ -7482,7 +8451,7 @@
         },
         "screenshot": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{M}\\p{N}._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
         },
         "ask": {
@@ -7516,11 +8485,552 @@
           "description": "Maximum time for this operation, such as 30s. Defaults to 2m."
         }
       },
-      "description": "One browser operation. Set exactly one of goto, act, extract, expect, wait, screenshot, or ask."
+      "description": "One browser operation. Set exactly one of goto, act, upload, extract, expect, wait, screenshot, or ask."
+    },
+    "computerExtractActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instruction", "schema"],
+      "properties": {
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What to read from the screen, in natural language. Its text is sent to the model."
+        },
+        "schema": {
+          "$ref": "#/definitions/extractSchema"
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Maximum time for the extraction, such as 90s. Defaults to 5m."
+        },
+        "llm": {
+          "$ref": "#/definitions/standardLLMConfig",
+          "description": "Model for this step. Replaces the DAG-level llm block entirely."
+        },
+        "mode": { "$ref": "#/definitions/computerMode" },
+        "screenshots": { "$ref": "#/definitions/computerScreenshots" }
+      },
+      "description": "Configuration for action: computer.extract. Reads the screen of the worker's desktop and publishes the top-level fields of schema as step outputs."
+    },
+    "computerRunActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["do"],
+      "properties": {
+        "do": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/computerOperation" },
+          "description": "Operations run in order on the desktop of the worker's user session."
+        },
+        "mode": { "$ref": "#/definitions/computerMode" },
+        "variables": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "additionalProperties": { "type": "string" },
+          "description": "Values referenced as %name% in act instructions. The model sees only the names; the values are typed for it."
+        },
+        "visible": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "description": "Names of variables that are not secret whose values the model may see, such as an item to choose from a list. An element it chooses by such a value is recorded by the placeholder."
+        },
+        "screenshots": { "$ref": "#/definitions/computerScreenshots" },
+        "ai": { "$ref": "#/definitions/computerAI" },
+        "cache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set false to ask the model every run, the same as ai: every_run. Set ai or cache, not both."
+        },
+        "max_actions": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50,
+          "description": "Most desktop actions one act may take."
+        },
+        "on_confirmation": {
+          "type": "string",
+          "enum": ["fail", "allow"],
+          "default": "fail",
+          "description": "What to do when the model provider asks a person to confirm actions: fail the step, or allow them."
+        },
+        "idle": {
+          "type": "string",
+          "default": "5s",
+          "description": "How long nobody may have used the desktop before the step sends input or launches an application, such as 30s. Actions the model chose on a screen a person has since used are not run. 0 turns this off."
+        },
+        "find_within": {
+          "type": "string",
+          "default": "10s",
+          "description": "How long a replayed action waits for its element, or a replayed turn for its screen, before it is a miss, such as 10s. 0 looks once. The wait counts toward the operation timeout."
+        },
+        "input": { "$ref": "#/definitions/computerInput" },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10000,
+          "description": "Most rows an extract reads from a table bound to a grid, table, or list. Defaults to 10000."
+        },
+        "maximize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Maximize the front window before each operation looks at the screen, so the app is operated at one size every run and recordings replay. A dialog, a window of fixed size, and a window already maximized are left as they are. Set false to keep windows at their size."
+        },
+        "marks": {
+          "type": "boolean",
+          "description": "Show a person at the desktop where each action lands, just before it acts: a frame around the element a step presses or sets, the point it clicks, or the field or window it types into, labelled with the step's name and the action. A mark takes no focus or input, lets clicks through, and is left out of every screenshot the step takes. Defaults to true on the console and false in a remote session. Set false to show none."
+        },
+        "refuse": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Words the step never presses an element named with, such as Save, to keep a run from pressing the buttons that save or send. It limits presses only, and only where the host reads elements, since a click on what it cannot read goes on: the step still types into fields and sends other keys. A click on such an element, by the model or a replay, is refused, as is Enter while one is in the window in front. A Latin word matches a whole word, ignoring case and character width; any other word matches wherever a name holds it."
+        },
+        "handle": {
+          "type": "array",
+          "description": "Screens that may come up at any point of the step, such as a confirmation an application shows only sometimes. Whenever the step looks at the screen (before it looks for an element, reads a check or a table, compares a replayed screen, or shows the model a screenshot) and before an action without an element, the first handler whose check holds in the front window runs its pinned steps, and the step carries on; a modal drawn over a page, which leaves the elements behind it readable, is cleared before anything reads or presses them. A run that never meets the screen waits nothing for it. One handler runs at most 20 times in a step.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "recorded"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "A name for the screen, shown in the timeline when it is handled." },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "oneOf": [{ "required": ["text"] }, { "required": ["element"] }, { "required": ["window"] }],
+                "properties": {
+                  "text": { "type": "string", "minLength": 1 },
+                  "element": { "$ref": "#/definitions/computerSelector" },
+                  "window": { "type": "string", "minLength": 1 }
+                },
+                "description": "An exact check without within that finds the screen in the front window: text a visible element shows, an element, or the window title."
+              },
+              "recorded": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The pinned steps that clear the screen, keyed by system (windows or macos).",
+                "properties": {
+                  "windows": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } },
+                  "macos": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } }
+                }
+              }
+            }
+          }
+        },
+        "llm": {
+          "$ref": "#/definitions/standardLLMConfig",
+          "description": "Model for this step. Replaces the DAG-level llm block entirely."
+        }
+      },
+      "description": "Configuration for action: computer.run. Operates the desktop of a macOS or Windows worker; extract operations publish their schema fields as step outputs."
+    },
+    "computerMode": {
+      "type": "string",
+      "enum": ["auto", "native", "generic"],
+      "default": "auto",
+      "description": "auto uses the provider's native computer-use tool when it has one (anthropic, openai, gemini), native requires it, generic uses plain function tools with any vision model."
+    },
+    "computerScreenshots": {
+      "type": "string",
+      "enum": ["on_failure", "final", "each", "never"],
+      "default": "on_failure",
+      "description": "Automatic screenshots stored as run artifacts, unmasked: on_failure only when the step fails, final also at the end of a successful step, each also after every operation, never none."
+    },
+    "computerAI": {
+      "type": "string",
+      "enum": ["every_run", "on_miss", "never"],
+      "default": "on_miss",
+      "description": "How much the model decides: every_run asks it every run; on_miss replays the acts of a step that succeeded while the screens match and lets the model repair the recording from the first screen that differs; never replays only, fails the step when the screen differs or there is no recording, and needs no llm when nothing in the step can call the model."
+    },
+    "computerInput": {
+      "type": "string",
+      "enum": ["screen", "direct"],
+      "default": "screen",
+      "description": "How a replayed action reaches the application. screen sends the pointer and keys as the model did. direct has the element act itself through its automation pattern: a click invokes a button, toggles a checkbox, selects a list item, opens a combo box, or focuses a field, and a typing sets the field's value at once when the recording showed the typed text became the value. An element without the pattern replays that action on the screen. An application that reacts to each key or to the pointer alone sees nothing, so screen stays the default. Model turns always use the screen."
+    },
+    "computerCondition": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "Statement about the screen, judged by the model."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "oneOf": [
+            { "required": ["statement"] },
+            { "required": ["text"] },
+            { "required": ["element"] },
+            { "required": ["window"] },
+            { "required": ["value"] }
+          ],
+          "properties": {
+            "statement": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Statement about the screen, judged by the model."
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when the name or value of a visible element of the window in front contains this text. Read without a model."
+            },
+            "element": {
+              "$ref": "#/definitions/computerSelector",
+              "description": "Holds when this selector matches exactly one visible element of the window in front. Read without a model."
+            },
+            "window": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when the title of the window in front contains this text; * matches any run of characters. Read without a model."
+            },
+            "value": {
+              "type": "string",
+              "description": "Data the step was given, such as ${params.NAME} or a %name% variable, compared with equals or not_equals. Decided at once, without the screen or a model, so a when on a value runs an operation only for the runs whose data asks for it, such as {value: \"${params.SECOND_CONTACT}\", not_equals: \"\"}. An empty value is allowed. Compared as names are: full- and half-width forms and runs of spaces are the same."
+            },
+            "equals": {
+              "type": "string",
+              "description": "With value: holds when value is this text."
+            },
+            "not_equals": {
+              "type": "string",
+              "description": "With value: holds when value is not this text; \"\" asks whether value is set."
+            },
+            "within": {
+              "type": "string",
+              "description": "How long to keep looking before deciding, such as 30s. A statement is judged once by default; an exact when reads once, and an exact expect keeps looking until the operation timeout. A value takes none."
+            }
+          },
+          "description": "A statement the model judges, an exact check that reads the window's elements without a model call (macOS and 64-bit Windows), or a check on the step's data with value and equals or not_equals."
+        }
+      ]
+    },
+    "computerPinnedStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["click"] },
+        { "required": ["double_click"] },
+        { "required": ["right_click"] },
+        { "required": ["check"] },
+        { "required": ["uncheck"] },
+        { "required": ["type"] },
+        { "required": ["key"] },
+        { "required": ["scroll"] },
+        { "required": ["wait"] },
+        { "required": ["choose"] }
+      ],
+      "properties": {
+        "click": { "$ref": "#/definitions/computerSelector" },
+        "double_click": { "$ref": "#/definitions/computerSelector" },
+        "right_click": { "$ref": "#/definitions/computerSelector" },
+        "check": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave checked: clicked only when it is unchecked, then confirmed checked."
+        },
+        "uncheck": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave unchecked: clicked only when it is checked, then confirmed unchecked."
+        },
+        "type": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["into", "text"],
+          "properties": {
+            "into": { "$ref": "#/definitions/computerSelector" },
+            "text": { "type": "string" }
+          }
+        },
+        "key": { "type": "string", "minLength": 1, "description": "A key chord such as ctrl+s." },
+        "scroll": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["on", "dy"],
+          "properties": {
+            "on": { "$ref": "#/definitions/computerSelector" },
+            "dy": { "type": "integer" }
+          }
+        },
+        "wait": { "type": "string", "minLength": 1, "description": "A time to pause, such as 1s." },
+        "focus": { "$ref": "#/definitions/computerSelector", "description": "With key: the element to focus before pressing the keys." },
+        "choose": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "option"],
+          "properties": {
+            "from": { "$ref": "#/definitions/computerSelector", "description": "The combo box or pop-up." },
+            "option": { "type": "string", "minLength": 1, "description": "The option to choose, by its text; %name% placeholders allowed." }
+          },
+          "description": "Set a combo box or pop-up to an option through the control itself: done when it shows the option already, else by opening it and pressing the option, typing the option, or stepping through its list, each checked by what the control then shows."
+        }
+      },
+      "dependencies": { "focus": ["key"] },
+      "description": "One pinned step of an act: exactly one of click, double_click, right_click, check, uncheck (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), choose (from, option), or wait."
+    },
+    "computerPinnedField": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A pinned extract field: a selector for a scalar, or a container and columns alone for a table, whose selector keys go inside container.",
+      "if": { "required": ["container"] },
+      "then": { "propertyNames": { "enum": ["container", "columns"] } },
+      "dependencies": { "columns": ["container"] },
+      "properties": {
+        "role": { "type": "string", "enum": ["button", "text_field", "text", "checkbox", "radio", "combo_box", "list_item", "menu_item", "tab", "link", "cell", "list", "group", "window", "other"] },
+        "name": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "app": { "type": "string", "minLength": 1 },
+        "window": { "type": "string", "minLength": 1 },
+        "in": { "$ref": "#/definitions/computerSelector" },
+        "near": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "side"],
+          "properties": {
+            "label": { "type": "string", "minLength": 1 },
+            "side": { "type": "string", "enum": ["right", "below", "left", "above"] }
+          }
+        },
+        "nth": { "type": "integer", "minimum": 0 },
+        "enabled": { "type": "boolean" },
+        "container": { "$ref": "#/definitions/computerSelector" },
+        "columns": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "computerSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role"],
+      "anyOf": [
+        { "required": ["name"] },
+        { "required": ["id"] },
+        { "required": ["near"] }
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["button", "text_field", "text", "checkbox", "radio", "combo_box", "list_item", "menu_item", "tab", "link", "cell", "list", "group", "window", "other"],
+          "description": "The element's role."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The accessible name, exact; * matches any run of characters, and %name% placeholders are replaced from variables and ask answers."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The identifier the application gives the element, such as the UI Automation AutomationId."
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The process image name without its extension, compared ignoring case."
+        },
+        "window": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Text the window title contains; * matches any run of characters."
+        },
+        "in": {
+          "$ref": "#/definitions/computerSelector",
+          "description": "A container the element sits in, such as a group; the search is narrowed to its descendants."
+        },
+        "near": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "side"],
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The label the element sits next to."
+            },
+            "side": {
+              "type": "string",
+              "enum": ["right", "below", "left", "above"],
+              "description": "Which side of the label the element is on."
+            }
+          },
+          "description": "Keeps the element the application links to the label, or the nearest one on that side of it."
+        },
+        "nth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Which of several equal matches, in reading order, from 0."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Keeps the elements that take input (true) or the ones that do not, such as a grayed-out button (false). As an exact check, {element: {..., enabled: false}} holds while the element is grayed out."
+        }
+      },
+      "description": "Names an element: role with name, id, or near, narrowed by app, window, in, enabled, and nth. More than one match is a miss."
+    },
+    "computerOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["launch"] },
+        { "required": ["act"] },
+        { "required": ["extract"] },
+        { "required": ["expect"] },
+        { "required": ["wait"] },
+        { "required": ["screenshot"] },
+        { "required": ["outline"] },
+        { "required": ["ask"] }
+      ],
+      "properties": {
+        "launch": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["command"],
+              "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "args": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          ],
+          "description": "Start an application without waiting for it, such as notepad.exe, or open with args [-a, TextEdit] on macOS."
+        },
+        "act": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["instruction"],
+              "properties": {
+                "instruction": { "type": "string", "minLength": 1 },
+                "ai": {
+                  "$ref": "#/definitions/computerAI",
+                  "description": "How much the model decides for this act, in place of with.ai."
+                },
+                "cache": {
+                  "type": "boolean",
+                  "description": "Set false to ask the model every run for this act, the same as ai: every_run. Set ai or cache, not both."
+                },
+                "max_actions": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Most desktop actions this act may take. Defaults to with.max_actions."
+                },
+                "find_within": {
+                  "type": "string",
+                  "description": "How long a replay of this act waits for an element or its screen, in place of with.find_within."
+                },
+                "input": {
+                  "$ref": "#/definitions/computerInput",
+                  "description": "How a replay of this act reaches the application, in place of with.input."
+                },
+                "maximize": {
+                  "type": "boolean",
+                  "description": "Whether to maximize the front window while this act runs, in place of with.maximize."
+                },
+                "recorded": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Pinned steps, keyed by system (windows or macos). A device of that system runs them first, ahead of its own recording, so a learned act travels across devices.",
+                  "properties": {
+                    "windows": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } },
+                    "macos": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } }
+                  }
+                }
+              }
+            }
+          ],
+          "description": "Complete a task described in natural language by clicking and typing. Reference variables as %name%."
+        },
+        "extract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instruction", "schema"],
+          "properties": {
+            "instruction": { "type": "string", "minLength": 1 },
+            "ai": {
+              "$ref": "#/definitions/computerAI",
+              "description": "How much the model decides for this extract, in place of with.ai. every_run reads with the model every run; on_miss reads the bound elements and asks the model only when one is missing; never reads the bound elements with no model and fails when one is missing. A scalar field, or a table field that is an array of objects, binds to the window's elements on a successful run; a plain object or a free array needs the model."
+            },
+            "max_rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Most rows this extract reads from a table, in place of with.max_rows."
+            },
+            "maximize": {
+              "type": "boolean",
+              "description": "Whether to maximize the front window before this extract reads the screen, in place of with.maximize."
+            },
+            "schema": { "$ref": "#/definitions/extractSchema" },
+            "fields": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Pinned field bindings, keyed by system (windows or macos) then by output name, so a device reads them with no model even if it never learned them. A scalar field is a selector; a table field is a container selector and columns.",
+              "properties": {
+                "windows": { "type": "object", "additionalProperties": { "$ref": "#/definitions/computerPinnedField" } },
+                "macos": { "type": "object", "additionalProperties": { "$ref": "#/definitions/computerPinnedField" } }
+              }
+            }
+          },
+          "description": "Read structured data from the screen into step outputs."
+        },
+        "expect": {
+          "$ref": "#/definitions/computerCondition",
+          "description": "Statement that must hold for the screen, or the step fails."
+        },
+        "wait": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Time to pause, such as 2s."
+        },
+        "screenshot": {
+          "type": "string",
+          "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{M}\\p{N}._-]*$",
+          "description": "Save a screenshot with this name as a run artifact."
+        },
+        "outline": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "description": "Read the front window's elements (role, name, label, value, id, and whether each is disabled) with no model and no screenshot, and publish them as text under this output name."
+        },
+        "ask": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prompt", "as"],
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Question shown to the person who answers in the Web UI."
+            },
+            "as": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "Variable that receives the answer, referenced as %name% in later act operations."
+            },
+            "timeout": {
+              "type": "string",
+              "description": "How long the step waits for the answer, such as 30m. Defaults to 1h."
+            }
+          },
+          "description": "Pause the step until a person answers. The desktop is left as it is and other computer steps may use it meanwhile."
+        },
+        "when": {
+          "$ref": "#/definitions/computerCondition",
+          "description": "Statement checked before the operation; the operation is skipped unless it holds."
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Maximum time for this operation, such as 30s. Defaults to 5m."
+        }
+      },
+      "description": "One computer operation. Set exactly one of launch, act, extract, expect, wait, screenshot, or ask."
     },
     "templateRenderActionConfig": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "oneOf": [
         {
           "required": ["template"],
@@ -7541,9 +9051,311 @@
           "type": "string",
           "pattern": "^\\$\\{(?:consts\\.[A-Za-z][A-Za-z0-9_]*|params\\.[A-Za-z][A-Za-z0-9_]*|env\\.[A-Za-z_][A-Za-z0-9_]*|steps\\.[A-Za-z][A-Za-z0-9_]*\\.outputs\\.[A-Za-z_][A-Za-z0-9_]*|foreach\\.[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?|context\\.(?:dag\\.name|run\\.(?:id|status|scheduled_at|root_name|root_id)|attempt\\.(?:id|started_at)|step\\.(?:id|name)|trigger\\.(?:type|actor)|paths\\.(?:log_file|work_dir|artifacts_dir|step_stdout_file|step_stderr_file|step_output_file)|profile\\.(?:name|resolved_at)|pushback\\.(?:iteration|previous_stdout_file)))\\}$",
           "description": "One complete scoped Dagu value reference resolved once to template text at runtime."
+        },
+        "data": {
+          "type": "object",
+          "description": "Template data variables accessible as {{ .key }} in the template."
+        },
+        "output": {
+          "type": "string",
+          "description": "File path to write the rendered output to. If empty, output is written to stdout."
         }
       },
       "description": "Configuration for action: template.render."
+    },
+    "xlsxActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Workbook path (.xlsx). Relative paths resolve against the step working directory. Required."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password of a protected workbook. Reference a secret or ${env.NAME} rather than writing it here."
+        },
+        "sheet": {
+          "type": "string",
+          "description": "Sheet name; the first sheet by default. Matched exactly, then case-insensitively."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range such as A2:F or A2:F200, a Sheet!A2:F reference, a named range, or a table name. Without it the data block is detected: leading empty rows and columns are skipped."
+        },
+        "header": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "integer", "minimum": 1 },
+            { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 1 },
+            { "type": "string" }
+          ],
+          "description": "true (default) takes the first row of the range as column names, false names columns A, B, C, a row number takes that sheet row, and a list such as [3, 4] joins two header rows with a space. For append and write with mode: append, true matches each field to the header row by name and false appends rows by position with no header row."
+        },
+        "columns": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "object", "additionalProperties": { "type": "string" }, "minProperties": 1, "maxProperties": 1 }
+                ]
+              }
+            },
+            { "type": "string" }
+          ],
+          "description": "Columns to keep, in order: names, or {name: alias} entries to rename, such as [Status, {Invoice No: invoice_no}]."
+        },
+        "merged": {
+          "type": "string",
+          "enum": ["fill", "first"],
+          "description": "How merged cells are read: fill (default) repeats the value into every covered cell; first keeps it in the top-left cell only."
+        },
+        "stop_at_blank": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Stop at the first fully empty row instead of reading to the end of the used range."
+        },
+        "keep_empty_rows": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Keep trailing empty rows as rows of nulls."
+        },
+        "skip_hidden": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Leave out rows hidden by a filter or by hand. Defaults to false: hidden rows are read."
+        },
+        "trim": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Trim surrounding white space, including full-width spaces, from text cells."
+        },
+        "formulas": {
+          "type": "string",
+          "enum": ["cached", "text", "calculate"],
+          "description": "What formula cells yield: cached (default) the stored result, text the formula itself, calculate an evaluation."
+        },
+        "types": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["string", "number", "integer", "boolean", "date", "datetime"]
+          },
+          "description": "Column types to enforce, such as {amount: number, due: date}. A cell that cannot convert fails the step naming the cell."
+        },
+        "on_type_error": {
+          "enum": ["fail", "warn", "null", "keep", null],
+          "description": "What a cell that fails its type does: fail (default) the step, warn and read the cell as null, or keep the cell's value as read with a warning."
+        },
+        "where": {
+          "type": "object",
+          "description": "Rows to keep: {Status: \"\"} matches empty cells, {Status: {ne: Done}} excludes a value, {Status: {in: [A, B]}} matches a list."
+        },
+        "max_rows": {
+          "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string" }],
+          "description": "Most rows to read, 1 or more. Defaults to 5000; truncated is true when more rows exist."
+        },
+        "rows": {
+          "oneOf": [{ "type": "array" }, { "type": "string" }],
+          "description": "Rows to write: a list of objects or arrays, usually ${steps.<id>.outputs.rows}. Rows from a step output arrive with keys in alphabetical order; set columns to choose the order, such as columns: ${steps.<id>.outputs.headers}."
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File to write rows from instead of rows: .json (an array), .jsonl, or .csv with a header line."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "jsonl", "csv"],
+          "description": "Format of input when its extension does not say."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["replace", "append"],
+          "description": "What xlsx.write does to an existing sheet: replace (default) its contents, or append below its last row."
+        },
+        "style": {
+          "type": "string",
+          "enum": ["table", "none"],
+          "description": "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."
+        },
+        "formats": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "\\S" },
+          "description": "xlsx.write and xlsx.append: an explicit number format per column, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It applies to every cell written to the column, on a new sheet or below existing rows, and wins over the format the column's values or the cell above would give."
+        },
+        "atomic": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Save through a temporary file renamed over the workbook. Defaults to true."
+        },
+        "dry_run": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Compute and report the changes without saving the workbook."
+        },
+        "wait_for_unlock": {
+          "type": "string",
+          "description": "How long to retry a workbook that another program holds open, such as 5m. Retries start at two seconds and double to one minute. Without it a locked workbook fails at once."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Column that identifies a row for xlsx.update_rows, or _row to address rows by the _row each row carries. A key column that is no longer in the header row fails the step before any cell changes."
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "properties": {
+                  "value": {},
+                  "type": { "type": "string", "enum": ["string", "number", "integer", "boolean", "date", "datetime"] }
+                },
+                "required": ["value"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, {Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key and _row goes to the column of the same name. A column missing from the header is added at the right."
+        },
+        "missing": {
+          "type": "string",
+          "enum": ["fail", "skip", "append"],
+          "description": "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."
+        },
+        "artifact": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Keep a copy of the saved workbook with the run's artifacts, under xlsx/<step>/, so it is listed with the run. Enables artifact storage for the DAG."
+        },
+        "required": {
+          "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } , "minItems": 1 }, { "type": "string" }],
+          "description": "xlsx.validate: columns the header row must have, such as [Invoice No, Amount]."
+        },
+        "not_blank": {
+          "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } , "minItems": 1 }, { "type": "string" }],
+          "description": "xlsx.validate: columns no row may leave empty."
+        },
+        "unique": {
+          "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } , "minItems": 1 }, { "type": "string" }],
+          "description": "xlsx.validate: columns whose values may not repeat; empty cells are skipped."
+        },
+        "allowed": {
+          "type": "object",
+          "additionalProperties": { "type": "array" },
+          "minProperties": 1,
+          "description": "xlsx.validate: the values each column may hold, such as {Status: [Open, Done]}; empty cells are skipped."
+        },
+        "on_problem": {
+          "type": "string",
+          "enum": ["warn", "fail"],
+          "description": "What xlsx.validate does when it finds problems: warn (default) succeeds and publishes them, fail fails the step after listing them."
+        },
+        "max_problems": {
+          "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string" }],
+          "description": "Most problems xlsx.validate keeps, 1 or more. Defaults to 1000; count still reports every problem found."
+        },
+        "cells": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              { "not": { "type": ["object", "array"] } },
+              {
+                "type": "object",
+                "properties": {
+                  "value": {},
+                  "type": { "type": "string", "enum": ["string", "number", "integer", "boolean", "date", "datetime"] }
+                },
+                "required": ["value"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": { "formula": { "type": "string", "minLength": 1 } },
+                "required": ["formula"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "description": "xlsx.write_cells: cell addresses to write, such as {B2: Acme, Sheet1!D7: 2026-10-01, Total: {formula: SUM(E2:E9)}}. A value writes the cell, null clears it, {value: v, type: t} pins its type, {formula: text} writes a formula. An address is a cell, Sheet!cell, or a defined name for one cell."
+        },
+        "merge": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+            { "type": "string" }
+          ],
+          "description": "xlsx.write_cells: ranges to merge before the cells are written, such as [A1:D1]. A merged range keeps only its top-left value; a range covering a cell that holds something, or overlapping another merged region, fails the step."
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1,
+          "description": "xlsx.write_cells, xlsx.update_rows, and xlsx.append: a different workbook to write the result to, leaving path as it was, so a template can be filled many times. xlsx.convert: the csv, json, or jsonl file to write."
+        },
+        "operation": {
+          "type": "string",
+          "enum": ["add", "copy", "rename", "delete"],
+          "description": "What xlsx.sheet does: add a sheet named sheet, copy sheet to to, rename sheet to to, or delete sheet."
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1,
+          "description": "xlsx.sheet: the new name for copy and rename."
+        },
+        "if_exists": {
+          "type": "string",
+          "enum": ["fail", "skip", "replace"],
+          "description": "What xlsx.sheet does when the sheet to create already exists: fail (default), skip with a warning, or replace its contents."
+        },
+        "position": {
+          "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string" }],
+          "description": "xlsx.sheet: 1-based position of the sheet add or copy creates; by default an added sheet goes last and a copy right after its source."
+        },
+        "encoding": {
+          "enum": ["utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932", "", null],
+          "description": "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8, utf-8-bom, or shift_jis (also cp932, windows-31j). An input without encoding is detected: UTF-8, or else Shift_JIS; convert writes utf-8-bom by default so Excel opens it as UTF-8."
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Field separator of a csv file, one character; a comma by default."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "xlsx.extract: what to find on the sheet, such as 'A supplier quote; find the quote number, delivery date, and total'. Sent to the model with the sheet's cells; must not contain a secret. Required."
+        },
+        "schema": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": { "const": "object" },
+                "properties": { "type": "object" }
+              },
+              "required": ["type"]
+            },
+            { "type": "string" }
+          ],
+          "description": "xlsx.extract: a JSON Schema with type: object whose properties name the fields to find. Each property becomes an output holding the typed value of the cell the model names; a property's type (string, number, integer, boolean; string with format date or date-time) pins how the cell is read. A string is a value reference resolved at run time. Required."
+        },
+        "send_values": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "default": true,
+          "description": "xlsx.extract: list every cell's text for the model (default). false lists non-text cells by kind only, so amounts and dates stay on the host."
+        },
+        "cache": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "default": true,
+          "description": "xlsx.extract: keep the cells the model named by sheet layout, so a repeated layout needs no model call (default true)."
+        },
+        "llm": {
+          "$ref": "#/definitions/standardLLMConfig",
+          "description": "xlsx.extract: the model to ask, replacing the DAG-level llm block; the same fields as that block."
+        }
+      },
+      "required": ["path"],
+      "description": "Configuration for action: xlsx.read, xlsx.info, xlsx.list_sheets, xlsx.write, xlsx.append, xlsx.update_rows, xlsx.validate, xlsx.write_cells, xlsx.sheet, xlsx.convert, and xlsx.extract."
     },
     "fileActionConfig": {
       "type": "object",
@@ -7663,7 +9475,7 @@
         },
         "username": {
           "type": "string",
-          "description": "HTTPS username when using password authentication."
+          "description": "Username for HTTPS password authentication, or the SSH user for ssh_key_path. The SSH user defaults to the user in the repository URL, then git."
         },
         "password": {
           "type": "string",
@@ -7777,8 +9589,27 @@
         },
         "until": {
           "type": "string",
-          "format": "date-time",
-          "description": "RFC3339 timestamp for wait.until."
+          "description": "RFC3339 timestamp or HH:MM[:SS] clock time for wait.until."
+        },
+        "offset": {
+          "type": "string",
+          "description": "Duration added to with.until, such as 5m. Only valid for wait.until."
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone for HH:MM[:SS] with.until values. Ignored when with.until is RFC3339. Only valid for wait.until."
+        },
+        "if_past": {
+          "type": "string",
+          "anyOf": [
+            { "enum": ["continue", "fail", "window"] },
+            { "pattern": "\\$\\{[^}]+\\}|\\$[A-Za-z_][A-Za-z0-9_]*", "description": "Value reference resolved at runtime." }
+          ],
+          "description": "Behavior when with.until is already past: continue, fail, or window. Only valid for wait.until. Defaults to continue."
+        },
+        "window": {
+          "type": "string",
+          "description": "How long after with.until still counts as on time when if_past is window. Only valid for wait.until."
         },
         "path": {
           "type": "string",
@@ -7787,12 +9618,14 @@
         },
         "state": {
           "type": "string",
-          "enum": ["exists", "missing"],
+          "anyOf": [
+            { "enum": ["exists", "missing"] },
+            { "pattern": "\\$\\{[^}]+\\}|\\$[A-Za-z_][A-Za-z0-9_]*", "description": "Value reference resolved at runtime." }
+          ],
           "description": "File state to wait for. Defaults to exists."
         },
         "url": {
           "type": "string",
-          "format": "uri",
           "description": "Absolute URL for wait.http."
         },
         "method": {
@@ -7800,10 +9633,10 @@
           "description": "HTTP method for wait.http. Defaults to GET."
         },
         "status": {
-          "type": "integer",
+          "type": ["integer", "string"],
           "minimum": 100,
           "maximum": 599,
-          "description": "Expected HTTP status for wait.http. Defaults to 200."
+          "description": "Expected HTTP status for wait.http. Defaults to 200. A string must be an integer or hold a ${...} or $VAR reference that resolves to one between 100 and 599 when the step runs."
         },
         "headers": {
           "type": "object",
@@ -8362,6 +10195,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/fileActionConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "xlsx" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/xlsxActionConfig" }
             }
           }
         },

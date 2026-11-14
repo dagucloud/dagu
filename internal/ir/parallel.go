@@ -13,6 +13,11 @@ type ParallelConfig struct {
 	// Can be a direct array or a reference to a variable containing an array.
 	Items []ParallelItem `json:"items,omitempty"`
 
+	// Separator names the token separator used to split the resolved Variable
+	// string into items. Empty means automatic separator detection.
+	// It is one of the names accepted by stringutil.ParseSeparatorName.
+	Separator string `json:"separator,omitempty"`
+
 	// MaxConcurrent is the maximum number of parallel executions.
 	// Default is 10 if not specified.
 	MaxConcurrent int `json:"max_concurrent,omitempty"`

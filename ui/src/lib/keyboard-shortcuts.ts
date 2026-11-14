@@ -4,17 +4,26 @@
  */
 
 /**
- * Determines if keyboard shortcuts should be ignored based on the currently focused element.
- * This prevents shortcuts from triggering when users interact with inputs, selects, textareas,
- * contenteditable elements, or code editors.
- * 
- * @returns true if shortcuts should be ignored (user is editing text), false otherwise
+ * Determines if a panel keyboard shortcut should ignore a key event.
+ * Shortcuts yield when another handler already consumed the key, when a dialog
+ * opened above the panel owns focus, and when users interact with inputs,
+ * selects, textareas, contenteditable elements, or code editors.
+ *
+ * @returns true if the shortcut should ignore the event, false otherwise
  */
-export function shouldIgnoreKeyboardShortcuts(): boolean {
+export function shouldIgnoreKeyboardShortcuts(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented) {
+    return true;
+  }
+
   const activeElement = document.activeElement;
-  
+
   if (!activeElement) {
     return false;
+  }
+
+  if (activeElement.closest('[role="dialog"], [role="alertdialog"]')) {
+    return true;
   }
 
   // Check for standard form input elements

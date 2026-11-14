@@ -5,17 +5,22 @@ package dagrun_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/stretchr/testify/require"
 )
+
+// partialStatusLine is what a crash in the middle of a status write leaves.
+const partialStatusLine = `{"name":"cut short`
 
 func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	ctx := context.Background()
@@ -44,6 +49,110 @@ func TestStoreLatestAttemptUsesPersistedLatestPointer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "run-1", status.DAGRunID)
 	require.Equal(t, ir.Succeeded, status.Status)
+}
+
+// A newer run without a visible attempt, such as one whose creation was cut
+// short, does not hide the latest run when the latest pointer is gone.
+func TestStoreLatestAttemptSkipsStatuslessRun(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "latest-statusless"}
+	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-1",
+		AttemptID: attempt.ID(),
+		Status:    ir.Succeeded,
+		StartedAt: startedAt.Format(time.RFC3339),
+	}))
+	require.NoError(t, attempt.Close(ctx))
+
+	createStatuslessRunDir(t, baseDir, dag.Name, startedAt.Add(time.Hour), "run-2")
+	require.NoError(t, os.Remove(filedagrun.LatestAttemptPointerPathForTest(filepath.Join(baseDir, dag.Name, "dag-runs"))))
+
+	latest, err := repository.LatestAttempt(ctx, dag.Name, persis.DAGRunLatestAttemptOptions{})
+	require.NoError(t, err)
+	status, err := latest.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "run-1", status.DAGRunID)
+}
+
+// The status file of an attempt is created when the attempt is opened, and
+// stays empty until its first status is written. An attempt left there by a
+// crash has no status.
+func TestStoreEmptyStatusFileHasNoStatus(t *testing.T) {
+	ctx := context.Background()
+	repository := newFileRepository(t.TempDir(), persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "empty-status"}
+
+	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Close(ctx))
+
+	_, err = repository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "run-1"))
+	require.ErrorIs(t, err, dagrun.ErrNoStatusData)
+}
+
+// A crash during the first write leaves a line without its newline. An attempt
+// with only that line has no status.
+func TestStorePartialStatusLineIsNoStatus(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
+	statusFile := createStatuslessRunDir(t, baseDir, "partial-status", time.Now(), "run-1")
+	require.NoError(t, os.WriteFile(statusFile, []byte(partialStatusLine), 0600))
+
+	_, err := repository.FindAttempt(ctx, ir.NewDAGRunRef("partial-status", "run-1"))
+	require.ErrorIs(t, err, dagrun.ErrNoStatusData)
+}
+
+// The same crash on a later write leaves the status before it readable.
+func TestStorePartialLaterLineKeepsStatus(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
+	statusFile := createStatuslessRunDir(t, baseDir, "partial-later", time.Now(), "run-1")
+	line, err := json.Marshal(ir.DAGRunStatus{Name: "partial-later", DAGRunID: "run-1", Status: ir.Running})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(statusFile, append(append(line, '\n'), partialStatusLine...), 0600))
+
+	attempt, err := repository.FindAttempt(ctx, ir.NewDAGRunRef("partial-later", "run-1"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, ir.Running, status.Status)
+}
+
+// A newer run with a partial status does not hide the latest run when the latest
+// pointer is gone.
+func TestStoreLatestAttemptSkipsPartialStatus(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := newFileRepository(baseDir, persis.DAGRunRepositoryOptions{})
+	dag := &ir.DAG{Name: "latest-partial"}
+	startedAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+
+	attempt, err := repository.CreateAttempt(ctx, dag, startedAt, "run-1", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{Name: dag.Name, DAGRunID: "run-1", AttemptID: attempt.ID(), Status: ir.Succeeded}))
+	require.NoError(t, attempt.Close(ctx))
+
+	statusFile := createStatuslessRunDir(t, baseDir, dag.Name, startedAt.Add(time.Hour), "run-2")
+	require.NoError(t, os.WriteFile(statusFile, []byte(partialStatusLine), 0600))
+	require.NoError(t, os.Remove(filedagrun.LatestAttemptPointerPathForTest(filepath.Join(baseDir, dag.Name, "dag-runs"))))
+
+	latest, err := repository.LatestAttempt(ctx, dag.Name, persis.DAGRunLatestAttemptOptions{})
+	require.NoError(t, err)
+	status, err := latest.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "run-1", status.DAGRunID)
 }
 
 func TestUpdateLatestAttemptPointerHonorsCanceledContext(t *testing.T) {

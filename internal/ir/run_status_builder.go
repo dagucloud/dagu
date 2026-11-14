@@ -62,6 +62,30 @@ func WithScheduleTime(formattedTime string) StatusOption {
 	}
 }
 
+// WithScheduleWindow sets the window the run's schedule slot owns.
+func WithScheduleWindow(window ScheduleWindow) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.IntervalStart = formatWindowInstant(window.Start)
+		status.NextScheduledAt = formatWindowInstant(window.Next)
+		status.ScheduleTimezone = window.Timezone
+	}
+}
+
+// WithDefaultSlot marks the run's slot as the default of a run started
+// without one.
+func WithDefaultSlot(isDefault bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.DefaultSlot = isDefault
+	}
+}
+
+// WithDates sets the run's dates.
+func WithDates(dates []DateValue) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.Dates = dates
+	}
+}
+
 // WithFinishedAt sets the completion time.
 func WithFinishedAt(finishedAt time.Time) StatusOption {
 	return func(status *DAGRunStatus) {
@@ -135,6 +159,13 @@ func WithTriggerType(triggerType TriggerType) StatusOption {
 	}
 }
 
+// WithBackfillID sets the backfill that started the run.
+func WithBackfillID(backfillID string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.BackfillID = backfillID
+	}
+}
+
 // WithTriggerActor sets the attributable trigger actor.
 func WithTriggerActor(actor string) StatusOption {
 	return func(status *DAGRunStatus) {
@@ -192,6 +223,28 @@ func WithDAGDefinitionID(id string) StatusOption {
 func WithNoReuse(disabled bool) StatusOption {
 	return func(status *DAGRunStatus) {
 		status.NoReuse = disabled
+	}
+}
+
+// WithEphemeral marks the run as one that leaves no trace.
+func WithEphemeral(ephemeral bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.Ephemeral = ephemeral
+	}
+}
+
+// WithSkipHandlers marks the run as one that does not call the end-of-run
+// handlers of the DAG.
+func WithSkipHandlers(skip bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.SkipHandlers = skip
+	}
+}
+
+// WithReusedInputs records where the carried outputs of skipped steps come from.
+func WithReusedInputs(inputs []ReusedInput) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.ReusedInputs = append([]ReusedInput(nil), inputs...)
 	}
 }
 

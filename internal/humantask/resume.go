@@ -63,7 +63,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 		s.QueueStore,
 		target.dag,
 		target.status,
-		queue.EnqueueRetryOptions{},
+		queue.EnqueueRetryOptions{Resume: true},
 	)
 	if err != nil {
 		var latest *ir.DAGRunStatus
@@ -234,15 +234,15 @@ func countWaitingNodes(nodes []*ir.Node) int {
 }
 
 // resumeReady reports whether a resumed attempt can make progress: either no
-// manual step is waiting, or a completed human task unblocked a step in a run
-// that has nothing for the resume to re-run.
+// manual step is waiting, or a completed human task unblocked a step and no
+// node would be re-run by the resume.
 func resumeReady(nodes []*ir.Node) bool {
 	return !hasWaitingNodes(nodes) || (!hasRetryableNode(nodes) && hasUnblockedNode(nodes))
 }
 
-// hasRetryableNode reports whether a node has a status that every resume
-// re-runs (see runtime Plan.setupRetry). Such runs resume only once no manual
-// step is waiting, so those steps run again once rather than at each resume.
+// hasRetryableNode reports whether a node status suppresses intermediate
+// checkpoint progress. Partially succeeded nodes are preserved by checkpoint
+// resumes and therefore do not suppress an unblocked branch.
 func hasRetryableNode(nodes []*ir.Node) bool {
 	for _, node := range nodes {
 		if node == nil {
@@ -252,7 +252,7 @@ func hasRetryableNode(nodes []*ir.Node) bool {
 		case ir.NodeFailed, ir.NodeRetrying, ir.NodeAborted, ir.NodeRejected:
 			return true
 		case ir.NodeNotStarted, ir.NodeRunning, ir.NodeSucceeded, ir.NodeSkipped,
-			ir.NodePartiallySucceeded, ir.NodeWaiting:
+			ir.NodeWaiting, ir.NodePartiallySucceeded:
 		}
 	}
 	return false
@@ -302,12 +302,13 @@ func hasPendingPushBack(nodes []*ir.Node) bool {
 
 // nodeRunnable reports whether a not-started step will run once resumed
 // because every dependency lets it proceed. Steps with build inputs are
-// excluded because their inferred producer edges are not stored with the run.
+// excluded because their path-derived producer edges are not stored with the
+// run.
 func nodeRunnable(node *ir.Node, byName map[string]*ir.Node) bool {
 	if node == nil || node.Status != ir.NodeNotStarted || len(node.Step.Inputs) > 0 {
 		return false
 	}
-	for _, name := range node.Step.Depends {
+	for _, name := range node.Step.AllDepends() {
 		if dep := byName[name]; dep == nil || !dependencyAllowsRun(dep) {
 			return false
 		}
@@ -316,7 +317,7 @@ func nodeRunnable(node *ir.Node, byName map[string]*ir.Node) bool {
 }
 
 func dependsOnCompletedHumanTask(node *ir.Node, byName map[string]*ir.Node) bool {
-	for _, name := range node.Step.Depends {
+	for _, name := range node.Step.AllDepends() {
 		if dep := byName[name]; dep != nil && dep.Step.HumanTask != nil && nodeCompleted(dep) {
 			return true
 		}
@@ -385,6 +386,22 @@ func ResumePending(status *ir.DAGRunStatus) bool {
 // run by a resumed attempt yet.
 func PushBackPending(status *ir.DAGRunStatus) bool {
 	return status != nil && hasPendingPushBack(status.Nodes)
+}
+
+// UnblockedNodeReady reports whether a manual action unblocked a step that a
+// resumed attempt can run while other manual steps keep waiting.
+func UnblockedNodeReady(status *ir.DAGRunStatus) bool {
+	if status == nil {
+		return false
+	}
+	return !hasRetryableNode(status.Nodes) && hasRunnableNode(status.Nodes)
+}
+
+func hasRunnableNode(nodes []*ir.Node) bool {
+	byName := nodesByName(nodes)
+	return slices.ContainsFunc(nodes, func(node *ir.Node) bool {
+		return nodeRunnable(node, byName)
+	})
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.

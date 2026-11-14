@@ -5,6 +5,7 @@ package value_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -107,6 +108,90 @@ func TestExpandStringResolvesForeachBindingsWithScope(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, `2 episode-3 https://example.test/episode-3 {"slug":"episode-3","url":"https://example.test/episode-3"}`, got)
+}
+
+// An item field written without the foreach namespace fails resolution when
+// no other source resolves it, and the error names the supported form.
+func TestResolverRejectsUnqualifiedItemField(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{Foreach: value.Values{"index": "0", "key": "0", "item": map[string]any{"wallet": "A"}}},
+		value.RejectUnqualifiedItemFields(),
+	)
+
+	_, err := resolver.String(context.Background(), `echo "${item.wallet}"`, value.WorkflowField("run"))
+	require.ErrorContains(t, err, "run: ${item.wallet} does not reference the foreach item; use ${foreach.item.wallet}")
+}
+
+// Text that only resembles an unqualified item field resolves as before:
+// shell variables, escaped and unsupported forms, a name another source
+// defines, and scripts passed to their executor as written.
+func TestResolverKeepsItemLikeText(t *testing.T) {
+	t.Parallel()
+
+	item := value.Values{"index": "0", "key": "0", "item": map[string]any{"wallet": "A"}}
+	tests := []struct {
+		name  string
+		raw   string
+		scope value.RuntimeScope
+		field value.Field
+		want  string
+	}{
+		{
+			name:  "shell variables",
+			raw:   "${item} $item.txt",
+			scope: value.RuntimeScope{Foreach: item},
+			field: value.WorkflowField("run"),
+			want:  "${item} $item.txt",
+		},
+		{
+			name:  "escaped and unsupported forms",
+			raw:   `\${item.wallet} ${item:-a.b} ${item.a.b}`,
+			scope: value.RuntimeScope{Foreach: item},
+			field: value.WorkflowField("run"),
+			want:  "${item.wallet} ${item:-a.b} ${item.a.b}",
+		},
+		{
+			name: "env entry",
+			raw:  "${item.wallet}",
+			scope: value.RuntimeScope{
+				Foreach: item,
+				Env:     value.NewEnvScope(nil, false).WithEntry("item", `{"wallet":"E"}`, value.EnvSourceDotEnv),
+			},
+			field: value.WorkflowField("run"),
+			want:  "E",
+		},
+		{
+			name: "step property",
+			raw:  "${item.stdout}",
+			scope: value.RuntimeScope{
+				Foreach: item,
+				Steps:   map[string]value.StepInfo{"item": {Stdout: "out"}},
+			},
+			field: value.WorkflowField("run"),
+			want:  "out",
+		},
+		{
+			name:  "verbatim script",
+			raw:   "return `${item.wallet}`;",
+			scope: value.RuntimeScope{Foreach: item},
+			field: value.TemplateScriptField("script"),
+			want:  "return `${item.wallet}`;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resolver := value.NewResolver(value.StaticScope{}, tt.scope, value.RejectUnqualifiedItemFields())
+			got, err := resolver.String(context.Background(), tt.raw, tt.field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestExpandStringPreservesUnavailableForeachBinding(t *testing.T) {
@@ -212,4 +297,55 @@ func TestExpandStringPreservesForeachItemLiterals(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, `{"note":"a < b & c > d"}`, got)
+}
+
+// A foreach item field named with a leading underscore, such as the _row a
+// workbook reader attaches to each row, resolves like any other field.
+func TestExpandStringResolvesUnderscoreForeachField(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Foreach: value.Values{
+				"index": "0",
+				"key":   "A",
+				"row": map[string]any{
+					"_row": 2,
+					"name": "A",
+				},
+			},
+		},
+	)
+
+	got, err := resolver.String(
+		context.Background(),
+		`[{"_row": ${foreach.row._row}, "name": "${foreach.row.name}"}]`,
+		value.WorkflowField("run"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, `[{"_row": 2, "name": "A"}]`, got)
+}
+
+func TestFormatScalarNumbers(t *testing.T) {
+	t.Parallel()
+	// Numbers render as base-10 decimal text with no exponent, whatever Go
+	// type carries them; integer literals keep every digit.
+	for _, tt := range []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{"Float", 0.00001, "0.00001"},
+		{"LargeFloat", 1e21, "1000000000000000000000"},
+		{"Int", 42, "42"},
+		{"NumberInteger", json.Number("9007199254740993"), "9007199254740993"},
+		{"NumberExponent", json.Number("1e-5"), "0.00001"},
+		{"NumberFraction", json.Number("1.50"), "1.5"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, value.FormatScalar(tt.value))
+		})
+	}
 }

@@ -53,13 +53,73 @@ func TestToolsetHashChangesWithPlatform(t *testing.T) {
 		}},
 	}
 
-	linuxHash, err := ToolsetHash(cfg, "linux/amd64")
+	linuxHash, snapshot, err := ToolsetHash(cfg, "linux/amd64")
 	require.NoError(t, err)
-	windowsHash, err := ToolsetHash(cfg, "windows/amd64")
+	require.Nil(t, snapshot)
+	windowsHash, _, err := ToolsetHash(cfg, "windows/amd64")
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, linuxHash)
 	assert.NotEqual(t, linuxHash, windowsHash)
+}
+
+func TestToolsetHashLocalRegistry(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "registry.yaml")
+	cfg := &ir.ToolConfig{Registry: &ir.ToolRegistry{Type: "local", Path: path}}
+	require.NoError(t, os.WriteFile(path, []byte("first"), 0o600))
+	first, snapshot, err := ToolsetHash(cfg, "linux/amd64")
+	require.NoError(t, err)
+	require.Equal(t, "first", string(snapshot))
+	again, _, err := ToolsetHash(cfg, "linux/amd64")
+	require.NoError(t, err)
+	require.Equal(t, first, again)
+	require.NoError(t, os.WriteFile(path, []byte("changed"), 0o600))
+	changed, _, err := ToolsetHash(cfg, "linux/amd64")
+	require.NoError(t, err)
+	require.NotEqual(t, first, changed)
+	require.Equal(t, "first", string(snapshot))
+	require.NoError(t, os.Remove(path))
+	_, _, err = ToolsetHash(cfg, "linux/amd64")
+	require.Error(t, err)
+}
+
+// The documented limit must reject oversized files instead of hashing a prefix.
+func TestToolsetHashLocalRegistryLimit(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		size      int64
+		wantError bool
+	}{
+		{"at limit", 16 << 20, false}, {"over limit", (16 << 20) + 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "registry.yaml")
+			file, err := os.Create(path)
+			require.NoError(t, err)
+			require.NoError(t, file.Truncate(tc.size))
+			require.NoError(t, file.Close())
+			cfg := &ir.ToolConfig{Registry: &ir.ToolRegistry{Type: "local", Path: path}}
+			hash, snapshot, err := ToolsetHash(cfg, "linux/amd64")
+			if tc.wantError {
+				require.ErrorContains(t, err, "exceeds")
+				require.Empty(t, hash)
+				require.Nil(t, snapshot)
+			} else {
+				require.NoError(t, err)
+				require.NotEmpty(t, hash)
+				require.Len(t, snapshot, int(tc.size))
+			}
+		})
+	}
+}
+
+func TestToolsetHashLocalRegistryDirectory(t *testing.T) {
+	t.Parallel()
+	_, _, err := ToolsetHash(&ir.ToolConfig{Registry: &ir.ToolRegistry{Type: "local", Path: t.TempDir()}}, "linux/amd64")
+	require.ErrorContains(t, err, "not a regular file")
 }
 
 func TestEnvVarsExposeAquaToolset(t *testing.T) {

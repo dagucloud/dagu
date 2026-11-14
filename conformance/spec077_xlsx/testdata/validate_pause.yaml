@@ -1,0 +1,32 @@
+working_dir: .
+params:
+  - STATUS: Done
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Status]
+      rows: '[{"Invoice No": "INV-1", "Status": "${STATUS}"}]'
+  - id: check
+    depends: write
+    action: xlsx.validate
+    with:
+      path: orders.xlsx
+      allowed: {Status: [Open, Done]}
+  - id: review
+    depends: check
+    action: human.task
+    preconditions:
+      - condition: "${steps.check.outputs.count}"
+        expected: "num:>0"
+    continue_on:
+      skipped: true
+    with:
+      prompt: "Fix the problems in orders.xlsx and continue"
+  - id: after
+    depends: review
+    action: file.write
+    with:
+      path: after.txt
+      content: ran

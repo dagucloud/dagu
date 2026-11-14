@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: fill
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      merge: [A1:C1, B2]
+      cells: {A1: x}

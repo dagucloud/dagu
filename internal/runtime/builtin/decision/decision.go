@@ -61,12 +61,13 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if env.DAG != nil && env.DAG.MaxOutputSize > 0 {
 		limit = int64(env.DAG.MaxOutputSize)
 	}
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: secrets})
 	requestCtx, cancel := context.WithCancel(ctx)
 	return &decisionExecutor{
 		stdout: os.Stdout,
 		cfg:    cfg,
-		client: &client{http: sharedHTTPClient, endpoint: endpoint, apiKey: key, maxResponseBytes: limit},
-		masker: masking.NewMasker(masking.SourcedEnvVars{Secrets: secrets}),
+		client: &client{http: sharedHTTPClient, provider: cfg.Provider, endpoint: endpoint, apiKey: key, maxResponseBytes: limit, masker: masker},
+		masker: masker,
 		cancel: cancel,
 		ctx:    requestCtx,
 	}, nil

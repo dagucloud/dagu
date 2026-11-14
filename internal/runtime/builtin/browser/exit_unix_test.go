@@ -45,7 +45,7 @@ func TestCloseBrowserWaitsForProcessGroup(t *testing.T) {
 
 	closed := make(chan error, 1)
 	go func() {
-		closed <- closeBrowser(context.Background(), pid, func(context.Context) error {
+		closed <- closeBrowser(context.Background(), pid, 0, func(context.Context) error {
 			<-runtimeBlocked
 			return nil
 		})
@@ -66,4 +66,9 @@ func TestCloseBrowserWaitsForProcessGroup(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not return after the process group exited")
 	}
+}
+
+// profileHolders reports nothing: profile removal has not failed on Unix.
+func profileHolders(string) string {
+	return ""
 }

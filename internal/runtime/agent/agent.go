@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,7 +46,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/browser"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
@@ -53,10 +57,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
-	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
@@ -81,6 +85,9 @@ type Agent struct {
 	// dry indicates if the agent is running in dry-run mode.
 	dry     bool
 	noReuse bool
+	// dryStartupChecks are the problems a dry run found while preparing the
+	// run, before any step.
+	dryStartupChecks []runtime.DryRunCheck
 
 	// retryTarget is the target status to retry the DAG.
 	// It is nil if it's not a retry execution.
@@ -120,6 +127,14 @@ type Agent struct {
 
 	// plan is the execution plan for the DAG.
 	plan *runtime.Plan
+
+	// runnerDone includes startup and lifecycle handlers, before final status persistence.
+	runnerDone        chan struct{}
+	cleanupOnce       sync.Once
+	cleanupDone       chan struct{}
+	startupCancel     context.CancelFunc
+	startupFinishedAt time.Time
+	stopRequest       *stopRequest
 
 	// reporter is responsible for sending the report to the user.
 	reporter *reporter
@@ -218,9 +233,22 @@ type Agent struct {
 	// When nil, logs are written to local filesystem.
 	logWriterFactory runctx.LogWriterFactory
 
+	// schedulerLogWriter is the caller's writer for a sub-DAG run's scheduler log.
+	schedulerLogWriter io.Writer
+
 	// scheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	scheduleTime string
+
+	// scheduleWindow is the window the run's schedule slot owns.
+	scheduleWindow ir.ScheduleWindow
+
+	// dates are the run's dates. See resolveDates.
+	dates []ir.DateValue
+
+	// defaultSlot reports that scheduleTime is the default slot of a run
+	// started without one.
+	defaultSlot bool
 
 	// queuedRun indicates this execution is from a queued item.
 	// The dag-run was already created by the enqueue command.
@@ -236,6 +264,10 @@ type Agent struct {
 	workspaceSeed *runtimeexec.WorkspaceSeed
 	// extraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	extraEnvs []string
+	// inheritedEnvs are env entries inherited from the parent run scope.
+	inheritedEnvs []cmnvalue.EnvEntry
+	// expandSubRuns makes PrintSummary render sub-run step trees inline.
+	expandSubRuns bool
 	// profileName is the selected runtime profile name for this run.
 	profileName string
 
@@ -262,6 +294,12 @@ type Agent struct {
 	evaluatedRegistryAuths map[string]*ir.AuthConfig
 	evaluatedWorkingDir    string
 	evaluatedS3            *ir.S3Config
+}
+
+type stopRequest struct {
+	intent        cmdutil.TerminationIntent
+	allowOverride bool
+	deadline      time.Time
 }
 
 // StatusPusher reports DAG run status outside the current execution process.
@@ -308,8 +346,15 @@ type Options struct {
 	// ProgressDisplay indicates if the progress display should be shown.
 	// This is typically enabled for CLI execution in a TTY environment.
 	ProgressDisplay bool
+	// ExpandSubRuns makes PrintSummary resolve each sub-DAG run and render its
+	// step tree inline instead of a bare "subdag:" reference line.
+	ExpandSubRuns bool
 	// ExtraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	ExtraEnvs []string
+	// InheritedEnvs are env entries an in-process child run inherits from the
+	// parent run scope. They enter the run's environment below its own
+	// declared values, keeping each entry's source metadata.
+	InheritedEnvs []cmnvalue.EnvEntry
 	// WorkDir sets the existing per-run work directory.
 	WorkDir string
 	// WorkspaceSeed carries the workspace into inline child workflows.
@@ -335,6 +380,10 @@ type Options struct {
 	// LogWriterFactory is used to create log writers for step output.
 	// When nil, logs are written to local filesystem.
 	LogWriterFactory runctx.LogWriterFactory
+	// SchedulerLogWriter receives a sub-DAG run's scheduler log when the
+	// caller already writes and finalizes the run's log file. When nil, a
+	// sub-DAG run opens its own writer through LogWriterFactory.
+	SchedulerLogWriter io.Writer
 	// QueuedRun indicates this execution is from a queued item.
 	// When true, the agent will find the existing dag-run (created by enqueue)
 	// instead of creating a new one. This is used for distributed execution
@@ -378,6 +427,16 @@ type Options struct {
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
 	// Set by the scheduler for cron-triggered runs; empty for manual runs.
 	ScheduleTime string
+	// ScheduleWindow is the window the slot at ScheduleTime owns. A retried
+	// run keeps the window recorded on its status instead.
+	ScheduleWindow ir.ScheduleWindow
+	// Dates are the run's dates, resolved when it was created. When nil, a
+	// run of a DAG with dates resolves them as it starts. A retried run keeps
+	// the dates recorded on its status instead.
+	Dates []ir.DateValue
+	// DefaultSlot marks ScheduleTime as the default slot of a run that named
+	// none.
+	DefaultSlot bool
 	// ArtifactDir is the per-run artifact directory when artifact storage is enabled.
 	ArtifactDir string
 	// DAGRunLogDir is the base log directory used for child DAG runs created by executors.
@@ -410,6 +469,7 @@ func New(
 	}
 
 	a := &Agent{
+		cleanupDone:              make(chan struct{}),
 		rootDAGRun:               opts.RootDAGRun,
 		parentDAGRun:             opts.ParentDAGRun,
 		dagRunID:                 dagRunID,
@@ -432,6 +492,8 @@ func New(
 		profileResolver:          opts.ProfileResolver,
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
+		inheritedEnvs:            append([]cmnvalue.EnvEntry{}, opts.InheritedEnvs...),
+		expandSubRuns:            opts.ExpandSubRuns,
 		workDir:                  opts.WorkDir,
 		workspaceSeed:            opts.WorkspaceSeed,
 		profileName:              opts.ProfileName,
@@ -445,6 +507,7 @@ func New(
 		statusPusher:             opts.StatusPusher,
 		subWorkflowRunnerFactory: opts.SubWorkflowRunnerFactory,
 		logWriterFactory:         opts.LogWriterFactory,
+		schedulerLogWriter:       opts.SchedulerLogWriter,
 		queuedRun:                opts.QueuedRun,
 		attemptID:                opts.AttemptID,
 		triggerType:              opts.TriggerType,
@@ -452,6 +515,9 @@ func New(
 		parallelItem:             opts.ParallelItem,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
+		scheduleWindow:           opts.ScheduleWindow,
+		dates:                    opts.Dates,
+		defaultSlot:              opts.DefaultSlot,
 		dagRunLogDir:             opts.DAGRunLogDir,
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
@@ -497,6 +563,19 @@ func workspaceNameFromDAG(dag *ir.DAG) string {
 // Run setups the runner and runs the DAG.
 func (a *Agent) Run(ctx context.Context) (runErr error) {
 	ctx, cancel := context.WithCancel(ctx)
+	startupCtx, cancelStartup := context.WithCancel(ctx)
+	defer cancelStartup()
+	runnerDone := make(chan struct{})
+	finishRunner := sync.OnceFunc(func() { close(runnerDone) })
+	defer finishRunner()
+	a.lock.Lock()
+	a.runnerDone = runnerDone
+	a.startupCancel = cancelStartup
+	stopRequested := a.stopRequest != nil
+	a.lock.Unlock()
+	if stopRequested {
+		cancelStartup()
+	}
 	runningStatusDone := make(chan struct{})
 	close(runningStatusDone)
 	stopRunningStatus := func() {}
@@ -504,6 +583,13 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		cancel()
 		stopRunningStatus()
 		<-runningStatusDone
+	}()
+	var attempt runstate.Attempt
+	var executionStarted bool
+	defer func() {
+		if startupCtx.Err() != nil && !executionStarted && !a.finished.Load() {
+			runErr = a.abortStartup(ctx, attempt)
+		}
 	}()
 
 	// Set DAG context for all logs in this function.
@@ -518,23 +604,58 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if !a.parentDAGRun.Zero() && a.dag.HasHumanTaskSteps() {
 		return fmt.Errorf("DAG %q contains human task steps and cannot run as a sub-DAG", a.dag.Name)
 	}
+	if a.rootDAGRun.ID != a.dagRunID {
+		logger.Debug(ctx, "Initiating a sub dag-run",
+			slog.String("root-run", a.rootDAGRun.String()),
+			slog.String("parent-run", a.parentDAGRun.String()),
+		)
+		a.isSubDAGRun.Store(true)
+		if a.parentDAGRun.Zero() {
+			return fmt.Errorf("parent dag-run is not specified for the sub dag-run %s", a.dagRunID)
+		}
+	}
 
 	// Initialize propagators for W3C trace context before anything else
 	telemetry.InitializePropagators()
 
-	// Resolve the per-run environment before secrets and runtime configuration.
-	resolvedEnv, dotenvErr := runtimeenv.Resolve(ctx, a.dag)
+	if err := a.resolveDates(ctx); err != nil {
+		return err
+	}
+	// The env resolved at startup may read the params that wait for the dates.
+	// A failed eval fails the run once its attempt is open.
+	paramsErr := a.evaluateDeferredParams(logger.WithValues(startupCtx, centralLogFields...))
+	if paramsErr != nil && startupCtx.Err() != nil {
+		return a.abortStartup(ctx, nil)
+	}
+
+	startup, err := a.resolveStartup(logger.WithValues(startupCtx, centralLogFields...))
+	if err != nil {
+		return a.abortStartup(ctx, nil)
+	}
+	resolvedEnv, dotenvErr := startup.env, startup.envErr
+	secretEnvs, secretErr := startup.secrets, startup.secretErr
+	credentials := startup.credentials
+	masks := credentialMasks(credentials)
+	profileValues, profileErr := startup.profileValues, startup.profileErr
+	a.lock.Lock()
+	if a.stopRequest != nil || startupCtx.Err() != nil {
+		a.lock.Unlock()
+		return a.abortStartup(ctx, nil)
+	}
 	a.dag.Env = resolvedEnv.Env
 	a.dag.RuntimeResolved = true
+	a.profileName = startup.profileName
+	a.profileResolvedAt = startup.profileResolvedAt
+	a.profileEntries = startup.profileEntries
+	statusSecrets := append(profileValues.allSecrets(), secretEnvs...)
+	for label, value := range masks {
+		statusSecrets = append(statusSecrets, label+"="+value)
+	}
+	a.secretMasker = newStatusSecretMasker(statusSecrets)
+	a.lock.Unlock()
 	for _, warning := range resolvedEnv.Warnings {
 		logger.Warn(ctx, warning)
 	}
-
-	secretEnvs, secretErr := a.resolveSecrets(ctx)
-	profileValues, profileErr := a.resolveProfile(ctx)
-	a.lock.Lock()
-	a.secretMasker = newStatusSecretMasker(append(profileValues.allSecrets(), secretEnvs...))
-	a.lock.Unlock()
 
 	configVars := runtimeConfigVars(a.dag.Env, profileValues, secretEnvs)
 
@@ -594,29 +715,21 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = logger.WithValues(ctx, traceLogFields...)
 	}
 
-	if a.rootDAGRun.ID != a.dagRunID {
-		logger.Debug(ctx, "Initiating a sub dag-run",
-			slog.String("root-run", a.rootDAGRun.String()),
-			slog.String("parent-run", a.parentDAGRun.String()),
-		)
-
-		a.isSubDAGRun.Store(true)
-		if a.parentDAGRun.Zero() {
-			return fmt.Errorf("parent dag-run is not specified for the sub dag-run %s", a.dagRunID)
-		}
+	if startupCtx.Err() != nil {
+		return a.abortStartup(ctx, nil)
 	}
-
-	var attempt runstate.Attempt
+	initializationCtx, finishInitialization := bindStartupContext(ctx, startupCtx)
+	defer finishInitialization()
 
 	// Check if the DAG is already running.
-	if err := a.checkIsAlreadyRunning(ctx); err != nil {
+	if err := a.checkIsAlreadyRunning(initializationCtx); err != nil {
 		return err
 	}
 
 	if !a.dry {
 		// Setup the attempt for the dag-run.
 		// It's not required for dry-run mode.
-		att, err := a.setupAttempt(ctx)
+		att, err := a.setupAttempt(initializationCtx)
 		if err != nil {
 			return fmt.Errorf("failed to setup execution history: %w", err)
 		}
@@ -635,8 +748,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Resolve per-run work directory
-	cleanupWorkDir, err := a.prepareWorkDir(ctx, attempt)
+	cleanupWorkDir, err := a.prepareWorkDir(initializationCtx, attempt)
 	if err != nil {
+		if startupCtx.Err() != nil {
+			return a.abortStartup(ctx, attempt)
+		}
 		return err
 	}
 	if cleanupWorkDir != nil {
@@ -657,15 +773,25 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	a.lock.Lock()
 	a.runner = runner
 	a.plan = plan
+	stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
 	a.lock.Unlock()
+	if stopRequested {
+		return a.abortStartup(ctx, attempt)
+	}
 
 	// Create a new environment for the dag-run.
 	dagLoader := newDAGLoader(a.dagLoader, a.remoteDAGLoader)
 
-	subWorkflowRunner, err := a.createSubWorkflowRunner(ctx)
+	subWorkflowRunner, err := a.createSubWorkflowRunner(initializationCtx)
 	if err != nil {
 		return err
 	}
+
+	payload, err := webhookPayload(a.dag.Params, a.dag.ParamsJSON)
+	if err != nil {
+		return err
+	}
+	defer payload.cleanup()
 
 	contextOpts := []runtime.ContextOption{
 		runtime.WithDAGLoader(dagLoader),
@@ -679,7 +805,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithTriggerType(a.triggerType),
 		runtime.WithTriggerActor(a.triggerActor),
 		runtime.WithRunStartedAt(contextTimeString(a.plan.StartAt())),
-		runtime.WithParams(a.dag.Params),
+		runtime.WithParams(payload.params),
 		runtime.WithRuntimeProfileValues(
 			profileValues.defaultEnvs,
 			profileValues.defaultSecrets,
@@ -687,14 +813,28 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			profileValues.selectedSecrets,
 		),
 		runtime.WithSecrets(secretEnvs),
+		runtime.WithMaskedSecrets(masks),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
-		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
+		contextOpts = append(contextOpts,
+			runtime.WithScheduleTime(scheduleTime),
+			runtime.WithScheduleWindow(a.contextScheduleWindow()),
+		)
 	}
+	contextOpts = append(contextOpts, runtime.WithDates(a.dates))
 	if len(a.extraEnvs) > 0 {
 		contextOpts = append(contextOpts, runtime.WithEnvVars(a.extraEnvs...))
+	}
+	if payload.fileEnv != "" {
+		contextOpts = append(contextOpts, runtime.WithEnvVars(payload.fileEnv))
+	}
+	if payload.paramsJSON != nil {
+		contextOpts = append(contextOpts, runtime.WithParamsJSON(*payload.paramsJSON))
+	}
+	if len(a.inheritedEnvs) > 0 {
+		contextOpts = append(contextOpts, runtime.WithInheritedEnvs(a.inheritedEnvs))
 	}
 
 	if a.workDir != "" {
@@ -722,6 +862,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		contextOpts = append(contextOpts, runtime.WithLogWriterFactory(a.logWriterFactory))
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
+	// Set even when empty, so an in-process child never reads its parent's.
+	ctx = ssh.WithSecretValues(ctx, credentials)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 	if a.workspaceSeed != nil {
 		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
@@ -742,6 +884,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if a.dagRunAttemptID != "" {
 		ctx = logger.WithValues(ctx, tag.AttemptID(a.dagRunAttemptID))
 	}
+	initializationCtx, finishRuntimeInitialization := bindStartupContext(ctx, startupCtx)
+	defer finishRuntimeInitialization()
 
 	if cleaner, ok := subWorkflowRunner.(interface{ Cleanup(context.Context) error }); ok {
 		defer func() {
@@ -753,6 +897,20 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	// Handle dry execution.
 	if a.dry {
+		a.noteDryRunStartup(ctx, "params", paramsErr)
+		if dotenvErr != nil {
+			a.noteDryRunStartup(ctx, "dotenv", fmt.Errorf("failed to load dotenv: %w", dotenvErr))
+		}
+		a.noteDryRunStartup(ctx, "profile", profileErr)
+		a.noteDryRunStartup(ctx, "secrets", secretErr)
+		a.lock.Lock()
+		a.startupCancel = nil
+		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
+		a.lock.Unlock()
+		if stopRequested {
+			return context.Canceled
+		}
+		executionStarted = true
 		return a.dryRun(ctx)
 	}
 
@@ -761,14 +919,16 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	var initErr error
 
 	// Open the run file to write the status.
-	// TODO: Check if the run file already exists and if it does, return an error.
-	// This is to prevent duplicate execution of the same DAG run.
-	if err := attempt.Open(ctx); err != nil {
+	if err := attempt.Open(initializationCtx); err != nil {
 		return fmt.Errorf("failed to open execution history: %w", err)
 	}
 
 	defer func() {
-		if initErr != nil {
+		if startupCtx.Err() != nil && !executionStarted {
+			stopRunningStatus()
+			<-runningStatusDone
+			runErr = a.recordStartupAbort(ctx, attempt)
+		} else if initErr != nil {
 			a.initFailed.Store(true)
 			logger.Error(ctx, "Failed to initialize DAG execution", tag.Error(initErr))
 			st := a.Status(ctx)
@@ -790,6 +950,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 	}()
 
+	if paramsErr != nil {
+		initErr = paramsErr
+		return initErr
+	}
 	if dotenvErr != nil {
 		initErr = fmt.Errorf("failed to load dotenv: %w", dotenvErr)
 		return initErr
@@ -797,31 +961,31 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 	// Evaluate SMTP and mail configs with environment variables and secrets.
 	// This must happen AFTER attempt.Open() to avoid persisting expanded secrets.
-	if err := a.evaluateMailConfigs(ctx); err != nil {
+	if err := a.evaluateMailConfigs(initializationCtx); err != nil {
 		initErr = err
 		return initErr
 	}
 
 	// Evaluate registry auth credentials with environment variables and secrets.
-	if err := a.evaluateRegistryAuths(ctx); err != nil {
+	if err := a.evaluateRegistryAuths(initializationCtx); err != nil {
 		initErr = err
 		return initErr
 	}
 
 	// Evaluate working directory with environment variables.
-	if err := a.evaluateWorkingDir(ctx); err != nil {
+	if err := a.evaluateWorkingDir(initializationCtx); err != nil {
 		initErr = err
 		return initErr
 	}
 
 	// Evaluate S3 configuration with environment variables and secrets.
-	if err := a.evaluateS3Config(ctx); err != nil {
+	if err := a.evaluateS3Config(initializationCtx); err != nil {
 		initErr = err
 		return initErr
 	}
 
 	// Setup the reporter to send notifications (must be after mail config evaluation)
-	if err := a.setupReporter(ctx); err != nil {
+	if err := a.setupReporter(initializationCtx); err != nil {
 		initErr = err
 		return initErr
 	}
@@ -863,7 +1027,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// Create a new container if the DAG has a container configuration.
 	if a.dag.Container != nil {
 		// Expand environment variables in container fields
-		expandedContainer, err := docker.EvalContainerFields(ctx, *a.dag.Container)
+		expandedContainer, err := docker.EvalContainerFields(initializationCtx, *a.dag.Container)
 		if err != nil {
 			initErr = fmt.Errorf("failed to evaluate container config: %w", err)
 			return initErr
@@ -887,7 +1051,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			return initErr
 		}
 		ctCfg.DaemonHost = host
-		ctCli, err := docker.InitializeClient(ctx, ctCfg)
+		ctCli, err := docker.InitializeClient(initializationCtx, ctCfg)
 		if err != nil {
 			initErr = fmt.Errorf("failed to initialize container client: %w", err)
 			return initErr
@@ -903,7 +1067,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}()
 
 		if !isExecMode {
-			if err := ctCli.CreateContainerKeepAlive(ctx); err != nil {
+			if err := ctCli.CreateContainerKeepAlive(initializationCtx); err != nil {
 				initErr = fmt.Errorf("failed to create keepalive container: %w", err)
 				return initErr
 			}
@@ -929,32 +1093,30 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		var bastionCfg *ssh.BastionConfig
 		if a.dag.SSH.Bastion != nil {
 			bastionCfg = &ssh.BastionConfig{
-				Host:     a.dag.SSH.Bastion.Host,
-				Port:     a.dag.SSH.Bastion.Port,
-				User:     a.dag.SSH.Bastion.User,
-				Key:      a.dag.SSH.Bastion.Key,
-				Password: a.dag.SSH.Bastion.Password,
+				Host:    a.dag.SSH.Bastion.Host,
+				Port:    a.dag.SSH.Bastion.Port,
+				User:    a.dag.SSH.Bastion.User,
+				SSHAuth: a.dag.SSH.Bastion.SSHAuth,
 			}
 		}
 
-		sshConfig, err := evalHostConfigObject(ctx, ssh.Config{
+		sshConfig, err := evalSSHConfig(initializationCtx, ssh.Config{
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
-			Key:           a.dag.SSH.Key,
-			Password:      a.dag.SSH.Password,
+			SSHAuth:       a.dag.SSH.SSHAuth,
 			StrictHostKey: a.dag.SSH.StrictHostKey,
 			KnownHostFile: a.dag.SSH.KnownHostFile,
 			Shell:         a.dag.SSH.Shell,
 			ShellArgs:     a.dag.SSH.ShellArgs,
 			Timeout:       sshTimeout,
 			Bastion:       bastionCfg,
-		}, runtime.GetEnv(ctx).UserEnvsMap(), "ssh")
+		}, runtime.GetEnv(ctx).UserEnvsMap())
 		if err != nil {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
 		}
-		cli, err := ssh.NewClient(&sshConfig)
+		cli, err := ssh.NewClient(ctx, &sshConfig)
 		if err != nil {
 			initErr = fmt.Errorf("failed to create ssh client: %w", err)
 			return initErr
@@ -962,9 +1124,14 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = ssh.WithSSHClient(ctx, cli)
 	}
 
-	listenerErrCh := make(chan error)
-	go execWithRecovery(ctx, func() {
-		err := a.socketServer.Serve(ctx, listenerErrCh)
+	listenerErrCh := make(chan error, 1)
+	defer func() {
+		if err := a.socketServer.Shutdown(context.WithoutCancel(ctx)); err != nil {
+			logger.Error(ctx, "Failed to shutdown socket frontend", tag.Error(err))
+		}
+	}()
+	go execWithRecovery(initializationCtx, func() {
+		err := a.socketServer.Serve(initializationCtx, listenerErrCh)
 		if err != nil && !errors.Is(err, sock.ErrServerRequestedShutdown) {
 			if errors.Is(err, sock.ErrUnsupported) {
 				return
@@ -974,7 +1141,13 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	})
 
 	// It returns error if it failed to start the unix socket server.
-	if err := <-listenerErrCh; err != nil {
+	var listenerErr error
+	select {
+	case listenerErr = <-listenerErrCh:
+	case <-startupCtx.Done():
+		return startupCtx.Err()
+	}
+	if err := listenerErr; err != nil {
 		if errors.Is(err, sock.ErrUnsupported) {
 			logger.Warn(ctx,
 				"Unix socket transport unavailable; continuing without live status/control socket",
@@ -984,13 +1157,6 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to start the unix socket server: %w", err)
 			return initErr
 		}
-	} else {
-		// Stop the socket server when the dag-run is finished.
-		defer func() {
-			if err := a.socketServer.Shutdown(ctx); err != nil {
-				logger.Error(ctx, "Failed to shutdown socket frontend", tag.Error(err))
-			}
-		}()
 	}
 
 	// Start progress display if enabled
@@ -1117,7 +1283,25 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 	}
 
-	lastErr := a.runner.Run(ctx, a.plan, progressCh)
+	a.lock.Lock()
+	a.startupCancel = nil
+	stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
+	a.lock.Unlock()
+	if stopRequested {
+		return context.Canceled
+	}
+	executionStarted = true
+	// Browser steps that give the same browser.share name use one browser,
+	// which stays open until the run ends. Goroutines started above read
+	// ctx, so the steps get a context of their own.
+	stepsCtx, closeBrowsers := browser.WithSharedBrowsers(ctx)
+	defer func() {
+		if err := closeBrowsers(); err != nil {
+			logger.Warn(ctx, "Failed to close shared browsers", tag.Error(err))
+		}
+	}()
+	lastErr := a.runner.Run(stepsCtx, a.plan, progressCh)
+	finishRunner()
 
 	// Drain the progress goroutine before computing the final status.
 	// This prevents the progress goroutine from overwriting the final
@@ -1198,6 +1382,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		lastErr = errors.Join(lastErr, snapshotErr)
 	}
 
+	// The errors added since Status masked it are masked too.
+	a.maskStatusSecrets(&finishedStatus)
+
 	// Terminal status releases remote execution, so notification delivery must finish first.
 	if err := a.reporter.send(ctx, a.dag, finishedStatus, lastErr); err != nil {
 		logger.Error(ctx, "Mail notification failed", tag.Error(err))
@@ -1226,11 +1413,17 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	return lastErr
 }
 
+// shouldDelayTerminalStatus keeps local terminal snapshots behind Run's final
+// write so outputs are ready when completion becomes visible. Remote pushes
+// preserve their existing delays for pending finalizers.
 func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 	switch status {
 	case ir.Waiting:
 		return true
 	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
+		if a.statusPusher == nil {
+			return true
+		}
 		if a.reporter != nil && a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil) != nil {
 			return true
 		}
@@ -1401,6 +1594,35 @@ func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *ir.DAG
 	}
 }
 
+// DryRunChecks returns the problems a dry run recorded, in run order.
+// It is empty when the run recorded none.
+func (a *Agent) DryRunChecks() []runtime.DryRunCheck {
+	a.lock.RLock()
+	runner := a.runner
+	plan := a.plan
+	checks := slices.Clone(a.dryStartupChecks)
+	a.lock.RUnlock()
+
+	if runner != nil {
+		checks = append(checks, runner.DryRunChecks(plan)...)
+	}
+	return checks
+}
+
+// noteDryRunStartup warns about a problem preparing the run, such as a secret
+// that does not resolve, which the real run fails on before any step starts.
+// Like a step check it never fails the dry run, since the real run may
+// resolve it on the host where it runs.
+func (a *Agent) noteDryRunStartup(ctx context.Context, field string, err error) {
+	if err == nil {
+		return
+	}
+	logger.Warn(ctx, "Dry run: run may fail on this host", tag.Error(err))
+	a.lock.Lock()
+	a.dryStartupChecks = append(a.dryStartupChecks, runtime.DryRunCheck{Field: field, Message: err.Error()})
+	a.lock.Unlock()
+}
+
 func (a *Agent) PrintSummary(ctx context.Context) {
 	// Always print tree-structured summary after execution
 	status := a.Status(ctx)
@@ -1411,6 +1633,9 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	// Enable colors if stdout is a terminal
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
+	if a.expandSubRuns {
+		config.SubRunResolver = a.subRunResolver(ctx)
+	}
 
 	renderer := output.NewRenderer(config)
 	summary := renderer.RenderDAGStatus(dag, &status)
@@ -1419,6 +1644,18 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	_, _ = os.Stdout.WriteString(summary)
 	_, _ = os.Stdout.WriteString("\n")
 	_ = os.Stdout.Sync()
+}
+
+// subRunResolver resolves sub-run status under this run's root so PrintSummary
+// can render child step trees inline.
+func (a *Agent) subRunResolver(ctx context.Context) output.SubRunResolver {
+	root := a.rootDAGRun
+	if root.ID == "" {
+		root = ir.NewDAGRunRef(a.dag.Name, a.dagRunID)
+	}
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		return a.dagRunMgr.FindSubDAGRunStatus(ctx, root, sub.DAGRunID)
+	}
 }
 
 // Status collects the current running status of the DAG and returns it.
@@ -1448,27 +1685,36 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 			ir.WithDAGDefinitionID(a.definitionID),
 			ir.WithNoReuse(a.noReuse),
+			ir.WithFinishedAt(a.startupFinishedAt),
 		}
 		if source != nil {
 			statusOpts = append(statusOpts,
 				ir.WithQueuedAt(source.QueuedAt),
 				ir.WithCreatedAt(source.CreatedAt),
 				ir.WithAgentSessions(source.AgentSessions),
+				ir.WithEphemeral(source.Ephemeral),
+				ir.WithSkipHandlers(source.SkipHandlers),
+				ir.WithReusedInputs(source.ReusedInputs),
+				ir.WithBackfillID(source.BackfillID),
 			)
-			if source.ScheduleTime != "" {
-				statusOpts = append(statusOpts, ir.WithScheduleTime(source.ScheduleTime))
-			}
-		} else if a.scheduleTime != "" {
-			statusOpts = append(statusOpts, ir.WithScheduleTime(a.scheduleTime))
+		}
+		statusOpts = append(statusOpts, a.slotStatusOptions(source)...)
+		runStatus := ir.Failed
+		if !a.startupFinishedAt.IsZero() {
+			runStatus = ir.Aborted
 		}
 		status := ir.NewStatusBuilder(a.dag).
-			Create(a.dagRunID, ir.Failed, os.Getpid(), time.Time{}, statusOpts...)
+			Create(a.dagRunID, runStatus, os.Getpid(), time.Time{}, statusOpts...)
 		a.maskStatusSecrets(&status)
 		return status
 	}
 
 	runnerStatus := a.runner.Status(ctx, a.plan)
-	if a.initFailed.Load() {
+	finishedAt := a.plan.FinishAt()
+	if !a.startupFinishedAt.IsZero() {
+		runnerStatus = ir.Aborted
+		finishedAt = a.startupFinishedAt
+	} else if a.initFailed.Load() {
 		runnerStatus = ir.Failed
 	} else if runnerStatus == ir.NotStarted && a.plan.IsStarted() {
 		// Match the status to the execution plan.
@@ -1476,7 +1722,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 	}
 
 	opts := []ir.StatusOption{
-		ir.WithFinishedAt(a.plan.FinishAt()),
+		ir.WithFinishedAt(finishedAt),
 		transform.WithNodes(a.plan.NodeData()),
 		ir.WithLogFilePath(a.logFile),
 		ir.WithWorkingDir(a.evaluatedWorkingDir),
@@ -1509,13 +1755,13 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithQueuedAt(source.QueuedAt),
 			ir.WithCreatedAt(source.CreatedAt),
 			ir.WithAgentSessions(source.AgentSessions),
+			ir.WithEphemeral(source.Ephemeral),
+			ir.WithSkipHandlers(source.SkipHandlers),
+			ir.WithReusedInputs(source.ReusedInputs),
+			ir.WithBackfillID(source.BackfillID),
 		)
-		if source.ScheduleTime != "" {
-			opts = append(opts, ir.WithScheduleTime(source.ScheduleTime))
-		}
-	} else if a.scheduleTime != "" {
-		opts = append(opts, ir.WithScheduleTime(a.scheduleTime))
 	}
+	opts = append(opts, a.slotStatusOptions(source)...)
 
 	// Create the status object to record the current status.
 	status := ir.NewStatusBuilder(a.dag).
@@ -1559,6 +1805,124 @@ func (a *Agent) contextScheduleTime() string {
 		raw = a.scheduleTime
 	}
 	return contextTimeValue(raw)
+}
+
+// contextScheduleWindow returns the window of the slot contextScheduleTime
+// names: the one recorded on the retried status, else the one this run was
+// started with.
+func (a *Agent) contextScheduleWindow() ir.ScheduleWindow {
+	if source := a.statusSourceTarget(); source != nil && source.ScheduleTime != "" {
+		return source.ScheduleWindow()
+	}
+	return a.scheduleWindow
+}
+
+// resolveDates sets the run's dates: those recorded on the run it
+// continues, else those it was started with, else resolved now from its
+// slot, once, so that every attempt reads the same values. A run of a DAG
+// with dates that has no slot first takes the default slot of its creation.
+func (a *Agent) resolveDates(ctx context.Context) error {
+	source := a.statusSourceTarget()
+	if source != nil && source.Dates != nil {
+		a.setDates(source.Dates)
+		return nil
+	}
+	if a.dates != nil || len(a.dag.Dates) == 0 {
+		return nil
+	}
+	createdAt := time.Now()
+	if source != nil && source.CreatedAt > 0 {
+		createdAt = time.UnixMilli(source.CreatedAt)
+	}
+	cfg := config.GetConfig(ctx)
+	calendars := spec.NewCalendarSource(cfg.Paths.CalendarsDir)
+	if a.contextScheduleTime() == "" {
+		if slot, ok := rundates.DefaultSlot(a.dag, a.profileName, cfg.Core.Location, calendars, createdAt); ok {
+			a.lock.Lock()
+			a.scheduleTime, a.scheduleWindow, a.defaultSlot = slot.ScheduleTime, slot.Window, true
+			a.lock.Unlock()
+		}
+	}
+	dates, err := rundates.Resolve(rundates.Request{
+		DAG:          a.dag,
+		Profile:      a.profileName,
+		ScheduleTime: a.contextScheduleTime(),
+		Window:       a.contextScheduleWindow(),
+		Inherited:    a.slotInherited(source),
+		CreatedAt:    createdAt,
+		Location:     cfg.Core.Location,
+		Calendars:    calendars,
+	})
+	if err != nil {
+		return err
+	}
+	a.setDates(dates)
+	return nil
+}
+
+// evaluateDeferredParams gives the params whose eval waits for the run their
+// values, from the run's dates and the context it has at creation. The eval
+// runs without the agent's lock, so a stop request can cancel ctx.
+func (a *Agent) evaluateDeferredParams(ctx context.Context) error {
+	a.lock.RLock()
+	dag, dates := a.dag, a.dates
+	a.lock.RUnlock()
+	if len(dag.DeferredParams) == 0 {
+		return nil
+	}
+	runContext := runctx.CreationContext(dag.Name, a.dagRunID, a.contextScheduleTime(), a.contextScheduleWindow())
+	evaluated, err := spec.EvaluateDeferredParams(ctx, dag.Clone(), dates, runContext)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate params: %w", err)
+	}
+	a.lock.Lock()
+	a.dag = evaluated
+	a.lock.Unlock()
+	if a.progressDisplay != nil {
+		a.progressDisplay.SetDAGRunInfo(a.dagRunID, strings.Join(evaluated.Params, " "))
+	}
+	return nil
+}
+
+// slotInherited reports whether the run's slot came from its parent run,
+// rather than being the default slot of the run's own schedule.
+func (a *Agent) slotInherited(source *ir.DAGRunStatus) bool {
+	if a.parentDAGRun.Zero() || a.defaultSlot {
+		return false
+	}
+	return source == nil || !source.DefaultSlot
+}
+
+func (a *Agent) setDates(dates []ir.DateValue) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	a.dates = dates
+}
+
+// slotStatusOptions records the run's slot, window, and dates: those of the
+// run it continues, else those it was started with or settled as it
+// started. The caller holds the lock.
+func (a *Agent) slotStatusOptions(source *ir.DAGRunStatus) []ir.StatusOption {
+	var opts []ir.StatusOption
+	switch {
+	case source != nil && source.ScheduleTime != "":
+		opts = append(opts,
+			ir.WithScheduleTime(source.ScheduleTime),
+			ir.WithScheduleWindow(source.ScheduleWindow()),
+			ir.WithDefaultSlot(source.DefaultSlot),
+		)
+	case a.scheduleTime != "":
+		opts = append(opts,
+			ir.WithScheduleTime(a.scheduleTime),
+			ir.WithScheduleWindow(a.scheduleWindow),
+			ir.WithDefaultSlot(a.defaultSlot),
+		)
+	}
+	dates := a.dates
+	if dates == nil && source != nil {
+		dates = source.Dates
+	}
+	return append(opts, ir.WithDates(dates))
 }
 
 func contextTimeValue(raw string) string {
@@ -1698,7 +2062,8 @@ func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) error {
 			logger.Warn(ctx, "Coordinator rejected the worker attempt; stopping execution",
 				slog.String("reason", rejectedErr.AttemptRejectedReason()),
 			)
-			a.stopChildren(context.Background(), syscall.SIGTERM, true)
+			// The progress consumer must remain available while cleanup runs.
+			a.requestStop(context.Background(), syscall.SIGTERM, true)
 		}
 		return err
 	}
@@ -1839,8 +2204,14 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		autoRetryLimit = a.dag.RetryPolicy.Limit
 	}
 
+	attemptDir := ""
+	if d, ok := attempt.(interface{ AttemptDir() string }); ok && !a.dry {
+		attemptDir = d.AttemptDir()
+	}
+
 	cfg := &runtime.Config{
 		LogDir:               runnerLogDir,
+		AttemptDir:           attemptDir,
 		MaxActiveSteps:       a.dag.MaxActiveSteps,
 		Timeout:              a.dag.Timeout,
 		Delay:                a.dag.Delay,
@@ -1858,6 +2229,7 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
+		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
 	}
 	return runtime.New(cfg)
 }
@@ -1876,6 +2248,10 @@ func (a *Agent) createSubWorkflowRunner(ctx context.Context) (runtimeexec.SubWor
 func (a *Agent) withSubDAGRunSchedulerLogWriter(ctx context.Context) (context.Context, func(), bool) {
 	if !a.isSubDAGRun.Load() || a.logFile == "" {
 		return ctx, func() {}, false
+	}
+	if a.schedulerLogWriter != nil {
+		ctx = logger.WithLogger(ctx, logger.NewLogger(logger.WithRunWriter(a.schedulerLogWriter)))
+		return ctx, func() {}, true
 	}
 	streamer, ok := a.logWriterFactory.(runtime.SchedulerLogStreamer)
 	if !ok || streamer == nil {
@@ -1977,14 +2353,14 @@ func profileEntries(resolved *profilepkg.Resolved) []ir.RuntimeProfileEntry {
 
 // resolveSecrets resolves all secrets defined in the DAG and returns them as
 // environment variable strings in "NAME=value" format.
-func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
+func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfileValues) ([]string, error) {
 	if len(a.dag.Secrets) == 0 {
 		return nil, nil
 	}
 
 	logger.Info(ctx, "Resolving secrets", tag.Count(len(a.dag.Secrets)))
 
-	envScope := a.buildEnvScopeForSecrets()
+	envScope := a.buildEnvScopeForSecrets(profileValues)
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
 	baseDirs := a.buildSecretBaseDirs(envScope)
@@ -2004,24 +2380,57 @@ func (a *Agent) resolveSecrets(ctx context.Context) ([]string, error) {
 	return resolvedSecrets, nil
 }
 
-// buildEnvScopeForSecrets creates an EnvScope with DAG env vars for secret resolution.
-func (a *Agent) buildEnvScopeForSecrets() *cmnvalue.EnvScope {
-	envScope := cmnvalue.NewEnvScope(nil, true)
-	dagEnvs := make(map[string]string)
-	for _, env := range a.dag.Env {
-		if key, value, found := strings.Cut(env, "="); found {
-			dagEnvs[key] = value
-		}
+// resolveCredentialRefs resolves the secret refs that SSH connections read
+// credentials from, once each, and returns the values keyed by ref.
+func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, error) {
+	if len(a.dag.CredentialRefs) == 0 {
+		return nil, nil
 	}
-	if len(dagEnvs) > 0 {
-		envScope = envScope.WithEntries(dagEnvs, cmnvalue.EnvSourceDAGEnv)
+	if a.secretReferenceResolver == nil {
+		ref := a.dag.CredentialRefs[0]
+		return nil, fmt.Errorf("failed to resolve %s from secret ref %q: secret store is not configured", ref.Name, ref.Ref)
+	}
+
+	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(a.dag.CredentialRefs)))
+	values := make(map[string]string, len(a.dag.CredentialRefs))
+	for _, ref := range a.dag.CredentialRefs {
+		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
+		}
+		values[ref.Ref] = value
+	}
+	return values, nil
+}
+
+// credentialMaskPrefix starts the label of each SSH credential value in the
+// masked set. Maskers parse NAME=value pairs, and a ref holds neither "=" nor
+// ":", so a label never splits a value and never collides with a variable.
+const credentialMaskPrefix = "ssh-credential:"
+
+// credentialMasks labels each resolved credential value by its ref, for
+// masking.
+func credentialMasks(values map[string]string) map[string]string {
+	masks := make(map[string]string, len(values))
+	for ref, value := range values {
+		masks[credentialMaskPrefix+ref] = value
+	}
+	return masks
+}
+
+// buildEnvScopeForSecrets creates the EnvScope secrets resolve against: DAG
+// env vars and runtime profile entries, in run environment precedence.
+func (a *Agent) buildEnvScopeForSecrets(profileValues resolvedProfileValues) *cmnvalue.EnvScope {
+	envScope := cmnvalue.NewEnvScope(nil, true)
+	if envs := runtimeConfigVars(a.dag.Env, profileValues, nil); len(envs) > 0 {
+		envScope = envScope.WithEntries(envs, cmnvalue.EnvSourceDAGEnv)
 	}
 	return envScope
 }
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
 func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
-	baseDirs := []string{envScope.Expand(a.dag.WorkingDir)}
+	baseDirs := []string{envScope.ExpandPath(a.dag.WorkingDir)}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
 	}
@@ -2074,6 +2483,18 @@ func (a *Agent) evaluateMailConfigs(ctx context.Context) error {
 }
 
 func evalHostConfigObject[T any](ctx context.Context, obj T, vars map[string]string, path string) (T, error) {
+	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: hostConfigScope(ctx, vars)})
+	return resolveConfigObject(ctx, resolver, obj, cmnvalue.HostConfigObjectField(path))
+}
+
+// evalSSHConfig resolves the DAG-level SSH config with the steps[].with rules,
+// because it supplies the connection defaults for SSH steps.
+func evalSSHConfig(ctx context.Context, cfg ssh.Config, vars map[string]string) (ssh.Config, error) {
+	resolver := runtime.ValueResolverWithScope(ctx, hostConfigScope(ctx, vars))
+	return resolveConfigObject(ctx, resolver, cfg, cmnvalue.ExecutorConfigField("ssh"))
+}
+
+func hostConfigScope(ctx context.Context, vars map[string]string) *cmnvalue.EnvScope {
 	scope := cmnvalue.GetEnvScope(ctx)
 	if scope == nil {
 		env := runtime.GetEnv(ctx)
@@ -2085,8 +2506,11 @@ func evalHostConfigObject[T any](ctx context.Context, obj T, vars map[string]str
 		}
 		scope = scope.WithEntries(vars, cmnvalue.EnvSourceStepEnv)
 	}
-	resolver := cmnvalue.NewResolver(cmnvalue.StaticScope{}, cmnvalue.RuntimeScope{Env: scope})
-	got, err := resolver.Object(ctx, obj, cmnvalue.HostConfigObjectField(path))
+	return scope
+}
+
+func resolveConfigObject[T any](ctx context.Context, resolver cmnvalue.Resolver, obj T, field cmnvalue.Field) (T, error) {
+	got, err := resolver.Object(ctx, obj, field)
 	if err != nil {
 		return obj, err
 	}
@@ -2136,7 +2560,7 @@ func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 	// Use runtime context's EnvScope for consistent variable expansion
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.EnvScope != nil {
-		a.evaluatedWorkingDir = rCtx.EnvScope.Expand(a.dag.WorkingDir)
+		a.evaluatedWorkingDir = rCtx.EnvScope.ExpandPath(a.dag.WorkingDir)
 	} else {
 		// Fallback to OS expansion if no scope available
 		a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)
@@ -2203,8 +2627,12 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithParams(a.dag.Params),
 	}
 	if scheduleTime := a.contextScheduleTime(); scheduleTime != "" {
-		contextOpts = append(contextOpts, runtime.WithScheduleTime(scheduleTime))
+		contextOpts = append(contextOpts,
+			runtime.WithScheduleTime(scheduleTime),
+			runtime.WithScheduleWindow(a.contextScheduleWindow()),
+		)
 	}
+	contextOpts = append(contextOpts, runtime.WithDates(a.dates))
 	if a.artifactDir != "" {
 		contextOpts = append(contextOpts, runtime.WithArtifactDir(a.artifactDir))
 	}
@@ -2239,6 +2667,12 @@ func (a *Agent) dryRun(ctx context.Context) error {
 // its configured signal on platforms that support signal delivery. If processes
 // do not terminate after MaxCleanUp time, it requests forceful termination.
 func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride bool) {
+	if done := a.requestStop(ctx, sig, allowOverride); done != nil {
+		<-done
+	}
+}
+
+func (a *Agent) requestStop(ctx context.Context, sig os.Signal, allowOverride bool) <-chan struct{} {
 	intent := cmdutil.TerminationFromSignal(sig)
 	logger.Info(ctx, "Stopping running child processes",
 		slog.String("stop-mode", string(intent.Mode)),
@@ -2247,67 +2681,72 @@ func (a *Agent) stopChildren(ctx context.Context, sig os.Signal, allowOverride b
 		slog.Duration("max-cleanup-time", a.dag.MaxCleanUpTime),
 	)
 
-	// Snapshot runner+plan under the read lock: listenSignals can attach
-	// before Run() assigns a.runner and a.plan, so an early signal would
-	// otherwise nil-deref below.
-	a.lock.RLock()
-	runner := a.runner
-	plan := a.plan
-	a.lock.RUnlock()
-	if runner == nil || plan == nil {
-		logger.Debug(ctx, "Agent not yet initialized; ignoring stop request",
-			tag.Signal(intent.SignalName()))
-		return
-	}
-
-	if !intent.IsTermination() {
-		// For non-termination signals, just forward the request once and return.
-		runner.Stop(ctx, plan, intent, nil, allowOverride)
-		return
-	}
-
-	signalCtx, cancel := context.WithTimeout(ctx, a.dag.MaxCleanUpTime)
-	defer cancel()
-
-	done := make(chan bool, 1)
-	go func() {
-		runner.Stop(ctx, plan, intent, done, allowOverride)
-	}()
-
-	resendTicker := time.NewTicker(5 * time.Second)
-	defer resendTicker.Stop()
-	probeTicker := time.NewTicker(500 * time.Millisecond)
-	defer probeTicker.Stop()
-
-	for {
-		select {
-		case <-done:
-			logger.Info(ctx, "All child processes have been terminated")
-			return
-
-		case <-signalCtx.Done():
-			forceIntent := cmdutil.ForceTermination()
-			logger.Info(ctx, "Max cleanup time reached, forcing child process termination",
-				slog.String("stop-mode", string(forceIntent.Mode)),
-				tag.Signal(forceIntent.SignalName()),
-			)
-			runner.Stop(ctx, plan, forceIntent, nil, false)
-			return
-
-		case <-resendTicker.C:
-			logger.Info(ctx, "Resending stop request to processes that haven't terminated",
-				slog.String("stop-mode", string(intent.Mode)),
-				tag.Signal(intent.SignalName()),
-			)
-			runner.Stop(ctx, plan, intent, nil, false)
-
-		case <-probeTicker.C:
-			if !plan.HasActiveNodes() {
-				logger.Info(ctx, "No running processes detected, termination complete")
-				return
-			}
+	a.lock.Lock()
+	if intent.IsTermination() {
+		if a.stopRequest == nil {
+			a.stopRequest = &stopRequest{intent: intent, allowOverride: allowOverride, deadline: time.Now().Add(a.dag.MaxCleanUpTime)}
+		} else if intent.IsForce() {
+			a.stopRequest.intent = intent
+			a.stopRequest.allowOverride = false
 		}
 	}
+	var request stopRequest
+	if a.stopRequest != nil {
+		request = *a.stopRequest
+	}
+	runner := a.runner
+	plan := a.plan
+	runnerDone := a.runnerDone
+	cancelStartup := a.startupCancel
+	a.lock.Unlock()
+	if intent.IsTermination() && cancelStartup != nil {
+		cancelStartup()
+		if !intent.IsForce() {
+			return runnerDone
+		}
+		return nil
+	}
+	if runner == nil || plan == nil {
+		return nil
+	}
+
+	if !intent.IsTermination() || intent.IsForce() {
+		// Force and non-termination requests do not start another cleanup period.
+		runner.Stop(ctx, plan, intent, nil, allowOverride)
+		return nil
+	}
+
+	a.cleanupOnce.Do(func() {
+		ctx := context.WithoutCancel(ctx)
+		signalCtx, cancel := context.WithDeadline(ctx, request.deadline)
+		intent, allowOverride := request.intent, request.allowOverride
+		go func() {
+			defer close(a.cleanupDone)
+			defer cancel()
+			resendTicker := time.NewTicker(5 * time.Second)
+			defer resendTicker.Stop()
+			stepsDone := make(chan bool, 1)
+			go runner.Stop(ctx, plan, intent, stepsDone, allowOverride)
+			for {
+				select {
+				case <-stepsDone:
+					logger.Info(ctx, "Workflow steps have stopped")
+					return
+				case <-signalCtx.Done():
+					forceIntent := cmdutil.ForceTermination()
+					logger.Info(ctx, "Max cleanup time reached, forcing child process termination",
+						slog.String("stop-mode", string(forceIntent.Mode)),
+						tag.Signal(forceIntent.SignalName()),
+					)
+					runner.Stop(ctx, plan, forceIntent, nil, false)
+					return
+				case <-resendTicker.C:
+					runner.Stop(ctx, plan, intent, nil, false)
+				}
+			}
+		}()
+	})
+	return a.cleanupDone
 }
 
 // setupPlan setups the DAG plan. If is retry execution, it loads nodes
@@ -2393,7 +2832,9 @@ func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) (*runtime.Plan, error)
 
 // setupDefaultRetryPlan sets up the plan for the default retry behavior (all failed/canceled nodes and downstreams).
 func (a *Agent) setupDefaultRetryPlan(ctx context.Context, nodes []*runtime.Node) (*runtime.Plan, error) {
-	plan, err := runtime.CreateRetryPlan(ctx, a.dag, nodes...)
+	plan, err := runtime.CreateRetryPlanWithOptions(ctx, a.dag, runtime.RetryPlanOptions{
+		Resume: a.retryTarget != nil && a.retryTarget.Status == ir.Queued && a.retryTarget.Resume,
+	}, nodes...)
 	if err != nil {
 		return nil, err
 	}
@@ -2411,7 +2852,17 @@ func (a *Agent) setupAttempt(ctx context.Context) (runstate.Attempt, error) {
 	if a.runStateStore == nil {
 		return runstate.NewNoopAttempt(req), nil
 	}
-	return a.runStateStore.BeginAttempt(ctx, req)
+	attempt, err := a.runStateStore.BeginAttempt(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// Pre-execution markers may be claimed; completed attempts may not run again.
+	if prev, err := attempt.ReadStatus(ctx); err == nil && prev != nil &&
+		prev.Status != ir.Queued && prev.Status != ir.NotStarted {
+		return nil, fmt.Errorf("%w: dag-run %s attempt %s already recorded status %s",
+			dagrun.ErrDAGRunAlreadyExists, a.dagRunID, attempt.ID(), prev.Status)
+	}
+	return attempt, nil
 }
 
 // setupSocketServer creates a socket server instance.
@@ -2443,17 +2894,17 @@ func (a *Agent) checkIsAlreadyRunning(ctx context.Context) error {
 func execWithRecovery(ctx context.Context, fn func()) {
 	defer func() {
 		if panicObj := recover(); panicObj != nil {
-			logRecoveredPanic(ctx, panicObj)
+			logRecoveredPanic(ctx, panicObj, debug.Stack())
 		}
 	}()
 	fn()
 }
 
-func logRecoveredPanic(ctx context.Context, panicObj any) {
+func logRecoveredPanic(ctx context.Context, panicObj any, stack []byte) {
 	logger.Error(ctx, "Recovered from panic",
 		slog.String("err", panicToError(panicObj).Error()),
 		slog.String("errType", fmt.Sprintf("%T", panicObj)),
-		slog.String("stackTrace", string(debug.Stack())),
+		slog.String("stackTrace", string(stack)),
 	)
 }
 

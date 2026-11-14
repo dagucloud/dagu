@@ -5,7 +5,9 @@
 Partially implemented.
 
 Conformance covers one small ZIP create/list/extract workflow, create dry-run
-output suppression, and representative invalid configurations. Executor tests
+output suppression, relative paths resolved from the step working directory
+(including extraction with no destination), and representative invalid
+configurations. Executor tests
 own format matrices, filtering, permissions, malformed archives, and path
 safety edge cases.
 
@@ -57,6 +59,10 @@ Workflow authors create, extract, and inspect common archive formats
 `tar`, `zip`, or `unzip`.
 
 ## Behavior
+
+A relative `with.source` or `with.destination` names a path under the step
+working directory. `archive.extract` without `with.destination` extracts into
+the step working directory.
 
 ### Format selection
 
@@ -137,6 +143,9 @@ Invalid configurations fail with a nonzero exit status:
 
 - Any `archive.*` action without `with.source` fails `dagu validate`.
 - Negative `with.strip_components` fails `dagu validate`.
+- A `with` field the action does not define fails `dagu validate`; the error
+  names the field and, when a defined field is a likely misspelling of it,
+  suggests that field.
 - `archive.create` requires `with.destination` unless `with.dry_run: true`.
 - `with.password` is valid only for extract/list operations.
 

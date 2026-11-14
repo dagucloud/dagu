@@ -1,0 +1,90 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Link } from 'react-router-dom';
+import { useIsAdmin } from '@/contexts/AuthContext';
+import { useLicenseState } from '@/hooks/useLicense';
+import { useI18n } from '@/i18n/I18nProvider';
+import { isFreeLicense, licenseLink } from '@/lib/license';
+import { Button } from './ui/button';
+
+export function LicenseActions({
+  content,
+  activationLink = true,
+}: {
+  content: string;
+  activationLink?: boolean;
+}) {
+  const isAdmin = useIsAdmin();
+  const { license, loading, error } = useLicenseState();
+  const { ts } = useI18n();
+  if (loading || error)
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        {ts(loading ? 'Checking license…' : 'License status unavailable')}
+      </p>
+    );
+  if (!isAdmin)
+    return (
+      <p className="text-sm text-muted-foreground">
+        {ts(
+          'Ask your administrator to manage the license and available features.'
+        )}
+      </p>
+    );
+  const free = isFreeLicense(license);
+  // A Community server starts the trial by connecting with it chosen; one on
+  // free monitoring starts it from its page in Dagu Console.
+  const action = license.error
+    ? 'manage'
+    : license.community || free
+      ? 'trial'
+      : license.plan === 'trial' || license.valid
+        ? 'plans'
+        : 'manage';
+  const label =
+    action === 'trial'
+      ? 'Start free trial'
+      : action === 'plans'
+        ? 'View plans'
+        : license.error
+          ? 'Manage license'
+          : 'Renew license';
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button asChild size="sm" variant="outline">
+        {action === 'trial' && license.community ? (
+          <Link to="/settings?trial=1#monitoring">{ts(label)}</Link>
+        ) : (
+          <a
+            href={
+              action === 'trial'
+                ? license.consoleUrl || licenseLink('manage', content)
+                : licenseLink(action, content)
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {ts(label)}
+          </a>
+        )}
+      </Button>
+      {action !== 'plans' && (
+        <Button asChild variant="link" size="sm">
+          <a
+            href={licenseLink('plans', content)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {ts('View plans')}
+          </a>
+        </Button>
+      )}
+      {activationLink && (
+        <Button asChild variant="link" size="sm">
+          <Link to="/settings#activate">{ts('Activate a key')}</Link>
+        </Button>
+      )}
+    </div>
+  );
+}

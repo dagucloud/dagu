@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - id: write
+    run: printf 'out'
+    stdout: ${REDIRECT_UNSET}/out.txt

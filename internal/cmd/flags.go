@@ -61,6 +61,13 @@ var (
 		usage:  "Recompute build steps instead of reusing prior materializations",
 		isBool: true,
 	}
+
+	dryFormatFlag = commandLineFlag{
+		name:         "format",
+		shorthand:    "f",
+		defaultValue: "text",
+		usage:        "Output format for dry-run checks: text (default) or json",
+	}
 )
 
 // Server and directory flags
@@ -95,6 +102,12 @@ var (
 		name:      "params",
 		shorthand: "p",
 		usage:     "Parameters to pass to the dag-run (overrides DAG defaults; supports positional values and key=value pairs, e.g., P1=foo P2=bar)",
+	}
+
+	paramsStdinFlag = commandLineFlag{
+		name:   "params-stdin",
+		usage:  "Read run parameters from piped or redirected stdin (up to 1 MiB; -- and --params take precedence)",
+		isBool: true,
 	}
 
 	nameFlag = commandLineFlag{
@@ -192,6 +205,12 @@ var (
 		isBool: true,
 	}
 
+	recursiveOutputFlag = commandLineFlag{
+		name:   "recursive-output",
+		usage:  "Expand sub-DAG runs in the status tree, showing each child's steps and output",
+		isBool: true,
+	}
+
 	retryPathFlag = commandLineFlag{
 		name:   "retry-path",
 		usage:  "Internal persisted child DAG retry path",
@@ -279,6 +298,13 @@ var (
 		usage:        "Worker HTTP health check server port (default: 8092, 0 disables)",
 		bindViper:    true,
 		viperKey:     "worker.health_port",
+	}
+
+	workerShutdownTimeoutFlag = commandLineFlag{
+		name:      "worker.shutdown-timeout",
+		usage:     "How long a stopping worker drains running DAG runs before it cancels them (default: 60s, 0 waits without a bound)",
+		bindViper: true,
+		viperKey:  "worker.shutdown_timeout",
 	}
 
 	workerCoordinatorsFlag = commandLineFlag{
@@ -410,6 +436,18 @@ var (
 		isBool:    true,
 	}
 
+	pruneArtifactsOlderThanFlag = commandLineFlag{
+		name:         "older-than",
+		shorthand:    "t",
+		defaultValue: "24h",
+		usage:        "Only remove artifact entries older than duration (e.g. 10d, 24h, 1w). A minimum of 1h is enforced",
+	}
+
+	pruneArtifactsRootFlag = commandLineFlag{
+		name:  "root",
+		usage: "Artifact root to prune (default: configured paths.artifact_dir), such as a previous <data_dir>/artifacts or a DAG's artifacts.dir. Roots holding run history or logs are refused",
+	}
+
 	psDAGFlag = commandLineFlag{
 		name:      "dag",
 		shorthand: "d",
@@ -494,7 +532,7 @@ var (
 
 	historyLabelsFlag = commandLineFlag{
 		name:  "labels",
-		usage: "Filter by DAG labels, comma-separated with AND logic (e.g., 'prod,critical')",
+		usage: "Filter by DAG labels, comma-separated with AND logic: key, key=value, globs with * and ?, and ! to negate (e.g., 'env=prod,!canary')",
 	}
 
 	historyTagsFlag = commandLineFlag{

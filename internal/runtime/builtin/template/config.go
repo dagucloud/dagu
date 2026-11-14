@@ -9,7 +9,8 @@ import (
 )
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"data":         {Type: "object", Description: "Template data variables accessible as {{ .key }} in the template"},
 		"output":       {Type: "string", Description: "File path to write the rendered output to. If empty, output is written to stdout."},

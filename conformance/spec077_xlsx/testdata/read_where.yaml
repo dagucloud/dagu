@@ -1,0 +1,60 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: items.xlsx
+      columns: [Status, Qty, Name]
+      rows:
+        - {"Status": "Done", "Qty": 7, "Name": "a"}
+        - {"Status": null, "Qty": "7", "Name": "b"}
+        - {"Status": "Open", "Qty": 8, "Name": " c "}
+        - {"Status": "Pending", "Qty": null, "Name": "d"}
+  - id: scalar
+    depends: write
+    action: xlsx.read
+    with:
+      path: items.xlsx
+      where: {Status: Done}
+  - id: empty
+    depends: write
+    action: xlsx.read
+    with:
+      path: items.xlsx
+      where: {Status: ""}
+  - id: in_list
+    depends: write
+    action: xlsx.read
+    with:
+      path: items.xlsx
+      where: {Status: {in: [Done, Open]}}
+  - id: numeric
+    depends: write
+    action: xlsx.read
+    with:
+      path: items.xlsx
+      where: {Qty: 7}
+  - id: loose_key
+    depends: write
+    action: xlsx.read
+    with:
+      path: items.xlsx
+      where: {status: Open}
+  - id: trimmed
+    depends: write
+    action: xlsx.read
+    with:
+      path: items.xlsx
+      where: {Name: c}
+  - id: out
+    depends: [scalar, empty, in_list, numeric, loose_key, trimmed]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"scalar": ${steps.scalar.outputs.rows},
+         "empty": ${steps.empty.outputs.rows},
+         "in_list": ${steps.in_list.outputs.rows},
+         "numeric": ${steps.numeric.outputs.rows},
+         "loose_key": ${steps.loose_key.outputs.rows},
+         "trimmed": ${steps.trimmed.outputs.rows}}

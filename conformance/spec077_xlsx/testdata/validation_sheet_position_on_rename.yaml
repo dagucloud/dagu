@@ -1,0 +1,8 @@
+steps:
+  - action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: rename
+      sheet: October
+      to: November
+      position: 1

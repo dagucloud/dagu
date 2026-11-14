@@ -7,6 +7,11 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+      # The golden round-trip test of the UI reads these YAML corpora.
+      - "examples/**"
+      - "internal/**/*.y*ml"
+      - "conformance/**/*.y*ml"
+      - "specs/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -14,9 +19,15 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - converted_to_draft # cancels the run in progress
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+      # The golden round-trip test of the UI reads these YAML corpora.
+      - "examples/**"
+      - "internal/**/*.y*ml"
+      - "conformance/**/*.y*ml"
+      - "specs/**"
   workflow_dispatch:
 
 # Restrict to read-only: this workflow only runs tests and builds the frontend,
@@ -25,13 +36,49 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A new commit to a pull request cancels the run of the commit it
+  # replaces. Runs for a branch share one group and always finish: one runs
+  # at a time, and a newer commit replaces the run still waiting, so a burst
+  # of merges to main tests only the latest commit.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      # Changes outside ui/ start this workflow only through the YAML
+      # corpora, which only the golden round-trip test reads.
+      - name: Detect UI changes
+        id: changes
+        shell: bash
+        env:
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base_sha=""
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            # The first parent of the PR merge commit is the base branch tip.
+            base_sha="$(git rev-parse "${GITHUB_SHA}^1")"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            base_sha="${PUSH_BEFORE_SHA}"
+          fi
+
+          ui=true
+          if [[ -n "${base_sha}" && "${base_sha}" != "0000000000000000000000000000000000000000" ]] \
+            && git cat-file -e "${base_sha}^{commit}" 2>/dev/null \
+            && ! git diff --name-only "${base_sha}" "${GITHUB_SHA}" \
+              | grep -qE '^(ui/|\.github/workflows/frontend-ci\.yaml$)'; then
+            ui=false
+          fi
+          echo "ui=${ui}" >> "${GITHUB_OUTPUT}"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -50,9 +97,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests
+        if: steps.changes.outputs.ui == 'true'
         working-directory: ui
         run: pnpm test
 
+      - name: Run the golden round-trip test
+        if: steps.changes.outputs.ui != 'true'
+        working-directory: ui
+        run: pnpm test src/features/visual-editor/doc/__tests__/golden.test.ts
+
       - name: Build
+        if: steps.changes.outputs.ui == 'true'
         working-directory: ui
         run: pnpm build

@@ -5,9 +5,10 @@
 Partially implemented.
 
 Conformance covers mail account configuration errors, `mail.search`,
-`mail.organize`, attachments, and `mail.send` through password accounts against
+`mail.organize`, attachments, and `mail.send` and replies through password accounts against
 in-process TLS servers. OAuth token exchange with Google and Microsoft token
-endpoints belongs in unit tests.
+endpoints belongs in unit tests, as does the Gmail API, which executor tests run
+against an in-process fake of the API.
 
 ## Scope
 
@@ -20,7 +21,8 @@ IMAP and SMTP protocol details, MIME decoding, and provider token endpoints belo
 to executor unit and integration tests.
 
 Out of scope: obtaining an OAuth grant interactively, storing refresh tokens that a
-provider returns, per-email triggers, and provider APIs other than IMAP and SMTP.
+provider returns, per-email triggers, and provider APIs other than IMAP, SMTP, and
+the Gmail API.
 
 ## Goal
 
@@ -37,8 +39,8 @@ case-insensitively; other base entries remain.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `provider` | No | `google`, `microsoft`, or `imap` (default). Sets the default servers. |
-| `imap` | For an `imap` account | `host`, `port`, `security` (`tls` or `starttls`), and `skip_tls_verify`. Overrides the provider default. |
+| `provider` | No | `google`, `microsoft`, or `imap` (default). Sets the default servers; a `google` account with `oauth` uses the Gmail API instead ([Gmail API accounts](#gmail-api-accounts)). |
+| `imap` | For an `imap` account | `host`, `port`, `security` (`tls` or `starttls`), and `skip_tls_verify`, `tls_cert_sha256`. Overrides the provider default. |
 | `smtp` | For `mail.send` through an `imap` account | Same fields as `imap`. |
 | `username` | No | Login name for password authentication and the user in `XOAUTH2`. Defaults to the address. |
 | `password` | Exactly one of `password` or `oauth` | Password or app password. |
@@ -63,7 +65,12 @@ secrets or profile secrets are masked as [Spec 069](069-secrets-providers.md) an
 Every connection uses TLS. `tls` connects with TLS; `starttls` upgrades the
 connection and fails when the server does not offer STARTTLS. The server
 certificate is verified unless the server block sets `skip_tls_verify: true`,
-which accepts any certificate, such as a self-signed one.
+which accepts any certificate, such as a self-signed one. Alternatively,
+`tls_cert_sha256` pins the server's leaf certificate by the SHA-256 hash of its
+DER bytes (64 hex characters, any case, colons allowed). The chain is not
+verified, and the connection fails when the certificate's hash differs. When a
+server block sets both, `tls_cert_sha256` takes precedence over
+`skip_tls_verify`: only the pinned certificate is accepted.
 
 ### Authentication
 
@@ -74,12 +81,52 @@ which accepts any certificate, such as a self-signed one.
 | `oauth.provider` | Fields |
 | --- | --- |
 | `google_refresh` | `client_id`, `client_secret`, `refresh_token` |
-| `microsoft_refresh` | `client_id`, `refresh_token`; optional `tenant_id` (default `common`) and `client_secret` |
+| `microsoft_refresh` | `client_id`, `refresh_token`; optional `tenant_id` (default `common`), `client_secret`, and `scopes` |
+
+`microsoft_refresh` refreshes for `https://outlook.office.com/.default`, the mail
+permissions the person granted, unless `scopes` lists the scopes to request
+instead; `offline_access` is always requested. `google_refresh` does not accept
+`scopes`.
 
 Before each IMAP or SMTP connection, the action exchanges the refresh token for an
-access token and authenticates with SASL `XOAUTH2`. Access tokens never appear in
+access token and authenticates with SASL `XOAUTH2`. A Gmail API account sends the
+access token with each API request instead. Access tokens never appear in
 logs, outputs, or run status. The action does not store a refresh token that the
 provider returns; the configured token stays in effect.
+
+### Gmail API accounts
+
+A `google` account with `oauth` reaches its mailbox through the Gmail API instead
+of IMAP and SMTP. The grant needs `https://www.googleapis.com/auth/gmail.modify` or
+`https://mail.google.com/`, and the Google Cloud project of `client_id` must have
+the Gmail API enabled. Such an account takes no `imap`, `smtp`, or `username`. A
+`google` account with `password` uses IMAP and SMTP, as does an `imap` account
+with Gmail's servers and an OAuth grant that IMAP accepts.
+
+The actions behave as they do over IMAP, with Gmail's labels as folders:
+
+- A folder is a label, named as Gmail shows it; `INBOX` matches in any case. The
+  folders Gmail shows over IMAP also work: `[Gmail]/All Mail` is all email outside
+  Spam and Trash, and `[Gmail]/Sent Mail`, `[Gmail]/Drafts`, `[Gmail]/Starred`,
+  `[Gmail]/Important`, `[Gmail]/Spam`, and `[Gmail]/Trash` are those labels.
+  `[Google Mail]/` works as the prefix, and `Bin` as the name of Trash.
+- Searching any folder other than Spam or Trash leaves out email in either.
+- Gmail lists the newest email first, so a search examines at most the newest
+  2,000 emails that Gmail's own search lists for the folder, `unread`, `within`,
+  and `has_attachments`, and returns the oldest matches among them. When Gmail
+  lists more, `truncated` is `true`, even if fewer than 2,000 of them match
+  exactly.
+- `unread` and `flagged` are the `UNREAD` and `STARRED` labels.
+- `move: folder` adds the destination label, creating it when it does not exist,
+  and removes the label the email was found under. A folder under `[Gmail]/` or
+  `[Google Mail]/` that is none of Gmail's own is never created; the step
+  fails. `archive` removes the label the email was found under, so email found
+  in `INBOX` leaves the inbox. `trash` moves the email to Gmail's trash.
+- An email is missing when it no longer carries the label it was found under, is
+  in Spam or Trash (unless it was found there), or no longer exists. The same
+  holds for `in_reply_to`.
+- `mail.send` sends through the Gmail API. A reply also joins the Gmail
+  conversation of the email it answers.
 
 ### `mail.search`
 
@@ -103,13 +150,14 @@ read.
 Published outputs, following [Spec 012](012-step-outputs.md):
 
 - `messages`: a JSON array in result order. Each element is an object with these
-  top-level fields: `id`, `folder`, `from_name`, `from_address`, `to` (array of
+  top-level fields: `id`, `message_id`, `folder`, `from_name`, `from_address`, `to` (array of
   addresses), `cc` (array of addresses), `subject`, `date` (RFC 3339), `unread`,
   `flagged`, `text`, and `attachments` (array of `{name, content_type, size,
   path}`).
 - `count`: the number of elements in `messages`.
 - `truncated`: `true` when any `text` was shortened, or any email left out, to fit
-  the output limit.
+  the output limit, or when a Gmail API search examined only the newest emails of
+  the folder ([Gmail API accounts](#gmail-api-accounts)).
 
 `text` is the plain-text body, or the HTML body converted to text when the email
 has no plain-text part, at most 10,000 characters. When the encoded outputs would
@@ -154,8 +202,10 @@ For each item, the action applies `mark`, then `move`:
 - `trash` moves the email to the folder with special-use `\Trash`.
 
 No action deletes email permanently. An item whose email is no longer in its folder
-(moved, deleted, or the folder's UIDVALIDITY changed) is skipped and listed in
-`missing`; it does not fail the step.
+(moved, deleted, the folder deleted, or the folder's UIDVALIDITY changed) is skipped
+and listed in `missing`; it does not fail the step. A folder counts as deleted only
+when the server says it does not exist (`NONEXISTENT`); any other refusal to open
+it fails the step with the server's reason.
 
 Published outputs:
 
@@ -166,14 +216,35 @@ Published outputs:
 ### Sending through a mail account
 
 `mail.send` with `with.mailbox` sends through that account's SMTP server and
-authentication instead of the DAG-level `smtp` configuration. `from` is optional
+authentication, or the Gmail API for a Gmail API account, instead of the
+DAG-level `smtp` configuration. `from` is optional
 and defaults to the mailbox address. Every other field and behavior follows
 [Spec 044](044-mail-send.md).
+
+`with.in_reply_to` makes the message a reply to one email of that mailbox. It
+takes an email ID or an email object with an `id`, as `mail.organize` items do,
+and requires `with.mailbox`. Before sending, the action reads the email without
+changing it:
+
+- `to` defaults to the email's Reply-To address, or its sender when it has none.
+- `subject` defaults to `Re: ` followed by the email's subject, unless that
+  subject already starts with `Re:`, compared case-insensitively.
+- The message carries `In-Reply-To` with the email's Message-ID and `References`
+  with the email's References followed by its Message-ID, so mail clients show
+  it in the same thread. An email without a Message-ID gets a reply without
+  these headers.
+
+Explicit `to` and `subject` values replace the defaults.
 
 ### Email IDs
 
 An email ID is an opaque string. It stays valid for the same account while the
-email stays in its folder and the folder's UIDVALIDITY is unchanged.
+email stays in its folder and the folder's UIDVALIDITY is unchanged. For a Gmail
+API account, it stays valid while the email carries the label it was found under.
+
+`message_id` is the email's Message-ID header without angle brackets, or empty
+when the email has none. It does not change when the email moves, so a workflow
+can use it to recognize an email it already handled.
 
 ## Errors
 
@@ -186,7 +257,13 @@ fail the step when it starts, before connecting:
   `mail account "<address>": imap.host is required`.
 - An `oauth.provider` other than `google_refresh` or `microsoft_refresh`, or a
   missing OAuth field: the error names the account and the field.
+- A `google` account with `oauth` that sets `imap`, `smtp`, or `username`:
+  `mail account "<address>": imap is not used by a google account with oauth, which uses the Gmail API`
+  (naming the field).
 - `security` other than `tls` or `starttls`.
+- A `tls_cert_sha256` that is not 64 hex characters (colons allowed):
+  `mail account "<address>": imap.tls_cert_sha256 must be a SHA-256 fingerprint of 64 hex characters`
+  (or `smtp.` for the SMTP block).
 - `security` given as a value reference without `port`:
   `mail account "<address>": imap.port is required when imap.security is a value reference`
   (or `smtp.` for the SMTP block).
@@ -199,6 +276,8 @@ At step start, before connecting:
 - `mailbox` names no configured account:
   `mail account "<address>" is not configured`.
 - `mail.send` through an `imap` account without `smtp.host`.
+- `in_reply_to` without `mailbox`: `in_reply_to requires mailbox`.
+- `in_reply_to` with a malformed email ID, or naming more than one email.
 - `move: folder` with no `with.folder` while an item has no `move_to`.
 - A malformed email ID.
 
@@ -207,8 +286,16 @@ At run time:
 - An authentication failure fails the step with an error naming the account and
   the server's or token endpoint's reason, for example
   `mail account "<address>": sign-in is no longer valid (invalid_grant)`.
+- A Gmail API account whose grant does not cover Gmail fails with
+  `mail account "<address>": the sign-in does not grant Gmail access (needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/)`.
+  Any other refusal from the Gmail API, such as an API that is not enabled,
+  fails the step with Google's message after `gmail: `.
+- `in_reply_to` naming an email that is no longer in its folder fails the step
+  before sending, with an error containing
+  `in_reply_to: the email is no longer in its folder`.
 - A connection failure or timeout fails the step. An IMAP connection that
-  transfers nothing for two minutes counts as failed. Changes that
+  transfers nothing for two minutes counts as failed, as does a Gmail API
+  connection. Changes that
   `mail.organize` already applied stay applied.
 - `mail.search` with `save_attachments` while artifact storage is off:
   `save_attachments requires artifact storage`.

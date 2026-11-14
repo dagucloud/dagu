@@ -149,6 +149,21 @@ func WithScheduleTime(scheduleTime string) TaskOption {
 	}
 }
 
+// WithScheduleWindow sets the window the slot at the task's schedule time
+// owns.
+func WithScheduleWindow(window ir.ScheduleWindow) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.ScheduleWindow = window
+	}
+}
+
+// WithDates sets the run's dates, resolved when it was created.
+func WithDates(dates []ir.DateValue) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.Dates = dates
+	}
+}
+
 // WithProfileName sets the runtime profile name for a dispatched task.
 func WithProfileName(profileName string) TaskOption {
 	return func(task *dispatch.DispatchTask) {
@@ -167,6 +182,13 @@ func WithDefinitionID(id string) TaskOption {
 func WithTriggerActor(actor string) TaskOption {
 	return func(task *dispatch.DispatchTask) {
 		task.TriggerActor = actor
+	}
+}
+
+// WithTriggerType sets how a dispatched task's DAG run was initiated.
+func WithTriggerType(triggerType ir.TriggerType) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.TriggerType = triggerType
 	}
 }
 

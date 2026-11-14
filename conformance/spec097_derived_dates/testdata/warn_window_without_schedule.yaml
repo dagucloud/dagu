@@ -1,0 +1,4 @@
+dates:
+  since: { from: interval_start }
+steps:
+  - run: echo load

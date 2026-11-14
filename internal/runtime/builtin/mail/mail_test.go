@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
@@ -357,4 +358,31 @@ func TestMailRejectsUnreadableAttachment(t *testing.T) {
 			require.ErrorContains(t, exec.Run(ctx), fmt.Sprintf("attachment %q", path))
 		})
 	}
+}
+
+// TestMailRejectsUnknownWithKey verifies that the closed executor config schema
+// rejects an unknown `with` key at validation time instead of silently dropping
+// it. A `body` typo (vs the accepted `message`) must now fail `dagu validate`
+// rather than sending an email with an empty body (#3440).
+func TestMailRejectsUnknownWithKey(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		config map[string]any
+	}{
+		{"body typo", map[string]any{"to": "a@b.c", "body": "hi"}},
+		{"bogus key", map[string]any{"message": "hi", "cc": "x@y.z"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := registry.ValidateExecutorConfig("mail", tc.config)
+			require.Error(t, err, "unknown with key must be rejected")
+		})
+	}
+
+	// Accepted keys, including the previously-unlisted in_reply_to, still pass.
+	require.NoError(t, registry.ValidateExecutorConfig("mail", map[string]any{
+		"to": "a@b.c", "message": "hi", "in_reply_to": "id",
+	}))
 }

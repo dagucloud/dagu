@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({ preferences: { theme: 'light' } }),
+  useResolvedTheme: () => 'light',
 }));
 
 import { DiffModal } from '../DiffModal';

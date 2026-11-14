@@ -1,0 +1,6 @@
+schedule: "0 2 * * *"
+calendar: weekdays
+dates:
+  window_days: { each: 1d }
+steps:
+  - run: echo load

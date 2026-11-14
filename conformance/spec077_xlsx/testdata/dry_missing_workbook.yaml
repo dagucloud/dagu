@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: read
+    action: xlsx.read
+    with:
+      path: none-9f3c2b1a.xlsx
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: dry-out.json
+      content: ${steps.read.outputs.rows}

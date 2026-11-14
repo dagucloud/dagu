@@ -80,6 +80,9 @@ type Step struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`
+	// InferredDepends lists producers derived from step-output references.
+	// Entries order execution like Depends but are reported separately.
+	InferredDepends []InferredDependency `json:"inferredDepends,omitempty"`
 	// ExplicitlyNoDeps indicates the depends field was explicitly set to empty
 	ExplicitlyNoDeps bool `json:"-"`
 	// ContinueOn contains the conditions to continue on failure or skipped.
@@ -146,6 +149,11 @@ const (
 	// DAGU_OUTPUT_FILE.
 	StepDeclaredOutputSourceCapture = "capture"
 )
+
+// BrowserOutputDownloads is the output every browser step publishes: the
+// absolute paths of the files it downloaded, in the order they finished.
+// An extract schema may not list a property of that name.
+const BrowserOutputDownloads = "downloads"
 
 // StepOutputEntry defines one structured object-form output entry.
 type StepOutputEntry struct {
@@ -214,6 +222,38 @@ func (s Step) ValueOutputs() []StepOutputDeclaration {
 		}
 	}
 	return outputs
+}
+
+// InferredDependency records a producer step that a step-output reference
+// made a dependency, and the field path holding that reference.
+type InferredDependency struct {
+	Step  string `json:"step"`
+	Field string `json:"field,omitempty"`
+}
+
+// AllDepends returns the explicit dependencies followed by the inferred ones,
+// without duplicates.
+func (s *Step) AllDepends() []string {
+	if len(s.InferredDepends) == 0 {
+		return s.Depends
+	}
+	seen := make(map[string]struct{}, len(s.Depends)+len(s.InferredDepends))
+	all := make([]string, 0, len(s.Depends)+len(s.InferredDepends))
+	for _, dep := range s.Depends {
+		if _, ok := seen[dep]; ok {
+			continue
+		}
+		seen[dep] = struct{}{}
+		all = append(all, dep)
+	}
+	for _, dep := range s.InferredDepends {
+		if _, ok := seen[dep.Step]; ok {
+			continue
+		}
+		seen[dep.Step] = struct{}{}
+		all = append(all, dep.Step)
+	}
+	return all
 }
 
 // String returns a formatted string representation of the step
@@ -356,6 +396,13 @@ func (e ExecutorConfig) IsCommand() bool {
 	return e.Type == "" || e.Type == "command"
 }
 
+// IsVerbatimScript reports whether the executor receives the step script as
+// written, without workflow value resolution. Such executors interpret the
+// script text themselves and take workflow values through their config.
+func (e ExecutorConfig) IsVerbatimScript() bool {
+	return e.Type == "template" || e.Type == "js"
+}
+
 // RetryPolicy contains the retry policy for a step.
 type RetryPolicy struct {
 	// Limit is the number of retries allowed.
@@ -384,6 +431,17 @@ const (
 	RepeatModeUntil RepeatMode = "until"
 )
 
+// RepeatOnLimit is the type for the repeat-limit outcome.
+type RepeatOnLimit string
+
+const (
+	// RepeatOnLimitFail marks the step failed when an "until" loop exhausts
+	// its limit with the condition still unmet.
+	RepeatOnLimitFail RepeatOnLimit = "fail"
+	// RepeatOnLimitSucceed keeps the step's last result at the limit.
+	RepeatOnLimitSucceed RepeatOnLimit = "succeed"
+)
+
 // RepeatPolicy contains the repeat policy for a step.
 type RepeatPolicy struct {
 	// RepeatMode determines if and how the step should be repeated.
@@ -407,6 +465,10 @@ type RepeatPolicy struct {
 	Condition *Condition `json:"condition,omitempty"`
 	// ExitCode is the list of exit codes that should trigger a repeat.
 	ExitCode []int `json:"exitCode,omitempty"`
+	// OnLimit controls what happens when the repeat limit is reached with an
+	// "until" condition still unmet. Empty or "succeed" keeps the step's last
+	// result; "fail" marks the step failed.
+	OnLimit RepeatOnLimit `json:"onLimit,omitempty"`
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface for RepeatPolicy.
@@ -432,6 +494,7 @@ func (r *RepeatPolicy) UnmarshalJSON(data []byte) error {
 	r.Backoff = aux.Backoff
 	r.MaxInterval = aux.MaxInterval
 	r.MaxIntervalStr = aux.MaxIntervalStr
+	r.OnLimit = aux.OnLimit
 
 	// If RepeatMode is already set, we're done (new format)
 	if r.RepeatMode != "" {
@@ -544,6 +607,12 @@ const (
 
 	// ExecutorTypeBrowser is the executor type for browser automation steps.
 	ExecutorTypeBrowser = "browser"
+
+	// ExecutorTypeComputer is the executor type for desktop automation steps.
+	ExecutorTypeComputer = "computer"
+
+	// ExecutorTypeXlsx is the executor type for workbook steps.
+	ExecutorTypeXlsx = "xlsx"
 )
 
 // RouterConfig contains routing configuration for router-type steps.

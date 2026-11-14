@@ -1,0 +1,13 @@
+steps:
+  - action: chat.completion
+    with:
+      prompt: "Classify this note"
+      provider: openai
+      model: gpt-4o
+      web_search:
+        enabled: true
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string

@@ -72,6 +72,11 @@ type dag struct {
 	Dotenv types.StringOrArray `yaml:"dotenv,omitempty"`
 	// Schedule is the cron schedule to run the DAG.
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
+	// Calendar is the calendar of start schedules that name none.
+	Calendar string `yaml:"calendar,omitempty"`
+	// Dates derives dates from the run's schedule slot. The loader passes
+	// the mapping as single-entry mappings in document order.
+	Dates any `yaml:"dates,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
 	SkipIfSuccessful *bool `yaml:"skip_if_successful,omitempty"`
@@ -124,10 +129,14 @@ type dag struct {
 	DelaySec int `yaml:"delay_sec,omitempty"`
 	// RestartWaitSec is the wait in seconds to when the DAG is restarted.
 	RestartWaitSec int `yaml:"restart_wait_sec,omitempty"`
+	// RestartPolicy is no|always|unless-stopped: whether the scheduler keeps a run of the DAG alive.
+	RestartPolicy *string `yaml:"restart_policy,omitempty"`
 	// HistRetentionDays is the retention days of the dag-runs history.
 	HistRetentionDays *int `yaml:"hist_retention_days,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to retain in history.
 	HistRetentionRuns *int `yaml:"hist_retention_runs,omitempty"`
+	// SlotRetentionDays is how many days the record of each schedule slot is kept.
+	SlotRetentionDays *int `yaml:"slot_retention_days,omitempty"`
 	// Preconditions is the condition to run the DAG.
 	Preconditions any `yaml:"preconditions,omitempty"`
 	// MaxActiveRuns is the maximum number of concurrent dag-runs.
@@ -164,6 +173,8 @@ type dag struct {
 	Resources *resourcesConfig `yaml:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *webhookConfig `yaml:"webhook,omitempty"`
+	// Watch names the folder whose arriving files each start a run.
+	Watch *watchConfig `yaml:"watch,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
 	// Can be either a JSON string or a map of registry to auth config.
 	RegistryAuths any `yaml:"registry_auths,omitempty"`
@@ -296,6 +307,9 @@ type container struct {
 	PullPolicy any `yaml:"pull_policy,omitempty"`
 	// Env specifies environment variables for the container.
 	Env any `yaml:"env,omitempty"` // Can be a map or struct
+	// EnvFile lists dotenv-syntax files whose variables are injected into the
+	// container environment. Accepts a string or []string.
+	EnvFile types.StringOrArray `yaml:"env_file,omitempty"`
 	// Volumes specifies the volumes to mount in the container.
 	Volumes []string `yaml:"volumes,omitempty"` // Map of volume names to volume definitions
 	// User is the user to run the container as.
@@ -360,6 +374,16 @@ type webhookConfig struct {
 	ForwardHeaders []string `yaml:"forward_headers,omitempty"`
 }
 
+// watchConfig names a folder whose arriving files each start a run.
+type watchConfig struct {
+	// Path is the folder watched.
+	Path string `yaml:"path,omitempty"`
+	// Pattern is the glob a file's name must match, such as *.pdf.
+	Pattern string `yaml:"pattern,omitempty"`
+	// Interval is how often the folder is read, such as 30s; 10s by default.
+	Interval string `yaml:"interval,omitempty"`
+}
+
 // ssh defines the SSH configuration for the DAG.
 type ssh struct {
 	// User is the SSH user.
@@ -368,10 +392,12 @@ type ssh struct {
 	Host string `yaml:"host,omitempty"`
 	// Port is the SSH port (can be string or number).
 	Port types.PortValue `yaml:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 	// StrictHostKey enables strict host key checking. Defaults to true if not specified.
 	StrictHostKey *bool `yaml:"strict_host_key,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -394,10 +420,12 @@ type bastion struct {
 	Port types.PortValue `yaml:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `yaml:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 }
 
 // s3Config defines the default S3 configuration for the DAG.
@@ -543,11 +571,15 @@ var metadataParamsEnvStage = transformStage{
 	dagField("param_defs", buildParamDefs, func(out *ir.DAG, v []ir.ParamDef) { out.ParamDefs = v }),
 	dagField("param_schema", buildParamSchema, func(out *ir.DAG, v json.RawMessage) { out.ParamSchema = v }),
 	dagField("params_json", buildParamsJSON, func(out *ir.DAG, v string) { out.ParamsJSON = v }),
+	dagField("deferred_params", buildDeferredParams, func(out *ir.DAG, v []string) { out.DeferredParams = v }),
 	dagField("env", buildEnvs, func(out *ir.DAG, v []string) { out.Env = v }),
 }
 
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
+	dagField("calendar", buildCalendar, func(out *ir.DAG, v string) { out.Calendar = v }),
+	dagField("dates", buildDates, func(out *ir.DAG, v []ir.DateSpec) { out.Dates = v }),
+	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
 }
@@ -557,6 +589,7 @@ var metadataExecutionPlacementStage = transformStage{
 	dagField("timeout", buildTimeout, func(out *ir.DAG, v time.Duration) { out.Timeout = v }),
 	dagField("delay", buildDelay, func(out *ir.DAG, v time.Duration) { out.Delay = v }),
 	dagField("restart_wait", buildRestartWait, func(out *ir.DAG, v time.Duration) { out.RestartWait = v }),
+	dagField("restart_policy", buildRestartPolicy, func(out *ir.DAG, v ir.RestartPolicy) { out.RestartPolicy = v }),
 	dagField("max_active_runs", buildMaxActiveRuns, func(out *ir.DAG, v int) { out.MaxActiveRuns = v }),
 	dagField("max_active_steps", buildMaxActiveSteps, func(out *ir.DAG, v int) { out.MaxActiveSteps = v }),
 	dagField("queue", buildQueue, func(out *ir.DAG, v string) { out.Queue = v }),
@@ -592,6 +625,7 @@ var fullInteractionStage = transformStage{
 var fullRetentionStage = transformStage{
 	dagField("hist_retention_days", buildHistRetentionDays, func(out *ir.DAG, v int) { out.HistRetentionDays = v }),
 	dagField("hist_retention_runs", buildHistRetentionRuns, func(out *ir.DAG, v int) { out.HistRetentionRuns = v }),
+	dagField("slot_retention_days", buildSlotRetentionDays, func(out *ir.DAG, v int) { out.SlotRetentionDays = v }),
 	dagField("max_clean_up_time_sec", buildMaxCleanUpTime, func(out *ir.DAG, v time.Duration) { out.MaxCleanUpTime = v }),
 }
 
@@ -675,6 +709,14 @@ type dagBuildState struct {
 	spec   *dag
 	result *ir.DAG
 	errs   ir.ErrorList
+	// ownEnv counts the DAG's own env entries before base-config entries are
+	// composed in front of them.
+	ownEnv int
+	// calendarWarnings reports calendars whose holidays run out soon.
+	calendarWarnings []string
+	// datesWarnings reports dates that no run of the DAG on its own can
+	// resolve.
+	datesWarnings []string
 }
 
 func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
@@ -692,6 +734,7 @@ func (s *dagBuildState) validateSpecShape() {
 	if err := validateHistoryRetentionConfig(s.spec); err != nil {
 		s.errs = append(s.errs, err)
 	}
+	s.errs = append(s.errs, validateRestartPolicyConfig(s.spec)...)
 }
 
 func (s *dagBuildState) prepareParamEnvStage() {
@@ -717,6 +760,7 @@ func (s *dagBuildState) prepareParamEnvStage() {
 
 func (s *dagBuildState) runFieldStages() {
 	s.errs = append(s.errs, runTransformers(s.ctx, s.spec, s.result)...)
+	s.ownEnv = len(s.result.Env)
 }
 
 func (s *dagBuildState) composeInheritedContext() {
@@ -730,6 +774,143 @@ func (s *dagBuildState) composeInheritedContext() {
 		return
 	}
 	s.result = merged
+}
+
+// bindScheduleCalendars gives each start schedule its effective calendar,
+// its own or the DAG's, and binds the calendar so the schedule fires on its
+// business days. A base config is left as written: its schedules take the
+// calendar of the DAG it merges into.
+func (s *dagBuildState) bindScheduleCalendars() {
+	if s.ctx.opts.Has(buildFlagBaseDefinition) {
+		return
+	}
+	now := time.Now()
+	today := ir.DateOf(now)
+	// reported holds the calendars already warned or failed about, so one
+	// calendar shared by several schedules is reported once.
+	reported := make(map[string]bool)
+	for i := range s.result.Schedule {
+		sched := &s.result.Schedule[i]
+		if !sched.IsCron() {
+			continue
+		}
+		calendarField := "calendar"
+		if sched.Calendar == "" {
+			sched.Calendar = s.result.Calendar
+			calendarField = ""
+		}
+		if !sched.HasCalendar() {
+			sched.Calendar = ""
+			if len(sched.BusinessDays) > 0 {
+				s.errs = append(s.errs, s.scheduleFieldError(i, "business_days",
+					fmt.Errorf("business_days needs a calendar: set calendar on the entry or the DAG")))
+			}
+			continue
+		}
+		cal, err := resolveScheduleCalendar(s.ctx.opts.Calendars, sched.Calendar)
+		if err != nil && !reported[sched.Calendar] {
+			reported[sched.Calendar] = true
+			s.errs = append(s.errs, s.scheduleFieldError(i, calendarField, err))
+		}
+		if cal == nil {
+			// Unresolved calendar schedules stay unbound and never fire.
+			sched.Parsed = nil
+			continue
+		}
+		if err := sched.BindCalendar(cal); err != nil {
+			s.errs = append(s.errs, ir.NewValidationError("schedule", sched.Expression, err))
+			continue
+		}
+		if warning := CalendarExpiryWarning(cal.Name, cal.Through, today); warning != "" && !reported[cal.Name] {
+			reported[cal.Name] = true
+			s.calendarWarnings = append(s.calendarWarnings, warning)
+		}
+		// The search covers the same years as cron's, so a zero next fire
+		// means the expression and the calendar never agree.
+		if sched.Next(now).IsZero() {
+			s.calendarWarnings = append(s.calendarWarnings, fmt.Sprintf(
+				"schedule %q never fires: no time it matches falls on a business day of calendar %q",
+				sched.Expression, sched.Calendar))
+		}
+	}
+}
+
+// validateScheduleParams checks literal overrides without evaluating dynamic
+// defaults. Run admission still validates the fully resolved inputs.
+func (s *dagBuildState) validateScheduleParams() {
+	if s.ctx.opts.Has(buildFlagBaseDefinition) || s.ctx.opts.Has(buildFlagSkipSchemaValidation) ||
+		!slices.ContainsFunc(s.result.Schedule, func(schedule ir.Schedule) bool { return len(schedule.Params) > 0 }) {
+		return
+	}
+	plan, err := buildDAGParamPlan(s.ctx, s.spec)
+	if err != nil {
+		return // The params transformer reports an invalid declaration.
+	}
+	plan.inheritedNames = inheritedParamNames(s.ctx.baseDAG, plan)
+	opts := s.ctx.opts
+	opts.Flags |= buildFlagNoEval
+	ctx := s.ctx.WithOpts(opts)
+	for i, schedule := range s.result.Schedule {
+		if len(schedule.Params) == 0 {
+			continue
+		}
+		input := string(schedule.Params)
+		switch plan.kind {
+		case dagParamKindLegacy:
+			if plan.schema == nil {
+				_, err = resolveLegacyRuntimePairs(plan.entries, plan.inheritedNames, input, nil)
+			} else {
+				_, err = resolveLegacyEntries(ctx, plan, input, nil, true)
+			}
+		case dagParamKindExternalSchema:
+			_, err = resolveExternalSchemaEntries(plan, input, nil)
+		case dagParamKindInlineSchema:
+			_, err = resolveInlineSchemaEntries(plan, input, nil)
+		}
+		if err != nil {
+			s.errs = append(s.errs, s.scheduleFieldError(i, "params", err))
+		}
+	}
+}
+
+// scheduleFieldError reports err at a field of start schedule i, or at the
+// DAG's calendar when field is empty because the schedule took the DAG's.
+// Errors about schedules or calendars inherited from a base config have no
+// field in the document.
+func (s *dagBuildState) scheduleFieldError(i int, field string, err error) error {
+	if field == "" {
+		if s.spec.Calendar != "" {
+			return &FieldError{Path: "calendar", Err: err}
+		}
+	} else if path, ok := s.spec.Schedule.StartPath(i); ok {
+		return &FieldError{Path: path + "." + field, Err: err}
+	}
+	return ir.NewValidationError("schedule", nil, err)
+}
+
+// resolveScheduleCalendar loads a calendar a schedule names. Without a
+// source with a directory it returns only built-in calendars, and nil
+// otherwise.
+func resolveScheduleCalendar(source *CalendarSource, name string) (*ir.Calendar, error) {
+	if cal, ok := ir.BuiltinCalendar(name); ok || source == nil || source.Dir() == "" {
+		return cal, nil
+	}
+	return source.Calendar(name)
+}
+
+// BindScheduleCalendars binds the calendars that decoded start schedules
+// name, such as schedules rebuilt from an index entry. A calendar that does
+// not load leaves its schedule unbound, so it never fires.
+func BindScheduleCalendars(schedules []ir.Schedule, source *CalendarSource) {
+	for i := range schedules {
+		sched := &schedules[i]
+		if !sched.HasCalendar() {
+			continue
+		}
+		if cal, err := resolveScheduleCalendar(source, sched.Calendar); err == nil && cal != nil {
+			_ = sched.BindCalendar(cal)
+		}
+	}
 }
 
 func (s *dagBuildState) resolveWorkerSelector() {
@@ -801,6 +982,8 @@ func (s *dagBuildState) resolveWorkerSelector() {
 	s.result.WorkerSelector = resolved
 }
 
+// collectWarnings sets the DAG's build warnings: deprecated settings,
+// schedule notes, and what step executors report about their configuration.
 func (s *dagBuildState) collectWarnings() {
 	s.result.BuildWarnings = nil
 
@@ -813,6 +996,12 @@ func (s *dagBuildState) collectWarnings() {
 		))
 	}
 
+	if base := s.ctx.baseDAG; base != nil && (len(base.ParamDefs) > 0 || len(base.Params) > 0 || len(base.ParamSchema) > 0) {
+		s.result.BuildWarnings = append(s.result.BuildWarnings,
+			"params in the base config are not supported. "+
+				"Declare params in each DAG that uses them, or use consts in the base config for shared fixed values.")
+	}
+
 	for _, sched := range s.result.Schedule {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
@@ -822,16 +1011,21 @@ func (s *dagBuildState) collectWarnings() {
 	for _, sched := range s.result.RestartSchedule {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
+	s.result.BuildWarnings = append(s.result.BuildWarnings, s.calendarWarnings...)
+	s.result.BuildWarnings = append(s.result.BuildWarnings, s.datesWarnings...)
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
+		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
+		s.result.BuildWarnings = append(s.result.BuildWarnings, modelOutputInRunWarnings(s.result)...)
 	}
 }
 
+// harnessWorkingDirWarnings reports harness steps that leave the agent's
+// workspace to an implicit working directory.
 func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 	var warnings []string
-	var visit func(ir.Step, string)
-	visit = func(step ir.Step, path string) {
-		if step.ExecutorConfig.Type == "harness" {
+	walkSteps(dag, func(step ir.Step, path string) {
+		if step.ExecutorConfig.Type == "harness" && !harnessRunsRemotely(step.ExecutorConfig.Config, dag.Harnesses) {
 			container := step.Container
 			if container == nil {
 				container = dag.Container
@@ -848,14 +1042,135 @@ func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 				warnings = append(warnings, fmt.Sprintf("DAG %q: harness step %q %s", dag.Name, path, message))
 			}
 		}
+	})
+	return warnings
+}
+
+// harnessRunsRemotely reports whether every provider attempt of a harness step
+// connects to a remote ACP agent, which has no local workspace.
+func harnessRunsRemotely(config map[string]any, defs ir.HarnessDefinitions) bool {
+	attempts := []map[string]any{config}
+	switch fallback := config["fallback"].(type) {
+	case []map[string]any:
+		attempts = append(attempts, fallback...)
+	case []any:
+		for _, item := range fallback {
+			attempt, _ := item.(map[string]any)
+			attempts = append(attempts, attempt)
+		}
+	}
+	for _, attempt := range attempts {
+		if def := defs[harnessProviderName(attempt)]; def == nil || !def.IsRemote() {
+			return false
+		}
+	}
+	return true
+}
+
+// executorConfigWarnings returns the warnings each step's executor reports
+// about its configuration.
+func executorConfigWarnings(dag *ir.DAG) []string {
+	var warnings []string
+	walkSteps(dag, func(step ir.Step, path string) {
+		for _, message := range registry.StepConfigWarnings(step) {
+			warnings = append(warnings, fmt.Sprintf("DAG %q: step %q: %s", dag.Name, path, message))
+		}
+	})
+	return warnings
+}
+
+// modelOutputInRunWarnings reports shell commands that have a model's reply
+// written into their text. Dagu does not escape inserted values, and a reply can
+// carry whatever text the model read, so it can run as shell code.
+func modelOutputInRunWarnings(dag *ir.DAG) []string {
+	models := make(map[string]ir.Step)
+	commands := make(map[string]struct{})
+	walkSteps(dag, func(step ir.Step, _ string) {
+		if isModelStep(step) {
+			models[step.Name] = step
+			if step.ID != "" {
+				models[step.ID] = step
+			}
+		}
+		if step.ExecutorConfig.IsCommand() {
+			commands[step.Name] = struct{}{}
+		}
+	})
+	if len(models) == 0 {
+		return nil
+	}
+
+	var warnings []string
+	seen := make(map[string]struct{})
+	for _, field := range ReferenceFields(dag) {
+		if _, ok := commands[field.OwnerStepName]; !ok || !field.Field.ReachesShell() {
+			continue
+		}
+		for _, ref := range field.Field.StepTextReferences(field.Value) {
+			model, ok := models[ref.StepName]
+			if !ok || !IsShellUnsafeModelOutput(model, ref.Field) {
+				continue
+			}
+			warning := fmt.Sprintf(
+				"DAG %q: step %q: %s writes model output into a shell command. "+
+					"Dagu does not escape it, so quotes or $(...) in the text can run as shell code. "+
+					"Pass it through env and read it from the environment instead.",
+				dag.Name, field.OwnerStepName, ref.Expression,
+			)
+			if _, ok := seen[warning]; ok {
+				continue
+			}
+			seen[warning] = struct{}{}
+			warnings = append(warnings, warning)
+		}
+	}
+	return warnings
+}
+
+// IsShellUnsafeModelOutput reports whether the named output of the step is model
+// text that can run as shell code when written into a shell command (spec 067).
+func IsShellUnsafeModelOutput(step ir.Step, output string) bool {
+	return isModelStep(step) && !schemaExcludesShellSyntax(step, output)
+}
+
+// isModelStep reports whether a model writes the outputs of the step.
+func isModelStep(step ir.Step) bool {
+	switch step.ExecutorConfig.Type {
+	case "harness", ir.ExecutorTypeChat, ir.ExecutorTypeAgent:
+		return true
+	}
+	return false
+}
+
+// schemaExcludesShellSyntax reports whether the step's output schema limits the
+// field to values the author chose or to non-text values.
+func schemaExcludesShellSyntax(step ir.Step, field string) bool {
+	properties, _ := step.OutputSchema["properties"].(map[string]any)
+	property, _ := properties[field].(map[string]any)
+	if _, ok := property["enum"]; ok {
+		return true
+	}
+	switch property["type"] {
+	case "boolean", "integer", "number":
+		return true
+	}
+	return false
+}
+
+// walkSteps calls visit for every step of dag, including foreach bodies and
+// handlers, with the step's path in the DAG.
+func walkSteps(dag *ir.DAG, visit func(step ir.Step, path string)) {
+	var walk func(ir.Step, string)
+	walk = func(step ir.Step, path string) {
+		visit(step, path)
 		if step.Foreach != nil {
 			for _, child := range step.Foreach.Steps {
-				visit(child, path+".foreach.steps."+child.Name)
+				walk(child, path+".foreach.steps."+child.Name)
 			}
 		}
 	}
 	for _, step := range dag.Steps {
-		visit(step, "steps."+step.Name)
+		walk(step, "steps."+step.Name)
 	}
 	for _, handler := range []struct {
 		name string
@@ -869,18 +1184,34 @@ func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 		{"wait", dag.HandlerOn.Wait},
 	} {
 		if handler.step != nil {
-			visit(*handler.step, "handler_on."+handler.name)
+			walk(*handler.step, "handler_on."+handler.name)
 		}
 	}
-	return warnings
 }
 
+// buildActionGraph builds the handlers and steps of the DAG.
 func (s *dagBuildState) buildActionGraph() {
 	if s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		return
 	}
 
-	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result); err != nil {
+	// Handlers and steps share the defaults, so an invalid defaults block is
+	// reported once rather than under each of them.
+	if defs, err := buildStepDefaults(s.ctx, s.spec); err != nil {
+		s.errs = append(s.errs, err)
+	} else {
+		s.buildHandlersAndSteps(defs)
+	}
+
+	if err := injectAgentStep(s.result); err != nil {
+		s.errs = append(s.errs, err)
+	}
+}
+
+// buildHandlersAndSteps builds handlers and steps with defs applied and
+// composes them with those inherited from base config.
+func (s *dagBuildState) buildHandlersAndSteps(defs *defaults) {
+	if handlerOn, err := buildHandlers(s.ctx, s.spec, s.result, defs); err != nil {
 		s.errs = append(s.errs, ir.NewValidationError("handlers", nil, err))
 	} else {
 		composed, err := composeHandlerOn(s.result.HandlerOn, handlerOn)
@@ -891,14 +1222,10 @@ func (s *dagBuildState) buildActionGraph() {
 		}
 	}
 
-	if steps, err := buildSteps(s.ctx, s.spec, s.result); err != nil {
+	if steps, err := buildSteps(s.ctx, s.spec, s.result, defs); err != nil {
 		s.errs = append(s.errs, ir.NewValidationError("steps", nil, err))
 	} else {
 		s.result.Steps = composeSteps(s.result.Steps, steps)
-	}
-
-	if err := injectAgentStep(s.result); err != nil {
-		s.errs = append(s.errs, err)
 	}
 }
 
@@ -921,6 +1248,14 @@ func (s *dagBuildState) validateResult() {
 		}
 	}
 
+	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {
+		s.errs = append(s.errs, ir.NewValidationError(
+			"restart_wait_sec",
+			s.result.RestartWait,
+			fmt.Errorf("restart_wait_sec must be at least 1 when restart_policy is %q", s.result.RestartPolicy),
+		))
+	}
+
 	if s.result.Name != "" {
 		if err := ir.ValidateDAGName(s.result.Name); err != nil {
 			s.errs = append(s.errs, ir.NewValidationError("name", s.result.Name, err))
@@ -940,6 +1275,11 @@ func (s *dagBuildState) capturePresolvedBuildEnv() {
 func (s *dagBuildState) markEnvEvaluated() {
 	s.result.EnvEvaluated = !s.ctx.opts.Has(buildFlagNoEval)
 	s.result.RuntimeResolved = s.ctx.opts.RuntimeResolved || (s.result.EnvEvaluated && len(s.result.Dotenv) == 0)
+	s.result.RootEnvSpan = ir.EnvSpan{}
+	if s.result.EnvEvaluated {
+		end := len(s.result.Env)
+		s.result.RootEnvSpan = ir.EnvSpan{Start: max(end-s.ownEnv, 0), End: end}
+	}
 }
 
 func (s *dagBuildState) finish() (*ir.DAG, error) {
@@ -964,9 +1304,13 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.prepareParamEnvStage()
 	state.runFieldStages()
 	state.composeInheritedContext()
+	state.bindScheduleCalendars()
+	state.validateScheduleParams()
+	state.validateDates()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()
+	state.collectCredentialRefs()
 	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()
@@ -986,6 +1330,8 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	inheritSSHAuth(effective, base, current)
+	effective.Params = mergeInheritedParams(base.Params, current.Params)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
 	// false and empty values must be able to disable inherited behavior.
@@ -1004,8 +1350,60 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if currentSpec.Queue != nil {
 		effective.Queue = current.Queue
 	}
+	// A service DAG is neither scheduled nor retried at the DAG level, so what the
+	// base configuration adds is dropped.
+	if effective.RestartPolicy.Enabled() {
+		effective.Schedule = nil
+		effective.StopSchedule = nil
+		effective.RestartSchedule = nil
+		effective.RetryPolicy = nil
+		// Days of runs do not bound the history of a DAG that restarts every
+		// few seconds, so only a retention in its own file keeps days.
+		if currentSpec.HistRetentionDays == nil {
+			effective.HistRetentionDays = 0
+		}
+	}
 
 	return effective, nil
+}
+
+// mergeInheritedParams lists the inherited params before the DAG's own. A DAG
+// value of an inherited param takes the inherited entry's place, so each name
+// is listed once, in a stable order, with the value used at runtime.
+func mergeInheritedParams(inherited, own []string) []string {
+	if len(inherited) == 0 {
+		return own
+	}
+	if len(own) == 0 {
+		return inherited
+	}
+	ownValues := make(map[string]string, len(own))
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			ownValues[name] = param
+		}
+	}
+	merged := make([]string, 0, len(inherited)+len(own))
+	placed := make(map[string]struct{}, len(ownValues))
+	for _, param := range inherited {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if value, overridden := ownValues[name]; overridden {
+				merged = append(merged, value)
+				placed[name] = struct{}{}
+				continue
+			}
+		}
+		merged = append(merged, param)
+	}
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if _, done := placed[name]; done {
+				continue
+			}
+		}
+		merged = append(merged, param)
+	}
+	return merged
 }
 
 func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns bool) {
@@ -1082,6 +1480,64 @@ func buildDelay(_ buildContext, d *dag) (time.Duration, error) {
 
 func buildRestartWait(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.RestartWaitSec), nil
+}
+
+func buildRestartPolicy(_ buildContext, d *dag) (ir.RestartPolicy, error) {
+	if d.RestartPolicy == nil {
+		return ir.RestartPolicyNo, nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil {
+		return ir.RestartPolicyNo, ir.NewValidationError("restart_policy", *d.RestartPolicy, err)
+	}
+	return policy, nil
+}
+
+// validateBaseRestartPolicy rejects a base configuration that sets a restart
+// policy: it applies to every DAG, so it would turn them all into services.
+func validateBaseRestartPolicy(d *dag) error {
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	return ir.NewValidationError(
+		"restart_policy",
+		*d.RestartPolicy,
+		fmt.Errorf("restart_policy cannot be set in the base configuration: set it in the DAG that needs it"),
+	)
+}
+
+// validateRestartPolicyConfig rejects what a service DAG (one the scheduler
+// keeps alive) must not define itself: a schedule, which would start runs of its
+// own, and a DAG-level retry policy, which would restart a failed run next to
+// the restart policy. An invalid policy value is reported by buildRestartPolicy.
+func validateRestartPolicyConfig(d *dag) []error {
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	var errs []error
+	if len(d.Schedule.Starts())+len(d.Schedule.Stops())+len(d.Schedule.Restarts()) > 0 {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with schedule"),
+		))
+	}
+	if d.RetryPolicy != nil {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with retry_policy"),
+		))
+	}
+	return errs
 }
 
 func buildLabels(_ buildContext, d *dag) (ir.Labels, error) {
@@ -1190,11 +1646,12 @@ func buildLogDir(_ buildContext, d *dag) (string, error) {
 func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
 	usesArtifactOutput := dagUsesArtifactOutput(d)
-	// Browser actions store screenshots and downloads as artifacts but still
-	// run, without them, when artifacts are disabled explicitly.
-	usesBrowserAction := dagUsesBuiltinAction(d, browserActionPrefix)
-	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesBrowserAction ||
-		dagSavesMailAttachments(d)
+	// Browser and computer actions store screenshots, and browser downloads,
+	// as artifacts but still run, without them, when artifacts are disabled
+	// explicitly.
+	usesScreenAction := dagUsesBuiltinAction(d, browserActionPrefix) || dagUsesBuiltinAction(d, computerActionPrefix)
+	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction ||
+		dagSavesMailAttachments(d) || dagKeepsXlsxArtifact(d)
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(
@@ -1270,6 +1727,35 @@ func dagSavesMailAttachments(d *dag) bool {
 		}
 		save, ok := derefForSearch(with.MapIndex(reflect.ValueOf("save_attachments")))
 		return ok && save.Kind() == reflect.Bool && save.Bool()
+	})
+}
+
+// dagKeepsXlsxArtifact reports whether an xlsx writer step may keep its
+// workbook as an artifact: artifact is literally true, or a value
+// reference such as ${params.KEEP} that is only known at run time. Storage
+// is enabled for the reference case so a value that resolves to true does
+// not fail the step.
+func dagKeepsXlsxArtifact(d *dag) bool {
+	return dagDeclaresAction(d, func(action string, with reflect.Value) bool {
+		if !strings.HasPrefix(action, "xlsx.") {
+			return false
+		}
+		with, ok := derefForSearch(with)
+		if !ok || with.Kind() != reflect.Map {
+			return false
+		}
+		keep, ok := derefForSearch(with.MapIndex(reflect.ValueOf("artifact")))
+		if !ok {
+			return false
+		}
+		if keep.Kind() == reflect.Bool {
+			return keep.Bool()
+		}
+		if keep.Kind() == reflect.String {
+			text := keep.String()
+			return cmnvalue.HasValueReference(text) || strings.EqualFold(strings.TrimSpace(text), "true")
+		}
+		return false
 	})
 }
 
@@ -1677,6 +2163,37 @@ func buildResources(_ buildContext, d *dag) (*ir.Resources, error) {
 	return &ir.Resources{Limits: limits}, nil
 }
 
+// buildWatchConfig checks a watch block: a folder, a name pattern that
+// filepath.Match takes, and an interval of at least a second.
+func buildWatchConfig(_ buildContext, d *dag) (*ir.WatchConfig, error) {
+	if d.Watch == nil {
+		return nil, nil
+	}
+	path := strings.TrimSpace(d.Watch.Path)
+	if path == "" {
+		return nil, ir.NewValidationError("watch.path", d.Watch.Path, fmt.Errorf("the folder to watch is required"))
+	}
+	pattern := strings.TrimSpace(d.Watch.Pattern)
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return nil, ir.NewValidationError("watch.pattern", d.Watch.Pattern, err)
+	}
+	if pattern == "*" {
+		pattern = ""
+	}
+	interval := ir.DefaultWatchInterval
+	if raw := strings.TrimSpace(d.Watch.Interval); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, ir.NewValidationError("watch.interval", d.Watch.Interval, fmt.Errorf("interval must be a duration such as 30s"))
+		}
+		if parsed < time.Second {
+			return nil, ir.NewValidationError("watch.interval", d.Watch.Interval, fmt.Errorf("interval must be at least 1s"))
+		}
+		interval = parsed
+	}
+	return &ir.WatchConfig{Path: path, Pattern: pattern, Interval: interval}, nil
+}
+
 func buildWebhookConfig(_ buildContext, d *dag) (*ir.WebhookConfig, error) {
 	if d.Webhook == nil {
 		return nil, nil
@@ -1732,6 +2249,16 @@ func buildHistRetentionRuns(_ buildContext, d *dag) (int, error) {
 	return 0, nil
 }
 
+func buildSlotRetentionDays(_ buildContext, d *dag) (int, error) {
+	if d.SlotRetentionDays != nil {
+		if *d.SlotRetentionDays <= 0 {
+			return 0, fmt.Errorf("slot_retention_days must be > 0")
+		}
+		return *d.SlotRetentionDays, nil
+	}
+	return 0, nil
+}
+
 func validateHistoryRetentionConfig(d *dag) error {
 	if d.HistRetentionDays == nil || d.HistRetentionRuns == nil {
 		return nil
@@ -1777,6 +2304,17 @@ func buildSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {
 	return slices.Clone(d.Schedule.Starts()), nil
 }
 
+func buildCalendar(_ buildContext, d *dag) (string, error) {
+	name := strings.TrimSpace(d.Calendar)
+	if name == "" {
+		return "", nil
+	}
+	if err := ir.ValidateCalendarName(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
 func buildStopSchedule(_ buildContext, d *dag) ([]ir.Schedule, error) {
 	if d.Schedule.IsZero() {
 		return nil, nil
@@ -1798,6 +2336,8 @@ type paramsResult struct {
 	ParamDefs     []ir.ParamDef
 	ParamSchema   json.RawMessage
 	ParamsJSON    string // JSON representation of resolved params (original payload when provided as JSON)
+	// DeferredParams names the params whose eval waits for the run.
+	DeferredParams []string
 }
 
 func buildParams(ctx buildContext, d *dag) ([]string, error) {
@@ -1878,6 +2418,14 @@ func buildParamsJSON(ctx buildContext, d *dag) (string, error) {
 		return "", err
 	}
 	return result.ParamsJSON, nil
+}
+
+func buildDeferredParams(ctx buildContext, d *dag) ([]string, error) {
+	result, err := parseParamsInternal(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	return result.DeferredParams, nil
 }
 
 func buildParamSchema(ctx buildContext, d *dag) (json.RawMessage, error) {
@@ -2036,6 +2584,14 @@ func parseParamsInternal(ctx buildContext, d *dag) (*paramsResult, error) {
 	}
 
 	result, err := buildDAGParamsResult(ctx, d)
+	if err != nil {
+		// Every params field builder returns this same instance, so attributing
+		// it to 'params' here lets the build report it once instead of once per
+		// derived field (see dagBuildState.finish).
+		if _, ok := errors.AsType[*ir.ValidationError](err); !ok {
+			err = ir.NewValidationError("params", nil, err)
+		}
+	}
 	if ctx.paramsState != nil {
 		ctx.paramsState.cached = true
 		ctx.paramsState.result = result
@@ -2235,6 +2791,7 @@ func buildContainerField(ctx buildContext, raw any) (*ir.Container, error) {
 			ErrorUnused:      true,
 			WeaklyTypedInput: true,
 			TagName:          "yaml",
+			DecodeHook:       typedUnionDecodeHook(),
 		})
 		if err != nil {
 			return nil, ir.NewValidationError("container", nil,
@@ -2336,6 +2893,7 @@ func buildContainerFromSpec(_ buildContext, c *container) (*ir.Container, error)
 			User:       c.User,
 			WorkingDir: c.WorkingDir,
 			Env:        envs,
+			EnvFile:    c.EnvFile.Values(),
 			Shell:      c.Shell,
 		}, nil
 	}
@@ -2368,6 +2926,7 @@ func buildContainerFromSpec(_ buildContext, c *container) (*ir.Container, error)
 		Image:         c.Image,
 		PullPolicy:    pullPolicy,
 		Env:           envs,
+		EnvFile:       c.EnvFile.Values(),
 		Volumes:       c.Volumes,
 		User:          c.User,
 		WorkingDir:    c.WorkingDir,
@@ -2532,19 +3091,26 @@ func buildSSH(_ buildContext, d *dag) (*ir.SSHConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	auth, err := ir.ParseSSHAuth("ssh", d.SSH.Key, d.SSH.Password, d.SSH.Passphrase)
+	if err != nil {
+		return nil, err
+	}
+	bastion, err := buildBastionConfig(d.SSH.Bastion)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ir.SSHConfig{
 		User:          d.SSH.User,
 		Host:          d.SSH.Host,
 		Port:          defaultPort(d.SSH.Port.String(), "22"),
-		Key:           d.SSH.Key,
-		Password:      d.SSH.Password,
+		SSHAuth:       auth,
 		StrictHostKey: d.SSH.StrictHostKey == nil || *d.SSH.StrictHostKey,
 		KnownHostFile: d.SSH.KnownHostFile,
 		Shell:         shell,
 		ShellArgs:     shellArgs,
 		Timeout:       d.SSH.Timeout,
-		Bastion:       buildBastionConfig(d.SSH.Bastion),
+		Bastion:       bastion,
 	}, nil
 }
 
@@ -2571,17 +3137,20 @@ func parseSSHShell(shellVal types.ShellValue) (string, []string, error) {
 }
 
 // buildBastionConfig builds bastion configuration from spec.
-func buildBastionConfig(bastion *bastion) *ir.BastionConfig {
+func buildBastionConfig(bastion *bastion) (*ir.BastionConfig, error) {
 	if bastion == nil {
-		return nil
+		return nil, nil
+	}
+	auth, err := ir.ParseSSHAuth("ssh.bastion", bastion.Key, bastion.Password, bastion.Passphrase)
+	if err != nil {
+		return nil, err
 	}
 	return &ir.BastionConfig{
-		Host:     bastion.Host,
-		Port:     defaultPort(bastion.Port.String(), "22"),
-		User:     bastion.User,
-		Key:      bastion.Key,
-		Password: bastion.Password,
-	}
+		Host:    bastion.Host,
+		Port:    defaultPort(bastion.Port.String(), "22"),
+		User:    bastion.User,
+		SSHAuth: auth,
+	}, nil
 }
 
 // defaultPort returns the port if non-empty, otherwise returns the default value.
@@ -2661,8 +3230,25 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 				fmt.Errorf("max_tokens must be at least 1"))
 		}
 	}
+	// Zero would leave a chat step no round in which to call the model.
+	if cfg.MaxToolIterations != nil && *cfg.MaxToolIterations < 1 {
+		return nil, ir.NewValidationError("llm.max_tool_iterations", *cfg.MaxToolIterations,
+			fmt.Errorf("max_tool_iterations must be at least 1"))
+	}
 	if err := validateAgentLLMLimits(cfg, canonicalDAGType(d.Type) == ir.TypeAgent); err != nil {
 		return nil, err
+	}
+	if err := validateProviderOrder(cfg, models); err != nil {
+		return nil, err
+	}
+	// The files a model reads belong with the prompt that asks about them.
+	if !cfg.Files.IsZero() {
+		return nil, ir.NewValidationError("llm.files", cfg.Files.Value(),
+			fmt.Errorf("files is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
+	}
+	if cfg.MaxFileChars != nil {
+		return nil, ir.NewValidationError("llm.max_file_chars", *cfg.MaxFileChars,
+			fmt.Errorf("max_file_chars is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
 	}
 
 	thinking, err := buildThinkingConfig(cfg.Thinking)
@@ -2685,6 +3271,7 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 		Tools:       cfg.Tools,
 		WebSearch:   buildWebSearchConfig(cfg.WebSearch),
 
+		ProviderOrder:         cfg.ProviderOrder,
 		MaxToolIterations:     cfg.MaxToolIterations,
 		MaxContextTokens:      cfg.MaxContextTokens,
 		ObservationMaxBytes:   cfg.ObservationMaxBytes,
@@ -2757,6 +3344,7 @@ func parseHarnessDefinitions(raw map[string]any) (ir.HarnessDefinitions, error) 
 	return defs, nil
 }
 
+// parseHarnessDefinition validates a named CLI or ACP harness and applies CLI defaults.
 func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinition, error) {
 	def := &ir.HarnessDefinition{
 		PromptMode:     ir.HarnessPromptModeArg,
@@ -2776,6 +3364,40 @@ func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinit
 				)
 			}
 			def.Binary = strings.TrimSpace(binary)
+
+		case "transport", "url", "cwd", "ca_file":
+			text, ok := value.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), value, fmt.Errorf("%s must be a non-empty string", key))
+			}
+			switch key {
+			case "transport":
+				def.Transport = ir.HarnessTransport(text)
+			case "url":
+				def.URL = text
+			case "cwd":
+				def.Cwd = text
+			case "ca_file":
+				def.CAFile = text
+			}
+		case "bearer_subprotocol":
+			enabled, ok := value.(bool)
+			if !ok {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), value, fmt.Errorf("bearer_subprotocol must be a boolean"))
+			}
+			def.BearerSubprotocol = enabled
+		case "headers":
+			headers, err := harnessStringMap(value)
+			if err != nil {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.headers", name), value, fmt.Errorf("headers must map names to strings"))
+			}
+			def.Headers = headers
+		case "protocol":
+			protocol, ok := value.(string)
+			if !ok || (ir.HarnessProtocol(protocol) != ir.HarnessProtocolCLI && ir.HarnessProtocol(protocol) != ir.HarnessProtocolACP) {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.protocol", name), value, fmt.Errorf("protocol must be cli or acp"))
+			}
+			def.Protocol = ir.HarnessProtocol(protocol)
 		case "prefix_args":
 			prefixArgs, err := harnessStringSlice(value)
 			if err != nil {
@@ -2837,12 +3459,36 @@ func parseHarnessDefinition(name string, raw map[string]any) (*ir.HarnessDefinit
 		}
 	}
 
-	if def.Binary == "" {
-		return nil, ir.NewValidationError(
-			fmt.Sprintf("harnesses.%s.binary", name),
-			raw["binary"],
-			fmt.Errorf("binary is required"),
-		)
+	if def.IsRemote() {
+		for _, key := range []string{"binary", "prefix_args", "option_flags", "flag_style"} {
+			if _, exists := raw[key]; exists {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), raw[key], fmt.Errorf("%s is not supported with remote transport", key))
+			}
+		}
+	} else {
+		for _, key := range []string{"url", "headers", "cwd", "ca_file"} {
+			if _, exists := raw[key]; exists {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), raw[key], fmt.Errorf("%s requires a remote transport", key))
+			}
+		}
+	}
+
+	if _, exists := raw["bearer_subprotocol"]; exists && def.Transport != ir.HarnessTransportWebSocket {
+		return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.bearer_subprotocol", name), raw["bearer_subprotocol"], fmt.Errorf("bearer_subprotocol requires transport: websocket"))
+	}
+	if !def.IsRemote() && def.Binary == "" {
+		return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.binary", name), raw["binary"], fmt.Errorf("binary is required"))
+	}
+	if err := def.ValidateConnection(); err != nil {
+		return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s", name), nil, err)
+	}
+
+	if def.Protocol == ir.HarnessProtocolACP {
+		for _, key := range []string{"prompt_mode", "prompt_flag", "prompt_position"} {
+			if _, exists := raw[key]; exists {
+				return nil, ir.NewValidationError(fmt.Sprintf("harnesses.%s.%s", name, key), raw[key], fmt.Errorf("ACP sends prompts over the protocol; %s is not supported", key))
+			}
+		}
 	}
 
 	switch def.PromptMode {
@@ -3037,7 +3683,11 @@ func buildToolRegistry(registry *toolRegistry) (*ir.ToolRegistry, error) {
 		typ = "standard"
 	}
 	if name == "" {
-		name = "standard"
+		if typ == "local" {
+			name = "local"
+		} else {
+			name = "standard"
+		}
 	}
 
 	switch typ {
@@ -3072,6 +3722,16 @@ func buildToolRegistry(registry *toolRegistry) (*ir.ToolRegistry, error) {
 			RepoName:  repoName,
 			Ref:       ref,
 			Path:      path,
+		}, nil
+	case "local":
+		path := strings.TrimSpace(registry.Path)
+		if err := ir.ValidateWorkerAbsPath(path); err != nil {
+			return nil, fmt.Errorf("registry.path: %w", err)
+		}
+		return &ir.ToolRegistry{
+			Name: name,
+			Type: typ,
+			Path: path,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported tools registry type %q", typ)
@@ -3272,15 +3932,21 @@ func cloneStepPointer(step *ir.Step) *ir.Step {
 	return &cloned
 }
 
-func buildHandlers(ctx buildContext, d *dag, result *ir.DAG) (ir.HandlerOn, error) {
-	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
-	var handlerOn ir.HandlerOn
-
+// buildStepDefaults merges the DAG's step defaults over those inherited from
+// base config.
+func buildStepDefaults(ctx buildContext, d *dag) (*defaults, error) {
 	localDefs, err := decodeDefaults(d.Defaults)
 	if err != nil {
-		return handlerOn, err
+		return nil, err
 	}
-	defs := mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw)
+	return mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw), nil
+}
+
+// buildHandlers builds the handler_on steps of d with defs applied.
+func buildHandlers(ctx buildContext, d *dag, result *ir.DAG, defs *defaults) (ir.HandlerOn, error) {
+	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
+	var handlerOn ir.HandlerOn
+	var err error
 
 	// buildHandler is a helper that builds a single handler step.
 	buildHandler := func(s *step, name ir.HandlerType) (*ir.Step, error) {
@@ -3411,15 +4077,10 @@ func buildOTel(_ buildContext, d *dag) (*ir.OTelConfig, error) {
 	}
 }
 
-func buildSteps(ctx buildContext, d *dag, result *ir.DAG) ([]ir.Step, error) {
+// buildSteps builds the steps of d, in array or map syntax, with defs applied.
+func buildSteps(ctx buildContext, d *dag, result *ir.DAG, defs *defaults) ([]ir.Step, error) {
 	buildCtx := stepBuildContext{buildContext: ctx, dag: result}
 	names := make(map[string]struct{})
-
-	localDefs, err := decodeDefaults(d.Defaults)
-	if err != nil {
-		return nil, err
-	}
-	defs := mergeDefaults(ctx.baseDefaults, localDefs, d.defaultsRaw)
 
 	switch v := d.Steps.(type) {
 	case nil:
@@ -3626,12 +4287,18 @@ func validateNoRouterForChainType(dag *ir.DAG, step *ir.Step) error {
 }
 
 // transformRouterSteps processes router-type steps and injects preconditions
-// into their target steps. It modifies the steps slice in place.
+// into their target steps. A route names its target by step name or id, and
+// each target is rewritten to the step name. Each target gets one precondition
+// per router, met when any route listing that target matches. It modifies the
+// steps slice in place.
 func transformRouterSteps(steps []ir.Step) error {
-	// Build step index for lookup (using pointers to modify in place)
+	// Index steps by name and id; pointers let targets be modified in place.
 	stepIndex := make(map[string]*ir.Step)
 	for i := range steps {
 		stepIndex[steps[i].Name] = &steps[i]
+		if steps[i].ID != "" {
+			stepIndex[steps[i].ID] = &steps[i]
+		}
 	}
 
 	for i := range steps {
@@ -3642,41 +4309,46 @@ func transformRouterSteps(steps []ir.Step) error {
 		router := steps[i].Router
 		routerName := steps[i].Name
 
-		// Track targets to detect duplicates across routes
-		seenTargets := make(map[string]string) // target -> first pattern that used it
-
-		// For each route, inject precondition into target steps
+		// Collect each target's patterns in route order
+		var targetNames []string
+		patterns := make(map[string][]string)
 		for _, route := range router.Routes {
-			for _, targetName := range route.Targets {
-				// Check for duplicate target
-				if firstPattern, exists := seenTargets[targetName]; exists {
-					return ir.NewValidationError("routes", targetName,
-						fmt.Errorf("router %q: step %q is targeted by multiple routes (%q and %q); each step can only be a target of one route",
-							routerName, targetName, firstPattern, route.Pattern))
-				}
-				seenTargets[targetName] = route.Pattern
-
-				target, ok := stepIndex[targetName]
+			for j, ref := range route.Targets {
+				target, ok := stepIndex[ref]
 				if !ok {
-					return ir.NewValidationError("routes", targetName,
-						fmt.Errorf("router %q references non-existent step %q", routerName, targetName))
+					return ir.NewValidationError("routes", ref,
+						fmt.Errorf("router %q references non-existent step %q", routerName, ref))
 				}
-
-				// Inject precondition: check if value matches pattern
-				condition := &ir.Condition{
-					Condition: router.Value,
-					Expected:  route.Pattern,
+				targetName := target.Name
+				route.Targets[j] = targetName
+				if _, seen := patterns[targetName]; !seen {
+					targetNames = append(targetNames, targetName)
 				}
-				target.Preconditions = append(target.Preconditions, condition)
-
-				// Add router as dependency if not already present
-				if !slices.Contains(target.Depends, routerName) {
-					target.Depends = append(target.Depends, routerName)
+				if !slices.Contains(patterns[targetName], route.Pattern) {
+					patterns[targetName] = append(patterns[targetName], route.Pattern)
 				}
-
-				// Enable continueOn.skipped for proper flow
-				target.ContinueOn.Skipped = true
 			}
+		}
+
+		for _, targetName := range targetNames {
+			target := stepIndex[targetName]
+
+			// Inject precondition: check if value matches any of the patterns
+			condition := &ir.Condition{Condition: router.Value}
+			if targetPatterns := patterns[targetName]; len(targetPatterns) == 1 {
+				condition.Expected = targetPatterns[0]
+			} else {
+				condition.ExpectedAny = targetPatterns
+			}
+			target.Preconditions = append(target.Preconditions, condition)
+
+			// Add router as dependency if not already present
+			if !slices.Contains(target.Depends, routerName) {
+				target.Depends = append(target.Depends, routerName)
+			}
+
+			// Enable continueOn.skipped for proper flow
+			target.ContinueOn.Skipped = true
 		}
 
 		// Router itself allows downstream to continue

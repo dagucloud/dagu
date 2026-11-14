@@ -1,0 +1,23 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Note, Status]
+      rows: [{"Invoice No": "INV-1", "Status": "Open"}, {"Invoice No": "INV-2"}, {"Invoice No": "INV-3"}]
+  - id: box
+    depends: write
+    action: xlsx.write_cells
+    with:
+      path: orders.xlsx
+      merge: [A4:C4]
+      cells: {A1: Invoice No}
+  - id: mark
+    depends: box
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      rows: [{"Invoice No": "INV-3", "status": "Done"}]
+      set: {Status: status}

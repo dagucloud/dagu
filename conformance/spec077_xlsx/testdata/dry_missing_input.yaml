@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: load
+    action: xlsx.write
+    with:
+      path: new.xlsx
+      input: rows-9f3c2b1a.json

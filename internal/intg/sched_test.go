@@ -57,7 +57,7 @@ steps:
 	var dispatchCount atomic.Int32
 	var dispatchMu sync.Mutex
 	var dispatchTimes []time.Time
-	schedulerInstance.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduled time.Time) error {
+	schedulerInstance.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduled time.Time, _ string) error {
 		dag := entry.DAG
 		if dag != nil && dag.Name == "cron-test" && trigger == ir.TriggerTypeScheduler {
 			dispatchMu.Lock()
@@ -159,7 +159,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 		lastDispatchTime time.Time
 		lastDispatchType ir.TriggerType
 	)
-	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduleTime time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduleTime time.Time, _ string) error {
 		dag := entry.DAG
 		if dag != nil && dag.Name == dagName {
 			dispatchCount.Add(1)
@@ -213,10 +213,20 @@ type observedPauseStore struct {
 }
 
 func (s *observedPauseStore) IsPaused(ctx context.Context) (bool, error) {
+	s.observe()
+	return s.PauseStore.IsPaused(ctx)
+}
+
+// Get is how the planner's guards read the pause, to tell a wake hold apart.
+func (s *observedPauseStore) Get(ctx context.Context) (schedulerstate.Pause, error) {
+	s.observe()
+	return s.PauseStore.Get(ctx)
+}
+
+func (s *observedPauseStore) observe() {
 	s.mu.Lock()
 	s.lastCheck = s.now()
 	s.mu.Unlock()
-	return s.PauseStore.IsPaused(ctx)
 }
 
 func (s *observedPauseStore) checkedAtOrAfter(t time.Time) bool {
@@ -257,7 +267,7 @@ func TestSchedulerPauseSuppressesDispatchUntilResumed(t *testing.T) {
 	sc.SetClock(schedulerNow)
 
 	var dispatchCount atomic.Int32
-	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
 		if entry.DAG != nil && entry.DAG.Name == dagName {
 			dispatchCount.Add(1)
 		}

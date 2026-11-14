@@ -81,6 +81,11 @@ func TestValidate(t *testing.T) {
 			stderrParts: []string{"document 2", "empty"},
 		},
 		{
+			name:        "empty document between documents is forbidden",
+			file:        "empty_document_between.yaml",
+			stderrParts: []string{"document 2", "empty"},
+		},
+		{
 			name:        "later document name is required",
 			file:        "later_document_without_name.yaml",
 			stderrParts: []string{"document 2", "name"},
@@ -105,4 +110,17 @@ func TestValidate(t *testing.T) {
 			dagu.ExpectNoFile("executed.txt")
 		})
 	}
+}
+
+// Only validation rejects a name in the entrypoint document. Running such a
+// DAG still works and uses the name, so DAGs written before the rule keep
+// running.
+func TestStartAcceptsEntrypointName(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+
+	result := dagu.Run("start", "entrypoint_name_run.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("dag-name.txt", "deploy\n")
 }

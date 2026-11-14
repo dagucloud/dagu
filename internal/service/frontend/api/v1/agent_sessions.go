@@ -16,8 +16,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/computerhost"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"google.golang.org/grpc/codes"
@@ -38,6 +40,9 @@ const (
 	agentSessionActionBadRequest agentSessionActionClass = iota
 	agentSessionActionNotFound
 	agentSessionActionConflict
+	// agentSessionActionAPIError carries its own HTTP status, such as a
+	// failed authorization check.
+	agentSessionActionAPIError
 )
 
 type agentSessionActionError struct {
@@ -49,6 +54,9 @@ type agentSessionActionError struct {
 func (e *agentSessionActionError) Error() string { return e.message }
 
 func classifyAgentSessionAction(err error) agentSessionActionClass {
+	if _, ok := errors.AsType[*Error](err); ok {
+		return agentSessionActionAPIError
+	}
 	var actionErr *agentSessionActionError
 	if !errors.As(err, &actionErr) {
 		return agentSessionActionBadRequest
@@ -70,6 +78,8 @@ func (a *API) RespondDAGRunStepAgentInteraction(ctx context.Context, request api
 	response, err := a.respondAgentInteraction(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "", request.StepName, request.InteractionId, request.Body)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RespondDAGRunStepAgentInteraction404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -89,6 +99,8 @@ func (a *API) RespondSubDAGRunStepAgentInteraction(ctx context.Context, request 
 	response, err := a.respondAgentInteraction(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId, request.StepName, request.InteractionId, request.Body)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RespondSubDAGRunStepAgentInteraction404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -108,6 +120,8 @@ func (a *API) RestartDAGRunStepAgentSession(ctx context.Context, request api.Res
 	response, err := a.restartAgentSession(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), "", request.StepName)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RestartDAGRunStepAgentSession404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -127,6 +141,8 @@ func (a *API) RestartSubDAGRunStepAgentSession(ctx context.Context, request api.
 	response, err := a.restartAgentSession(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId), request.SubDAGRunId, request.StepName)
 	if err != nil {
 		switch classifyAgentSessionAction(err) {
+		case agentSessionActionAPIError:
+			return nil, err
 		case agentSessionActionNotFound:
 			return &api.RestartSubDAGRunStepAgentSession404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 		case agentSessionActionConflict:
@@ -164,10 +180,19 @@ func (a *API) loadAgentStatus(ctx context.Context, root ir.DAGRunRef, subDAGRunI
 	if err != nil {
 		return ir.DAGRunRef{}, nil, nil, err
 	}
-	if err := a.requireWorkspaceVisible(ctx, workspaceName); err != nil {
+	if err := a.requireExecuteForWorkspace(ctx, workspaceName); err != nil {
 		return ir.DAGRunRef{}, nil, nil, err
 	}
 	return mutationRef, status, attempt, nil
+}
+
+// requireAgentRunStopped rejects agent actions on a run that is still
+// executing; resuming it would start a second execution.
+func requireAgentRunStopped(status *ir.DAGRunStatus) error {
+	if status.Status == ir.Running {
+		return &agentSessionActionError{conflict: true, message: "DAG-run is still running; try again after its running steps finish"}
+	}
+	return nil
 }
 
 func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, status *ir.DAGRunStatus, stepName string) error {
@@ -179,8 +204,11 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 	label := agentProviderLabel(session.Provider)
 	workerID := session.OwnerWorkerID
 	if workerID == "" || workerID == "local" {
-		if session.Provider == browserhost.AgentProvider {
+		switch session.Provider {
+		case browserhost.AgentProvider:
 			return a.requireLocalBrowserSession(ctx, ref, stepName)
+		case computerhost.AgentProvider:
+			return a.requireLocalComputerSession(ctx, ref, stepName)
 		}
 		message := "The server that owns this OpenCode session is unavailable; the interaction remains pending"
 		if a.openCodeHost != nil {
@@ -234,7 +262,7 @@ func (a *API) requireLocalBrowserSession(ctx context.Context, ref ir.DAGRunRef, 
 // waiting to be resumed. An error means the browser's state is unknown.
 func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName string, now time.Time) (bool, error) {
 	store := browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName))
-	record, err := store.Load(browserhost.RecordID(dagRunID, stepName))
+	record, err := store.Load(browserhost.RecordID(dagRunID, "", stepName))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -249,6 +277,35 @@ func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName stri
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// requireLocalComputerSession verifies that a computer step paused on this
+// host can still be resumed.
+func (a *API) requireLocalComputerSession(ctx context.Context, ref ir.DAGRunRef, stepName string) error {
+	const message = "The computer step waiting for this answer can no longer be resumed; restart the session to run the step again"
+	waiting, err := computerSessionWaiting(a.config.Paths.DataDir, ref.ID, stepName, time.Now())
+	if err != nil {
+		return &agentSessionActionError{conflict: true, message: "The computer step waiting for this answer could not be verified; the interaction remains pending"}
+	}
+	if waiting {
+		return nil
+	}
+	_ = a.markAgentSessionUnavailable(ctx, ref, stepName, message)
+	return &agentSessionActionError{conflict: true, message: message}
+}
+
+// computerSessionWaiting reports whether a paused computer step can still
+// be resumed. An error means its state is unknown.
+func computerSessionWaiting(dataDir, dagRunID, stepName string, now time.Time) (bool, error) {
+	store := computerhost.NewStore(filepath.Join(dataDir, computerhost.DataDirName))
+	record, err := store.Load(dagRunID, stepName)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return record.Waiting(now), nil
 }
 
 // agentSessionProvider returns the provider of a step's agent session.
@@ -275,7 +332,7 @@ func agentProviderLabel(provider string) string {
 // agentProviderRestartable reports whether a provider's session can start
 // over in a new generation.
 func agentProviderRestartable(provider string) bool {
-	return provider == openCodeAgentProvider || provider == browserhost.AgentProvider
+	return provider == openCodeAgentProvider || provider == browserhost.AgentProvider || provider == computerhost.AgentProvider
 }
 
 func (a *API) markAgentSessionUnavailable(ctx context.Context, ref ir.DAGRunRef, stepName, message string) error {
@@ -322,6 +379,9 @@ func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, su
 	if err != nil {
 		return api.AgentInteractionResponse{}, err
 	}
+	if err := requireAgentRunStopped(status); err != nil {
+		return api.AgentInteractionResponse{}, err
+	}
 	if err := a.requireAgentOwnerAvailable(ctx, mutationRef, status, stepName); err != nil {
 		return api.AgentInteractionResponse{}, err
 	}
@@ -346,12 +406,12 @@ func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, su
 	if err != nil {
 		return api.AgentInteractionResponse{}, err
 	}
-	resumed := !hasWaitingSteps(updated.Nodes)
+	resumed := !hasWaitingSteps(updated.Nodes) || (subDAGRunID == "" && humantask.UnblockedNodeReady(updated))
 	if resumed {
 		if subDAGRunID == "" {
-			err = a.resumeDAGRun(ctx, root, root.ID)
+			err = a.resumeWaitingDAGRun(ctx, root, updated)
 		} else {
-			err = a.resumeSubDAGRun(ctx, root, subDAGRunID)
+			err = a.resumeResolvedSubDAGRun(ctx, root, mutationRef, subDAGRunID, stepName)
 		}
 		if err != nil {
 			_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
@@ -382,6 +442,9 @@ func (a *API) restartAgentSession(ctx context.Context, root ir.DAGRunRef, subDAG
 	if err != nil {
 		return api.AgentSessionRestartResponse{}, err
 	}
+	if err := requireAgentRunStopped(status); err != nil {
+		return api.AgentSessionRestartResponse{}, err
+	}
 	original, err := cloneManualStatus(status)
 	if err != nil {
 		return api.AgentSessionRestartResponse{}, err
@@ -408,9 +471,9 @@ func (a *API) restartAgentSession(ctx context.Context, root ir.DAGRunRef, subDAG
 		return api.AgentSessionRestartResponse{}, err
 	}
 	if subDAGRunID == "" {
-		err = a.resumeDAGRun(ctx, root, root.ID)
+		err = a.resumeWaitingDAGRun(ctx, root, updated)
 	} else {
-		err = a.resumeSubDAGRun(ctx, root, subDAGRunID)
+		err = a.resumeResolvedSubDAGRun(ctx, root, mutationRef, subDAGRunID, stepName)
 	}
 	if err != nil {
 		_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
@@ -491,6 +554,9 @@ func validateAgentInteractionResponse(interaction ir.AgentInteraction, body *api
 			return errors.New("permission response requires a decision")
 		}
 		decision := string(*body.Decision)
+		if decision == ir.AgentDecisionSkip && interaction.Permission == ir.AgentPermissionBrowserWrite {
+			return nil
+		}
 		if decision != "once" && decision != "session" && decision != "reject" {
 			return errors.New("permission decision must be once, session, or reject")
 		}

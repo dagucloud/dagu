@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 func TestLegacySuspendFlagEvent(t *testing.T) {
@@ -43,6 +45,83 @@ func TestLegacySuspendFlagEvent(t *testing.T) {
 		assert.Equal(t, "suspend_flag_removed", event.Reason)
 	case <-ctx.Done():
 		t.Fatal("legacy flag removal did not trigger a DAG refresh")
+	}
+}
+
+// Every DAG inherits the global and its workspace base config, so a write to
+// either has to refresh the DAGs.
+func TestBaseConfigEvent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dagsDir := filepath.Join(root, "dags")
+	workspaceDir := filepath.Join(dagsDir, "workspaces", "ops")
+	require.NoError(t, os.MkdirAll(workspaceDir, 0o750))
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{
+			DAGsDir:    dagsDir,
+			BaseConfig: filepath.Join(root, "base.yaml"),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+
+	writeBaseConfig(t, service, filepath.Join(root, "base.yaml"))
+	writeBaseConfig(t, service, filepath.Join(workspaceDir, "base.yaml"))
+}
+
+// A workspace created after the service starts refreshes the DAGs with its
+// base config, also when the workspaces directory did not exist yet.
+func TestBaseConfigEventForNewWorkspace(t *testing.T) {
+	t.Parallel()
+	dagsDir := filepath.Join(t.TempDir(), "dags")
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{DAGsDir: dagsDir},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+
+	writeBaseConfig(t, service, workspace.BaseConfigPath(dagsDir, "ops"))
+	writeBaseConfig(t, service, workspace.BaseConfigPath(dagsDir, "dev"))
+}
+
+// A global base config whose directory chain does not exist at startup
+// refreshes the DAGs once the chain and the file appear.
+func TestBaseConfigEventForMissingDirs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	baseConfig := filepath.Join(root, "config", "dagu", "base.yaml")
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{
+			DAGsDir:    filepath.Join(root, "dags"),
+			BaseConfig: baseConfig,
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+
+	writeBaseConfig(t, service, baseConfig)
+}
+
+// writeBaseConfig writes a base config, with its missing directories, and
+// waits for the DAG refresh that the write raises.
+func writeBaseConfig(t *testing.T, service *AppStreamService, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	events, unsubscribe := service.Subscribe(ctx)
+	defer unsubscribe()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("env:\n  - A: 1\n"), 0o600))
+	for {
+		select {
+		case event, ok := <-events:
+			require.True(t, ok, "the subscription closed")
+			if event.Type == AppEventTypeDAGChanged && strings.HasPrefix(event.Reason, "base_config_") {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatalf("writing %s did not trigger a DAG refresh", path)
+		}
 	}
 }
 

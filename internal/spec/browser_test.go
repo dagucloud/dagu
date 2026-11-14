@@ -60,6 +60,7 @@ steps:
 	assert.Equal(t, "claude-sonnet-5", step.LLM.Model)
 
 	assert.ElementsMatch(t, []ir.StepOutputDeclaration{
+		{Name: "downloads", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "count", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "stories", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 	}, step.Outputs)
@@ -103,10 +104,43 @@ steps:
 	assert.Equal(t, "openai", step.LLM.Provider, "with.llm replaces the DAG llm block")
 	assert.Equal(t, "gpt-5", step.LLM.Model)
 	assert.Equal(t, []ir.StepOutputDeclaration{
+		{Name: "downloads", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "invoice_number", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
-	}, step.Outputs)
+	}, step.Outputs, "the downloads list is declared beside the extracted properties")
 	require.NotNil(t, dag.Artifacts)
 	assert.False(t, dag.Artifacts.Enabled, "an explicit opt-out still loads")
+}
+
+// A link field without format: uri loads with a warning naming it, since the
+// browser runtime fills such a field with the link's element id.
+func TestBrowserLinkFieldWarning(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+name: listings
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+steps:
+  - id: scrape
+    action: browser.extract
+    with:
+      url: https://shop.example.com/listings
+      instruction: The listings with their links
+      schema:
+        type: object
+        properties:
+          listings:
+            type: array
+            items:
+              type: object
+              properties:
+                name: {type: string}
+                link: {type: string}
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 1)
+	assert.Contains(t, dag.BuildWarnings[0], `DAG "listings": step "steps.scrape": do[0]: extract field "listings[].link" has no format: uri`)
 }
 
 func TestBrowserActionErrors(t *testing.T) {

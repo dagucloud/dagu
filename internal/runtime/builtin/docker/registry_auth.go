@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -95,8 +97,48 @@ func (r *RegistryAuthManager) getAuthConfig(imageName string) (*registry.AuthCon
 		return convertToDockerAuth(authCfg, registryHost)
 	}
 
-	// No match found
-	return nil, nil
+	// Fall back to normalized keys so aliases such as
+	// "https://index.docker.io/v1/" resolve to the same registry.
+	return resolveAuthMatch(registryHost, r.auths, func(authCfg *ir.AuthConfig) (*registry.AuthConfig, error) {
+		return convertToDockerAuth(authCfg, registryHost)
+	})
+}
+
+// resolveAuthMatch returns the auth config for registryHost among the auths
+// keys that match it in normalized form. Several keys can alias the same
+// registry (for example "index.docker.io" and "https://index.docker.io/v1/"),
+// so matches are visited in sorted key order: identical credentials collapse
+// into a single result, while matches carrying different credentials are a
+// configuration error rather than a nondeterministic pick from map
+// iteration. convert maps an auths entry to its docker auth representation.
+func resolveAuthMatch[V any](registryHost string, auths map[string]V, convert func(V) (*registry.AuthConfig, error)) (*registry.AuthConfig, error) {
+	matching := make([]string, 0, len(auths))
+	for key := range auths {
+		if matchRegistryKey(key, registryHost) {
+			matching = append(matching, key)
+		}
+	}
+	slices.Sort(matching)
+
+	var result *registry.AuthConfig
+	var resultKey string
+	for _, key := range matching {
+		auth, err := convert(auths[key])
+		if err != nil {
+			return nil, err
+		}
+		if auth == nil {
+			continue
+		}
+		if result == nil {
+			result, resultKey = auth, key
+			continue
+		}
+		if *auth != *result {
+			return nil, fmt.Errorf("conflicting auth entries for registry %q: %q and %q provide different credentials", registryHost, resultKey, key)
+		}
+	}
+	return result, nil
 }
 
 // convertToDockerAuth converts our AuthConfig to Docker's registry.AuthConfig
@@ -106,7 +148,7 @@ func convertToDockerAuth(auth *ir.AuthConfig, serverAddress string) (*registry.A
 	}
 
 	// Check if this is a JSON string
-	if auth.Auth != "" && strings.HasPrefix(auth.Auth, "{") {
+	if auth.Auth != "" && strings.HasPrefix(strings.TrimSpace(auth.Auth), "{") {
 		var dockerAuth registry.AuthConfig
 		if err := json.Unmarshal([]byte(auth.Auth), &dockerAuth); err != nil {
 			// Not JSON, treat as base64 encoded username:password
@@ -158,16 +200,57 @@ func getAuthFromDockerConfig(configJSON string, imageName string) (*registry.Aut
 		return &auth, nil
 	}
 
-	// Try without port if present
-	if strings.Contains(registryHost, ":") {
-		hostWithoutPort, _, _ := strings.Cut(registryHost, ":")
-		if auth, ok := config.Auths[hostWithoutPort]; ok {
-			auth.ServerAddress = registryHost
-			return &auth, nil
-		}
-	}
+	// Fall back to normalized keys. This covers legacy Docker Hub keys such
+	// as "https://index.docker.io/v1/" and port-stripped matches without
+	// mangling bracketed IPv6 hosts like "[::1]:5000".
+	return resolveAuthMatch(registryHost, config.Auths, func(auth registry.AuthConfig) (*registry.AuthConfig, error) {
+		auth.ServerAddress = registryHost
+		return &auth, nil
+	})
+}
 
-	return nil, nil
+// matchRegistryKey reports whether a docker config auths key refers to
+// registryHost. Keys are compared in normalized form and also against the
+// registry host with its port removed.
+func matchRegistryKey(key, registryHost string) bool {
+	normalizedKey := normalizeRegistryHost(key)
+	if normalizedKey == normalizeRegistryHost(registryHost) {
+		return true
+	}
+	if hostOnly := registryHostWithoutPort(registryHost); hostOnly != registryHost {
+		return normalizedKey == hostOnly
+	}
+	return false
+}
+
+// normalizeRegistryHost normalizes a registry host or auths key for
+// comparison: it drops any URL scheme and path, unwraps a bare bracketed
+// IPv6 literal, and maps the Docker Hub index host to "docker.io".
+func normalizeRegistryHost(host string) string {
+	host = strings.TrimSpace(host)
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	}
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	if host == "index.docker.io" {
+		return "docker.io"
+	}
+	return host
+}
+
+// registryHostWithoutPort returns registryHost without its port. It handles
+// bracketed IPv6 literals and returns the host unchanged when no port is
+// present.
+func registryHostWithoutPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
 }
 
 // extractRegistry extracts the registry hostname from an image name

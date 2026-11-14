@@ -6,6 +6,7 @@ package incident
 import (
 	"errors"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,4 +115,16 @@ func TestPreserveProviderSecretsKeepsExistingSecretWhenOmitted(t *testing.T) {
 	PreserveProviderSecrets(next, existing)
 
 	assert.Equal(t, "existing-routing-key", next.PagerDuty.RoutingKey)
+}
+
+func TestPreviewSecretMultibyte(t *testing.T) {
+	t.Parallel()
+
+	// A byte-level head/tail cut must not split a multibyte rune.
+	got := PreviewSecret("ab界界界界界cd")
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, "ab界界...界界cd", got)
+
+	// Short multibyte secrets are fully masked.
+	assert.Equal(t, "********", PreviewSecret("ab界界cd"))
 }

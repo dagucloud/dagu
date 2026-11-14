@@ -584,6 +584,11 @@ feedback value is also an environment variable named after its property, even
 on an approval step whose `approval.input` does not list that property. The
 same values are available when the reopened task resolves its prompt.
 
+A `harness.run` or `chat.completion` step also receives the feedback in the
+request it sends, but only when it produced stdout before. A step that first
+runs after a push-back has no earlier work to revise, so it sends its own prompt
+unchanged and reads the feedback only from its environment.
+
 The task opens again after its dependencies finish, with its prompt and
 artifact paths resolved anew. The reopened task can be completed or pushed back
 again.

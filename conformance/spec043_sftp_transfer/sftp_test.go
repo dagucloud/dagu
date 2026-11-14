@@ -23,6 +23,8 @@ func TestSFTPConfig(t *testing.T) {
 		{"direction_mismatch.yaml", "validate", "direction must be"},
 		{"missing_source_no_server.yaml", "start", "source path is required"},
 		{"missing_destination_no_server.yaml", "start", "destination path is required"},
+		{"credential_forms.yaml", "validate", ""},
+		{"credential_bad_ref.yaml", "validate", "field 'steps.copy.with.key.secret': invalid secret ref"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

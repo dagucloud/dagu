@@ -174,6 +174,33 @@ func TestParams_AsStringMap(t *testing.T) {
 		assert.Equal(t, "42", m["count"])
 	})
 
+	// Numbers render as base-10 decimal text, never in exponent form, and
+	// integers beyond float64 precision keep every digit.
+	t.Run("RichNumbers", func(t *testing.T) {
+		params := NewRichParams(map[string]any{
+			"big":        json.Number("1234567890123456789"),
+			"exp":        1e21,
+			"small":      0.00001,
+			"smallToken": json.Number("1e-5"),
+		})
+		m, err := params.AsStringMap()
+		require.NoError(t, err)
+		assert.Equal(t, "1234567890123456789", m["big"])
+		assert.Equal(t, "1000000000000000000000", m["exp"])
+		assert.Equal(t, "0.00001", m["small"])
+		assert.Equal(t, "0.00001", m["smallToken"])
+	})
+
+	t.Run("RawNumbers", func(t *testing.T) {
+		raw := json.RawMessage(`{"big":1234567890123456789,"exp":1e21,"small":0.00001}`)
+		params := NewRawParams(raw)
+		m, err := params.AsStringMap()
+		require.NoError(t, err)
+		assert.Equal(t, "1234567890123456789", m["big"])
+		assert.Equal(t, "1000000000000000000000", m["exp"])
+		assert.Equal(t, "0.00001", m["small"])
+	})
+
 	t.Run("Empty", func(t *testing.T) {
 		params := Params{}
 		m, err := params.AsStringMap()
@@ -272,5 +299,26 @@ func TestParams_IsEmpty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, tt.params.IsEmpty())
 		})
+	}
+}
+
+// A param whose eval is one date reference takes that date as its value.
+func TestParamDefDateName(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		eval string
+		want string
+	}{
+		{eval: "${dates.target_day}", want: "target_day"},
+		{eval: "/data/${dates.target_day}"},
+		{eval: "${dates.target_day}${dates.other}"},
+		{eval: "${params.day}"},
+		{eval: "`date`"},
+		{eval: ""},
+	} {
+		name, ok := ParamDef{Eval: tc.eval}.DateName()
+		assert.Equal(t, tc.want, name, tc.eval)
+		assert.Equal(t, tc.want != "", ok, tc.eval)
 	}
 }

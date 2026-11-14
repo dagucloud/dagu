@@ -1,0 +1,7 @@
+working_dir: .
+schedule: "0 2 1 * *"
+dates:
+  target_day: -1d
+steps:
+  - id: capture
+    run: printf 'slot=%s target=%s\n' '${context.run.scheduled_at}' '${dates.target_day}' > default-slot.txt

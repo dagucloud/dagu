@@ -64,6 +64,63 @@ func TestSchedulerPauseResumeClearsActorAndReason(t *testing.T) {
 	assert.Equal(t, schedulerstate.Pause{}, pause)
 }
 
+// The scheduler's wake hold is a pause only the store can mark: it goes in
+// only where nothing is paused, comes out only while it still stands, and an
+// operator's pause, even one by a user named as the scheduler is, is never
+// taken for it or written over.
+func TestSchedulerPauseHoldYieldsToAPause(t *testing.T) {
+	ctx := context.Background()
+	s := newSchedulerPauseStore()
+
+	held, err := s.SetHold(ctx, true, "waking")
+	require.NoError(t, err)
+	assert.True(t, held)
+	pause, err := s.Get(ctx)
+	require.NoError(t, err)
+	assert.True(t, pause.WakeHold())
+	assert.Equal(t, schedulerstate.PausedByScheduler, pause.PausedBy)
+	assert.Equal(t, "waking", pause.Reason)
+	assert.False(t, pause.PausedAt.IsZero())
+
+	held, err = s.SetHold(ctx, true, "again")
+	require.NoError(t, err)
+	assert.False(t, held, "a hold already in place stays as it is")
+
+	// Clearing the pause through the API ends the hold.
+	require.NoError(t, s.Set(ctx, false, "", ""))
+	lifted, err := s.SetHold(ctx, false, "")
+	require.NoError(t, err)
+	assert.False(t, lifted, "nothing left to lift")
+
+	// An operator's pause is neither taken for a hold nor written over.
+	require.NoError(t, s.Set(ctx, true, schedulerstate.PausedByScheduler, "a user so named"))
+	pause, err = s.Get(ctx)
+	require.NoError(t, err)
+	assert.False(t, pause.WakeHold())
+	held, err = s.SetHold(ctx, true, "waking")
+	require.NoError(t, err)
+	assert.False(t, held)
+	lifted, err = s.SetHold(ctx, false, "")
+	require.NoError(t, err)
+	assert.False(t, lifted)
+	pause, err = s.Get(ctx)
+	require.NoError(t, err)
+	assert.True(t, pause.Paused)
+	assert.Equal(t, "a user so named", pause.Reason)
+
+	// A hold is lifted by the scheduler alone, through the same store or another on the collection.
+	require.NoError(t, s.Set(ctx, false, "", ""))
+	held, err = s.SetHold(ctx, true, "waking")
+	require.NoError(t, err)
+	assert.True(t, held)
+	lifted, err = s.SetHold(ctx, false, "")
+	require.NoError(t, err)
+	assert.True(t, lifted)
+	pause, err = s.Get(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, schedulerstate.Pause{}, pause)
+}
+
 // A pause written by another process must be observed without restarting the
 // reader, because the scheduler and the API run as separate processes.
 func TestSchedulerPauseObservesExternalWrite(t *testing.T) {

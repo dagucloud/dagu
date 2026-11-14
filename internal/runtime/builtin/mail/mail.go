@@ -5,11 +5,13 @@ package mail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailbox"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -34,6 +36,11 @@ type mail struct {
 	cfg    *mailConfig
 	// address is the mail account sending the message, if any.
 	address string
+	// replyTo is the ID of the email this message answers.
+	replyTo string
+	// account is the mailbox the message is sent from, if any. It reads the
+	// answered email and, for a Gmail API account, sends the message.
+	account mailboxAccount
 }
 
 type mailConfig struct {
@@ -43,6 +50,7 @@ type mailConfig struct {
 	Subject     string   `mapstructure:"subject"`
 	Message     string   `mapstructure:"message"`
 	Attachments []string `mapstructure:"attachments"`
+	InReplyTo   any      `mapstructure:"in_reply_to"`
 }
 
 func newMail(ctx context.Context, step ir.Step) (executor.Executor, error) {
@@ -82,15 +90,37 @@ func newSend(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	env := runtime.NewEnv(ctx, step)
 
 	exec := &mail{cfg: &cfg}
+	if cfg.InReplyTo != nil {
+		if cfg.Mailbox == "" {
+			return nil, errors.New("in_reply_to requires mailbox")
+		}
+		items, err := parseEmails(cfg.InReplyTo)
+		if err != nil {
+			return nil, fmt.Errorf("in_reply_to: %w", err)
+		}
+		if len(items) != 1 {
+			return nil, errors.New("in_reply_to must name exactly one email")
+		}
+		if !mailbox.ValidID(items[0].ID) {
+			return nil, fmt.Errorf("in_reply_to: malformed email ID %q", items[0].ID)
+		}
+		exec.replyTo = items[0].ID
+	}
 	if cfg.Mailbox != "" {
 		exec.address = accountAddress(cfg.Mailbox)
 		account, err := env.MailAccount(ctx, exec.address)
 		if err != nil {
 			return nil, err
 		}
-		mailerConfig, err := smtpConfig(exec.address, account)
-		if err != nil {
+		if exec.account, err = newMailboxAccount(exec.address, account); err != nil {
 			return nil, err
+		}
+		// A Gmail API account sends through the API, so the mailer only composes.
+		var mailerConfig mailer.Config
+		if !exec.account.gmail {
+			if mailerConfig, err = smtpConfig(exec.address, account); err != nil {
+				return nil, err
+			}
 		}
 		if cfg.From == "" {
 			cfg.From = exec.address
@@ -150,23 +180,45 @@ func (e *mail) Run(ctx context.Context) error {
 				toAddresses = append(toAddresses, str)
 			}
 		}
+	case nil:
 	default:
 		return fmt.Errorf("invalid type for 'to' field: expected string or array, got %T", v)
 	}
 
-	if len(toAddresses) == 0 {
+	msg := mailer.Message{
+		From:        e.cfg.From,
+		To:          toAddresses,
+		Subject:     e.cfg.Subject,
+		Body:        e.cfg.Message,
+		Attachments: e.cfg.Attachments,
+	}
+	var threadID string
+	if e.replyTo != "" {
+		info, err := e.replyInfo(ctx)
+		if err != nil {
+			return accountError(e.address, err)
+		}
+		if len(msg.To) == 0 && info.ReplyTo != "" {
+			msg.To = []string{info.ReplyTo}
+		}
+		if msg.Subject == "" {
+			msg.Subject = replySubject(info.Subject)
+		}
+		msg.InReplyTo, msg.References = info.MessageID, info.References
+		threadID = info.ThreadID
+	}
+
+	if len(msg.To) == 0 {
 		return fmt.Errorf("no valid recipients specified")
 	}
 
-	_, _ = fmt.Fprintf(e.stdout, mailLogTemplate, e.cfg.From, strings.Join(toAddresses, ", "), e.cfg.Subject, e.cfg.Message)
-	err := e.mailer.Send(
-		ctx,
-		e.cfg.From,
-		toAddresses,
-		e.cfg.Subject,
-		e.cfg.Message,
-		e.cfg.Attachments,
-	)
+	_, _ = fmt.Fprintf(e.stdout, mailLogTemplate, msg.From, strings.Join(msg.To, ", "), msg.Subject, msg.Body)
+	var err error
+	if e.account.gmail {
+		err = e.sendThroughGmail(ctx, msg, threadID)
+	} else {
+		err = e.mailer.SendMessage(ctx, msg)
+	}
 	if err != nil {
 		_, _ = e.stderr.Write([]byte("error occurred."))
 		if e.address != "" {
@@ -176,6 +228,43 @@ func (e *mail) Run(ctx context.Context) error {
 		_, _ = e.stdout.Write([]byte("sending email succeed."))
 	}
 	return err
+}
+
+// sendThroughGmail sends msg with the Gmail API, in the conversation of the
+// answered email when there is one.
+func (e *mail) sendThroughGmail(ctx context.Context, msg mailer.Message, threadID string) error {
+	raw, err := e.mailer.Compose(msg)
+	if err != nil {
+		return fmt.Errorf("failed to compose email: %w", err)
+	}
+	client, err := mailbox.DialGmail(ctx, e.account.account)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	return client.Send(raw, threadID)
+}
+
+// replyInfo reads the answered email without changing it.
+func (e *mail) replyInfo(ctx context.Context) (*mailbox.ReplyInfo, error) {
+	client, err := e.account.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = client.Close() }()
+	info, err := client.ReplyInfo(e.replyTo)
+	if err != nil {
+		return nil, fmt.Errorf("in_reply_to: %w", err)
+	}
+	return info, nil
+}
+
+// replySubject prefixes Re: unless the subject already carries it.
+func replySubject(subject string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(subject)), "re:") {
+		return subject
+	}
+	return "Re: " + subject
 }
 
 func decodeConfig(dat map[string]any, cfg any) error {
@@ -188,5 +277,8 @@ func decodeConfig(dat map[string]any, cfg any) error {
 }
 
 func init() {
-	executor.RegisterExecutor("mail", newMail, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor("mail", newMail, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"attachments"},
+	})
 }

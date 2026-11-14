@@ -1,0 +1,23 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - id: classify
+    action: chat.completion
+    stdout: answer.out
+    with:
+      prompt: "Classify this note: please refund my 12.50"
+      model:
+        - provider: local
+          name: weak-model
+          base_url: $LLM_BASE_URL
+        - provider: local
+          name: strong-model
+          base_url: $LLM_BASE_URL
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [refund, complaint, question]
+      required: [category]

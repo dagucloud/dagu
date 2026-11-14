@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/spf13/cobra"
@@ -314,7 +315,11 @@ func buildLabelsFilter(ctx *Context) ([]string, error) {
 		return nil, nil
 	}
 
-	if labels := parseLabels(labelsStr); len(labels) > 0 {
+	labels := parseLabels(labelsStr)
+	if _, err := ir.ParseLabelFilters(labels); err != nil {
+		return nil, err
+	}
+	if len(labels) > 0 {
 		return labels, nil
 	}
 
@@ -592,7 +597,7 @@ func renderHistoryJSON(statuses []*ir.DAGRunStatus) error {
 			Params:     status.Params,
 			Labels:     status.Labels,
 			WorkerID:   status.WorkerID,
-			Error:      status.Error,
+			Error:      status.ErrorText(),
 		}
 		entries = append(entries, entry)
 	}
@@ -728,7 +733,7 @@ func formatParams(params string) string {
 	// Truncate if too long (max 40 chars for table readability)
 	maxLen := 40
 	if len(params) > maxLen {
-		return params[:maxLen-3] + "..."
+		return stringutil.TruncUTF8Bytes(params, maxLen-3) + "..."
 	}
 
 	return params

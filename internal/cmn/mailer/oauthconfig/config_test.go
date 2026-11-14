@@ -83,6 +83,27 @@ func TestValidateMailAccount(t *testing.T) {
 			wantErr: `oauth.tenant_id is not valid for provider "google_refresh"`,
 		},
 		{
+			name: "MicrosoftRefreshWithScopes",
+			config: Config{
+				Provider: ProviderMicrosoftRefresh, ClientID: "client", RefreshToken: "refresh",
+				Scopes: []string{"https://outlook.office.com/IMAP.AccessAsUser.All"},
+			},
+		},
+		{
+			// Google cannot change the scope of a refreshed token.
+			name: "GoogleRefreshWithScopes",
+			config: Config{
+				Provider: ProviderGoogleRefresh, ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh",
+				Scopes: []string{"https://mail.google.com/"},
+			},
+			wantErr: `oauth.scopes is not valid for provider "google_refresh"`,
+		},
+		{
+			name:    "EmptyScope",
+			config:  Config{Provider: ProviderMicrosoftRefresh, ClientID: "client", RefreshToken: "refresh", Scopes: []string{" "}},
+			wantErr: "oauth.scopes must not contain an empty scope",
+		},
+		{
 			// Client-credential providers suit SMTP notifications, not mailboxes.
 			name:    "SMTPOnlyProvider",
 			config:  Config{Provider: ProviderMicrosoft, TenantID: "tenant", ClientID: "client", ClientSecret: "secret"},
@@ -100,6 +121,16 @@ func TestValidateMailAccount(t *testing.T) {
 			require.EqualError(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestValidateStructureRejectsScopes(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateStructure(&Config{
+		Provider: ProviderGoogleRefresh, ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh",
+		Scopes: []string{"https://mail.google.com/"},
+	})
+	require.EqualError(t, err, `scopes is not valid for SMTP OAuth provider "google_refresh"`)
 }
 
 func TestValidateStructureRejectsMicrosoftRefresh(t *testing.T) {

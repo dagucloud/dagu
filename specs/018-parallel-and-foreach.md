@@ -87,7 +87,17 @@ An item run is one represented child DAG run or enqueue request created by
 
 - `max_concurrent` must be an integer from `1` through `1000`.
 
-- When `max_concurrent` is omitted, Dagu uses `10`.
+- When `max_concurrent` is omitted, Dagu uses the inherited
+  `defaults.max_concurrent`, or `10` when no default is configured.
+
+- `defaults.max_concurrent` follows the same integer rules. It applies to
+  every `parallel` and `foreach` step, including steps inside a `foreach`
+  body, in every item source form, and never adds `parallel` or `foreach` to a
+  step.
+
+- The nearest `defaults.max_concurrent` wins: the DAG, then the workspace base
+  configuration, then the global base configuration. Setting other `defaults`
+  fields does not reset an inherited `max_concurrent`.
 
 - `max_concurrent` does not limit normal top-level graph scheduling outside the
   owning expansion step.
@@ -101,8 +111,8 @@ An item run is one represented child DAG run or enqueue request created by
 
 - Item-scoped references do not create dependencies.
 
-- References to prior top-level step outputs still require normal dependency
-  ordering under Spec 007.
+- References to prior top-level step outputs are ordered under Spec 007,
+  through `depends` or through an inferred dependency on the owning step.
 
 - Dynamic evaluation is not run for item-scoped references unless another spec
   explicitly opts in.
@@ -144,7 +154,7 @@ steps:
 ```
 
 - `parallel` accepts an object form with required `items` and optional
-  `max_concurrent`:
+  `max_concurrent` and `separator`:
 
 ```yaml
 steps:
@@ -159,8 +169,8 @@ steps:
       max_concurrent: 2
 ```
 
-- Object-form `parallel` must not contain fields other than `items` and
-  `max_concurrent`.
+- Object-form `parallel` must not contain fields other than `items`,
+  `max_concurrent`, and `separator`.
 
 - `parallel.items` may be a string item source or a direct array item source.
 
@@ -199,6 +209,37 @@ Rules:
 
 - An empty or whitespace-only resolved string produces zero items and therefore
   fails the `parallel` step.
+
+Separator detection cannot distinguish a single item that contains a delimiter
+character from several delimited items on one line. `parallel.separator` names
+the separator explicitly:
+
+```yaml
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: process-item
+    parallel:
+      items: ${steps.list.outputs.rows}
+      separator: newline
+```
+
+Rules:
+
+- `parallel.separator` is optional and must be exactly one of `newline`,
+  `comma`, `semicolon`, `pipe`, `tab`, or `space`.
+
+- `parallel.separator` requires a string item source. It is invalid with a
+  direct array item source.
+
+- When `parallel.separator` is set, the resolved string is split only on that
+  separator. JSON detection, quoted-token handling, and separator detection are
+  not applied, so a token may contain any other delimiter character.
+
+- `space` splits on runs of whitespace, including tabs and line breaks.
+
+- Tokens are trimmed of surrounding whitespace and empty tokens are ignored.
 
 #### Item Scope
 
@@ -490,6 +531,11 @@ Rules:
 
 - `${foreach.<as>.field}` resolves to a top-level object field.
 
+- A field name that starts with a letter or underscore and continues with
+  letters, marks, digits, or underscores, in any script, may be written
+  unquoted. Any other field name is written as `${foreach.<as>."name"}` or
+  `${foreach.<as>["name"]}`.
+
 - Nested item field paths such as `${foreach.item.a.b}` are outside this spec.
 
 - Item scope is available to `foreach.key`.
@@ -502,11 +548,26 @@ Rules:
 - The uppercase `${ITEM}` item reference is owned by `parallel`. It is not a
   `foreach` item reference.
 
+- `${<as>.field}` without the `foreach.` namespace is not an item reference.
+  When a field with item scope is evaluated, an unescaped `${<as>.field}`
+  whose field may be written unquoted fails that item unless another source
+  resolves it: an environment value named `<as>` holding a JSON object with
+  that field, from any source the field reads (root `env`, dotenv, params,
+  step `env`, an output variable, or the process environment where the field
+  reads it), or a step property such as `${<as>.stdout}` of a step whose id
+  is `<as>`. Validation cannot decide this, because run-time params, dotenv
+  files, and the process environment may define `<as>`. `${<as>}` and
+  `$<as>.field` are not affected, so shell variables keep their meaning.
+
 #### Body Step Scope
 
 `foreach.steps` defines steps scoped to one item body.
 
 Rules:
+
+- Body steps inherit the DAG's step `defaults` as top-level steps do. A field
+  set on a body step overrides the inherited default, except `env` and
+  `preconditions`, which add to the inherited entries.
 
 - Body step ids must be unique inside the body.
 
@@ -521,13 +582,28 @@ Rules:
 
 - Top-level steps must not depend on body steps directly.
 
-- A body step can reference top-level step outputs when the top-level producer
-  is ordered before the owning `foreach` step under Spec 007.
+- A body step can reference top-level step outputs. The reference adds an
+  inferred dependency from the producer to the owning `foreach` step under
+  Spec 007, so the producer is ordered before the body runs.
 
 - A body step can reference an earlier body step output from the same item body
-  using normal step-output reference syntax.
+  using normal step-output reference syntax. Such a reference creates no
+  inferred dependency; body ordering comes from body `depends`.
 
 - Body step output references never cross item bodies.
+
+- A body step reads the `foreach` step's own `env` entries and the output
+  variables visible to the `foreach` step, as a step in the same DAG would. A
+  body step's own `env` wins over them.
+
+- Values Dagu sets for each step, such as the working directory, the step
+  name, and the trace context (Spec 017), are those of the body step, not the
+  `foreach` step. `TRACEPARENT` and `TRACESTATE` set in the `foreach` step's
+  `env` do not reach body steps.
+
+- The values a body step reads from the `foreach` step are not part of what a
+  child run started by the body step inherits. Passing one to a child run
+  requires `pass_env` (Spec 006, "Sub-DAG Passed Environment").
 
 - Top-level steps after the `foreach` step cannot reference body step outputs
   directly. They must consume the `foreach` aggregate output.
@@ -573,8 +649,15 @@ Rules:
 
 - If every item body succeeds, the parent `foreach` step succeeds.
 
-- If one or more item bodies fail, the parent `foreach` step fails after all
-  item bodies that can run have reached a terminal status.
+- If one or more item bodies fail and at least one succeeds, the parent
+  `foreach` step is `partially_succeeded` once all item bodies that can run
+  have reached a terminal status: its dependents run, and the DAG run ends
+  partially succeeded. This differs from `parallel`, where a failed child
+  DAG run fails the parent step, because a foreach body is the work of one
+  item and the other items' results remain usable.
+
+- If every item body fails, the parent `foreach` step fails after all item
+  bodies that can run have reached a terminal status.
 
 - A failed item body does not prevent later item bodies from starting unless
   the parent step is aborted or times out.
@@ -617,6 +700,11 @@ Rules:
 
 - `outputs` is ordered by item slot index and includes only successful item
   bodies.
+
+- The aggregate is written whether or not every item body succeeded: failed
+  item bodies appear in `items` with `error`, and only successful ones
+  contribute to `outputs`. A dependent step reads it through the string-form
+  `output` variable (Spec 012), which is set even when the parent step fails.
 
 - If `foreach.collect` is omitted, successful item output maps are empty.
 
@@ -677,8 +765,12 @@ Runtime execution must fail when:
 - item expansion produces more than `1000` items.
 - `foreach.key` resolves to an empty string.
 - two item slots resolve to the same item key.
-- an item body fails.
-- a collect expression fails to resolve after item body success.
+- a field with item scope keeps `${<as>.field}` without the `foreach.`
+  namespace, as the Item Scope section defines; that item fails.
+- every item body fails; a collect expression that fails to resolve after
+  its item body succeeded counts as that item's failure. When some item
+  bodies fail and others succeed, the step is `partially_succeeded`, as the
+  Behavior section states.
 
 ### Timeout and Abort
 

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -1359,7 +1360,7 @@ func TestResolveStatus_FastPath_LabelFilterReject(t *testing.T) {
 		},
 	}
 
-	labelFilters := []ir.LabelFilter{ir.ParseLabelFilter("env=prod")}
+	labelFilters := mustParseLabelFilters(t, "env=prod")
 	status := store.resolveStatus(ctx, dagRun, labelFilters, nil, nil, false)
 	assert.Nil(t, status)
 }
@@ -1382,12 +1383,12 @@ func TestResolveStatus_StandardPath(t *testing.T) {
 	require.NotEmpty(t, dagRuns)
 
 	// Standard path (no summary) with matching label filter.
-	labelFilters := []ir.LabelFilter{ir.ParseLabelFilter("env=prod")}
+	labelFilters := mustParseLabelFilters(t, "env=prod")
 	status := store.resolveStatus(ctx, dagRuns[0], labelFilters, nil, nil, false)
 	require.NotNil(t, status, "should resolve status via standard path with matching label")
 
 	// Standard path with non-matching label filter.
-	labelFilters = []ir.LabelFilter{ir.ParseLabelFilter("env=staging")}
+	labelFilters = mustParseLabelFilters(t, "env=staging")
 	status = store.resolveStatus(ctx, dagRuns[0], labelFilters, nil, nil, false)
 	assert.Nil(t, status, "should reject via standard path when label doesn't match")
 
@@ -1648,4 +1649,42 @@ func TestListStatusesPage(t *testing.T) {
 		require.Len(t, page2.Items, 1)
 		assert.Equal(t, "run-0", page2.Items[0].DAGRunID)
 	})
+}
+
+// When the existing runs cannot be read, a run ID may already be taken, so a
+// new attempt must not be created under it.
+func TestCreateAttemptLookupError(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("relies on directory permissions being enforced")
+	}
+
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	workRoot := filepath.Join(baseDir, ".dag-run-work")
+	store := NewStore(baseDir)
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(workRoot, baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	dag := &ir.DAG{Name: "guarded"}
+	ts := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+
+	_, err := repository.CreateAttempt(ctx, dag, ts, "first", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+
+	years, err := filepath.Glob(filepath.Join(baseDir, "*", "dag-runs", "2026"))
+	require.NoError(t, err)
+	require.Len(t, years, 1)
+	yearDir := years[0]
+	require.NoError(t, os.Chmod(yearDir, 0))
+	t.Cleanup(func() { _ = os.Chmod(yearDir, 0750) })
+
+	// A later year is writable, so only the failed lookup can stop this.
+	_, err = repository.CreateAttempt(ctx, dag, ts.AddDate(1, 0, 0), "first", persis.DAGRunCreateAttemptOptions{})
+	require.ErrorContains(t, err, "failed to check for an existing dag-run")
+}
+
+func mustParseLabelFilters(t *testing.T, terms ...string) []ir.LabelFilter {
+	t.Helper()
+	filters, err := ir.ParseLabelFilters(terms)
+	require.NoError(t, err)
+	return filters
 }

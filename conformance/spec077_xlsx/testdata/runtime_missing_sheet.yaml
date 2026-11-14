@@ -1,0 +1,23 @@
+working_dir: .
+steps:
+  - id: orders
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [Invoice No, Amount]
+      rows: [{"Invoice No": "INV-1", "Amount": 10}]
+  - id: summary
+    depends: orders
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Summary
+      columns: [Total]
+      rows: [{"Total": 10}]
+  - id: read
+    depends: summary
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      sheet: Order

@@ -194,6 +194,15 @@ func (s *SchedulerStateStore) cachedStateLocked(ctx context.Context) (*scheduler
 		s.clearCacheLocked()
 		return nil, false, nil
 	}
+	// Each tick moves only the checkpoint, which another process may have
+	// written since the state was cached.
+	checkpoint, ok, err := s.loadCheckpoint(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if ok {
+		s.cachedState.LastTick = checkpoint.LastTick
+	}
 	return schedulerstate.Clone(s.cachedState), true, nil
 }
 

@@ -1,0 +1,17 @@
+name: 'quoted'
+"steps":
+  - 'name': "first"
+    "run": 'echo ''single'' and "double"'
+  - name: second
+    run: "echo \"escaped\" \t tab \\ backslash"
+    env:
+      "KEY WITH SPACE": "value"
+      'x': yes
+      ? complex key
+      : complex value
+      0x1F: !!str 0x1F
+      empty:
+      nulls: ~
+    description: "multi
+      line quoted"
+    timeout_sec: 0030

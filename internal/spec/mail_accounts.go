@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
@@ -29,12 +30,15 @@ type mailServerConfig struct {
 	Port          string `yaml:"port"`
 	Security      string `yaml:"security"`
 	SkipTLSVerify bool   `yaml:"skip_tls_verify"`
+	TLSCertSHA256 string `yaml:"tls_cert_sha256"`
 }
 
 var (
 	mailAccountKeys = []string{"provider", "imap", "smtp", "username", "password", "oauth"}
-	mailServerKeys  = []string{"host", "port", "security", "skip_tls_verify"}
-	mailOAuthKeys   = []string{"provider", "tenant_id", "client_id", "client_secret", "service_account_json", "refresh_token"}
+	mailServerKeys  = []string{"host", "port", "security", "skip_tls_verify", "tls_cert_sha256"}
+	mailOAuthKeys   = []string{"provider", "tenant_id", "client_id", "client_secret", "service_account_json", "refresh_token", "scopes"}
+	// gmailUnusedKeys configure IMAP and SMTP, which a Gmail API account never uses.
+	gmailUnusedKeys = []string{"imap", "smtp", "username"}
 )
 
 // mailProviderServers holds the servers each provider preset supplies.
@@ -134,6 +138,21 @@ func parseMailAccount(value any) (*ir.MailAccount, error) {
 		return nil, err
 	}
 
+	account := &ir.MailAccount{
+		Provider: provider,
+		Username: strings.TrimSpace(cfg.Username),
+		Password: cfg.Password,
+		OAuth:    cfg.OAuth,
+	}
+	if account.GmailAPI() {
+		for _, key := range gmailUnusedKeys {
+			if _, ok := raw[key]; ok {
+				return nil, fmt.Errorf("%s is not used by a google account with oauth, which uses the Gmail API", key)
+			}
+		}
+		return account, nil
+	}
+
 	preset := mailProviderServers[provider]
 	imapServer, err := buildMailServer("imap", preset.imap, cfg.IMAP)
 	if err != nil {
@@ -149,15 +168,9 @@ func parseMailAccount(value any) (*ir.MailAccount, error) {
 	if smtpServer != nil && smtpServer.Host == "" {
 		smtpServer = nil
 	}
-
-	return &ir.MailAccount{
-		Provider: provider,
-		IMAP:     imapServer,
-		SMTP:     smtpServer,
-		Username: strings.TrimSpace(cfg.Username),
-		Password: cfg.Password,
-		OAuth:    cfg.OAuth,
-	}, nil
+	account.IMAP = imapServer
+	account.SMTP = smtpServer
+	return account, nil
 }
 
 // buildMailServer applies a server block over the provider preset. Fields the
@@ -198,6 +211,14 @@ func buildMailServer(protocol string, preset ir.MailServer, block *mailServerCon
 		server.Port = mailDefaultPorts[protocol][server.Security]
 	}
 	server.SkipTLSVerify = block.SkipTLSVerify
+	server.TLSCertSHA256 = ""
+	if pin := strings.TrimSpace(block.TLSCertSHA256); pin != "" {
+		normalized, err := mailer.NormalizeCertSHA256(pin)
+		if err != nil {
+			return nil, fmt.Errorf("%s.tls_cert_sha256 %w", protocol, err)
+		}
+		server.TLSCertSHA256 = normalized
+	}
 	return &server, nil
 }
 

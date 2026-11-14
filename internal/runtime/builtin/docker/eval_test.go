@@ -5,6 +5,8 @@ package docker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -247,6 +249,150 @@ func TestEvalContainerFields(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestEvalContainerEnvFile(t *testing.T) {
+	t.Parallel()
+
+	newCtx := func(t *testing.T, workDir string) context.Context {
+		t.Helper()
+		env := runtime.NewEnv(context.Background(), ir.Step{Name: "test"})
+		env.WorkingDir = workDir
+		return runtime.WithEnv(context.Background(), env)
+	}
+
+	writeEnv := func(t *testing.T, dir, name, content string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		return path
+	}
+
+	t.Run("InjectsFileVars", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeEnv(t, dir, ".env", "FILE_A=1\nFILE_B=two\n")
+
+		result, err := EvalContainerFields(newCtx(t, dir), ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{".env"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{".env"}, result.EnvFile)
+		assert.ElementsMatch(t, []string{"FILE_A=1", "FILE_B=two"}, result.Env)
+	})
+
+	t.Run("EnvOverridesFileVars", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeEnv(t, dir, ".env", "SHARED=from_file\nFILE_ONLY=yes\n")
+
+		result, err := EvalContainerFields(newCtx(t, dir), ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{".env"},
+			Env:     []string{"SHARED=explicit"},
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"SHARED=explicit", "FILE_ONLY=yes"}, result.Env)
+	})
+
+	t.Run("LaterFilesOverrideEarlier", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeEnv(t, dir, ".env.base", "MULTI_A=base\nMULTI_B=base\n")
+		writeEnv(t, dir, ".env.local", "MULTI_B=local\n")
+
+		result, err := EvalContainerFields(newCtx(t, dir), ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{".env.base", ".env.local"},
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"MULTI_A=base", "MULTI_B=local"}, result.Env)
+	})
+
+	t.Run("DotenvSyntax", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		// Quotes are stripped, single-quoted values stay literal, and ${VAR}
+		// expands from entries defined earlier in the same file.
+		writeEnv(t, dir, ".env", "QUOTED=\"a b\"\nLITERAL='x$y'\nREF=${QUOTED}-z\n")
+
+		result, err := EvalContainerFields(newCtx(t, dir), ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{".env"},
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"QUOTED=a b", "LITERAL=x$y", "REF=a b-z"}, result.Env)
+	})
+
+	t.Run("PathVariablesEvaluate", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeEnv(t, dir, "vars.env", "VAR_PATH_VAR=ok\n")
+
+		env := runtime.NewEnv(context.Background(), ir.Step{Name: "test"})
+		env.WorkingDir = dir
+		env.Scope = env.Scope.WithEntry("ENV_NAME", "vars", cmnvalue.EnvSourceStepEnv)
+		ctx := runtime.WithEnv(context.Background(), env)
+
+		result, err := EvalContainerFields(ctx, ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{"${ENV_NAME}.env"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"vars.env"}, result.EnvFile)
+		assert.Contains(t, result.Env, "VAR_PATH_VAR=ok")
+	})
+
+	t.Run("ResolvesRelativeToDAGDir", func(t *testing.T) {
+		t.Parallel()
+		dagDir := t.TempDir()
+		writeEnv(t, dagDir, ".env", "DAG_DIR_VAR=present\n")
+
+		env := runtime.NewEnv(context.Background(), ir.Step{Name: "test"})
+		env.WorkingDir = t.TempDir() // no .env here
+		env.DAG = &ir.DAG{Location: filepath.Join(dagDir, "dag.yaml")}
+		ctx := runtime.WithEnv(context.Background(), env)
+
+		result, err := EvalContainerFields(ctx, ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{".env"},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, result.Env, "DAG_DIR_VAR=present")
+	})
+
+	t.Run("MissingFileFails", func(t *testing.T) {
+		t.Parallel()
+		_, err := EvalContainerFields(newCtx(t, t.TempDir()), ir.Container{
+			Image:   "alpine",
+			EnvFile: []string{"nonexistent.env"},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent.env")
+	})
+
+	// Spec 006 layers the container environment as
+	// step env < env_file < container env.
+	t.Run("StepEnvBelowFileVars", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeEnv(t, dir, ".env", "A=file\nB=file\n")
+
+		exec, err := newDocker(newCtx(t, dir), ir.Step{
+			Name: "test",
+			Env:  []string{"A=step", "C=step"},
+			Container: &ir.Container{
+				Image:   "alpine",
+				EnvFile: []string{".env"},
+				Env:     []string{"B=container"},
+			},
+		})
+		require.NoError(t, err)
+		d, ok := exec.(*docker)
+		require.True(t, ok, "executor is *docker")
+		assert.ElementsMatch(t, []string{"A=file", "B=container", "C=step"}, d.cfg.Container.Env)
+	})
 }
 
 func TestEvalStringSlice(t *testing.T) {

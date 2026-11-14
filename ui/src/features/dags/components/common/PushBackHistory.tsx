@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import dayjs from '@/lib/dayjs';
+import RelativeTime from '@/components/ui/relative-time';
 import { components } from '../../../../api/v1/schema';
 import { ManualActionSubject } from './ManualActionSubject';
 import { I18nText } from '@/i18n/I18nText';
@@ -12,14 +12,6 @@ type Props = {
   history?: PushBackHistoryEntry[];
   title?: string;
   className?: string;
-};
-
-const formatTimestamp = (timestamp?: string) => {
-  if (!timestamp) return '';
-  const formatted = dayjs(timestamp);
-  return formatted.isValid()
-    ? formatted.format('YYYY-MM-DD HH:mm:ss Z')
-    : timestamp;
 };
 
 const formatInputs = (inputs?: Record<string, string>) => {
@@ -71,9 +63,10 @@ export default function PushBackHistory({
                   </span>
                 ) : null}
                 {entry.at && (
-                  <span className="text-muted-foreground">
-                    <I18nText text={"at"} /> {formatTimestamp(entry.at)}
-                  </span>
+                  <RelativeTime
+                    className="text-muted-foreground"
+                    timestamp={entry.at}
+                  />
                 )}
               </div>
               {formattedInputs && (

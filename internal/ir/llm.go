@@ -30,12 +30,15 @@ func ParseLLMRole(s string) (LLMRole, error) {
 // ThinkingEffort represents the reasoning depth level for thinking mode.
 type ThinkingEffort string
 
-// ThinkingEffort constants for reasoning/thinking depth.
+// ThinkingEffort constants for reasoning/thinking depth, from least to most.
 const (
-	ThinkingEffortLow    ThinkingEffort = "low"
-	ThinkingEffortMedium ThinkingEffort = "medium"
-	ThinkingEffortHigh   ThinkingEffort = "high"
-	ThinkingEffortXHigh  ThinkingEffort = "xhigh"
+	ThinkingEffortNone    ThinkingEffort = "none"
+	ThinkingEffortMinimal ThinkingEffort = "minimal"
+	ThinkingEffortLow     ThinkingEffort = "low"
+	ThinkingEffortMedium  ThinkingEffort = "medium"
+	ThinkingEffortHigh    ThinkingEffort = "high"
+	ThinkingEffortXHigh   ThinkingEffort = "xhigh"
+	ThinkingEffortMax     ThinkingEffort = "max"
 )
 
 // ParseThinkingEffort validates and returns a ThinkingEffort from a string.
@@ -46,10 +49,11 @@ func ParseThinkingEffort(s string) (ThinkingEffort, error) {
 		return "", nil
 	}
 	switch ThinkingEffort(s) {
-	case ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh, ThinkingEffortXHigh:
+	case ThinkingEffortNone, ThinkingEffortMinimal, ThinkingEffortLow, ThinkingEffortMedium,
+		ThinkingEffortHigh, ThinkingEffortXHigh, ThinkingEffortMax:
 		return ThinkingEffort(s), nil
 	default:
-		return "", fmt.Errorf("invalid thinking effort %q: must be one of: low, medium, high, xhigh", s)
+		return "", fmt.Errorf("invalid thinking effort %q: must be one of: none, minimal, low, medium, high, xhigh, max", s)
 	}
 }
 
@@ -57,8 +61,8 @@ func ParseThinkingEffort(s string) (ThinkingEffort, error) {
 type ThinkingConfig struct {
 	// Enabled activates thinking mode for supported models.
 	Enabled bool `json:"enabled,omitempty"`
-	// Effort controls reasoning depth: low, medium, high, xhigh.
-	// Maps to provider-specific parameters.
+	// Effort controls reasoning depth: none, minimal, low, medium, high,
+	// xhigh, max. Each provider maps a level it lacks to its nearest one.
 	Effort ThinkingEffort `json:"effort,omitempty"`
 	// BudgetTokens sets explicit token budget (provider-specific).
 	// For Anthropic: minimum 1024, max 128K.
@@ -86,6 +90,8 @@ type ModelEntry struct {
 	BaseURL string `json:"baseURL,omitempty"`
 	// APIKeyName overrides the API key environment variable for this model.
 	APIKeyName string `json:"apiKeyName,omitempty"`
+	// ProviderOrder overrides the shared providerOrder for this model.
+	ProviderOrder []string `json:"providerOrder,omitempty"`
 }
 
 // LLMConfig contains the configuration for LLM-based executors.
@@ -113,6 +119,9 @@ type LLMConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `json:"apiKeyName,omitempty"`
+	// ProviderOrder names the upstream providers OpenRouter tries first, in
+	// order. Only the openrouter provider accepts it.
+	ProviderOrder []string `json:"providerOrder,omitempty"`
 	// Stream enables or disables streaming output.
 	// Default is true.
 	Stream *bool `json:"stream,omitempty"`
@@ -138,7 +147,16 @@ type LLMConfig struct {
 	ObservationKeepRecent *int `json:"observationKeepRecent,omitempty"`
 	// WebSearch configures provider-native web search.
 	WebSearch *WebSearchConfig `json:"webSearch,omitempty"`
+	// Files names the files the model reads with the prompt.
+	Files []string `json:"files,omitempty"`
+	// MaxFileChars bounds the text of all the Files together, in
+	// characters. Default is DefaultMaxFileChars.
+	MaxFileChars *int `json:"maxFileChars,omitempty"`
 }
+
+// DefaultMaxFileChars bounds the text of a chat step's files when the step
+// sets no max_file_chars.
+const DefaultMaxFileChars = 1_000_000
 
 // PromptMessage represents an authored message used to initialize an LLM session.
 type PromptMessage struct {
@@ -176,6 +194,15 @@ func (c *LLMConfig) GetMaxToolIterations() int {
 		return 10
 	}
 	return *c.MaxToolIterations
+}
+
+// GetMaxFileChars returns how many characters of text the step's files may
+// hold together. Default is DefaultMaxFileChars.
+func (c *LLMConfig) GetMaxFileChars() int {
+	if c.MaxFileChars == nil {
+		return DefaultMaxFileChars
+	}
+	return *c.MaxFileChars
 }
 
 // HasTools returns true if tools are configured.

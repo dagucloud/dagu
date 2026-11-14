@@ -4,7 +4,7 @@ import type { components } from '../../api/v1/schema';
 import { Input } from '@/components/ui/input';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
-import { DAGRunDetailsModal } from '../../features/dag-runs/components/dag-run-details';
+import { PeekHost } from '@/features/peek/PeekHost';
 import WorkerList from '../../features/workers/components/WorkerList';
 import WorkerMetrics from '../../features/workers/components/WorkerMetrics';
 import { useQuery } from '../../hooks/api';
@@ -14,12 +14,6 @@ import { I18nProps } from '@/i18n/I18nProps';
 function Workers() {
   const appBarContext = React.useContext(AppBarContext);
   const [searchText, setSearchText] = React.useState('');
-
-  // State for DAG run modal
-  const [modalDAGRun, setModalDAGRun] = React.useState<{
-    name: string;
-    dagRunId: string;
-  } | null>(null);
 
   React.useEffect(() => {
     appBarContext.setTitle('Workers');
@@ -35,7 +29,7 @@ function Workers() {
       },
     },
     {
-      refreshInterval: 1000, // Refresh every second for real-time updates
+      refreshInterval: 2000, // Refresh every two seconds for live updates
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
     }
@@ -102,37 +96,6 @@ function Workers() {
     };
   }, [data?.workers]);
 
-  // Handle task click
-  const handleTaskClick = React.useCallback(
-    (task: components['schemas']['RunningTask']) => {
-      // For nested tasks, we need to set up the URL params for sub DAG view
-      if (task.parentDagRunName && task.parentDagRunId) {
-        const searchParams = new URLSearchParams();
-        searchParams.set('subDAGRunId', task.dagRunId);
-        searchParams.set('dagRunId', task.parentDagRunId);
-        searchParams.set('dagRunName', task.parentDagRunName);
-        window.history.pushState(
-          {},
-          '',
-          `${window.location.pathname}?${searchParams.toString()}`
-        );
-
-        // Open modal with parent DAG info
-        setModalDAGRun({
-          name: task.parentDagRunName,
-          dagRunId: task.parentDagRunId,
-        });
-      } else {
-        // For root tasks, open directly
-        setModalDAGRun({
-          name: task.dagName,
-          dagRunId: task.dagRunId,
-        });
-      }
-    },
-    []
-  );
-
   if (error) {
     const errorData = error as components['schemas']['Error'];
     return (
@@ -153,7 +116,7 @@ function Workers() {
   }
 
   return (
-    <div className="flex flex-col gap-3 max-w-7xl h-full overflow-hidden">
+    <div className="flex flex-col gap-3 h-full overflow-hidden">
       {/* Header with search and refresh */}
       <div className="card-obsidian flex-shrink-0">
         <div className="flex items-center justify-between p-3">
@@ -232,26 +195,20 @@ function Workers() {
             workers={filteredWorkers}
             isLoading={isLoading && !data}
             errors={data?.errors}
-            onTaskClick={handleTaskClick}
           />
         </div>
       </div>
-
-      {/* DAG Run Details Modal */}
-      {modalDAGRun && (
-        <DAGRunDetailsModal
-          name={modalDAGRun.name}
-          dagRunId={modalDAGRun.dagRunId}
-          isOpen={!!modalDAGRun}
-          onClose={() => {
-            setModalDAGRun(null);
-            // Clear URL params when closing modal
-            window.history.pushState({}, '', window.location.pathname);
-          }}
-        />
-      )}
     </div>
   );
 }
 
-export default Workers;
+/** The workers page; a running task opens its run over the page. */
+function WorkersPage() {
+  return (
+    <PeekHost>
+      <Workers />
+    </PeekHost>
+  );
+}
+
+export default WorkersPage;

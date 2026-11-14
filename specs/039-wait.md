@@ -47,10 +47,28 @@ then succeeds.
 
 ### wait.until
 
-`with.until` (required) is an RFC3339 timestamp. The step blocks until that
-point in time, then succeeds. If the timestamp is already in the past when
-the step starts, the step succeeds immediately rather than failing or
-blocking.
+`with.until` (required) is either an RFC3339 timestamp or a `HH:MM[:SS]`
+clock time. The step blocks until the resolved deadline, then succeeds.
+
+A clock time resolves on the run's logical day, in `with.timezone` when
+set, otherwise in the run-configured zone. The logical day is the date of
+`context.run.scheduled_at` when the run has one, and retries of that run
+keep it; otherwise it is the date of `context.attempt.started_at`, so a
+retry of a manual run that starts on a later day resolves on that day. A
+clock time never rolls over to the next day. As in RFC 5545, a clock time
+that a daylight-saving transition skips is read with the UTC offset in
+effect before the gap, so `02:30` on the night `America/New_York` springs
+forward resolves to `03:30` EDT, and a clock time that a transition repeats
+resolves to its first occurrence. `with.timezone` applies only to clock
+times and is ignored for RFC3339 timestamps. `with.offset` (a duration,
+may be negative) shifts the resolved deadline.
+
+`with.if_past` selects behavior, for both forms, when the deadline is
+already past as the step starts: `continue` (default) succeeds
+immediately, `fail` errors, and `window` succeeds when the deadline passed
+no more than `with.window` ago and otherwise errors. `with.offset`,
+`with.timezone`, `with.if_past`, and `with.window` are only valid on
+`wait.until`.
 
 ### wait.file
 
@@ -74,11 +92,11 @@ refused, timeout, and similar) counts as a non-matching poll rather than an
 error and is retried on the next interval. The step succeeds once a
 response's status code equals `with.status` (default `200`).
 
-Config-schema validation for `with.url` (and `with.status`) runs before a
-step's `with` values are resolved, so `with.url` must be a literal,
-already-valid absolute URL in the DAG file; a `${...}`/`$VAR`-style
-reference that would only become a valid URL after resolution fails
-validation before the DAG ever runs.
+Config-schema validation for `with.url` (and `with.status`) accepts a value
+that holds a `${...}` or `$VAR` reference anywhere in it, such as
+`${BASE_URL}/health`, and leaves its strict check to run time, once the
+reference has resolved; a literal (non-reference) value is still validated
+strictly at build time.
 
 `with.headers` and `with.body` are sent exactly as given, with no scheme
 enforcement: a `with.url` using `http://` sends them in cleartext the same
@@ -96,11 +114,21 @@ way it cancels any other step.
 ### Validation
 
 All of the following are rejected by DAG-build-time validation, before the
-DAG starts running:
+DAG starts running. A `with` value that holds an unescaped `${...}` or `$VAR`
+reference anywhere in it defers its strict check to run time, once the
+reference has resolved; only literal values, including those whose `$` is
+escaped as `\$`, are rejected here. A value that still holds a reference at
+run time and fails its check is reported as holding an unresolved reference:
 
 - `wait.duration`: `with.duration` is empty, is not a parseable duration, or
   is not greater than zero.
-- `wait.until`: `with.until` is empty or is not a valid RFC3339 timestamp.
+- `wait.until`: `with.until` is empty or is neither a valid RFC3339 timestamp
+  nor a valid `HH:MM[:SS]` clock time; `with.timezone` is not an IANA name;
+  `with.offset` is not a duration; `with.if_past` is not `continue`, `fail`,
+  or `window`; `with.window` is not a duration greater than zero, is set
+  without `if_past: window`, or is missing with `if_past: window`.
+  `with.offset`, `with.timezone`, `with.if_past`, or `with.window` set on
+  any other action.
 - `wait.file`: `with.path` is empty, or `with.state` is a value other than
   `exists` or `missing`.
 - `wait.http`: `with.url` is empty or is not an absolute `http://`/`https://`

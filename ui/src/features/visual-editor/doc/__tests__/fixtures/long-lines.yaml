@@ -1,0 +1,25 @@
+# A messy workflow with very long lines. A long comment is never reflowed: alpha0 beta1 gamma2 delta3 epsilon4 zeta5 eta6 theta7 iota8 kappa9 lambda10 omega11 alpha12 beta13 gamma14 delta15 epsilon16 zeta17 eta18 theta19 iota20 kappa21 lambda22 omega23 alpha24 beta25 gamma26 delta27 epsilon28 zeta29
+steps:
+  - name: fetch
+    description: alpha0 beta1 gamma2 delta3 epsilon4 zeta5 eta6 theta7 iota8 kappa9 lambda10 omega11 alpha12 beta13 gamma14 delta15 epsilon16 zeta17 eta18 theta19 iota20 kappa21 lambda22 omega23 alpha24 beta25 gamma26 delta27 epsilon28 zeta29
+    run: curl --fail --silent --show-error --location --header Accept=json --output /tmp/out.json https://example.com/api/v1/items?page=1
+    output: ITEMS
+  - name: report
+    run: echo "items from ${steps.fetch.outputs.ITEMS} and ${params.TARGET} for the release of ${env.VERSION} on the host ${env.HOSTNAME} in ten words"
+    depends: [fetch, a_long_name_one, a_long_name_two, a_long_name_three, a_long_name_four, a_long_name_five]
+    with: {first: 1, second: two, third: three three three three, fourth: four four four, fifth: five five five five five}
+  - name: quoted
+    description: "Quoted text with \"inner quotes\" and a tab\t and unicode éè 你好 😀 alpha0 beta1 gamma2 delta3 epsilon4 zeta5 eta6 theta7 iota8 kappa9 lambda10 omega11 alpha12 beta13 gamma14 delta15 epsilon16 zeta17 eta18 theta19"
+    run: 'echo it''s quoted and long alpha0 beta1 gamma2 delta3 epsilon4 zeta5 eta6 theta7 iota8 kappa9 lambda10 omega11 alpha12 beta13 gamma14 delta15 epsilon16 zeta17 eta18 theta19'
+  - name: url
+    description: https://example.com/very-long-path-segment/very-long-path-segment/very-long-path-segment/very-long-path-segment/very-long-path-segment/very-long-path-segment/very-long-path-segment/very-long-path-segment/end
+    run: echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  - name: script
+    script: |
+      echo one
+      echo alpha0 beta1 gamma2 delta3 epsilon4 zeta5 eta6 theta7 iota8 kappa9 lambda10 omega11 alpha12 beta13 gamma14 delta15 epsilon16 zeta17 eta18 theta19 iota20 kappa21 lambda22 omega23 alpha24
+    shell: bash
+name: messy-long
+description: alpha0 beta1 gamma2 delta3 epsilon4 zeta5 eta6 theta7 iota8 kappa9 lambda10 omega11 alpha12 beta13 gamma14 delta15 epsilon16 zeta17 eta18 theta19 iota20 kappa21 lambda22 omega23 alpha24 beta25 gamma26 delta27 epsilon28 zeta29 eta30 theta31 iota32 kappa33 lambda34 omega35 alpha36 beta37 gamma38 delta39
+labels: [one, two]
+params: [TARGET=tttttttttttttttttttttttttttttt, VERSION=1.0, P0=value0, P1=value1, P2=value2, P3=value3, P4=value4, P5=value5, P6=value6, P7=value7]

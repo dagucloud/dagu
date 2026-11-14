@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const maxInt64AsUint = ^uint64(0) >> 1
@@ -23,6 +25,8 @@ const maxSafeFloat64Integer = 1 << 53
 type ResolveRuntimeParamsOptions struct {
 	BaseConfig             string
 	WorkspaceBaseConfigDir string
+	// DeferEvals leaves every param's eval to the run: see DeferParamEvals.
+	DeferEvals bool
 }
 
 // QuoteRuntimeParams quotes persisted params so values containing spaces survive
@@ -125,11 +129,19 @@ func runtimeParamLoadOptions(dag *ir.DAG, params any, opts ResolveRuntimeParamsO
 	if dag.Name != "" {
 		loadOpts = append(loadOpts, WithName(dag.Name))
 	}
+	// A child copied to a temporary location keeps resolving relative paths,
+	// such as a params schema, against the file it was authored in.
+	if dag.SourceFile != "" {
+		loadOpts = append(loadOpts, WithSourceFile(dag.SourceFile))
+	}
 	if opts.BaseConfig != "" {
 		loadOpts = append(loadOpts, WithBaseConfig(opts.BaseConfig))
 	}
 	if opts.WorkspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, WithWorkspaceBaseConfigDir(opts.WorkspaceBaseConfigDir))
+	}
+	if opts.DeferEvals {
+		loadOpts = append(loadOpts, DeferParamEvals())
 	}
 	if len(dag.BaseConfigData) > 0 {
 		loadOpts = append(loadOpts, WithBaseConfigContent(dag.BaseConfigData))
@@ -156,7 +168,7 @@ func positionalParamKeys(paramDefs []ir.ParamDef) map[string]struct{} {
 	return keys
 }
 
-func resolveLegacyRuntimePairs(entries []dagParamEntry, rawParams string, paramsList []string) ([]paramPair, error) {
+func resolveLegacyRuntimePairs(entries []dagParamEntry, inheritedNames map[string]struct{}, rawParams string, paramsList []string) ([]paramPair, error) {
 	finalPairs := runtimePairsFromEntries(entries)
 	declaredNames := declaredRuntimeParamNames(entries)
 
@@ -165,11 +177,11 @@ func resolveLegacyRuntimePairs(entries []dagParamEntry, rawParams string, params
 		if err != nil {
 			return nil, ir.NewValidationError("params", rawParams, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
-		overridePairs, internalPairs := splitInternalRuntimeOverridePairs(overridePairs, declaredNames)
+		overridePairs, passThroughPairs := splitPassThroughOverridePairs(overridePairs, declaredNames, inheritedNames)
 		if err := overrideParams(&finalPairs, overridePairs); err != nil {
 			return nil, err
 		}
-		finalPairs = appendInternalRuntimePairs(finalPairs, internalPairs)
+		finalPairs = appendPassThroughPairs(finalPairs, passThroughPairs)
 	}
 
 	if len(paramsList) > 0 {
@@ -177,11 +189,11 @@ func resolveLegacyRuntimePairs(entries []dagParamEntry, rawParams string, params
 		if err != nil {
 			return nil, ir.NewValidationError("params", paramsList, fmt.Errorf("%w: %s", ErrInvalidParamValue, err))
 		}
-		overridePairs, internalPairs := splitInternalRuntimeOverridePairs(overridePairs, declaredNames)
+		overridePairs, passThroughPairs := splitPassThroughOverridePairs(overridePairs, declaredNames, inheritedNames)
 		if err := overrideParams(&finalPairs, overridePairs); err != nil {
 			return nil, err
 		}
-		finalPairs = appendInternalRuntimePairs(finalPairs, internalPairs)
+		finalPairs = appendPassThroughPairs(finalPairs, passThroughPairs)
 	}
 
 	return finalPairs, nil
@@ -203,7 +215,7 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 	if err != nil {
 		return nil, err
 	}
-	overridePairs, internalPairs := splitInternalRuntimeOverridePairs(overridePairs, declaredRuntimeParamNamesForPlan(plan))
+	overridePairs, passThroughPairs := splitPassThroughOverridePairs(overridePairs, declaredRuntimeParamNamesForPlan(plan), plan.inheritedNames)
 
 	entries, overridden, err := applyOverridePairsTracked(plan.entries, overridePairs)
 	if err != nil {
@@ -213,8 +225,14 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 	scope := buildParamEvalScope(ctx)
 	params := make(cmnvalue.Values)
 	paramDeclarations := paramDeclarationsForPlan(plan)
+	waiting := false
 	for i := range entries {
 		if i < len(plan.entries) {
+			if !overridden[i] && waitsForRun(ctx, plan.entries[i].Eval, waiting) {
+				waiting = true
+				entries[i].Value, entries[i].HasValue, entries[i].Deferred = "", false, true
+				continue
+			}
 			if err := resolveLegacyEntry(ctx, &entries[i], plan.entries[i], overridden[i], &scope, params, paramDeclarations, i); err != nil {
 				return nil, err
 			}
@@ -225,15 +243,47 @@ func resolveLegacyEntries(ctx buildContext, plan *dagParamPlan, rawParams string
 	}
 
 	if plan.schema == nil {
-		return appendInternalRuntimeEntries(entries, internalPairs), nil
+		return appendPassThroughEntries(entries, passThroughPairs), nil
 	}
 
-	entries, err = validateSchemaBackedEntries(entries, plan.schema, plan.schemaProperties, plan.schemaOrder, metadataMode, false)
+	// A param that waits for the run is neither required nor defaulted now:
+	// its eval decides its value when the run starts.
+	schema := plan.schema
+	if waiting {
+		schema, err = withoutRequired(plan.schema, deferredParamNames(entries))
+		if err != nil {
+			return nil, err
+		}
+	}
+	entries, err = validateSchemaBackedEntries(entries, schema, plan.schemaProperties, plan.schemaOrder, metadataMode, false)
 	if err != nil {
 		return nil, err
 	}
+	for i := range entries {
+		if entries[i].Deferred {
+			entries[i].Value, entries[i].HasValue = "", false
+		}
+	}
 
-	return appendInternalRuntimeEntries(entries, internalPairs), nil
+	return appendPassThroughEntries(entries, passThroughPairs), nil
+}
+
+// withoutRequired returns schema with names left out of its required list.
+func withoutRequired(schema *jsonschema.Resolved, names []string) (*jsonschema.Resolved, error) {
+	required := schema.Schema().Required
+	kept := slices.DeleteFunc(slices.Clone(required), func(name string) bool {
+		return slices.Contains(names, name)
+	})
+	if len(kept) == len(required) {
+		return schema, nil
+	}
+	clone := schema.Schema().CloneSchemas()
+	clone.Required = kept
+	resolved, err := clone.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare parameter schema: %w", err)
+	}
+	return resolved, nil
 }
 
 func parseOverridePairs(rawParams string, paramsList []string) ([]paramPair, error) {
@@ -342,26 +392,30 @@ func rejectUnknownNamedParamsForEntries(entries []dagParamEntry, overrides []par
 	)
 }
 
-func splitInternalRuntimeOverridePairs(pairs []paramPair, declaredNames map[string]struct{}) (userPairs []paramPair, internalPairs []paramPair) {
+// splitPassThroughOverridePairs separates the overrides that skip the DAG's
+// own param validation: internal runtime params the DAG does not declare, and
+// params inherited from the base config.
+func splitPassThroughOverridePairs(pairs []paramPair, declaredNames, inheritedNames map[string]struct{}) (userPairs []paramPair, passThroughPairs []paramPair) {
 	for _, pair := range pairs {
-		if isInternalRuntimeParam(pair.Name) && !isDeclaredRuntimeParam(declaredNames, pair.Name) {
-			internalPairs = append(internalPairs, pair)
+		if isDeclaredRuntimeParam(inheritedNames, pair.Name) ||
+			(isInternalRuntimeParam(pair.Name) && !isDeclaredRuntimeParam(declaredNames, pair.Name)) {
+			passThroughPairs = append(passThroughPairs, pair)
 			continue
 		}
 		userPairs = append(userPairs, pair)
 	}
-	return userPairs, internalPairs
+	return userPairs, passThroughPairs
 }
 
-func appendInternalRuntimeEntries(entries []dagParamEntry, internalPairs []paramPair) []dagParamEntry {
-	if len(internalPairs) == 0 {
+func appendPassThroughEntries(entries []dagParamEntry, passThroughPairs []paramPair) []dagParamEntry {
+	if len(passThroughPairs) == 0 {
 		return entries
 	}
 
-	normalizedInternalPairs := appendInternalRuntimePairs(nil, internalPairs)
-	result := make([]dagParamEntry, 0, len(entries)+len(normalizedInternalPairs))
+	normalizedPassThroughPairs := appendPassThroughPairs(nil, passThroughPairs)
+	result := make([]dagParamEntry, 0, len(entries)+len(normalizedPassThroughPairs))
 	result = append(result, entries...)
-	for _, pair := range normalizedInternalPairs {
+	for _, pair := range normalizedPassThroughPairs {
 		result = append(result, dagParamEntry{
 			Name:     pair.Name,
 			Value:    pair.Value,
@@ -371,8 +425,8 @@ func appendInternalRuntimeEntries(entries []dagParamEntry, internalPairs []param
 	return result
 }
 
-func appendInternalRuntimePairs(existing []paramPair, internalPairs []paramPair) []paramPair {
-	if len(internalPairs) == 0 {
+func appendPassThroughPairs(existing []paramPair, passThroughPairs []paramPair) []paramPair {
+	if len(passThroughPairs) == 0 {
 		return existing
 	}
 
@@ -385,7 +439,7 @@ func appendInternalRuntimePairs(existing []paramPair, internalPairs []paramPair)
 		indexByName[pair.Name] = i
 	}
 
-	for _, pair := range internalPairs {
+	for _, pair := range passThroughPairs {
 		if pair.Name == "" {
 			result = append(result, pair)
 			continue
@@ -445,6 +499,8 @@ func isInternalRuntimeParam(name string) bool {
 		return true
 	case "WEBHOOK_HEADERS":
 		return true
+	case ir.WatchFileParam, ir.WatchNameParam:
+		return true
 	default:
 		return false
 	}
@@ -478,6 +534,17 @@ func buildParamEvalScope(ctx buildContext) *cmnvalue.EnvScope {
 	return scope
 }
 
+// waitsForRun reports whether a param's eval waits for the run's values: it
+// reads the run's dates or context, follows an eval that waits, or the load
+// defers every eval. It waits only in a load that evaluates without them.
+func waitsForRun(ctx buildContext, eval string, afterWaiting bool) bool {
+	if strings.TrimSpace(eval) == "" || ctx.opts.Has(buildFlagNoEval) || ctx.opts.Has(buildFlagRunValues) {
+		return false
+	}
+	return afterWaiting || ctx.opts.Has(buildFlagDeferParamEval) ||
+		cmnvalue.HasReferenceToNamespace(eval, "dates", "context")
+}
+
 func resolveLegacyEntry(
 	ctx buildContext,
 	entry *dagParamEntry,
@@ -498,15 +565,23 @@ func resolveLegacyEntry(
 	if evalCtx == nil {
 		evalCtx = context.Background()
 	}
+	consts := cmnvalue.Values(inheritedConsts(ctx))
 	var runtimeScope cmnvalue.RuntimeScope
 	if *scope != nil {
 		runtimeScope.Env = *scope
 	}
+	runtimeScope.Consts = consts
 	runtimeScope.Params = params
+	staticScope := cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations}
+	if ctx.opts.Has(buildFlagRunValues) {
+		runtimeScope.Dates = ctx.opts.RunDates
+		runtimeScope.BuiltinContext = ctx.opts.RunContext
+		staticScope.Dates = ctx.opts.RunDates
+	}
 	fieldPath := fmt.Sprintf("params[%d].eval", index)
 	reportNamespaceUnavailableStepOutputReferences(ctx.valueReferenceNotices, fieldPath, base.Eval)
 	resolver := cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Params: paramDeclarations},
+		staticScope,
 		runtimeScope,
 		cmnvalue.WithValueReferenceNotices(buildNoticeSink(ctx.valueReferenceNotices)),
 	)

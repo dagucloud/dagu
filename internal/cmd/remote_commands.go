@@ -12,6 +12,7 @@ import (
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/output"
 )
 
 func toCoreDAG(name string) *ir.DAG {
@@ -122,6 +123,9 @@ func mapAPIStep(step api.Step) ir.Step {
 		Inputs:      mapAPIStepInputs(step.Inputs),
 		Outputs:     mapAPIStepOutputs(step.Outputs),
 	}
+	for _, dep := range derefStringSlice(step.InferredDepends) {
+		mapped.InferredDepends = append(mapped.InferredDepends, ir.InferredDependency{Step: dep})
+	}
 	if step.Id != nil {
 		mapped.ID = *step.Id
 	}
@@ -185,7 +189,7 @@ func mapAPIStepInputs(inputs *[]api.StepInputDeclaration) []ir.StepInputDeclarat
 }
 
 func validateRemoteStartLikeFlags(ctx *Context) error {
-	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor"}
+	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor", recursiveOutputFlag.name}
 	for _, flag := range disallowed {
 		if ctx.Command.Flags().Changed(flag) {
 			return fmt.Errorf("--%s is only supported in the local context", flag)
@@ -207,6 +211,22 @@ func remoteResolveDAG(ctx *Context, arg string) (*api.DAGFile, error) {
 	return ctx.Remote.resolveDAG(ctx, arg)
 }
 
+// remoteRunParams resolves run parameters for remote commands: "--" arguments
+// first, then --params, then stdin when --params-stdin is enabled.
+func remoteRunParams(ctx *Context, args []string) (string, error) {
+	if argsLenAtDash := ctx.Command.ArgsLenAtDash(); argsLenAtDash >= 0 {
+		return strings.Join(quoteStartDashArgs(args[argsLenAtDash:]), " "), nil
+	}
+	if ctx.Command.Flags().Changed("params") {
+		return ctx.StringParam("params")
+	}
+	hasInput, err := stdinHasParamsInput(ctx)
+	if err != nil || !hasInput {
+		return "", err
+	}
+	return readStdinParams()
+}
+
 func remoteRunStart(ctx *Context, args []string) error {
 	if err := validateRemoteStartLikeFlags(ctx); err != nil {
 		return err
@@ -223,8 +243,12 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if err := validateRunID(fromRunID); err != nil {
 			return fmt.Errorf("invalid from-run-id: %w", err)
 		}
-		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 {
+		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
+		}
+		scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
+		if err != nil {
+			return err
 		}
 		dag, err := remoteResolveDAG(ctx, args[0])
 		if err != nil {
@@ -232,8 +256,9 @@ func remoteRunStart(ctx *Context, args []string) error {
 		}
 		nameOverride, _ := ctx.StringParam("name")
 		resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, fromRunID, api.RescheduleDAGRunJSONBody{
-			DagName:  stringPtrOrNil(nameOverride),
-			DagRunId: nil,
+			DagName:      stringPtrOrNil(nameOverride),
+			DagRunId:     nil,
+			ScheduleTime: stringPtrOrNil(scheduledAt),
 		})
 		if err != nil {
 			return err
@@ -249,12 +274,9 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	params := ""
-	if ctx.Command.ArgsLenAtDash() >= 0 {
-		params = joinNonEmpty(args[1:])
-	}
-	if flagParams, _ := ctx.StringParam("params"); flagParams != "" {
-		params = flagParams
+	params, err := remoteRunParams(ctx, args)
+	if err != nil {
+		return err
 	}
 	nameOverride, _ := ctx.StringParam("name")
 	runID, _ := ctx.StringParam("run-id")
@@ -275,9 +297,21 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if len(selection.steps) > 0 {
 		steps = &selection.steps
 	}
+	var outputsFromRuns *map[string]string
+	if len(selection.outputFrom) > 0 {
+		outputsFromRuns = &selection.outputFrom
+	}
 	var outputs *map[string]map[string]string
 	if len(selection.outputs) > 0 {
 		outputs = &selection.outputs
+	}
+	workerSelector, err := remoteWorkerSelector(ctx)
+	if err != nil {
+		return err
+	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return err
 	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
 		DagName:          stringPtrOrNil(nameOverride),
@@ -287,11 +321,15 @@ func remoteRunStart(ctx *Context, args []string) error {
 		NoReuse:          &noReuse,
 		Steps:            steps,
 		OutputsFromRunId: stringPtrOrNil(selection.outputsFrom),
+		OutputsFromRuns:  outputsFromRuns,
 		Outputs:          outputs,
+		WorkerSelector:   workerSelector,
+		ScheduleTime:     stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
 		return err
 	}
+	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
 }
@@ -304,12 +342,9 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	params := ""
-	if ctx.Command.ArgsLenAtDash() >= 0 {
-		params = joinNonEmpty(args[1:])
-	}
-	if flagParams, _ := ctx.StringParam("params"); flagParams != "" {
-		params = flagParams
+	params, err := remoteRunParams(ctx, args)
+	if err != nil {
+		return err
 	}
 	nameOverride, _ := ctx.StringParam("name")
 	runID, _ := ctx.StringParam("run-id")
@@ -327,22 +362,43 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	workerSelector, err := remoteWorkerSelector(ctx)
+	if err != nil {
+		return err
+	}
+	scheduledAt, err := ctx.StringParam("scheduled-at")
+	if err != nil {
+		return err
+	}
 	resp, err := ctx.Remote.enqueueDAG(ctx, dag.FileName, api.EnqueueDAGDAGRunJSONBody{
-		DagName:  stringPtrOrNil(nameOverride),
-		DagRunId: stringPtrOrNil(runID),
-		Params:   stringPtrOrNil(params),
-		Queue:    stringPtrOrNil(queueOverride),
-		Labels:   labels,
-		NoReuse:  &noReuse,
+		DagName:        stringPtrOrNil(nameOverride),
+		DagRunId:       stringPtrOrNil(runID),
+		Params:         stringPtrOrNil(params),
+		Queue:          stringPtrOrNil(queueOverride),
+		Labels:         labels,
+		NoReuse:        &noReuse,
+		WorkerSelector: workerSelector,
+		ScheduleTime:   stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
 		return err
 	}
+	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
 }
 
-func remoteRunStatus(ctx *Context, args []string) error {
+// printRemoteWarnings prints the warnings a server returned to stderr.
+func printRemoteWarnings(ctx *Context, warnings *[]string) {
+	if warnings == nil {
+		return
+	}
+	for _, warning := range *warnings {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", warning)
+	}
+}
+
+func remoteRunStatus(ctx *Context, args []string, recursive bool) error {
 	subRunID, _ := ctx.StringParam("sub-run-id")
 	if subRunID != "" {
 		return fmt.Errorf("--sub-run-id is not supported for remote contexts")
@@ -364,7 +420,11 @@ func remoteRunStatus(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	displayTreeStatus(coreDAG, status)
+	var subRuns output.SubRunResolver
+	if recursive {
+		subRuns = subRunStatusResolver(ctx, status, dag.Dag.Name, runID)
+	}
+	displayTreeStatus(coreDAG, status, subRuns)
 	return nil
 }
 
@@ -466,9 +526,19 @@ func remoteRunRetry(ctx *Context, args []string) error {
 }
 
 func remoteRunRestart(ctx *Context, args []string) error {
+	if ctx.Command.Flags().Changed(scheduleTimeFlag.name) {
+		return fmt.Errorf("--%s is only supported in the local context", scheduleTimeFlag.name)
+	}
+	scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
+	if err != nil {
+		return err
+	}
 	dag, err := remoteResolveDAG(ctx, args[0])
 	if err != nil {
 		return err
+	}
+	if dag.Dag.RestartPolicy != nil {
+		return errRestartServiceDAG(dag.Dag.Name, ir.RestartPolicy(*dag.Dag.RestartPolicy))
 	}
 	runID, _ := ctx.StringParam("run-id")
 	if runID == "" {
@@ -483,13 +553,30 @@ func remoteRunRestart(ctx *Context, args []string) error {
 	if ir.Status(detail.Status) != ir.Running {
 		return fmt.Errorf("DAG %s is not running, current status: %s", dag.Dag.Name, ir.Status(detail.Status))
 	}
+	// Check the replacement before stopping the run, so a slot the server
+	// rejects leaves the run going. The replacement then names the resolved
+	// instant, so a value such as latest keeps the meaning it was checked
+	// with.
+	dryRun := true
+	plan, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{
+		ScheduleTime: stringPtrOrNil(scheduledAt),
+		DryRun:       &dryRun,
+	})
+	if err != nil {
+		return err
+	}
+	body := api.RescheduleDAGRunJSONBody{ScheduleTime: stringPtrOrNil(scheduledAt)}
+	if scheduledAt != "" && plan.ScheduleTime != nil {
+		resolved := plan.ScheduleTime.UTC().Format(time.RFC3339)
+		body.ScheduleTime = &resolved
+	}
 	if err := ctx.Remote.stopDAGRun(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
 	if err := waitForRemoteStop(ctx, dag.Dag.Name, detail.DagRunId); err != nil {
 		return err
 	}
-	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, api.RescheduleDAGRunJSONBody{})
+	resp, err := ctx.Remote.rescheduleDAGRun(ctx, dag.Dag.Name, detail.DagRunId, body)
 	if err != nil {
 		return err
 	}
@@ -702,16 +789,6 @@ func derefStringSlice(v *[]string) []string {
 		return nil
 	}
 	return append([]string{}, (*v)...)
-}
-
-func joinNonEmpty(parts []string) string {
-	filtered := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part != "" {
-			filtered = append(filtered, part)
-		}
-	}
-	return strings.Join(filtered, " ")
 }
 
 func enrichRemoteHistoryStatus(status *ir.DAGRunStatus, detail *api.DAGRunDetails) error {

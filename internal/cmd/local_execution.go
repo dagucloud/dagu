@@ -26,6 +26,9 @@ type runOptions struct {
 	triggerActor      string
 	parallelItem      string
 	scheduleTime      string
+	scheduleWindow    ir.ScheduleWindow
+	dates             []ir.DateValue
+	defaultSlot       bool
 	profileName       string
 	definitionID      string
 	step              string
@@ -35,6 +38,7 @@ type runOptions struct {
 	bypassPreconditions bool
 	preparedAttempt     dagrun.Attempt
 	noReuse             bool
+	recursiveOutput     bool
 	// seed is the queued status of a selected-steps run, which is dispatched
 	// as a retry of that attempt.
 	seed *ir.DAGRunStatus
@@ -72,6 +76,7 @@ func withPreparedLocalExecution(
 		TriggerType:     opts.triggerType,
 		TriggerActor:    opts.triggerActor,
 		ScheduleTime:    opts.scheduleTime,
+		ScheduleWindow:  opts.scheduleWindow,
 		ProfileName:     opts.profileName,
 		LogBaseDir:      ctx.Config.Paths.LogDir,
 		ArtifactBaseDir: ctx.Config.Paths.ArtifactDir,

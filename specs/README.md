@@ -66,13 +66,28 @@ It must not be treated as product behavior until implementation catches up.
 | [061: Python Script Action](061-python-script.md) | Partially implemented |
 | [062: dbt Action](062-dbt.md) | Partially implemented |
 | [063: Schedule Descriptors](063-schedule.md) | Implemented |
-| [067: Harness Executor](067-harness.md) | Partially implemented |
+| [064: Dry-Run Step Checks](064-dry-run-step-checks.md) | Implemented |
+| [067: Harness Executor (CLI and ACP)](067-harness.md) | Partially implemented |
 | [068: State Executor](068-state.md) | Implemented |
 | [069: Secrets Providers](069-secrets-providers.md) | Partially implemented |
 | [070: Runtime Profiles](070-runtime-profiles.md) | Partially implemented |
 | [071: Decision Evaluation Action](071-decision-evaluate.md) | Implemented |
 | [072: Browser Actions](072-browser.md) | Partially implemented |
 | [073: Mailbox Actions](073-mailbox-actions.md) | Partially implemented |
+| [074: Computer Actions](074-computer.md) | Partially implemented |
+| [075: Repeat Policy](075-repeat-policy.md) | Implemented |
+| [076: CLI Run Parameter Input](076-cli-run-params.md) | Implemented for local commands |
+| [077: XLSX Actions](077-xlsx.md) | Implemented |
+| [078: JS Run Action](078-js-run.md) | Implemented |
+| [079: Browser Sessions](079-browser-session.md) | Implemented for local commands |
+| [080: DAG Restart Policy](080-restart-policy.md) | Implemented |
+| [081: ClickHouse Action](081-clickhouse.md) | Partially implemented |
+| [083: Continuous Runs](083-continuous-runs.md) | Partially implemented |
+| [084: Business Calendars](084-business-calendars.md) | Implemented |
+| [085: Scheduler High Availability](085-scheduler-ha.md) | Partially implemented |
+| [086: Backfill](086-backfill.md) | Partially implemented |
+| [087: Label Filters](087-label-filters.md) | Implemented |
+| [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 
 **Writing guidelines:**
 

@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/claudemodel"
 )
 
 const (
@@ -23,12 +25,14 @@ const (
 	streamPrefix               = "data: "
 	anthropicWebSearchToolType = "web_search_20260209"
 
-	// Thinking budget token limits for different effort levels.
-	// Note: Anthropic recommends budgets <= 32K to avoid timeout issues.
-	thinkingBudgetLow    = 1024
-	thinkingBudgetMedium = 4096
-	thinkingBudgetHigh   = 16384
-	thinkingBudgetXHigh  = 32768
+	// Thinking types: a fixed token budget, or adaptive thinking whose depth
+	// follows the effort level.
+	thinkingTypeEnabled  = "enabled"
+	thinkingTypeAdaptive = "adaptive"
+
+	// adaptiveThinkingMaxTokens is the max_tokens default under adaptive
+	// thinking, which spends max_tokens on thinking ahead of the answer.
+	adaptiveThinkingMaxTokens = 32768
 )
 
 func init() {
@@ -73,8 +77,19 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	}
 	defer func() { _ = respBody.Close() }()
 
+	data, err := io.ReadAll(respBody)
+	if err != nil {
+		return nil, llm.WrapError(providerName, fmt.Errorf("failed to read response: %w", err))
+	}
 	var resp messagesResponse
-	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
+	}
+	// The raw content array is kept so the turn can be sent back unchanged.
+	var raw struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
 
@@ -105,12 +120,11 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	result := &llm.ChatResponse{
 		Content:      content.String(),
 		FinishReason: resp.StopReason,
-		Usage: llm.Usage{
-			PromptTokens:     resp.Usage.InputTokens,
-			CompletionTokens: resp.Usage.OutputTokens,
-			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
-		ToolCalls: toolCalls,
+		Usage:        resp.Usage.llm(),
+		ToolCalls:    toolCalls,
+	}
+	if len(resp.Content) > 0 {
+		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderAnthropic, Data: raw.Content}
 	}
 
 	return result, nil
@@ -192,14 +206,17 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 
 	// Add tool choice if specified
 	if req.ToolChoice != "" {
-		switch req.ToolChoice {
-		case "auto":
+		forced := forcedToolChoiceSupported(req)
+		switch {
+		case req.ToolChoice == "auto":
 			chatReq.ToolChoice = map[string]string{"type": "auto"}
-		case "required":
-			chatReq.ToolChoice = map[string]string{"type": "any"}
-		case "none":
+		case req.ToolChoice == "none":
 			// Don't include tools
 			chatReq.Tools = nil
+		case !forced:
+			chatReq.ToolChoice = map[string]string{"type": "auto"}
+		case req.ToolChoice == "required":
+			chatReq.ToolChoice = map[string]string{"type": "any"}
 		default:
 			// Specific tool name
 			chatReq.ToolChoice = map[string]string{"type": "tool", "name": req.ToolChoice}
@@ -208,20 +225,20 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 
 	// Add thinking configuration if enabled
 	// Must be done before setting max_tokens since max_tokens must be > budget_tokens
+	chatReq.Thinking, chatReq.OutputConfig = thinkingConfig(req.Thinking)
 	var thinkingBudget int
-	if req.Thinking != nil && req.Thinking.Enabled {
-		thinkingBudget = p.getThinkingBudget(req.Thinking)
-		chatReq.Thinking = &thinkingRequest{
-			Type:        "enabled",
-			BudgetToken: thinkingBudget,
-		}
+	if chatReq.Thinking != nil {
+		thinkingBudget = chatReq.Thinking.BudgetToken
 	}
 
 	// Set max_tokens (required by Anthropic)
 	// When thinking is enabled, max_tokens must be > budget_tokens
-	if req.MaxTokens != nil {
+	switch {
+	case req.MaxTokens != nil:
 		chatReq.MaxTokens = *req.MaxTokens
-	} else {
+	case chatReq.Thinking != nil && chatReq.Thinking.Type == thinkingTypeAdaptive:
+		chatReq.MaxTokens = adaptiveThinkingMaxTokens
+	default:
 		// Default to 4096 if not specified
 		chatReq.MaxTokens = 4096
 	}
@@ -233,10 +250,8 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		chatReq.MaxTokens = thinkingBudget + 4096
 	}
 
-	if req.Temperature != nil {
+	if samplingSupported(req) {
 		chatReq.Temperature = req.Temperature
-	}
-	if req.TopP != nil {
 		chatReq.TopP = req.TopP
 	}
 	if len(req.Stop) > 0 {
@@ -250,7 +265,7 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 	var systemContent string
 	messages := make([]message, 0, len(reqMessages))
 
-	for _, m := range reqMessages {
+	for i, m := range reqMessages {
 		switch m.Role {
 		case llm.RoleSystem:
 			// Concatenate system messages
@@ -261,9 +276,15 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 		case llm.RoleUser:
 			messages = append(messages, message{
 				Role:    string(m.Role),
-				Content: m.Content,
+				Content: userContent(m),
 			})
 		case llm.RoleAssistant:
+			if state := m.ProviderState; state != nil && state.Provider == llm.ProviderAnthropic {
+				// The turn goes back as produced, keeping thinking blocks
+				// and their order intact.
+				messages = append(messages, message{Role: "assistant", Content: state.Data})
+				continue
+			}
 			// Check if this assistant message has tool calls
 			if len(m.ToolCalls) > 0 {
 				// Convert to content blocks with tool_use
@@ -301,20 +322,51 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 			}
 		case llm.RoleTool:
 			// Tool results in Anthropic are sent as user messages with tool_result content blocks
-			contentBlocks := []any{
-				map[string]any{
-					"type":        "tool_result",
-					"tool_use_id": m.ToolCallID,
-					"content":     m.Content,
-				},
+			result := map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": m.ToolCallID,
+				"content":     m.Content,
+			}
+			// Results of one turn's calls share a single user message.
+			if i > 0 && reqMessages[i-1].Role == llm.RoleTool {
+				last := &messages[len(messages)-1]
+				last.Content = append(last.Content.([]any), result)
+				continue
 			}
 			messages = append(messages, message{
 				Role:    "user",
-				Content: contentBlocks,
+				Content: []any{result},
 			})
 		}
 	}
 	return systemContent, messages
+}
+
+// userContent returns the text as a string, or content blocks with the
+// images ahead of the text when the message has images.
+func userContent(m llm.Message) any {
+	if len(m.Images) == 0 {
+		return m.Content
+	}
+	blocks := make([]any, 0, len(m.Images)+1)
+	for _, image := range m.Images {
+		blocks = append(blocks, imageBlock(image))
+	}
+	if m.Content != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+	}
+	return blocks
+}
+
+func imageBlock(image llm.Image) map[string]any {
+	return map[string]any{
+		"type": "image",
+		"source": map[string]any{
+			"type":       "base64",
+			"media_type": image.MediaType,
+			"data":       image.Base64(),
+		},
+	}
 }
 
 func (p *Provider) convertTools(tools []llm.Tool) []any {
@@ -324,55 +376,74 @@ func (p *Provider) convertTools(tools []llm.Tool) []any {
 
 	result := make([]any, len(tools))
 	for i, t := range tools {
-		// Extract properties and required from the Parameters schema
-		var props map[string]any
-		var required []string
-		if t.Function.Parameters != nil {
-			if p, ok := t.Function.Parameters["properties"].(map[string]any); ok {
-				props = p
-			}
-			if r, ok := t.Function.Parameters["required"].([]any); ok {
-				required = make([]string, len(r))
-				for j, v := range r {
-					if s, ok := v.(string); ok {
-						required[j] = s
-					}
-				}
-			}
-		}
 		result[i] = tool{
 			Name:        t.Function.Name,
 			Description: t.Function.Description,
-			InputSchema: inputSchema{
-				Type:       "object",
-				Properties: props,
-				Required:   required,
-			},
+			InputSchema: inputSchema(t.Function.Parameters),
 		}
 	}
 	return result
 }
 
-// getThinkingBudget determines the token budget for thinking mode.
-// Uses explicit BudgetTokens if provided, otherwise maps effort level to tokens.
-func (p *Provider) getThinkingBudget(thinking *llm.ThinkingRequest) int {
-	// Use explicit budget if provided
-	if thinking.BudgetTokens != nil && *thinking.BudgetTokens > 0 {
-		return *thinking.BudgetTokens
+// inputSchema returns a tool's parameter schema as an object schema, the only
+// kind the API accepts, without modifying the caller's map.
+func inputSchema(parameters map[string]any) map[string]any {
+	schema := maps.Clone(parameters)
+	if schema == nil {
+		schema = make(map[string]any, 1)
 	}
+	schema["type"] = "object"
+	return schema
+}
 
-	// Map effort level to budget tokens
-	switch thinking.Effort {
-	case llm.ThinkingEffortLow:
-		return thinkingBudgetLow
-	case llm.ThinkingEffortMedium:
-		return thinkingBudgetMedium
-	case llm.ThinkingEffortHigh:
-		return thinkingBudgetHigh
-	case llm.ThinkingEffortXHigh:
-		return thinkingBudgetXHigh
+// samplingSupported reports whether a request may customize sampling.
+// The API rejects custom sampling while thinking is enabled, and on models that
+// do not accept it at all, so a request without thinking can still lose its
+// parameters. top_p is deliberately omitted alongside temperature, even where
+// the API allows a restricted range.
+func samplingSupported(req *llm.ChatRequest) bool {
+	thinking, _ := thinkingConfig(req.Thinking)
+	return thinking == nil && claudemodel.SamplingSupported(req.Model)
+}
+
+// forcedToolChoiceSupported reports whether a request may force tool use.
+// The API rejects a forced choice while thinking is enabled, and on models
+// that do not accept one at all.
+func forcedToolChoiceSupported(req *llm.ChatRequest) bool {
+	thinking, _ := thinkingConfig(req.Thinking)
+	return thinking == nil && claudemodel.ForcedToolChoiceSupported(req.Model)
+}
+
+// thinkingConfig returns the thinking and output settings for a request, or
+// nil settings when the request runs without thinking. An explicit budget
+// asks for a fixed budget, which models that predate adaptive thinking need;
+// otherwise the model thinks adaptively at the requested effort, and effort
+// none leaves thinking out.
+func thinkingConfig(thinking *llm.ThinkingRequest) (*thinkingRequest, *outputConfig) {
+	if thinking == nil || !thinking.Enabled {
+		return nil, nil
+	}
+	if thinking.BudgetTokens != nil && *thinking.BudgetTokens > 0 {
+		return &thinkingRequest{Type: thinkingTypeEnabled, BudgetToken: *thinking.BudgetTokens}, nil
+	}
+	if thinking.Effort == llm.ThinkingEffortNone {
+		return nil, nil
+	}
+	return &thinkingRequest{Type: thinkingTypeAdaptive}, &outputConfig{Effort: string(adaptiveEffort(thinking.Effort))}
+}
+
+// adaptiveEffort returns the effort level sent with adaptive thinking: the
+// requested level, or low for levels below the lowest the API accepts. An
+// unset effort is medium.
+func adaptiveEffort(effort llm.ThinkingEffort) llm.ThinkingEffort {
+	switch effort {
+	case llm.ThinkingEffortNone, llm.ThinkingEffortMinimal:
+		return llm.ThinkingEffortLow
+	case llm.ThinkingEffortLow, llm.ThinkingEffortMedium, llm.ThinkingEffortHigh,
+		llm.ThinkingEffortXHigh, llm.ThinkingEffortMax:
+		return effort
 	default:
-		return thinkingBudgetMedium
+		return llm.ThinkingEffortMedium
 	}
 }
 
@@ -392,7 +463,19 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	defer func() { _ = body.Close() }()
 
 	scanner := bufio.NewScanner(body)
-	var usage *llm.Usage
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	// message_start carries the input counts and message_delta the
+	// cumulative output, so each event's usage is merged into what the
+	// stream has seen.
+	var usage *apiUsage
+	done := func() llm.StreamEvent {
+		event := llm.StreamEvent{Done: true}
+		if usage != nil {
+			total := usage.llm()
+			event.Usage = &total
+		}
+		return event
+	}
 
 	for scanner.Scan() {
 		select {
@@ -426,25 +509,17 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			}
 
 		case "message_delta":
-			// Message completed, may contain usage
 			if event.Usage != nil {
-				usage = &llm.Usage{
-					PromptTokens:     event.Usage.InputTokens,
-					CompletionTokens: event.Usage.OutputTokens,
-					TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
-				}
+				usage = usage.merge(*event.Usage)
 			}
 
 		case "message_start":
-			// May contain initial usage (input tokens)
 			if event.Message != nil && event.Message.Usage != nil {
-				usage = &llm.Usage{
-					PromptTokens: event.Message.Usage.InputTokens,
-				}
+				usage = usage.merge(*event.Message.Usage)
 			}
 
 		case "message_stop":
-			events <- llm.StreamEvent{Done: true, Usage: usage}
+			events <- done()
 			return
 
 		case "error":
@@ -466,7 +541,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	}
 
 	// If we get here without message_stop, still signal completion
-	events <- llm.StreamEvent{Done: true, Usage: usage}
+	events <- done()
 }
 
 // API request/response types
@@ -478,15 +553,9 @@ type message struct {
 
 // Tool calling types
 type tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	InputSchema inputSchema `json:"input_schema"`
-}
-
-type inputSchema struct {
-	Type       string         `json:"type"` // always "object"
-	Properties map[string]any `json:"properties,omitempty"`
-	Required   []string       `json:"required,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 type messagesRequest struct {
@@ -499,6 +568,7 @@ type messagesRequest struct {
 	StopSequences []string         `json:"stop_sequences,omitempty"`
 	Stream        bool             `json:"stream,omitempty"`
 	Thinking      *thinkingRequest `json:"thinking,omitempty"`
+	OutputConfig  *outputConfig    `json:"output_config,omitempty"`
 	Tools         []any            `json:"tools,omitempty"`
 	ToolChoice    any              `json:"tool_choice,omitempty"` // "auto", "any", or {"type": "tool", "name": "..."}
 }
@@ -506,7 +576,12 @@ type messagesRequest struct {
 // thinkingRequest represents Anthropic's extended thinking configuration.
 type thinkingRequest struct {
 	Type        string `json:"type"`
-	BudgetToken int    `json:"budget_tokens"`
+	BudgetToken int    `json:"budget_tokens,omitempty"`
+}
+
+// outputConfig carries the effort level for adaptive thinking.
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 type contentBlock struct {
@@ -525,32 +600,58 @@ type messagesResponse struct {
 	Model        string         `json:"model"`
 	StopReason   string         `json:"stop_reason"`
 	StopSequence string         `json:"stop_sequence,omitempty"`
-	Usage        struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage        apiUsage       `json:"usage"`
+}
+
+// apiUsage is the usage object of the Messages API, whose input_tokens leave
+// out the tokens read from and written to the prompt cache.
+type apiUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// llm returns the usage as llm.Usage, whose prompt counts the cached tokens
+// too.
+func (u apiUsage) llm() llm.Usage {
+	prompt := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+	return llm.Usage{
+		PromptTokens:           prompt,
+		CompletionTokens:       u.OutputTokens,
+		TotalTokens:            prompt + u.OutputTokens,
+		CachedPromptTokens:     u.CacheReadInputTokens,
+		CacheWritePromptTokens: u.CacheCreationInputTokens,
+	}
+}
+
+// merge folds a stream event's usage into what the stream has seen. Each
+// event reports counts so far, so the larger of each count stands.
+func (u *apiUsage) merge(event apiUsage) *apiUsage {
+	merged := event
+	if u != nil {
+		merged.InputTokens = max(u.InputTokens, event.InputTokens)
+		merged.OutputTokens = max(u.OutputTokens, event.OutputTokens)
+		merged.CacheCreationInputTokens = max(u.CacheCreationInputTokens, event.CacheCreationInputTokens)
+		merged.CacheReadInputTokens = max(u.CacheReadInputTokens, event.CacheReadInputTokens)
+	}
+	return &merged
 }
 
 type streamEvent struct {
 	Type    string `json:"type"`
 	Index   int    `json:"index,omitempty"`
 	Message *struct {
-		ID    string `json:"id"`
-		Type  string `json:"type"`
-		Role  string `json:"role"`
-		Usage *struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage,omitempty"`
+		ID    string    `json:"id"`
+		Type  string    `json:"type"`
+		Role  string    `json:"role"`
+		Usage *apiUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
 	Delta *struct {
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
 	} `json:"delta,omitempty"`
-	Usage *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *apiUsage `json:"usage,omitempty"`
 	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`

@@ -117,6 +117,33 @@ func TestDispatchAdmissionStore_ReserveAdmissionCountsLegacyPendingClaimAndLease
 	assert.Equal(t, dispatch.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
 }
 
+// A legacy pending task keeps its queue slot past the reservation TTL, since
+// it still waits for a worker to start it.
+func TestDispatchAdmissionStore_ReserveAdmissionCountsLongPendingLegacyTask(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	s := store.NewDispatchTaskStore(
+		backend.Collection("dispatch_tasks"),
+		store.WithDispatchAdmissionLiveness(
+			store.NewDAGRunLeaseStore(backend.Collection("dag_run_leases")),
+			store.NewActiveDistributedRunStore(backend.Collection("active_runs")),
+		),
+		store.WithDispatchReservationTTL(25*time.Millisecond),
+	)
+	require.NoError(t, s.Enqueue(ctx, dispatchAdmissionTask("queue-a", "legacy-pending-attempt", "legacy-pending")))
+	time.Sleep(50 * time.Millisecond)
+
+	req := dispatchAdmissionRequest("queue-a", "attempt-key-new", "attempt-new", 1)
+	req.StaleThreshold = 25 * time.Millisecond
+	result := reserveAdmission(ctx, s, req)
+
+	require.NoError(t, result.err)
+	require.False(t, result.decision.Reserved)
+	assert.Equal(t, dispatch.DispatchAdmissionRejectedNoCapacity, result.decision.Reason)
+}
+
 func TestDispatchAdmissionStore_BindAdmissionIsIdempotentForSameToken(t *testing.T) {
 	t.Parallel()
 

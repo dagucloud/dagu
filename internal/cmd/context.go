@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -28,6 +29,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -51,6 +53,10 @@ type Context struct {
 	Config  *config.Config
 	Quiet   bool
 	Scope   commandScope
+
+	// configLoader is the loader that produced Config; it still knows where
+	// each value came from.
+	configLoader *config.ConfigLoader
 
 	EventSourceInstance string
 	Persistence         Persistence
@@ -85,6 +91,17 @@ func (c *Context) WithEventSource(service string) *Context {
 		Service:  service,
 		Instance: c.EventSourceInstance,
 	}))
+}
+
+// withSignalPropagation returns a context carrying a launcher.ProcessRegistry
+// when signal_handling.enable_propagation is enabled. Supervising commands use
+// the registry to forward shutdown signals to the process groups of DAG-run
+// subprocesses they launched. When disabled the context is returned unchanged.
+func (c *Context) withSignalPropagation(ctx context.Context) context.Context {
+	if c == nil || c.Config == nil || !c.Config.SignalHandling.EnablePropagation {
+		return ctx
+	}
+	return launcher.ContextWithProcessRegistry(ctx, launcher.NewProcessRegistry())
 }
 
 func (c *Context) withEvent(service *eventstore.Service) *Context {
@@ -242,6 +259,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Config:              cfg,
 			Quiet:               quiet,
 			Flags:               flags,
+			configLoader:        loader,
 			EventSourceInstance: eventSourceInstance,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
@@ -278,6 +296,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			Config:              cfg,
 			Quiet:               quiet,
 			Flags:               flags,
+			configLoader:        loader,
 			EventSourceInstance: eventSourceInstance,
 			ContextStore:        contextStore,
 			CLIContext:          selectedContext,
@@ -337,6 +356,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			LicenseDir: licenseDir,
 			ConfigKey:  cfg.License.Key,
 			CloudURL:   cfg.License.CloudURL,
+			ServerName: cfg.License.ServerName,
 		}, pubKey, licStore, slog.Default())
 		if err := licMgr.Start(ctx); err != nil {
 			logger.Warn(ctx, "License manager initialization failed", tag.Error(err))
@@ -380,6 +400,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		backend:             backend,
 		event:               eventService,
 		Flags:               flags,
+		configLoader:        loader,
 		Caches:              caches,
 		LicenseManager:      licMgr,
 		ContextStore:        contextStore,
@@ -393,7 +414,17 @@ func commandFamilyName(cmd *cobra.Command) string {
 	if isContextCommand(cmd) {
 		return "context"
 	}
-	return cmd.Name()
+	// A subcommand is named by its path below the root, so one named like a
+	// top-level command, as "backfill start", does not take on its config or
+	// its context scope.
+	var path []string
+	for current := cmd; current.HasParent(); current = current.Parent() {
+		path = append([]string{current.Name()}, path...)
+	}
+	if len(path) == 0 {
+		return cmd.Name()
+	}
+	return strings.Join(path, " ")
 }
 
 func isContextCommand(cmd *cobra.Command) bool {
@@ -518,19 +549,20 @@ func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-		DAGRunMgr:         c.DAGRunMgr,
-		DAGRepository:     c.Persistence.DAGRepository,
-		DAGRunRepository:  c.Persistence.DAGRunRepository,
-		QueueStore:        c.Persistence.QueueStore,
-		StateStore:        c.Persistence.StateStore,
-		SecretStore:       stores.SecretStore,
-		ProfileStore:      stores.ProfileStore,
-		ServiceRegistry:   c.Persistence.ServiceRegistry,
-		PeerConfig:        c.Config.Core.Peer,
-		DefaultExecMode:   c.Config.DefaultExecMode,
-		WorkerID:          "local",
-		DAGRunLogDir:      c.Config.Paths.LogDir,
-		DAGRunArtifactDir: c.Config.Paths.ArtifactDir,
+		DAGRunMgr:          c.DAGRunMgr,
+		DAGRepository:      c.Persistence.DAGRepository,
+		DAGRunRepository:   c.Persistence.DAGRunRepository,
+		QueueStore:         c.Persistence.QueueStore,
+		StateStore:         c.Persistence.StateStore,
+		SecretStore:        stores.SecretStore,
+		ProfileStore:       stores.ProfileStore,
+		ServiceRegistry:    c.Persistence.ServiceRegistry,
+		PeerConfig:         c.Config.Core.Peer,
+		WorkspaceBundleDir: workspacebundle.StoreDir(c.Config.Paths.DataDir),
+		DefaultExecMode:    c.Config.DefaultExecMode,
+		WorkerID:           "local",
+		DAGRunLogDir:       c.Config.Paths.LogDir,
+		DAGRunArtifactDir:  c.Config.Paths.ArtifactDir,
 	})
 }
 
@@ -612,6 +644,9 @@ func NewCommand(cmd *cobra.Command, flags []commandLineFlag, runFunc func(cmd *C
 	cmd.SilenceUsage = true
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		buildenv.Claim()
+		defer buildenv.Release()
+
 		// Setup cpu profiling if enabled.
 		cpuProfileEnabled, err := cmd.Flags().GetBool("cpu-profile")
 		if err != nil {
@@ -660,15 +695,16 @@ type signalListener interface {
 // listenSignals subscribes to SIGINT and SIGTERM signals and forwards them to the provided listener.
 // It also listens for context cancellation and signals the listener with an os.Interrupt.
 func listenSignals(ctx context.Context, listener signalListener) {
-	go func() {
-		if signalctx.OSSignalsDisabled(ctx) {
+	if signalctx.OSSignalsDisabled(ctx) {
+		go func() {
 			<-ctx.Done()
 			listener.Signal(ctx, os.Interrupt)
-			return
-		}
-
-		signalChan := make(chan os.Signal, 1)
-		signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+		}()
+		return
+	}
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
 		defer signal.Stop(signalChan)
 
 		select {

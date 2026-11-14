@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatcontent"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatusage"
 )
 
 const (
@@ -89,11 +91,7 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	result := &llm.ChatResponse{
 		Content:      content,
 		FinishReason: choice.FinishReason,
-		Usage: llm.Usage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		},
+		Usage:        resp.Usage.LLM(),
 	}
 
 	// Extract tool calls if present
@@ -137,7 +135,7 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	for i, m := range req.Messages {
 		messages[i] = message{
 			Role:    string(m.Role),
-			Content: m.Content,
+			Content: chatcontent.Content(m.Content, m.Images),
 		}
 		if m.Name != "" {
 			messages[i].Name = m.Name
@@ -202,10 +200,15 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 
 	// Add thinking configuration if enabled.
 	// Z.AI uses a binary toggle {"thinking": {"type": "enabled"}} instead of
-	// OpenAI's reasoning effort levels. Effort and BudgetTokens are not supported
-	// by the Z.AI API and are intentionally ignored here.
+	// OpenAI's reasoning effort levels, so effort none disables thinking and
+	// any other level enables it. BudgetTokens is not supported by the Z.AI
+	// API and is intentionally ignored here.
 	if req.Thinking != nil && req.Thinking.Enabled {
-		chatReq.Thinking = &thinkingRequest{Type: "enabled"}
+		thinkingType := "enabled"
+		if req.Thinking.Effort == llm.ThinkingEffortNone {
+			thinkingType = "disabled"
+		}
+		chatReq.Thinking = &thinkingRequest{Type: thinkingType}
 	}
 
 	return json.Marshal(chatReq)
@@ -255,11 +258,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 		// Capture usage if present
 		if chunk.Usage != nil {
-			usage = &llm.Usage{
-				PromptTokens:     chunk.Usage.PromptTokens,
-				CompletionTokens: chunk.Usage.CompletionTokens,
-				TotalTokens:      chunk.Usage.TotalTokens,
-			}
+			chunkUsage := chunk.Usage.LLM()
+			usage = &chunkUsage
 		}
 
 		if len(chunk.Choices) > 0 {
@@ -309,7 +309,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 type message struct {
 	Role       string     `json:"role"`
-	Content    string     `json:"content"`
+	Content    any        `json:"content"`
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
@@ -367,11 +367,7 @@ type chatCompletionResponse struct {
 		Message      responseMessage `json:"message"`
 		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage chatusage.Usage `json:"usage"`
 }
 
 type responseMessage struct {
@@ -397,9 +393,5 @@ type streamChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *chatusage.Usage `json:"usage,omitempty"`
 }

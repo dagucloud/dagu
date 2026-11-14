@@ -6,7 +6,10 @@ package harness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -105,13 +108,20 @@ func (r *Runner) WithCommandTimeout(timeout time.Duration) *Runner {
 // Run executes the configured Dagu binary inside the isolated project.
 func (r *Runner) Run(args ...string) *Result {
 	r.t.Helper()
-	return r.run(nil, args...)
+	return r.run(nil, nil, args...)
 }
 
 // RunWithEnv executes the configured Dagu binary with extra environment entries.
 func (r *Runner) RunWithEnv(env []string, args ...string) *Result {
 	r.t.Helper()
-	return r.run(env, args...)
+	return r.run(env, nil, args...)
+}
+
+// RunWithStdin executes the configured Dagu binary with the supplied input and
+// extra environment entries. The caller retains ownership of stdin.
+func (r *Runner) RunWithStdin(env []string, stdin io.Reader, args ...string) *Result {
+	r.t.Helper()
+	return r.run(env, stdin, args...)
 }
 
 // StartWithEnv starts the configured Dagu binary and returns without waiting.
@@ -149,19 +159,35 @@ func (r *Runner) StartWithEnv(env []string, args ...string) *Process {
 	return process
 }
 
-// FreePort reserves and releases a loopback TCP port for a test service.
+// Test service ports come from below the default ephemeral port ranges of
+// Linux (32768 and up), macOS, and Windows (49152 and up). The kernel hands
+// out ports in those ranges to outgoing connections and port-0 binds, so a
+// port found free there can be taken by any connection on the machine before
+// the service binds it.
+const (
+	servicePortMin = 10000
+	servicePortMax = 32000
+	// servicePortAttempts bounds the search for a port no one has bound.
+	servicePortAttempts = 100
+)
+
+// FreePort returns a loopback TCP port, outside the ephemeral range, that is
+// free for a test service to bind.
 func FreePort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving TCP port: %v", err)
-	}
-	defer func() {
+	for range servicePortAttempts {
+		port := servicePortMin + rand.IntN(servicePortMax-servicePortMin) //nolint:gosec // Spreads test ports; needs no unpredictability.
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			continue
+		}
 		if err := listener.Close(); err != nil {
 			t.Fatalf("releasing TCP port: %v", err)
 		}
-	}()
-	return listener.Addr().(*net.TCPAddr).Port
+		return port
+	}
+	t.Fatalf("no free TCP port between %d and %d", servicePortMin, servicePortMax)
+	return 0
 }
 
 // Done is closed after the command exits.
@@ -194,9 +220,38 @@ func (p *Process) Stop() {
 	<-p.done
 }
 
+// Kill ends the command at once, without the graceful shutdown Stop requests,
+// and waits for it to exit.
+func (p *Process) Kill() {
+	p.t.Helper()
+	_, _ = p.proc.Stop(cmdutil.StopRequest{
+		Intent: cmdutil.ForceTermination(),
+		Reason: cmdutil.StopReasonShutdown,
+	})
+	<-p.done
+}
+
 // stopGracePeriod bounds how long a managed process gets to shut down
 // gracefully before its process group is force-killed.
 const stopGracePeriod = 5 * time.Second
+
+// PID returns the command's process ID.
+func (p *Process) PID() int {
+	return p.proc.PID()
+}
+
+// ExitCode returns the process exit code after the command exits.
+func (p *Process) ExitCode() int {
+	p.t.Helper()
+	<-p.done
+	if exitErr, ok := errors.AsType[*exec.ExitError](p.err); ok {
+		return exitErr.ExitCode()
+	}
+	if p.err != nil {
+		p.t.Fatalf("waiting for command: %v", p.err)
+	}
+	return 0
+}
 
 // FailureOutput returns captured output after the command exits.
 func (p *Process) FailureOutput() string {
@@ -209,7 +264,7 @@ func (p *Process) FailureOutput() string {
 	}
 }
 
-func (r *Runner) run(extraEnv []string, args ...string) *Result {
+func (r *Runner) run(extraEnv []string, stdin io.Reader, args ...string) *Result {
 	r.t.Helper()
 
 	timeout := commandTimeout(r.t)
@@ -225,6 +280,7 @@ func (r *Runner) run(extraEnv []string, args ...string) *Result {
 	cmd := exec.CommandContext(ctx, daguBinary(r.t), args...) //nolint:gosec
 	cmd.Dir = r.dir
 	cmd.Env = appendEnv(append(isolatedEnv(r.t), "PWD="+r.dir), extraEnv...)
+	cmd.Stdin = stdin
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 

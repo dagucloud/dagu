@@ -5,6 +5,7 @@ package spec073_mailbox_test
 
 import (
 	"encoding/json"
+	"net/mail"
 	"os"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ func email(subject, body string) string {
 	return "From: Carol <carol@example.com>\r\n" +
 		"To: user@example.com\r\n" +
 		"Subject: " + subject + "\r\n" +
+		"Message-ID: <" + strings.ReplaceAll(strings.ToLower(subject), " ", "-") + "@example.com>\r\n" +
 		"Content-Type: text/plain\r\n" +
 		"\r\n" +
 		body + "\r\n"
@@ -80,13 +82,15 @@ func TestSearch(t *testing.T) {
 	assert.Equal(t, "Third floor.", messages[0]["text"])
 	assert.Equal(t, true, messages[0]["unread"])
 	assert.NotEmpty(t, messages[0]["id"])
+	assert.Equal(t, "printer-is-down@example.com", messages[0]["message_id"])
 	assert.Equal(t, "VPN broken", messages[1]["subject"])
 
 	assert.False(t, server.HasFlag(t, "INBOX", first, imap.FlagSeen), "searching never marks email read")
 }
 
 // One loop item fails: the other email is marked read, and the failed one
-// stays unread so the next run takes it again.
+// stays unread so the next run takes it again. The loop is partially
+// succeeded (Spec 018), so the run reports that rather than a failure.
 func TestEachEmailMarkedAfterItsWork(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +99,9 @@ func TestEachEmailMarkedAfterItsWork(t *testing.T) {
 	broken := server.Append(t, "INBOX", email("Broken", "This one fails."))
 
 	dagu := harness.NewRunner(t)
-	dagu.RunWithEnv(accountEnv(server), "start", "each_mark_read.yaml").ExpectNonZeroExitCode()
+	result := dagu.RunWithEnv(accountEnv(server), "start", "each_mark_read.yaml")
+	result.ExpectExitCode(0)
+	require.Contains(t, result.Stdout(), "Partially Succeeded")
 
 	assert.True(t, server.HasFlag(t, "INBOX", good, imap.FlagSeen))
 	assert.False(t, server.HasFlag(t, "INBOX", broken, imap.FlagSeen))
@@ -151,6 +157,28 @@ func TestSendThroughMailbox(t *testing.T) {
 	assert.Contains(t, deliveries[0].Data, "Subject: Tickets filed")
 }
 
+// Each found email gets a threaded reply at its reply address.
+func TestReplyToEachEmail(t *testing.T) {
+	t.Parallel()
+
+	imapServer := mailtest.StartIMAP(t)
+	imapServer.Append(t, "INBOX", email("Printer is down", "Third floor."))
+	smtpServer := mailtest.StartSMTP(t)
+	env := append(accountEnv(imapServer), "SMTP_HOST="+smtpServer.Host, "SMTP_PORT="+smtpServer.Port)
+
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv(env, "start", "reply.yaml").ExpectExitCode(0)
+
+	deliveries := smtpServer.Deliveries()
+	require.Len(t, deliveries, 1)
+	assert.Equal(t, []string{"carol@example.com"}, deliveries[0].To)
+	message, err := mail.ReadMessage(strings.NewReader(deliveries[0].Data))
+	require.NoError(t, err)
+	assert.Equal(t, "Re: Printer is down", message.Header.Get("Subject"))
+	assert.Equal(t, "<printer-is-down@example.com>", message.Header.Get("In-Reply-To"))
+	assert.Equal(t, "<printer-is-down@example.com>", message.Header.Get("References"))
+}
+
 func TestMailboxErrors(t *testing.T) {
 	t.Parallel()
 
@@ -167,6 +195,9 @@ func TestMailboxErrors(t *testing.T) {
 		{"bad_within.yaml", "validate", "with.within must be a duration"},
 		{"organize_without_mark_or_move.yaml", "validate", "mail.organize requires with.mark or with.move"},
 		{"not_configured.yaml", "start", `mail account "missing@example.com" is not configured`},
+		{"reply_without_mailbox.yaml", "start", "in_reply_to requires mailbox"},
+		{"scopes_on_google_refresh.yaml", "validate", `oauth.scopes is not valid for provider "google_refresh"`},
+		{"server_on_gmail_api_account.yaml", "validate", `mail account "user@example.com": imap is not used by a google account with oauth, which uses the Gmail API`},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

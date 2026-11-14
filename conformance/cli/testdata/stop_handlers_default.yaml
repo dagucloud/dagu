@@ -1,0 +1,19 @@
+working_dir: .
+steps:
+  - id: probe
+    run: |
+      printf 'started\n' > started.out
+      sleep 30
+    with:
+      shell: /bin/sh
+handler_on:
+  abort:
+    run: |
+      sleep 10
+      printf 'abort\n' >> handlers.out
+    with:
+      shell: /bin/sh
+  exit:
+    run: printf 'exit\n' >> handlers.out
+    with:
+      shell: /bin/sh

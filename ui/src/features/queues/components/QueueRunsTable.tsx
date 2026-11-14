@@ -10,6 +10,7 @@ import {
   runtimeConditionLabel,
   RuntimeCondition,
 } from '@/features/dag-runs/components/common/runtimeConditions';
+import { PEEK_SHOWN_ROW, usePeekShown } from '@/features/peek/usePeekOrOpen';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import StatusChip from '@/components/ui/status-chip';
@@ -21,7 +22,11 @@ type QueueDAGRun = components['schemas']['DAGRunSummary'];
 
 interface QueueRunsTableProps {
   items: QueueDAGRun[];
-  onDAGRunClick: (dagRun: QueueDAGRun) => void;
+  /** Gets the event, whose Ctrl or Cmd key asks for a new tab. */
+  onDAGRunClick: (
+    dagRun: QueueDAGRun,
+    event?: { ctrlKey?: boolean; metaKey?: boolean }
+  ) => void;
   selectable?: boolean;
   disableSelection?: boolean;
   headerCheckboxState?: boolean | 'indeterminate';
@@ -87,6 +92,7 @@ function QueueRunsTable({
 }: QueueRunsTableProps) {
   const { ts } = useI18n();
   const config = useConfig();
+  const isShown = usePeekShown();
 
   const formatDateTime = React.useCallback(
     (datetime: string | undefined): string => {
@@ -125,7 +131,7 @@ function QueueRunsTable({
               </th>
             )}
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              <I18nText text={'DAG'} />
+              <I18nText text={'Workflow'} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
               <I18nText text={'Status'} />
@@ -141,6 +147,7 @@ function QueueRunsTable({
         <tbody className="divide-y divide-border/50">
           {items.map((dagRun) => {
             const selected = selectable && Boolean(isSelected?.(dagRun));
+            const shown = isShown({ dag: dagRun.name, run: dagRun.dagRunId });
             const queuedConditionSummary =
               dagRun.status === Status.Queued
                 ? getQueuedConditionSummary(dagRun.conditions)
@@ -149,18 +156,20 @@ function QueueRunsTable({
             return (
               <tr
                 key={dagRun.dagRunId}
-                onClick={() => onDAGRunClick(dagRun)}
+                onClick={(event) => onDAGRunClick(dagRun, event)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    onDAGRunClick(dagRun);
+                    onDAGRunClick(dagRun, event);
                   }
                 }}
                 role="button"
                 tabIndex={0}
+                data-peek-shown={shown || undefined}
                 className={cn(
                   'cursor-pointer transition-colors focus:bg-muted/50 focus:outline-none hover:bg-muted/30',
-                  selected && 'bg-muted/20'
+                  selected && 'bg-muted/20',
+                  shown && PEEK_SHOWN_ROW
                 )}
               >
                 {selectable && (
@@ -184,6 +193,14 @@ function QueueRunsTable({
                 )}
                 <td className="py-1.5 px-2 text-xs font-medium">
                   {dagRun.name}
+                  {dagRun.backfillId && (
+                    <span
+                      className="ml-1.5 rounded border px-1 py-px text-[10px] font-normal text-muted-foreground"
+                      title={ts('Backfill {id}', { id: dagRun.backfillId })}
+                    >
+                      {ts('Backfill')}
+                    </span>
+                  )}
                 </td>
                 <td className="py-1.5 px-2">
                   <StatusChip status={dagRun.status} size="xs">
@@ -194,14 +211,14 @@ function QueueRunsTable({
                   <div className="flex flex-col gap-0.5">
                     {dagRun.scheduleTime && (
                       <span>
-                        <span className="text-muted-foreground/80">
+                        <span className="text-muted-foreground">
                           <I18nText text={'Scheduled'} />{' '}
                         </span>
                         {formatDateTime(dagRun.scheduleTime)}
                       </span>
                     )}
                     <span>
-                      <span className="text-muted-foreground/80">
+                      <span className="text-muted-foreground">
                         {showQueuedAt ? (
                           <I18nText text={'Queued '} />
                         ) : (
@@ -217,17 +234,17 @@ function QueueRunsTable({
                         <span className="font-medium text-foreground">
                           {runtimeConditionLabel(queuedConditionSummary)}
                         </span>
-                        <span className="text-muted-foreground/90">: </span>
-                        <span className="text-muted-foreground/90">
+                        <span className="text-muted-foreground">: </span>
+                        <span className="text-muted-foreground">
                           {queuedConditionSummary.message}
                         </span>
                         {queuedConditionSummary.reason && (
-                          <span className="ml-1 text-muted-foreground/80">
+                          <span className="ml-1 text-muted-foreground">
                             <I18nText text={'Reason:'} />{' '}
                             {humanizeIdentifier(queuedConditionSummary.reason)}
                           </span>
                         )}
-                        <span className="ml-1 text-muted-foreground/70">
+                        <span className="ml-1 text-muted-foreground">
                           <I18nText text={'Checked'} />{' '}
                           {formatDateTime(queuedConditionSummary.checkedAt)}
                         </span>

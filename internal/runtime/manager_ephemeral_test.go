@@ -1,0 +1,155 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package runtime_test
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	procctrl "github.com/dagucloud/dagu/v2/internal/proc"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
+)
+
+// freshProcesses answers that its entries, newest first, are every DAG's
+// fresh ones.
+type freshProcesses []procctrl.ProcEntry
+
+func (freshProcesses) ListAlive(context.Context, string) ([]ir.DAGRunRef, error) { return nil, nil }
+func (freshProcesses) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
+	return false, nil
+}
+func (freshProcesses) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
+	return false, nil
+}
+func (p freshProcesses) FreshEntriesByDAGName(context.Context, string, string) ([]procctrl.ProcEntry, error) {
+	return p, nil
+}
+
+// An ephemeral run's process entry stays fresh for a moment after the run
+// ends, as any run's does. It is passed over: the DAG's latest status is the
+// next fresh run's, or else the newest run of its history, which ephemeral
+// runs never reach.
+func TestLatestStatusSkipsAFreshEphemeralRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: eph\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	parentDAG, err := spec.LoadYAML(ctx, []byte("name: parent\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	root := t.TempDir()
+	repo := testutil.NewFileDAGRunRepositoryWithEphemeral(filepath.Join(root, "dag-runs"),
+		filepath.Join(root, "dag-runs-ephemeral"), persis.DAGRunRepositoryOptions{})
+	write := func(dag *ir.DAG, runID string, opts persis.DAGRunCreateAttemptOptions) procctrl.ProcEntry {
+		attempt, err := repo.CreateAttempt(ctx, dag, time.Now(), runID, opts)
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(ctx))
+		require.NoError(t, attempt.Write(ctx, ir.NewStatusBuilder(dag).Create(runID, ir.Succeeded, 0, time.Now(),
+			ir.WithAttemptID(attempt.ID()), ir.WithEphemeral(opts.Ephemeral))))
+		require.NoError(t, attempt.Close(ctx))
+		rootName, rootID := dag.Name, runID
+		if !opts.RootDAGRun.Zero() {
+			rootName, rootID = opts.RootDAGRun.Name, opts.RootDAGRun.ID
+		}
+		return procctrl.ProcEntry{Fresh: true, Meta: procctrl.ProcMeta{
+			Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), RootName: rootName, RootDAGRunID: rootID,
+		}}
+	}
+	write(dag, "normal", persis.DAGRunCreateAttemptOptions{})
+	write(parentDAG, "parent", persis.DAGRunCreateAttemptOptions{})
+	child := write(dag, "child", persis.DAGRunCreateAttemptOptions{RootDAGRun: ir.NewDAGRunRef("parent", "parent")})
+	ephemeral := write(dag, "ephemeral", persis.DAGRunCreateAttemptOptions{Ephemeral: true})
+
+	for name, tc := range map[string]struct {
+		fresh freshProcesses
+		want  string
+	}{
+		"to the history":    {freshProcesses{ephemeral}, "normal"},
+		"to the next fresh": {freshProcesses{ephemeral, child}, "child"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mgr := runtime.NewManager(repo, tc.fresh, &config.Config{})
+			latest, err := mgr.GetLatestStatus(ctx, dag)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, latest.DAGRunID)
+		})
+	}
+}
+
+// writeBackfillTestRun writes a run of dag and returns its fresh process.
+func writeBackfillTestRun(t *testing.T, repo *persis.DAGRunRepository, dag *ir.DAG, runID string, status ir.Status, backfillID string, created time.Time) procctrl.ProcEntry {
+	t.Helper()
+	ctx := context.Background()
+	attempt, err := repo.CreateAttempt(ctx, dag, created, runID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, ir.NewStatusBuilder(dag).Create(runID, status, 0, created,
+		ir.WithAttemptID(attempt.ID()), ir.WithBackfillID(backfillID))))
+	require.NoError(t, attempt.Close(ctx))
+	return procctrl.ProcEntry{Fresh: true, Meta: procctrl.ProcMeta{
+		Name: dag.Name, DAGRunID: runID, AttemptID: attempt.ID(), RootName: dag.Name, RootDAGRunID: runID,
+	}}
+}
+
+// A running backfill run is not a DAG's latest run while the DAG has another
+// run, however fresh its process: the latest status is the newest run that
+// is no backfill run, unless the DAG has only backfill runs.
+func TestLatestStatusSkipsARunningBackfillRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: etl\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	for name, tc := range map[string]struct {
+		live bool
+		want string
+	}{
+		"to the live run":                 {live: true, want: "live"},
+		"to the backfill run without one": {live: false, want: "backfill-run"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{})
+			now := time.Now()
+			if tc.live {
+				writeBackfillTestRun(t, repo, dag, "live", ir.Succeeded, "", now.Add(-time.Minute))
+			}
+			running := writeBackfillTestRun(t, repo, dag, "backfill-run", ir.Running, "bf123456", now)
+
+			mgr := runtime.NewManager(repo, freshProcesses{running}, &config.Config{})
+			latest, err := mgr.GetLatestStatus(ctx, dag)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, latest.DAGRunID)
+		})
+	}
+}
+
+// A service DAG has one active run at a time, a backfill run included: a
+// new run is refused while a backfill run runs, though that run is not the
+// DAG's latest run.
+func TestCheckServiceRunCountsARunningBackfillRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dag, err := spec.LoadYAML(ctx, []byte("name: svc\nrestart_policy: always\nrestart_wait_sec: 1\nsteps:\n  - run: echo hi\n"))
+	require.NoError(t, err)
+	repo := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{})
+	now := time.Now()
+	writeBackfillTestRun(t, repo, dag, "live", ir.Succeeded, "", now.Add(-time.Minute))
+	running := writeBackfillTestRun(t, repo, dag, "backfill-run", ir.Running, "bf123456", now)
+
+	mgr := runtime.NewManager(repo, freshProcesses{running}, &config.Config{})
+	require.ErrorIs(t, mgr.CheckServiceRun(ctx, dag, "new-run"), runtime.ErrServiceRunActive)
+}

@@ -16,10 +16,10 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/workpath"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/itchyny/gojq"
@@ -52,16 +52,13 @@ func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
 			return nil, err
 		}
 	}
+	workDir := runtime.GetEnv(ctx).WorkingDir
 	var input any
 	switch {
 	case jqCfg.Input != "" && step.Script != "":
 		return nil, fmt.Errorf("jq: config.input and script are mutually exclusive; provide one, not both")
 	case jqCfg.Input != "":
-		// Evaluate the input path to resolve step references like ${step.stdout}
-		inputPath, err := runtime.ResolveString(ctx, jqCfg.Input, cmnvalue.WorkflowField("jq.input"))
-		if err != nil {
-			return nil, fmt.Errorf("jq: failed to evaluate config.input: %w", err)
-		}
+		inputPath := workpath.Resolve(workDir, jqCfg.Input)
 		data, err := fileutil.ReadFile(inputPath)
 		if err != nil {
 			return nil, fmt.Errorf("jq: reading input file %q: %w", inputPath, err)
@@ -71,6 +68,7 @@ func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		}
 	case step.Script != "":
 		if after, ok := strings.CutPrefix(step.Script, "file://"); ok {
+			after = workpath.Resolve(workDir, after)
 			data, err := fileutil.ReadFile(after)
 			if err != nil {
 				return nil, fmt.Errorf("jq: reading input file %q: %w", after, err)
@@ -215,8 +213,10 @@ func (e *jq) Run(_ context.Context) error {
 			break
 		}
 		if err, ok := v.(error); ok {
-			_, _ = fmt.Fprintf(e.stderr, "failed to run jq query: %v", err)
-			continue
+			if halt, ok := err.(*gojq.HaltError); ok && halt.ExitCode() == 0 {
+				return nil
+			}
+			return fmt.Errorf("failed to run jq query: %w", err)
 		}
 		if e.cfg.Raw {
 			// In raw mode, output values without JSON encoding
@@ -281,5 +281,9 @@ func decodeJqConfig(dat map[string]any, cfg *jqConfig) error {
 }
 
 func init() {
-	executor.RegisterExecutor("jq", newJQ, nil, registry.ExecutorCapabilities{Command: true, Script: true})
+	executor.RegisterExecutor("jq", newJQ, nil, registry.ExecutorCapabilities{
+		Command:    true,
+		Script:     true,
+		PathInputs: []string{"input"},
+	})
 }

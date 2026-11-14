@@ -1,5 +1,20 @@
-import mermaid from 'mermaid';
 import { useEffect, useId, useRef, useState } from 'react';
+
+type MermaidApi = (typeof import('mermaid'))['default'];
+
+// Mermaid is large: it loads on the first diagram, not with the page bundle.
+let mermaidLoader: Promise<MermaidApi> | null = null;
+
+function loadMermaid(): Promise<MermaidApi> {
+  if (!mermaidLoader) {
+    mermaidLoader = import('mermaid').then((module) => module.default);
+    // A failed load is not cached, so the next diagram tries again.
+    mermaidLoader.catch(() => {
+      mermaidLoader = null;
+    });
+  }
+  return mermaidLoader;
+}
 
 // Helper function to get computed CSS variable value with fallback
 function getCSSVariable(name: string, fallback: string): string {
@@ -15,7 +30,7 @@ function isDarkMode(): boolean {
   return document.documentElement.classList.contains('dark');
 }
 
-function initializeMermaid(): void {
+function initializeMermaid(mermaid: MermaidApi): void {
   const dark = isDarkMode();
   mermaid.initialize({
     securityLevel: 'loose',
@@ -72,7 +87,9 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
       const renderId = `mermaid-block-${idPrefix}-${mermaidIdCounter++}`;
 
       try {
-        initializeMermaid();
+        const mermaid = await loadMermaid();
+        if (cancelled) return;
+        initializeMermaid(mermaid);
         const { svg } = await mermaid.render(renderId, code.trim());
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
@@ -95,18 +112,20 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     };
   }, [code, idPrefix]);
 
-  if (error) {
-    return (
-      <pre className="text-xs p-2 rounded bg-muted overflow-x-auto font-mono">
-        <code>{code}</code>
-      </pre>
-    );
-  }
-
+  // The container stays mounted under the fallback so that a later code
+  // change can render into it again.
   return (
-    <div
-      ref={containerRef}
-      className="my-1 overflow-x-auto [&>svg]:max-w-full"
-    />
+    <>
+      {error && (
+        <pre className="text-xs p-2 rounded bg-muted overflow-x-auto font-mono">
+          <code>{code}</code>
+        </pre>
+      )}
+      <div
+        ref={containerRef}
+        hidden={error !== null}
+        className="my-1 overflow-x-auto [&>svg]:max-w-full"
+      />
+    </>
   );
 }

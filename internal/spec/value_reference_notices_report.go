@@ -18,7 +18,7 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 		return
 	}
 
-	staticScope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations()}
+	staticScope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations(), Dates: dag.DateNames()}
 	runtimeScope := cmnvalue.RuntimeScope{
 		Consts:         cmnvalue.Values(dag.Consts),
 		Params:         dag.ParamValues(),
@@ -69,7 +69,7 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 		}
 		foreachItemScopeField := isForeachItemScopeFieldPath(field.noticeFieldPath())
 		if !foreachItemScopeField {
-			stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.OwnerStepName, field.OwnerStepID, sink)
+			stepOutputNotices.report(field.noticeFieldPath(), field.Value, field.Field, field.OwnerStepName, field.OwnerStepID, sink)
 		}
 		fieldRuntimeScope := runtimeScope
 		fieldRuntimeScope.BuiltinContext = noticeBuiltinContext(dag.Name, field.OwnerStepName, field.OwnerStepID)
@@ -94,10 +94,16 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 	}
 }
 
+// isForeachItemScopeFieldPath reports whether a field resolves with item scope:
+// the owning foreach step's key and collect expressions and every body field.
 func isForeachItemScopeFieldPath(path string) bool {
-	return strings.Contains(path, ".foreach.key") ||
-		strings.Contains(path, ".foreach.steps[") ||
-		strings.Contains(path, ".foreach.collect.")
+	return isForeachItemFieldPath(path) || strings.Contains(path, ".foreach.steps[")
+}
+
+// isForeachItemFieldPath reports whether a field belongs to the foreach step
+// itself but is evaluated per item.
+func isForeachItemFieldPath(path string) bool {
+	return strings.Contains(path, ".foreach.key") || strings.Contains(path, ".foreach.collect.")
 }
 
 func reportStepEnvValueReferenceNotices(
@@ -215,7 +221,8 @@ func reportEnvValueReferenceNotices(
 	for i, entry := range env {
 		key, value, _ := strings.Cut(entry, "=")
 		fieldPath := fmt.Sprintf("%s[%d]", path, i)
-		stepOutputNotices.report(fieldPath, value, ownerStepName, ownerStepID, sink)
+		field := fieldForPath(fieldPath)
+		stepOutputNotices.report(fieldPath, value, field, ownerStepName, ownerStepID, sink)
 		fieldSink := valueReferenceNoticeFieldSink{
 			sink:                         sink,
 			fieldPath:                    fieldPath,
@@ -230,11 +237,11 @@ func reportEnvValueReferenceNotices(
 			cmnvalue.WithValueReferenceNotices(fieldSink),
 			cmnvalue.WithoutCommandSubstitution(),
 		)
-		resolved, err := resolver.String(context.Background(), value, fieldForPath(fieldPath))
+		resolved, err := resolver.String(context.Background(), value, field)
 		if err != nil {
 			resolved = value
 		}
-		cmnvalue.ReportUnresolvedEnvExpansionNotices(value, fieldPath, scope, fieldSink)
+		cmnvalue.ReportUnresolvedEnvExpansionNotices(value, field, scope, fieldSink)
 		if cmnvalue.ValidEnvName(key) {
 			scope = scope.WithEntry(key, resolved, source)
 		}
@@ -264,22 +271,19 @@ func isEnvReferenceFieldPath(path string) bool {
 }
 
 type stepOutputNoticeContext struct {
-	stepsByID      map[string]ir.Step
-	outputNames    map[string]map[string]struct{}
-	depsByStepName map[string][]string
+	stepsByID   map[string]ir.Step
+	outputNames map[string]map[string]struct{}
 }
 
 func newStepOutputNoticeContext(dag *ir.DAG) *stepOutputNoticeContext {
 	ctx := &stepOutputNoticeContext{
-		stepsByID:      make(map[string]ir.Step),
-		outputNames:    make(map[string]map[string]struct{}),
-		depsByStepName: make(map[string][]string),
+		stepsByID:   make(map[string]ir.Step),
+		outputNames: make(map[string]map[string]struct{}),
 	}
 	if dag == nil {
 		return ctx
 	}
 	for _, step := range dag.Steps {
-		ctx.depsByStepName[step.Name] = append([]string(nil), step.Depends...)
 		if step.ID == "" {
 			continue
 		}
@@ -368,6 +372,7 @@ func publishesRuntimeOnlyOutputs(step ir.Step) bool {
 func (c *stepOutputNoticeContext) report(
 	fieldPath string,
 	value string,
+	field cmnvalue.Field,
 	ownerStepName string,
 	ownerStepID string,
 	sink cmnvalue.ValueReferenceNoticeSink,
@@ -375,7 +380,7 @@ func (c *stepOutputNoticeContext) report(
 	if c == nil || sink == nil {
 		return
 	}
-	for _, ref := range cmnvalue.StepOutputReferences(value) {
+	for _, ref := range field.StepOutputReferences(value) {
 		reason, ok := c.reason(fieldPath, ownerStepName, ownerStepID, ref)
 		if !ok {
 			continue
@@ -409,31 +414,7 @@ func (c *stepOutputNoticeContext) reason(
 			return cmnvalue.ValueReferenceReasonUnknownOutputName, true
 		}
 	}
-	if !c.dependsOn(ownerStepName, producer.Name) {
-		return cmnvalue.ValueReferenceReasonMissingDependency, true
-	}
 	return "", false
-}
-
-func (c *stepOutputNoticeContext) dependsOn(ownerStepName, producerStepName string) bool {
-	if ownerStepName == "" || producerStepName == "" {
-		return false
-	}
-	seen := make(map[string]struct{})
-	queue := append([]string(nil), c.depsByStepName[ownerStepName]...)
-	for len(queue) > 0 {
-		dep := queue[0]
-		queue = queue[1:]
-		if dep == producerStepName {
-			return true
-		}
-		if _, ok := seen[dep]; ok {
-			continue
-		}
-		seen[dep] = struct{}{}
-		queue = append(queue, c.depsByStepName[dep]...)
-	}
-	return false
 }
 
 type valueReferenceNoticeFieldSink struct {

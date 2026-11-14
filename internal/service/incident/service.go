@@ -713,7 +713,9 @@ func isRecoveryEvent(eventType eventstore.EventType) bool {
 }
 
 func incidentEventSupported(event chatbridge.NotificationEvent) bool {
-	if event.Status == nil || event.Status.Name == "" {
+	// An incident follows a DAG's live state, which a backfill run of an
+	// old slot does not change.
+	if event.Status == nil || event.Status.Name == "" || event.Status.BackfillID != "" {
 		return false
 	}
 	if _, state := eventWorkspace(event); state == workspace.WorkspaceLabelInvalid {
@@ -899,7 +901,7 @@ func (s *Service) sendPagerDuty(
 	}
 	if action == providerActionTrigger {
 		payload["payload"] = map[string]any{
-			"summary":        renderIncidentTemplate(policy.MessageTemplate, event, s.publicURL()),
+			"summary":        pagerDutySummary(renderIncidentTemplate(policy.MessageTemplate, event, s.publicURL())),
 			"source":         "Dagu",
 			"severity":       string(policy.Severity),
 			"custom_details": incidentCustomDetails(event, s.publicURL()),
@@ -922,6 +924,20 @@ func (s *Service) sendPagerDuty(
 		result.EventID = dedupKey
 	}
 	return result, nil
+}
+
+// pagerDutyMaxSummaryLength is the documented Events API v2 limit for
+// payload.summary. It is applied in bytes, which never undercounts characters.
+const pagerDutyMaxSummaryLength = 1024
+
+// pagerDutySummary shortens summary to pagerDutyMaxSummaryLength, marking the
+// cut with an ellipsis.
+func pagerDutySummary(summary string) string {
+	if len(summary) <= pagerDutyMaxSummaryLength {
+		return summary
+	}
+	const ellipsis = "…"
+	return stringutil.TruncUTF8Bytes(summary, pagerDutyMaxSummaryLength-len(ellipsis)) + ellipsis
 }
 
 func (s *Service) sendSolarWinds(
@@ -1187,8 +1203,9 @@ func incidentTemplateValues(event chatbridge.NotificationEvent, publicURL string
 	values["dagRunId"] = status.DAGRunID
 	values["run.status"] = status.Status.String()
 	values["status"] = status.Status.String()
-	values["run.error"] = status.Error
-	values["error"] = status.Error
+	runError := status.ErrorText()
+	values["run.error"] = runError
+	values["error"] = runError
 	values["run.startedAt"] = incidentTemplateTime(status.StartedAt)
 	values["run.finishedAt"] = incidentTemplateTime(status.FinishedAt)
 	values["run.attemptId"] = status.AttemptID
@@ -1285,8 +1302,8 @@ func incidentCustomDetails(event chatbridge.NotificationEvent, publicURL string)
 		"runPath":    runPath,
 		"observedAt": event.ObservedAt.Format(time.RFC3339Nano),
 	}
-	if event.Status.Error != "" {
-		details["error"] = event.Status.Error
+	if runError := event.Status.ErrorText(); runError != "" {
+		details["error"] = runError
 	}
 	if runURL := incidentRunURL(publicURL, runPath); runURL != "" {
 		details["runUrl"] = runURL

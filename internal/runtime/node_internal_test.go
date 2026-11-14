@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -520,6 +521,48 @@ func TestResolveSubDAGPassEnv(t *testing.T) {
 		require.Nil(t, got)
 	})
 
+	t.Run("ListRejectsInheritedSecret", func(t *testing.T) {
+		// A value a local child run inherited implicitly from its parent keeps
+		// its secret source, so naming it under pass_env still fails the step
+		// instead of writing it into a dispatch record.
+		ctx := config.WithConfig(context.Background(), &config.Config{})
+		ctx = runctx.NewContext(ctx,
+			&ir.DAG{Name: "child"},
+			"child-run", "child.log",
+			runctx.WithInheritedEnvs([]cmnvalue.EnvEntry{
+				{Key: "API_TOKEN", Value: "s3cr3t", Source: cmnvalue.EnvSourceSecret},
+			}))
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{
+			Names: []string{"API_TOKEN"},
+		})
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "API_TOKEN")
+		require.ErrorContains(t, err, "secret")
+		require.Nil(t, got)
+	})
+
+	t.Run("AllExcludesInheritedSecretsAndParams", func(t *testing.T) {
+		ctx := config.WithConfig(context.Background(), &config.Config{})
+		ctx = runctx.NewContext(ctx,
+			&ir.DAG{Name: "child", Env: []string{"OWN=value"}},
+			"child-run", "child.log",
+			runctx.WithInheritedEnvs([]cmnvalue.EnvEntry{
+				{Key: "INHERITED_SECRET", Value: "s3cr3t", Source: cmnvalue.EnvSourceSecret},
+				{Key: "INHERITED_PARAM", Value: "param", Source: cmnvalue.EnvSourceParam},
+				{Key: "INHERITED_ENV", Value: "env", Source: cmnvalue.EnvSourceDAGEnv},
+			}))
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{All: true})
+
+		require.NoError(t, err)
+		// Inherited secrets and params keep their sources, so pass_env never
+		// carries them. An inherited DAG env value remains passable: it is
+		// ordinary run environment, not a secret this run holds.
+		require.Equal(t, []string{"INHERITED_ENV=env", "OWN=value"}, got)
+	})
+
 	t.Run("ListSkipsToolManagedNames", func(t *testing.T) {
 		ctx := newCtx(t, nil)
 
@@ -617,4 +660,27 @@ func TestResolveSubDAGPassEnv(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, envs)
 	})
+}
+
+// ClampStartedAt raises an earlier start to the given time. A later start, a
+// zero limit and a node that never started stay as they are.
+func TestData_ClampStartedAt(t *testing.T) {
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	limit := base.Add(10 * time.Millisecond)
+
+	for name, tc := range map[string]struct {
+		started, limit, want time.Time
+	}{
+		"earlier start is raised": {started: base, limit: limit, want: limit},
+		"equal start is kept":     {started: limit, limit: limit, want: limit},
+		"later start is kept":     {started: limit.Add(time.Millisecond), limit: limit, want: limit.Add(time.Millisecond)},
+		"zero limit is ignored":   {started: base, limit: time.Time{}, want: base},
+		"no start is ignored":     {started: time.Time{}, limit: limit, want: time.Time{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			node := NewNode(ir.Step{Name: "step"}, NodeState{StartedAt: tc.started})
+			node.ClampStartedAt(tc.limit)
+			require.True(t, tc.want.Equal(node.State().StartedAt))
+		})
+	}
 }

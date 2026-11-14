@@ -36,6 +36,8 @@ type Paths struct {
 	EventStoreDir string
 	// BaseConfigFile is the full path to the base configuration file.
 	BaseConfigFile string
+	// CalendarsDir is the directory of the calendar files schedules name.
+	CalendarsDir string
 	// Notices collects any non-fatal informational messages encountered during path resolution.
 	Notices []string
 }
@@ -105,6 +107,7 @@ func setXDGPaths(xdg XDGConfig, configDir string) Paths {
 		ArtifactsDir:    filepath.Join(xdg.DataHome, AppSlug, "data", "artifacts"),
 		DAGStateDir:     filepath.Join(xdg.DataHome, AppSlug, "data", "dag-state"),
 		BaseConfigFile:  filepath.Join(xdg.ConfigHome, AppSlug, "base.yaml"),
+		CalendarsDir:    filepath.Join(xdg.ConfigHome, AppSlug, "calendars"),
 		AdminLogsDir:    filepath.Join(xdg.DataHome, AppSlug, "logs", "admin"),
 		EventStoreDir:   filepath.Join(xdg.DataHome, AppSlug, "logs", "admin", "events"),
 		SuspendFlagsDir: filepath.Join(xdg.DataHome, AppSlug, "data", "suspend"),
@@ -124,6 +127,7 @@ func setUnifiedPaths(configDir string) Paths {
 		ArtifactsDir:    filepath.Join(configDir, "data", "artifacts"),
 		DAGStateDir:     filepath.Join(configDir, "data", "dag-state"),
 		BaseConfigFile:  filepath.Join(configDir, "base.yaml"),
+		CalendarsDir:    filepath.Join(configDir, "calendars"),
 		AdminLogsDir:    filepath.Join(configDir, "logs", "admin"),
 		EventStoreDir:   filepath.Join(configDir, "logs", "admin", "events"),
 		SuspendFlagsDir: filepath.Join(configDir, "data", "suspend"),

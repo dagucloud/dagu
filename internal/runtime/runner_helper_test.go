@@ -6,6 +6,7 @@ package runtime_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"syscall"
 	"testing"
@@ -92,6 +93,12 @@ func withStdout(stdout string) stepOption {
 	}
 }
 
+func withStderr(stderr string) stepOption {
+	return func(step *ir.Step) {
+		step.Stderr = stderr
+	}
+}
+
 func withStdin(stdin string) stepOption {
 	return func(step *ir.Step) {
 		step.Stdin = stdin
@@ -120,6 +127,12 @@ func parseCommand(command string) ir.CommandEntry {
 func withCommand(command string) stepOption {
 	return func(step *ir.Step) {
 		step.Commands = []ir.CommandEntry{parseCommand(command)}
+	}
+}
+
+func withShell(shell string) stepOption {
+	return func(step *ir.Step) {
+		step.Shell = shell
 	}
 }
 
@@ -272,6 +285,18 @@ func newHandlerStep(_ *testing.T, name, id, command string) ir.Step {
 	}
 }
 
+func withOnInit(step ir.Step) runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.OnInit = &step
+	}
+}
+
+func withSkipHandlers() runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.SkipHandlers = true
+	}
+}
+
 func withOnSuccess(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnSuccess = &step
@@ -363,8 +388,12 @@ func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult
 	case ir.Succeeded, ir.Aborted, ir.Waiting, ir.Rejected:
 		require.NoError(t, err)
 
-	case ir.Failed, ir.PartiallySucceeded:
+	case ir.Failed:
 		require.Error(t, err)
+
+	case ir.PartiallySucceeded:
+		// A failed step allowed to continue reports an error; a step an
+		// executor marked partially succeeded does not.
 
 	case ir.Running, ir.NotStarted, ir.Queued:
 		t.Errorf("unexpected status %s", expectedStatus)
@@ -532,6 +561,21 @@ func waitForNodeRepeatScheduled(plan *runtime.Plan, name string, timeout time.Du
 	deadline := time.After(timeout)
 	for {
 		if node := plan.GetNodeByName(name); node != nil && node.State().DoneCount >= 1 && node.State().Repeated {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+// waitForFile reports whether path exists before the timeout expires.
+func waitForFile(path string, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
 			return true
 		}
 		select {

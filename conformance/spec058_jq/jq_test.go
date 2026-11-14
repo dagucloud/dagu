@@ -50,6 +50,7 @@ func TestJQConfig(t *testing.T) {
 	}{
 		{"missing_filter.yaml", "with.filter is required"},
 		{"both_data_and_input.yaml", "does not allow both with.data and with.input"},
+		{"unknown_field.yaml", `unexpected additional properties ["inpout"]; did you mean "input" instead of "inpout"?`},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()
@@ -60,4 +61,41 @@ func TestJQConfig(t *testing.T) {
 			result.ExpectStderrContains(tc.message)
 		})
 	}
+}
+
+func TestJQFailures(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, filter, message string }{
+		{"syntax", `{税: .x}`, "unexpected token"},
+		{"evaluation", ".amount + 1.1", "cannot add"},
+		{"compile", "undefined_function", "function not defined"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dagu := harness.NewRunner(t)
+			dagu.WriteFile("failure.yaml", `steps:
+  - id: transform
+    action: jq.filter
+    with:
+      filter: '`+tc.filter+`'
+      data: {amount: bad, x: 1}
+    output:
+      result: {from: stdout, decode: json}
+`)
+			result := dagu.Run("start", "failure.yaml")
+			result.ExpectNonZeroExitCode()
+			result.ExpectStderrContains(tc.message)
+		})
+	}
+}
+
+// A relative with.input and a file:// data path both read from the step
+// working directory, not from the process directory.
+func TestJQRelativeWorkingDir(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("work/data.json", `{"city":"Metropolis"}`)
+	dagu.Run("start", "relative_working_dir.yaml").ExpectExitCode(0)
+	dagu.ExpectFileContent("work/input.out", "\"Metropolis\"\n")
+	dagu.ExpectFileContent("work/data.out", "\"Metropolis\"\n")
 }

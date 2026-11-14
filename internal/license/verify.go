@@ -5,6 +5,7 @@ package license
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,7 +24,8 @@ func eddsaKeyFunc(pubKey ed25519.PublicKey) jwt.Keyfunc {
 }
 
 // VerifyToken parses and verifies a JWT license token using the given Ed25519 public key.
-// It rejects tokens that use algorithms other than EdDSA.
+// It rejects tokens that use algorithms other than EdDSA, and tokens with an
+// audience, which Dagu Cloud signs with the same key for other purposes.
 func VerifyToken(pubKey ed25519.PublicKey, tokenString string) (*LicenseClaims, error) {
 	claims := &LicenseClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, eddsaKeyFunc(pubKey), jwt.WithValidMethods([]string{"EdDSA"}))
@@ -33,8 +35,14 @@ func VerifyToken(pubKey ed25519.PublicKey, tokenString string) (*LicenseClaims, 
 	if !token.Valid {
 		return nil, fmt.Errorf("token is not valid")
 	}
+	if len(claims.Audience) > 0 {
+		return nil, errNotALicense
+	}
 	return claims, nil
 }
+
+// errNotALicense refuses a token Dagu Cloud signed for another audience.
+var errNotALicense = errors.New("token verification failed: the token has an audience, so it is not a license")
 
 // VerifyTokenLenient parses a JWT license token without validating claims (e.g., expiry).
 // This is used to extract claims from expired tokens for grace period evaluation.
@@ -47,6 +55,10 @@ func VerifyTokenLenient(pubKey ed25519.PublicKey, tokenString string) (*LicenseC
 	}
 	if !token.Valid {
 		return nil, fmt.Errorf("token is not valid")
+	}
+
+	if len(claims.Audience) > 0 {
+		return nil, errNotALicense
 	}
 
 	// Manually validate nbf and iat claims that were skipped by WithoutClaimsValidation.

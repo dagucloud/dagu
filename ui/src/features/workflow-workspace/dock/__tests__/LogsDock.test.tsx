@@ -1,0 +1,956 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useEffect, type ReactNode } from 'react';
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  type NavigateFunction,
+} from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NodeStatus, Status } from '@/api/v1/schema';
+import { getNotificationRoot } from '@/components/ui/notification-root';
+import {
+  RightPanelProvider,
+  useRightPanelClaim,
+} from '@/contexts/RightPanelContext';
+import {
+  useWorkspaceEditorBinding,
+  WorkspaceEditorProvider,
+} from '../../canvas/WorkspaceEditorContext';
+import type { ApiDAGDetails, WorkspaceEditorHandle } from '../../contracts';
+import { WorkspaceDataContext } from '../../data/context';
+import { dagPage, node, run } from '../../data/__tests__/fixtures';
+import {
+  firstFailedStep,
+  nodesByStep,
+  waitingCounts,
+} from '../../data/runFacts';
+import type { ApiDAGRunDetails, WorkspaceRunValue } from '../../data/types';
+import {
+  DOCK_HEIGHT_KEY,
+  DOCK_OPEN_KEY,
+  DockProvider,
+  defaultDockHeight,
+  maxDockHeight,
+  useDock,
+} from '../DockContext';
+import { LogsDock } from '../LogsDock';
+
+const mounts = vi.hoisted(() => ({ count: 0 }));
+
+// The timeline and the steps navigation have their own tests.
+// The timeline stub tells where its controls go: the dock header or its own
+// row.
+vi.mock('../RunTimeline', async () => {
+  const { useContext } = await import('react');
+  const { DockHeaderToolsContext } = await import('../DockHeaderTools');
+  return {
+    RunTimeline: () => (
+      <div
+        data-testid="timeline-stub"
+        data-controls={
+          useContext(DockHeaderToolsContext) === undefined ? 'row' : 'header'
+        }
+      />
+    ),
+  };
+});
+vi.mock('../RunStepsNav', () => ({
+  RunStepsNav: ({ onPicked }: { onPicked?(): void }) => (
+    <div data-testid="steps-nav-stub">
+      <button type="button" onClick={onPicked}>
+        Pick a step
+      </button>
+    </div>
+  ),
+  RunStepPicker: ({
+    ref,
+    open,
+    onToggle,
+    className,
+  }: {
+    ref?: React.Ref<HTMLButtonElement>;
+    open: boolean;
+    onToggle(): void;
+    className?: string;
+  }) => (
+    <button
+      ref={ref}
+      type="button"
+      data-testid="step-picker-stub"
+      aria-expanded={open}
+      className={className}
+      onClick={onToggle}
+    >
+      Steps
+    </button>
+  ),
+}));
+
+// Stateful bodies, so a test can tell a kept instance from a new one. 'chat'
+// has no body, like a tab that is not registered yet.
+vi.mock('../tabs', async () => {
+  const { useEffect, useState } = await import('react');
+  const make = (name: string) =>
+    function Body() {
+      const [clicks, setClicks] = useState(0);
+      useEffect(() => {
+        mounts.count += 1;
+      }, []);
+      return (
+        <div data-testid={`body-${name}`}>
+          <button type="button" onClick={() => setClicks(clicks + 1)}>
+            {`clicks ${clicks}`}
+          </button>
+          <input aria-label="field" />
+        </div>
+      );
+    };
+  return {
+    dockTabBodies: Object.fromEntries(
+      ['log', 'agent', 'actions', 'timeline', 'outputs'].map((tab) => [
+        tab,
+        make(tab),
+      ])
+    ),
+  };
+});
+
+function fakeRun(details: ApiDAGRunDetails | null): WorkspaceRunValue {
+  return {
+    selection: 'latest',
+    ref: details ? { name: details.name, runId: details.dagRunId } : null,
+    details,
+    hasRun: !!details,
+    isLatest: true,
+    isActive: false,
+    notFound: false,
+    latestRef: null,
+    overlay: {},
+    nodeByStep: nodesByStep(details),
+    handlers: [],
+    waiting: waitingCounts(details),
+    failedStep: firstFailedStep(details),
+    select: vi.fn(),
+    applyNodeStatus: vi.fn(),
+    refresh: vi.fn(async () => {}),
+  };
+}
+
+const location = {
+  current: '',
+  navigation: '',
+  navigate: (() => {}) as NavigateFunction,
+};
+
+function Location() {
+  const loc = useLocation();
+  location.current = loc.pathname + loc.search;
+  location.navigation = useNavigationType();
+  location.navigate = useNavigate();
+  return null;
+}
+
+function renderDock(
+  details: ApiDAGRunDetails | null,
+  url = '/dags/demo',
+  extra: ReactNode = null
+) {
+  const dagData = dagPage(details ?? run(''));
+  const data = ({ children }: { children: ReactNode }) => (
+    <WorkspaceDataContext.Provider
+      value={{
+        fileName: 'demo',
+        dagData,
+        workspaceName: null,
+        remoteNode: 'local',
+        run: fakeRun(details),
+        refresh: async () => {},
+        registerHistory: () => () => {},
+      }}
+    >
+      {children}
+    </WorkspaceDataContext.Provider>
+  );
+  const Data = data;
+  const element = (
+    <Data>
+      <RightPanelProvider>
+        <WorkspaceEditorProvider>
+          <DockProvider>
+            <Location />
+            {extra}
+            <LogsDock fileName="demo" dag={dagData.dag as ApiDAGDetails} />
+          </DockProvider>
+        </WorkspaceEditorProvider>
+      </RightPanelProvider>
+    </Data>
+  );
+  return render(
+    <MemoryRouter initialEntries={[url]}>
+      <Routes>
+        <Route path="/dags/:fileName" element={element} />
+        <Route path="/dags/:fileName/:tab" element={element} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+const finished = run('done', [node('a'), node('b')], Status.Success);
+
+// Two agents and one approval wait; the run has chat steps too.
+const busy = run(
+  'busy',
+  [
+    node('ask1', NodeStatus.Running, { agentSession: { state: 'waiting' } }),
+    node('ask2', NodeStatus.Running, { agentSession: { state: 'waiting' } }),
+    node('approve', NodeStatus.Waiting, { step: { approval: {} } }),
+    node('talk', NodeStatus.Success, {
+      step: { executorConfig: { type: 'chat' } },
+    }),
+  ],
+  Status.Waiting
+);
+
+function dockSection() {
+  return screen.getByTestId('ww-dock');
+}
+
+function toggleButton() {
+  return within(dockSection()).getByRole('button', {
+    name: 'Activity',
+  });
+}
+
+const originalMatchMedia = window.matchMedia;
+
+function mockWidth(px: number) {
+  window.matchMedia = vi.fn((query: string) => {
+    const min = Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0);
+    return {
+      matches: px >= min,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as MediaQueryList;
+  });
+}
+
+// The Run panel starts collapsed. Most tests open it with the toggle.
+beforeEach(() => {
+  localStorage.clear();
+  mounts.count = 0;
+});
+
+afterEach(() => {
+  window.matchMedia = originalMatchMedia;
+  vi.restoreAllMocks();
+});
+
+// parity:log-side-panel
+// parity:embed-workflow-overview-summary
+describe('LogsDock frame', () => {
+  // parity:chg-dock-collapsed-default
+  // Collapsed, the panel has no bar: a small tab with its name and its
+  // chevron sticks out of the bottom edge, like a binder tab laid flat.
+  it('is a collapsed tab by default, named Activity', () => {
+    renderDock(finished);
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+    expect(dockSection()).toHaveClass('h-0');
+    expect(screen.getByTestId('ww-dock-bar')).toHaveClass(
+      'absolute',
+      'bottom-0'
+    );
+    expect(toggleButton()).toHaveClass('rounded-t-lg', 'border-b-0', 'h-8');
+    expect(screen.getByTestId('ww-dock-header-tools')).not.toBeVisible();
+    expect(toggleButton()).toHaveAccessibleName('Activity');
+    expect(toggleButton()).toHaveTextContent('Activity');
+    expect(toggleButton()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('tabpanel')).toBeNull();
+    expect(screen.queryByTestId('body-timeline')).toBeNull();
+    expect(screen.queryByRole('separator')).toBeNull();
+    // The tabs and the toggle name a panel that exists, also while collapsed.
+    const panelId = screen
+      .getByRole('tab', { name: 'Log', hidden: true })
+      .getAttribute('aria-controls');
+    expect(toggleButton()).toHaveAttribute('aria-controls', panelId);
+    expect(
+      document.getElementById(panelId ?? '')?.closest('[hidden]')
+    ).not.toBeNull();
+  });
+
+  it('opens on a click, with the timeline above the steps and the tabs', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(toggleButton()).toHaveAccessibleName('Activity');
+    expect(toggleButton()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('timeline-stub')).toBeVisible();
+    expect(screen.getByTestId('steps-nav-stub')).toBeVisible();
+    expect(screen.getByTestId('body-timeline')).toBeVisible();
+    expect(dockSection()).toHaveStyle({ height: `${defaultDockHeight()}px` });
+    // The timeline is above the two columns.
+    const nav = screen.getByTestId('ww-run-steps-nav');
+    expect(
+      screen.getByTestId('timeline-stub').compareDocumentPosition(nav) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // The tabs are on the right of the steps.
+    expect(nav.nextElementSibling).toContainElement(
+      screen.getByRole('tablist')
+    );
+    // jsdom runs no container query: the classes are the contract. A medium
+    // panel keeps the names in a narrower list.
+    expect(nav).toHaveClass('w-60', '@max-[900px]:w-44');
+  });
+
+  // A phone has no room for the steps beside the tabs: a row names the
+  // selected step and opens the list over the tabs; a pick closes it.
+  it('opens the steps over the tabs from a row below 600px', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const nav = screen.getByTestId('ww-run-steps-nav');
+    const picker = screen.getByTestId('step-picker-stub');
+    expect(picker).toHaveClass('hidden', '@max-[600px]:flex');
+    expect(nav).toHaveClass('@max-[600px]:absolute', '@max-[600px]:hidden');
+
+    fireEvent.click(picker);
+    expect(picker).toHaveAttribute('aria-expanded', 'true');
+    expect(nav).not.toHaveClass('@max-[600px]:hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a step' }));
+    expect(picker).toHaveAttribute('aria-expanded', 'false');
+    expect(nav).toHaveClass('@max-[600px]:hidden');
+    // The focus goes back to the row that opened the list.
+    expect(picker).toHaveFocus();
+  });
+
+  // Esc closes the list over the tabs, not the sheet under it, from any
+  // control of the sheet. An Esc that a layer inside took does nothing.
+  it('closes the open steps on Esc and keeps the sheet', () => {
+    mockWidth(500);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const picker = screen.getByTestId('step-picker-stub');
+    fireEvent.click(picker);
+    const pick = screen.getByRole('button', { name: 'Pick a step' });
+    pick.addEventListener('keydown', (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.keyDown(pick, { key: 'Escape' });
+    expect(picker).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Graph' }), {
+      key: 'Escape',
+    });
+    expect(picker).toHaveAttribute('aria-expanded', 'false');
+    expect(picker).toHaveFocus();
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+  });
+
+  it('is open when the URL has ?dock at load', () => {
+    renderDock(finished, '/dags/demo?dock=outputs');
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(toggleButton()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('body-outputs')).toBeVisible();
+  });
+
+  it('is open when the URL has ?run at load', () => {
+    renderDock(finished, '/dags/demo?run=done');
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(toggleButton()).toHaveAttribute('aria-expanded', 'true');
+    expect(localStorage.getItem(DOCK_OPEN_KEY)).toBeNull();
+  });
+
+  it('remembers the toggle under the v2 key', () => {
+    const first = renderDock(finished);
+    fireEvent.click(toggleButton());
+    expect(localStorage.getItem('dagu.workspace.dockOpen.v2')).toBe('true');
+    first.unmount();
+
+    renderDock(finished);
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    fireEvent.click(toggleButton());
+    expect(localStorage.getItem('dagu.workspace.dockOpen.v2')).toBe('false');
+  });
+
+  it('has a heading for the dock', () => {
+    renderDock(finished);
+    expect(
+      within(dockSection()).getByRole('heading', { level: 2, name: 'Logs' })
+    ).toBeInTheDocument();
+  });
+
+  it('opens at the default height on the timeline body', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(dockSection()).toHaveStyle({ height: `${defaultDockHeight()}px` });
+    expect(screen.getByRole('tabpanel')).toBeVisible();
+    expect(screen.getByTestId('body-timeline')).toBeInTheDocument();
+  });
+
+  it('has no Steps tab and no Spec tab', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    expect(screen.queryByRole('tab', { name: 'Steps' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Spec' })).toBeNull();
+  });
+
+  it('keeps the body instance when it maximizes and collapses', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    fireEvent.click(screen.getByRole('button', { name: 'clicks 0' }));
+    expect(mounts.count).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+    expect(dockSection()).toHaveAttribute('data-maximized', 'true');
+    expect(dockSection()).toHaveStyle({ height: '100%' });
+    expect(screen.getByRole('button', { name: 'clicks 1' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(dockSection()).not.toHaveAttribute('data-maximized');
+
+    fireEvent.click(toggleButton());
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+    expect(screen.getByRole('tabpanel', { hidden: true })).not.toBeVisible();
+
+    fireEvent.click(toggleButton());
+    expect(screen.getByRole('button', { name: 'clicks 1' })).toBeVisible();
+    expect(mounts.count).toBe(1);
+  });
+
+  it('does not collapse on Esc inside the body', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const field = screen.getByRole('textbox', { name: 'field' });
+    field.focus();
+    fireEvent.keyDown(field, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(screen.getByRole('tabpanel')).toBeVisible();
+  });
+});
+
+// parity:graph-resize-handle
+// parity:run-graph-resize
+describe('LogsDock resize', () => {
+  it('resizes with the arrow keys, Home and End, and stores the height', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const separator = screen.getByRole('separator', { name: 'Resize logs' });
+    const base = defaultDockHeight();
+    expect(separator).toHaveAttribute('aria-valuenow', String(base));
+
+    fireEvent.keyDown(separator, { key: 'ArrowUp' });
+    expect(separator).toHaveAttribute('aria-valuenow', String(base + 40));
+    expect(dockSection()).toHaveStyle({ height: `${base + 40}px` });
+    expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBe(String(base + 40));
+
+    fireEvent.keyDown(separator, { key: 'ArrowDown' });
+    fireEvent.keyDown(separator, { key: 'ArrowDown' });
+    expect(separator).toHaveAttribute('aria-valuenow', String(base - 40));
+
+    fireEvent.keyDown(separator, { key: 'Home' });
+    expect(separator).toHaveAttribute('aria-valuenow', '120');
+
+    fireEvent.keyDown(separator, { key: 'End' });
+    expect(separator).toHaveAttribute('aria-valuenow', String(maxDockHeight()));
+  });
+
+  // The window keeps the bar and the floor of the main zone, so that the dock
+  // reaches about two thirds of a 900px window (it stopped at 41%).
+  it('lets the dock take two thirds of a 900px window', () => {
+    const height = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 900,
+    });
+    try {
+      expect(maxDockHeight() / 900).toBeGreaterThanOrEqual(0.6);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: height,
+      });
+    }
+  });
+
+  // The graph keeps the larger part of the window: the panel opens at about
+  // 40% of it.
+  it('opens at about 40 percent of a 900px window', () => {
+    const height = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 900,
+    });
+    try {
+      expect(defaultDockHeight()).toBe(360);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: height,
+      });
+    }
+  });
+
+  it('restores the default height on double-click', () => {
+    localStorage.setItem(DOCK_HEIGHT_KEY, '200');
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const separator = screen.getByRole('separator');
+    expect(separator).toHaveAttribute('aria-valuenow', '200');
+    fireEvent.doubleClick(separator);
+    expect(separator).toHaveAttribute(
+      'aria-valuenow',
+      String(defaultDockHeight())
+    );
+    expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBeNull();
+  });
+
+  it('resizes by drag', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    const separator = screen.getByRole('separator');
+    fireEvent.pointerDown(separator, { pointerId: 1, button: 0, clientY: 500 });
+    const base = defaultDockHeight();
+    fireEvent.pointerMove(separator, { pointerId: 1, clientY: 450 });
+    expect(dockSection()).toHaveStyle({ height: `${base + 50}px` });
+    fireEvent.pointerUp(separator, { pointerId: 1, clientY: 440 });
+    expect(separator).toHaveAttribute('aria-valuenow', String(base + 60));
+    expect(localStorage.getItem(DOCK_HEIGHT_KEY)).toBe(String(base + 60));
+  });
+
+  // The toasts and the run progress cards sit in the corner of the screen:
+  // over the open panel, they hid the bars of its timeline.
+  it('keeps the notifications above the open panel', () => {
+    renderDock(finished);
+    const inset = () =>
+      getNotificationRoot().style.getPropertyValue(
+        '--notification-bottom-inset'
+      );
+    expect(inset()).toBe('');
+
+    fireEvent.click(toggleButton());
+    vi.spyOn(dockSection(), 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, window.innerHeight - 320, 1000, 320)
+    );
+    fireEvent(window, new Event('resize'));
+    expect(inset()).toBe('320px');
+
+    // A maximized panel fills the page: the notifications go back.
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+    expect(inset()).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(inset()).toBe('320px');
+
+    fireEvent.click(toggleButton());
+    expect(inset()).toBe('');
+  });
+
+  it('has no separator while maximized', () => {
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+    expect(screen.queryByRole('separator')).toBeNull();
+  });
+});
+
+// parity:overview-inner-tab-bar
+// parity:run-tabs-bar
+describe('LogsDock tab strip', () => {
+  // The strip is in the body of the panel: it needs the panel open.
+  beforeEach(() => localStorage.setItem(DOCK_OPEN_KEY, 'true'));
+
+  it('shows the run tabs that have a body, with the waiting badges', () => {
+    renderDock(busy);
+    const strip = screen.getByRole('tablist');
+    expect(
+      within(strip)
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent)
+    ).toEqual(['Log', 'Agent2', 'Actions1', 'Timeline', 'Outputs']);
+    expect(within(strip).queryByRole('tab', { name: /Chat/ })).toBeNull();
+    expect(
+      within(strip).getByRole('tab', { name: 'Agent, 2 waiting' })
+    ).toBeInTheDocument();
+    expect(
+      within(strip).getByRole('tab', { name: 'Actions, 1 waiting' })
+    ).toBeInTheDocument();
+    expect(strip).toHaveClass('h-8');
+  });
+
+  // The Timeline and the list of all outputs belong to the run view. With a
+  // step open, the strip has no Timeline and the outputs tab is Output.
+  it('has no Timeline and names Outputs "Output" when a step is open', () => {
+    renderDock(finished, '/dags/demo?step=a');
+    const strip = screen.getByRole('tablist');
+    expect(
+      within(strip)
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent)
+    ).toEqual(['Log', 'Output']);
+    expect(within(strip).getByRole('tab', { name: 'Output' }).id).toBe(
+      'ww-dock-tab-outputs'
+    );
+  });
+
+  it('shows the Log tab when ?dock names the Timeline of a step view', () => {
+    renderDock(finished, '/dags/demo?dock=timeline&step=a');
+    expect(screen.getByRole('tab', { name: 'Log' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.queryByRole('tab', { name: 'Timeline' })).toBeNull();
+  });
+
+  it('keeps the Timeline and Outputs in the run view', () => {
+    renderDock(finished);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Log',
+      'Timeline',
+      'Outputs',
+    ]);
+  });
+
+  // No width has a More menu or a select: the tabs stay in one strip.
+  it.each([900, 500])('keeps every tab in the strip at %ipx', async (width) => {
+    mockWidth(width);
+    const user = userEvent.setup();
+    // A link opens the panel at every width; the stored state does not on a
+    // narrow window.
+    renderDock(busy, '/dags/demo?dock=log');
+    expect(screen.queryByRole('button', { name: /More/ })).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    const strip = screen.getByRole('tablist');
+    expect(
+      within(strip)
+        .getAllByRole('tab')
+        .map((tab) => tab.id)
+    ).toEqual([
+      'ww-dock-tab-log',
+      'ww-dock-tab-agent',
+      'ww-dock-tab-actions',
+      'ww-dock-tab-timeline',
+      'ww-dock-tab-outputs',
+    ]);
+
+    await user.click(within(strip).getByRole('tab', { name: /Outputs/ }));
+    expect(location.current).toBe('/dags/demo?dock=outputs');
+    expect(screen.getByTestId('body-outputs')).toBeInTheDocument();
+  });
+
+  // parity:overview-tab-url-sync
+  it('follows ?dock and writes a tab click with replace', () => {
+    renderDock(finished, '/dags/demo?dock=timeline');
+    // A ?dock link opens the dock on its tab.
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(screen.getByTestId('body-timeline')).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Timeline' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Outputs' }));
+    expect(location.current).toBe('/dags/demo?dock=outputs');
+    expect(location.navigation).toBe('REPLACE');
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(screen.getByTestId('body-outputs')).toBeInTheDocument();
+  });
+
+  // parity:overview-tab-url-sync
+  it('follows a later ?dock change, such as Back or a link', () => {
+    renderDock(finished, '/dags/demo?dock=timeline');
+    act(() => {
+      void location.navigate('/dags/demo?dock=outputs');
+    });
+    expect(screen.getByRole('tab', { name: 'Outputs' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    act(() => {
+      void location.navigate(-1);
+    });
+    expect(location.current).toBe('/dags/demo?dock=timeline');
+    expect(screen.getByRole('tab', { name: 'Timeline' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  // parity:overview-tab-unavailable-fallback
+  it('shows log when the tab is gone and keeps the URL', () => {
+    renderDock(finished, '/dags/demo?dock=agent');
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(screen.getByRole('tab', { name: 'Log' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByTestId('body-log')).toBeInTheDocument();
+    expect(location.current).toBe('/dags/demo?dock=agent');
+  });
+
+  it('shows log for a tab without a body', () => {
+    renderDock(busy, '/dags/demo?dock=chat');
+    expect(screen.getByRole('tab', { name: 'Log' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  // The old links: the Steps and Spec tabs are gone.
+  it.each(['steps', 'spec'])('shows the default tab for ?dock=%s', (tab) => {
+    renderDock(finished, `/dags/demo?dock=${tab}`);
+    expect(screen.getByRole('tab', { name: 'Timeline' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('opens by itself on a failed run', () => {
+    renderDock(
+      run('dock-failed', [node('a', NodeStatus.Failed)], Status.Failed),
+      '/dags/demo'
+    );
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(screen.getByTestId('body-log')).toBeVisible();
+    expect(location.current).toBe('/dags/demo');
+  });
+});
+
+/** Binds a stand-in editor handle, as WorkspaceCanvas does. */
+function BindHandle({ handle }: { handle: WorkspaceEditorHandle }) {
+  const { editorHandleRef } = useWorkspaceEditorBinding();
+  useEffect(() => {
+    editorHandleRef(handle);
+  }, [editorHandleRef, handle]);
+  return null;
+}
+
+/** A control outside the dock that opens it. */
+function Opener() {
+  const dock = useDock();
+  return (
+    <button type="button" onClick={dock.toggle}>
+      Opener
+    </button>
+  );
+}
+
+/** Holds the node details panel while mounted. */
+function NdvPanel() {
+  useRightPanelClaim('ndv', true, () => {});
+  return null;
+}
+
+// parity:run-step-mobile
+describe('LogsDock below 768px', () => {
+  // A phone shows one view at a time: the views bar is the bottom of the
+  // panel, and the open panel takes the place of the graph.
+  it('takes the place of the graph, under the views bar', () => {
+    mockWidth(500);
+    renderDock(finished);
+    expect(screen.getByTestId('ww-phone-nav')).toBeInTheDocument();
+    expect(screen.getByTestId('ww-dock-bar')).not.toBeVisible();
+    expect(dockSection()).not.toHaveAttribute('data-phone-view');
+    fireEvent.click(toggleButton());
+    expect(dockSection()).toHaveAttribute('data-phone-view', 'true');
+    expect(dockSection()).toHaveClass('flex-1');
+    expect(dockSection()).not.toHaveClass('fixed');
+    expect(screen.queryByRole('separator')).toBeNull();
+    expect(dockSection()).toHaveFocus();
+    // There is no bar for the controls of the timeline.
+    expect(screen.getByTestId('timeline-stub')).toHaveAttribute(
+      'data-controls',
+      'row'
+    );
+    // Activity is the toggle of the panel: a second tap shows the graph.
+    fireEvent.click(toggleButton());
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+  });
+
+  it('swaps the panel for the YAML from the views bar', () => {
+    mockWidth(500);
+    const handle = {
+      toggleYaml: vi.fn(),
+      revealStep: vi.fn(() => true),
+    } as unknown as WorkspaceEditorHandle;
+    renderDock(finished, '/dags/demo', <BindHandle handle={handle} />);
+    fireEvent.click(toggleButton());
+    fireEvent.click(screen.getByRole('button', { name: 'YAML' }));
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+    expect(handle.toggleYaml).toHaveBeenCalledWith(true);
+  });
+
+  // Graph always shows the graph: it closes the YAML through ?ndv, also
+  // when the views bar has not rendered that URL yet.
+  it('goes back to the graph from the YAML', () => {
+    mockWidth(500);
+    renderDock(finished, '/dags/demo?ndv=docked');
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    expect(location.current).toBe('/dags/demo');
+  });
+
+  // The open panel of a phone: the notifications go above it, not over its
+  // log.
+  it('keeps the notifications above the sheet', () => {
+    mockWidth(500);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    vi.spyOn(dockSection(), 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, window.innerHeight - 600, 500, 600)
+    );
+    fireEvent(window, new Event('resize'));
+    expect(
+      getNotificationRoot().style.getPropertyValue(
+        '--notification-bottom-inset'
+      )
+    ).toBe('600px');
+  });
+
+  it('is no sheet at 768px and more', () => {
+    mockWidth(800);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    expect(dockSection()).not.toHaveAttribute('data-phone-view');
+    expect(dockSection()).toHaveClass('relative');
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(screen.queryByTestId('ww-phone-nav')).toBeNull();
+  });
+
+  it('opens the node details view of the selected row', () => {
+    mockWidth(500);
+    const handle = {
+      openForm: vi.fn(() => true),
+      openYaml: vi.fn(() => true),
+      revealStep: vi.fn(() => true),
+    } as unknown as WorkspaceEditorHandle;
+    renderDock(finished, '/dags/demo?step=b', <BindHandle handle={handle} />);
+    fireEvent.click(toggleButton());
+    // The name says which step opens; the visible text stays 'Open'.
+    const open = screen.getByRole('button', { name: 'Open b' });
+    expect(open).toHaveTextContent(/^Open$/);
+    fireEvent.click(open);
+    // The step opens on its YAML until the form is used.
+    expect(handle.openYaml).toHaveBeenCalledWith('b');
+    expect(location.current).toBe('/dags/demo?step=b&ndv=expanded');
+    expect(location.navigation).toBe('REPLACE');
+  });
+
+  it('has no Open button without a selected row', () => {
+    mockWidth(500);
+    renderDock(finished);
+    fireEvent.click(toggleButton());
+    expect(screen.queryByRole('button', { name: /^Open\b/ })).toBeNull();
+  });
+
+  it('gives the focus back to the opener when it closes', async () => {
+    mockWidth(500);
+    const user = userEvent.setup();
+    renderDock(finished, '/dags/demo', <Opener />);
+    const opener = screen.getByRole('button', { name: 'Opener' });
+    await user.click(opener);
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    expect(dockSection()).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Graph' }));
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+    expect(opener).toHaveFocus();
+  });
+
+  it('closes on Esc and gives the focus back', async () => {
+    mockWidth(500);
+    const user = userEvent.setup();
+    renderDock(finished, '/dags/demo', <Opener />);
+    const opener = screen.getByRole('button', { name: 'Opener' });
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+    expect(dockSection()).toHaveAttribute('data-state', 'collapsed');
+    expect(opener).toHaveFocus();
+  });
+});
+
+describe('LogsDock Esc', () => {
+  function openMaximized(extra: ReactNode = null) {
+    renderDock(finished, '/dags/demo', extra);
+    fireEvent.click(toggleButton());
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }));
+    expect(dockSection()).toHaveAttribute('data-maximized', 'true');
+  }
+
+  it('restores a maximized dock', () => {
+    openMaximized();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(dockSection()).not.toHaveAttribute('data-maximized');
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(dockSection()).toHaveAttribute('data-state', 'open');
+  });
+
+  it('leaves Esc to a handler that took it', () => {
+    openMaximized();
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    act(() => {
+      document.body.dispatchEvent(event);
+    });
+    expect(dockSection()).toHaveAttribute('data-maximized', 'true');
+  });
+
+  it.each([
+    ['an open dialog', '<div role="dialog" data-state="open"></div>'],
+    ['an open menu', '<div role="menu"></div>'],
+  ])('leaves Esc to %s', (_, html) => {
+    openMaximized();
+    const layer = document.createElement('div');
+    layer.innerHTML = html;
+    document.body.append(layer);
+    try {
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(dockSection()).toHaveAttribute('data-maximized', 'true');
+    } finally {
+      layer.remove();
+    }
+  });
+
+  it('leaves Esc to the node details view', () => {
+    openMaximized(<NdvPanel />);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(dockSection()).toHaveAttribute('data-maximized', 'true');
+  });
+});
+
+describe('dockTabBodies', () => {
+  it('registers a body for History and none for the Steps and Spec tabs', async () => {
+    const real = await vi.importActual<typeof import('../tabs')>('../tabs');
+    expect(Object.keys(real.dockTabBodies).sort()).toEqual(
+      [
+        'actions',
+        'agent',
+        'artifacts',
+        'chat',
+        'continuous',
+        'definition',
+        'history',
+        'log',
+        'outputs',
+        'tasks',
+        'timeline',
+      ].sort()
+    );
+  });
+});

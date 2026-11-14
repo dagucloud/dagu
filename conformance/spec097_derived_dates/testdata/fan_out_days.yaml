@@ -1,0 +1,23 @@
+working_dir: .
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+calendar: weekdays
+dates:
+  window_days: { each: 1d }
+steps:
+  - id: per_day
+    action: dag.run
+    with:
+      dag: load_day
+      params:
+        DAY: ${ITEM}
+    parallel: ${dates.window_days}
+
+---
+
+name: load_day
+working_dir: .
+params:
+  - DAY: ""
+steps:
+  - id: load
+    run: printf 'loaded\n' > "day-${params.DAY}.txt"

@@ -1,0 +1,8 @@
+port: 54321
+headless: true
+dags: /tmp/.dagu_test
+scheduler:
+  port: 0
+coordinator:
+  host: 127.0.0.1
+  port: 9876

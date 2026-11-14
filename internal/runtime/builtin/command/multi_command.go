@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -27,6 +28,8 @@ type multiCommandExecutor struct {
 	exitCode int
 	stdout   io.Writer
 	stderr   io.Writer
+	// stopped records a termination, so no later command starts.
+	stopped bool
 }
 
 // newMultiCommandExecutor creates an executor that runs multiple commands sequentially.
@@ -78,6 +81,9 @@ func (e *multiCommandExecutor) SetStderr(out io.Writer) {
 
 func (e *multiCommandExecutor) Kill(sig os.Signal) error {
 	e.mu.Lock()
+	if cmdutil.TerminationFromSignal(sig).IsTermination() {
+		e.stopped = true
+	}
 	current := e.current
 	e.mu.Unlock()
 
@@ -93,6 +99,10 @@ func (e *multiCommandExecutor) Run(ctx context.Context) error {
 		exec := &commandExecutor{config: cfg}
 
 		e.mu.Lock()
+		if e.stopped {
+			e.mu.Unlock()
+			return fmt.Errorf("command %d: %w", i+1, errStoppedBeforeStart)
+		}
 		e.current = exec
 		e.mu.Unlock()
 

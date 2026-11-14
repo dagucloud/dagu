@@ -7,7 +7,7 @@ package value
 type options struct {
 	ExpandEnv              bool // Enable environment variable expansion
 	ExpandShell            bool // Enable shell-based variable expansion (e.g., ${VAR:0:3})
-	ExpandOS               bool // Enable os.LookupEnv fallback and OS-sourced scope entries
+	ExpandOS               bool // Enable the process environment fallback and OS-sourced scope entries
 	Substitute             bool // Enable backtick command substitution
 	SubstituteShellCommand bool // Enable $() command substitution
 	EscapeDollar           bool // Enable \$ → $ escape before variable expansion
@@ -125,8 +125,8 @@ func withoutEscapedDollarRecognition() option {
 }
 
 // withOSExpansion enables OS environment variable resolution.
-// When set, os.LookupEnv is used as a fallback and OS-sourced scope entries
-// are included. Without this option, undefined variables are preserved as-is.
+// When set, the process environment, as a workflow sees it, is used as a
+// fallback and OS-sourced scope entries are included. Without this option, undefined variables are preserved as-is.
 func withOSExpansion() option {
 	return func(opts *options) {
 		opts.ExpandOS = true

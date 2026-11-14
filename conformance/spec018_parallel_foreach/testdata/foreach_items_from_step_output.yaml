@@ -1,0 +1,23 @@
+working_dir: .
+steps:
+  - id: read
+    run: |
+      printf 'rows=[{"a":1},{"a":2}]\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: rows
+  - id: each
+    foreach:
+      items: ${steps.read.outputs.rows}
+      as: row
+      steps:
+        - id: show
+          run: |
+            printf 'item=%s\n' '${foreach.row.a}'
+          output: ITEM
+      collect:
+        item: ${show.output}
+    output: FOREACH_RESULTS
+  - id: consume
+    depends: each
+    run: |
+      printf '%s\n' "$FOREACH_RESULTS" > foreach-from-output.txt

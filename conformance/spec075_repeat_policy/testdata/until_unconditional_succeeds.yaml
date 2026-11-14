@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: flaky
+    run: printf '%s\n' tick >> ticks.txt && test -f ok || { touch ok; exit 1; }
+    repeat_policy:
+      repeat: until
+      interval_sec: 0
+      limit: 5

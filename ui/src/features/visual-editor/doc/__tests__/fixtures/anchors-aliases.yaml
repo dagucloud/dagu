@@ -1,0 +1,25 @@
+# Shared defaults through anchors and aliases.
+name: anchors
+env:
+  - COMMON: &common_env
+      RETRIES: 3
+      REGION: eu-west-1
+defaults: &defaults
+  timeout_sec: 30
+  retry_policy: &retry
+    limit: 2
+    interval_sec: 5
+steps:
+  - name: first
+    run: echo first
+    <<: *defaults
+  - name: second
+    depends: [first]
+    run: echo second
+    retry_policy: *retry   # same policy as above
+    env: *common_env
+  - name: third
+    depends:
+      - second
+    run: echo third
+    <<: *defaults

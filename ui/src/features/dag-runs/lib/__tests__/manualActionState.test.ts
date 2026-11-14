@@ -27,8 +27,38 @@ describe('getManualActionState', () => {
       isWaiting,
       waitingApprovalNodes: [],
       waitingHumanTaskNodes: [],
+      waitingSubRunNodes: [],
       hasHumanTaskWork: false,
     });
+  });
+
+  // The runtime shows a call step as waiting while the run that it called
+  // waits for a person: the action is in that run.
+  it('finds a step that waits in the run that it called', () => {
+    const call = {
+      ...node(NodeStatus.Waiting, {
+        name: 'report',
+        call: 'report',
+      } as DAGRunNode['step']),
+      subRuns: [{ dagRunId: 'sub-1', dagName: 'report' }],
+    } as DAGRunNode;
+    const approval = {
+      ...node(NodeStatus.Waiting, {
+        name: 'approve',
+        approval: { prompt: 'Approve release' },
+      } as DAGRunNode['step']),
+      subRuns: [{ dagRunId: 'sub-2' }],
+    } as DAGRunNode;
+    const done = {
+      ...node(NodeStatus.Success, { name: 'extract' } as DAGRunNode['step']),
+      subRuns: [{ dagRunId: 'sub-3' }],
+    } as DAGRunNode;
+    const dagRun = {
+      status: Status.Waiting,
+      nodes: [call, approval, done],
+    } as DAGRunDetails;
+
+    expect(getManualActionState(dagRun).waitingSubRunNodes).toEqual([call]);
   });
 
   it('finds actionable approvals and human tasks', () => {

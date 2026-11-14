@@ -100,11 +100,10 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 		sc.SetClock(func() time.Time { return now })
 
-		// Track restart calls via the planner's Restart function
-		var restartCount atomic.Int32
+		// The planner's Restart function hands over the first schedule time
+		// it is called with.
 		restartScheduleTimeCh := make(chan time.Time, 1)
 		sc.SetRestartFunc(func(_ context.Context, _ scheduler.DAGEntry, scheduleTime time.Time) error {
-			restartCount.Add(1)
 			select {
 			case restartScheduleTimeCh <- scheduleTime:
 			default:
@@ -115,14 +114,11 @@ func TestScheduler(t *testing.T) {
 		errCh := startSchedulerAsync(t, sc, ctx)
 		defer stopSchedulerAndWait(t, sc, errCh, ctx)
 
-		require.Eventually(t, func() bool {
-			return restartCount.Load() >= int32(1)
-		}, 5*time.Second, 10*time.Millisecond, "restart should have been called")
 		select {
 		case restartScheduleTime := <-restartScheduleTimeCh:
 			require.False(t, restartScheduleTime.IsZero())
-		default:
-			t.Fatal("restart schedule time was not recorded")
+		case <-time.After(5 * time.Second):
+			t.Fatal("restart should have been called")
 		}
 	})
 	t.Run("Start", func(t *testing.T) {
@@ -149,7 +145,7 @@ func TestScheduler(t *testing.T) {
 		sc.SetClock(func() time.Time { return now })
 
 		var dispatchCount atomic.Int32
-		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
+		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
 			dispatchCount.Add(1)
 			return nil
 		})
@@ -279,7 +275,7 @@ func TestScheduler_StopSchedule(t *testing.T) {
 	sc, err := scheduler.New(th.Config, schedulerDependencies(th, entryReader))
 	require.NoError(t, err)
 	sc.SetClock(func() time.Time { return now })
-	sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
 		return nil
 	})
 
@@ -587,7 +583,7 @@ func TestScheduler_SelfFencesOnOwnershipLoss(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		require.NoError(t, err)
+		require.ErrorIs(t, err, scheduler.ErrLockLost)
 	case <-time.After(5 * time.Second):
 		t.Fatal("scheduler Start() did not return after self-fencing")
 	}

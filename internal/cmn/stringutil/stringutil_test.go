@@ -16,7 +16,7 @@ func Test_FormatTime(t *testing.T) {
 	t.Run("Valid", func(t *testing.T) {
 		tm := time.Date(2022, 2, 1, 2, 2, 2, 0, time.UTC)
 		formatted := stringutil.FormatTime(tm)
-		require.Equal(t, "2022-02-01T02:02:02Z", formatted)
+		require.Equal(t, "2022-02-01T02:02:02.000Z", formatted)
 
 		parsed, err := stringutil.ParseTime(formatted)
 		require.NoError(t, err)
@@ -32,6 +32,37 @@ func Test_FormatTime(t *testing.T) {
 		// Test empty time
 		require.Equal(t, "", stringutil.FormatTime(time.Time{}))
 	})
+	t.Run("Milliseconds", func(t *testing.T) {
+		tm := time.Date(2022, 2, 1, 2, 2, 2, 187_654_321, time.UTC)
+		formatted := stringutil.FormatTime(tm)
+		require.Equal(t, "2022-02-01T02:02:02.187Z", formatted)
+
+		parsed, err := stringutil.ParseTime(formatted)
+		require.NoError(t, err)
+		require.Equal(t, tm.Truncate(time.Millisecond), parsed)
+	})
+	// The layout keeps three fractional digits, so every value has the same
+	// length in a zone and sorts as a string.
+	t.Run("FixedWidth", func(t *testing.T) {
+		zone := time.FixedZone("test", 2*3600)
+		base := time.Date(2022, 2, 1, 2, 2, 2, 0, zone)
+		var previous string
+		for i, nanos := range []int{0, 1_000_000, 10_000_000, 100_000_000, 999_000_000} {
+			formatted := stringutil.FormatTime(base.Add(time.Duration(nanos)))
+			require.Len(t, formatted, len("2022-02-01T02:02:02.000+02:00"), formatted)
+			if i > 0 {
+				require.Less(t, previous, formatted)
+			}
+			previous = formatted
+		}
+		require.Equal(t, "2022-02-01T00:00:00.000Z", stringutil.FormatTime(time.Date(2022, 2, 1, 0, 0, 0, 0, time.UTC)))
+	})
+}
+
+func Test_FormatTimeSeconds(t *testing.T) {
+	tm := time.Date(2022, 2, 1, 2, 2, 2, 987_000_000, time.UTC)
+	require.Equal(t, "2022-02-01T02:02:02Z", stringutil.FormatTimeSeconds(tm))
+	require.Equal(t, "", stringutil.FormatTimeSeconds(time.Time{}))
 }
 
 func Test_ParseTime(t *testing.T) {
@@ -39,6 +70,25 @@ func Test_ParseTime(t *testing.T) {
 		parsed, err := stringutil.ParseTime("2022-02-01T02:02:02Z")
 		require.NoError(t, err)
 		require.Equal(t, time.Date(2022, 2, 1, 2, 2, 2, 0, time.UTC), parsed)
+	})
+	t.Run("ValidMilliseconds", func(t *testing.T) {
+		parsed, err := stringutil.ParseTime("2022-02-01T02:02:02.007Z")
+		require.NoError(t, err)
+		require.Equal(t, time.Date(2022, 2, 1, 2, 2, 2, 7_000_000, time.UTC), parsed)
+
+		parsed, err = stringutil.ParseTime("2022-02-01T02:02:02.250+02:00")
+		require.NoError(t, err)
+		require.True(t, time.Date(2022, 2, 1, 0, 2, 2, 250_000_000, time.UTC).Equal(parsed))
+	})
+	t.Run("ValidSecondPrecisionWithOffset", func(t *testing.T) {
+		parsed, err := stringutil.ParseTime("2022-02-01T02:02:02+09:00")
+		require.NoError(t, err)
+		require.True(t, time.Date(2022, 2, 0, 17, 2, 2, 0, time.UTC).Equal(parsed))
+	})
+	t.Run("GoZeroTime", func(t *testing.T) {
+		parsed, err := stringutil.ParseTime("0001-01-01T00:00:00Z")
+		require.NoError(t, err)
+		require.True(t, parsed.IsZero())
 	})
 	t.Run("ValidLegacy", func(t *testing.T) {
 		parsed, err := stringutil.ParseTime("2022-02-01 02:02:02")
@@ -152,6 +202,23 @@ func TestKebabToCamel(t *testing.T) {
 		result := stringutil.KebabToCamel("com.example.package")
 		require.Equal(t, "com.example.package", result)
 	})
+
+	t.Run("MultibyteFirstRune", func(t *testing.T) {
+		// Uppercasing must happen on the first rune, not the first byte.
+		result := stringutil.KebabToCamel("hello-étude")
+		require.Equal(t, "helloÉtude", result)
+	})
+
+	t.Run("MultibyteFirstPart", func(t *testing.T) {
+		result := stringutil.KebabToCamel("état-major")
+		require.Equal(t, "étatMajor", result)
+	})
+
+	t.Run("InvalidUTF8", func(t *testing.T) {
+		// A stray invalid byte maps to a single U+FFFD.
+		result := stringutil.KebabToCamel("foo-\xff")
+		require.Equal(t, "foo\uFFFD", result)
+	})
 }
 
 func TestScreamingSnakeToCamel(t *testing.T) {
@@ -171,12 +238,39 @@ func TestScreamingSnakeToCamel(t *testing.T) {
 		{"MiXeD_CaSe", "mixedCase"},
 		{"A", "a"},
 		{"A_B_C", "aBC"},
+		{"USER_ÉTAT", "userÉtat"},
+		{"ÉTAT_MAJOR", "étatMajor"},
+		{"FOO_\xffBAR", "foo\uFFFDbar"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := stringutil.ScreamingSnakeToCamel(tt.input)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestUpperFirst(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"a", "A"},
+		{"abc", "Abc"},
+		{"Abc", "Abc"},
+		{"état", "État"},
+		{"日本", "日本"},
+		// Digraphs have a distinct title-case form (U+01C5), not the
+		// fully upper-case U+01C4.
+		{"ǆ", "ǅ"},
+		{"\xffx", "\uFFFDx"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			require.Equal(t, tt.expected, stringutil.UpperFirst(tt.input))
 		})
 	}
 }
@@ -709,6 +803,101 @@ func TestParseSeparatedValues_BackwardCompatibility(t *testing.T) {
 			result, err := stringutil.ParseSeparatedValues(tt.input)
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, result, "ParseSeparatedValues(%q) = %v, want %v", tt.input, result, tt.expected)
+		})
+	}
+}
+
+// Every listed name must round-trip and names are exact lowercase tokens.
+func TestParseSeparatorName(t *testing.T) {
+	for _, name := range stringutil.SeparatorNames() {
+		_, ok := stringutil.ParseSeparatorName(name)
+		require.True(t, ok, name)
+	}
+
+	sep, ok := stringutil.ParseSeparatorName("newline")
+	require.True(t, ok)
+	require.Equal(t, stringutil.SeparatorTypeNewline, sep)
+
+	_, ok = stringutil.ParseSeparatorName("Newline")
+	require.False(t, ok)
+	_, ok = stringutil.ParseSeparatorName(" newline")
+	require.False(t, ok)
+	_, ok = stringutil.ParseSeparatorName("json")
+	require.False(t, ok)
+	_, ok = stringutil.ParseSeparatorName("")
+	require.False(t, ok)
+}
+
+// An explicit separator must split on that separator alone, so a single line
+// containing other delimiter characters stays one item and JSON text is not
+// parsed as an array.
+func TestSplitBySeparator(t *testing.T) {
+	pvc := "|volumeSnapshotName=snapshot-3a24|restoreSize=1Gi|sourcePvcName=test-pvc1|"
+	tests := []struct {
+		name      string
+		input     string
+		separator stringutil.SeparatorType
+		expected  []string
+	}{
+		{
+			name:      "NewlineKeepsPipesInSingleLine",
+			input:     pvc,
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  []string{pvc},
+		},
+		{
+			name:      "NewlineSplitsLinesAndDropsBlankOnes",
+			input:     pvc + "\r\n\n  " + pvc + "  \n",
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  []string{pvc, pvc},
+		},
+		{
+			name:      "NewlineDoesNotParseJSON",
+			input:     `["a","b"]`,
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  []string{`["a","b"]`},
+		},
+		{
+			name:      "Comma",
+			input:     "a, b,,c|d",
+			separator: stringutil.SeparatorTypeComma,
+			expected:  []string{"a", "b", "c|d"},
+		},
+		{
+			name:      "Semicolon",
+			input:     "a;b , c;",
+			separator: stringutil.SeparatorTypeSemicolon,
+			expected:  []string{"a", "b , c"},
+		},
+		{
+			name:      "Pipe",
+			input:     pvc,
+			separator: stringutil.SeparatorTypePipe,
+			expected:  []string{"volumeSnapshotName=snapshot-3a24", "restoreSize=1Gi", "sourcePvcName=test-pvc1"},
+		},
+		{
+			name:      "Tab",
+			input:     "a b\tc,d\t",
+			separator: stringutil.SeparatorTypeTab,
+			expected:  []string{"a b", "c,d"},
+		},
+		{
+			name:      "Space",
+			input:     "  a  b\tc\nd ",
+			separator: stringutil.SeparatorTypeSpace,
+			expected:  []string{"a", "b", "c", "d"},
+		},
+		{
+			name:      "Empty",
+			input:     "  \n ",
+			separator: stringutil.SeparatorTypeNewline,
+			expected:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, stringutil.SplitBySeparator(tt.input, tt.separator))
 		})
 	}
 }

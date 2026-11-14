@@ -1,0 +1,9 @@
+llm:
+  provider: local
+  model: test-model
+steps:
+  - id: post
+    action: computer.run
+    with:
+      do:
+        - wait: 1ms

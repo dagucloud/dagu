@@ -30,3 +30,11 @@ const ArtifactTextPreviewMaxBytesForTest = artifactTextPreviewMaxBytes
 func NextRunProjectionForTest(ctx context.Context, a *API) func(*ir.DAG, time.Time) time.Time {
 	return a.nextRunProjection(ctx)
 }
+
+// WithRunSortDAGLimitForTest sets how many matching DAGs the status and
+// lastRun sorts read before they fall back to the name sort.
+func WithRunSortDAGLimitForTest(limit int) APIOption {
+	return func(a *API) {
+		a.runSortDAGLimit = limit
+	}
+}

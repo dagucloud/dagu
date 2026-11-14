@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -54,17 +55,19 @@ func localCancelSignal(intent executor.SubWorkflowCancelIntent) os.Signal {
 	return intent.Signal
 }
 
-func inheritedEnvForLocalRunner(envs []string) []string {
-	if !hasDAGToolsEnv(envs) {
-		return envs
+// inheritedEnvForLocalRunner drops tool-managed entries from the parent run
+// scope before it is inherited into a local child; the child resolves its own
+// tool environment instead of reusing the parent host's manifest.
+func inheritedEnvForLocalRunner(entries []cmnvalue.EnvEntry) []cmnvalue.EnvEntry {
+	if !hasDAGToolsEnv(entries) {
+		return entries
 	}
-	filtered := make([]string, 0, len(envs))
-	for _, env := range envs {
-		key, _, ok := strings.Cut(env, "=")
-		if ok && isDAGToolsEnvKey(key) {
+	filtered := make([]cmnvalue.EnvEntry, 0, len(entries))
+	for _, entry := range entries {
+		if isDAGToolsEnvKey(entry.Key) {
 			continue
 		}
-		filtered = append(filtered, env)
+		filtered = append(filtered, entry)
 	}
 	return filtered
 }
@@ -81,10 +84,9 @@ func toolsBasePath(rCtx runctx.Context) string {
 	return os.Getenv("PATH")
 }
 
-func hasDAGToolsEnv(envs []string) bool {
-	for _, env := range envs {
-		key, _, ok := strings.Cut(env, "=")
-		if ok && strings.EqualFold(key, dagutools.EnvManifest) {
+func hasDAGToolsEnv(entries []cmnvalue.EnvEntry) bool {
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Key, dagutools.EnvManifest) {
 			return true
 		}
 	}

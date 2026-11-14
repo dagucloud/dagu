@@ -104,7 +104,7 @@ Common step fields:
 | `retry_policy` | Retry behavior for this step. |
 | `repeat_policy` | Repeat or polling behavior. |
 | `continue_on` | Continue after selected failure, skip, exit-code, or output conditions. |
-| `preconditions` | Conditions that must pass before the step starts. |
+| `preconditions` | Conditions that must pass before the step starts. An unmet condition skips the step without failing the run; see [Failing on Unmet Conditions](https://docs.dagu.sh/writing-workflows/control-flow#failing-on-unmet-conditions). |
 | `worker_selector` | Required worker labels. Keys and values support variable substitution (e.g. `${VAR}`); parallel sub-DAG steps can reference `${ITEM}`. |
 | `stdin` | File path piped to the step command's standard input. |
 | `stdout`, `stderr`, `log_output` | Step log output configuration. `stdout` can also publish DAG/action outputs. |
@@ -195,8 +195,10 @@ Current builtin actions:
 | `k8s.run`, `kubernetes.run` | Kubernetes job execution | optional `command`, Kubernetes config |
 | `postgres.query`, `sqlite.query` | SQL queries | `query`, database config |
 | `postgres.import`, `sqlite.import` | SQL imports | `import`, database config |
+| `clickhouse.query` | ClickHouse queries over HTTP | `url`, `query` or `file`, optional `params`, `settings` |
 | `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
+| `js.run` | Sandboxed JavaScript | `script`, optional `input` or `input_file` |
 | `dag.run` | Child DAG execution | `dag`, optional `params` |
 | `dag.enqueue` | Asynchronous child DAG enqueue | `dag`, optional `params`, optional `queue` |
 | `human.task` | Operator input before downstream steps continue | `prompt`, optional flat scalar `form`, optional `artifacts`, optional `push_back` |
@@ -204,11 +206,21 @@ Current builtin actions:
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
 | `harness.run` | CLI coding-agent harnesses | `prompt`, provider config, optional `stdin` |
 | `browser.extract`, `browser.run` | Browser automation in a local Chrome | `url`, `instruction` and `schema`; or `do` operations; `llm` from the DAG or `with.llm` |
+| `computer.extract`, `computer.run` | Desktop automation on macOS and Windows workers | `instruction` and `schema`; or `do` operations; `llm` from the DAG or `with.llm` |
 | `template.render` | Text/template rendering | Exactly one of `template` or `template_ref`, optional data/config |
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |
-| `mail.search` | Email search over IMAP | `mailbox` and search filters |
+| `mail.search` | Email search over IMAP or the Gmail API | `mailbox` and search filters |
 | `mail.organize` | Email marking and moving | `mailbox`, `emails`, `mark` or `move` |
+| `xlsx.read` | Workbook reading | `path`, optional `password`, `sheet`, `range`, `header`, `columns`, `types`, `where` |
+| `xlsx.info`, `xlsx.list_sheets` | Workbook metadata | `path`, optional `password` |
+| `xlsx.write`, `xlsx.append` | Workbook writing | `path`, `rows` or `input` |
+| `xlsx.update_rows` | Workbook row updates | `path`, `rows`, `key`, optional `set` and `missing` |
+| `xlsx.validate` | Workbook checks | `path`, at least one of `required`, `not_blank`, `unique`, `types`, `allowed`; optional `on_problem`, `max_problems` |
+| `xlsx.write_cells` | Template filling | `path`, `cells`, optional `merge`, `output`, `sheet` |
+| `xlsx.sheet` | Sheet management | `path`, `operation`, `sheet`, `to` for `copy` and `rename`, optional `if_exists`, `missing`, `position` |
+| `xlsx.convert` | Workbook export | `path`, `output`, optional `format`, `encoding`, `delimiter` |
+| `xlsx.extract` | Fields of a form-like sheet located by a model | `path`, `instruction`, `schema`, a model through `llm`; optional `sheet`, `range`, `send_values`, `cache` |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
 | `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
 | `git.checkout` | Git repository checkout | `repository`, `path`, optional `ref`, `depth`, auth config |

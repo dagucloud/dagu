@@ -4,6 +4,7 @@
 package cli_test
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -39,4 +40,28 @@ func TestStopTerminatesActiveRun(t *testing.T) {
 	// pass for a stalled non-terminal status such as "Queued" if status
 	// finalization got stuck after the process exited.
 	waitForStatus(t, dagu, env, runID, "long_running.yaml", "Aborted")
+}
+
+// Step cleanup must leave abort and exit handlers time to complete.
+func TestStopPreservesHandlers(t *testing.T) {
+	t.Parallel()
+	files := []string{"stop_handlers_default.yaml", "stop_handlers_forced.yaml"}
+	if runtime.GOOS == "windows" {
+		files = []string{"stop_handlers_default_windows.yaml", "stop_handlers_forced_windows.yaml"}
+	}
+	for _, file := range files {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+			dagu := harness.NewRunner(t)
+			env := append(sharedEnv(t), "DAGU_SIGNAL_PROPAGATION=false")
+			const runID = "cli-stop-handlers"
+			proc := startBackgroundAndWaitFor(t, dagu, env, "started.out", "start", "--run-id="+runID, file)
+			defer proc.Stop()
+
+			dagu.RunWithEnv(env, "stop", "--run-id="+runID, file).ExpectExitCode(0)
+			waitForProcessDone(t, proc)
+			dagu.ExpectTextFileContent("handlers.out", "abort\nexit\n")
+			waitForStatus(t, dagu, env, runID, file, "Aborted")
+		})
+	}
 }

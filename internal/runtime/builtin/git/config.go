@@ -180,7 +180,7 @@ var configSchema = &jsonschema.Schema{
 		"delete_branch":       {Type: "boolean", Description: "Delete the local branch after removing its worktree."},
 		"force_delete_branch": {Type: "boolean", Description: "Permit deletion of an unmerged local branch."},
 		"token":               {Type: "string", Description: "HTTPS token for repository authentication."},
-		"username":            {Type: "string", Description: "HTTPS username when using password authentication."},
+		"username":            {Type: "string", Description: "Username for HTTPS password authentication, or the SSH user for ssh_key_path. The SSH user defaults to the user in the repository URL, then git."},
 		"password":            {Type: "string", Description: "HTTPS password for repository authentication."},
 		"ssh_key_path":        {Type: "string", Description: "Path to an SSH private key for repository authentication."},
 		"ssh_passphrase":      {Type: "string", Description: "Passphrase for ssh_key_path."},

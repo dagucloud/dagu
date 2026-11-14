@@ -330,6 +330,43 @@ steps:
 	require.Equal(t, "source", string(content))
 }
 
+func TestLocalRunChildParamsOverrideInheritedParentEnv(t *testing.T) {
+	th := test.Setup(t)
+	child := th.DAG(t, `name: precedence-child
+params:
+  - ENV: ""
+steps:
+  - name: report
+    run: echo "ENV=${ENV} SHARED=${SHARED}"
+    output: RESULT
+`)
+	root := ir.NewDAGRunRef("parent", uuid.Must(uuid.NewV7()).String())
+	// The parent run holds ENV as a param and SHARED as a DAG env value. Both
+	// reach the in-process child through implicit env inheritance, but the
+	// params the calling step passed are the child's own contract and win.
+	parentCtx := runctx.NewContext(
+		th.Context,
+		&ir.DAG{Name: root.Name, Env: []string{"SHARED=from-parent-env", "ENV=from-parent-env"}},
+		root.ID,
+		filepath.Join(t.TempDir(), "parent.log"),
+		runctx.WithParams([]string{"ENV=production"}),
+	)
+	runner := subflow.NewLocal(th.DAGRunMgr, th.DAGRepository)
+
+	result, err := runner.Run(parentCtx, executor.SubWorkflowRequest{
+		DAG:          child.DAG,
+		RootDAGRun:   root,
+		ParentDAGRun: root,
+		RunID:        uuid.Must(uuid.NewV7()).String(),
+		Params:       "ENV=staging",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, ir.Succeeded, result.Status)
+	require.Equal(t, "ENV=staging SHARED=from-parent-env", result.Outputs["RESULT"])
+}
+
 func TestLocalRunPreparesDeclaredTools(t *testing.T) {
 	th := test.Setup(t)
 	binDir := t.TempDir()

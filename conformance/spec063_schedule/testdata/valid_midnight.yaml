@@ -1,0 +1,4 @@
+schedule: "@midnight"
+steps:
+  - id: noop
+    run: "true"

@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
@@ -22,9 +28,11 @@ import DAGRuns from '..';
 
 const {
   createRunViewMock,
+  dagsListState,
   deleteRunViewMock,
   readSearchStateMock,
   searchStateMock,
+  serviceDAGsState,
   sharedRunViewState,
   runViewMode,
   updateRunViewMock,
@@ -35,10 +43,14 @@ const {
   const writeState = vi.fn();
   return {
     createRunViewMock: vi.fn(),
+    dagsListState: {
+      dags: [] as { fileName: string; dag: { name: string } }[],
+    },
     deleteRunViewMock: vi.fn(),
     updateRunViewMock: vi.fn(),
     readSearchStateMock: readState,
     searchStateMock: { readState, writeState },
+    serviceDAGsState: { count: 0 },
     sharedRunViewState: { views: [] as View[] },
     runViewMode: { current: 'list' },
     viewsLoadingState: { current: false },
@@ -76,8 +88,31 @@ vi.mock('@/contexts/UserPreference', () => ({
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useQuery: () => ({
-    data: { labels: [] },
+  useQuery: (path: string, init?: unknown) => ({
+    data:
+      init === null
+        ? undefined
+        : path === '/dags/labels'
+          ? { labels: [] }
+          : path === '/dags'
+            ? { dags: dagsListState.dags }
+            : undefined,
+  }),
+}));
+
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: () => ({
+    serviceDAGs: Array.from({ length: serviceDAGsState.count }, (_, index) => ({
+      fileName: `dag-${index}`,
+      name: `dag-${index}`,
+      restartPolicy: 'always',
+      restartWaitSec: 5,
+      queue: `dag-${index}`,
+      state: 'running',
+      suspended: false,
+      consecutiveFailures: 0,
+    })),
+    error: null,
   }),
 }));
 
@@ -102,37 +137,6 @@ vi.mock('@/features/dag-runs/components/common/DAGRunBatchActions', () => ({
   default: () => null,
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: ({
-    name,
-    dagRunId,
-    initialTab,
-    activeTab,
-    onTabChange,
-    onClose,
-    onNavigate,
-  }: {
-    name: string;
-    dagRunId: string;
-    initialTab: string;
-    activeTab?: string;
-    onTabChange?: (tab: 'outputs' | 'status') => void;
-    onClose: () => void;
-    onNavigate?: (direction: 'up' | 'down') => void;
-  }) => (
-    <div role="dialog">
-      Run modal for {name}/{dagRunId} on {activeTab ?? initialTab}
-      <button onClick={() => onTabChange?.('outputs')}>Show outputs</button>
-      <button onClick={() => onTabChange?.('status')}>Show status</button>
-      <button onClick={() => onNavigate?.('down')}>Next history</button>
-      <button onClick={() => onNavigate?.('up')}>Previous history</button>
-      <button type="button" onClick={onClose}>
-        Close run
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock(
   '@/features/dag-runs/components/dag-run-list/DAGRunGroupedView',
   () => ({
@@ -144,33 +148,26 @@ const dagRunTableProps = vi.hoisted(() => ({
   current: {} as { isLoading?: boolean },
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', () => ({
-  default: (props: {
-    isLoading?: boolean;
-    onSelectDAGRun: (run: { name: string; dagRunId: string }) => void;
-    onViewArtifacts: (run: { name: string; dagRunId: string }) => void;
-  }) => {
-    dagRunTableProps.current = props;
-    const { onSelectDAGRun, onViewArtifacts } = props;
-    return (
-      <div>
-        <div>Run Table</div>
-        <button
-          type="button"
-          onClick={() => onSelectDAGRun({ name: 'demo', dagRunId: 'run-1' })}
-        >
-          Open run
-        </button>
-        <button
-          type="button"
-          onClick={() => onViewArtifacts({ name: 'demo', dagRunId: 'run-1' })}
-        >
-          Open artifacts
-        </button>
-      </div>
-    );
-  },
-}));
+vi.mock('@/features/dag-runs/components/dag-run-list/DAGRunTable', async () => {
+  const { usePeekOrOpen } = await import('@/features/peek/usePeekOrOpen');
+  return {
+    default: function RunTable(props: { isLoading?: boolean }) {
+      dagRunTableProps.current = props;
+      const peekOrOpen = usePeekOrOpen();
+      return (
+        <>
+          <div>Run Table</div>
+          <button
+            type="button"
+            onClick={() => peekOrOpen({ dag: 'alpha', run: 'run-1' })}
+          >
+            Peek alpha
+          </button>
+        </>
+      );
+    },
+  };
+});
 
 const config = {
   tzOffsetInSec: undefined,
@@ -186,6 +183,8 @@ beforeEach(() => {
   updateRunViewMock.mockReset();
   deleteRunViewMock.mockReset();
   sharedRunViewState.views = [];
+  dagsListState.dags = [];
+  serviceDAGsState.count = 0;
   usePaginatedDAGRunsMock.mockReset();
   usePaginatedDAGRunsMock.mockReturnValue({
     dagRuns: [],
@@ -238,7 +237,12 @@ function lastRunQuery(): Record<string, unknown> {
 
 function LocationProbe(): React.JSX.Element {
   const location = useLocation();
-  return <output data-testid="location-search">{location.search}</output>;
+  return (
+    <>
+      <output data-testid="location-path">{location.pathname}</output>
+      <output data-testid="location-search">{location.search}</output>
+    </>
+  );
 }
 
 function locationSearchParams(): URLSearchParams {
@@ -280,84 +284,75 @@ function renderPage(
 }
 
 describe('DAGRuns page', () => {
-  it.each([
-    'outputs',
-    'timeline',
-    'artifacts',
-    'spec',
-    'agent',
-    'chat',
-    'tasks',
-    'approval',
-    'human-tasks',
-    'status',
-    'invalid',
-  ])('restores the selected tab from the URL: %s', (tab) => {
-    runViewMode.current = 'grouped';
-    renderPage(
-      vi.fn(),
-      `/dag-runs?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=${tab}`
-    );
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      `on ${tab === 'invalid' ? 'status' : tab}`
-    );
+  // A service DAG restarts without end; its runs would fill the unfiltered list.
+  // A card for each service DAG stands in for them.
+  it('leaves the runs of service DAGs out of the unfiltered list', () => {
+    serviceDAGsState.count = 2;
+
+    renderPage();
+
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    const serviceDAGs = screen.getByRole('region', { name: 'Service DAGs' });
+    expect(within(serviceDAGs).getByText('dag-0')).toBeInTheDocument();
+    expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
   });
 
-  it('navigates loaded histories in grouped view and keeps the tab and URL', () => {
-    runViewMode.current = 'grouped';
-    usePaginatedDAGRunsMock.mockReturnValue({
-      dagRuns: [
-        {
-          name: 'demo',
-          dagRunId: 'run-1',
-          scheduleTime: '2026-09-16T02:00:00Z',
-        },
-        {
-          name: 'other',
-          dagRunId: 'other-run',
-          scheduleTime: '2026-09-16T01:30:00Z',
-        },
-        {
-          name: 'demo',
-          dagRunId: 'run-2',
-          scheduleTime: '2026-09-16T01:00:00Z',
-        },
-      ],
-      isInitialLoading: false,
-      isLoadingMore: false,
-      hasMore: false,
-      loadMore: vi.fn(),
-      refresh: vi.fn(),
+  // A backfill links to its runs: the list asks for them from the backfill's
+  // start on, without the page's filters and views, until the scope is
+  // cleared.
+  it('lists the runs of a backfill that the URL names', async () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
+
+    expect(lastRunQuery()).toEqual({
+      remoteNode: 'local',
+      backfillId: 'bf123456',
+      limit: 100,
+      workspace: 'all',
     });
-    renderPage(
-      vi.fn(),
-      '/dag-runs?name=demo&selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
+    expect(
+      screen.queryByPlaceholderText('Filter by workflow name...')
+    ).toBeNull();
+    expect(screen.getByRole('link', { name: 'bf123456' })).toHaveAttribute(
+      'href',
+      '/backfills/bf123456'
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Show outputs' }));
-    expect(locationSearchParams().get('selectedRunTab')).toBe('outputs');
-    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-2 on outputs'
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all runs' }));
+    await waitFor(() =>
+      expect(locationSearchParams().has('backfillId')).toBe(false)
     );
-    expect(locationSearchParams().get('selectedRunId')).toBe('run-2');
-    expect(locationSearchParams().get('name')).toBe('demo');
-    expect(locationSearchParams().get('selectedRunTab')).toBe('outputs');
-    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-2 on outputs'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-1 on outputs'
-    );
-    expect(locationSearchParams().get('selectedRunTab')).toBe('outputs');
-    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'demo/run-1 on outputs'
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Show status' }));
-    expect(locationSearchParams().has('selectedRunTab')).toBe(false);
+    expect(lastRunQuery()['backfillId']).toBeUndefined();
   });
+
+  // A backfill page links to its runs on the backfill's node, whatever
+  // node the app bar selects.
+  it('lists the runs of a backfill on the node that the link names', () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456&remoteNode=edge');
+
+    expect(lastRunQuery()).toMatchObject({
+      remoteNode: 'edge',
+      backfillId: 'bf123456',
+    });
+  });
+
+  it('shows no service DAG section when no DAG is one', () => {
+    renderPage();
+
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+  });
+
+  it.each(['name=worker', 'dagRunId=run-1', 'status=2', 'labels=team%3Ddata'])(
+    'shows the runs of service DAGs when the list is filtered by %s',
+    (filter) => {
+      serviceDAGsState.count = 2;
+
+      renderPage(vi.fn(), `/dag-runs?${filter}`);
+
+      expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
+      expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+    }
+  );
 
   it('uses the Executions page title', () => {
     const setTitle = vi.fn();
@@ -455,7 +450,7 @@ describe('DAGRuns page', () => {
     renderPage();
 
     expect(
-      screen.getByPlaceholderText('Filter by DAG name...').className
+      screen.getByPlaceholderText('Filter by workflow name...').className
     ).toContain('h-9');
     expect(
       screen.getByPlaceholderText('Filter by Run ID...').className
@@ -481,52 +476,116 @@ describe('DAGRuns page', () => {
     );
   });
 
-  it('stores the selected run in the URL and clears it on close', () => {
+  // Without the overlay of the app around it, a run opens on its page.
+  it('opens a run of the list on its workflow page', () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Run modal for demo/run-1 on status'
-    );
-    expect(screen.getByTestId('location-search')).toHaveTextContent(
-      '?selectedRunName=demo&selectedRunId=run-1'
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Peek alpha' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close run' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-search')).toHaveTextContent('');
+    expect(screen.getByTestId('location-path')).toHaveTextContent(
+      '/dags/alpha'
+    );
+    expect(locationSearchParams().get('run')).toBe('run-1');
   });
 
-  it('opens a run on the artifacts tab and stores that selection in the URL', () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open artifacts' }));
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Run modal for demo/run-1 on artifacts'
+  it('opens the run of a legacy ?selectedRunName link on its workflow page', () => {
+    renderPage(
+      vi.fn(),
+      '/dag-runs?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
     );
-    expect(screen.getByTestId('location-search')).toHaveTextContent(
-      '?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
-    );
+
+    expect(screen.getByTestId('location-path')).toHaveTextContent('/dags/demo');
+    expect(locationSearchParams().get('run')).toBe('run-1');
+    expect(locationSearchParams().get('dock')).toBe('artifacts');
+    expect(locationSearchParams().get('remoteNode')).toBe('local');
+    expect(locationSearchParams().has('selectedRunName')).toBe(false);
   });
 
-  it('preserves execution filters when opening a run', async () => {
+  it('suggests DAG names and applies the selected suggestion as the filter', async () => {
+    // File names differ from DAG names; runs are filtered by DAG name, so
+    // only DAG names may be suggested.
+    dagsListState.dags = [
+      { fileName: 'deploy', dag: { name: 'deploy-api' } },
+      { fileName: 'backup', dag: { name: 'nightly-backup' } },
+    ];
     renderPage();
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
-      target: { value: 'deploy' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const input = screen.getByPlaceholderText('Filter by workflow name...');
+    fireEvent.focus(input);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
 
+    // Suggestions arrive from /dags once the debounced input is set
+    fireEvent.change(input, { target: { value: 'a' } });
     await waitFor(() => {
-      expect(locationSearchParams().get('name')).toBe('deploy');
+      expect(screen.getByRole('option', { name: 'deploy-api' })).toBeVisible();
     });
+    expect(
+      screen.getByRole('option', { name: 'nightly-backup' })
+    ).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
+    fireEvent.change(input, { target: { value: 'deploy' } });
+    expect(
+      screen.queryByRole('option', { name: 'nightly-backup' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: 'deploy' })
+    ).not.toBeInTheDocument();
 
-    expect(locationSearchParams().get('name')).toBe('deploy');
-    expect(locationSearchParams().get('selectedRunName')).toBe('demo');
-    expect(locationSearchParams().get('selectedRunId')).toBe('run-1');
+    fireEvent.click(screen.getByRole('option', { name: 'deploy-api' }));
+    expect(input).toHaveValue('deploy-api');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => {
+      expect(lastRunQuery()['name']).toBe('deploy-api');
+    });
+    expect(locationSearchParams().get('name')).toBe('deploy-api');
+  });
+
+  it('suggests run IDs from loaded runs and applies the selection', async () => {
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [
+        {
+          name: 'demo',
+          dagRunId: 'run-abc-1',
+          scheduleTime: '2026-09-16T02:00:00Z',
+        },
+        {
+          name: 'demo',
+          dagRunId: 'run-abc-2',
+          scheduleTime: '2026-09-16T01:00:00Z',
+        },
+        {
+          name: 'other',
+          dagRunId: 'run-xyz-9',
+          scheduleTime: '2026-09-16T01:30:00Z',
+        },
+      ],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+    renderPage();
+
+    const input = screen.getByPlaceholderText('Filter by Run ID...');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'abc' } });
+
+    expect(screen.getByRole('option', { name: 'run-abc-1' })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'run-abc-2' })).toBeVisible();
+    expect(
+      screen.queryByRole('option', { name: 'run-xyz-9' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('option', { name: 'run-abc-2' }));
+    expect(input).toHaveValue('run-abc-2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => {
+      expect(lastRunQuery()['dagRunId']).toBe('run-abc-2');
+    });
   });
 
   it('keeps only active date-mode parameters after Search', async () => {
@@ -587,17 +646,6 @@ describe('DAGRuns page', () => {
     const query = lastRunQuery();
     expect(query['fromDate']).toBe(Date.UTC(2026, 8, 15, 5, 0, 0) / 1000);
     expect(query['toDate']).toBe(Date.UTC(2026, 8, 16, 5, 0, 0) / 1000);
-  });
-
-  it('restores the run and artifact tab from the URL', () => {
-    renderPage(
-      vi.fn(),
-      '/dag-runs?selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
-    );
-
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Run modal for demo/run-1 on artifacts'
-    );
   });
 
   it('applies the default run view to the first request', async () => {
@@ -665,9 +713,12 @@ describe('DAGRuns page', () => {
 
     renderPage();
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
-      target: { value: 'nightly' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: 'nightly' },
+      }
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => {
       expect(locationSearchParams().get('name')).toBe('nightly');
@@ -718,9 +769,12 @@ describe('DAGRuns page', () => {
     });
     expect(screen.queryByText('Edited')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
-      target: { value: 'etl' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: 'etl' },
+      }
+    );
     expect(screen.getByText('Edited')).toBeVisible();
 
     await user.click(
@@ -729,9 +783,9 @@ describe('DAGRuns page', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Reset changes' }));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Filter by DAG name...')).toHaveValue(
-        'deploy'
-      );
+      expect(
+        screen.getByPlaceholderText('Filter by workflow name...')
+      ).toHaveValue('deploy');
     });
   });
 
@@ -752,16 +806,19 @@ describe('DAGRuns page', () => {
     await user.click(screen.getByRole('menuitem', { name: /failed runs/i }));
     await waitFor(() => {
       expect(lastRunQuery()['name']).toBe('deploy');
-      expect(screen.getByPlaceholderText('Filter by DAG name...')).toHaveValue(
-        'deploy'
-      );
+      expect(
+        screen.getByPlaceholderText('Filter by workflow name...')
+      ).toHaveValue('deploy');
     });
 
     // Editing without searching leaves the URL, and therefore the reset
     // target URL, unchanged.
-    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
-      target: { value: 'etl' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: 'etl' },
+      }
+    );
     expect(screen.getByText('Edited')).toBeVisible();
 
     await user.click(
@@ -770,9 +827,9 @@ describe('DAGRuns page', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Reset changes' }));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Filter by DAG name...')).toHaveValue(
-        'deploy'
-      );
+      expect(
+        screen.getByPlaceholderText('Filter by workflow name...')
+      ).toHaveValue('deploy');
     });
     expect(lastRunQuery()['name']).toBe('deploy');
   });
@@ -812,7 +869,7 @@ describe('DAGRuns page', () => {
 
     await waitFor(() => {
       expect(lastRunQuery()['fromDate']).toBe(dayjs('2026-09-15T00:00').unix());
-      expect(lastRunQuery()['toDate']).toBe(dayjs('2026-09-15T23:59').unix());
+      expect(lastRunQuery()['toDate']).toBe(dayjs('2026-09-16T00:00').unix());
     });
   });
 
@@ -826,9 +883,12 @@ describe('DAGRuns page', () => {
       expect(lastRunQuery()['fromDate']).toBe(dayjs('2026-09-01T00:00').unix());
     });
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
-      target: { value: 'etl' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: 'etl' },
+      }
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
@@ -850,9 +910,12 @@ describe('DAGRuns page', () => {
       expect(lastRunQuery()['dagRunId']).toBe('run-9');
     });
 
-    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
-      target: { value: '' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText('Filter by workflow name...'),
+      {
+        target: { value: '' },
+      }
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => {
       expect(lastRunQuery()['name']).toBeUndefined();

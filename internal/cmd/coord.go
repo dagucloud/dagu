@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -96,7 +97,9 @@ var coordinatorFlags = []commandLineFlag{
 }
 
 func runCoordinator(ctx *Context, _ []string) error {
-	coordCtx := ctx.WithEventSource(eventstore.SourceServiceCoordinator)
+	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	coordCtx := ctx.WithContext(signalCtx).WithEventSource(eventstore.SourceServiceCoordinator)
 	stores := coordCtx.runtimeStores()
 	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore)
 	if err != nil {
@@ -109,9 +112,12 @@ func runCoordinator(ctx *Context, _ []string) error {
 
 	// Wait for context cancellation
 	<-coordCtx.Done()
+	// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
+	stop()
 	logger.Info(coordCtx, "Coordinator shutting down")
 
-	if err := svc.Stop(coordCtx); err != nil {
+	// coordCtx is done, so shutdown gets the parent context.
+	if err := svc.Stop(ctx.WithEventSource(eventstore.SourceServiceCoordinator)); err != nil {
 		return fmt.Errorf("failed to stop coordinator: %w", err)
 	}
 
@@ -218,6 +224,7 @@ func newCoordinator(
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
+		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
 	})

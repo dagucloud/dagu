@@ -1,0 +1,5 @@
+steps:
+  - action: xlsx.info
+    with:
+      path: out.xlsx
+      range: A1:B2

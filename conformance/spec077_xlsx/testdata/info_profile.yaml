@@ -1,0 +1,19 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: profile.xlsx
+      sheet: Orders
+      input: profile.json
+  - id: info
+    depends: write
+    action: xlsx.info
+    with:
+      path: profile.xlsx
+  - id: out
+    depends: info
+    action: file.write
+    with:
+      path: out.json
+      content: '{"sheets": ${steps.info.outputs.sheets}, "warnings": ${steps.info.outputs.warnings}}'

@@ -1,0 +1,99 @@
+name: Desktop E2E
+
+# Operates the interactive desktop of a hosted Windows runner: the desktop
+# driver moves the pointer, types, and captures windows others cover, and a
+# computer step types into a test window through a scripted model that
+# reads the screenshots.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - converted_to_draft # cancels the run in progress
+      - labeled # the full-ci label runs these jobs
+    paths:
+      - internal/desktop/**
+      - internal/llm/computeruse/**
+      - internal/runtime/builtin/computer/**
+      - internal/cmd/computer*.go
+      - conformance/spec074_computer/**
+      - .github/workflows/desktop-e2e.yaml
+  push:
+    branches:
+      - main
+    paths:
+      - internal/desktop/**
+      - internal/llm/computeruse/**
+      - internal/runtime/builtin/computer/**
+      - internal/cmd/computer*.go
+      - conformance/spec074_computer/**
+      - .github/workflows/desktop-e2e.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A run started by any label but full-ci skips every job, and its own
+  # group keeps it from cancelling the run in progress.
+  group: desktop-e2e-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27.4"
+
+jobs:
+  windows-desktop:
+    name: Desktop on windows-latest
+    runs-on: windows-latest
+    # A pull request runs these jobs only with the full-ci label.
+    if: >-
+      github.event_name != 'pull_request' || (
+      !github.event.pull_request.draft &&
+      contains(github.event.pull_request.labels.*.name, 'full-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
+    timeout-minutes: 20
+    env:
+      DAGU_DESKTOP_E2E: "1"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go-cache
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p ./.local/bin
+          go build -o ./.local/bin/dagu.exe ./cmd
+
+      - name: Check the desktop
+        shell: bash
+        run: ./.local/bin/dagu.exe computer check
+
+      - name: Test the desktop driver
+        shell: bash
+        run: go test -count=1 -v -run 'TestWindowsDesktop|TestWindowsCapture|TestWindowsMarks|TestInputMatchesWin32Layout|TestWindowsElements|TestWindowsElevatedWindow|TestWindowsDirectInput|TestWindowsTableRead|TestWindowsElementTimings|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses|TestPatternConstants|TestBstrAlloc|TestPatternAsWithoutPattern' ./internal/desktop/
+
+      - name: List the elements of the window in front
+        shell: bash
+        run: ./.local/bin/dagu.exe computer elements --format json --limit 20 || true
+
+      - name: Test a computer step
+        shell: bash
+        env:
+          DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements|TestComputerPinnedAct|TestComputerOutlineStep|TestComputerChoosesAnOption|TestComputerElementTurns' -v ./conformance/spec074_computer/
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-e2e-screenshots
+          path: ${{ runner.temp }}/desktop-artifacts
+          if-no-files-found: ignore

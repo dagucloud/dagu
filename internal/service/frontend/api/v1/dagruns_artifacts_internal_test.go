@@ -5,16 +5,35 @@ package api
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errPrivilegeNotHeld is Windows' ERROR_PRIVILEGE_NOT_HELD, which creating a
+// symlink returns for an account without the privilege or Developer Mode.
+const errPrivilegeNotHeld = syscall.Errno(1314)
+
+// symlinkOrSkip creates a symlink, or skips the test where the account may
+// not create one, so the tests that guard against symlink escapes run
+// wherever they can and say why where they cannot.
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+	err := os.Symlink(oldname, newname)
+	var errno syscall.Errno
+	if err != nil && runtime.GOOS == "windows" && errors.As(err, &errno) && errno == errPrivilegeNotHeld {
+		t.Skipf("creating symlinks needs a privilege this account lacks: %v", err)
+	}
+	require.NoError(t, err)
+}
 
 func TestBuildArtifactPreviewReturnsMetadataWithoutContentForLargeMarkdownFiles(t *testing.T) {
 	t.Parallel()
@@ -65,6 +84,24 @@ func TestBuildArtifactPreviewAllowsLargerTextWithinTextLimit(t *testing.T) {
 	assert.NotEmpty(t, *preview.Content)
 }
 
+// Office files report a MIME type that mentions "xml". The type is passed in
+// directly because mime.TypeByExtension knows .xlsx only on hosts that ship a
+// MIME table.
+func TestArtifactPreviewKindTreatsOfficeFilesAsBinary(t *testing.T) {
+	t.Parallel()
+
+	const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	for name, content := range map[string][]byte{
+		"ZipPackage": []byte("PK\x03\x04rest"),
+		"Encrypted":  []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, openapiv1.ArtifactPreviewKindBinary, artifactPreviewKind("out.xlsx", xlsxType, content))
+		})
+	}
+}
+
 func TestResolveArtifactPathRejectsSymlinkEscape(t *testing.T) {
 	t.Parallel()
 
@@ -74,7 +111,7 @@ func TestResolveArtifactPathRejectsSymlinkEscape(t *testing.T) {
 	require.NoError(t, os.WriteFile(outsidePath, []byte("secret"), 0o600))
 
 	linkPath := filepath.Join(archiveDir, "escape.txt")
-	require.NoError(t, os.Symlink(outsidePath, linkPath))
+	symlinkOrSkip(t, outsidePath, linkPath)
 
 	_, err := resolveArtifactPath(archiveDir, "escape.txt")
 	require.Error(t, err)
@@ -89,7 +126,7 @@ func TestListArtifactTreeSkipsSymlinks(t *testing.T) {
 	outsidePath := filepath.Join(outsideDir, "outside.txt")
 	require.NoError(t, os.WriteFile(outsidePath, []byte("outside"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(archiveDir, "inside.txt"), []byte("inside"), 0o600))
-	require.NoError(t, os.Symlink(outsidePath, filepath.Join(archiveDir, "link.txt")))
+	symlinkOrSkip(t, outsidePath, filepath.Join(archiveDir, "link.txt"))
 
 	items, err := listArtifactTree(archiveDir, true)
 	require.NoError(t, err)

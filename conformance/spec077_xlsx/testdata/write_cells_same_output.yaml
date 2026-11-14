@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: template.xlsx
+      header: false
+      rows: [["Customer", ""]]
+  - id: fill
+    depends: template
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      output: ./template.xlsx
+      cells:
+        B1: Acme

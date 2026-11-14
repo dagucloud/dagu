@@ -1,0 +1,6 @@
+llm: {provider: local, model: test-model}
+steps:
+  - action: xlsx.extract
+    with:
+      path: quote.xlsx
+      schema: {type: object, properties: {total: {type: number}}}

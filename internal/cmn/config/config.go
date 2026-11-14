@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -36,12 +38,17 @@ type Config struct {
 	Scheduler       Scheduler
 	Monitoring      MonitoringConfig
 	DefaultExecMode ExecutionMode
+	SignalHandling  SignalHandlingConfig
 	Cache           CacheMode
 	GitSync         GitSyncConfig
 	Tunnel          TunnelConfig
 	License         LicenseConfig
+	Cloud           CloudConfig
 	Notices         []string
 	Warnings        []string
+	// WorkspaceAccessKeys lists the workspace access keys the configuration
+	// sets. v3.0 reads them as their project equivalents until v3.1.
+	WorkspaceAccessKeys []string
 }
 
 // OpenCodeConfig configures the process-local managed OpenCode service.
@@ -57,12 +64,105 @@ type BrowserConfig struct {
 	// this host, for hosts where the sandbox cannot start. Pages are then
 	// isolated from the host only by the operating system user.
 	NoSandbox bool
+	// MaxOpen is the most browsers open at once on this host, counting
+	// browser steps and browser sessions; a browser past it waits for one
+	// to close. Zero sets no limit.
+	MaxOpen int
+	// ClientCertificates are presented by every browser started on this
+	// host, after the certificates a step names itself.
+	ClientCertificates []BrowserClientCertificate
+	// TrustedCAs add server trust only for the hosts each authority names.
+	TrustedCAs []BrowserTrustedCA
+	// GuardClientCertificates sends a browser's other https: requests
+	// through the certificate proxy too, so the browser never asks the
+	// operating system for a client certificate. Unset, it is on whenever
+	// the browser presents certificates.
+	GuardClientCertificates *bool
+	// WriteGate is the least strict write gate mode a browser on this host
+	// runs in, one of BrowserWriteGateModes; a step or a session may only
+	// ask for a stricter one. Empty runs no gate.
+	WriteGate string
+	// WritePolicy is the file of the write gate policy browser steps on
+	// this host follow: the sign-in endpoints whose writes are sent.
+	WritePolicy string
+}
+
+// BrowserWriteGateModes are the modes browser.write_gate takes. The write
+// gate defines what each does.
+var BrowserWriteGateModes = []string{"off", "record", "ask", "rehearse"}
+
+// BrowserTrustedCA adds server certificate authorities for specific hosts.
+type BrowserTrustedCA struct {
+	Hosts  []string `json:"hosts"`
+	CAFile string   `json:"ca_file"`
+}
+
+// Validate rejects an authority without a file or valid host patterns.
+func (c BrowserTrustedCA) Validate() error {
+	if len(c.Hosts) == 0 {
+		return errors.New("hosts must list at least one host pattern")
+	}
+	for _, host := range c.Hosts {
+		if err := hostpattern.Validate(host); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(c.CAFile) == "" {
+		return errors.New("ca_file must name a PEM certificate authority file")
+	}
+	return nil
+}
+
+// BrowserClientCertificate is a TLS client certificate a browser presents to
+// the hosts it names, read from a PKCS#12 file or from a PEM certificate and
+// key.
+type BrowserClientCertificate struct {
+	// Hosts are host patterns: a host name or IP address, *.example.com for
+	// the subdomains of example.com, or * for every host.
+	Hosts    []string `json:"hosts"`
+	PFXFile  string   `json:"pfx_file,omitempty"`
+	CertFile string   `json:"cert_file,omitempty"`
+	KeyFile  string   `json:"key_file,omitempty"`
+	// CAFile adds PEM certificates to those trusted for the hosts' servers.
+	CAFile string `json:"ca_file,omitempty"`
+	// Passphrase or PassphraseFile unlocks PFXFile.
+	Passphrase     string `json:"passphrase,omitempty"`
+	PassphraseFile string `json:"passphrase_file,omitempty"`
+}
+
+// Validate rejects a certificate whose hosts or files are malformed. A host
+// holding a ${...} reference is left to be checked once it is resolved.
+func (c BrowserClientCertificate) Validate() error {
+	if len(c.Hosts) == 0 {
+		return errors.New("hosts must list at least one host pattern")
+	}
+	for _, host := range c.Hosts {
+		if strings.Contains(host, "$") {
+			continue
+		}
+		if err := hostpattern.Validate(host); err != nil {
+			return err
+		}
+	}
+	switch {
+	case c.PFXFile != "" && (c.CertFile != "" || c.KeyFile != ""):
+		return errors.New("set either pfx_file or cert_file and key_file, not both")
+	case c.PFXFile == "" && (c.CertFile == "" || c.KeyFile == ""):
+		return errors.New("set pfx_file, or cert_file and key_file")
+	case c.Passphrase != "" && c.PassphraseFile != "":
+		return errors.New("set either passphrase or passphrase_file, not both")
+	case c.PFXFile == "" && (c.Passphrase != "" || c.PassphraseFile != ""):
+		return errors.New("a passphrase applies only to pfx_file; key_file must hold an unencrypted key")
+	}
+	return nil
 }
 
 // DAGDiscoveryConfig controls how DAG definitions are discovered.
 type DAGDiscoveryConfig struct {
 	Recursive bool
 	Symlinks  bool
+	// SkipDirs names root-level directories recursive discovery omits.
+	SkipDirs []string
 }
 
 const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024
@@ -132,6 +232,69 @@ const TunnelProviderTailscale = "tailscale"
 type LicenseConfig struct {
 	Key      string
 	CloudURL string
+	// ServerName identifies this server in Dagu Console. Empty means the
+	// hostname.
+	ServerName string
+}
+
+// CloudConfig holds what a server with an online license shares with Dagu
+// Console.
+type CloudConfig struct {
+	// Report is how much the server reports to Dagu Console. Empty means it
+	// is not set, and the server reports nothing.
+	Report ReportLevel
+	// RemoteAccess is the highest role a Dagu Cloud user gets on calls Dagu
+	// Cloud carries to this server. Empty means it is not set, and an
+	// administrator chooses it; until then it is off.
+	RemoteAccess RemoteAccessLevel
+	// RemoteApprovals lets those calls approve, reject, or push back steps
+	// waiting for a person. Nil means it is not set, and an administrator
+	// chooses it; until then they cannot.
+	RemoteApprovals *bool
+}
+
+// RemoteAccessLevel is the highest role a Dagu Cloud user gets on a server.
+type RemoteAccessLevel string
+
+const (
+	// RemoteAccessOff refuses every call from Dagu Cloud.
+	RemoteAccessOff RemoteAccessLevel = "off"
+	// RemoteAccessViewer lets calls read DAGs, runs, and logs.
+	RemoteAccessViewer RemoteAccessLevel = "viewer"
+	// RemoteAccessOperator also lets calls start, enqueue, retry, and stop
+	// runs of existing DAGs.
+	RemoteAccessOperator RemoteAccessLevel = "operator"
+	// RemoteAccessDeveloper also lets calls change DAG definitions and run
+	// inline specs. DAG steps run commands, so it lets Dagu Cloud users run
+	// any command on the host as the user Dagu runs as.
+	RemoteAccessDeveloper RemoteAccessLevel = "developer"
+)
+
+// ReportLevel is how much a server reports to Dagu Console, beyond the
+// license check-in every licensed server makes.
+type ReportLevel string
+
+const (
+	// ReportOff reports nothing but, after a level that reports, one report
+	// saying so.
+	ReportOff ReportLevel = "off"
+	// ReportHealth reports the server's version and which services run.
+	ReportHealth ReportLevel = "health"
+	// ReportRuns also reports DAG-run status changes.
+	ReportRuns ReportLevel = "runs"
+	// ReportErrors also reports why DAG runs failed: each failed step's
+	// error message.
+	ReportErrors ReportLevel = "errors"
+)
+
+// Reports reports whether the level sends anything.
+func (l ReportLevel) Reports() bool {
+	return l == ReportHealth || l.ReportsRuns()
+}
+
+// ReportsRuns reports whether the level sends DAG-run status.
+func (l ReportLevel) ReportsRuns() bool {
+	return l == ReportRuns || l == ReportErrors
 }
 
 // ExecutionMode represents the default execution mode for DAGs.
@@ -189,6 +352,13 @@ type Server struct {
 	Audit              AuditConfig
 	SSE                SSEConfig
 	IPAccess           IPAccessConfig
+	// AllowedHosts lists host names the server answers to where no
+	// credential is needed: every request with auth mode none, and
+	// first-admin setup. Addresses, single-label names, and names under
+	// special-use local domains such as localhost, local, internal, and
+	// home.arpa are always accepted. Entries are exact names, ".example.com"
+	// for a domain and its subdomains, or "*" for any name.
+	AllowedHosts []string
 }
 
 // IPAccessConfig restricts HTTP access by client network address.
@@ -431,6 +601,7 @@ type PathsConfig struct {
 	AdminLogsDir          string
 	EventStoreDir         string
 	BaseConfig            string
+	CalendarsDir          string
 	AltDAGsDir            string
 	DAGRunsDir            string
 	DAGRunWorkDir         string
@@ -558,6 +729,16 @@ func (c *Config) FindQueueConfig(queueName string) *QueueConfig {
 	return nil
 }
 
+// QueueLimit returns how many runs of a queue run at once: the
+// max_active_runs of a configured queue, at least 1, or 1 for a DAG's own
+// queue.
+func (c *Config) QueueLimit(queueName string) int {
+	if queue := c.FindQueueConfig(queueName); queue != nil {
+		return max(queue.MaxActiveRuns, 1)
+	}
+	return 1
+}
+
 // Coordinator represents the coordinator service configuration.
 type Coordinator struct {
 	Enabled    bool   // Default: true
@@ -566,6 +747,10 @@ type Coordinator struct {
 	Advertise  string // Registry address (auto-detected if empty)
 	Port       int
 	HealthPort int // HTTP health check port (default: 8091, 0 disables)
+	// WorkerWaitTimeout is how long a dispatch with no healthy matching worker
+	// is held for one to register before the run fails. Default: 2m; 0 refuses
+	// such a dispatch at once.
+	WorkerWaitTimeout time.Duration
 }
 
 // Worker represents the worker configuration.
@@ -575,13 +760,24 @@ type Worker struct {
 	Labels        map[string]string // Capability matching labels
 	Coordinators  []string          // Static discovery addresses (host:port)
 	HealthPort    int               // HTTP health check port (default: 8092, 0 disables)
-	PostgresPool  PostgresPoolConfig
+	// ShutdownTimeout bounds how long a stopping worker drains running DAG
+	// runs before it cancels them. Default: 60s; 0 waits without a bound.
+	ShutdownTimeout time.Duration
+	PostgresPool    PostgresPoolConfig
 }
 
 // Proc represents local proc-file heartbeat configuration.
 type Proc struct {
 	HeartbeatInterval time.Duration // Default: 5s
 	StaleThreshold    time.Duration // Default: 90s
+}
+
+// SignalHandlingConfig controls how supervising Dagu processes handle OS signals.
+type SignalHandlingConfig struct {
+	// EnablePropagation forwards shutdown signals (SIGINT, SIGTERM) received by
+	// a supervising process (server, scheduler, start-all) to the process
+	// groups of running DAG-run subprocesses it launched. Default: false.
+	EnablePropagation bool
 }
 
 // Scheduler represents the scheduler configuration.
@@ -592,6 +788,16 @@ type Scheduler struct {
 	ZombieDetectionInterval time.Duration // Default: 45s; 0 disables
 	RetryFailureWindow      time.Duration // Default: 24h; 0 disables DAG-level retry scanning. Current limitation: the window is evaluated from the original DAG-run timestamp/day bucket, not the latest failed attempt timestamp.
 	FailureThreshold        int           // Default: 3
+	// FailoverRecoveryWindow is how far back a scheduler that takes over from
+	// a failed one replays missed schedule slots. 0 disables the replay.
+	FailoverRecoveryWindow time.Duration // Default: 2m
+	// WakeHold is how long at most the scheduler holds its ticks after the
+	// host wakes from sleep, pausing itself until the pause is cleared through
+	// the API, so definitions can be refreshed before the first tick. 0 (the
+	// default) never holds.
+	WakeHold time.Duration
+	// BackfillMaxSlots bounds the slots of one backfill.
+	BackfillMaxSlots int // Default: 10000
 }
 
 // PostgresPoolConfig holds PostgreSQL connection pool settings for workers.
@@ -646,6 +852,12 @@ func (c *Config) Validate() error {
 	if err := c.validateExecutionMode(); err != nil {
 		return err
 	}
+	if err := c.validateCloudRemoteAccess(); err != nil {
+		return err
+	}
+	if err := c.validateCloudReport(); err != nil {
+		return err
+	}
 	if err := c.validateGitSync(); err != nil {
 		return err
 	}
@@ -673,7 +885,7 @@ func (c *Config) Validate() error {
 func (c *Config) validateOpenCode() error {
 	for _, key := range c.OpenCode.EnvPassthrough {
 		normalized := strings.ToUpper(strings.TrimSpace(key))
-		if normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
+		if normalized == "OPENCODE_PASSWORD" || normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
 			return fmt.Errorf("opencode.env_passthrough must not include reserved variable %q", key)
 		}
 	}
@@ -706,11 +918,17 @@ func (c *Config) validateScheduler() error {
 	if c.Scheduler.LockRetryInterval < 0 {
 		return fmt.Errorf("scheduler.lock_retry_interval must be >= 0")
 	}
+	if c.Scheduler.WakeHold < 0 {
+		return fmt.Errorf("scheduler.wake_hold must be >= 0")
+	}
 	if c.Scheduler.ZombieDetectionInterval < 0 {
 		return fmt.Errorf("scheduler.zombie_detection_interval must be >= 0")
 	}
 	if c.Scheduler.RetryFailureWindow < 0 {
 		return fmt.Errorf("scheduler.retry_failure_window must be >= 0")
+	}
+	if c.Scheduler.FailoverRecoveryWindow < 0 {
+		return fmt.Errorf("scheduler.failover_recovery_window must be >= 0")
 	}
 	return nil
 }
@@ -739,12 +957,18 @@ func (c *Config) validateCoordinator() error {
 	if c.Coordinator.HealthPort != 0 && c.Coordinator.Port == c.Coordinator.HealthPort {
 		return fmt.Errorf("coordinator.port and coordinator.health_port must be different when health checks are enabled")
 	}
+	if c.Coordinator.WorkerWaitTimeout < 0 {
+		return fmt.Errorf("invalid coordinator.worker_wait_timeout: %s (must not be negative)", c.Coordinator.WorkerWaitTimeout)
+	}
 	return nil
 }
 
 func (c *Config) validateWorker() error {
 	if c.Worker.HealthPort < 0 || c.Worker.HealthPort > 65535 {
 		return fmt.Errorf("invalid worker.health_port: %d", c.Worker.HealthPort)
+	}
+	if c.Worker.ShutdownTimeout < 0 {
+		return fmt.Errorf("worker.shutdown_timeout must be >= 0")
 	}
 	return nil
 }
@@ -1200,6 +1424,26 @@ func (c *Config) validateExecutionMode() error {
 		return nil
 	default:
 		return fmt.Errorf("invalid default_execution_mode: %q (must be one of: local, distributed)", c.DefaultExecMode)
+	}
+}
+
+// validateCloudReport validates what the server reports to Dagu Console.
+func (c *Config) validateCloudReport() error {
+	switch c.Cloud.Report {
+	case "", ReportOff, ReportHealth, ReportRuns, ReportErrors:
+		return nil
+	default:
+		return fmt.Errorf("invalid cloud.report: %q (must be one of: off, health, runs, errors)", c.Cloud.Report)
+	}
+}
+
+// validateCloudRemoteAccess validates the role cap on calls from Dagu Cloud.
+func (c *Config) validateCloudRemoteAccess() error {
+	switch c.Cloud.RemoteAccess {
+	case "", RemoteAccessOff, RemoteAccessViewer, RemoteAccessOperator, RemoteAccessDeveloper:
+		return nil
+	default:
+		return fmt.Errorf("invalid cloud.remote_access: %q (must be one of: off, viewer, operator, developer)", c.Cloud.RemoteAccess)
 	}
 }
 

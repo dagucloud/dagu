@@ -14,7 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -144,7 +143,7 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 		WithDAGRunLeaseStore(f.leaseStore),
 	}, opts...)
 	f.processor = NewQueueProcessor(f.queueStore, f.dagRunRepository, f.procRepository,
-		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: "/usr/bin/dagu"}}), config.ExecutionModeLocal, ""),
+		localDAGExecutor(unlaunchableExecutable(f.t)),
 		cfg, options...,
 	)
 	f.dispatchStore = store.NewDispatchTaskStore(
@@ -153,6 +152,41 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 	)
 	f.processor.dispatchTaskStore = f.dispatchStore
 	return f
+}
+
+// withExecutable makes the processor launch local runs with executable.
+func (f *queueFixture) withExecutable(executable string) *queueFixture {
+	f.processor.dagExecutor = localDAGExecutor(executable)
+	return f
+}
+
+func localDAGExecutor(executable string) *DAGExecutor {
+	return NewDAGExecutor(
+		nil,
+		launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: executable}}),
+		config.ExecutionModeLocal,
+		"",
+	)
+}
+
+// unlaunchableExecutable returns a path that exists but cannot be executed,
+// so a launch fails for a reason other than a missing executable.
+func unlaunchableExecutable(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
+// reachRetryScan moves the queue's parked scan to its retry time, as the
+// fallback interval passing would.
+func reachRetryScan(t *testing.T, q *queue) {
+	t.Helper()
+	q.mu.Lock()
+	generation := q.scanGeneration
+	retryAt := q.scanRetryAt
+	q.mu.Unlock()
+	require.False(t, retryAt.IsZero())
+	_, parked := q.scanPosition(generation, retryAt)
+	require.False(t, parked)
 }
 
 func (f *queueFixture) simulateQueue(maxConcurrency int, isGlobal bool) *queueFixture {
@@ -229,15 +263,7 @@ func TestQueueProcessor_PermanentStartupFailureIsFailedAndDequeued(t *testing.T)
 	f.withProcessor(config.Queues{
 		Enabled: true,
 		Config:  []config.QueueConfig{{Name: "fifo-dag", MaxActiveRuns: 1}},
-	}).simulateQueue(1, false)
-	f.processor.dagExecutor = NewDAGExecutor(
-		nil,
-		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: filepath.Join(t.TempDir(), "missing-dagu")},
-		}),
-		config.ExecutionModeLocal,
-		"",
-	)
+	}).simulateQueue(1, false).withExecutable(unlaunchableExecutable(t))
 
 	f.processor.ProcessQueueItems(f.ctx, "fifo-dag")
 
@@ -408,6 +434,34 @@ func TestQueueProcessor_DefersUnchangedDistributedDispatchFailure(t *testing.T) 
 	require.Len(t, items, 1)
 }
 
+func TestQueueProcessor_DistributedDispatchFailsRunOnDefinitionError(t *testing.T) {
+	// A dispatch rejected because the definition cannot be built can never
+	// succeed, so the run is failed with the build error instead of staying
+	// queued behind a generic dispatch condition.
+	f := newQueueFixture(t).withDAG("broken-definition", 1).
+		withProcessor(config.Queues{}).
+		simulateQueue(1, false)
+	buildErr := errors.New("field 'actions.broken_action.input_schema': failed to parse schema JSON")
+	dispatcher := &mockDispatcher{errFunc: func(int32) error {
+		return &dispatch.DefinitionError{Err: buildErr}
+	}}
+	f.processor.dagExecutor = NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, "")
+	f.enqueueToQueue(f.dag.Name, "run-1", queuedomain.QueuePriorityHigh)
+
+	f.processor.ProcessQueueItems(f.ctx, f.dag.Name)
+
+	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, "run-1"))
+	require.NoError(t, err)
+	runStatus, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Failed, runStatus.Status)
+	assert.Contains(t, runStatus.Error, buildErr.Error())
+
+	items, err := f.queueStore.List(f.ctx, f.dag.Name)
+	require.NoError(t, err)
+	assert.Empty(t, items)
+}
+
 func TestQueueProcessor_ProcessQueueItems_FailsClosedOnLeaseCountError(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-count-error-dag", 1).
 		withProcessor(config.Queues{}).
@@ -526,58 +580,6 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 	selectedRef, err := runnable[0].Data()
 	require.NoError(t, err)
 	assert.Equal(t, "run-2", selectedRef.ID)
-}
-
-func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T) {
-	f := newQueueFixture(t).withDAG("distributed-stale-select-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
-		simulateQueue(1, false)
-
-	f.enqueueRuns(1)
-
-	runRef := ir.NewDAGRunRef(f.dag.Name, "run-1")
-	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, runRef)
-	require.NoError(t, err)
-	status, err := attempt.ReadStatus(f.ctx)
-	require.NoError(t, err)
-
-	synctest.Test(t, func(t *testing.T) {
-		require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &dispatch.DispatchTask{
-			DAGRunID:   runRef.ID,
-			Target:     f.dag.Name,
-			QueueName:  f.dag.Name,
-			AttemptID:  attempt.ID(),
-			AttemptKey: queueAttemptKey(runRef, attempt, status),
-		}))
-
-		dispatcher := f.processor.newQueueDispatcher()
-		count, err := dispatcher.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
-		require.NoError(t, err)
-		require.Equal(t, 1, count)
-
-		// Advance the test clock past expiry without imposing a deadline on disk I/O.
-		time.Sleep(2 * freshDistributedTestThreshold)
-		count, err = dispatcher.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
-		require.NoError(t, err)
-		assert.Zero(t, count)
-	})
-
-	items, err := f.queueStore.List(f.ctx, f.dag.Name)
-	require.NoError(t, err)
-
-	runnable, err := f.processor.newQueueDispatcher().selectRunnableQueueItems(f.ctx, items, 1)
-	require.NoError(t, err)
-	require.Len(t, runnable, 1)
-
-	selectedRef, err := runnable[0].Data()
-	require.NoError(t, err)
-	assert.Equal(t, "run-1", selectedRef.ID)
-
-	pendingEntries, err := os.ReadDir(filepath.Join(f.distributedDir, "pending"))
-	if !errors.Is(err, os.ErrNotExist) {
-		require.NoError(t, err)
-	}
-	assert.Empty(t, pendingEntries)
 }
 
 func TestQueueDispatcher_DistributedDispatchHandsOffWithAdmissionToken(t *testing.T) {
@@ -850,16 +852,9 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 	f := newQueueFixture(t).
 		withDAG(dagName, 1).
 		withProcessor(config.Queues{}).
-		simulateQueue(1, false)
+		simulateQueue(1, false).
+		withExecutable(unlaunchableExecutable(t))
 	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeManual)
-	f.processor.dagExecutor = NewDAGExecutor(
-		nil,
-		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: filepath.Join(t.TempDir(), "missing-dagu")},
-		}),
-		config.ExecutionModeLocal,
-		"",
-	)
 
 	queueStore := &unreadableQueueScanStore{QueueStore: f.queueStore}
 	queueStore.unreadable.Store(true)
@@ -872,20 +867,46 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 	assert.Equal(t, int32(1), queueStore.scanCalls.Load(), "unreadable item should not be retried before the fallback deadline")
 
 	queueStore.unreadable.Store(false)
-	q := f.getQueue(dagName)
-	q.mu.Lock()
-	generation := q.scanGeneration
-	retryAt := q.scanRetryAt
-	q.mu.Unlock()
-	require.False(t, retryAt.IsZero())
-	_, parked := q.scanPosition(generation, retryAt)
-	require.False(t, parked)
+	reachRetryScan(t, f.getQueue(dagName))
 
 	f.processor.ProcessQueueItems(f.ctx, dagName)
 	assert.Equal(t, int32(2), queueStore.scanCalls.Load())
 	items, err := f.queueStore.List(f.ctx, dagName)
 	require.NoError(t, err)
 	assert.Empty(t, items)
+}
+
+// A local run skipped while the executable is missing is selected again on
+// the fallback scan once the executable exists.
+func TestQueueProcessorRetriesRunHeldByMissingExecutable(t *testing.T) {
+	dagName := "missing-executable-dag"
+	executable := filepath.Join(t.TempDir(), "dagu")
+	f := newQueueFixture(t).
+		withDAG(dagName, 1).
+		withProcessor(config.Queues{}).
+		simulateQueue(1, false).
+		withExecutable(executable)
+	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeManual)
+
+	f.processor.ProcessQueueItems(f.ctx, dagName)
+	items, err := f.queueStore.List(f.ctx, dagName)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	// The executable exists again but cannot be executed, so the retried
+	// launch fails the run.
+	require.NoError(t, os.Mkdir(executable, 0o750))
+	reachRetryScan(t, f.getQueue(dagName))
+
+	f.processor.ProcessQueueItems(f.ctx, dagName)
+	items, err = f.queueStore.List(f.ctx, dagName)
+	require.NoError(t, err)
+	assert.Empty(t, items)
+	attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(dagName, "run-1"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Failed, status.Status)
 }
 
 type invalidatingCursorQueueStore struct {
@@ -1172,6 +1193,70 @@ func TestQueueProcessor_LeavesSchedulerManagedRunQueuedWhenSuspensionReadFails(t
 	assert.Equal(t, ir.Queued, status.Status)
 }
 
+// A queued retry of a backfill run is an operator's request: a suspended DAG
+// still dispatches it, and a paused scheduler holds it queued, neither
+// starting nor aborting it.
+func TestQueueDispatcher_BackfillRetryOutlastsSuspensionAndWaitsOutPause(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		paused     bool
+		dispatched bool
+	}{
+		{name: "suspended", dispatched: true},
+		{name: "paused", paused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dagName := "backfill-" + tc.name + "-dag"
+			f := newQueueFixture(t).withDAG(dagName, 1)
+			run, err := f.dagRunRepository.CreateAttempt(f.ctx, f.dag, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+			require.NoError(t, run.Open(f.ctx))
+			st := ir.InitialStatus(f.dag)
+			st.Status, st.DAGRunID, st.AttemptID = ir.Queued, "run-1", run.ID()
+			st.TriggerType, st.BackfillID = ir.TriggerTypeRetry, "bf123456"
+			require.NoError(t, run.Write(f.ctx, st))
+			require.NoError(t, run.Close(f.ctx))
+			runRef := ir.NewDAGRunRef(dagName, "run-1")
+			require.NoError(t, f.queueStore.Enqueue(f.ctx, dagName, queuedomain.QueuePriorityLow, runRef))
+			items, err := f.queueStore.List(f.ctx, dagName)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+
+			procRepository := &mockProcRepository{}
+			procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(false, nil).Once()
+			if tc.dispatched {
+				procRepository.On("IsRunAlive", mock.Anything, dagName, runRef).Return(true, nil).Once()
+			}
+			dispatcher := &mockDispatcher{}
+			queueDispatcher := newQueueDispatcher(queueDispatchDeps{
+				queueStore:       f.queueStore,
+				dagRunRepository: f.dagRunRepository,
+				procRepository:   procRepository,
+				dagExecutor:      NewDAGExecutor(dispatcher, nil, config.ExecutionModeDistributed, ""),
+				isSuspended:      func(context.Context, string) (bool, error) { return true, nil },
+				isPaused:         func(context.Context) (bool, error) { return tc.paused, nil },
+				backoffConfig: BackoffConfig{
+					InitialInterval:    10 * time.Millisecond,
+					MaxInterval:        50 * time.Millisecond,
+					MaxRetries:         2,
+					StartupGracePeriod: time.Second,
+				},
+			})
+
+			dispatched := queueDispatcher.dispatchQueuedItem(f.ctx, items[0], dagName, queueDispatchBatch{maxConcurrency: 1}, func() {}, func() {})
+
+			assert.Equal(t, tc.dispatched, dispatched)
+			assert.Equal(t, int32(map[bool]int{true: 1}[tc.dispatched]), dispatcher.callCount.Load())
+			attempt, err := f.dagRunRepository.FindAttempt(f.ctx, runRef)
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(f.ctx)
+			require.NoError(t, err)
+			assert.Equal(t, ir.Queued, status.Status, "the run is not aborted")
+			procRepository.AssertExpectations(t)
+		})
+	}
+}
+
 func TestQueueProcessor_SuspendedManualQueuedRunStillDispatches(t *testing.T) {
 	dagName := "suspended-manual-dag"
 	f := newQueueFixture(t).withDAG(dagName, 1)
@@ -1258,6 +1343,18 @@ func (m *mockDispatchTaskStore) HasOutstandingAttempt(ctx context.Context, attem
 		return m.hasOutstandingAttemptFunc(ctx, attemptKey, claimTimeout)
 	}
 	return false, nil
+}
+
+func (m *mockDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (m *mockDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (m *mockDispatchTaskStore) DeletePending(context.Context, string) error {
+	return nil
 }
 
 func TestQueueProcessor_CheckStartupStatusTreatsRunningStatusAsStarted(t *testing.T) {

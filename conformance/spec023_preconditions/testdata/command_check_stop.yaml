@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: main
+    preconditions:
+      - condition: printf 'started\n' > check-started.txt && sleep 120
+    run: printf '%s\n' main > stop-ran.txt

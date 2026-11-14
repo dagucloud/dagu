@@ -1,0 +1,4 @@
+schedule: "@every 6h"
+steps:
+  - id: noop
+    run: "true"

@@ -4,7 +4,9 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -153,123 +155,119 @@ func TestChat_WebSearchResponseBlocks(t *testing.T) {
 	assert.Equal(t, "The answer is 42.", content.String())
 }
 
-func TestBuildRequestBody_ThinkingTokens(t *testing.T) {
+func TestBuildRequestBody_Thinking(t *testing.T) {
 	t.Parallel()
 
 	provider := &Provider{
 		config: llm.Config{APIKey: "test-key"},
 	}
+	adaptive := map[string]any{"type": "adaptive"}
+	effort := func(level string) map[string]any { return map[string]any{"effort": level} }
+	budget := func(tokens int) map[string]any {
+		return map[string]any{"type": "enabled", "budget_tokens": float64(tokens)}
+	}
 
 	tests := []struct {
-		name                string
-		maxTokens           *int
-		thinking            *llm.ThinkingRequest
-		expectedMaxTokens   int
-		expectedHasThinking bool
-		expectedBudget      int
+		name              string
+		maxTokens         *int
+		thinking          *llm.ThinkingRequest
+		expectedMaxTokens float64
+		expectedThinking  any
+		expectedOutput    any
 	}{
 		{
-			name:                "no thinking, no max tokens - default 4096",
-			maxTokens:           nil,
-			thinking:            nil,
-			expectedMaxTokens:   4096,
-			expectedHasThinking: false,
+			name:              "no thinking, no max tokens - default 4096",
+			expectedMaxTokens: 4096,
 		},
 		{
-			name:                "no thinking, explicit max tokens",
-			maxTokens:           new(8192),
-			thinking:            nil,
-			expectedMaxTokens:   8192,
-			expectedHasThinking: false,
+			name:              "no thinking, explicit max tokens",
+			maxTokens:         new(8192),
+			expectedMaxTokens: 8192,
 		},
 		{
-			name:      "thinking enabled, no max tokens - auto adjust",
-			maxTokens: nil,
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortMedium, // 4096 budget
-			},
-			expectedMaxTokens:   4096 + 4096, // budget + buffer
-			expectedHasThinking: true,
-			expectedBudget:      4096,
+			name:              "thinking disabled ignores effort",
+			thinking:          &llm.ThinkingRequest{Effort: llm.ThinkingEffortHigh},
+			expectedMaxTokens: 4096,
 		},
 		{
-			name:      "thinking enabled, max tokens less than budget - auto adjust",
-			maxTokens: new(2000),
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortMedium, // 4096 budget
-			},
-			expectedMaxTokens:   4096 + 4096, // budget + buffer
-			expectedHasThinking: true,
-			expectedBudget:      4096,
+			name:              "thinking enabled without effort - adaptive at medium",
+			thinking:          &llm.ThinkingRequest{Enabled: true},
+			expectedMaxTokens: adaptiveThinkingMaxTokens,
+			expectedThinking:  adaptive,
+			expectedOutput:    effort("medium"),
 		},
 		{
-			name:      "thinking enabled, max tokens equal to budget - auto adjust",
-			maxTokens: new(4096),
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortMedium, // 4096 budget
-			},
-			expectedMaxTokens:   4096 + 4096, // budget + buffer
-			expectedHasThinking: true,
-			expectedBudget:      4096,
+			name:              "low effort",
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortLow},
+			expectedMaxTokens: adaptiveThinkingMaxTokens,
+			expectedThinking:  adaptive,
+			expectedOutput:    effort("low"),
 		},
 		{
-			name:      "thinking enabled, max tokens greater than budget - use provided",
-			maxTokens: new(16000),
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortMedium, // 4096 budget
-			},
-			expectedMaxTokens:   16000,
-			expectedHasThinking: true,
-			expectedBudget:      4096,
+			name:              "xhigh effort",
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortXHigh},
+			expectedMaxTokens: adaptiveThinkingMaxTokens,
+			expectedThinking:  adaptive,
+			expectedOutput:    effort("xhigh"),
 		},
 		{
-			name:      "thinking with explicit budget tokens",
-			maxTokens: nil,
-			thinking: &llm.ThinkingRequest{
-				Enabled:      true,
-				BudgetTokens: new(10000),
-			},
-			expectedMaxTokens:   10000 + 4096, // budget + buffer
-			expectedHasThinking: true,
-			expectedBudget:      10000,
+			name:              "max effort",
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortMax},
+			expectedMaxTokens: adaptiveThinkingMaxTokens,
+			expectedThinking:  adaptive,
+			expectedOutput:    effort("max"),
 		},
 		{
-			name:      "thinking high effort",
-			maxTokens: nil,
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortHigh, // 16384 budget
-			},
-			expectedMaxTokens:   16384 + 4096, // budget + buffer
-			expectedHasThinking: true,
-			expectedBudget:      16384,
+			name:              "minimal effort maps to low",
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortMinimal},
+			expectedMaxTokens: adaptiveThinkingMaxTokens,
+			expectedThinking:  adaptive,
+			expectedOutput:    effort("low"),
 		},
 		{
-			name:      "thinking xhigh effort",
-			maxTokens: nil,
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortXHigh, // 32768 budget
-			},
-			expectedMaxTokens:   32768 + 4096, // budget + buffer
-			expectedHasThinking: true,
-			expectedBudget:      32768,
+			name:              "none effort leaves thinking out",
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone},
+			expectedMaxTokens: 4096,
 		},
 		{
-			name:      "thinking low effort - default max tokens sufficient",
-			maxTokens: nil,
-			thinking: &llm.ThinkingRequest{
-				Enabled: true,
-				Effort:  llm.ThinkingEffortLow, // 1024 budget
-			},
-			// Default 4096 is already > 1024, so no adjustment needed
-			expectedMaxTokens:   4096,
-			expectedHasThinking: true,
-			expectedBudget:      1024,
+			name:              "adaptive thinking keeps explicit max tokens",
+			maxTokens:         new(2000),
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortHigh},
+			expectedMaxTokens: 2000,
+			expectedThinking:  adaptive,
+			expectedOutput:    effort("high"),
+		},
+		{
+			name:              "explicit budget, no max tokens - auto adjust",
+			thinking:          &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(10000)},
+			expectedMaxTokens: 10000 + 4096, // budget + buffer
+			expectedThinking:  budget(10000),
+		},
+		{
+			name:              "explicit budget, max tokens equal to budget - auto adjust",
+			maxTokens:         new(4096),
+			thinking:          &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(4096)},
+			expectedMaxTokens: 4096 + 4096, // budget + buffer
+			expectedThinking:  budget(4096),
+		},
+		{
+			name:              "explicit budget, max tokens greater than budget - use provided",
+			maxTokens:         new(16000),
+			thinking:          &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(4096)},
+			expectedMaxTokens: 16000,
+			expectedThinking:  budget(4096),
+		},
+		{
+			name:              "explicit budget, low default max tokens sufficient",
+			thinking:          &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(1024)},
+			expectedMaxTokens: 4096,
+			expectedThinking:  budget(1024),
+		},
+		{
+			name:              "explicit budget takes precedence over effort",
+			thinking:          &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortHigh, BudgetTokens: new(2048)},
+			expectedMaxTokens: 4096,
+			expectedThinking:  budget(2048),
 		},
 	}
 
@@ -289,23 +287,266 @@ func TestBuildRequestBody_ThinkingTokens(t *testing.T) {
 			body, err := provider.buildRequestBody(req, false)
 			require.NoError(t, err)
 
-			var parsed messagesRequest
-			err = json.Unmarshal(body, &parsed)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+
+			assert.Equal(t, tt.expectedMaxTokens, parsed["max_tokens"])
+			assert.Equal(t, tt.expectedThinking, parsed["thinking"])
+			assert.Equal(t, tt.expectedOutput, parsed["output_config"])
+		})
+	}
+}
+
+func TestBuildRequestBody_Images(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	body, err := provider.buildRequestBody(&llm.ChatRequest{
+		Model: "claude-opus-5",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "plain"},
+			{Role: llm.RoleUser, Content: "describe", Images: []llm.Image{{MediaType: "image/png", Data: []byte{1, 2}}}},
+		},
+	}, false)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Messages, 2)
+	assert.JSONEq(t, `"plain"`, string(parsed.Messages[0].Content))
+	assert.JSONEq(t, `[
+		{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AQI="}},
+		{"type":"text","text":"describe"}
+	]`, string(parsed.Messages[1].Content))
+}
+
+// A tool's parameter schema reaches the API whole, so references, nested
+// definitions, and constraints keep their meaning.
+func TestBuildRequestBody_ToolInputSchema(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	parameters := map[string]any{
+		"type":                 "object",
+		"description":          "A classified note",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"category": map[string]any{"$ref": "#/$defs/category"},
+		},
+		"required": []any{"category"},
+		"$defs": map[string]any{
+			"category": map[string]any{"type": "string", "enum": []any{"refund", "question"}},
+		},
+	}
+	req := &llm.ChatRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+		Tools: []llm.Tool{{
+			Type:     "function",
+			Function: llm.ToolFunction{Name: "respond", Parameters: parameters},
+		}},
+	}
+	body, err := provider.buildRequestBody(req, false)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Tools []struct {
+			InputSchema map[string]any `json:"input_schema"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Tools, 1)
+
+	expected, err := json.Marshal(parameters)
+	require.NoError(t, err)
+	actual, err := json.Marshal(parsed.Tools[0].InputSchema)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(expected), string(actual))
+}
+
+// A schema without a type is sent as an object, which the API requires.
+func TestBuildRequestBody_ToolInputSchemaType(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	parameters := map[string]any{"properties": map[string]any{"q": map[string]any{"type": "string"}}}
+	req := &llm.ChatRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+		Tools: []llm.Tool{
+			{Type: "function", Function: llm.ToolFunction{Name: "search", Parameters: parameters}},
+			{Type: "function", Function: llm.ToolFunction{Name: "ping"}},
+		},
+	}
+	body, err := provider.buildRequestBody(req, false)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Tools []struct {
+			InputSchema map[string]any `json:"input_schema"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Tools, 2)
+	assert.Equal(t, "object", parsed.Tools[0].InputSchema["type"])
+	assert.Contains(t, parsed.Tools[0].InputSchema, "properties")
+	assert.Equal(t, map[string]any{"type": "object"}, parsed.Tools[1].InputSchema)
+	assert.NotContains(t, parameters, "type", "the caller's schema must not be modified")
+}
+
+// Forced tool use is sent only to models that accept it: models before
+// Claude 5 with thinking off. Every other request asks for auto, so the
+// API does not reject it.
+func TestBuildRequestBody_ToolChoice(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	auto := map[string]any{"type": "auto"}
+	anyTool := map[string]any{"type": "any"}
+	namedTool := map[string]any{"type": "tool", "name": "respond"}
+
+	tests := []struct {
+		name     string
+		model    string
+		choice   string
+		thinking bool
+		effort   llm.ThinkingEffort
+		expected map[string]any
+	}{
+		{name: "RequiredOnSonnet46", model: "claude-sonnet-4-6", choice: "required", expected: anyTool},
+		{name: "NamedOnHaiku45", model: "claude-haiku-4-5", choice: "respond", expected: namedTool},
+		{name: "RequiredOnClaude3", model: "claude-3-5-sonnet-20241022", choice: "required", expected: anyTool},
+		{name: "RequiredOnBedrockOpus48", model: "anthropic.claude-opus-4-8", choice: "required", expected: anyTool},
+		{name: "RequiredWithThinking", model: "claude-sonnet-4-6", choice: "required", thinking: true, expected: auto},
+		{name: "NamedWithThinking", model: "claude-opus-4-6", choice: "respond", thinking: true, expected: auto},
+		{name: "RequiredWithThinkingOff", model: "claude-sonnet-4-6", choice: "required", thinking: true, effort: llm.ThinkingEffortNone, expected: anyTool},
+		{name: "RequiredOnOpus55", model: "claude-opus-5-5", choice: "required", expected: auto},
+		{name: "RequiredOnSonnet5", model: "claude-sonnet-5", choice: "required", expected: auto},
+		{name: "NamedOnFable51", model: "claude-fable-5-1", choice: "respond", expected: auto},
+		{name: "RequiredOnMythos", model: "claude-mythos-5-1", choice: "required", expected: auto},
+		{name: "RequiredOnUnknownModel", model: "my-deployment", choice: "required", expected: auto},
+		{name: "Auto", model: "claude-sonnet-4-6", choice: "auto", expected: auto},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &llm.ChatRequest{
+				Model:    tt.model,
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Tools: []llm.Tool{{
+					Type:     "function",
+					Function: llm.ToolFunction{Name: "respond", Parameters: map[string]any{"type": "object"}},
+				}},
+				ToolChoice: tt.choice,
+			}
+			if tt.thinking {
+				req.Thinking = &llm.ThinkingRequest{Enabled: true, Effort: tt.effort}
+			}
+			body, err := provider.buildRequestBody(req, false)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.expectedMaxTokens, parsed.MaxTokens,
-				"max_tokens should be %d, got %d", tt.expectedMaxTokens, parsed.MaxTokens)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			assert.Equal(t, tt.expected, parsed["tool_choice"])
+		})
+	}
+}
 
-			if tt.expectedHasThinking {
-				require.NotNil(t, parsed.Thinking, "thinking should be present")
-				assert.Equal(t, "enabled", parsed.Thinking.Type)
-				assert.Equal(t, tt.expectedBudget, parsed.Thinking.BudgetToken,
-					"budget_tokens should be %d, got %d", tt.expectedBudget, parsed.Thinking.BudgetToken)
-				assert.Greater(t, parsed.MaxTokens, parsed.Thinking.BudgetToken,
-					"max_tokens (%d) must be greater than budget_tokens (%d)",
-					parsed.MaxTokens, parsed.Thinking.BudgetToken)
+// A single SSE data line larger than bufio.Scanner's default 64 KiB limit must
+// not terminate the stream.
+func TestStreamResponse_LargeEvent(t *testing.T) {
+	t.Parallel()
+
+	big := strings.Repeat("a", 200*1024)
+	stream := "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + big + "\"}}\n\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent)
+	go provider.streamResponse(context.Background(), io.NopCloser(strings.NewReader(stream)), events)
+
+	var deltas []string
+	done := false
+	for event := range events {
+		require.NoError(t, event.Error)
+		if event.Done {
+			done = true
+			continue
+		}
+		deltas = append(deltas, event.Delta)
+	}
+	require.True(t, done)
+	require.Equal(t, []string{big}, deltas)
+}
+
+// A stream's usage keeps the input counts message_start reports when
+// message_delta later reports only the output, as the API does.
+func TestStreamResponse_MergesUsage(t *testing.T) {
+	t.Parallel()
+
+	stream := "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":12,\"cache_read_input_tokens\":100,\"cache_creation_input_tokens\":8,\"output_tokens\":1}}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n" +
+		"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":40}}\n\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent)
+	go provider.streamResponse(context.Background(), io.NopCloser(strings.NewReader(stream)), events)
+
+	var usage *llm.Usage
+	for event := range events {
+		require.NoError(t, event.Error)
+		if event.Done {
+			usage = event.Usage
+		}
+	}
+	require.NotNil(t, usage)
+	assert.Equal(t, llm.Usage{PromptTokens: 120, CompletionTokens: 40, TotalTokens: 160, CachedPromptTokens: 100, CacheWritePromptTokens: 8}, *usage)
+}
+
+func TestBuildRequestBody_Sampling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		model        string
+		thinking     *llm.ThinkingRequest
+		wantSampling bool
+	}{
+		{name: "absent", model: "claude-sonnet-4-6", wantSampling: true},
+		{name: "opus_without_thinking", model: "claude-opus-4-7"},
+		{name: "sonnet_without_thinking", model: "claude-sonnet-5"},
+		{name: "proxy_without_thinking", model: "my-deployment", wantSampling: true},
+		{name: "disabled", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{}, wantSampling: true},
+		{name: "none", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true, Effort: llm.ThinkingEffortNone}, wantSampling: true},
+		{name: "adaptive", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true}},
+		{name: "budget", model: "claude-sonnet-4-6", thinking: &llm.ThinkingRequest{Enabled: true, BudgetTokens: new(2048)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+			body, err := provider.buildRequestBody(&llm.ChatRequest{
+				Model:       tt.model,
+				Messages:    []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Thinking:    tt.thinking,
+				Temperature: new(0.7),
+				TopP:        new(0.9),
+			}, false)
+			require.NoError(t, err)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			if tt.wantSampling {
+				assert.Equal(t, 0.7, parsed["temperature"])
+				assert.Equal(t, 0.9, parsed["top_p"])
 			} else {
-				assert.Nil(t, parsed.Thinking, "thinking should not be present")
+				assert.NotContains(t, parsed, "temperature")
+				assert.NotContains(t, parsed, "top_p")
 			}
 		})
 	}

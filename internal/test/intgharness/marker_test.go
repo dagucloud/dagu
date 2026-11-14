@@ -20,7 +20,7 @@ func TestMarkerBuildsPortableCommands(t *testing.T) {
 	}
 	marker := h.Marker("/tmp/marker")
 
-	require.Equal(t, "while [ ! -f '/tmp/marker' ]; do\n  sleep 0.05\ndone", marker.WaitCommand())
+	require.Equal(t, "while [ ! -f '/tmp/marker' ]; do\n  [ -d '/tmp' ] || exit 1\n  sleep 0.05\ndone", marker.WaitCommand())
 	require.Equal(t, "printf '%s' 'started' > '/tmp/marker'", marker.WriteCommand("started"))
 	require.Equal(t, "printf '%s' '' > '/tmp/marker'", marker.TouchCommand())
 }

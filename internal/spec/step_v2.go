@@ -41,6 +41,7 @@ type actionNormalizer func(normalized map[string]any, with map[string]any) error
 const (
 	artifactActionPrefix = "artifact."
 	browserActionPrefix  = "browser."
+	computerActionPrefix = "computer."
 )
 
 var builtinActionNormalizers = map[string]actionNormalizer{
@@ -53,6 +54,9 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"browser.extract":     normalizeBrowserExtractAction,
 	"browser.run":         normalizeBrowserRunAction,
 	"chat.completion":     normalizeChatAction,
+	"clickhouse.query":    normalizeClickHouseQueryAction,
+	"computer.extract":    normalizeComputerExtractAction,
+	"computer.run":        normalizeComputerRunAction,
 	"container.run":       optionalCommandAction("container", "command"),
 	"dag.enqueue":         normalizeDagEnqueueAction,
 	"dag.run":             normalizeDagRunAction,
@@ -76,6 +80,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"http.request":        normalizeHTTPRequestAction,
 	"human.task":          normalizeHumanTaskAction,
 	"jq.filter":           normalizeJQFilterAction,
+	"js.run":              normalizeJSRunAction,
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
 	"log.write":           normalizeLogAction,
@@ -106,6 +111,17 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"wait.file":           operationAction("wait", "file"),
 	"wait.http":           operationAction("wait", "http"),
 	"wait.until":          operationAction("wait", "until"),
+	"xlsx.append":         xlsxAction("append", true),
+	"xlsx.convert":        xlsxAction("convert", true),
+	"xlsx.extract":        xlsxExtractAction(),
+	"xlsx.info":           xlsxAction("info", true),
+	"xlsx.list_sheets":    xlsxAction("list_sheets", true),
+	"xlsx.read":           xlsxAction("read", true),
+	"xlsx.sheet":          xlsxAction("sheet", true),
+	"xlsx.update_rows":    xlsxAction("update_rows", true),
+	"xlsx.validate":       xlsxAction("validate", true),
+	"xlsx.write":          xlsxAction("write", true),
+	"xlsx.write_cells":    xlsxAction("write_cells", true),
 }
 
 func normalizeStepExecutionRaw(raw map[string]any, registry *customStepTypeRegistry) (map[string]any, error) {
@@ -431,11 +447,35 @@ func normalizeBrowserRunAction(normalized map[string]any, with map[string]any) e
 	if _, ok := with["do"]; !ok {
 		return ir.NewValidationError("with", with, fmt.Errorf("browser.run requires with.do"))
 	}
+	moveActionLLM(normalized, with)
+	return finishAction(normalized, ir.ExecutorTypeBrowser, with)
+}
+
+// moveActionLLM moves with.llm to the step llm field.
+func moveActionLLM(normalized map[string]any, with map[string]any) {
 	if llm, ok := with["llm"]; ok {
 		normalized["llm"] = llm
 		delete(with, "llm")
 	}
-	return finishAction(normalized, ir.ExecutorTypeBrowser, with)
+}
+
+// normalizeComputerRunAction moves with.llm to the step llm field, as
+// browser.run does.
+func normalizeComputerRunAction(normalized map[string]any, with map[string]any) error {
+	if _, ok := with["do"]; !ok {
+		return ir.NewValidationError("with", with, fmt.Errorf("computer.run requires with.do"))
+	}
+	moveActionLLM(normalized, with)
+	return finishAction(normalized, ir.ExecutorTypeComputer, with)
+}
+
+// normalizeComputerExtractAction rewrites computer.extract into computer.run
+// with a single extract operation.
+func normalizeComputerExtractAction(normalized map[string]any, with map[string]any) error {
+	if err := singleExtractOperation(with); err != nil {
+		return err
+	}
+	return normalizeComputerRunAction(normalized, with)
 }
 
 // normalizeBrowserExtractAction rewrites browser.extract into browser.run
@@ -444,6 +484,15 @@ func normalizeBrowserExtractAction(normalized map[string]any, with map[string]an
 	if _, err := requireActionStringField(with, "url"); err != nil {
 		return err
 	}
+	if err := singleExtractOperation(with); err != nil {
+		return err
+	}
+	return normalizeBrowserRunAction(normalized, with)
+}
+
+// singleExtractOperation replaces with.instruction, with.schema, and
+// with.timeout by a with.do holding one extract operation.
+func singleExtractOperation(with map[string]any) error {
 	instruction, err := requireActionStringField(with, "instruction")
 	if err != nil {
 		return err
@@ -462,7 +511,7 @@ func normalizeBrowserExtractAction(normalized map[string]any, with map[string]an
 	delete(with, "instruction")
 	delete(with, "schema")
 	with["do"] = []any{extract}
-	return normalizeBrowserRunAction(normalized, with)
+	return nil
 }
 
 func normalizeHTTPRequestAction(normalized map[string]any, with map[string]any) error {
@@ -555,6 +604,23 @@ func normalizeCommandAction(normalized map[string]any, executorType string, with
 func commandAction(executorType, field string) actionNormalizer {
 	return func(normalized map[string]any, with map[string]any) error {
 		return normalizeCommandAction(normalized, executorType, with, field)
+	}
+}
+
+// normalizeClickHouseQueryAction takes the SQL from with.query, which becomes
+// the step command, or from with.file, which the executor reads.
+func normalizeClickHouseQueryAction(normalized map[string]any, with map[string]any) error {
+	_, hasQuery := with["query"]
+	_, hasFile := with["file"]
+	switch {
+	case hasQuery && hasFile:
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.query and with.file are mutually exclusive"))
+	case hasFile:
+		return finishAction(normalized, "clickhouse", with)
+	case hasQuery:
+		return normalizeCommandAction(normalized, "clickhouse", with, "query")
+	default:
+		return ir.NewValidationError("with", nil, fmt.Errorf("with.query or with.file is required"))
 	}
 }
 
@@ -778,6 +844,25 @@ func normalizeJQFilterAction(normalized map[string]any, with map[string]any) err
 		delete(with, "data")
 	}
 	return finishAction(normalized, "jq", with)
+}
+
+func normalizeJSRunAction(normalized map[string]any, with map[string]any) error {
+	value, err := requireActionField(with, "script")
+	if err != nil {
+		return err
+	}
+	script, ok := value.(string)
+	if !ok || strings.TrimSpace(script) == "" {
+		return ir.NewValidationError("with", with, fmt.Errorf("with.script must be a non-empty string"))
+	}
+	if _, hasInput := with["input"]; hasInput {
+		if _, hasFile := with["input_file"]; hasFile {
+			return ir.NewValidationError("with", with, fmt.Errorf("js.run does not allow both with.input and with.input_file"))
+		}
+	}
+	delete(with, "script")
+	normalized["script"] = script
+	return finishAction(normalized, "js", with)
 }
 
 func stringifyActionData(data any) (string, error) {

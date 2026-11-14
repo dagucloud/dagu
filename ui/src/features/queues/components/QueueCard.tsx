@@ -5,15 +5,62 @@ import { ChevronRight } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { components } from '@/api/v1/schema';
+import {
+  ServiceDAGStateBadge,
+  ServiceDAGStatusText,
+} from '@/features/service-dags/components/ServiceDAGState';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
 interface QueueCardProps {
   queue: components['schemas']['Queue'];
+  /**
+   * The service DAG that owns the queue. A service DAG restarts without end, so
+   * its counts only flip between zero and one; its state says more.
+   */
+  dag?: components['schemas']['ServiceDAG'];
 }
 
-function QueueCard({ queue }: QueueCardProps) {
+/** A queue that a service DAG owns, shown as the service DAG rather than as counts. */
+function ServiceDAGQueueCard({
+  queue,
+  dag,
+}: {
+  queue: components['schemas']['Queue'];
+  dag: components['schemas']['ServiceDAG'];
+}) {
+  return (
+    <Link
+      to={`/queues/${encodeURIComponent(queue.name)}`}
+      className="card-obsidian group flex h-full flex-col gap-4 px-4 py-4 transition-all duration-200 hover:border-border-strong hover:bg-muted/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="whitespace-normal break-words text-base font-semibold text-foreground">
+            {queue.name}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <I18nText text={'Service DAG'} />
+          </p>
+        </div>
+        <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <ServiceDAGStatusText
+          dag={dag}
+          className="min-w-0 truncate text-sm text-muted-foreground"
+        />
+        <ServiceDAGStateBadge state={dag.state} />
+      </div>
+    </Link>
+  );
+}
+
+function QueueCard({ queue, dag }: QueueCardProps) {
+  if (dag) {
+    return <ServiceDAGQueueCard queue={queue} dag={dag} />;
+  }
   const runningCount = queue.runningCount || 0;
   const queuedCount = queue.queuedCount || 0;
   const queuedCapped = queue.queuedCountCapped === true;
@@ -24,7 +71,7 @@ function QueueCard({ queue }: QueueCardProps) {
   return (
     <Link
       to={`/queues/${encodeURIComponent(queue.name)}`}
-      className="card-obsidian group flex h-full flex-col gap-4 px-4 py-4 transition-all duration-200 hover:border-border-strong hover:bg-muted/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="card-obsidian group flex h-full flex-col gap-4 px-4 py-4 transition-colors duration-200 hover:border-border-strong hover:bg-muted/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -51,7 +98,7 @@ function QueueCard({ queue }: QueueCardProps) {
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
               className={cn(
-                'h-full transition-all duration-300',
+                'h-full transition-[width,background-color] duration-300',
                 queuedCount > 0 ? 'bg-warning' : 'bg-primary'
               )}
               style={{ width: `${utilization || 0}%` }}
@@ -131,7 +178,7 @@ function SummaryStat({
       >
         {value}
       </div>
-      <div className="mt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="mt-2 text-[11px] font-medium text-muted-foreground">
         {label}
       </div>
     </div>

@@ -20,10 +20,10 @@ type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
 const REASON_LABELS: Record<string, string> = {
   unknown_step_id: 'Step id does not exist',
   unknown_output_name: 'Output name is not declared',
-  missing_dependency: 'Producing step is not a dependency',
   self_reference: 'Step references its own output',
   unknown_context_field: 'Context field is not defined',
   unknown_const_name: 'Const is not declared',
+  unknown_date_name: 'Date is not declared',
   namespace_unavailable: 'Value is unavailable in this context',
   unknown_env_binding: 'Environment variable is supplied by a run',
 };
@@ -33,10 +33,10 @@ const REASON_LABELS: Record<string, string> = {
 export const DEFECT_REASONS = new Set([
   'unknown_step_id',
   'unknown_output_name',
-  'missing_dependency',
   'self_reference',
   'unknown_context_field',
   'unknown_const_name',
+  'unknown_date_name',
 ]);
 
 export { REASON_LABELS };
@@ -153,7 +153,7 @@ function ValueReferenceNoticesDialog({
         <div className="max-h-[60vh] space-y-4 overflow-y-auto">
           {defects.length > 0 && (
             <section className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">
+              <h3 className="text-xs font-semibold text-foreground">
                 <I18nText text={'Needs a fix'} />
               </h3>
               {defects.map((notice, index) => (
@@ -169,7 +169,7 @@ function ValueReferenceNoticesDialog({
               <button
                 type="button"
                 onClick={() => setShowRuntimeOnly((shown) => !shown)}
-                className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                className="flex w-full items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground"
               >
                 <span>
                   <I18nText

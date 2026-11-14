@@ -3,6 +3,7 @@
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Markdown } from '@/components/ui/markdown';
 import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
@@ -11,14 +12,7 @@ import type { IChangeEvent } from '@rjsf/core';
 import Form from '@rjsf/shadcn';
 import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
-import {
-  AlertTriangle,
-  Check,
-  Info,
-  RefreshCcw,
-  RotateCcw,
-  X,
-} from 'lucide-react';
+import { AlertTriangle, Check, Info, RotateCcw, X } from 'lucide-react';
 import React from 'react';
 
 import { components } from '../../../../api/v1/schema';
@@ -30,7 +24,9 @@ import { ArtifactFilePreview } from '../artifacts/ArtifactFilePreview';
 import PushBackHistory from '../common/PushBackHistory';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
 import { Tab, Tabs } from '@/components/ui/tabs';
+import { HumanTaskResumeAlert } from './HumanTaskResumeAlert';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type HumanTaskNode = components['schemas']['Node'];
@@ -39,6 +35,13 @@ type FormData = Record<string, unknown>;
 interface HumanTasksTabProps {
   dagRun: DAGRunDetails;
   onChanged: () => void;
+  /** Shows only the task of this step, without the run-level resume alert. */
+  stepName?: string;
+  /**
+   * The host is a padded panel: the cards have no frame, and a line apart
+   * from the next one.
+   */
+  bare?: boolean;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -68,8 +71,95 @@ function hasUnsafeInteger(value: unknown): boolean {
 
 type CardMode = 'complete' | 'push-back';
 
+type ChoiceValue = string | number | boolean;
+
+interface ChoiceField {
+  name: string;
+  title?: string;
+  description?: string;
+  choices: { label: string; value: ChoiceValue }[];
+}
+
 const unsafeIntegerMessage =
   'This form cannot submit integers outside the safe integer range. Use the CLI or a raw API request for larger integers.';
+
+// The radio limit of the schema form, so a form that would show radios shows
+// buttons instead.
+const choiceButtonLimit = 4;
+
+function isChoiceValue(value: unknown): value is ChoiceValue {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+/**
+ * Returns the field of a form that asks for one required fixed choice, so each
+ * choice can complete the task in one click. Returns null for any other form.
+ */
+function singleChoiceField(schema?: JSONSchema): ChoiceField | null {
+  const entries = Object.entries(schema?.properties ?? {});
+  if (entries.length !== 1) return null;
+  const [name, field] = entries[0]!;
+  if (!schema?.required?.includes(name)) return null;
+
+  let choices: ChoiceField['choices'] = [];
+  if (Array.isArray(field.enum)) {
+    if (!field.enum.every(isChoiceValue)) return null;
+    choices = field.enum.map((value) => ({ label: String(value), value }));
+  } else if (Array.isArray(field.oneOf)) {
+    const options = field.oneOf;
+    if (!options.every((option) => isChoiceValue(option.const))) return null;
+    choices = options.map((option) => ({
+      label: option.title ?? String(option.const),
+      value: option.const as ChoiceValue,
+    }));
+  }
+  if (choices.length === 0 || choices.length > choiceButtonLimit) return null;
+  return {
+    name,
+    title: field.title,
+    description: field.description,
+    choices,
+  };
+}
+
+function TaskError({ message }: { message: string }) {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * Holds the task actions at the bottom of the scrolling host while a long
+ * prompt is read above them, with the error of a failed submission in view.
+ */
+function ActionBar({
+  bare,
+  error,
+  children,
+}: {
+  bare?: boolean;
+  error: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'sticky bottom-0 z-10 space-y-2 border-t border-border py-2',
+        bare ? 'bg-card' : '-mx-4 bg-surface px-4'
+      )}
+    >
+      {error && <TaskError message={error} />}
+      <div className="flex flex-wrap justify-end gap-2">{children}</div>
+    </div>
+  );
+}
 
 function useTaskFormUiSchema(schema?: JSONSchema): UiSchema<FormData> {
   return React.useMemo<UiSchema<FormData>>(
@@ -86,12 +176,14 @@ function HumanTaskCard({
   dagRun,
   canExecute,
   runWaiting,
+  bare,
   onChanged,
 }: {
   node: HumanTaskNode;
   dagRun: DAGRunDetails;
   canExecute: boolean;
   runWaiting: boolean;
+  bare?: boolean;
   onChanged: () => void;
 }) {
   const client = useClient();
@@ -122,6 +214,7 @@ function HumanTaskCard({
       : (artifacts[0] ?? null);
   const schema = (task.form ?? undefined) as JSONSchema | undefined;
   const hasForm = !!schema && Object.keys(schema).length > 0;
+  const choiceField = singleChoiceField(schema);
   const feedbackSchema = (pushBack?.form ?? undefined) as
     | JSONSchema
     | undefined;
@@ -132,6 +225,7 @@ function HumanTaskCard({
   const uiSchema = useTaskFormUiSchema(schema);
   const feedbackUiSchema = useTaskFormUiSchema(feedbackSchema);
   const stepKey = node.step.id ?? node.step.name;
+  const formId = React.useId();
 
   const send = async (
     input: FormData,
@@ -190,6 +284,14 @@ function HumanTaskCard({
     setError(null);
   };
 
+  // The push-back form opens below a prompt that can be long.
+  const pushBackPanel = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (mode === 'push-back') {
+      pushBackPanel.current?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [mode]);
+
   const requestChangesButton = pushBack ? (
     <Button
       type="button"
@@ -215,7 +317,13 @@ function HumanTaskCard({
   );
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-surface p-4">
+    <div
+      className={
+        bare
+          ? 'space-y-4 border-b border-border pb-4 last:border-b-0 last:pb-0'
+          : 'space-y-4 rounded-lg border border-border bg-surface p-4'
+      }
+    >
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">{node.step.name}</span>
@@ -225,7 +333,10 @@ function HumanTaskCard({
             </span>
           )}
         </div>
-        <div className="whitespace-pre-wrap text-base">{task.prompt}</div>
+        <Markdown
+          content={task.prompt}
+          className="text-sm [&_p]:whitespace-pre-line"
+        />
       </div>
 
       {artifacts.length > 0 && (
@@ -260,7 +371,9 @@ function HumanTaskCard({
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
               <I18nText
-                text={'Referenced artifacts are not available for this DAG run yet.'}
+                text={
+                  'Referenced artifacts are not available for this DAG run yet.'
+                }
               />
             </div>
           )}
@@ -272,15 +385,11 @@ function HumanTaskCard({
         title={ts('Previous Push-backs')}
       />
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
       {mode === 'push-back' && pushBack ? (
-        <div className="space-y-3 rounded-md border border-border p-3">
+        <div
+          ref={pushBackPanel}
+          className="space-y-3 rounded-md border border-border p-3"
+        >
           <div className="space-y-1">
             <div className="text-sm font-semibold">
               <I18nText text={'Request changes'} />
@@ -294,6 +403,7 @@ function HumanTaskCard({
               />
             </p>
           </div>
+          {error && <TaskError message={error} />}
           {hasFeedbackForm ? (
             <Form
               tagName="form"
@@ -363,42 +473,96 @@ function HumanTaskCard({
             </div>
           )}
         </div>
-      ) : hasForm ? (
-        <Form
-          tagName="form"
-          idPrefix={`human-task-${stepKey}`}
-          schema={schema as RJSFSchema}
-          validator={validator}
-          formData={formData}
-          uiSchema={uiSchema}
-          templates={schemaFormTemplates}
-          widgets={schemaFormWidgets}
-          disabled={actionsDisabled}
-          noHtml5Validate
-          showErrorList={false}
-          onChange={(event: IChangeEvent<FormData>) => {
-            setFormData((event.formData ?? {}) as FormData);
-            setError(null);
-          }}
-          onSubmit={(event: IChangeEvent<FormData>) =>
-            void complete((event.formData ?? {}) as FormData)
-          }
-          onError={() =>
-            setError(
-              'Fix the highlighted form errors before completing the task.'
-            )
-          }
-        >
-          <div className="flex justify-end gap-2 pt-2">
+      ) : choiceField ? (
+        // The bar is a child of the card, so it can stick below the prompt.
+        <>
+          {(choiceField.title || choiceField.description) && (
+            <div className="space-y-0.5">
+              {choiceField.title && (
+                <div
+                  id={`human-task-${stepKey}-choice`}
+                  className="text-sm font-medium"
+                >
+                  {choiceField.title}
+                </div>
+              )}
+              {choiceField.description && (
+                <p className="text-xs text-muted-foreground">
+                  {choiceField.description}
+                </p>
+              )}
+            </div>
+          )}
+          <ActionBar bare={bare} error={error}>
             {requestChangesButton}
-            <Button type="submit" variant="primary" disabled={actionsDisabled}>
+            <div
+              role="group"
+              aria-labelledby={
+                choiceField.title ? `human-task-${stepKey}-choice` : undefined
+              }
+              className="flex flex-wrap gap-2"
+            >
+              {choiceField.choices.map((choice, index) => (
+                <Button
+                  key={`${index}-${String(choice.value)}`}
+                  type="button"
+                  variant={index === 0 ? 'primary' : 'outline'}
+                  disabled={actionsDisabled}
+                  onClick={() =>
+                    void complete({ [choiceField.name]: choice.value })
+                  }
+                >
+                  {choice.label}
+                </Button>
+              ))}
+            </div>
+          </ActionBar>
+        </>
+      ) : hasForm ? (
+        // The submit button sits in the bar outside the form, so the bar can
+        // stick below the prompt; the form attribute ties them together.
+        <>
+          <Form
+            tagName="form"
+            id={formId}
+            idPrefix={`human-task-${stepKey}`}
+            schema={schema as RJSFSchema}
+            validator={validator}
+            formData={formData}
+            uiSchema={uiSchema}
+            templates={schemaFormTemplates}
+            widgets={schemaFormWidgets}
+            disabled={actionsDisabled}
+            noHtml5Validate
+            showErrorList={false}
+            onChange={(event: IChangeEvent<FormData>) => {
+              setFormData((event.formData ?? {}) as FormData);
+              setError(null);
+            }}
+            onSubmit={(event: IChangeEvent<FormData>) =>
+              void complete((event.formData ?? {}) as FormData)
+            }
+            onError={() =>
+              setError(
+                'Fix the highlighted form errors before completing the task.'
+              )
+            }
+          />
+          <ActionBar bare={bare} error={error}>
+            {requestChangesButton}
+            <Button
+              type="submit"
+              form={formId}
+              variant="primary"
+              disabled={actionsDisabled}
+            >
               <Check className="h-4 w-4" />
               {completeButtonLabel}
             </Button>
-          </div>
-        </Form>
+          </ActionBar>
+        </>
       ) : (
-        <div className="flex justify-end gap-2">
+        <ActionBar bare={bare} error={error}>
           {requestChangesButton}
           <Button
             type="button"
@@ -409,99 +573,58 @@ function HumanTaskCard({
             <Check className="h-4 w-4" />
             {completeButtonLabel}
           </Button>
-        </div>
+        </ActionBar>
       )}
 
       {!canExecute && (
         <p className="text-xs text-muted-foreground">
-          <I18nText text={"Execute permission is required to complete this task."} />
+          <I18nText
+            text={'Execute permission is required to complete this task.'}
+          />
         </p>
       )}
     </div>
   );
 }
 
-export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
-  const client = useClient();
-  const remoteNode = useRemoteNode();
+export function HumanTasksTab({
+  dagRun,
+  onChanged,
+  stepName,
+  bare,
+}: HumanTasksTabProps) {
   const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
-  const [resuming, setResuming] = React.useState(false);
-  const [resumeError, setResumeError] = React.useState<string | null>(null);
-  const { isWaiting, waitingHumanTaskNodes: waitingTasks } =
-    getManualActionState(dagRun);
+  const { isWaiting, waitingHumanTaskNodes } = getManualActionState(dagRun);
+  const waitingTasks =
+    stepName === undefined
+      ? waitingHumanTaskNodes
+      : waitingHumanTaskNodes.filter((node) => node.step.name === stepName);
+  const resumePending =
+    stepName === undefined && !!dagRun.humanTaskResumePending;
 
-  const resume = async () => {
-    if (resuming) return;
-    setResuming(true);
-    setResumeError(null);
-    try {
-      const { error } = await client.POST(
-        '/dag-runs/{name}/{dagRunId}/human-tasks/resume',
-        {
-          params: {
-            path: { name: dagRun.name, dagRunId: dagRun.dagRunId },
-            query: { remoteNode },
-          },
-        }
-      );
-      if (error) {
-        setResumeError(
-          errorMessage(error, 'Failed to queue the DAG-run for resume.')
-        );
-      }
-    } catch (error) {
-      setResumeError(
-        errorMessage(error, 'Failed to queue the DAG-run for resume.')
-      );
-    } finally {
-      setResuming(false);
-      onChanged();
-    }
-  };
-
-  if (waitingTasks.length === 0 && !dagRun.humanTaskResumePending) {
+  if (waitingTasks.length === 0 && !resumePending) {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
-        <I18nText text={"No human tasks are waiting."} />
+        <I18nText text={'No human tasks are waiting.'} />
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {dagRun.humanTaskResumePending && (
-        <Alert variant="warning">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>
-              <I18nText text={"Task input is safely stored, but the DAG-run still needs to be queued for resume."} />
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!canExecute || resuming}
-              onClick={() => void resume()}
-            >
-              <RefreshCcw className="h-4 w-4" />
-              {resuming ? <I18nText text={"Queueing…"} /> : <I18nText text={"Retry queue"} />}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {resumeError && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{resumeError}</AlertDescription>
-        </Alert>
+      {resumePending && (
+        <HumanTaskResumeAlert dagRun={dagRun} onChanged={onChanged} />
       )}
 
       {!isWaiting && waitingTasks.length > 0 && (
         <Alert variant="info">
           <Info className="h-4 w-4" />
           <AlertDescription>
-            <I18nText text={"This DAG-run is queued or running. Open tasks become editable once it is waiting."} />
+            <I18nText
+              text={
+                'This DAG-run is queued or running. Open tasks become editable once it is waiting.'
+              }
+            />
           </AlertDescription>
         </Alert>
       )}
@@ -513,6 +636,7 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
           dagRun={dagRun}
           canExecute={canExecute}
           runWaiting={isWaiting}
+          bare={bare}
           onChanged={onChanged}
         />
       ))}

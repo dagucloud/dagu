@@ -6,6 +6,7 @@ package llmsgen_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -39,6 +40,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Context References, Scoped Values, And Step Outputs",
 		"# Build Workflows",
 		"# External CLI Harnesses",
+		"# Operating a Running Dagu Server",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output missing %q\n%s", want, output)
@@ -68,6 +70,7 @@ func TestGenerateBuildsLLMsTextFromBundledSkillSources(t *testing.T) {
 		"# Context References, Scoped Values, And Step Outputs",
 		"# Build Workflows",
 		"# External CLI Harnesses",
+		"# Operating a Running Dagu Server",
 	)
 }
 
@@ -88,6 +91,44 @@ func TestGenerateFailsWhenRequiredReferenceIsMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "references/context.md") {
 		t.Fatalf("Generate() error = %q, want missing context reference path", err)
+	}
+}
+
+func TestWriteFileWritesGeneratedContent(t *testing.T) {
+	t.Parallel()
+
+	sourceDir := writeSkillTree(t)
+	opts := llmsgen.Options{
+		SourceDir:    sourceDir,
+		SourcePrefix: "skills/dagu",
+	}
+	outputPath := filepath.Join(t.TempDir(), "llms.txt")
+
+	if err := llmsgen.WriteFile(outputPath, opts); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	want, err := llmsgen.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	got, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatal("WriteFile() content does not match Generate() output")
+	}
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatalf("stat output file: %v", err)
+	}
+	wantPerm := os.FileMode(0o644)
+	if runtime.GOOS == "windows" {
+		wantPerm = 0o666
+	}
+	if info.Mode().Perm() != wantPerm {
+		t.Fatalf("WriteFile() perm = %o, want %o", info.Mode().Perm(), wantPerm)
 	}
 }
 
@@ -133,6 +174,10 @@ Reuse stable file transformations.
 		filepath.Join("references", "harnesses.md"): `# External CLI Harnesses
 
 Use harness.run.
+`,
+		filepath.Join("references", "server-operations.md"): `# Operating a Running Dagu Server
+
+Use MCP first.
 `,
 	}
 

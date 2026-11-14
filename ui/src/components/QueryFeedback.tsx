@@ -5,6 +5,11 @@ import { AlertCircle } from 'lucide-react';
 import React from 'react';
 import { SWRConfig } from 'swr';
 import { useI18n } from '@/i18n/I18nProvider';
+import {
+  getQueryErrorCode,
+  getQueryErrorMessage,
+  getQueryErrorStatus,
+} from '@/lib/queryErrors';
 
 // Suppress repeats of the same error message within this window.
 const ERROR_COOLDOWN_MS = 30_000;
@@ -16,21 +21,6 @@ type Notice = {
   id: number;
   message: string;
 };
-
-function getErrorStatus(error: unknown): number | undefined {
-  const err = error as { status?: number; response?: { status?: number } };
-  return err?.status ?? err?.response?.status;
-}
-
-function getErrorCode(error: unknown): string | undefined {
-  const code = (error as { code?: unknown })?.code;
-  return typeof code === 'string' ? code : undefined;
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  const message = (error as { message?: string })?.message;
-  return typeof message === 'string' && message.length > 0 ? message : fallback;
-}
 
 function isAbortLike(error: unknown): boolean {
   const name = (error as { name?: string })?.name;
@@ -54,9 +44,9 @@ const IGNORED_ERROR_CODES = new Set([
  */
 export function isIgnorableQueryError(error: unknown): boolean {
   if (isAbortLike(error)) return true;
-  const status = getErrorStatus(error);
+  const status = getQueryErrorStatus(error);
   if (status === 401 || status === 404) return true;
-  const code = getErrorCode(error);
+  const code = getQueryErrorCode(error);
   return code !== undefined && IGNORED_ERROR_CODES.has(code);
 }
 
@@ -87,7 +77,7 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
 
       if (isIgnorableQueryError(error)) return;
 
-      const message = getErrorMessage(error, t('common.requestFailed'));
+      const message = getQueryErrorMessage(error, t('common.requestFailed'));
       const now = Date.now();
       const lastShownByMessage = lastShownRef.current;
       for (const [cachedMessage, shownAt] of lastShownByMessage) {

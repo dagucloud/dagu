@@ -3,16 +3,23 @@
 
 import { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { useIsRaisedLayer } from '@/components/ui/dialog';
+import { IconButton } from '@/components/ui/icon-button';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { shouldIgnoreKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
-import { ChevronRight, Loader2, X } from 'lucide-react';
+import { ChevronRight, Loader2, Maximize2, Minimize2, X } from 'lucide-react';
 import React from 'react';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import {
+  OverlayResizeHandle,
+  SUB_RUN_WIDTH_KEY,
+  useOverlayWidth,
+} from '@/features/peek/OverlayResizeHandle';
 
 // Loaded lazily: the content renders DAGStatus, which is what opens this modal.
 // A static import would close that cycle at module load.
@@ -29,6 +36,8 @@ export type SubRunStackEntry = {
   name: string;
   /** Child DAG-run ID. */
   dagRunId: string;
+  /** A step of the child DAG-run to show when it opens. */
+  step?: string;
 };
 
 /**
@@ -57,6 +66,25 @@ const MAX_VISIBLE_EDGES = 3;
 const EDGE_WIDTH = 12;
 /** Slide duration in ms. Kept short so drilling in never feels like waiting. */
 const SLIDE_MS = 90;
+/** Remembers that the stack covers the whole window. */
+export const SUB_RUN_STACK_EXPANDED_KEY = 'dagu.subRunStack.expanded';
+
+function readExpanded(): boolean {
+  try {
+    return localStorage.getItem(SUB_RUN_STACK_EXPANDED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeExpanded(expanded: boolean): void {
+  try {
+    if (expanded) localStorage.setItem(SUB_RUN_STACK_EXPANDED_KEY, '1');
+    else localStorage.removeItem(SUB_RUN_STACK_EXPANDED_KEY);
+  } catch {
+    // Storage may be unavailable; the choice then lasts for this stack.
+  }
+}
 
 type SubRunStackModalProps = {
   /** Root DAG-run that owns every child on the stack. */
@@ -66,6 +94,15 @@ type SubRunStackModalProps = {
   rootLabel: string;
   stack: SubRunStackEntry[];
   onChange: (next: SubRunStackEntry[]) => void;
+  /**
+   * Renders the run on top of the stack. Without it, the run shows in the
+   * run details view. `refresh` reads the run again, after an action on it.
+   */
+  renderRun?: (
+    run: components['schemas']['DAGRunDetails'],
+    entry: SubRunStackEntry,
+    refresh: () => Promise<void>
+  ) => React.ReactNode;
 };
 
 /**
@@ -79,6 +116,7 @@ export function SubRunStackModal({
   rootLabel,
   stack,
   onChange,
+  renderRun,
 }: SubRunStackModalProps): React.ReactElement | null {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -110,6 +148,12 @@ export function SubRunStackModal({
   // blanks the panel.
   const shown = fresh ?? previousRef.current;
 
+  const raised = useIsRaisedLayer();
+  const [expanded, setExpanded] = React.useState(readExpanded);
+  const toggleExpanded = () => {
+    writeExpanded(!expanded);
+    setExpanded(!expanded);
+  };
   const [isVisible, setIsVisible] = React.useState(false);
   React.useEffect(() => {
     const frame = requestAnimationFrame(() => setIsVisible(true));
@@ -131,18 +175,25 @@ export function SubRunStackModal({
     [onChange, stack]
   );
 
+  // Pushes in one event build on each other, so that a path of runs opens
+  // at once.
+  const pushedRef = React.useRef(stack);
+  React.useLayoutEffect(() => {
+    pushedRef.current = stack;
+  }, [stack]);
   const push = React.useCallback(
     (entry: SubRunStackEntry) => {
       previousRef.current = null;
-      onChange([...stack, entry]);
+      pushedRef.current = [...pushedRef.current, entry];
+      onChange(pushedRef.current);
     },
-    [onChange, stack]
+    [onChange]
   );
 
   React.useEffect(() => {
     if (!top) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (shouldIgnoreKeyboardShortcuts()) return;
+      if (shouldIgnoreKeyboardShortcuts(event)) return;
       if (event.key === 'Escape') {
         event.stopPropagation();
         popTo(stack.length - 1);
@@ -152,17 +203,28 @@ export function SubRunStackModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [top, stack.length, popTo]);
 
+  // The width that the user gave the panel, kept across visits; three
+  // quarters of the window by default. The edges of the levels below follow it.
+  const panelWidth = useOverlayWidth(SUB_RUN_WIDTH_KEY);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+
   if (!top) return null;
 
+  // In the workspace the drawer sits above the node view (z-[60]) and below dialogs (z-[80]).
+  const backdropZ = raised ? 'z-[66]' : 'z-40';
+  const panelZ = raised ? 'z-[68]' : 'z-50';
   const depth = stack.length;
-  const edges = Math.min(depth - 1, MAX_VISIBLE_EDGES);
-  const hiddenLevels = depth - 1 - edges;
+  const panelSize = panelWidth.width === null ? '75%' : `${panelWidth.width}px`;
+  // A stack over the whole window has no room for edges: its breadcrumb
+  // lists every level, as the way back to each.
+  const edges = expanded ? 0 : Math.min(depth - 1, MAX_VISIBLE_EDGES);
+  const hiddenLevels = expanded ? 0 : depth - 1 - edges;
 
   return (
     <>
       {/* Click-away target only: the run underneath stays fully legible. */}
       <div
-        className="fixed inset-0 z-40 h-screen w-screen"
+        className={cn('fixed inset-0 h-screen w-screen', backdropZ)}
         onClick={() => popTo(0)}
       />
 
@@ -178,11 +240,12 @@ export function SubRunStackModal({
             })}
             onClick={() => popTo(level)}
             className={cn(
-              'bg-card hover:bg-muted border-border fixed top-0 bottom-0 z-40 h-screen border-l transition-all ease-out',
+              'bg-card hover:bg-muted border-border fixed top-0 bottom-0 h-screen border-l transition-[translate,opacity,background-color] ease-out',
+              backdropZ,
               !isVisible && 'translate-x-full opacity-0'
             )}
             style={{
-              right: `calc(75% - ${(i + 1) * EDGE_WIDTH}px)`,
+              right: `calc(${panelSize} - ${(i + 1) * EDGE_WIDTH}px)`,
               transitionDuration: `${SLIDE_MS}ms`,
             }}
             aria-label={ts('Back one level')}
@@ -195,13 +258,34 @@ export function SubRunStackModal({
         );
       })}
 
+      {/* An open dialog to the layers below, so they leave Escape to it. */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={top.name}
+        data-state="open"
+        ref={panelRef}
         className={cn(
-          'bg-background fixed top-0 right-0 bottom-0 z-50 flex h-screen w-full flex-col border-l border-indigo-500/30 transition-transform ease-out md:w-3/4',
+          'bg-background fixed top-0 right-0 bottom-0 flex h-screen w-full flex-col border-l border-indigo-500/30 transition-transform ease-out',
+          !expanded && 'md:w-(--sub-run-width)',
+          panelZ,
           !isVisible && 'translate-x-full'
         )}
-        style={{ transitionDuration: `${SLIDE_MS}ms` }}
+        style={
+          {
+            transitionDuration: `${SLIDE_MS}ms`,
+            '--sub-run-width': panelSize,
+          } as React.CSSProperties
+        }
       >
+        {!expanded && (
+          <OverlayResizeHandle
+            width={() => panelRef.current?.getBoundingClientRect().width ?? 0}
+            onResize={panelWidth.set}
+            onReset={panelWidth.reset}
+            label={ts('Resize sub-run view')}
+          />
+        )}
         <div className="border-border flex items-center gap-2 border-b px-3 py-2">
           <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-xs">
             <button
@@ -249,6 +333,14 @@ export function SubRunStackModal({
           <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-xs tabular-nums">
             {depth}
           </span>
+          {/* Below md the panel covers the window already. */}
+          <IconButton
+            icon={expanded ? Minimize2 : Maximize2}
+            size="sm"
+            label={ts(expanded ? 'Restore dialog' : 'Maximize dialog')}
+            className="hidden md:inline-flex"
+            onClick={toggleExpanded}
+          />
           <I18nProps>
             <Button
               variant="outline"
@@ -265,13 +357,16 @@ export function SubRunStackModal({
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <SubRunOpenProvider value={push}>
             <React.Suspense fallback={<LoadingIndicator />}>
-              {shown ? (
+              {shown && top && renderRun ? (
+                renderRun(shown, top, refresh)
+              ) : shown ? (
                 <DAGRunDetailsContent
                   name={top.name}
                   dagRunId={top.dagRunId}
                   dagRun={shown}
                   refreshFn={refresh}
                   fillHeight
+                  initialStepName={top.step}
                 />
               ) : (
                 <LoadingIndicator />

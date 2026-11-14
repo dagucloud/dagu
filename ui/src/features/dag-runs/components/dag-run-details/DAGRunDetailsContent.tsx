@@ -1,7 +1,7 @@
 import React from 'react';
 import { components } from '../../../../api/v1/schema';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
-import { DAGStatus } from '../../../../features/dags/components';
+import DAGStatus from '../../../../features/dags/components/DAGStatus';
 import type { StatusTab } from '../../../../features/dags/components/DAGStatus';
 import { cn } from '../../../../lib/utils';
 import { DAGRunContext } from '../../contexts/DAGRunContext';
@@ -17,6 +17,9 @@ type DAGRunDetailsContentProps = {
   activeTab?: StatusTab;
   onTabChange?: (tab: StatusTab) => void;
   fillHeight?: boolean;
+  onTabSelect?: (tab: StatusTab) => void;
+  initialStepName?: string;
+  onStepSelect?: (stepName: string | undefined) => void;
 };
 
 const DAGRunDetailsContent: React.FC<DAGRunDetailsContentProps> = ({
@@ -28,6 +31,9 @@ const DAGRunDetailsContent: React.FC<DAGRunDetailsContentProps> = ({
   activeTab,
   onTabChange,
   fillHeight = false,
+  onTabSelect,
+  initialStepName,
+  onStepSelect,
 }) => {
   const remoteNode = useRemoteNode();
   const isSubDAGRun =
@@ -77,6 +83,10 @@ const DAGRunDetailsContent: React.FC<DAGRunDetailsContentProps> = ({
             activeTab={activeTab}
             onTabChange={onTabChange}
             fillHeight={fillHeight}
+            onTabSelect={onTabSelect}
+            initialStepName={initialStepName}
+            onStepSelect={onStepSelect}
+            showRunMeta={false}
           />
         </div>
       </div>

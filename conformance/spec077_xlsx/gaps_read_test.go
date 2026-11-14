@@ -1,0 +1,394 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package spec077_xlsx_test
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/test/xlsxtest"
+	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
+)
+
+// readOut is what a reading fixture captures for one xlsx.read step.
+type readOut struct {
+	Sheet     string           `json:"sheet"`
+	Range     string           `json:"range"`
+	Count     int              `json:"count"`
+	Headers   []string         `json:"headers"`
+	Rows      []map[string]any `json:"rows"`
+	Truncated bool             `json:"truncated"`
+	Warnings  []string         `json:"warnings"`
+}
+
+func names(rows []map[string]any, column string) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fmt.Sprint(row[column]))
+	}
+	return out
+}
+
+// writeCSV writes a header line and n numbered rows the fixture loads with
+// xlsx.write input; width pads the text column so a row costs that many
+// bytes in the output.
+func writeCSV(t *testing.T, dagu *harness.Runner, name string, n, width int) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("n,text\n")
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "%d,%s\n", i, strings.Repeat("x", width))
+	}
+	dagu.WriteFile(name, b.String())
+}
+
+func TestXlsxReadAddressing(t *testing.T) {
+	t.Parallel()
+	t.Run("paths", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "read_paths.yaml", "--", "BOOK="+dagu.ProjectPath("abs.xlsx")).ExpectExitCode(0)
+		var out struct {
+			Tilde int `json:"tilde"`
+			Abs   int `json:"abs"`
+		}
+		readJSON(t, dagu, "out.json", &out)
+		require.Equal(t, 1, out.Tilde, "~ resolves to the home directory")
+		require.Equal(t, 2, out.Abs, "an absolute path is used as written")
+	})
+	t.Run("ranges", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "read_ranges.yaml").ExpectExitCode(0)
+		var out map[string]readOut
+		readJSON(t, dagu, "out.json", &out)
+
+		closed := out["closed"]
+		require.Equal(t, "Other!A2:C3", closed.Range)
+		require.Equal(t, []string{"A", "B", "C"}, closed.Headers)
+		require.Equal(t, []string{"1", "4"}, names(closed.Rows, "A"))
+
+		columns := out["columns_only"]
+		require.Equal(t, "Other!A1:C4", columns.Range, "A:C ends at the last used row")
+		require.Equal(t, []string{"a", "b", "c"}, columns.Headers)
+		require.Equal(t, 3, columns.Count)
+
+		single := out["single"]
+		require.Equal(t, "Other!B2:B2", single.Range)
+		require.Equal(t, []string{"B"}, single.Headers)
+		require.Equal(t, []string{"2"}, names(single.Rows, "B"))
+
+		quoted := out["quoted_sheet"]
+		require.Equal(t, "My Sheet", quoted.Sheet, "the sheet in the range wins over sheet")
+		require.Equal(t, "My Sheet!A2:C3", quoted.Range, "the range output does not quote a sheet name")
+		require.Equal(t, []string{"10", "13"}, names(quoted.Rows, "A"))
+
+		plain := out["plain_sheet"]
+		require.Equal(t, "Other", plain.Sheet)
+		require.Equal(t, "Other!B2:C4", plain.Range)
+		require.Equal(t, []string{"2", "5", "8"}, names(plain.Rows, "B"))
+	})
+	t.Run("headers", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "read_headers.yaml").ExpectExitCode(0)
+		var out readOut
+		readJSON(t, dagu, "out.json", &out)
+		require.Equal(t, []string{"Invoice", "B", "Amount", "Amount_2", "Note Text"}, out.Headers,
+			"header text is trimmed, line breaks become spaces, an empty header is the column letter, a duplicate gets _2")
+		require.Equal(t, "Sheet1!A3:E5", out.Range, "header: 3 starts the block at row 3")
+		require.Equal(t, 2, out.Count)
+		require.Equal(t, []string{"INV-1", "INV-2"}, names(out.Rows, "Invoice"))
+		require.Equal(t, []string{"x", "y"}, names(out.Rows, "B"))
+		require.Equal(t, []string{"2", "4"}, names(out.Rows, "Amount_2"))
+		require.Len(t, out.Warnings, 2)
+		require.Contains(t, out.Warnings[0], "Sheet1!B3: header is empty; column named B")
+		require.Contains(t, out.Warnings[1], `Sheet1: duplicate header "Amount" renamed Amount_2`)
+	})
+}
+
+// TestXlsxInfoProfile covers the column profile over a table longer than
+// it reads: a number column with 未定 at row 300 and full-width digits a
+// pinned number reads, a status column, a column of unique identifiers,
+// and a column of error cells whose warnings are capped.
+func TestXlsxInfoProfile(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	var b strings.Builder
+	b.WriteString("[")
+	for r := 2; r <= 5002; r++ {
+		status := "null"
+		switch r % 3 {
+		case 0:
+			status = `"済"`
+		case 1:
+			status = `"未"`
+		}
+		qty := fmt.Sprint(r)
+		switch r {
+		case 10:
+			qty = `"１２"`
+		case 300:
+			qty = `"未定"`
+		}
+		if r > 2 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"ID": "ORD-%04d", "状態": %s, "数量": %s, "Calc": "#N/A"}`, r, status, qty)
+	}
+	b.WriteString("]")
+	dagu.WriteFile("profile.json", b.String())
+	dagu.Run("start", "info_profile.yaml").ExpectExitCode(0)
+
+	type column struct {
+		Name     string    `json:"name"`
+		Type     string    `json:"type"`
+		Filled   int       `json:"filled"`
+		Blank    int       `json:"blank"`
+		Distinct int       `json:"distinct"`
+		Values   []string  `json:"values"`
+		Min      any       `json:"min"`
+		Max      any       `json:"max"`
+		Odd      int       `json:"odd"`
+		OddCells []oddCell `json:"odd_cells"`
+	}
+	var out struct {
+		Sheets []struct {
+			RowCount         int      `json:"row_count"`
+			ProfileTruncated bool     `json:"profile_truncated"`
+			Columns          []column `json:"columns"`
+		} `json:"sheets"`
+		Warnings []string `json:"warnings"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Sheets, 1)
+	sheet := out.Sheets[0]
+	require.Equal(t, 5001, sheet.RowCount)
+	require.True(t, sheet.ProfileTruncated, "the profile reads 5000 data rows")
+	require.Equal(t, []column{
+		{Name: "ID", Type: "string", Filled: 5000, Distinct: 1000},
+		{Name: "状態", Type: "string", Filled: 3333, Blank: 1667, Distinct: 2, Values: []string{"済", "未"}},
+		{Name: "数量", Type: "integer", Filled: 5000, Distinct: 1000, Min: float64(2), Max: float64(5001),
+			Odd: 1, OddCells: []oddCell{{Cell: "C300", Text: "未定"}}},
+		{Name: "Calc", Type: "string", Blank: 5000},
+	}, sheet.Columns)
+	require.Len(t, out.Warnings, 21)
+	require.Equal(t, "Orders: Orders!D2: error cell #N/A", out.Warnings[0])
+	require.Equal(t, "Orders: 4981 more warnings", out.Warnings[20])
+
+	text := dagu.Run("xlsx", "inspect", "profile.xlsx", "--rows", "0")
+	text.ExpectExitCode(0)
+	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
+	require.Equal(t, `Sheet "Orders": used A1:D5002, table Orders!A1:D5002, header row 1, 5001 rows, first 5000 profiled`, lines[1])
+	require.Equal(t, `  Columns: ID (string), 状態 (string: 済, 未; 1667 blank), 数量 (integer; 2..5001; 1 odd: C300 "未定"), Calc (string; 5000 blank)`, lines[2])
+}
+
+// writeHiddenBook builds a workbook no action can write: a sheet with one
+// row hidden by hand and two hidden by an autofilter on 状態, a hidden
+// sheet, and a very hidden sheet.
+func writeHiddenBook(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Data"))
+	for i, row := range [][]any{{"ID", "状態"}, {"A-1", "済"}, {"A-2", "未"}, {"A-3", "済"}, {"A-4", "未"}, {"A-5", "保留"}, {"A-6", "済"}} {
+		require.NoError(t, f.SetSheetRow("Data", fmt.Sprintf("A%d", i+1), &row))
+	}
+	require.NoError(t, f.SetRowVisible("Data", 3, false))
+	require.NoError(t, f.AutoFilter("Data", "A1:B7", []excelize.AutoFilterOptions{{Column: "B", Expression: "x == 済"}}))
+	require.NoError(t, f.SetRowVisible("Data", 5, false))
+	require.NoError(t, f.SetRowVisible("Data", 6, false))
+	for _, name := range []string{"Archive", "Secret"} {
+		_, err := f.NewSheet(name)
+		require.NoError(t, err)
+		require.NoError(t, f.SetSheetRow(name, "A1", &[]any{"ID", "Note"}))
+	}
+	require.NoError(t, f.SetSheetVisible("Archive", false))
+	require.NoError(t, f.SetSheetVisible("Secret", false, true))
+	require.NoError(t, f.SaveAs(dagu.ProjectPath("hidden.xlsx")))
+	require.NoError(t, f.Close())
+}
+
+func TestXlsxHiddenSheetsAndRows(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	writeHiddenBook(t, dagu)
+	dagu.Run("start", "hidden_rows.yaml").ExpectExitCode(0)
+
+	var out struct {
+		Sheets []struct {
+			Name       string `json:"name"`
+			Hidden     bool   `json:"hidden"`
+			HiddenRows int    `json:"hidden_rows"`
+		} `json:"sheets"`
+		All       int              `json:"all"`
+		Visible   []map[string]any `json:"visible"`
+		Checked   int              `json:"checked"`
+		OK        bool             `json:"ok"`
+		Converted int              `json:"converted"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Sheets, 3)
+	require.False(t, out.Sheets[0].Hidden)
+	require.Equal(t, 3, out.Sheets[0].HiddenRows, "rows hidden by hand and by the filter count")
+	require.True(t, out.Sheets[1].Hidden)
+	require.True(t, out.Sheets[2].Hidden, "a very hidden sheet is hidden")
+	require.Equal(t, 6, out.All, "hidden rows are read by default")
+	require.Equal(t, []string{"A-1", "A-3", "A-6"}, names(out.Visible, "ID"))
+	require.Equal(t, 3, out.Checked)
+	require.True(t, out.OK, "validate checks only the rows shown")
+	require.Equal(t, 3, out.Converted)
+	require.Equal(t, "\xEF\xBB\xBFID,状態\nA-1,済\nA-3,済\nA-6,済\n", strings.ReplaceAll(readFile(t, dagu, "visible.csv"), "\r\n", "\n"))
+
+	text := dagu.Run("xlsx", "inspect", "hidden.xlsx", "--rows", "0")
+	text.ExpectExitCode(0)
+	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
+	require.Equal(t, `Sheet "Data": used A1:B7, table Data!A1:B7, header row 1, 6 rows, 3 hidden`, lines[1])
+	require.Equal(t, `Sheet "Archive" (hidden): used A1:B1, table Archive!A1:B1, header row 1, 0 rows`, lines[3])
+
+	read := dagu.Run("xlsx", "read", "hidden.xlsx", "--skip-hidden", "--format", "json")
+	read.ExpectExitCode(0)
+	var rows readOut
+	require.NoError(t, json.Unmarshal([]byte(read.Stdout()), &rows), read.Stdout())
+	require.Equal(t, []string{"A-1", "A-3", "A-6"}, names(rows.Rows, "ID"))
+}
+
+type oddCell struct {
+	Cell string `json:"cell"`
+	Text string `json:"text"`
+}
+
+func TestXlsxFormulasAndEmptyRows(t *testing.T) {
+	t.Parallel()
+	t.Run("formulas", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "read_formulas.yaml").ExpectExitCode(0)
+		var out map[string]readOut
+		readJSON(t, dagu, "out.json", &out)
+
+		cached := out["cached"]
+		require.Equal(t, float64(4), cached.Rows[0]["b"], "a formula without a cached value is evaluated")
+		require.Nil(t, cached.Rows[1]["b"], "a formula that evaluates to an error is null")
+		require.Len(t, cached.Warnings, 2)
+		require.Contains(t, cached.Warnings[0], "Sheet1!B2: formula had no cached value; evaluated")
+		require.Contains(t, cached.Warnings[1], "Sheet1!B3: formula NA() could not be evaluated: #N/A")
+
+		text := out["text"]
+		require.Equal(t, "=A2*2", text.Rows[0]["b"])
+		require.Equal(t, "=NA()", text.Rows[1]["b"])
+		require.Empty(t, text.Warnings)
+
+		calculate := out["calculate"]
+		require.Equal(t, float64(4), calculate.Rows[0]["b"])
+		require.Nil(t, calculate.Rows[1]["b"])
+	})
+	t.Run("empty rows", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.Run("start", "read_empty_rows.yaml").ExpectExitCode(0)
+		var out map[string]readOut
+		readJSON(t, dagu, "out.json", &out)
+
+		require.Equal(t, 3, out["default"].Count, "trailing empty rows are dropped")
+		require.Equal(t, []string{"1", "<nil>", "2"}, names(out["default"].Rows, "n"))
+		require.False(t, out["default"].Truncated)
+		require.Equal(t, 5, out["keep"].Count, "keep_empty_rows keeps every row of the range")
+		require.Equal(t, 1, out["stop"].Count, "stop_at_blank stops at the first blank row")
+		require.Equal(t, []string{"1"}, names(out["stop"].Rows, "n"))
+		capped := out["capped"]
+		require.Equal(t, 3, capped.Count, "a blank row between counted rows is kept without counting")
+		require.False(t, capped.Truncated, "exactly max_rows countable rows is not truncated")
+		require.Empty(t, capped.Warnings)
+	})
+}
+
+// writeStaleBook writes, by hand, a workbook no action or library can: a
+// 明細 sheet whose 金額 formulas in D cache the amounts of older quantities,
+// as a program that sets cells without recalculating leaves them.
+func writeStaleBook(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	const cell = `<c r="%s"><v>%d</v></c>`
+	var rows strings.Builder
+	rows.WriteString(`<row r="1"><c r="A1" t="inlineStr"><is><t>品名</t></is></c><c r="B1" t="inlineStr"><is><t>数量</t></is></c><c r="C1" t="inlineStr"><is><t>単価</t></is></c><c r="D1" t="inlineStr"><is><t>金額</t></is></c></row>`)
+	for i, line := range [][3]int{{40, 3100, 93000}, {600, 386, 193000}, {12, 5200, 52000}} {
+		r := i + 2
+		fmt.Fprintf(&rows, `<row r="%d"><c r="A%d" t="inlineStr"><is><t>品目%d</t></is></c>`, r, r, i+1)
+		fmt.Fprintf(&rows, cell, fmt.Sprintf("B%d", r), line[0])
+		fmt.Fprintf(&rows, cell, fmt.Sprintf("C%d", r), line[1])
+		fmt.Fprintf(&rows, `<c r="D%d"><f>B%d*C%d</f><v>%d</v></c></row>`, r, r, r, line[2])
+	}
+	xlsxtest.RawWorkbook(t, dagu.ProjectPath("stale_formulas.xlsx"), "明細", `<sheetData>`+rows.String()+`</sheetData>`)
+}
+
+// Spec 077 "Typing", formula: a cached read names the cells whose cached
+// value is not what their formula evaluates to and still reads the cache;
+// formulas: calculate reads the current values with no such warning.
+func TestXlsxStaleCachedFormulas(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	writeStaleBook(t, dagu)
+	dagu.Run("start", "stale_formulas.yaml").ExpectExitCode(0)
+	var out map[string]readOut
+	readJSON(t, dagu, "out.json", &out)
+
+	cached := out["cached"]
+	require.Equal(t, []string{"93000", "193000", "52000"}, names(cached.Rows, "amount"), "the cached values are still what is read")
+	require.Equal(t, []string{"明細!D2, 明細!D3, 明細!D4: cached formula value is stale; set formulas: calculate to read current values"}, cached.Warnings)
+
+	calculated := out["calculated"]
+	require.Equal(t, []string{"124000", "231600", "62400"}, names(calculated.Rows, "amount"))
+	require.Empty(t, calculated.Warnings)
+}
+
+func TestXlsxWhere(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "read_where.yaml").ExpectExitCode(0)
+	var out map[string][]map[string]any
+	readJSON(t, dagu, "out.json", &out)
+	require.Equal(t, []string{"a"}, names(out["scalar"], "Name"), "a scalar matches equal values")
+	require.Equal(t, []string{"b"}, names(out["empty"], "Name"), `"" matches empty cells`)
+	require.Equal(t, []string{"a", " c "}, names(out["in_list"], "Name"), "in matches a list")
+	require.Equal(t, []string{"a", "b"}, names(out["numeric"], "Name"), "numbers compare numerically, text that reads as the number included")
+	require.Equal(t, []string{" c "}, names(out["loose_key"], "Name"), "a key may match a header loosely")
+	require.Equal(t, []string{" c "}, names(out["trimmed"], "Name"), "text compares trimmed")
+}
+
+func TestXlsxLimits(t *testing.T) {
+	t.Parallel()
+	t.Run("default cap", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		writeCSV(t, dagu, "many.csv", 5001, 1)
+		dagu.Run("start", "many_rows.yaml").ExpectExitCode(0)
+		var out map[string]readOut
+		readJSON(t, dagu, "out.json", &out)
+		require.Equal(t, 5000, out["default"].Count, "max_rows defaults to 5000")
+		require.True(t, out["default"].Truncated)
+		require.Len(t, out["default"].Warnings, 1)
+		require.Contains(t, out["default"].Warnings[0], "stopped after 5000 rows; set max_rows to read more")
+		require.Equal(t, 5001, out["raised"].Count)
+		require.False(t, out["raised"].Truncated)
+		require.Empty(t, out["raised"].Warnings)
+		require.Equal(t, 5001, out["convert"].Count, "convert reads every row")
+		require.Equal(t, 5001, strings.Count(readFile(t, dagu, "many.jsonl"), "\n"))
+	})
+	t.Run("output budget", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		writeCSV(t, dagu, "wide.csv", 200, 100)
+		dagu.Run("start", "output_budget.yaml").ExpectExitCode(0)
+		var out readOut
+		readJSON(t, dagu, "out.json", &out)
+		require.True(t, out.Truncated, "rows beyond the output budget are left out")
+		require.Less(t, out.Count, 200)
+		require.Greater(t, out.Count, 0)
+		require.Len(t, out.Warnings, 1)
+		require.Contains(t, out.Warnings[0], fmt.Sprintf("output truncated to %d of 200 rows", out.Count))
+	})
+}

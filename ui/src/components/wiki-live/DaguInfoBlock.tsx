@@ -90,7 +90,7 @@ function InfoTable({ rows }: { rows: [string, React.ReactNode][] }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-2 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="mt-2 mb-1 text-[10px] font-medium text-muted-foreground">
       {children}
     </div>
   );
@@ -217,9 +217,13 @@ function DagDetailsSections({
                     {step.name}
                   </td>
                   <td className="py-1 pr-3 text-muted-foreground">
-                    {(step.depends ?? []).length > 0
+                    {[...(step.depends ?? []), ...(step.inferredDepends ?? [])]
+                      .length > 0
                       ? ts('after {steps}', {
-                          steps: (step.depends ?? []).join(', '),
+                          steps: [
+                            ...(step.depends ?? []),
+                            ...(step.inferredDepends ?? []),
+                          ].join(', '),
                         })
                       : ''}
                   </td>

@@ -1,0 +1,24 @@
+working_dir: .
+max_clean_up_time_sec: 1
+steps:
+  - id: probe
+    run: |
+      Set-Content -LiteralPath started.out -Value started -Encoding ascii
+      Start-Sleep -Seconds 30
+    with:
+      shell: powershell
+    repeat_policy:
+      repeat: while
+      condition: "true"
+      expected: "true"
+handler_on:
+  abort:
+    run: |
+      Start-Sleep -Seconds 2
+      Add-Content -LiteralPath handlers.out -Value abort -Encoding ascii
+    with:
+      shell: powershell
+  exit:
+    run: Add-Content -LiteralPath handlers.out -Value exit -Encoding ascii
+    with:
+      shell: powershell

@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: js.run
+    with:
+      timeout: 200ms
+      script: while (true) {}

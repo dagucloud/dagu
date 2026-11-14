@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ViewPage from '..';
 import { useViews } from '@/hooks/useViews';
+import { AppBarContext } from '@/contexts/AppBarContext';
 
 vi.mock('@/hooks/useViews', () => ({ useViews: vi.fn() }));
 
@@ -39,13 +40,16 @@ function mockViews(views: Array<{ id: string; name: string }>) {
   } as unknown as ReturnType<typeof useViews>);
 }
 
-function renderAt(viewId: string) {
+function renderAt(viewId: string, setTitle = vi.fn()) {
   render(
     <MemoryRouter initialEntries={[`/views/${viewId}`]}>
-      <Routes>
-        <Route path="/views/:viewId" element={<ViewPage />} />
-        <Route path="/" element={<div>home</div>} />
-      </Routes>
+      <AppBarContext.Provider value={{ setTitle } as never}>
+        <Routes>
+          <Route path="/views/:viewId" element={<ViewPage />} />
+          <Route path="/dags/:fileName" element={<div>workflow page</div>} />
+          <Route path="/" element={<div>home</div>} />
+        </Routes>
+      </AppBarContext.Provider>
     </MemoryRouter>
   );
 }
@@ -62,15 +66,49 @@ describe('ViewPage', () => {
   it('renders the view board with no Overview tabs', () => {
     renderAt('v1');
 
-    expect(screen.getByRole('heading', { name: 'My View' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'My View' })
+    ).toBeInTheDocument();
     expect(screen.getByText('View panel: My View')).toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
-  it('redirects home when the view is missing', async () => {
+  // The preview of an older version had a ?peek link.
+  it('opens the workflow page of a ?peek link', () => {
+    renderAt('v1?peek=etl&peekRun=run-1');
+
+    expect(screen.getByText('workflow page')).toBeInTheDocument();
+  });
+
+  it('explains when the view is missing', () => {
     mockViews([]);
     renderAt('ghost');
 
-    await waitFor(() => expect(screen.getByText('home')).toBeInTheDocument());
+    expect(
+      screen.getByRole('heading', { name: 'View not found' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Go to Overview' })
+    ).toHaveAttribute('href', '/');
+  });
+
+  it('names the browser tab after the view', () => {
+    const setTitle = vi.fn();
+    renderAt('v1', setTitle);
+
+    expect(setTitle).toHaveBeenCalledWith('My View');
+  });
+
+  it('keeps a neutral tab title while views load', () => {
+    useViewsMock.mockReturnValue({
+      ...useViewsMock(),
+      views: [],
+      isLoading: true,
+    });
+    const setTitle = vi.fn();
+    renderAt('v1', setTitle);
+
+    expect(setTitle).toHaveBeenCalledWith('');
+    expect(setTitle).not.toHaveBeenCalledWith('View not found');
   });
 });

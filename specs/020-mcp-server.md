@@ -33,6 +33,9 @@ Rules:
 - Requests sent to any other path are outside this spec.
 - The endpoint must not expose filesystem paths or storage paths as MCP route
   structure.
+- While a standalone event stream (`GET`) is open, the server writes an SSE
+  comment immediately after the response headers and again at intervals of no
+  more than 30 seconds. Clients ignore SSE comments.
 
 ### Authentication
 
@@ -117,11 +120,15 @@ Supported resource families:
 | DAG collection | `dagu://dags` | `application/json` | DAG summaries visible to the caller. |
 | DAG spec | `dagu://dags/{name}/spec` | `application/yaml` | Current YAML specification for the named DAG. |
 | Run collection | `dagu://runs` | `application/json` | DAG-run summaries visible to the caller. |
-| Run details | `dagu://runs/{name}/{dagRunId}` | `application/json` | Current DAG-run details for the named DAG run. |
+| Run details | `dagu://runs/{name}/{dagRunId}` | `application/json` | Current DAG-run details for the named DAG run, plus the run's `outputs`, `outputsOmitted`, and `outputsError` fields under the Spec 021 rules. These fields sit at the top level of the JSON body beside `dagRunDetails`, not inside it, and are absent when Spec 021 leaves them out. |
 | Run logs | `dagu://runs/{name}/{dagRunId}/logs` | `application/json` | Current log data for the named DAG run. |
 | Step log | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one DAG-run step. |
-| Child run details | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `application/json` | Current details for a child DAG run addressed under its root run. |
+| Child run details | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `application/json` | Current details for a child DAG run addressed under its root run, plus top-level `outputs`, `outputsOmitted`, and `outputsError` fields beside `dagRunDetails`, as for run details. |
 | Child step log | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one child-run step. |
+| Foreach items | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach` | `application/json` | Items of a foreach step with the status each body run reached. |
+| Foreach item | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}` | `application/json` | One foreach item with the status of each body step. |
+| Foreach step log | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/logs` | `application/json` | Current stdout and stderr data for one body step of a foreach item. |
+| Child foreach items, item, and step log | The three foreach shapes under `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `application/json` | The same for a foreach step of a child run. |
 | Wiki collection | `dagu://wiki` and `dagu://wiki/{workspace}` | `application/json` | Wiki pages visible to the caller. |
 | Wiki page | `dagu://wiki/{workspace}/{path}` | `text/markdown` | Current Markdown content for the named Wiki page. |
 

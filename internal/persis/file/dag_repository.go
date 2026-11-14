@@ -12,6 +12,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -76,6 +77,9 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		skipExamples = *options.SkipExamples
 	}
 	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)
+	// One source for the store and the repository, so every load shares the
+	// parsed calendars.
+	calendars := spec.NewCalendarSource(cfg.Paths.CalendarsDir)
 	dagStore := filedag.NewStore(
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
@@ -84,10 +88,12 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithSearchPaths(options.SearchPaths),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
 		filedag.WithWorkspaceBaseConfigDir(workspaceBaseConfigDir),
+		filedag.WithCalendars(calendars),
 		filedag.WithFileCache(options.Cache),
 		filedag.WithSkipExamples(skipExamples),
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
 		filedag.WithSymlinks(options.Symlinks),
+		filedag.WithSkipDirs(cfg.DAGDiscovery.SkipDirs),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 	)
 	if err := dagStore.Initialize(); err != nil {
@@ -96,6 +102,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 	return persis.NewDAGRepository(dagStore, persis.DAGRepositoryOptions{
 		BaseConfigPath:         cfg.Paths.BaseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
+		Calendars:              calendars,
 	}), nil
 }
 
@@ -106,4 +113,11 @@ func dagIndexDir(cfg *config.Config) string {
 		return ""
 	}
 	return filepath.Join(cfg.Paths.DataDir, "cache", "dag-index")
+}
+
+// DAGChangeMarkerPath returns this host's file that signals DAG definition
+// changes to readers on other hosts, or "" when there is no data directory to
+// keep it in.
+func DAGChangeMarkerPath(cfg *config.Config) string {
+	return filedag.ChangeMarkerPath(dagIndexDir(cfg), cfg.Paths.DAGsDir)
 }

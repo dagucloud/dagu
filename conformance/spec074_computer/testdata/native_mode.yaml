@@ -1,0 +1,10 @@
+llm:
+  provider: openrouter
+  model: some/model
+steps:
+  - id: post
+    action: computer.run
+    with:
+      mode: native
+      do:
+        - act: Open the invoice form

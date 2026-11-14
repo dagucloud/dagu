@@ -48,6 +48,11 @@ config:
   # Browser origins allowed to make cross-origin API requests.
   # Empty disables CORS; same-origin UI access continues to work.
   corsAllowedOrigins: []
+  # Host names Dagu answers to where no credential is needed: every request
+  # with auth.mode none, and first-admin setup. Cluster names such as
+  # dagu.dagu.svc.cluster.local need no entry. ingress.host is added
+  # automatically when the chart ingress is enabled.
+  allowedHosts: []
   # Restrict every UI/API HTTP route to these client IP addresses or CIDR ranges.
   # Empty preserves unrestricted access.
   ipAccess:

@@ -29,6 +29,10 @@ func (DAGRunStoreStub) LatestAttempt(context.Context, persis.DAGRunLatestAttempt
 	panic("unexpected DAG-run store call: LatestAttempt")
 }
 
+func (DAGRunStoreStub) LatestStatuses(context.Context, persis.DAGRunLatestStatusesQuery) ([]*ir.DAGRunStatus, error) {
+	panic("unexpected DAG-run store call: LatestStatuses")
+}
+
 func (DAGRunStoreStub) QueryStatuses(context.Context, persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
 	panic("unexpected DAG-run store call: QueryStatuses")
 }
@@ -54,6 +58,10 @@ func (DAGRunStoreStub) RemoveOldDAGRuns(context.Context, persis.DAGRunRetentionR
 
 func (DAGRunStoreStub) RemoveDAGRun(context.Context, persis.DAGRunRemoveRequest) error {
 	panic("unexpected DAG-run store call: RemoveDAGRun")
+}
+
+func (DAGRunStoreStub) PruneArtifacts(context.Context, persis.ArtifactPruneRequest) (*persis.ArtifactPruneResult, error) {
+	panic("unexpected DAG-run store call: PruneArtifacts")
 }
 
 func (DAGRunStoreStub) OpenLog(context.Context, string) (io.ReadCloser, error) {

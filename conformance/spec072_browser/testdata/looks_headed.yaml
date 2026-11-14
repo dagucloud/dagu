@@ -1,0 +1,11 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+steps:
+  - id: agent
+    action: browser.run
+    with:
+      url: ${SHOP_URL}/agent
+      do:
+        - expect: {text: "user agent: headed"}
+        - expect: {text: "screen holds window"}

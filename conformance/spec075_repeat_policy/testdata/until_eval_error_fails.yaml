@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: spin
+    run: printf '%s\n' tick >> ticks.txt
+    repeat_policy:
+      repeat: until
+      condition: "not-a-number"
+      expected: "num:>=1"
+      interval_sec: 0

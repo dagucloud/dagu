@@ -1,0 +1,7 @@
+working_dir: .
+timeout_sec: 1
+preconditions:
+  - condition: sleep 30
+steps:
+  - id: main
+    run: printf '%s\n' main > timeout-ran.txt

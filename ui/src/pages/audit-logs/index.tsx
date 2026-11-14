@@ -572,10 +572,17 @@ export default function AuditLogsPage() {
         entry.action === 'connection_start' ||
         entry.action === 'connection_end'
       ) {
-        return `Connection: ${details.connection_id || 'N/A'}${details.reason ? ` (${details.reason})` : ''}`;
+        const connection = ts('Connection: {id}', {
+          id: String(details.connection_id || ts('N/A')),
+        });
+        return details.reason
+          ? `${connection} (${details.reason})`
+          : connection;
       }
       if (entry.action === 'command') {
-        return `Command: ${details.command || 'N/A'}`;
+        return ts('Command: {command}', {
+          command: String(details.command || ts('N/A')),
+        });
       }
     }
     if (entry.category === 'mcp') {
@@ -594,10 +601,13 @@ export default function AuditLogsPage() {
       .slice(0, 3)
       .map(([key, value]) => {
         if (Array.isArray(value)) {
-          return `${key}: ${value.length} items`;
+          return ts(
+            value.length === 1 ? '{key}: {count} item' : '{key}: {count} items',
+            { key, count: value.length }
+          );
         }
         if (value && typeof value === 'object') {
-          return `${key}: structured data`;
+          return ts('{key}: structured data', { key });
         }
         return `${key}: ${String(value)}`;
       })
@@ -631,10 +641,10 @@ export default function AuditLogsPage() {
   ].filter(Boolean).length;
 
   return (
-    <div className="flex flex-col gap-4 max-w-7xl h-full">
+    <div className="flex flex-col gap-4 h-full">
       <div className="flex items-center justify-between flex-shrink-0">
         <div>
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-2xl font-semibold tracking-[-0.01em]">
             <I18nText text={'Audit Logs'} />
           </h1>
           <p className="text-sm text-muted-foreground">

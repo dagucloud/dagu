@@ -39,6 +39,52 @@ func TestAcknowledgementCheckpointAndResume(t *testing.T) {
 	repeat.ExpectStderr("")
 }
 
+// A partial foreach can leave an independent human checkpoint waiting while
+// completion resumes the newly eligible branch without reopening that gate.
+func TestPartialCheckpointResume(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-partial-foreach"
+	const file = "partial_foreach_checkpoint.yaml"
+
+	startWaiting(t, dagu, env, runID, file)
+	status := waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "partial")
+
+	completed := complete(t, dagu, env, runID, "review", file)
+	completed.ExpectExitCode(0)
+	completed.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
+	completed.ExpectStderr("")
+	waitForFileContent(t, dagu.ProjectPath("resumed.txt"), "resumed\n")
+	status = waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "other")
+
+	completed = complete(t, dagu, env, runID, "other", file)
+	completed.ExpectExitCode(0)
+	completed.ExpectStdout("Completed human task other; DAG-run queued for resume.\n")
+	completed.ExpectStderr("")
+	status = waitForStatus(t, dagu, env, runID, file, "Result: Partially Succeeded")
+	require.Regexp(t, `(?m)other .*\[succeeded\]`, status.Stdout())
+	require.Equal(t, "run\n", readFileContent(t, dagu.ProjectPath("foreach-a.out")))
+	require.Equal(t, "run\n", readFileContent(t, dagu.ProjectPath("foreach-b.out")))
+	waitForFileContent(t, dagu.ProjectPath("finished.txt"), "finished\n")
+
+	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, fixtureDAGName(file))
+	retry.ExpectExitCode(0)
+	status = waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "review")
+	require.Equal(t, "run\nrun\n", readFileContent(t, dagu.ProjectPath("foreach-a.out")))
+	require.Equal(t, "run\nrun\n", readFileContent(t, dagu.ProjectPath("foreach-b.out")))
+	require.Regexp(t, `(?m)other .*\[succeeded\]`, status.Stdout())
+}
+
+func readFileContent(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path) // #nosec G304 -- the caller supplies a test-project path.
+	require.NoError(t, err)
+	return string(data)
+}
+
 func TestTypedFormDefaultsAndOutputs(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	env := sharedEnv(t)
@@ -307,6 +353,35 @@ func TestPushBackReviewLoop(t *testing.T) {
 	waitForStatus(t, dagu, env, runID, file, "Succeeded")
 	waitForFileContent(t, dagu.ProjectPath("published.txt"), "published\n")
 	waitForFileContent(t, dagu.ProjectPath("attempts.txt"), ":\n1:add-tests\n")
+}
+
+// Push-back feedback asks a step to revise its earlier work, so a harness step
+// that first runs after the push-back keeps its own prompt unchanged.
+func TestPushBackFeedbackSkipsPromptOfHarnessStepThatNeverRan(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-harness-first-run"
+	const file = "push_back_harness.yaml"
+
+	dagu.WriteExecutable("record_prompt.sh", "#!/bin/sh\nprintf '%s\\n---\\n' \"$1\" >> prompts.txt\n")
+	startWaiting(t, dagu, env, runID, file)
+	waitForStatus(t, dagu, env, runID, file, "Waiting")
+
+	pushBack(t, dagu, env, runID, "review", file, "--input=feedback=add-tests").ExpectExitCode(0)
+	status := waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "push-back iteration: 1")
+
+	complete(t, dagu, env, runID, "review", file).ExpectExitCode(0)
+	waitForStatus(t, dagu, env, runID, file, "Succeeded")
+
+	prompts, err := os.ReadFile(dagu.ProjectPath("prompts.txt"))
+	require.NoError(t, err)
+	calls := strings.Split(strings.TrimSuffix(string(prompts), "---\n"), "---\n")
+	require.Len(t, calls, 3)
+	require.Equal(t, "implement the change\n", calls[0])
+	require.Contains(t, calls[1], "implement the change")
+	require.Contains(t, calls[1], "feedback: add-tests")
+	require.Equal(t, "publish the change\n", calls[2])
 }
 
 func collapseStatusLines(stdout string) string {

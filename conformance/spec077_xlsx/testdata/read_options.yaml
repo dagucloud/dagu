@@ -1,0 +1,52 @@
+working_dir: .
+steps:
+  - id: write_main
+    action: xlsx.write
+    with:
+      path: book.xlsx
+      sheet: Main
+      columns: [Status, Name]
+      rows:
+        - {"Status": "Done", "Name": " a "}
+        - {"Status": null, "Name": "　b"}
+        - {"Status": "Failed", "Name": "c"}
+  - id: write_second
+    depends: write_main
+    action: xlsx.write
+    with:
+      path: book.xlsx
+      sheet: Second
+      header: false
+      rows:
+        - [null, null, null]
+        - [null, "k", "v"]
+        - [null, "x", 1]
+  - id: read_ci
+    depends: write_second
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: second
+      range: B2:C
+      header: false
+  - id: ci_out
+    depends: read_ci
+    action: file.write
+    with:
+      path: ci.json
+      content: '{"headers": ${steps.read_ci.outputs.headers}, "range": "${steps.read_ci.outputs.range}", "rows": ${steps.read_ci.outputs.rows}}'
+  - id: read_where
+    depends: write_second
+    action: xlsx.read
+    with:
+      path: book.xlsx
+      sheet: Main
+      columns: [{Status: state}, Name]
+      where: {state: {ne: Done}}
+      trim: true
+  - id: where_out
+    depends: read_where
+    action: file.write
+    with:
+      path: where.json
+      content: '{"headers": ${steps.read_where.outputs.headers}, "rows": ${steps.read_where.outputs.rows}}'

@@ -95,6 +95,13 @@ func defaultTestLicenseManager() *license.Manager {
 // Pro license. Extra config mutators are applied after the base auth config.
 func setupWebhookTestServer(t *testing.T, extraMutators ...func(*config.Config)) test.Server {
 	t.Helper()
+	return setupWebhookTestServerWithLicense(t, defaultTestLicenseManager(), extraMutators...)
+}
+
+// setupWebhookTestServerWithLicense is setupWebhookTestServer with the given
+// license manager.
+func setupWebhookTestServerWithLicense(t *testing.T, licenseManager *license.Manager, extraMutators ...func(*config.Config)) test.Server {
+	t.Helper()
 
 	server := test.SetupServer(t,
 		test.WithConfigMutator(func(cfg *config.Config) {
@@ -105,7 +112,7 @@ func setupWebhookTestServer(t *testing.T, extraMutators ...func(*config.Config))
 				m(cfg)
 			}
 		}),
-		test.WithServerOptions(frontend.WithLicenseManager(defaultTestLicenseManager())),
+		test.WithServerOptions(frontend.WithLicenseManager(licenseManager)),
 	)
 
 	// Create admin via setup endpoint
@@ -297,6 +304,12 @@ func TestWebhooks_RequiresDeveloperOrAbove(t *testing.T) {
 
 	server.Client().Put("/api/v1/dags/"+dagName+"/webhook/profile-selection", api.WebhookProfileSelectionRequest{
 		AllowedProfiles: []api.RuntimeProfileName{},
+	}).WithBearerToken(developerLogin.Token).
+		ExpectStatus(http.StatusForbidden).Send(t)
+
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook/profile-tokens", api.WebhookProfileTokenCreateRequest{
+		Name:    "customer-a",
+		Profile: "prod",
 	}).WithBearerToken(developerLogin.Token).
 		ExpectStatus(http.StatusForbidden).Send(t)
 }
@@ -597,6 +610,29 @@ func TestWebhooks_TriggerWithDagRunID(t *testing.T) {
 	}, 30*time.Second, 100*time.Millisecond, "duplicate dag-run ID should return 409 Conflict")
 }
 
+// The dag-run ID becomes part of run storage paths, so the webhook must apply
+// the same character rules as the other run endpoints.
+func TestWebhooks_TriggerRejectsUnsafeDagRunID(t *testing.T) {
+	t.Parallel()
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_unsafe_run_id_test"
+	createTestDAG(t, server, token, dagName)
+
+	createResp := server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+
+	var createResult api.WebhookCreateResponse
+	createResp.Unmarshal(t, &createResult)
+
+	for _, dagRunID := range []string{"../../escape", "run/../escape", `run\escape`} {
+		server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{
+			DagRunId: &dagRunID,
+		}).WithBearerToken(createResult.Token).ExpectStatus(http.StatusBadRequest).Send(t)
+	}
+}
+
 func TestWebhooks_TriggerUsesDAGDefaultProfile(t *testing.T) {
 	t.Parallel()
 	server := setupWebhookTestServer(t)
@@ -728,6 +764,73 @@ func TestWebhooks_TriggerSelectsAllowedProfile(t *testing.T) {
 		WithBearerToken(createResult.Token).
 		WithHeader("X-Dagu-Profile", "prod").
 		ExpectStatus(http.StatusForbidden).Send(t)
+}
+
+// A profile token always runs its own profile, even when the webhook allowlist
+// lets the default token select other profiles.
+func TestWebhooks_TriggerUsesProfileToken(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	dagName := "webhook_profile_token_test"
+	createTestDAG(t, server, token, dagName)
+	for _, name := range []string{"prod", "staging"} {
+		server.Client().Post("/api/v1/profiles", api.CreateRuntimeProfileJSONRequestBody{
+			Name: api.RuntimeProfileName(name),
+		}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	}
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Put("/api/v1/dags/"+dagName+"/webhook/profile-selection", api.WebhookProfileSelectionRequest{
+		AllowedProfiles: []api.RuntimeProfileName{"prod"},
+	}).WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+
+	tokensPath := "/api/v1/dags/" + dagName + "/webhook/profile-tokens"
+	server.Client().Post(tokensPath, api.WebhookProfileTokenCreateRequest{
+		Name:    "customer-a",
+		Profile: "missing",
+	}).WithBearerToken(token).ExpectStatus(http.StatusNotFound).Send(t)
+
+	createResp := server.Client().Post(tokensPath, api.WebhookProfileTokenCreateRequest{
+		Name:    "customer-a",
+		Profile: "staging",
+	}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
+	var created api.WebhookCreateResponse
+	createResp.Unmarshal(t, &created)
+	require.NotNil(t, created.Webhook.ProfileTokens)
+	require.Len(t, *created.Webhook.ProfileTokens, 1)
+	profileToken := (*created.Webhook.ProfileTokens)[0]
+	assert.Equal(t, "customer-a", profileToken.Name)
+	assert.Equal(t, api.RuntimeProfileName("staging"), profileToken.Profile)
+	assert.True(t, strings.HasPrefix(created.Token, profileToken.TokenPrefix))
+
+	triggerResp := server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+		WithBearerToken(created.Token).ExpectStatus(http.StatusOK).Send(t)
+	var triggerResult api.WebhookResponse
+	triggerResp.Unmarshal(t, &triggerResult)
+	status := waitForStoredDAGRunStatus(t, server, dagName, triggerResult.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.ProfileName == "staging"
+	})
+	assert.Equal(t, "staging", status.ProfileName)
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+		WithBearerToken(created.Token).
+		WithHeader("X-Dagu-Profile", "prod").
+		ExpectStatus(http.StatusForbidden).Send(t)
+
+	revokePath := tokensPath + "/" + profileToken.Id
+	revokeResp := server.Client().Delete(revokePath).
+		WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
+	var revoked api.WebhookDetails
+	revokeResp.Unmarshal(t, &revoked)
+	require.NotNil(t, revoked.ProfileTokens)
+	assert.Empty(t, *revoked.ProfileTokens)
+
+	server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+		WithBearerToken(created.Token).ExpectStatus(http.StatusUnauthorized).Send(t)
+	server.Client().Delete(revokePath).
+		WithBearerToken(token).ExpectStatus(http.StatusNotFound).Send(t)
 }
 
 // TestWebhooks_TriggerInvalidToken tests webhook trigger with invalid tokens
@@ -1137,4 +1240,27 @@ func mapsKeys[M ~map[string]V, V any](m M) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// A webhook starts no run next to the active run of a DAG with a restart_policy.
+func TestWebhooks_ServiceDAGRunsOneAtATime(t *testing.T) {
+	webhookParallel(t)
+	server := setupWebhookTestServer(t)
+	token := getWebhookAdminToken(t, server)
+
+	const dagName = "webhook-service"
+	createTestDAGWithSpec(t, server, token, dagName, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - run: echo ok
+`)
+	var created api.WebhookCreateResponse
+	server.Client().Post("/api/v1/dags/"+dagName+"/webhook", nil).
+		WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &created)
+
+	// The first run stays queued: the test server runs no scheduler.
+	for _, want := range []int{http.StatusOK, http.StatusConflict} {
+		server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
+			WithBearerToken(created.Token).ExpectStatus(want).Send(t)
+	}
 }

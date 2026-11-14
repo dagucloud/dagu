@@ -14,6 +14,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import AuditLogsPage, { getQuickFilterValue } from '..';
+import { AuditEntryDetailsDrawer } from '../AuditEntryDetailsDrawer';
 
 const auditEntry = {
   id: 'audit-001',
@@ -62,6 +63,9 @@ function makeConfig(): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -215,6 +219,32 @@ describe('AuditLogsPage', () => {
     );
   });
 
+  // The Copied label belongs to the entry that was copied, so it clears when
+  // the drawer shows another entry.
+  it('clears the copied label when the drawer shows another entry', async () => {
+    const config = makeConfig();
+    const renderDrawer = (entry: typeof auditEntry) => (
+      <ConfigContext.Provider value={config}>
+        <AuditEntryDetailsDrawer
+          entry={entry}
+          open
+          onOpenChange={() => undefined}
+        />
+      </ConfigContext.Provider>
+    );
+    const { rerender } = render(renderDrawer(auditEntry));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy JSON' }));
+    expect(
+      await screen.findByRole('button', { name: 'Copied' })
+    ).toBeInTheDocument();
+
+    rerender(renderDrawer({ ...auditEntry, id: 'audit-002' }));
+    expect(
+      await screen.findByRole('button', { name: 'Copy JSON' })
+    ).toBeInTheDocument();
+  });
+
   it('opens the focused audit row with the keyboard', async () => {
     renderPage();
 
@@ -234,6 +264,24 @@ describe('AuditLogsPage', () => {
 
     expect(
       await screen.findByText('route: alerts-critical • changes: 2')
+    ).toBeInTheDocument();
+  });
+
+  it('counts list values and names nested values in the summary', async () => {
+    stubAuditResponse({
+      ...auditEntry,
+      details: JSON.stringify({
+        tags: ['critical'],
+        channels: ['slack', 'email'],
+        target: { id: 'r1' },
+      }),
+    });
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        'tags: 1 item • channels: 2 items • target: structured data'
+      )
     ).toBeInTheDocument();
   });
 

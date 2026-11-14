@@ -67,7 +67,7 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 		Destination: e.cfg.Destination,
 	}
 
-	sourceInfo, err := os.Stat(e.cfg.Source)
+	sourceInfo, err := os.Stat(e.sourcePath)
 	if err != nil {
 		return wrapError(ErrSourceNotFound, err)
 	}
@@ -75,13 +75,13 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 		return wrapError(ErrConfig, fmt.Errorf("source must be a file"))
 	}
 
-	srcFile, err := os.Open(e.cfg.Source)
+	srcFile, err := os.Open(e.sourcePath)
 	if err != nil {
 		return wrapError(ErrSourceNotFound, err)
 	}
 	defer srcFile.Close()
 
-	format, err := e.determineFormat(ctx, e.cfg.Source, srcFile)
+	format, err := e.determineFormat(ctx, e.sourcePath, srcFile)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 	}
 
 	if e.cfg.VerifyIntegrity {
-		if err := e.verifyArchiveReadable(ctx, e.cfg.Source, srcFile, format); err != nil {
+		if err := e.verifyArchiveReadable(ctx, e.sourcePath, srcFile, format); err != nil {
 			return wrapError(ErrCorrupted, err)
 		}
 		res.VerifyPerformed = true
@@ -101,10 +101,7 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 		}
 	}
 
-	dest := e.cfg.Destination
-	if dest == "" {
-		dest = "."
-	}
+	dest := e.destPath
 	destRoot := filepath.Clean(dest)
 	if err := e.ensureDir(dest); err != nil {
 		return err
@@ -250,13 +247,13 @@ func (e *executorImpl) runCreate(ctx context.Context) error {
 		Destination: e.cfg.Destination,
 	}
 
-	srcInfo, err := os.Stat(e.cfg.Source)
+	srcInfo, err := os.Stat(e.sourcePath)
 	if err != nil {
 		return wrapError(ErrSourceNotFound, err)
 	}
 
 	if !e.cfg.DryRun {
-		destDir := filepath.Dir(e.cfg.Destination)
+		destDir := filepath.Dir(e.destPath)
 		if destDir != "" {
 			if err := e.ensureDir(destDir); err != nil {
 				return err
@@ -270,11 +267,17 @@ func (e *executorImpl) runCreate(ctx context.Context) error {
 	}
 
 	filesMap := map[string]string{
-		e.cfg.Source: "",
+		e.sourcePath: "",
 	}
 
 	if srcInfo.IsDir() {
-		filesMap[e.cfg.Source] = filepath.Base(e.cfg.Source)
+		if root := filepath.Base(e.cfg.Source); root == "." {
+			// A source of "." archives the directory's contents at the root.
+			// A trailing separator makes FilesFromDisk add the contents only.
+			filesMap = map[string]string{e.sourcePath + string(filepath.Separator): ""}
+		} else {
+			filesMap[e.sourcePath] = root
+		}
 	}
 
 	files, err := archives.FilesFromDisk(ctx, &archives.FromDiskOptions{
@@ -306,7 +309,7 @@ func (e *executorImpl) runCreate(ctx context.Context) error {
 		return e.resultWriter(res)
 	}
 
-	outFile, err := os.Create(e.cfg.Destination)
+	outFile, err := os.Create(e.destPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrPermission) {
 			return fmt.Errorf("%w: %v", ErrPermission, err)
@@ -330,7 +333,7 @@ func (e *executorImpl) runCreate(ctx context.Context) error {
 	}
 
 	if e.cfg.VerifyIntegrity {
-		if err := e.verifyArchiveReadable(ctx, e.cfg.Destination, nil, format); err != nil {
+		if err := e.verifyArchiveReadable(ctx, e.destPath, nil, format); err != nil {
 			return wrapError(ErrCorrupted, err)
 		}
 		res.VerifyPerformed = true
@@ -347,19 +350,19 @@ func (e *executorImpl) runList(ctx context.Context) error {
 		Source:    e.cfg.Source,
 	}
 
-	file, err := os.Open(e.cfg.Source)
+	file, err := os.Open(e.sourcePath)
 	if err != nil {
 		return wrapError(ErrSourceNotFound, err)
 	}
 	defer file.Close()
 
-	format, err := e.determineFormat(ctx, e.cfg.Source, file)
+	format, err := e.determineFormat(ctx, e.sourcePath, file)
 	if err != nil {
 		return err
 	}
 
 	if e.cfg.VerifyIntegrity {
-		if err := e.verifyArchiveReadable(ctx, e.cfg.Source, file, format); err != nil {
+		if err := e.verifyArchiveReadable(ctx, e.sourcePath, file, format); err != nil {
 			return wrapError(ErrCorrupted, err)
 		}
 		res.Verified = true
@@ -368,7 +371,7 @@ func (e *executorImpl) runList(ctx context.Context) error {
 		}
 	}
 
-	entries, err := e.walkArchive(ctx, file, e.cfg.Source, format)
+	entries, err := e.walkArchive(ctx, file, e.sourcePath, format)
 	if err != nil {
 		return err
 	}

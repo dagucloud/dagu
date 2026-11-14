@@ -1,0 +1,37 @@
+working_dir: .
+params:
+  - BOOK: abs.xlsx
+steps:
+  - id: home
+    action: file.mkdir
+    with:
+      path: "~"
+  - id: write_tilde
+    depends: home
+    action: xlsx.write
+    with:
+      path: ~/tilde.xlsx
+      columns: [n]
+      rows: [{"n": 1}]
+  - id: read_tilde
+    depends: write_tilde
+    action: xlsx.read
+    with:
+      path: ~/tilde.xlsx
+  - id: write_abs
+    action: xlsx.write
+    with:
+      path: ${params.BOOK}
+      columns: [n]
+      rows: [{"n": 1}, {"n": 2}]
+  - id: read_abs
+    depends: write_abs
+    action: xlsx.read
+    with:
+      path: ${params.BOOK}
+  - id: out
+    depends: [read_tilde, read_abs]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"tilde": ${steps.read_tilde.outputs.count}, "abs": ${steps.read_abs.outputs.count}}'

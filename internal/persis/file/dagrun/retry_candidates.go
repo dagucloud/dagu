@@ -414,6 +414,7 @@ func retryCandidateStatus(status ir.DAGRunStatus) ir.DAGRunStatus {
 		CreatedAt:            status.CreatedAt,
 		QueuedAt:             status.QueuedAt,
 		ScheduleTime:         status.ScheduleTime,
+		BackfillID:           status.BackfillID,
 		StartedAt:            status.StartedAt,
 		FinishedAt:           status.FinishedAt,
 		AutoRetryCount:       status.AutoRetryCount,

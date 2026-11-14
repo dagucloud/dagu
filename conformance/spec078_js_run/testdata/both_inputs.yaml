@@ -1,0 +1,6 @@
+steps:
+  - action: js.run
+    with:
+      script: return input
+      input: 1
+      input_file: data.json

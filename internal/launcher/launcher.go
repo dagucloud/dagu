@@ -5,14 +5,18 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"runtime/debug"
-	"strconv"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -24,6 +28,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
+
+// ErrExecutableMissing marks a launch that failed because the executable does
+// not exist, such as when the binary of a running process was deleted.
+var ErrExecutableMissing = errors.New("executable does not exist")
 
 // CommandError wraps a command execution error with captured output.
 // It preserves the original error for unwrapping (e.g., for exit code extraction).
@@ -88,6 +96,9 @@ type SubCmdBuilder struct {
 	executable string
 	configFile string
 	baseEnv    config.BaseEnv
+	// homeEnv is the DAGU_HOME entry of the base environment, if any. A
+	// --dagu-home flag sets it there and not in the process environment.
+	homeEnv string
 }
 
 // NewSubCmdBuilder returns a new SubCmdBuilder initialized from cfg.
@@ -98,7 +109,28 @@ func NewSubCmdBuilder(cfg *config.Config) *SubCmdBuilder {
 		executable: cfg.Paths.Executable,
 		configFile: cfg.Paths.ConfigFileUsed,
 		baseEnv:    cfg.Core.BaseEnv,
+		homeEnv:    envEntry(cfg.Core.BaseEnv.AsSlice(), daguHomeEnvKey),
 	}
+}
+
+// ExecutableMissing reports whether the executable the built commands run
+// does not exist.
+func (b *SubCmdBuilder) ExecutableMissing() bool {
+	return executableMissing(b.executable)
+}
+
+const daguHomeEnvKey = "DAGU_HOME"
+
+// envEntry returns the last KEY=value entry of env for key, or "".
+func envEntry(env []string, key string) string {
+	prefix := key + "="
+	entry := ""
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			entry = e
+		}
+	}
+	return entry
 }
 
 func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
@@ -111,8 +143,16 @@ func (b *SubCmdBuilder) filteredEnv(extra ...string) []string {
 	return env
 }
 
+// parentEnv is the process environment for commands that run a DAG, with
+// the DAGU_HOME of the configuration so that the child uses the same home.
 func (b *SubCmdBuilder) parentEnv(extra ...string) []string {
 	env := filterExecutionEnv(os.Environ())
+	if b.homeEnv != "" {
+		env = slices.DeleteFunc(env, func(e string) bool {
+			return strings.HasPrefix(e, daguHomeEnvKey+"=")
+		})
+		env = append(env, b.homeEnv)
+	}
 	env = append(env, extra...)
 	return env
 }
@@ -135,7 +175,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	args := []string{"start"}
 
 	if opts.Params != "" {
-		args = append(args, "-p", strconv.Quote(opts.Params))
+		args = append(args, "--params-stdin")
 	}
 	if opts.Quiet {
 		args = append(args, "-q")
@@ -171,6 +211,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	if opts.NoReuse {
 		args = append(args, "--no-reuse")
 	}
+	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -183,6 +224,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
+		Params:          opts.Params,
 		Env:             b.parentEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
@@ -194,7 +236,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	args := []string{"enqueue"}
 
 	if opts.Params != "" {
-		args = append(args, "-p", strconv.Quote(opts.Params))
+		args = append(args, "--params-stdin")
 	}
 	if opts.Quiet {
 		args = append(args, "-q")
@@ -229,11 +271,13 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 	if opts.NoReuse {
 		args = append(args, "--no-reuse")
 	}
+	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
 	args = append(args, dag.Location)
 
 	return CmdSpec{
 		Executable:      b.executable,
 		Args:            args,
+		Params:          opts.Params,
 		Env:             b.filteredEnv(definitionIDEnv(opts.DefinitionID)...),
 		BuildEnv:        append([]string{}, dag.Env...),
 		RuntimeResolved: dag.RuntimeResolved,
@@ -294,6 +338,9 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	if opts.IncludeDownstream && opts.Step != "" {
 		args = append(args, "--downstream")
 	}
+	if opts.BypassPreconditions && opts.Step != "" {
+		args = append(args, "--bypass-preconditions")
+	}
 	if !opts.Root.Zero() {
 		args = append(args, fmt.Sprintf("--root=%s", opts.Root.String()))
 	}
@@ -322,10 +369,16 @@ func (b *SubCmdBuilder) Retry(dag *ir.DAG, opts RetryOptions) CmdSpec {
 	return spec
 }
 
+// MaxParamsSize is the most bytes of params a started or enqueued run takes.
+const MaxParamsSize = 1 << 20
+
 // CmdSpec describes a command to be executed with all its configuration.
 type CmdSpec struct {
-	Executable      string
-	Args            []string
+	Executable string
+	Args       []string
+	// Params are the run's params, passed on the command's standard input
+	// so their size is not bound by the platform's command-line limit.
+	Params          string
 	Env             []string
 	BuildEnv        []string
 	RuntimeResolved bool
@@ -351,6 +404,8 @@ type StartOptions struct {
 	ProfileName  string  // Runtime profile name
 	DefinitionID string  // Stable DAG definition identity
 	NoReuse      bool    // Disable build materialization reuse
+	// WorkerSelector replaces the DAG's worker_selector for this run.
+	WorkerSelector map[string]string
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.
@@ -368,6 +423,18 @@ type EnqueueOptions struct {
 	ProfileName  string // Runtime profile name
 	DefinitionID string // Stable DAG definition identity
 	NoReuse      bool   // Disable build materialization reuse
+	// WorkerSelector replaces the DAG's worker_selector for this run.
+	WorkerSelector map[string]string
+}
+
+// workerLabelArgs renders a per-run worker selector as repeatable
+// --worker-label flags, in key order so a spec is the same for the same input.
+func workerLabelArgs(selector map[string]string) []string {
+	args := make([]string, 0, len(selector))
+	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		args = append(args, fmt.Sprintf("--worker-label=%s=%s", key, selector[key]))
+	}
+	return args
 }
 
 func definitionIDEnv(id string) []string {
@@ -382,10 +449,12 @@ type RetryOptions struct {
 	DAGRunID          string
 	Step              string
 	IncludeDownstream bool
-	Root              ir.DAGRunRef
-	RetryPath         dagrun.RetryPath
-	TriggerActor      string
-	QueueDispatch     bool
+	// BypassPreconditions skips step precondition evaluation for retried steps.
+	BypassPreconditions bool
+	Root                ir.DAGRunRef
+	RetryPath           dagrun.RetryPath
+	TriggerActor        string
+	QueueDispatch       bool
 }
 
 // RestartOptions contains options for restarting a dag-run.
@@ -410,10 +479,38 @@ func Run(ctx context.Context, spec CmdSpec) error {
 	cmd.Stdout = io.MultiWriter(stdout, fileOrDefault(spec.Stdout, os.Stdout))
 	cmd.Stderr = io.MultiWriter(stderr, fileOrDefault(spec.Stderr, os.Stderr))
 
-	if err := cmd.Run(); err != nil {
+	untrack, err := startTracked(ctx, cmd)
+	if err != nil {
+		return buildCommandError(markMissingExecutable(cmd, err), stdout, stderr)
+	}
+	defer untrack()
+	if err := cmd.Wait(); err != nil {
 		return buildCommandError(err, stdout, stderr)
 	}
 	return nil
+}
+
+// markMissingExecutable marks a start failure of cmd with ErrExecutableMissing
+// when its executable does not exist.
+func markMissingExecutable(cmd *exec.Cmd, err error) error {
+	if executableMissing(cmd.Path) {
+		return fmt.Errorf("%w: %w", ErrExecutableMissing, err)
+	}
+	return err
+}
+
+// executableMissing reports whether nothing exists at path and nothing is
+// found for it the way a command looks it up, through PATH for a bare name
+// or PATHEXT on Windows.
+func executableMissing(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	_, err := exec.LookPath(path)
+	return err != nil
 }
 
 // buildCommandError constructs an error that includes captured output for debugging.
@@ -421,8 +518,8 @@ func Run(ctx context.Context, spec CmdSpec) error {
 func buildCommandError(err error, stdout, stderr *cappedBuffer) error {
 	return &CommandError{
 		Err:    err,
-		Stdout: strings.TrimSpace(stdout.String()),
-		Stderr: strings.TrimSpace(stderr.String()),
+		Stdout: strings.TrimSpace(strings.ToValidUTF8(stdout.String(), string(utf8.RuneError))),
+		Stderr: strings.TrimSpace(strings.ToValidUTF8(stderr.String(), string(utf8.RuneError))),
 	}
 }
 
@@ -461,9 +558,10 @@ func StartProcess(ctx context.Context, spec CmdSpec) (*StartResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	untrack, err := startTracked(ctx, cmd)
+	if err != nil {
 		cleanupTransport(cleanup)
-		return nil, fmt.Errorf("failed to start command: %w", err)
+		return nil, fmt.Errorf("failed to start command: %w", markMissingExecutable(cmd, err))
 	}
 
 	pid := cmd.Process.Pid
@@ -472,6 +570,7 @@ func StartProcess(ctx context.Context, spec CmdSpec) (*StartResult, error) {
 	go execWithRecovery(ctx, func() {
 		defer close(done)
 		defer cleanupTransport(cleanup)
+		defer untrack()
 		done <- cmd.Wait()
 	})
 
@@ -488,11 +587,19 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	var cmd *exec.Cmd
 	if withContext {
 		cmd = exec.CommandContext(ctx, spec.Executable, spec.Args...)
+		if ProcessRegistryFrom(ctx) != nil {
+			// Registered runs stop through signal propagation so they can
+			// finish cleanup and persist their terminal status.
+			cmd.Cancel = nil
+		}
 	} else {
 		cmd = exec.Command(spec.Executable, spec.Args...)
 	}
 
 	cmdutil.SetupCommand(cmd)
+	if spec.Params != "" {
+		cmd.Stdin = strings.NewReader(spec.Params)
+	}
 	var env []string
 	if spec.Env != nil {
 		env = append([]string{}, spec.Env...)

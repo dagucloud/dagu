@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,8 @@ const (
 	configFileName   = "aqua.yaml"
 	checksumFileName = "aqua-checksums.json"
 	manifestFileName = "manifest.json"
+
+	maxLocalRegistryBytes = 16 << 20
 
 	// EnvManifest points command executors to the resolved Dagu tools manifest.
 	EnvManifest = "DAGU_TOOLS_MANIFEST"
@@ -129,24 +132,67 @@ func CachePaths(toolsDir, platform, toolsetHash string) (CacheLayout, error) {
 	}, nil
 }
 
-// ToolsetHash returns a stable hash for a tool declaration on a platform.
-func ToolsetHash(cfg *ir.ToolConfig, platform string) (string, error) {
+// ToolsetHash returns a stable hash and, for local registries, the bounded
+// snapshot that the installer must use instead of reopening the source path.
+func ToolsetHash(cfg *ir.ToolConfig, platform string) (string, []byte, error) {
 	if cfg == nil {
-		return "", fmt.Errorf("tools config is required")
+		return "", nil, fmt.Errorf("tools config is required")
 	}
 	payload := struct {
-		Platform string         `json:"platform"`
-		Tools    *ir.ToolConfig `json:"tools"`
+		Platform                    string         `json:"platform"`
+		Tools                       *ir.ToolConfig `json:"tools"`
+		LocalRegistrySnapshotDigest string         `json:"localRegistrySnapshotDigest,omitempty"`
 	}{
 		Platform: platform,
 		Tools:    cfg,
 	}
+	var snapshot []byte
+	if cfg.Registry != nil && strings.TrimSpace(cfg.Registry.Type) == "local" {
+		path := strings.TrimSpace(cfg.Registry.Path)
+		if err := ir.ValidateWorkerAbsPath(path); err != nil {
+			return "", nil, fmt.Errorf("registry.path: %w", err)
+		}
+		data, err := readLocalRegistry(path)
+		if err != nil {
+			return "", nil, fmt.Errorf("read local registry: %w", err)
+		}
+		snapshot = data
+		digest := sha256.Sum256(snapshot)
+		payload.LocalRegistrySnapshotDigest = hex.EncodeToString(digest[:])
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal toolset: %w", err)
+		return "", nil, fmt.Errorf("marshal toolset: %w", err)
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:]), snapshot, nil
+}
+
+func readLocalRegistry(path string) ([]byte, error) {
+	file, err := openLocalRegistry(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("local registry %q is not a regular file", path)
+	}
+	if info.Size() > maxLocalRegistryBytes {
+		return nil, fmt.Errorf("local registry %q exceeds %d bytes", path, maxLocalRegistryBytes)
+	}
+	// Read one extra byte to detect a file that grows past the limit after stat.
+	data, err := io.ReadAll(io.LimitReader(file, maxLocalRegistryBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxLocalRegistryBytes {
+		return nil, fmt.Errorf("local registry %q exceeds %d bytes", path, maxLocalRegistryBytes)
+	}
+	return data, nil
 }
 
 // EnvVars returns the runtime env vars needed to expose a resolved aqua toolset.

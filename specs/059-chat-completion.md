@@ -7,9 +7,9 @@ Partially implemented.
 ## Scope
 
 This spec covers `chat.completion` request construction, response output,
-stream selection, model fallback, and the `with.tools` agentic tool-calling
-loop, using a local OpenAI-compatible endpoint. No external model service is
-required.
+stream selection, model fallback, the `with.tools` agentic tool-calling
+loop, and structured output through `output_schema`, using a local
+OpenAI-compatible endpoint. No external model service is required.
 
 Provider-specific parameters, timeout, abort, and UI-facing tool sub-DAG
 drill-down tracking belong to executor and lifecycle coverage.
@@ -56,13 +56,99 @@ continues to request another response.
 `with.max_tool_iterations` bounds how many such request/tool-call rounds
 run, default 10. Reaching the limit does not fail the step: it is a second,
 equally successful termination path alongside the model responding with no
-further tool calls.
+further tool calls. A step with `output_schema` is the exception; see
+below.
+
+### Structured output
+
+A step-level `output_schema` makes the model answer in that shape. The
+schema must declare `type: object`, list at least one property under
+`properties`, and list every `required` name under `properties`.
+
+Each request offers a `respond` tool whose parameters are the schema and
+requires a tool call (`tool_choice: required`). The first system message
+gains an instruction to answer through `respond`; when there is none, the
+instruction becomes the first message. The instruction is not part of the
+saved session. Structured requests never stream, regardless of
+`with.stream`.
+
+The answer is the arguments of the model's `respond` call. A reply without
+that call is accepted when its text is a JSON object, optionally inside a
+`json` code fence. Properties the schema does not list are dropped, and the
+remaining object is validated against the schema. The step writes the
+object to stdout as one line of JSON with keys in sorted order, and each
+listed property becomes `${steps.<id>.outputs.<name>}`. Because only listed
+properties are published, a reference to any other output of the step is
+reported as unknown, even when the schema allows additional properties.
+
+An answer that is not a JSON object or does not match the schema gets one
+correction: the next request carries the rejected answer as an assistant
+message without tool calls, followed by a user message stating why it was
+rejected. When the corrected answer is also unusable, that model has
+failed and the next `with.model` entry is tried.
+
+With `with.tools`, the tool DAGs are offered next to `respond`. A response
+that calls `respond` ends the loop; other tool calls in that response do
+not run. Reaching `with.max_tool_iterations` without an answer fails that
+model, like an unusable answer: the next `with.model` entry starts over,
+and the step fails when no model is left.
+
+### Files
+
+`with.files` names the files the model reads with the prompt: one path or
+glob pattern, several of them as a list or one per line, or a list an
+earlier step published, such as the emails `mail.search` found with
+`save_attachments: true`. A leading `~` is the home directory, and a
+relative path is under the step's working directory. Each file is read
+once, in the order named, before any request.
+
+A text file (`.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.jsonl`, `.yaml`,
+`.yml`, `.xml`, `.html`, `.htm`, `.log`), a Word document (`.docx`) and an
+Excel workbook (`.xlsx`, `.xlsm`) are given as text, a paragraph or row a
+line; a text file in Shift_JIS is decoded, a UTF-8 byte order mark is
+dropped, and one that is neither UTF-8 nor Shift_JIS fails as `the text
+file could not be read`. A PDF is given page by page, and a page without
+text of its own, such as a scan, is rendered to an image. An image file
+(PNG, JPEG, GIF, WebP) is given as an image, scaled down to a long edge of
+1568 pixels when larger. Files of other kinds, a file over 50 MB, a
+missing file, and a pattern matching nothing fail the step before any
+request.
+
+The text goes ahead of the step's last user message, each file in a
+`<file name="…">` block, a PDF's pages set apart by `--- page N ---`
+lines; the images go with that message, in the order they are named, and
+the text names each by its place: `[Image 1 is receipt.png.]`, or
+`--- page 2: image 1 ---` for a scanned page. Together the files may hold
+up to `with.max_file_chars` characters of text, 1,000,000 by default, and
+50 images. `max_file_chars` is a positive integer; set it to what the
+model's context window holds, as 1,000,000 characters is about 250K
+tokens of English but 500K or more of Japanese. More text than that fails
+the step before any request, naming both counts and `max_file_chars`.
+
+When a provider refuses the request for its length, the step fails with
+the provider's error followed by `; the files held N characters of text`,
+so the work can be split across steps. The step does not retry such a
+refusal.
+
+The session keeps the text, so a later step of the session still reads it;
+the images go with the one request and are not kept. A push-back resends
+the feedback without the files. `files` and `max_file_chars` are refused in
+a DAG-level `llm` block, since they belong with the prompt they go with.
 
 ## Errors
 
 `dagu validate` rejects missing prompt/message input and a configured
 provider without a model. It exits nonzero with an error identifying the
 invalid configuration.
+
+With `output_schema`, `dagu validate` also rejects a schema without
+`type: object`, a schema that lists no properties, a `required` name that
+`properties` does not list, `with.web_search`, and a tool named `respond`.
+
+When no model gives a usable structured answer, the step fails with an
+error naming the last model and stating that no answer matched
+`output_schema`. The error contains no part of the rejected answers; the
+step's stderr receives each rejected answer with the reason.
 
 When the first fallback model rejects a request and the next succeeds,
 the step succeeds and writes the successful response. Exhausted fallback,
@@ -80,6 +166,53 @@ steps:
       base_url: http://localhost:8080
       prompt: Summarize the supplied text.
       stream: false
+```
+
+Reading an invoice, PDF or photographed, into typed values:
+
+```yaml
+steps:
+  - id: read
+    action: chat.completion
+    with:
+      provider: local
+      model: local-model
+      base_url: http://localhost:8080
+      prompt: Read the invoice and give its number, date, and total.
+      files: ~/Downloads/invoice-*.pdf
+    output_schema:
+      type: object
+      properties:
+        number: {type: string}
+        date: {type: string}
+        total: {type: number}
+      required: [number]
+```
+
+Structured output, published as step outputs:
+
+```yaml
+steps:
+  - id: classify
+    action: chat.completion
+    with:
+      provider: local
+      model: local-model
+      base_url: http://localhost:8080
+      prompt: "Classify this note and extract the amount: please refund my 12.50"
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [refund, complaint, question]
+        amount:
+          type: number
+      required: [category]
+
+  - id: record
+    depends: classify
+    run: echo "${steps.classify.outputs.category}"
 ```
 
 Tool calling, using another DAG in the same file as a tool:

@@ -35,7 +35,7 @@ func newTestService(t *testing.T, cfg *Config) (*serviceImpl, string) {
 	dataDir := filepath.Join(tempDir, "data")
 	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 	require.NoError(t, os.MkdirAll(dataDir, 0755))
-	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, wikiDir), dataDir)
+	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, wikiDir), "", dataDir)
 	return svc.(*serviceImpl), dagsDir
 }
 
@@ -278,6 +278,69 @@ func TestSyncItemKindForIDAssets(t *testing.T) {
 	assert.Equal(t, SyncItemKindWikiPage, SyncItemKindForID("wiki/.attachments"))
 }
 
+func TestSyncItemKindForIDCalendars(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, SyncItemKindCalendar, SyncItemKindForID("calendars/jp-banking"))
+	// Only a valid calendar name directly in the folder is a calendar file.
+	assert.Equal(t, SyncItemKindDAG, SyncItemKindForID("calendars/nested/jp"))
+	assert.Equal(t, SyncItemKindDAG, SyncItemKindForID("calendars/jp.banking"))
+	assert.Equal(t, SyncItemKindDAG, SyncItemKindForID("calendars"))
+}
+
+func TestScanLocalCalendars(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	calendarsPath := filepath.Join(tempDir, "calendars-root")
+	require.NoError(t, os.MkdirAll(filepath.Join(calendarsPath, "nested"), 0755))
+	for _, name := range []string{"jp.yaml", "notes.yml", "jp.banking.yaml", filepath.Join("nested", "x.yaml")} {
+		require.NoError(t, os.WriteFile(filepath.Join(calendarsPath, name), []byte("holidays: []\n"), 0600))
+	}
+
+	s := &serviceImpl{
+		dagsDir:      tempDir,
+		wikiDir:      filepath.Join(tempDir, "wiki"),
+		repoWikiDir:  wikiDir,
+		calendarsDir: calendarsPath,
+		cfg:          &Config{},
+	}
+	state := &State{Items: make(map[string]*SyncItemState)}
+	require.NoError(t, s.scanLocalItems(state))
+
+	require.Len(t, state.Items, 1)
+	item := state.Items["calendars/jp"]
+	require.NotNil(t, item)
+	assert.Equal(t, SyncItemKindCalendar, item.Kind)
+	assert.Equal(t, StatusUntracked, item.Status)
+	assert.Equal(t, ".yaml", item.FileExtension)
+}
+
+// Calendars live outside the DAGs directory, so they are listed even before
+// that directory exists.
+func TestScanLocalCalendarsWithoutDAGsDir(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	calendarsPath := filepath.Join(tempDir, "calendars")
+	require.NoError(t, os.MkdirAll(calendarsPath, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(calendarsPath, "jp.yaml"), []byte("holidays: []\n"), 0600))
+
+	dagsDir := filepath.Join(tempDir, "dags")
+	s := &serviceImpl{
+		dagsDir:      dagsDir,
+		wikiDir:      filepath.Join(dagsDir, "wiki"),
+		repoWikiDir:  wikiDir,
+		calendarsDir: calendarsPath,
+		cfg:          &Config{},
+	}
+	state := &State{Items: make(map[string]*SyncItemState)}
+	require.NoError(t, s.scanLocalItems(state))
+
+	require.Contains(t, state.Items, "calendars/jp")
+	assert.Equal(t, StatusUntracked, state.Items["calendars/jp"].Status)
+}
+
 func TestIsValidAssetItemID(t *testing.T) {
 	t.Parallel()
 
@@ -304,6 +367,7 @@ func TestNormalizeTrackedItemsKeepsAssetKind(t *testing.T) {
 		"wiki/.attachments/page/logo.png": {Kind: SyncItemKindWikiPageAsset, Status: StatusSynced},
 		"wiki/guides/deploy":              {Kind: SyncItemKindWikiPage, Status: StatusSynced},
 		"scripts/run.sh":                  {Kind: SyncItemKindFile, Status: StatusSynced},
+		"calendars/jp":                    {Kind: SyncItemKindCalendar, Status: StatusSynced},
 		"bogus":                           {Kind: SyncItemKind("mystery"), Status: StatusSynced},
 	}}
 	normalizeTrackedItems(state)
@@ -311,7 +375,23 @@ func TestNormalizeTrackedItemsKeepsAssetKind(t *testing.T) {
 	require.Contains(t, state.Items, "wiki/.attachments/page/logo.png")
 	assert.Equal(t, SyncItemKindWikiPageAsset, state.Items["wiki/.attachments/page/logo.png"].Kind)
 	assert.Equal(t, SyncItemKindFile, state.Items["scripts/run.sh"].Kind)
+	assert.Equal(t, SyncItemKindCalendar, state.Items["calendars/jp"].Kind)
 	assert.NotContains(t, state.Items, "bogus")
+}
+
+// A record without a kind predates calendar items, when a calendars/ ID
+// named a DAG. Keeping that kind lets a pull move the DAG copy aside.
+func TestNormalizeTrackedItemsInfersLegacyKinds(t *testing.T) {
+	t.Parallel()
+
+	state := &State{Items: map[string]*SyncItemState{
+		"calendars/jp":  {Status: StatusSynced},
+		"wiki/guides/a": {Status: StatusSynced},
+	}}
+	normalizeTrackedItems(state)
+
+	assert.Equal(t, SyncItemKindDAG, state.Items["calendars/jp"].Kind)
+	assert.Equal(t, SyncItemKindWikiPage, state.Items["wiki/guides/a"].Kind)
 }
 
 func TestIsSyncableRepoFile(t *testing.T) {
@@ -679,7 +759,7 @@ func TestReconcile_BackwardCompatibility(t *testing.T) {
 		Enabled:    true,
 		Repository: "host.com/org/repo",
 		Branch:     "main",
-	}, dagsDir, filepath.Join(dagsDir, legacyDocsDir), dataDir)
+	}, dagsDir, filepath.Join(dagsDir, legacyDocsDir), "", dataDir)
 	impl := svc.(*serviceImpl)
 
 	// Save old state without PreviousStatus/MissingAt fields
@@ -758,7 +838,7 @@ func TestSummaryPriority_MissingBetweenConflictAndPending(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 	require.NoError(t, os.MkdirAll(dataDir, 0755))
 
-	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, legacyDocsDir), dataDir)
+	svc := NewService(cfg, dagsDir, filepath.Join(dagsDir, legacyDocsDir), "", dataDir)
 	impl := svc.(*serviceImpl)
 
 	t.Run("missing overrides pending", func(t *testing.T) {
@@ -959,7 +1039,7 @@ func TestStatCacheRestart(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, edited, 0600))
 	require.NoError(t, os.Chtimes(filePath, modTime, modTime))
 
-	restarted := NewService(s.cfg, dagsDir, s.wikiDir, s.dataDir)
+	restarted := NewService(s.cfg, dagsDir, s.wikiDir, s.calendarsDir, s.dataDir)
 	status, err := restarted.GetStatus(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, StatusModified, status.Items["my-dag"].Status)
@@ -1444,6 +1524,17 @@ func TestMove_RequiresMatchingItemKinds(t *testing.T) {
 	err = impl.Move(context.Background(), "task", "wiki/.attachments/page/task", "", false)
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "newItemId", validationErr.Field)
+
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
+		"calendars/jp": {Kind: SyncItemKindCalendar, Status: StatusSynced},
+	}}))
+	for _, newID := range []string{"jp", "calendars/nested/jp"} {
+		err = impl.Move(context.Background(), "calendars/jp", newID, "", false)
+		require.ErrorAs(t, err, &validationErr, newID)
+		assert.Equal(t, "newItemId", validationErr.Field)
+	}
+	err = impl.Move(context.Background(), "task", "calendars/task", "", false)
+	require.ErrorAs(t, err, &validationErr)
 }
 
 func TestMove_ConflictSource_WithoutForce_Rejected(t *testing.T) {

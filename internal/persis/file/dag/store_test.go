@@ -5,9 +5,12 @@ package dag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -40,6 +44,7 @@ func newRepository(baseDir string, opts ...Option) *persis.DAGRepository {
 	return persis.NewDAGRepository(store, persis.DAGRepositoryOptions{
 		BaseConfigPath:         store.baseConfigPath,
 		WorkspaceBaseConfigDir: store.workspaceBaseConfigDir,
+		Calendars:              store.calendars,
 	})
 }
 
@@ -520,6 +525,22 @@ func TestGetSpecAllowsNestedPathsWithinConfiguredDirectories(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, dagContent, spec)
+}
+
+func TestGetSpecResolvesMixedCaseYAMLExtension(t *testing.T) {
+	baseDir := t.TempDir()
+
+	const dagContent = "name: mixed-dag\nsteps: []\n"
+	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "MIXED.YAML"), []byte(dagContent), 0600))
+
+	store := newRepository(baseDir, WithSkipExamples(true))
+	spec, err := store.GetSpec(context.Background(), "MIXED.YAML")
+	require.NoError(t, err)
+	assert.Equal(t, dagContent, spec)
+
+	dag, err := store.GetMetadata(context.Background(), "MIXED.YAML")
+	require.NoError(t, err)
+	assert.Equal(t, "mixed-dag", dag.Name)
 }
 
 func TestGetSpecRejectsPathsOutsideConfiguredDirectories(t *testing.T) {
@@ -1053,6 +1074,78 @@ steps:
 	require.Error(t, err)
 }
 
+// Two saves from the same read of a DAG: one writes, the other gets a
+// conflict and writes nothing.
+func TestUpdateSpecIfMatch(t *testing.T) {
+	tmpDir := fileutil.MustTempDir("test-update-spec-if-match")
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+
+	store := newRepository(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	initial := "name: cas-dag\nsteps:\n  - name: step1\n    run: echo initial\n"
+	require.NoError(t, store.Create(ctx, "cas-dag", []byte(initial)))
+	sum := sha256.Sum256([]byte(initial))
+	base := hex.EncodeToString(sum[:])
+
+	contents := []string{
+		"name: cas-dag\nsteps:\n  - name: step1\n    run: echo first\n",
+		"name: cas-dag\nsteps:\n  - name: step1\n    run: echo second\n",
+	}
+	errs := make([]error, len(contents))
+	var wg sync.WaitGroup
+	for i, content := range contents {
+		wg.Go(func() { errs[i] = store.UpdateSpecIfMatch(ctx, "cas-dag", base, []byte(content)) })
+	}
+	wg.Wait()
+
+	var won []string
+	for i, err := range errs {
+		if err == nil {
+			won = append(won, contents[i])
+			continue
+		}
+		require.ErrorIs(t, err, persis.ErrConflict)
+	}
+	require.Len(t, won, 1)
+	spec, err := store.GetSpec(ctx, "cas-dag")
+	require.NoError(t, err)
+	assert.Equal(t, won[0], spec)
+}
+
+// A plain update waits while a conditional update holds the lock of the file,
+// so it cannot land between the hash check and the write.
+func TestUpdateWaitsForSpecLock(t *testing.T) {
+	store := NewStore(t.TempDir(), WithSkipExamples(true))
+	ctx := context.Background()
+	initial := "name: lock-dag\nsteps:\n  - name: step1\n    run: echo initial\n"
+	require.NoError(t, store.Create(ctx, "lock-dag", []byte(initial)))
+	resolved, err := store.locateDAG(ctx, "lock-dag")
+	require.NoError(t, err)
+
+	unlock, err := store.lockSpec(ctx, "lock-dag", resolved)
+	require.NoError(t, err)
+	next := "name: lock-dag\nsteps:\n  - name: step1\n    run: echo next\n"
+	done := make(chan error, 1)
+	go func() { done <- store.Update(ctx, "lock-dag", []byte(next)) }()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("Update returned while the lock was held: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	current, err := os.ReadFile(resolved.ResolvedPath)
+	require.NoError(t, err)
+	assert.Equal(t, initial, string(current))
+
+	unlock()
+	require.NoError(t, <-done)
+	current, err = os.ReadFile(resolved.ResolvedPath)
+	require.NoError(t, err)
+	assert.Equal(t, next, string(current))
+}
+
 func TestDelete(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-delete")
 	defer func() {
@@ -1470,6 +1563,48 @@ steps:
 	require.Equal(t, 1, cache.Size())
 }
 
+// A workspace directory reached through a symlink is read through the link,
+// so editing its base config must refresh cached metadata too.
+func TestGetMetadataRefreshesCacheWhenSymlinkedWorkspaceBaseConfigChanges(t *testing.T) {
+	rootDir := t.TempDir()
+	dagDir := filepath.Join(rootDir, "dags")
+	workspaceConfigDir := filepath.Join(rootDir, "workspaces")
+	targetDir := filepath.Join(rootDir, "ops-config")
+	require.NoError(t, os.MkdirAll(dagDir, 0750))
+	require.NoError(t, os.MkdirAll(workspaceConfigDir, 0750))
+	require.NoError(t, os.MkdirAll(targetDir, 0750))
+	if err := os.Symlink(targetDir, filepath.Join(workspaceConfigDir, "ops")); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	workspaceBaseConfig := filepath.Join(targetDir, "base.yaml")
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 1\n"), 0600))
+
+	store := newRepository(
+		dagDir,
+		WithWorkspaceBaseConfigDir(workspaceConfigDir),
+		WithFileCache(fileutil.NewCache[*ir.DAG]("dag_definition", 16, time.Hour)),
+		WithSkipExamples(true),
+	)
+	ctx := context.Background()
+	require.NoError(t, os.WriteFile(filepath.Join(dagDir, "linked-workspace.yaml"), []byte(`labels:
+  - workspace=ops
+steps:
+  - name: step1
+    run: echo "hello"
+`), 0600))
+
+	dag, err := store.GetMetadata(ctx, "linked-workspace")
+	require.NoError(t, err)
+	require.Equal(t, 1, dag.MaxActiveSteps)
+
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, os.WriteFile(workspaceBaseConfig, []byte("max_active_steps: 2\n"), 0600))
+
+	reloaded, err := store.GetMetadata(ctx, "linked-workspace")
+	require.NoError(t, err)
+	require.Equal(t, 2, reloaded.MaxActiveSteps)
+}
+
 func TestListRebuildsIndexWhenBaseConfigChanges(t *testing.T) {
 	rootDir := t.TempDir()
 	dagDir := filepath.Join(rootDir, "dags")
@@ -1559,6 +1694,58 @@ steps:
 	indexInfoAfter, err := os.Stat(indexPath)
 	require.NoError(t, err)
 	require.True(t, indexInfoAfter.ModTime().After(indexInfoBefore.ModTime()))
+}
+
+// The base config may live inside the DAG directory; it applies to every DAG
+// but must not be listed as one.
+func TestListExcludesBaseConfigInDAGDir(t *testing.T) {
+	baseConfigYAML := []byte(`actions:
+  greet:
+    input_schema:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    template:
+      run: echo "{{ .input.message }}"
+`)
+	greetYAML := []byte(`steps:
+  - action: greet
+    with:
+      message: hello
+`)
+
+	for _, tc := range []struct {
+		name       string
+		recursive  bool
+		baseRelDir string
+	}{
+		{name: "Flat", baseRelDir: "."},
+		{name: "Recursive", recursive: true, baseRelDir: "shared"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dagDir := t.TempDir()
+			baseConfig := filepath.Join(dagDir, tc.baseRelDir, "base.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(baseConfig), 0750))
+			require.NoError(t, os.WriteFile(baseConfig, baseConfigYAML, 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(dagDir, "greet.yaml"), greetYAML, 0600))
+
+			store := newRepository(
+				dagDir,
+				WithBaseConfig(baseConfig),
+				WithRecursiveDiscovery(tc.recursive),
+				WithSkipExamples(true),
+			)
+
+			result, errList, err := store.List(context.Background(), persis.DAGListOptions{})
+			require.NoError(t, err)
+			require.Empty(t, errList)
+			require.Len(t, result.Items, 1)
+			require.Equal(t, "greet", result.Items[0].Name)
+			require.Empty(t, result.Items[0].BuildErrors)
+		})
+	}
 }
 
 func TestListWithPagination(t *testing.T) {
@@ -2351,6 +2538,117 @@ steps:
 	assert.Len(t, result.Items, 1)
 }
 
+// A rebuild that a cancel cut short holds only the DAGs read before it, so it
+// must not be saved as the index of the whole directory.
+func TestCatalog_CancelledRebuildWritesNoIndex(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc.yaml"), []byte("steps:\n  - run: echo ok\n"), 0600))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := store.Catalog(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, fileExists(filepath.Join(tmpDir, dagindex.IndexFileName)))
+
+	result, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, result.Items, 1)
+}
+
+// ServiceDAGNames trusts the saved index, so a DAG file changed outside the
+// store counts once a listing has seen it.
+func TestServiceDAGNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	const serviceDAG = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	write("svc", serviceDAG)
+	write("renamed", "name: custom\n"+serviceDAG)
+	write("plain", "steps:\n  - run: echo ok\n")
+
+	names, err := store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom"}, names)
+
+	write("plain", serviceDAG)
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom"}, names)
+
+	_, err = store.Catalog(ctx)
+	require.NoError(t, err)
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
+
+	// An index that cannot be read gives way to a full listing.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dagindex.IndexFileName), []byte("not an index"), 0600))
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"svc", "custom", "plain"}, names)
+}
+
+// A saved-only read answers from an index that exists and never builds one,
+// so a caller that must not wait for a rebuild can use it.
+func TestSavedServiceDAGNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc.yaml"),
+		[]byte("restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"), 0600))
+
+	_, ok := store.SavedServiceDAGNames()
+	assert.False(t, ok)
+	assert.NoFileExists(t, filepath.Join(tmpDir, dagindex.IndexFileName))
+
+	_, err := store.Catalog(context.Background())
+	require.NoError(t, err)
+	names, ok := store.SavedServiceDAGNames()
+	assert.True(t, ok)
+	assert.Equal(t, []string{"svc"}, names)
+}
+
+// A rewritten index of the same size can keep its modification time where
+// timestamps are coarse; the names must still come from the new file.
+func TestServiceDAGNamesSeesIndexRewriteInSameTick(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewStore(tmpDir, WithSkipExamples(true))
+	ctx := context.Background()
+	const service = "restart_policy: always\nrestart_wait_sec: 5\nsteps:\n  - run: echo ok\n"
+	const plain = "restart_wait_sec: 5\nrestart_policy: no\nsteps:\n  - run: echo ok\n"
+	write := func(file, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, file+".yaml"), []byte(content), 0600))
+	}
+	write("a1", service)
+	write("b1", plain)
+	_, err := store.Catalog(ctx)
+	require.NoError(t, err)
+	names, err := store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a1"}, names)
+
+	indexPath := store.indexPath
+	before, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	write("a1", plain)
+	write("b1", service)
+	_, err = store.Catalog(ctx)
+	require.NoError(t, err)
+	require.NoError(t, os.Chtimes(indexPath, before.ModTime(), before.ModTime()))
+	after, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	require.Equal(t, before.Size(), after.Size(), "the test needs an index of the same size")
+
+	names, err = store.ServiceDAGNames(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b1"}, names)
+}
+
 func TestInvalidateIndex_RemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewStore(tmpDir, WithSkipExamples(true))
@@ -2509,4 +2807,150 @@ func TestMetadataInFlightBaseChange(t *testing.T) {
 	current, err := store.GetMetadata(t.Context(), "scheduled")
 	require.NoError(t, err)
 	require.Equal(t, "updated", current.ProcGroup())
+}
+
+// Listings rebuild DAGs from the index, which stores calendar names only;
+// their schedules must still skip the calendar's holidays.
+func TestCatalogBindsCalendars(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(calendars, "jp.yaml"), []byte("holidays: [2027-01-11]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")), WithCalendars(spec.NewCalendarSource(calendars)))
+	catalog, err := store.Catalog(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, catalog.Items, 1)
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), catalog.Items[0].NextRun(from))
+}
+
+// Cached metadata does not depend on calendar files as a whole, so plain
+// DAGs never reload for them; a DAG that names a calendar reloads when that
+// calendar changes.
+func TestMetadataFollowsCalendarEdits(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")),
+		WithCalendars(spec.NewCalendarSource(calendars)), WithFileCache(fileutil.NewCache[*ir.DAG]("calendars", 10, 0)))
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+
+	dag, err := store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+	dag, err = store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+}
+
+// sameStampSwap prepares a calendars directory holding calendar jp with
+// content before. The returned swap replaces jp with content after, keeping
+// its size and modification time.
+type sameStampSwap struct {
+	name    string
+	prepare func(t *testing.T, before, after string) (calendars string, swap func())
+}
+
+// sameStampSwaps are ways a deployment can replace a calendar file without
+// changing its size or modification time, as Kubernetes ConfigMap updates
+// and stores with pinned times do.
+var sameStampSwaps = []sameStampSwap{
+	{name: "file symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
+		versions := t.TempDir()
+		beforePath := writeStampedFile(t, filepath.Join(versions, "before.yaml"), before)
+		afterPath := writeStampedFile(t, filepath.Join(versions, "after.yaml"), after)
+		calendars := t.TempDir()
+		link := filepath.Join(calendars, "jp.yaml")
+		symlinkOrSkip(t, beforePath, link)
+		return calendars, func() { replaceSymlink(t, afterPath, link) }
+	}},
+	{name: "atomic rename", prepare: func(t *testing.T, before, after string) (string, func()) {
+		calendars := t.TempDir()
+		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
+		return calendars, func() {
+			// Windows denies replacing a file another process has open, as a
+			// calendar watcher does while it hashes the calendars, so the
+			// rename retries as a deployment there must.
+			require.NoError(t, fileutil.Rename(writeStampedFile(t, filepath.Join(calendars, "jp.tmp"), after), path))
+		}
+	}},
+	{name: "in-place rewrite", prepare: func(t *testing.T, before, after string) (string, func()) {
+		calendars := t.TempDir()
+		path := writeStampedFile(t, filepath.Join(calendars, "jp.yaml"), before)
+		// Writing over the file keeps its identity, as a copy that preserves
+		// times does.
+		return calendars, func() { writeStampedFile(t, path, after) }
+	}},
+	{name: "directory symlink", prepare: func(t *testing.T, before, after string) (string, func()) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows cannot rename a directory symlink over another")
+		}
+		root := t.TempDir()
+		for version, content := range map[string]string{"v1": before, "v2": after} {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, version), 0750))
+			writeStampedFile(t, filepath.Join(root, version, "jp.yaml"), content)
+		}
+		calendars := filepath.Join(root, "calendars")
+		symlinkOrSkip(t, filepath.Join(root, "v1"), calendars)
+		return calendars, func() { replaceSymlink(t, filepath.Join(root, "v2"), calendars) }
+	}},
+}
+
+// writeStampedFile writes content to path with a fixed modification time.
+func writeStampedFile(t *testing.T, path, content string) string {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(path, stamp, stamp))
+	return path
+}
+
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+}
+
+// replaceSymlink points link at target in one rename.
+func replaceSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	swap := link + ".swap"
+	require.NoError(t, os.Symlink(target, swap))
+	require.NoError(t, os.Rename(swap, link))
+}
+
+// The calendars state decides whether a refresh reloads the DAGs, so it must
+// change when a calendar does, even with the same size and time.
+func TestCalendarsStateFollowsSameStampSwaps(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range sameStampSwaps {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calendars, swap := tc.prepare(t, "holidays: [2027-01-01]\n", "holidays: [2027-01-11]\n")
+			state := describeCalendarsState(calendars)
+			swap()
+			assert.NotEqual(t, state, describeCalendarsState(calendars))
+		})
+	}
 }

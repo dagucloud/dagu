@@ -6,6 +6,7 @@ package spec_test
 import (
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,24 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 			Env:        []string{"ROOT=${env.ROOT}"},
 			Command:    []string{"${consts.command}"},
 			Shell:      []string{"${consts.shell}"},
+		},
+		SSH: &ir.SSHConfig{
+			User:          "${consts.ssh_user}",
+			Host:          "${params.ssh_host}",
+			Port:          "${consts.ssh_port}",
+			Key:           "${consts.ssh_key}",
+			Password:      "${env.SSH_PASSWORD}",
+			KnownHostFile: "${consts.known_hosts}",
+			Shell:         "${consts.ssh_shell}",
+			ShellArgs:     []string{"${consts.ssh_shell_arg}"},
+			Timeout:       "30s",
+			Bastion: &ir.BastionConfig{
+				Host:     "${consts.bastion_host}",
+				Port:     "${consts.bastion_port}",
+				User:     "${consts.bastion_user}",
+				Key:      "${consts.bastion_key}",
+				Password: "${env.BASTION_PASSWORD}",
+			},
 		},
 		Steps: []ir.Step{
 			{
@@ -177,6 +196,19 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 		"container.env[0]",
 		"container.command[0]",
 		"container.shell[0]",
+		"ssh.user",
+		"ssh.host",
+		"ssh.port",
+		"ssh.key",
+		"ssh.password",
+		"ssh.known_host_file",
+		"ssh.shell",
+		"ssh.shell",
+		"ssh.bastion.host",
+		"ssh.bastion.port",
+		"ssh.bastion.user",
+		"ssh.bastion.key",
+		"ssh.bastion.password",
 		"steps[0].run",
 		"steps[0].run[0].command",
 		"steps[0].run[0].cmd_with_args",
@@ -255,6 +287,48 @@ func TestReferenceFieldsIncludesHumanTaskArtifacts(t *testing.T) {
 	assert.Contains(t, got, "steps[0].with.artifacts[1]")
 }
 
+// A nested path input reads a backslash as path text whether the map holding
+// it decoded from YAML or was built as a map[string]string.
+func TestReferenceFieldsReadNestedPathInputs(t *testing.T) {
+	t.Parallel()
+
+	const executorType = "reference_fields_nested_path"
+	registry.RegisterExecutorCapabilities(executorType, registry.ExecutorCapabilities{
+		PathInputs: []string{"import.input_file"},
+	})
+	t.Cleanup(func() { registry.UnregisterExecutorCapabilities(executorType) })
+
+	const raw = `in\${steps.read.outputs.rows}`
+	tests := []struct {
+		name     string
+		imported any
+	}{
+		{name: "AnyMap", imported: map[string]any{"input_file": raw, "table": raw}},
+		{name: "StringMap", imported: map[string]string{"input_file": raw, "table": raw}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dag := &ir.DAG{Steps: []ir.Step{{
+				Name: "load",
+				ExecutorConfig: ir.ExecutorConfig{
+					Type:   executorType,
+					Config: map[string]any{"import": tt.imported},
+				},
+			}}}
+
+			refs := make(map[string]int)
+			for _, field := range spec.ReferenceFields(dag) {
+				refs[field.Path] = len(field.Field.StepOutputReferences(field.Value))
+			}
+			assert.Equal(t, 1, refs["steps[0].with.import.input_file"])
+			assert.Equal(t, 0, refs["steps[0].with.import.table"])
+		})
+	}
+}
+
 // Only a numeric comparison resolves a reference in expected, so only that form
 // belongs in the reference set. Reporting a literal or regex pattern would
 // describe a resolution that never happens.
@@ -270,6 +344,7 @@ func TestReferenceFieldsIncludesOnlyNumericExpected(t *testing.T) {
 					{Condition: "0.9", Expected: "num:>=${params.threshold}"},
 					{Condition: "x", Expected: "${params.literal}"},
 					{Condition: "y", Expected: "re:${params.pattern}"},
+					{Condition: "0.5", ExpectedAny: []string{"num:<${params.low}", "${params.literal}"}},
 				},
 			},
 		},
@@ -283,4 +358,6 @@ func TestReferenceFieldsIncludesOnlyNumericExpected(t *testing.T) {
 	assert.Equal(t, "num:>=${params.threshold}", paths["steps[0].preconditions[0].expected"])
 	assert.NotContains(t, paths, "steps[0].preconditions[1].expected")
 	assert.NotContains(t, paths, "steps[0].preconditions[2].expected")
+	assert.Equal(t, "num:<${params.low}", paths["steps[0].preconditions[3].expected_any[0]"])
+	assert.NotContains(t, paths, "steps[0].preconditions[3].expected_any[1]")
 }

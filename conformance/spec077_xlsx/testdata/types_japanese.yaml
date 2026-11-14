@@ -1,0 +1,48 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: amounts.xlsx
+      columns: [Amount, Due, When, Done, Code]
+      rows:
+        - {"Amount": "１２３，４５６", "Due": "２０２６／１０／０３", "When": "2026/10/3 14:30", "Done": "○", "Code": "００７"}
+        - {"Amount": "￥123,000", "Due": "令和8年10月3日", "When": "2026年10月3日 14時30分", "Done": "×", "Code": "１２３"}
+        - {"Amount": "123,000円", "Due": "R8.10.3", "When": "令和8年10月3日 14時30分15秒", "Done": "はい", "Code": "abc"}
+        - {"Amount": "−5", "Due": "令和元年5月1日", "When": "2026.10.3 14:30:15", "Done": "いいえ", "Code": "1,000（千円）"}
+        - {"Amount": "12万3,500円", "Due": "令和8年10月3日（金）", "When": "2026年10月3日 午後2時30分", "Done": "済", "Code": "12万3万"}
+        - {"Amount": "▲1,000", "Due": "R8.10", "When": "2026年10月3日14時", "Done": "未", "Code": "100"}
+        - {"Amount": "(1,000)", "Due": "2026年10月", "When": "令和8年10月3日 午前9時", "Done": "無", "Code": "100"}
+        - {"Amount": "¥123,000-", "Due": "二〇二六年十月三日", "When": "2026/10/3 (Fri) 14:30", "Done": "△", "Code": "100"}
+        - {"Amount": "10％", "Due": "㋿8.10.3", "When": "2026年10月3日(金)14:30", "Done": "ー", "Code": "100"}
+        - {"Amount": "金壱拾弐万参千円也", "Due": "平成三十一年四月三十日", "When": "2026年10月3日 午後0時", "Done": "☐", "Code": "100"}
+        - {"Amount": "税込1,000", "Due": "2026.10.3", "When": "2026年10月3日 午前12時", "Done": "有", "Code": "100"}
+        - {"Amount": "1.5億", "Due": "H31/4/30", "When": "2026年10月3日", "Done": "✓", "Code": "100"}
+        - {"Amount": "1,000（税込）", "Due": "令和八年十月三日", "When": "令和8年10月3日 14:30", "Done": "不要", "Code": "100"}
+        - {"Amount": "百万", "Due": "2026/10", "When": "2026年10月3日 金曜日 14時", "Done": "完了", "Code": "100"}
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number, Due: date, When: datetime, Done: boolean}
+      on_type_error: warn
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"rows": ${steps.read.outputs.rows}, "warnings": ${steps.read.outputs.warnings}}'
+  - id: bad
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Code: number, Done: boolean}
+      on_type_error: warn
+  - id: warnings
+    depends: bad
+    action: file.write
+    with:
+      path: warnings.json
+      content: ${steps.bad.outputs.warnings}

@@ -6,9 +6,6 @@ package command
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	goruntime "runtime"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
@@ -115,94 +112,13 @@ func resolveShebangExecutable(ctx context.Context, command string) (string, erro
 		return command, nil
 	}
 
-	envs := runtime.AllEnvs(ctx)
-	if pathEnv, ok := lookupEnv(envs, "PATH"); ok {
-		pathextEnv, _ := lookupEnv(envs, "PATHEXT")
-		resolved, err := lookPathInPATH(command, pathEnv, pathextEnv)
-		if err == nil {
-			return resolved, nil
-		}
+	resolved, err := cmdutil.LookPathInEnv(command, runtime.AllEnvs(ctx))
+	if err != nil {
 		return "", fmt.Errorf("failed to resolve shebang interpreter %q in step PATH: %w", command, err)
 	}
-
-	if resolved, ok := cmdutil.FindExecutable(command); ok {
-		return resolved, nil
-	}
-	return "", fmt.Errorf("failed to resolve shebang interpreter %q in PATH", command)
+	return resolved, nil
 }
 
 func hasPathSeparator(path string) bool {
 	return strings.Contains(path, "/") || strings.Contains(path, `\`)
-}
-
-func lookupEnv(env []string, key string) (string, bool) {
-	for _, entry := range env {
-		name, value, ok := strings.Cut(entry, "=")
-		if !ok {
-			continue
-		}
-		if goruntime.GOOS == "windows" {
-			if strings.EqualFold(name, key) {
-				return value, true
-			}
-			continue
-		}
-		if name == key {
-			return value, true
-		}
-	}
-	return "", false
-}
-
-func lookPathInPATH(command, pathEnv, pathextEnv string) (string, error) {
-	var lastErr error
-	for _, dir := range filepath.SplitList(pathEnv) {
-		if dir == "" {
-			dir = "."
-		}
-		for _, candidate := range pathCandidates(filepath.Join(dir, command), pathextEnv) {
-			if isExecutableFile(candidate) {
-				return candidate, nil
-			}
-			if _, err := os.Stat(candidate); err != nil {
-				lastErr = err
-			}
-		}
-	}
-	if lastErr != nil {
-		return "", lastErr
-	}
-	return "", os.ErrNotExist
-}
-
-func pathCandidates(candidate, pathextEnv string) []string {
-	if goruntime.GOOS != "windows" || filepath.Ext(candidate) != "" {
-		return []string{candidate}
-	}
-
-	pathext := pathextEnv
-	if pathext == "" {
-		pathext = ".COM;.EXE;.BAT;.CMD"
-	}
-	exts := strings.Split(pathext, ";")
-	candidates := make([]string, 0, len(exts)+1)
-	candidates = append(candidates, candidate)
-	for _, ext := range exts {
-		if ext == "" {
-			continue
-		}
-		candidates = append(candidates, candidate+ext)
-	}
-	return candidates
-}
-
-func isExecutableFile(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	if goruntime.GOOS == "windows" {
-		return true
-	}
-	return info.Mode()&0o111 != 0
 }

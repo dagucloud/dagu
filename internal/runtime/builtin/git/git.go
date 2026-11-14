@@ -73,7 +73,10 @@ type checkoutResult struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"path", "ssh_key_path"},
+	})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
@@ -377,11 +380,16 @@ func resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
 		return hash, nil
 	}
 
-	revisions := []plumbing.Revision{
-		plumbing.Revision(ref),
-		plumbing.Revision("refs/heads/" + ref),
-		plumbing.Revision("refs/remotes/origin/" + ref),
-		plumbing.Revision("refs/tags/" + ref),
+	revisions := []plumbing.Revision{plumbing.Revision(ref)}
+	if isShortRefName(ref) {
+		// A branch name resolves to the fetched remote branch. The local
+		// branch a clone created is never updated by a fetch, so it can be
+		// behind. Tags keep precedence over branches, as in git.
+		revisions = []plumbing.Revision{
+			plumbing.Revision("refs/tags/" + ref),
+			plumbing.Revision("refs/remotes/" + remoteName + "/" + ref),
+			plumbing.Revision(ref),
+		}
 	}
 	for _, revision := range revisions {
 		hash, err := repo.ResolveRevision(revision)
@@ -390,6 +398,16 @@ func resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
 		}
 	}
 	return plumbing.ZeroHash, fmt.Errorf("git checkout: ref %q not found", ref)
+}
+
+// isShortRefName reports whether ref may be the short name of a branch or
+// tag, rather than HEAD, a full ref such as refs/heads/main, or a revision
+// expression such as main~1.
+func isShortRefName(ref string) bool {
+	if ref == "HEAD" || strings.HasSuffix(ref, "_HEAD") || strings.HasPrefix(ref, "refs/") {
+		return false
+	}
+	return !strings.ContainsAny(ref, "~^:?*[\\ ") && !strings.Contains(ref, "@{")
 }
 
 func currentHead(repo *gogit.Repository) (string, error) {
@@ -431,7 +449,7 @@ func ensureCloneTarget(path string) error {
 
 func (e *executorImpl) auth() (transport.AuthMethod, error) {
 	if e.cfg.SSHKeyPath != "" {
-		auth, err := newPublicKeysFromFile("git", e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
+		auth, err := newPublicKeysFromFile(e.sshUser(), e.resolvePath(e.cfg.SSHKeyPath), e.cfg.SSHPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("git checkout: load ssh key: %w", err)
 		}
@@ -448,6 +466,19 @@ func (e *executorImpl) auth() (transport.AuthMethod, error) {
 		return &githttp.BasicAuth{Username: username, Password: e.cfg.Password}, nil
 	}
 	return nil, nil
+}
+
+// sshUser returns the user for SSH key authentication: with.username, then
+// the user in the repository URL, then git.
+func (e *executorImpl) sshUser() string {
+	if e.cfg.Username != "" {
+		return e.cfg.Username
+	}
+	endpoint, err := transport.NewEndpoint(strings.TrimSpace(e.cfg.Repository))
+	if err == nil && endpoint.User != "" {
+		return endpoint.User
+	}
+	return "git"
 }
 
 // TODO: Delete this local key loader after go-git resolves the known_hosts regression.

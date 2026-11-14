@@ -1,0 +1,29 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+artifacts:
+  dir: ${DESKTOP_ARTIFACTS}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: note
+    action: computer.run
+    with:
+      cache: false
+      screenshots: each
+      do:
+        - launch:
+            command: powershell.exe
+            args: [-NoProfile, -ExecutionPolicy, Bypass, -File, textbox.ps1, -Out, greeting.txt]
+        - act: Type the greeting into the magenta text box
+        - extract:
+            instruction: The text in the magenta text box
+            schema:
+              type: object
+              properties:
+                text: {type: string}
+  - id: record
+    depends: note
+    run: echo "${steps.note.outputs.text}" > extracted.out

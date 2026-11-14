@@ -37,10 +37,6 @@ func TestValidateStepOutputReferenceNotices(t *testing.T) {
 		stderrParts []string
 	}{
 		{
-			file:        "missing_dependency.yaml",
-			stderrParts: []string{"${steps.build.outputs.image}", "reason=missing_dependency", "steps[1].run"},
-		},
-		{
 			file:        "unknown_step_id.yaml",
 			stderrParts: []string{"${steps.build.outputs.image}", "reason=unknown_step_id", "steps[0].run"},
 		},
@@ -90,10 +86,10 @@ func TestRuntimeStepOutputReferenceResolution(t *testing.T) {
 			content: "v1.2.3\n",
 		},
 		{
-			name:    "missing dependency preserves literal",
-			file:    "missing_dependency.yaml",
-			output:  "missing-dependency.txt",
-			content: "${steps.build.outputs.image}\n",
+			name:    "reference without depends infers the dependency and resolves",
+			file:    "inferred_dependency.yaml",
+			output:  "inferred-dependency.txt",
+			content: "v1.2.3\n",
 		},
 		{
 			name:    "unknown output preserves literal",
@@ -136,6 +132,12 @@ func TestRuntimeStepOutputReferenceResolution(t *testing.T) {
 			file:    "outputs_write_publishes_step_outputs.yaml",
 			output:  "outputs-write.txt",
 			content: "write-v1\n",
+		},
+		{
+			name:    "number outputs insert as base-10 decimal text",
+			file:    "number_output_inserted_in_decimal_form.yaml",
+			output:  "number-output.txt",
+			content: "1045000\n1000000\n0.25\n",
 		},
 		{
 			name:    "escaped and unsupported text is preserved",

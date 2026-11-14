@@ -76,18 +76,3 @@ export function updateDAGRunNodeStatus(
     onExit: updateOptionalNodeStatus(dagRun.onExit, stepName, status),
   };
 }
-
-export function updateDAGRunsNodeStatus(
-  dagRuns: components['schemas']['DAGRunDetails'][] | null,
-  dagRunId: string,
-  stepName: string,
-  status: NodeStatus
-): components['schemas']['DAGRunDetails'][] | null {
-  return (
-    dagRuns?.map((dagRun) =>
-      dagRun.dagRunId === dagRunId
-        ? updateDAGRunNodeStatus(dagRun, stepName, status)
-        : dagRun
-    ) ?? null
-  );
-}

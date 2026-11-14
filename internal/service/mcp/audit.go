@@ -211,7 +211,14 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 		attrs["step_name"] = input.StepName
 	}
 	if input.Path != "" {
-		attrs["doc_path"] = input.Path
+		if target == readTargetWorkbook {
+			attrs["workbook_path"] = sanitizeAuditString(input.Path, 512)
+			if resourceID == "" {
+				resourceID = sanitizeAuditString(input.Path, 256)
+			}
+		} else {
+			attrs["doc_path"] = input.Path
+		}
 	}
 	if input.Prefix != "" {
 		attrs["doc_prefix"] = input.Prefix

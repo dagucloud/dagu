@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: export
+    action: xlsx.convert
+    with:
+      path: orders.xlsx

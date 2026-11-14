@@ -30,8 +30,8 @@ Flags:
       --dry-run       Preview what would be deleted without deleting
 
 Active runs are never deleted from history. Deleting all history also clears
-the replay cache of the DAG's browser steps on this host. Definition deletion
-is refused while the DAG has alive processes.
+the replay caches of the DAG's browser and computer steps on this host.
+Definition deletion is refused while the DAG has alive processes.
 
 With --definition, identify the DAG by filename, stem, or configured path.
 
@@ -149,13 +149,15 @@ func executeRm(ctx *Context, opts rmOptions) error {
 				fmt.Printf("Successfully removed %d run(s) for DAG %q\n", len(runIDs), opts.dagName)
 			}
 		}
-		if removesBrowserCache(opts) {
-			steps, err := browserReplayCache(ctx).Clear(opts.dagName, "")
-			if err != nil {
-				return fmt.Errorf("failed to clear browser replay cache for %q: %w", opts.dagName, err)
-			}
-			if !ctx.Quiet && len(steps) > 0 {
-				fmt.Printf("Removed browser replay cache for %d step(s) of DAG %q\n", len(steps), opts.dagName)
+		if removesReplayCaches(opts) {
+			for _, cache := range replayCaches(ctx) {
+				steps, err := cache.store.Clear(opts.dagName, "")
+				if err != nil {
+					return fmt.Errorf("failed to clear %s replay cache for %q: %w", cache.kind, opts.dagName, err)
+				}
+				if !ctx.Quiet && len(steps) > 0 {
+					fmt.Printf("Removed %s replay cache for %d step(s) of DAG %q\n", cache.kind, len(steps), opts.dagName)
+				}
 			}
 		}
 	}
@@ -183,8 +185,8 @@ func buildRmActionDesc(opts rmOptions) string {
 			parts = append(parts, fmt.Sprintf("history older than %d days for DAG %q", *opts.retentionDays, opts.dagName))
 		case opts.olderThan != "":
 			parts = append(parts, fmt.Sprintf("history older than %s for DAG %q", opts.olderThan, opts.dagName))
-		case removesBrowserCache(opts):
-			parts = append(parts, fmt.Sprintf("all history and browser replay cache for DAG %q", opts.dagName))
+		case removesReplayCaches(opts):
+			parts = append(parts, fmt.Sprintf("all history and replay caches for DAG %q", opts.dagName))
 		default:
 			parts = append(parts, fmt.Sprintf("all history for DAG %q", opts.dagName))
 		}
@@ -220,13 +222,15 @@ func previewRm(ctx *Context, opts rmOptions) error {
 		}
 	}
 
-	if removesBrowserCache(opts) {
-		steps, err := browserReplayCache(ctx).Steps(opts.dagName)
-		if err != nil {
-			return fmt.Errorf("failed to check browser replay cache for %q: %w", opts.dagName, err)
-		}
-		if len(steps) > 0 {
-			fmt.Printf("Dry run: Would also delete browser replay cache for %d step(s) of DAG %q\n", len(steps), opts.dagName)
+	if removesReplayCaches(opts) {
+		for _, cache := range replayCaches(ctx) {
+			steps, err := cache.store.Steps(opts.dagName)
+			if err != nil {
+				return fmt.Errorf("failed to check %s replay cache for %q: %w", cache.kind, opts.dagName, err)
+			}
+			if len(steps) > 0 {
+				fmt.Printf("Dry run: Would also delete %s replay cache for %d step(s) of DAG %q\n", cache.kind, len(steps), opts.dagName)
+			}
 		}
 	}
 
@@ -236,15 +240,21 @@ func previewRm(ctx *Context, opts rmOptions) error {
 	return nil
 }
 
-// removesBrowserCache reports whether rm deletes all of the DAG's history,
-// which also clears the replay cache of its browser steps.
-func removesBrowserCache(opts rmOptions) bool {
-	return opts.deleteHist && opts.retentionDays == nil && opts.olderThan == ""
+// removesReplayCaches reports whether the command deletes all of the DAG's
+// history, which also clears the replay caches of its browser and computer
+// steps. A nil retention (rm) and a retention of zero days (cleanup's
+// default) both mean all history. A positive retention or an older-than
+// filter keeps the caches.
+func removesReplayCaches(opts rmOptions) bool {
+	allHistory := opts.retentionDays == nil || *opts.retentionDays == 0
+	return opts.deleteHist && opts.olderThan == "" && allHistory
 }
 
 func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
 	retentionDays := 0
-	var removeOptions persis.DAGRunRetentionOptions
+	// An operator's removal, unlike automatic retention, makes the removed
+	// runs stop counting for their schedule slots.
+	removeOptions := persis.DAGRunRetentionOptions{DropSlots: true}
 	if opts.dryRun {
 		removeOptions.DryRun = true
 	}

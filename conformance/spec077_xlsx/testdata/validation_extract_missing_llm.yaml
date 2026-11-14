@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.extract
+    with:
+      path: quote.xlsx
+      instruction: Find the total.
+      schema: {type: object, properties: {total: {type: number}}}

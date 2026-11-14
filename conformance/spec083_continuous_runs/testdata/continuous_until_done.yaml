@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: beat
+    run: sh beat.sh
+    repeat_policy:
+      repeat: until
+      condition: test -f done
+      interval_sec: 0

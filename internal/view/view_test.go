@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/view"
 )
 
@@ -47,6 +48,22 @@ func TestView_ValidateWorkflow(t *testing.T) {
 	assert.True(t, v.Pinned)
 }
 
+func TestView_ValidateWorkflowAcceptsSortFields(t *testing.T) {
+	for _, field := range []string{
+		view.WorkflowSortName,
+		view.WorkflowSortNextRun,
+		view.WorkflowSortStatus,
+		view.WorkflowSortLastRun,
+	} {
+		t.Run(field, func(t *testing.T) {
+			v := &view.View{Name: "workflow", Type: view.TypeWorkflow, SortField: field}
+			v.Normalize()
+			require.NoError(t, v.Validate())
+			assert.Equal(t, field, v.SortField)
+		})
+	}
+}
+
 func TestView_ValidateWorkflowRejectsInvalidFields(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -57,6 +74,7 @@ func TestView_ValidateWorkflowRejectsInvalidFields(t *testing.T) {
 		{"workspace scope without workspace", func(v *view.View) { v.WorkspaceScope = view.WorkspaceScopeWorkspace }, view.ErrInvalidWorkspaceScope},
 		{"unknown sort field", func(v *view.View) { v.SortField = "created" }, view.ErrInvalidSortField},
 		{"unknown sort order", func(v *view.View) { v.SortOrder = "descending" }, view.ErrInvalidSortOrder},
+		{"invalid label filter", func(v *view.View) { v.Labels = []string{"env==prod"} }, ir.ErrInvalidLabelFilter},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +120,7 @@ func TestView_ValidateRunRejectsInvalidFields(t *testing.T) {
 		{"all scope with workspace", func(v *view.View) { v.Workspace = "production" }, view.ErrInvalidWorkspaceScope},
 		{"workspace scope without workspace", func(v *view.View) { v.WorkspaceScope = view.WorkspaceScopeWorkspace }, view.ErrInvalidWorkspaceScope},
 		{"dagRunId too long", func(v *view.View) { v.DAGRunID = strings.Repeat("r", view.MaxDAGRunIDLength+1) }, view.ErrDAGRunIDTooLong},
+		{"invalid label filter", func(v *view.View) { v.Labels = []string{"critical", "!"} }, ir.ErrInvalidLabelFilter},
 		{"runStatus not a status", func(v *view.View) { v.RunStatus = "failed" }, view.ErrInvalidRunStatus},
 		{"runStatus out of range", func(v *view.View) { v.RunStatus = "9" }, view.ErrInvalidRunStatus},
 		{"runStatus too long", func(v *view.View) { v.RunStatus = strings.Repeat("s", view.MaxRunStatusLength+1) }, view.ErrRunStatusTooLong},

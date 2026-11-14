@@ -27,27 +27,28 @@ import (
 // SubWorkflowRunnerConfig contains dependencies for child workflow execution.
 type SubWorkflowRunnerConfig struct {
 	// Dispatcher is caller-owned and remains live after a child runner is cleaned up.
-	Dispatcher        dispatch.Dispatcher
-	DAGRunMgr         runtime.Manager
-	DAGRepository     *persis.DAGRepository
-	DAGRunRepository  *persis.DAGRunRepository
-	RunStateStore     runstate.Store
-	QueueStore        queue.QueueStore
-	StateStore        dagrun.StateStore
-	SecretStore       secret.Store
-	SecretResolver    func(*ir.DAG) providers.ReferenceResolver
-	ProfileStore      profile.Store
-	ProfileResolver   func(*ir.DAG) profile.RuntimeResolver
-	ServiceRegistry   serviceregistry.ServiceRegistry
-	PeerConfig        config.Peer
-	DefaultExecMode   config.ExecutionMode
-	StatusPusher      runtime.StatusPusher
-	LogWriterFactory  runctx.LogWriterFactory
-	ArtifactFinalizer runtime.ArtifactFinalizer
-	RemoteDAGLoader   rtagent.RemoteDAGLoader
-	WorkerID          string
-	DAGRunLogDir      string
-	DAGRunArtifactDir string
+	Dispatcher         dispatch.Dispatcher
+	DAGRunMgr          runtime.Manager
+	DAGRepository      *persis.DAGRepository
+	DAGRunRepository   *persis.DAGRunRepository
+	RunStateStore      runstate.Store
+	QueueStore         queue.QueueStore
+	StateStore         dagrun.StateStore
+	SecretStore        secret.Store
+	SecretResolver     func(*ir.DAG) providers.ReferenceResolver
+	ProfileStore       profile.Store
+	ProfileResolver    func(*ir.DAG) profile.RuntimeResolver
+	ServiceRegistry    serviceregistry.ServiceRegistry
+	PeerConfig         config.Peer
+	WorkspaceBundleDir string
+	DefaultExecMode    config.ExecutionMode
+	StatusPusher       runtime.StatusPusher
+	LogWriterFactory   runctx.LogWriterFactory
+	ArtifactFinalizer  runtime.ArtifactFinalizer
+	RemoteDAGLoader    rtagent.RemoteDAGLoader
+	WorkerID           string
+	DAGRunLogDir       string
+	DAGRunArtifactDir  string
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
@@ -58,7 +59,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 		var runnerOpts []subflow.Option
 		if dispatcher == nil {
 			var err error
-			dispatcher, err = NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig)
+			dispatcher, err = NewRuntimeDispatcher(cfg.ServiceRegistry, cfg.PeerConfig, cfg.WorkspaceBundleDir)
 			if err != nil {
 				return nil, err
 			}

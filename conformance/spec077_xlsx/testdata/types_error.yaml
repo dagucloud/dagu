@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: amounts.xlsx
+      columns: [Amount]
+      rows: [{"Amount": "N/A"}]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number}

@@ -170,6 +170,15 @@ func TestState_IsFeatureEnabled(t *testing.T) {
 		assert.True(t, s.IsFeatureEnabled(FeatureRBAC))
 	})
 
+	t.Run("free plan enables no claimed feature", func(t *testing.T) {
+		t.Parallel()
+		var s State
+		s.Update(freeClaims(), "tok")
+		assert.False(t, s.IsFeatureEnabled(FeatureAudit))
+		assert.False(t, s.IsFeatureEnabled(FeatureRBAC))
+		assert.False(t, s.IsFeatureEnabled(FeatureSSO))
+	})
+
 	t.Run("expired in grace period returns true", func(t *testing.T) {
 		t.Parallel()
 		var s State

@@ -79,6 +79,11 @@ func IsUnixLikeShell(shell string) bool {
 	}
 }
 
+// PowerShellImportCoreModules imports the core modules by name so the first
+// cmdlet call skips Windows PowerShell command auto-discovery, which analyzes
+// every module on PSModulePath when the module analysis cache is cold.
+const PowerShellImportCoreModules = "Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management"
+
 // IsPowerShell reports whether the shell is PowerShell or pwsh.
 func IsPowerShell(shell string) bool {
 	name := shellBaseName(shell)

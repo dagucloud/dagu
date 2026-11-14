@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Button } from '@/components/ui/button';
+import { useOverflowFocusable } from '@/hooks/useOverflowFocusable';
 import { useClient } from '@/hooks/api';
 import { cn } from '@/lib/utils';
 import { encodeWikiPagePathForURL } from '@/pages/wiki/lib/wiki-page-path';
@@ -14,6 +15,7 @@ import { Link } from 'react-router-dom';
 import { components } from '../../../api/v1/schema';
 import { AppBarContext } from '../../../contexts/AppBarContext';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type SearchMatch = components['schemas']['SearchMatchItem'];
 type DagResult = components['schemas']['DAGSearchPageItem'];
@@ -45,7 +47,7 @@ type Props =
   | { type: 'wiki'; query: string; results: WikiPageResult[] };
 
 type SearchResultItemProps = {
-  kind: 'DAG' | 'Wiki';
+  kind: 'Workflow' | 'Wiki';
   title: string;
   link: string;
   query: string;
@@ -78,9 +80,14 @@ async function fetchSearchMatches(
 
 function SearchSnippet({ match }: { match: SearchMatch }) {
   const lines = match.line.split('\n');
+  const [scrollRef, scrollTabIndex] = useOverflowFocusable<HTMLPreElement>();
 
   return (
-    <pre className="overflow-x-auto rounded-md border bg-muted/25 p-3 text-xs leading-5">
+    <pre
+      ref={scrollRef}
+      tabIndex={scrollTabIndex}
+      className="overflow-x-auto rounded-md border bg-muted/25 p-3 text-xs leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       {lines.map((line, index) => {
         const lineNumber = match.startLine + index;
         const isHit = lineNumber === match.lineNumber;
@@ -93,7 +100,12 @@ function SearchSnippet({ match }: { match: SearchMatch }) {
               isHit && 'rounded bg-primary/10'
             )}
           >
-            <span className="w-8 select-none text-right text-[11px] tabular-nums text-muted-foreground">
+            <span
+              className={cn(
+                'w-8 select-none text-right text-[11px] tabular-nums',
+                isHit ? 'text-foreground' : 'text-muted-foreground'
+              )}
+            >
               {lineNumber}
             </span>
             <code className="whitespace-pre font-mono text-foreground">
@@ -116,6 +128,7 @@ function SearchResultItem({
   initialNextCursor,
   loadMore,
 }: SearchResultItemProps) {
+  const { ts } = useI18n();
   const [matches, setMatches] = React.useState<SearchMatch[]>(initialMatches);
   const [hasMoreMatches, setHasMoreMatches] = React.useState(
     initialHasMoreMatches
@@ -165,12 +178,17 @@ function SearchResultItem({
             <h3 className="text-lg font-semibold text-foreground whitespace-normal break-words">
               {title}
               <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-                {kind}
+                {ts(kind)}
               </span>
             </h3>
           </Link>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {matches.length} <I18nText text={"shown"} />
+            {ts(
+              matches.length === 1
+                ? '{count} match shown'
+                : '{count} matches shown',
+              { count: matches.length }
+            )}
           </span>
         </div>
 
@@ -219,7 +237,7 @@ function SearchResult(props: Props) {
             : '';
           return {
             key: `dag-${result.fileName}-${result.workspace ?? ''}-${query}`,
-            kind: 'DAG' as const,
+            kind: 'Workflow' as const,
             title: result.name,
             link: `/dags/${encodeURI(result.fileName)}/spec${linkSearch}`,
             initialMatches: result.matches ?? [],

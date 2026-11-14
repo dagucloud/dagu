@@ -1,0 +1,31 @@
+params:
+  - name: escaped
+    type: string
+    default: 'p\$INSERTED'
+  - name: variable
+    type: string
+    default: '$INSERTED/data'
+env:
+  INSERTED: expanded
+  ROOT_COPY: ${params.variable}
+  ROOT_ESC: '\$INSERTED'
+  ROOT_ESC_PARAM: ${params.escaped}
+  RUN_COPY: ${params.variable}-${context.run.id}
+working_dir: .
+steps:
+  - id: check
+    env:
+      COPY: ${params.variable}
+    action: file.write
+    with:
+      path: insertion.txt
+      content: |
+        ${params.escaped}
+        ${params.variable}
+        ${env.COPY}
+        $INSERTED
+        $INSERTED${params.variable}
+        ${env.ROOT_COPY}
+        ${env.ROOT_ESC}
+        ${env.ROOT_ESC_PARAM}
+        ${env.RUN_COPY}

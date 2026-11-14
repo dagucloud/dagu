@@ -90,6 +90,7 @@ func TestRootCommand(t *testing.T) {
 			rootCmd.AddCommand(cmd.HumanTask())
 			rootCmd.AddCommand(cmd.Secret())
 			rootCmd.AddCommand(cmd.Browser())
+			rootCmd.AddCommand(cmd.Computer())
 
 			// Set args
 			rootCmd.SetArgs(tt.args[1:]) // Skip program name
@@ -182,6 +183,7 @@ func TestRootCommandStructure(t *testing.T) {
 		"human-task",
 		"secret",
 		"browser",
+		"computer",
 	}
 
 	// Get all commands
@@ -258,4 +260,5 @@ operations, or remote commands.
 	rootCmd.AddCommand(cmd.HumanTask())
 	rootCmd.AddCommand(cmd.Secret())
 	rootCmd.AddCommand(cmd.Browser())
+	rootCmd.AddCommand(cmd.Computer())
 }

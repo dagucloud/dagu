@@ -1,0 +1,24 @@
+working_dir: .
+max_clean_up_time_sec: 1
+steps:
+  - id: probe
+    run: |
+      printf 'started\n' > started.out
+      sleep 30
+    with:
+      shell: /bin/sh
+    repeat_policy:
+      repeat: while
+      condition: "true"
+      expected: "true"
+handler_on:
+  abort:
+    run: |
+      sleep 2
+      printf 'abort\n' >> handlers.out
+    with:
+      shell: /bin/sh
+  exit:
+    run: printf 'exit\n' >> handlers.out
+    with:
+      shell: /bin/sh

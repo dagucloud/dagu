@@ -61,12 +61,13 @@ func (fw *flushableMultiWriter) Flush() error {
 // Write and Flush safe across goroutines.
 type safeBufferedWriter struct {
 	mu sync.Mutex
+	w  io.Writer
 	bw *bufio.Writer
 }
 
 // newSafeBufferedWriter creates a thread-safe buffered writer
 func newSafeBufferedWriter(w io.Writer) *safeBufferedWriter {
-	return &safeBufferedWriter{bw: bufio.NewWriter(w)}
+	return &safeBufferedWriter{w: w, bw: bufio.NewWriter(w)}
 }
 
 func (s *safeBufferedWriter) Write(p []byte) (int, error) {
@@ -75,8 +76,24 @@ func (s *safeBufferedWriter) Write(p []byte) (int, error) {
 	return s.bw.Write(p)
 }
 
-func (s *safeBufferedWriter) Flush() error {
+// FlushIfDue writes buffered output through. A partial line the wrapped
+// writer holds back, such as one awaiting secret masking, stays held.
+func (s *safeBufferedWriter) FlushIfDue() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.bw.Flush()
+}
+
+// Flush writes all buffered output through, including a partial line the
+// wrapped writer holds back.
+func (s *safeBufferedWriter) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.bw.Flush(); err != nil {
+		return err
+	}
+	if f, ok := s.w.(interface{ Flush() error }); ok {
+		return f.Flush()
+	}
+	return nil
 }

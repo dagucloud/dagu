@@ -1,0 +1,21 @@
+working_dir: .
+steps:
+  - id: cached
+    action: xlsx.read
+    with:
+      path: stale_formulas.xlsx
+      columns: [{金額: amount}]
+  - id: calculated
+    action: xlsx.read
+    with:
+      path: stale_formulas.xlsx
+      columns: [{金額: amount}]
+      formulas: calculate
+  - id: out
+    depends: [cached, calculated]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"cached": {"rows": ${steps.cached.outputs.rows}, "warnings": ${steps.cached.outputs.warnings}},
+         "calculated": {"rows": ${steps.calculated.outputs.rows}, "warnings": ${steps.calculated.outputs.warnings}}}

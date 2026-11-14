@@ -71,6 +71,26 @@ func TestScheduleValue_UnmarshalYAML(t *testing.T) {
 			wantStarts: []string{"0 * * * *", "30 * * * *"},
 		},
 		{
+			name:            "CronDescriptor",
+			input:           `"@daily"`,
+			wantStarts:      []string{"0 0 * * *"},
+			checkHasStop:    true,
+			wantHasStop:     false,
+			checkHasRestart: true,
+			wantHasRestart:  false,
+		},
+		{
+			name:       "CronDescriptorArray",
+			input:      `["@hourly", "@midnight", "@every 6h"]`,
+			wantStarts: []string{"0 * * * *", "0 0 * * *", "@every 6h"},
+		},
+		{
+			name:        "RebootDescriptorRejected",
+			input:       `"@reboot"`,
+			wantErr:     true,
+			errContains: "invalid cron expression",
+		},
+		{
 			name: "MultilineArray",
 			input: `
 - "0 8 * * *"
@@ -96,6 +116,21 @@ stop: "0 18 * * *"
 			wantStops:    []string{"0 18 * * *"},
 			checkHasStop: true,
 			wantHasStop:  true,
+		},
+		{
+			name: "MapWithDescriptorValues",
+			input: `
+start: "@daily"
+stop: "@weekly"
+restart: "@monthly"
+`,
+			wantStarts:      []string{"0 0 * * *"},
+			wantStops:       []string{"0 0 * * 0"},
+			wantRestarts:    []string{"0 0 1 * *"},
+			checkHasStop:    true,
+			wantHasStop:     true,
+			checkHasRestart: true,
+			wantHasRestart:  true,
 		},
 		{
 			name: "MapWithAllKeys",
@@ -471,4 +506,19 @@ start:
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "explicit offset")
 	})
+}
+
+// An empty schedule string holds no start schedule, so no path names one.
+func TestScheduleValue_StartPathOfEmptyString(t *testing.T) {
+	t.Parallel()
+
+	var value types.ScheduleValue
+	require.NoError(t, yaml.Unmarshal([]byte(`""`), &value))
+	_, ok := value.StartPath(0)
+	assert.False(t, ok)
+
+	require.NoError(t, yaml.Unmarshal([]byte(`"0 9 * * *"`), &value))
+	path, ok := value.StartPath(0)
+	assert.True(t, ok)
+	assert.Equal(t, "schedule", path)
 }

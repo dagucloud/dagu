@@ -1,0 +1,15 @@
+llm:
+  provider: anthropic
+  model: claude-opus-5
+steps:
+  - id: read
+    action: computer.run
+    with:
+      ai: never
+      do:
+        - extract:
+            instruction: The invoice lines
+            schema:
+              type: object
+              properties:
+                lines: {type: array}

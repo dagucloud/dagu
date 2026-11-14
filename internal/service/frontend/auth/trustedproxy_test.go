@@ -102,6 +102,12 @@ func TestTrustedProxyLoginHandlerFailures(t *testing.T) {
 		{name: "query", method: http.MethodGet, target: "?redirect=/other", wantStatus: http.StatusBadRequest, wantBody: "invalid request\n"},
 		{name: "body", method: http.MethodGet, body: "unexpected", wantStatus: http.StatusBadRequest, wantBody: "invalid request\n"},
 		{name: "chunked body", method: http.MethodGet, chunked: true, wantStatus: http.StatusBadRequest, wantBody: "invalid request\n"},
+		{name: "untrusted source", method: http.MethodGet, addIdentity: true, configure: func(cfg *TrustedProxyLoginConfig, _ *trustedProxyProvisionStub) {
+			cfg.TrustedSource = func(*http.Request) bool { return false }
+		}, wantStatus: http.StatusForbidden, wantBody: "access denied\n"},
+		{name: "no trusted source check", method: http.MethodGet, addIdentity: true, configure: func(cfg *TrustedProxyLoginConfig, _ *trustedProxyProvisionStub) {
+			cfg.TrustedSource = nil
+		}, wantStatus: http.StatusForbidden, wantBody: "access denied\n"},
 		{name: "license", method: http.MethodGet, configure: func(cfg *TrustedProxyLoginConfig, _ *trustedProxyProvisionStub) {
 			cfg.LicenseChecker = trustedProxyLicenseStub{}
 		}, wantStatus: http.StatusForbidden, wantBody: "access denied\n"},
@@ -188,6 +194,7 @@ func trustedProxyTestConfig(provision TrustedProxyProvisioner) *TrustedProxyLogi
 			ExpiresAt: time.Now().Add(time.Hour),
 		}},
 		InitialSetupComplete: func(context.Context) (bool, error) { return true, nil },
+		TrustedSource:        func(*http.Request) bool { return true },
 		LoginBasePath:        "/base",
 	}
 }

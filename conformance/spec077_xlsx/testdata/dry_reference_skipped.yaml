@@ -1,0 +1,11 @@
+working_dir: .
+steps:
+  - id: find
+    run: echo none-9f3c2b1a.xlsx
+    output: BOOK
+  - id: read
+    depends: find
+    action: xlsx.read
+    with:
+      path: ${steps.find.outputs.BOOK}
+      columns: [Nope9f3c2b1a]

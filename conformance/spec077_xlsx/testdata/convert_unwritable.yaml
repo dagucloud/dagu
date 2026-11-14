@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Item, Amount]
+      rows: [{"Item": "pear", "Amount": 3}]
+  - id: csv
+    depends: write
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: missing/out.csv

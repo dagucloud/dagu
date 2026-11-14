@@ -74,6 +74,25 @@ steps:
 	assert.Empty(t, result.ValueReferenceNotices)
 }
 
+// An alias in a map env resolves like any other alias, and keeps its place.
+func TestLoadYAMLWithResultResolvesMapEnvAliases(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
+working_dir: .
+env:
+  REGION: &region ap-northeast-1
+  BUCKET_REGION: *region
+  SERVICE: api
+steps:
+  - run: echo ok
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result.DAG)
+	assert.Equal(t, []string{"REGION=ap-northeast-1", "BUCKET_REGION=ap-northeast-1", "SERVICE=api"}, result.DAG.Env)
+}
+
 func TestLoadYAMLWithResultReportsEnvNoticesWithEarlierEnvScope(t *testing.T) {
 	t.Parallel()
 
@@ -150,21 +169,6 @@ func TestLoadYAMLWithResultReportsStepOutputReferenceReasons(t *testing.T) {
 		wantToken  string
 		wantReason cmnvalue.ValueReferenceNoticeReason
 	}{
-		{
-			name: "MissingDependency",
-			yaml: `
-steps:
-  - id: build
-    run: printf 'image=v1\n' >> "$DAGU_OUTPUT_FILE"
-    outputs:
-      - name: image
-  - id: deploy
-    run: echo ${steps.build.outputs.image}
-`,
-			wantField:  "steps[1].run",
-			wantToken:  "${steps.build.outputs.image}",
-			wantReason: cmnvalue.ValueReferenceReasonMissingDependency,
-		},
 		{
 			name: "UnknownStepID",
 			yaml: `
@@ -385,6 +389,39 @@ steps:
 
 // A schema that accepts only the names it lists is a complete contract, so a
 // misspelled name is still reported.
+// A chat step publishes only the properties its output_schema lists, so an
+// open schema still makes other names unknown.
+func TestUnknownOutputNoticeForChatOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
+name: notices
+steps:
+  - id: classify
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: classify
+    output_schema:
+      type: object
+      properties:
+        category: {type: string}
+  - id: record
+    depends: classify
+    run: echo ${steps.classify.outputs.category} ${steps.classify.outputs.amount}
+`))
+	require.NoError(t, err)
+
+	var unknown []string
+	for _, notice := range result.ValueReferenceNotices {
+		if notice.Reason == cmnvalue.ValueReferenceReasonUnknownOutputName {
+			unknown = append(unknown, notice.Token)
+		}
+	}
+	assert.Equal(t, []string{"${steps.classify.outputs.amount}"}, unknown)
+}
+
 func TestUnknownOutputNoticeForClosedOutputSchema(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.validate
+    with:
+      path: orders.xlsx
+      allowed:
+        Status: Done

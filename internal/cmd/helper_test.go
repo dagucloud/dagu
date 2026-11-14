@@ -37,6 +37,17 @@ func TestDispatchBaseConfig(t *testing.T) {
 	assert.Equal(t, string(dag.BaseConfigData), client.task.BaseConfig)
 }
 
+func TestDispatchTriggerType(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "gpu"}, "run", runOptions{triggerType: ir.TriggerTypeManual}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, ir.TriggerTypeManual, client.task.TriggerType)
+}
+
 // A selected-steps run is dispatched as a retry of its seeded queued attempt,
 // so the worker starts from the seeded node states.
 func TestDispatchSeededRun(t *testing.T) {
@@ -94,6 +105,36 @@ func TestRestoreDAGFromStatus_SMTP(t *testing.T) {
 			}
 			assert.Contains(t, restored.Env, "ORIGINAL_BASE=original")
 			assert.Contains(t, restored.Env, "SMTP_USER=original-user")
+		})
+	}
+}
+
+// TestExtractDAGNameYAMLCase verifies mixed-case YAML paths return authored DAG metadata names.
+func TestExtractDAGNameYAMLCase(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		file string
+		dag  string
+	}{
+		{name: "YAML", file: "FLOW.YAML", dag: "authored-yaml"},
+		{name: "Yml", file: "flow.Yml", dag: "authored-yml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagsDir := t.TempDir()
+			path := filepath.Join(dagsDir, tc.file)
+			require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("name: %s\nsteps: []\n", tc.dag)), 0600))
+
+			cfg := &config.Config{}
+			cfg.Paths.DAGsDir = dagsDir
+			ctx := &Context{Context: context.Background(), Config: cfg}
+
+			name, err := extractDAGName(ctx, path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.dag, name)
 		})
 	}
 }

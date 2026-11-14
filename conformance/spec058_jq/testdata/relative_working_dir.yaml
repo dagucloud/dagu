@@ -1,0 +1,15 @@
+working_dir: work
+steps:
+  - id: from_input
+    action: jq.filter
+    stdout: input.out
+    with:
+      filter: ".city"
+      input: data.json
+  - id: from_data
+    depends: from_input
+    action: jq.filter
+    stdout: data.out
+    with:
+      filter: ".city"
+      data: "file://data.json"

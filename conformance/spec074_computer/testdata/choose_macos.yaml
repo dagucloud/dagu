@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - id: run
+    action: computer.run
+    with:
+      ai: never
+      idle: "0"
+      do:
+        - launch:
+            command: /usr/bin/osascript
+            args: [-l, JavaScript, elements.js]
+        - expect: {window: "Dagu elements test", within: 30s}
+        - act:
+            instruction: Choose the payment method
+            recorded:
+              macos:
+                - choose: {from: {role: combo_box, id: methodBox}, option: クレジット}
+        - expect: {text: "支払方法: クレジット", within: 10s}

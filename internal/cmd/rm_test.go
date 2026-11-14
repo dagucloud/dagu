@@ -48,12 +48,14 @@ func TestRmCommand(t *testing.T) {
 		dag.AssertDAGRunCount(t, 1)
 
 		seedBrowserReplayCache(t, th, dag.Name, "login")
+		seedComputerReplayCache(t, th, dag.Name, "post")
 
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{
 			Args: []string{"rm", "--history", "--force", dag.Name},
 		})
 		dag.AssertDAGRunCount(t, 0)
 		assert.Empty(t, browserReplayCacheSteps(t, th, dag.Name))
+		assert.Empty(t, computerReplayCacheSteps(t, th, dag.Name))
 	})
 
 	t.Run("OlderThanPreservesRecentHistory", func(t *testing.T) {

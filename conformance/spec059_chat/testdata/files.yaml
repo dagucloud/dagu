@@ -1,0 +1,15 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: "What is due?"
+      files:
+        - note.txt
+        - receipt.png
+      provider: local
+      model: test-model
+      stream: false
+      base_url: $LLM_BASE_URL

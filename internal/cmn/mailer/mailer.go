@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -42,6 +43,7 @@ type Client struct {
 	token         func(context.Context) (*oauth2.Token, error)
 	security      string
 	skipTLSVerify bool
+	tlsCertSHA256 string
 	// requireAttachments makes every listed attachment mandatory.
 	requireAttachments bool
 }
@@ -66,6 +68,9 @@ type Config struct {
 	Security string
 	// SkipTLSVerify accepts any server certificate.
 	SkipTLSVerify bool
+	// TLSCertSHA256 accepts only the server certificate with this SHA-256
+	// hash, without chain verification.
+	TLSCertSHA256 string
 	// RequireAttachments fails a send whose listed attachment cannot be read,
 	// and attaches empty files as they are. Without it, such files are skipped,
 	// which suits optional attachments such as step logs.
@@ -81,6 +86,7 @@ func New(cfg Config) *Client {
 		token:              cfg.Token,
 		security:           cfg.Security,
 		skipTLSVerify:      cfg.SkipTLSVerify,
+		tlsCertSHA256:      cfg.TLSCertSHA256,
 		requireAttachments: cfg.RequireAttachments,
 	}
 }
@@ -92,6 +98,8 @@ var (
 	errFileEmpty = errors.New("file is empty")
 	mailTimeout  = 30 * time.Second
 	maxHeaderLen = 256
+	// maxReferences bounds the References header of a reply.
+	maxReferences = 10
 )
 
 const (
@@ -120,37 +128,56 @@ func (m *Client) SendWithRecipients(
 	subject, body string,
 	attachments []string,
 ) error {
+	return m.SendMessage(ctx, Message{
+		From: from, To: to, Cc: cc, Bcc: bcc, Subject: subject, Body: body, Attachments: attachments,
+	})
+}
+
+// Message is an email to send.
+type Message struct {
+	From        string
+	To          []string
+	Cc          []string
+	Bcc         []string
+	Subject     string
+	Body        string
+	Attachments []string
+	// InReplyTo and References thread the message as a reply. They hold
+	// Message-IDs without angle brackets; References lists the thread's
+	// earlier messages, oldest first.
+	InReplyTo  string
+	References []string
+}
+
+// SendMessage sends msg.
+func (m *Client) SendMessage(ctx context.Context, msg Message) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(ctx, mailTimeout)
 	defer cancel()
 
-	logger.Info(ctx, "Sending email", slog.Any("to", to), tag.Subject(subject))
+	logger.Info(ctx, "Sending email", slog.Any("to", msg.To), tag.Subject(msg.Subject))
 	if m.username == "" && m.password == "" && m.token == nil {
-		return m.send(ctx, from, to, cc, bcc, subject, body, attachments, false)
+		return m.send(ctx, msg, false)
 	}
-	return m.send(ctx, from, to, cc, bcc, subject, body, attachments, true)
+	return m.send(ctx, msg, true)
 }
 
-func (m *Client) send(
-	ctx context.Context,
-	from string,
-	to []string,
-	cc []string,
-	bcc []string,
-	subject, body string,
-	attachments []string,
-	useAuth bool,
-) error {
+// Compose returns msg as the RFC 5322 message SendMessage delivers. Bcc
+// recipients are not part of it.
+func (m *Client) Compose(msg Message) ([]byte, error) {
+	return m.composeMessage(sanitizeAddresses(msg.To), sanitizeAddresses(msg.Cc),
+		sanitizeHeaderField(msg.From), sanitizeHeaderField(msg.Subject), processEmailBody(msg.Body),
+		msg.Attachments, threadHeaders(msg.InReplyTo, msg.References))
+}
+
+func (m *Client) send(ctx context.Context, msg Message, useAuth bool) error {
 	// The message is built before connecting, so attachments are read once and
 	// a problem with one stops the send before the server sees anything.
-	recipients := sanitizeAddresses(append(append(append([]string{}, to...), cc...), bcc...))
-	to = sanitizeAddresses(to)
-	cc = sanitizeAddresses(cc)
-	safeFrom := sanitizeHeaderField(from)
-	safeSubject := sanitizeHeaderField(subject)
-	payload, err := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
+	recipients := sanitizeAddresses(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
+	safeFrom := sanitizeHeaderField(msg.From)
+	payload, err := m.Compose(msg)
 	if err != nil {
 		return fmt.Errorf("failed to compose email: %w", err)
 	}
@@ -161,7 +188,11 @@ func (m *Client) send(
 	address := net.JoinHostPort(m.host, m.port)
 	var conn net.Conn
 	if m.security == SecurityTLS {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: m.tlsConfig()}).DialContext(ctx, "tcp", address)
+		var cfg *tls.Config
+		if cfg, err = m.tlsConfig(); err != nil {
+			return err
+		}
+		conn, err = (&tls.Dialer{NetDialer: dialer, Config: cfg}).DialContext(ctx, "tcp", address)
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
@@ -255,7 +286,11 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 
 	if m.security != SecurityTLS {
 		if ok, _ := c.Extension("STARTTLS"); ok {
-			if err := c.StartTLS(m.tlsConfig()); err != nil {
+			cfg, err := m.tlsConfig()
+			if err != nil {
+				return err
+			}
+			if err := c.StartTLS(cfg); err != nil {
 				return fmt.Errorf("STARTTLS failed: %w", err)
 			}
 		} else if m.security == SecurityStartTLS {
@@ -271,13 +306,17 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 	return nil
 }
 
-func (m *Client) tlsConfig() *tls.Config {
-	return &tls.Config{
+func (m *Client) tlsConfig() (*tls.Config, error) {
+	cfg := &tls.Config{
 		ServerName: m.host,
 		MinVersion: tls.VersionTLS12,
 		// Operators opt in per server, for self-signed certificates.
 		InsecureSkipVerify: m.skipTLSVerify, //nolint:gosec
 	}
+	if err := ApplyCertPin(cfg, m.tlsCertSHA256); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // authenticate tries LOGIN auth first, then falls back to PLAIN auth.
@@ -377,7 +416,7 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 }
 
 func (*Client) composeHeader(
-	to []string, cc []string, from string, subject string, contentType string,
+	to []string, cc []string, from string, subject string, contentType string, thread string,
 ) string {
 	to = sanitizeAddresses(to)
 	cc = sanitizeAddresses(cc)
@@ -392,6 +431,7 @@ func (*Client) composeHeader(
 		"Subject: " + subject + "\r\n" +
 		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
 		"Message-ID: " + newMessageID(from) + "\r\n" +
+		thread +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: " + contentType + "\r\n"
 }
@@ -402,14 +442,60 @@ func (m *Client) composeMail(
 	from, subject, body string,
 	attachments []string,
 ) ([]byte, error) {
+	return m.composeMessage(to, cc, from, subject, body, attachments, "")
+}
+
+// composeMessage builds the message; thread holds the reply headers, if any.
+func (m *Client) composeMessage(
+	to []string,
+	cc []string,
+	from, subject, body string,
+	attachments []string,
+	thread string,
+) ([]byte, error) {
 	loadedAttachments, err := loadAttachments(attachments, m.requireAttachments)
 	if err != nil {
 		return nil, err
 	}
 	if len(loadedAttachments) == 0 {
-		return m.composeSinglePartMail(to, cc, from, subject, body)
+		return m.composeSinglePartMail(to, cc, from, subject, body, thread)
 	}
-	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments)
+	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments, thread)
+}
+
+// threadHeaders returns the In-Reply-To and References lines of a reply to
+// the message inReplyTo. A Message-ID that could break the header is left
+// out, and long threads keep their first message and the newest ones.
+func threadHeaders(inReplyTo string, references []string) string {
+	if !safeMessageID(inReplyTo) {
+		return ""
+	}
+	ids := make([]string, 0, len(references)+1)
+	for _, id := range references {
+		if safeMessageID(id) && id != inReplyTo {
+			ids = append(ids, "<"+id+">")
+		}
+	}
+	ids = append(ids, "<"+inReplyTo+">")
+	if len(ids) > maxReferences {
+		ids = append(ids[:1], ids[len(ids)-maxReferences+1:]...)
+	}
+	return "In-Reply-To: <" + inReplyTo + ">\r\n" +
+		"References: " + strings.Join(ids, " ") + "\r\n"
+}
+
+// safeMessageID reports whether id, without angle brackets, can be written
+// into a header as it is.
+func safeMessageID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r <= ' ' || r > '~' || r == '<' || r == '>' {
+			return false
+		}
+	}
+	return true
 }
 
 type attachment struct {
@@ -446,7 +532,7 @@ func loadAttachments(fileNames []string, require bool) ([]attachment, error) {
 // attachmentContentType takes the type from the file name, or from the
 // content when the name implies none.
 func attachmentContentType(name string, data []byte) string {
-	if contentType := mime.TypeByExtension(filepath.Ext(name)); contentType != "" {
+	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); contentType != "" {
 		return contentType
 	}
 	return http.DetectContentType(data)
@@ -456,10 +542,11 @@ func (m *Client) composeSinglePartMail(
 	to []string,
 	cc []string,
 	from, subject, body string,
+	thread string,
 ) ([]byte, error) {
 	var buf bytes.Buffer
 	contentType := mime.FormatMediaType("text/html", map[string]string{"charset": "UTF-8"})
-	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType, thread))
 	buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
 	if err := writeBase64(&buf, []byte(body)); err != nil {
 		return nil, err
@@ -473,6 +560,7 @@ func (m *Client) composeMultipartMail(
 	cc []string,
 	from, subject, body string,
 	attachments []attachment,
+	thread string,
 ) ([]byte, error) {
 	var content bytes.Buffer
 	writer := multipart.NewWriter(&content)
@@ -510,7 +598,7 @@ func (m *Client) composeMultipartMail(
 
 	contentType := mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": writer.Boundary()})
 	var message bytes.Buffer
-	message.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	message.WriteString(m.composeHeader(to, cc, from, subject, contentType, thread))
 	message.WriteString("\r\n")
 	message.Write(content.Bytes())
 	return message.Bytes(), nil
@@ -601,4 +689,42 @@ func readFile(fileName string) (data []byte, err error) {
 	}
 
 	return data, nil
+}
+
+// NormalizeCertSHA256 returns the lowercase hex form of a SHA-256 certificate
+// fingerprint. It accepts upper or lower case, and colons between bytes as
+// `openssl x509 -fingerprint` prints them.
+func NormalizeCertSHA256(fingerprint string) (string, error) {
+	raw, err := hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(fingerprint), ":", ""))
+	if err != nil || len(raw) != sha256.Size {
+		return "", errors.New("must be a SHA-256 fingerprint of 64 hex characters")
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// ApplyCertPin makes cfg accept only the leaf certificate whose SHA-256 hash is
+// fingerprint. It skips chain verification and checks the hash instead, so it
+// replaces any InsecureSkipVerify setting. The check is in VerifyConnection,
+// which also runs when a session is resumed (VerifyPeerCertificate does not).
+// An empty fingerprint leaves cfg as is.
+func ApplyCertPin(cfg *tls.Config, fingerprint string) error {
+	if fingerprint == "" {
+		return nil
+	}
+	want, err := NormalizeCertSHA256(fingerprint)
+	if err != nil {
+		return fmt.Errorf("tls_cert_sha256 %w", err)
+	}
+	cfg.InsecureSkipVerify = true //nolint:gosec // the pinned hash is checked in VerifyConnection
+	cfg.VerifyConnection = func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) == 0 {
+			return errors.New("server presented no certificate")
+		}
+		sum := sha256.Sum256(state.PeerCertificates[0].Raw)
+		if got := hex.EncodeToString(sum[:]); got != want {
+			return fmt.Errorf("server certificate SHA-256 %s does not match tls_cert_sha256", got)
+		}
+		return nil
+	}
+	return nil
 }

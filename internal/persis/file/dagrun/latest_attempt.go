@@ -19,7 +19,12 @@ import (
 
 const latestAttemptFileName = ".dagrun.latest"
 
-var errLatestAttemptPointerInvalid = errors.New("latest attempt pointer invalid")
+var (
+	errLatestAttemptPointerInvalid = errors.New("latest attempt pointer invalid")
+	// errLatestAttemptBeforeCutoff reports a valid pointer to a run created
+	// before the cutoff.
+	errLatestAttemptBeforeCutoff = errors.New("latest attempt is before the cutoff")
+)
 
 type latestAttemptPointer struct {
 	StatusFile string `json:"statusFile"`
@@ -99,7 +104,7 @@ func (dr DataRoot) latestAttemptFromPointer(ctx context.Context, cache *fileutil
 		return nil, err
 	}
 	if !cutoff.IsZero() && run.timestamp.Before(cutoff.Time) {
-		return nil, errLatestAttemptPointerInvalid
+		return nil, errLatestAttemptBeforeCutoff
 	}
 	attempt, err := NewAttempt(info.statusFile, cache, WithArtifactRoot(dr.artifactDir))
 	if err != nil {

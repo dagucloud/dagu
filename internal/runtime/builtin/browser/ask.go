@@ -4,166 +4,153 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
-	"strconv"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
+const askQuestionHeader = "Browser input"
+
+// What a step waits for a person on, as askUnsupported names it.
 const (
-	askInteractionPrefix = "ask-"
-	askQuestionHeader    = "Browser input"
+	askOperations = "ask operations are"
+	writeGateAsk  = "write_gate ask is"
 )
 
-var errAskRejected = errors.New("the input request was rejected")
-
-// askAnswer is a response to an ask operation that the step has not applied.
-type askAnswer struct {
-	interactionID string
-	rejected      bool
-}
-
-// askInteractionID names the interaction for the ask operation at index.
-func askInteractionID(index, generation int) string {
-	return fmt.Sprintf("%s%d-%d", askInteractionPrefix, index, generation)
-}
-
-// parseAskInteractionID returns the operation index and generation encoded
-// in an ask interaction ID.
-func parseAskInteractionID(id string) (index, generation int, ok bool) {
-	rest, found := strings.CutPrefix(id, askInteractionPrefix)
-	if !found {
-		return 0, 0, false
-	}
-	indexText, generationText, found := strings.Cut(rest, "-")
-	if !found {
-		return 0, 0, false
-	}
-	index, err := strconv.Atoi(indexText)
-	if err != nil {
-		return 0, 0, false
-	}
-	generation, err = strconv.Atoi(generationText)
-	if err != nil {
-		return 0, 0, false
-	}
-	return index, generation, true
-}
-
-// pendingAnswer returns the current generation's answered or rejected ask
-// that has not been applied yet.
-func pendingAnswer(session *ir.AgentSession) (askAnswer, bool) {
-	if session == nil || session.Provider != providerName {
-		return askAnswer{}, false
-	}
-	for _, interaction := range session.Interactions {
-		_, generation, ok := parseAskInteractionID(interaction.ID)
-		if !ok || generation != session.Generation || interaction.Applied {
-			continue
-		}
-		switch interaction.Status {
-		case ir.AgentInteractionRejected:
-			return askAnswer{interactionID: interaction.ID, rejected: true}, true
-		case ir.AgentInteractionAnswered:
-			return askAnswer{interactionID: interaction.ID}, true
-		case ir.AgentInteractionPending:
+// hasUnguardedAsk reports whether an ask operation certainly runs: one
+// without a when. A when-guarded ask may be skipped.
+func (r *run) hasUnguardedAsk() bool {
+	for _, op := range r.cfg.Do {
+		if op.Ask != nil && op.When == nil {
+			return true
 		}
 	}
-	return askAnswer{}, false
+	return false
 }
 
-func firstAnswer(interaction ir.AgentInteraction) string {
-	if len(interaction.Answers) == 0 || len(interaction.Answers[0]) == 0 {
-		return ""
+// askUnsupported explains that what, askOperations or writeGateAsk, cannot
+// run where the browser cannot outlive the step process, as on Windows,
+// and names the alternative: signing the profile in once in a headed
+// browser session. The command quotes the URL, whose query a shell would
+// otherwise cut at its first &. The URL may hold a secret, so the message
+// is masked.
+func (r *run) askUnsupported(what string) error {
+	url := r.cfg.URL
+	for _, op := range r.cfg.Do {
+		if url != "" {
+			break
+		}
+		url = op.Goto
 	}
-	return interaction.Answers[0][0]
+	url = strings.ReplaceAll(cmp.Or(url, "<url>"), `"`, `\"`)
+	message := fmt.Sprintf("%s not supported on Windows, where the browser cannot outlive the step process; sign the profile in once in a headed browser session instead: dagu browser session open \"%s\" --headed --profile %s",
+		what, url, cmp.Or(r.cfg.Browser.Profile, "<name>"))
+	return errors.New(r.masker.MaskString(message))
 }
 
 // waitForInput leaves the browser running, records where to resume, and
 // puts the step into Waiting until a person answers.
 func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
-	generation := r.exec.GetAgentSession().Generation
-	if err := r.eng.Detach(ctx); err != nil {
-		return r.fail(ctx, index, opAsk, fmt.Errorf("keep browser open: %w", err))
-	}
-	r.eng = nil
-	r.record.State = browserhost.StateDetached
-	r.record.Deadline = time.Now().Add(spec.timeout())
-	r.record.Cursor = index + 1
-	r.record.Outputs = r.outputs
-	if r.cache != nil {
-		pending, used := r.cache.held()
-		r.record.ReplayPending, r.record.ReplayUsed = encodeRecordings(pending), encodeRecordings(used)
-	}
-	r.record.OwnerPID = 0
-	r.record.OwnerStartedAt = 0
-	if err := r.store.Save(r.record); err != nil {
-		return r.fail(ctx, index, opAsk, err)
-	}
-	// The record marks the profile as held while the browser waits.
-	r.profile.release()
-	r.profile = nil
-
 	prompt := r.masker.MaskString(spec.Prompt)
-	r.timeline.operation(operationReport{index: index, kind: opAsk, subject: prompt, status: statusWaiting})
+	deadline := time.Now().Add(spec.timeout())
+	generation := r.exec.GetAgentSession().Generation
+	interaction := agentstep.AskInteraction(index, generation, askQuestionHeader, prompt, deadline)
+	if err := r.detachForAnswer(ctx, index, index+1, opAsk, deadline); err != nil {
+		return err
+	}
+	r.timeline.Operation(agentstep.Report{Index: index, Kind: opAsk, Subject: prompt, Status: agentstep.StatusWaiting})
+	r.awaitAnswer(interaction)
+	return nil
+}
+
+// awaitAnswer puts the step into Waiting until a person answers
+// interaction.
+func (r *run) awaitAnswer(interaction ir.AgentInteraction) {
 	usage := r.bridge.totals()
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionWaiting
 		// The step resumes in a new process, which counts on from here.
 		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
-		s.Interactions = append(s.Interactions, ir.AgentInteraction{
-			ID:     askInteractionID(index, generation),
-			Kind:   ir.AgentInteractionQuestion,
-			Status: ir.AgentInteractionPending,
-			Questions: []ir.AgentQuestion{{
-				Header:   askQuestionHeader,
-				Question: prompt,
-				Custom:   true,
-			}},
-			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-			ExpiresAt: r.record.Deadline.UTC().Format(time.RFC3339Nano),
-		})
+		s.Interactions = append(s.Interactions, interaction)
 	})
 	r.exec.setNodeStatus(ir.NodeWaiting)
+}
+
+// detachForAnswer leaves the browser running until deadline and records
+// that the step resumes at cursor once the question the operation at index
+// of kind asks is answered.
+func (r *run) detachForAnswer(ctx context.Context, index, cursor int, kind string, deadline time.Time) error {
+	if err := r.eng.Detach(ctx); err != nil {
+		return r.fail(ctx, index, kind, fmt.Errorf("keep browser open: %w", err))
+	}
+	r.eng = nil
+	r.detachShared()
+	r.record.State = browserhost.StateDetached
+	r.record.Deadline = deadline
+	r.record.Cursor = cursor
+	r.record.Outputs = r.outputs
+	r.record.Downloads = r.downloads
+	r.record.ReplayPending, r.record.ReplayUsed = r.cache.Held()
+	r.record.WriteGateSeq = r.writeSeq
+	r.record.OwnerPID = 0
+	r.record.OwnerStartedAt = 0
+	if err := r.store.Save(r.record); err != nil {
+		return r.fail(ctx, index, kind, err)
+	}
+	// The record marks the profile as held while the browser waits.
+	r.profile.release()
+	r.profile = nil
+	r.leaveShared()
 	return nil
 }
 
 // resumeSession reattaches to the browser an ask operation left running and
-// returns the operation after that ask.
-func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.AgentSession, answer askAnswer) (int, error) {
+// returns the operation after that ask. An answer whose record cannot be
+// read for now stays pending, so a retry can still reattach.
+func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
+	// The attempt used these tokens before it waited.
+	r.bridge.resume(tokenUsage{Input: int(session.Usage.InputTokens), Output: int(session.Usage.OutputTokens)})
+	record, err := r.store.Load(recordID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, fmt.Errorf("read the waiting browser's record: %w", err)
+	}
 	r.exec.updateSession(func(s *ir.AgentSession) {
-		for i := range s.Interactions {
-			if s.Interactions[i].ID == answer.interactionID {
-				s.Interactions[i].Applied = true
-			}
-		}
+		agentstep.MarkApplied(s, answer.InteractionID)
 		s.State = ir.AgentSessionRunning
 		s.OwnerWorkerID = r.workerID
 	})
-	record, err := r.store.Load(recordID)
 	if err != nil || record.State != browserhost.StateDetached || record.Generation != session.Generation {
 		return 0, errors.New("the browser waiting for input is no longer running; retry the step to start over")
 	}
 	r.record = record
-	if answer.rejected {
-		return 0, errAskRejected
+	if answer.Rejected {
+		return 0, agentstep.ErrAskRejected
+	}
+	// An answer to a permission before a commit operation says whether
+	// that operation sends its write.
+	commit := answer.Index < len(r.cfg.Do) && r.cfg.Do[answer.Index].Ask == nil
+	if commit {
+		r.commitDecisions[answer.Index] = answer.Decision
 	}
 	if time.Now().After(record.Deadline) {
-		return 0, errors.New("the answer arrived after ask.timeout and the browser was closed; retry the step to start over")
-	}
-	for _, interaction := range session.Interactions {
-		index, generation, ok := parseAskInteractionID(interaction.ID)
-		if !ok || generation != session.Generation || interaction.Status != ir.AgentInteractionAnswered {
-			continue
+		wait := "ask.timeout"
+		if commit {
+			wait = "the wait for a write decision"
 		}
+		return 0, fmt.Errorf("the answer arrived after %s and the browser was closed; retry the step to start over", wait)
+	}
+	for index, value := range agentstep.AnsweredAsks(session) {
 		if index < len(r.cfg.Do) && r.cfg.Do[index].Ask != nil {
-			name, value := r.cfg.Do[index].Ask.As, firstAnswer(interaction)
+			name := r.cfg.Do[index].Ask.As
 			r.variables[name] = value
 			r.answers[name] = value
 		}
@@ -171,7 +158,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	r.refreshMasker()
 
 	if name := record.Profile; name != "" {
-		lease, err := acquireProfile(ctx, r.browser, name, r.store, recordID)
+		lease, err := r.lockProfile(ctx, name, recordID)
 		if err != nil {
 			return 0, err
 		}
@@ -180,34 +167,38 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	opts := launchOptions{
 		DownloadsDir:   record.DownloadsDir,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		DismissConfirm: r.cfg.dismissesConfirm(),
 		Generate:       r.bridge.generate,
 	}
-	eng, err := r.exec.launcher.Reattach(ctx, browserHandle{
-		CDPURL:       record.CDPURL,
-		ExtensionID:  record.ExtensionID,
-		ExtensionDir: record.ExtensionDir,
-	}, opts)
+	eng, err := r.exec.launcher.Reattach(ctx, recordedHandle(record), opts)
 	if err != nil {
 		return 0, err
 	}
 	r.eng = eng
+	r.certificateProxy = record.CertProxyURL != ""
+	r.writeSeq = record.WriteGateSeq
+	if record.WriteGateURL != "" {
+		if r.writeGate, err = writeGateMode(ctx, r.cfg.Browser.WriteGate); err != nil {
+			return 0, err
+		}
+		r.restoreWrites(ctx)
+		r.loadCommitPoints()
+	}
 	if err := r.saveRunningRecord(); err != nil {
 		return 0, err
 	}
 	maps.Copy(r.outputs, record.Outputs)
-	if r.cache != nil {
-		r.cache.hold(decodeRecordings(record.ReplayPending), decodeRecordings(record.ReplayUsed))
-	}
-	r.bridge.resume(tokenUsage{Input: int(session.Usage.InputTokens), Output: int(session.Usage.OutputTokens)})
-	r.timeline.lifecycle(statusRunning, "Resumed browser after input")
+	r.downloads = append(record.Downloads, r.downloads...)
+	r.cache.Hold(record.ReplayPending, record.ReplayUsed)
+	r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed browser after input")
 	return record.Cursor, nil
 }
 
 // refreshMasker rebuilds the masker so answers given through ask
 // operations are hidden like secrets.
 func (r *run) refreshMasker() {
-	masker := newMasker(r.secrets, r.answers)
+	masker := agentstep.NewMasker(r.secrets, r.answers)
 	r.masker = masker
 	r.bridge.masker = masker
-	r.timeline.masker = masker
+	r.timeline.Masker = masker
 }

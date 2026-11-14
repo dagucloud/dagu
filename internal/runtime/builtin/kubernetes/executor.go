@@ -307,7 +307,8 @@ func buildCommand(step ir.Step) []string {
 
 func init() {
 	caps := registry.ExecutorCapabilities{
-		Command: true,
+		Command:    true,
+		PathInputs: []string{"kubeconfig"},
 	}
 	executor.RegisterExecutor("kubernetes", newKubernetes, validateStep, caps)
 	executor.RegisterExecutor("k8s", newKubernetes, validateStep, caps)

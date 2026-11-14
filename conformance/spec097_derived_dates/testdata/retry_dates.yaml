@@ -1,0 +1,10 @@
+name: retry_dates
+working_dir: .
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+dates:
+  target_day: -1d
+steps:
+  - id: capture
+    run: |
+      printf '%s\n' '${dates.target_day}' >> attempts.txt
+      test -f allow.txt

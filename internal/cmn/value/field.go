@@ -3,11 +3,17 @@
 
 package value
 
+import "strings"
+
 // Field identifies the workflow value being resolved.
 type Field struct {
 	path    string
 	kind    fieldKind
 	command CommandContext
+	// isPath marks a value that names a filesystem path.
+	isPath bool
+	// pathKeys lists the dotted object keys whose values name filesystem paths.
+	pathKeys []string
 }
 
 type fieldKind int
@@ -20,6 +26,7 @@ const (
 	fieldHostConfigObject
 	fieldDAGEnv
 	fieldRuntimeDAGEnv
+	fieldDAGEnvCompletion
 	fieldDynamicParamEval
 	fieldDotenvPath
 	fieldStepDir
@@ -64,6 +71,51 @@ func newField(path string, kind fieldKind) Field {
 	return Field{path: path, kind: kind}
 }
 
+func newPathField(path string, kind fieldKind) Field {
+	return newField(path, kind).asPath()
+}
+
+// asPath returns f for a value that names a filesystem path. A backslash in
+// such a value is path text, never an escape marker, so C:\out\${NAME} keeps
+// its separator and resolves the reference.
+func (f Field) asPath() Field {
+	f.isPath = true
+	return f
+}
+
+// WithPathKeys returns f for an object value whose listed keys name filesystem
+// paths. A key such as "import.input_file" names a value nested in a map. A
+// backslash in those values is path text, never an escape marker.
+func (f Field) WithPathKeys(keys ...string) Field {
+	f.pathKeys = keys
+	return f
+}
+
+// Key returns the field that resolves the value under key in an object field.
+func (f Field) Key(key string) Field {
+	child := f
+	child.pathKeys = nil
+	for _, pathKey := range f.pathKeys {
+		if pathKey == key {
+			child = child.asPath()
+		} else if nested, ok := strings.CutPrefix(pathKey, key+"."); ok {
+			child.pathKeys = append(child.pathKeys, nested)
+		}
+	}
+	return child
+}
+
+// escapesDollar reports whether a backslash before $ is a Dagu escape marker.
+func (f Field) escapesDollar() bool {
+	return !f.isPath
+}
+
+// ReachesShell reports whether a shell or script interpreter parses the field's
+// resolved text, so text inserted into it can act as code.
+func (f Field) ReachesShell() bool {
+	return f.kind == fieldShellCommand || f.kind == fieldCommandScript
+}
+
 // ConstLoadField returns the policy for loading const declarations.
 func ConstLoadField(path string) Field { return newField(path, fieldConstLoad) }
 
@@ -85,38 +137,42 @@ func DAGEnvField(path string) Field { return newField(path, fieldDAGEnv) }
 // RuntimeDAGEnvField returns the policy for runtime DAG env entries.
 func RuntimeDAGEnvField(path string) Field { return newField(path, fieldRuntimeDAGEnv) }
 
+// DAGEnvCompletionField returns the policy for completing a DAG env entry that
+// loading already resolved. Escapes applied at load are not applied again.
+func DAGEnvCompletionField(path string) Field { return newField(path, fieldDAGEnvCompletion) }
+
 // DynamicParamEvalField returns the policy for dynamic param eval values.
 func DynamicParamEvalField(path string) Field { return newField(path, fieldDynamicParamEval) }
 
 // DotenvPathField returns the policy for dotenv path values.
-func DotenvPathField(path string) Field { return newField(path, fieldDotenvPath) }
+func DotenvPathField(path string) Field { return newPathField(path, fieldDotenvPath) }
 
 // StepDirField returns the policy for step working directory values.
-func StepDirField(path string) Field { return newField(path, fieldStepDir) }
+func StepDirField(path string) Field { return newPathField(path, fieldStepDir) }
 
 // DAGWorkingDirField returns the policy for DAG working directory values.
-func DAGWorkingDirField(path string) Field { return newField(path, fieldDAGWorkingDir) }
+func DAGWorkingDirField(path string) Field { return newPathField(path, fieldDAGWorkingDir) }
 
 // AgentWorkingDirField returns the policy for agent working directory values.
-func AgentWorkingDirField(path string) Field { return newField(path, fieldAgentWorkingDir) }
+func AgentWorkingDirField(path string) Field { return newPathField(path, fieldAgentWorkingDir) }
 
 // ServerBasePathField returns the policy for frontend server base paths.
 func ServerBasePathField(path string) Field { return newField(path, fieldServerBasePath) }
 
 // LogPathField returns the policy for log path values.
-func LogPathField(path string) Field { return newField(path, fieldLogPath) }
+func LogPathField(path string) Field { return newPathField(path, fieldLogPath) }
 
 // CoordinatorArtifactBaseDirField returns the policy for coordinator artifact roots.
 func CoordinatorArtifactBaseDirField(path string) Field {
-	return newField(path, fieldCoordinatorArtifactBaseDir)
+	return newPathField(path, fieldCoordinatorArtifactBaseDir)
 }
 
 // StepArtifactOutputField returns the policy for stdout/stderr artifact paths.
-func StepArtifactOutputField(path string) Field { return newField(path, fieldStepArtifactOutput) }
+func StepArtifactOutputField(path string) Field { return newPathField(path, fieldStepArtifactOutput) }
 
 // StructuredOutputPathField returns the policy for structured output source paths.
 func StructuredOutputPathField(path string) Field {
-	return newField(path, fieldStructuredOutputPath)
+	return newPathField(path, fieldStructuredOutputPath)
 }
 
 // StructuredOutputLiteralField returns the policy for structured literal output values.
@@ -191,8 +247,13 @@ func ContainerEnvField(path string) Field { return newField(path, fieldContainer
 // ExecutorConfigField returns the policy for executor configuration objects.
 func ExecutorConfigField(path string) Field { return newField(path, fieldExecutorConfig) }
 
-// TemplateScriptField returns the policy for template executor scripts.
+// TemplateScriptField returns the policy for scripts that executors such as
+// template and js interpret as written.
 func TemplateScriptField(path string) Field { return newField(path, fieldTemplateScript) }
+
+// IsTemplateScript reports whether the field is a script passed to its
+// executor as written rather than value-resolved.
+func (f Field) IsTemplateScript() bool { return f.kind == fieldTemplateScript }
 
 // TemplateConfigField returns the policy for template executor configuration.
 func TemplateConfigField(path string) Field {

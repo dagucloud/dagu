@@ -1,0 +1,32 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - id: weather
+    action: chat.completion
+    stdout: answer.out
+    with:
+      prompt: "What is the weather in Paris?"
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      tools:
+        - get-weather
+    output_schema:
+      type: object
+      properties:
+        city:
+          type: string
+        celsius:
+          type: number
+      required: [city, celsius]
+  - id: report
+    depends: weather
+    run: printf '%s %s\n' '${steps.weather.outputs.city}' '${steps.weather.outputs.celsius}'
+    stdout: result.out
+---
+name: get-weather
+params: CITY
+steps:
+  - command: 'echo "{\"temp_c\": 22, \"city\": \"$CITY\"}"'
+    output: WEATHER_JSON

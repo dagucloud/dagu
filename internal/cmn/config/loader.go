@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -124,7 +125,7 @@ const (
 // serviceRequirements maps services to their required config sections using bitwise OR.
 var serviceRequirements = map[Service]ConfigSection{
 	ServiceNone:        SectionAll,
-	ServiceServer:      SectionServer | SectionCoordinator | SectionUI | SectionQueues | SectionMonitoring | SectionGitSync | SectionTunnel | SectionLicense | SectionProc,
+	ServiceServer:      SectionServer | SectionScheduler | SectionCoordinator | SectionUI | SectionQueues | SectionMonitoring | SectionGitSync | SectionTunnel | SectionLicense | SectionProc,
 	ServiceScheduler:   SectionScheduler | SectionCoordinator | SectionQueues | SectionProc,
 	ServiceWorker:      SectionWorker | SectionCoordinator | SectionProc,
 	ServiceCoordinator: SectionCoordinator | SectionProc,
@@ -150,6 +151,179 @@ func (l *ConfigLoader) resolvePath(fieldName, pathValue string) (string, error) 
 		return "", fmt.Errorf("failed to resolve %s path %q: %w", fieldName, pathValue, err)
 	}
 	return resolved, nil
+}
+
+// loadBrowserTrustedCAs resolves the file of each trusted authority and
+// rejects a malformed one.
+func (l *ConfigLoader) loadBrowserTrustedCAs(defs []BrowserTrustedCADef) ([]BrowserTrustedCA, error) {
+	var authorities []BrowserTrustedCA
+	for i, def := range defs {
+		field := fmt.Sprintf("browser.trusted_cas[%d]", i)
+		caFile, err := l.resolvePath(field+".ca_file", def.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		authority := BrowserTrustedCA{Hosts: def.Hosts, CAFile: caFile}
+		if err := authority.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", field, err)
+		}
+		authorities = append(authorities, authority)
+	}
+	return authorities, nil
+}
+
+// loadBrowserClientCertificates resolves the files of each client
+// certificate and rejects a malformed one.
+func (l *ConfigLoader) loadBrowserClientCertificates(defs []BrowserClientCertificateDef) ([]BrowserClientCertificate, error) {
+	var certificates []BrowserClientCertificate
+	for i, def := range defs {
+		field := fmt.Sprintf("browser.client_certificates[%d]", i)
+		certificate := BrowserClientCertificate{Hosts: def.Hosts, Passphrase: def.Passphrase}
+		for _, file := range []struct {
+			name  string
+			value string
+			into  *string
+		}{
+			{"pfx_file", def.PFXFile, &certificate.PFXFile},
+			{"cert_file", def.CertFile, &certificate.CertFile},
+			{"key_file", def.KeyFile, &certificate.KeyFile},
+			{"ca_file", def.CAFile, &certificate.CAFile},
+			{"passphrase_file", def.PassphraseFile, &certificate.PassphraseFile},
+		} {
+			resolved, err := l.resolvePath(field+"."+file.name, file.value)
+			if err != nil {
+				return nil, err
+			}
+			*file.into = resolved
+		}
+		if err := certificate.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", field, err)
+		}
+		certificates = append(certificates, certificate)
+	}
+	return certificates, nil
+}
+
+// secretFile is a secret key whose value can also come from the file named
+// by the key with a _file suffix.
+type secretFile struct {
+	key   string
+	file  string
+	value *string
+	// env names the environment variable that gives the key, when one is set.
+	env string
+}
+
+// loadSecretFiles replaces each secret that has a _file key with the content
+// of that file, so the section loaders see the value as if it were inline.
+// Only the sections the service loads are read.
+func (l *ConfigLoader) loadSecretFiles(def *Definition) error {
+	var secrets []secretFile
+	if def.Secrets != nil && def.Secrets.Vault != nil {
+		vault := def.Secrets.Vault
+		secrets = append(secrets, newSecretFile("secrets.vault.token", vault.TokenFile, &vault.Token))
+	}
+	if l.requires(SectionServer) {
+		if auth := def.Auth; auth != nil {
+			if auth.Basic != nil {
+				secrets = append(secrets, newSecretFile("auth.basic.password", auth.Basic.PasswordFile, &auth.Basic.Password))
+			}
+			if auth.OIDC != nil {
+				secrets = append(secrets, newSecretFile("auth.oidc.client_secret", auth.OIDC.ClientSecretFile, &auth.OIDC.ClientSecret))
+			}
+			if auth.Builtin != nil && auth.Builtin.Token != nil {
+				token := auth.Builtin.Token
+				secrets = append(secrets, newSecretFile("auth.builtin.token.secret", token.SecretFile, &token.Secret))
+			}
+			if auth.Builtin != nil && auth.Builtin.InitialAdmin != nil {
+				admin := auth.Builtin.InitialAdmin
+				secrets = append(secrets, newSecretFile("auth.builtin.initial_admin.password", admin.PasswordFile, &admin.Password))
+			}
+		}
+		for i := range def.RemoteNodes {
+			node := &def.RemoteNodes[i]
+			secrets = append(secrets,
+				newSecretFile(fmt.Sprintf("remote_nodes[%d].basic_auth_password", i), node.BasicAuthPasswordFile, &node.BasicAuthPassword),
+				newSecretFile(fmt.Sprintf("remote_nodes[%d].auth_token", i), node.AuthTokenFile, &node.AuthToken),
+			)
+		}
+	}
+	if l.requires(SectionGitSync) && def.GitSync != nil && def.GitSync.Auth != nil {
+		auth := def.GitSync.Auth
+		secrets = append(secrets,
+			newSecretFile("git_sync.auth.token", auth.TokenFile, &auth.Token),
+			newSecretFile("git_sync.auth.ssh_passphrase", auth.SSHPassphraseFile, &auth.SSHPassphrase),
+		)
+	}
+	for _, secret := range secrets {
+		if err := l.readSecretFile(secret); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// newSecretFile describes a secret at a configuration key. An empty value
+// counts as unset, whether it comes from the configuration file or the
+// environment.
+func newSecretFile(key, file string, value *string) secretFile {
+	return secretFile{key: key, file: file, value: value, env: inlineEnvName(key)}
+}
+
+// inlineEnvName returns the environment variable that gives the configuration
+// key, when it is set and not empty.
+func inlineEnvName(key string) string {
+	for _, b := range envBindings {
+		if b.key != key {
+			continue
+		}
+		name := strings.ToUpper(AppSlug) + "_" + b.env
+		if os.Getenv(name) != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// readSecretFile sets the secret to the content of its file, without its
+// trailing line ends: every trailing \r and \n is removed, so a secret cannot
+// end with one. A non-empty key beside its _file key is an error, as is a file
+// that cannot be read or holds only blanks. An empty key is ignored. A file
+// with no content is an error here, unlike the passphrase_file of a TLS
+// certificate, because an empty credential is a configuration mistake and not
+// a key without a passphrase.
+func (l *ConfigLoader) readSecretFile(secret secretFile) error {
+	if secret.file == "" {
+		return nil
+	}
+	if *secret.value != "" {
+		// The inline value may come from the environment, where the operator
+		// looks for the variable and not for the key.
+		// The same holds for the _file side: DAGU_..._FILE can name the file while
+		// the key is in the configuration file.
+		inline, fileKey := secret.key, secret.key+"_file"
+		if secret.env != "" {
+			inline = secret.env
+		}
+		if env := inlineEnvName(fileKey); env != "" {
+			fileKey = env
+		}
+		return fmt.Errorf("set either %s or %s, not both", inline, fileKey)
+	}
+	path, err := l.resolvePath(secret.key+"_file", secret.file)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // the secret file is the configured input
+	if err != nil {
+		return fmt.Errorf("read %s_file: %w", secret.key, err)
+	}
+	value := strings.TrimRight(string(data), "\r\n")
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s_file %s is empty", secret.key, path)
+	}
+	*secret.value = value
+	return nil
 }
 
 // parseDuration parses a duration string, returning zero and adding a warning if invalid.
@@ -268,8 +442,27 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	l.finalizeBaseEnv(cfg)
 	cfg.Notices = l.notices
 	cfg.Warnings = l.warnings
+	cfg.WorkspaceAccessKeys = l.workspaceAccessKeys()
 
 	return cfg, nil
+}
+
+// workspaceAccessKeys returns the workspace access keys set by a config
+// file or the environment.
+func (l *ConfigLoader) workspaceAccessKeys() []string {
+	const proxyWorkspaceMappings = "auth.proxy.role_mapping.workspace_mappings"
+	var keys []string
+	for _, key := range []string{
+		"auth.oidc.role_mapping.workspace_mappings",
+		"auth.oidc.role_mapping.default_workspace_access",
+		proxyWorkspaceMappings,
+		"auth.proxy.role_mapping.default_workspace_access",
+	} {
+		if l.v.IsSet(key) || key == proxyWorkspaceMappings && l.trustedProxyWorkspaceMappingsSet {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // buildConfig transforms the Definition into a validated Config structure,
@@ -295,6 +488,9 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	if err := l.loadPathsConfig(&cfg, def); err != nil {
 		return nil, err
 	}
+	if err := l.loadSecretFiles(&def); err != nil {
+		return nil, err
+	}
 	l.loadSecretsConfig(&cfg, def)
 	l.loadEventStoreConfig(&cfg, def)
 
@@ -314,6 +510,7 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 		{SectionGitSync, func() { l.loadGitSyncConfig(&cfg, def) }},
 		{SectionTunnel, func() { l.loadTunnelConfig(&cfg, def) }},
 		{SectionLicense, func() { l.loadLicenseConfig(&cfg, def) }},
+		{SectionLicense, func() { l.loadCloudConfig(&cfg, def) }},
 	}
 
 	for _, sl := range sectionLoaders {
@@ -325,6 +522,7 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	l.loadCacheConfig(&cfg, def)
 	l.loadWebhooksConfig(&cfg, def)
 	l.loadExecutionModeConfig(&cfg, def)
+	l.loadSignalHandlingConfig(&cfg, def)
 
 	if err := l.LoadLegacyFields(&cfg, def); err != nil {
 		return nil, err
@@ -366,10 +564,38 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	if cfg.OpenCode.Executable == "" {
 		cfg.OpenCode.Executable = "opencode"
 	}
-	cfg.Browser = BrowserConfig{NoSandbox: !l.v.GetBool("browser.sandbox")}
+	cfg.Browser = BrowserConfig{
+		NoSandbox:   !l.v.GetBool("browser.sandbox"),
+		MaxOpen:     l.v.GetInt("browser.max_open"),
+		WriteGate:   strings.TrimSpace(l.v.GetString("browser.write_gate")),
+		WritePolicy: strings.TrimSpace(l.v.GetString("browser.write_policy")),
+	}
+	if cfg.Browser.MaxOpen < 0 {
+		return fmt.Errorf("browser.max_open must not be negative, got %d", cfg.Browser.MaxOpen)
+	}
+	if mode := cfg.Browser.WriteGate; mode != "" && !slices.Contains(BrowserWriteGateModes, mode) {
+		return fmt.Errorf("browser.write_gate must be one of %s, got %q", strings.Join(BrowserWriteGateModes, ", "), mode)
+	}
+	if l.v.IsSet("browser.guard_client_certificates") {
+		guard := l.v.GetBool("browser.guard_client_certificates")
+		cfg.Browser.GuardClientCertificates = &guard
+	}
+	if def.Browser != nil {
+		certificates, err := l.loadBrowserClientCertificates(def.Browser.ClientCertificates)
+		if err != nil {
+			return err
+		}
+		cfg.Browser.ClientCertificates = certificates
+		authorities, err := l.loadBrowserTrustedCAs(def.Browser.TrustedCAs)
+		if err != nil {
+			return err
+		}
+		cfg.Browser.TrustedCAs = authorities
+	}
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
+		SkipDirs:  skipDirectories(l.v.Get("dag_discovery.skip_directories")),
 	}
 
 	if err := setTimezone(&cfg.Core); err != nil {
@@ -439,6 +665,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		{"AdminLogsDir", &cfg.Paths.AdminLogsDir, def.Paths.AdminLogsDir},
 		{"EventStoreDir", &cfg.Paths.EventStoreDir, def.Paths.EventStoreDir},
 		{"BaseConfig", &cfg.Paths.BaseConfig, def.Paths.BaseConfig},
+		{"CalendarsDir", &cfg.Paths.CalendarsDir, def.Paths.CalendarsDir},
 		{"Executable", &cfg.Paths.Executable, def.Paths.Executable},
 		{"DAGRunsDir", &cfg.Paths.DAGRunsDir, def.Paths.DAGRunsDir},
 		{"DAGRunWorkDir", &cfg.Paths.DAGRunWorkDir, def.Paths.DAGRunWorkDir},
@@ -616,7 +843,17 @@ func (l *ConfigLoader) loadServerPermissions(cfg *Config, def Definition) {
 
 func (l *ConfigLoader) loadServerRemoteNodes(cfg *Config, def Definition) {
 	for _, node := range def.RemoteNodes {
-		cfg.Server.RemoteNodes = append(cfg.Server.RemoteNodes, RemoteNode(node))
+		cfg.Server.RemoteNodes = append(cfg.Server.RemoteNodes, RemoteNode{
+			Name:              node.Name,
+			Description:       node.Description,
+			APIBaseURL:        node.APIBaseURL,
+			AuthType:          node.AuthType,
+			BasicAuthUsername: node.BasicAuthUsername,
+			BasicAuthPassword: node.BasicAuthPassword,
+			AuthToken:         node.AuthToken,
+			SkipTLSVerify:     node.SkipTLSVerify,
+			Timeout:           node.Timeout,
+		})
 	}
 }
 
@@ -1169,6 +1406,15 @@ func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	cfg.Server.BasePath = cleanServerBasePath(cfg.Server.BasePath)
 	cfg.Server.CheckUpdates = l.v.GetBool("check_updates")
 	cfg.Server.CORSAllowedOrigins = parseStringList(l.v.Get("cors_allowed_origins"))
+	cfg.Server.AllowedHosts = parseStringList(l.v.Get("allowed_hosts"))
+	if slices.Contains(cfg.Server.AllowedHosts, "*") {
+		warning := `allowed_hosts contains "*"; any website may reach first-admin setup through DNS rebinding`
+		if cfg.Server.Auth.Mode == AuthModeNone {
+			warning = `allowed_hosts contains "*"; any website may reach the Dagu API through DNS rebinding, ` +
+				`and auth.mode "none" allows those requests to execute workflows without authentication`
+		}
+		l.warnings = append(l.warnings, warning)
+	}
 	cfg.Server.IPAccess = IPAccessConfig{
 		AllowedIPs:     parseStringList(l.v.Get("ip_access.allowed_ips")),
 		TrustedProxies: parseStringList(l.v.Get("ip_access.trusted_proxies")),
@@ -1297,14 +1543,30 @@ func (l *ConfigLoader) loadQueuesConfig(cfg *Config, def Definition) {
 	}
 }
 
+// defaultCoordinatorWorkerWaitTimeout outlasts one worker heartbeat staleness
+// window and one dispatch reservation, so a worker that is merely late is not
+// failed, while an unroutable run still fails within the same sitting.
+const defaultCoordinatorWorkerWaitTimeout = 2 * time.Minute
+
+const defaultFailoverRecoveryWindow = 2 * time.Minute
+
 func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 	cfg.Coordinator.Enabled = l.resolveCoordinatorEnabled(def)
+	cfg.Coordinator.WorkerWaitTimeout = defaultCoordinatorWorkerWaitTimeout
 
 	if def.Coordinator != nil {
 		cfg.Coordinator.Host = def.Coordinator.Host
 		cfg.Coordinator.Advertise = def.Coordinator.Advertise
 		cfg.Coordinator.Port = def.Coordinator.Port
 		cfg.Coordinator.HealthPort = def.Coordinator.HealthPort
+		if def.Coordinator.WorkerWaitTimeout != "" {
+			timeout, err := time.ParseDuration(def.Coordinator.WorkerWaitTimeout)
+			if err != nil {
+				l.warnings = append(l.warnings, fmt.Sprintf("Invalid coordinator.worker_wait_timeout value: %s", def.Coordinator.WorkerWaitTimeout))
+			} else {
+				cfg.Coordinator.WorkerWaitTimeout = timeout
+			}
+		}
 	}
 
 	l.setCoordinatorDefaults(cfg)
@@ -1342,7 +1604,28 @@ func (l *ConfigLoader) loadWorkerConfig(cfg *Config, def Definition) {
 	}
 
 	l.setWorkerDefaults(cfg)
+	l.loadWorkerShutdownTimeout(cfg, def)
 	l.setPostgresPoolDefaults(&cfg.Worker.PostgresPool)
+}
+
+// defaultWorkerShutdownTimeout sits under the 90s systemd TimeoutStopSec
+// default with room for the worker's post-deadline cleanup.
+const defaultWorkerShutdownTimeout = 60 * time.Second
+
+// loadWorkerShutdownTimeout sets worker.shutdown_timeout. It defaults to
+// defaultWorkerShutdownTimeout, also when the value is not a valid duration,
+// and 0 disables the bound.
+func (l *ConfigLoader) loadWorkerShutdownTimeout(cfg *Config, def Definition) {
+	cfg.Worker.ShutdownTimeout = defaultWorkerShutdownTimeout
+	if def.Worker == nil || def.Worker.ShutdownTimeout == "" {
+		return
+	}
+	timeout, err := time.ParseDuration(def.Worker.ShutdownTimeout)
+	if err != nil {
+		l.warnings = append(l.warnings, fmt.Sprintf("Invalid worker.shutdown_timeout value: %s", def.Worker.ShutdownTimeout))
+		return
+	}
+	cfg.Worker.ShutdownTimeout = timeout
 }
 
 func (l *ConfigLoader) setCoordinatorDefaults(cfg *Config) {
@@ -1442,7 +1725,10 @@ func (l *ConfigLoader) loadSchedulerConfig(cfg *Config, def Definition) {
 		cfg.Scheduler.LockRetryInterval = l.parseDuration("scheduler.lock_retry_interval", def.Scheduler.LockRetryInterval)
 		cfg.Scheduler.ZombieDetectionInterval = l.parseDuration("scheduler.zombie_detection_interval", def.Scheduler.ZombieDetectionInterval)
 		cfg.Scheduler.RetryFailureWindow = l.parseDuration("scheduler.retry_failure_window", def.Scheduler.RetryFailureWindow)
+		cfg.Scheduler.FailoverRecoveryWindow = l.parseDuration("scheduler.failover_recovery_window", def.Scheduler.FailoverRecoveryWindow)
 		cfg.Scheduler.FailureThreshold = def.Scheduler.FailureThreshold
+		cfg.Scheduler.WakeHold = l.parseDuration("scheduler.wake_hold", def.Scheduler.WakeHold)
+		cfg.Scheduler.BackfillMaxSlots = def.Scheduler.BackfillMaxSlots
 	}
 
 	l.setSchedulerDefaults(cfg)
@@ -1467,10 +1753,20 @@ func (l *ConfigLoader) setSchedulerDefaults(cfg *Config) {
 	if cfg.Scheduler.RetryFailureWindow <= 0 && !l.v.IsSet("scheduler.retry_failure_window") {
 		cfg.Scheduler.RetryFailureWindow = 24 * time.Hour
 	}
+	// Default FailoverRecoveryWindow only if not explicitly set (0 disables replay)
+	if cfg.Scheduler.FailoverRecoveryWindow <= 0 && !l.v.IsSet("scheduler.failover_recovery_window") {
+		cfg.Scheduler.FailoverRecoveryWindow = defaultFailoverRecoveryWindow
+	}
 	if cfg.Scheduler.FailureThreshold <= 0 {
 		cfg.Scheduler.FailureThreshold = 3
 	}
+	if cfg.Scheduler.BackfillMaxSlots <= 0 {
+		cfg.Scheduler.BackfillMaxSlots = defaultBackfillMaxSlots
+	}
 }
+
+// defaultBackfillMaxSlots admits an hourly DAG over a year.
+const defaultBackfillMaxSlots = 10000
 
 func (l *ConfigLoader) loadProcConfig(cfg *Config, def Definition) {
 	if l.v.IsSet("proc.heartbeat_interval") {
@@ -1707,6 +2003,18 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 	}
 	cfg.License.Key = def.License.Key
 	cfg.License.CloudURL = def.License.CloudURL
+	cfg.License.ServerName = def.License.ServerName
+}
+
+func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
+	if def.Cloud != nil {
+		cfg.Cloud.Report = ReportLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Report)))
+		cfg.Cloud.RemoteAccess = RemoteAccessLevel(strings.ToLower(strings.TrimSpace(def.Cloud.RemoteAccess)))
+	}
+	if l.v.IsSet("cloud.remote_approvals") {
+		approvals := l.v.GetBool("cloud.remote_approvals")
+		cfg.Cloud.RemoteApprovals = &approvals
+	}
 }
 
 func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
@@ -1715,6 +2023,17 @@ func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 		mode = ExecutionModeLocal
 	}
 	cfg.DefaultExecMode = mode
+}
+
+// loadSignalHandlingConfig loads signal handling options. The legacy camelCase
+// spelling "signalHandling.enablePropagation" is still accepted when it comes
+// from admin.yaml, which bypasses the legacy key check for compatibility.
+func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, _ Definition) {
+	if l.v.IsSet("signal_handling.enable_propagation") {
+		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signal_handling.enable_propagation")
+		return
+	}
+	cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
 }
 
 func (l *ConfigLoader) loadCacheConfig(cfg *Config, def Definition) {
@@ -1992,6 +2311,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("skip_examples", false)
 	l.v.SetDefault("dag_discovery.recursive", false)
 	l.v.SetDefault("dag_discovery.symlinks", false)
+	l.v.SetDefault("dag_discovery.skip_directories", []string{})
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
 	l.v.SetDefault("paths.log_dir", paths.LogsDir)
@@ -1999,6 +2319,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("paths.admin_logs_dir", paths.AdminLogsDir)
 	l.v.SetDefault("paths.event_store_dir", paths.EventStoreDir)
 	l.v.SetDefault("paths.base_config", paths.BaseConfigFile)
+	l.v.SetDefault("paths.calendars_dir", paths.CalendarsDir)
 
 	// Server
 	l.v.SetDefault("host", "127.0.0.1")
@@ -2045,6 +2366,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("scheduler.lock_stale_threshold", "30s")
 	l.v.SetDefault("scheduler.lock_retry_interval", "5s")
 	l.v.SetDefault("scheduler.retry_failure_window", "24h")
+	l.v.SetDefault("scheduler.failover_recovery_window", defaultFailoverRecoveryWindow.String())
 
 	// Peer
 	l.v.SetDefault("peer.insecure", true)
@@ -2079,6 +2401,9 @@ type envBinding struct {
 	env      string
 	isPath   bool
 	requires ConfigSection
+	// secret marks a setting that carries a credential, which workflow steps
+	// never inherit; see IsCredentialEnv.
+	secret bool
 }
 
 var envBindings = []envBinding{
@@ -2087,6 +2412,7 @@ var envBindings = []envBinding{
 	{key: "access_log_mode", env: "ACCESS_LOG_MODE"},
 	{key: "public_url", env: "PUBLIC_URL"},
 	{key: "base_path", env: "BASE_PATH"},
+	{key: "api_base_path", env: "API_BASE_PATH"},
 	{key: "api_base_url", env: "API_BASE_URL"},
 	{key: "tz", env: "TZ"},
 	{key: "host", env: "HOST"},
@@ -2095,6 +2421,7 @@ var envBindings = []envBinding{
 	{key: "headless", env: "HEADLESS"},
 	{key: "check_updates", env: "CHECK_UPDATES"},
 	{key: "cors_allowed_origins", env: "CORS_ALLOWED_ORIGINS"},
+	{key: "allowed_hosts", env: "ALLOWED_HOSTS"},
 	{key: "ip_access.allowed_ips", env: "IP_ACCESS_ALLOWED_IPS", requires: SectionServer},
 	{key: "ip_access.trusted_proxies", env: "IP_ACCESS_TRUSTED_PROXIES", requires: SectionServer},
 	{key: "latest_status_today", env: "LATEST_STATUS_TODAY"},
@@ -2119,15 +2446,21 @@ var envBindings = []envBinding{
 	{key: "skip_examples", env: "SKIP_EXAMPLES"},
 	{key: "dag_discovery.recursive", env: "DAG_DISCOVERY_RECURSIVE"},
 	{key: "dag_discovery.symlinks", env: "DAG_DISCOVERY_SYMLINKS"},
+	{key: "dag_discovery.skip_directories", env: "DAG_DISCOVERY_SKIP_DIRECTORIES"},
 	{key: "env_passthrough", env: "ENV_PASSTHROUGH"},
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
 	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
 	{key: "browser.sandbox", env: "BROWSER_SANDBOX"},
+	{key: "browser.max_open", env: "BROWSER_MAX_OPEN"},
+	{key: "browser.guard_client_certificates", env: "BROWSER_GUARD_CLIENT_CERTIFICATES"},
+	{key: "browser.write_gate", env: "BROWSER_WRITE_GATE"},
+	{key: "browser.write_policy", env: "BROWSER_WRITE_POLICY", isPath: true},
 
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},
-	{key: "secrets.vault.token", env: "SECRETS_VAULT_TOKEN"},
+	{key: "secrets.vault.token", env: "SECRETS_VAULT_TOKEN", secret: true},
+	{key: "secrets.vault.token_file", env: "SECRETS_VAULT_TOKEN_FILE", isPath: true, secret: true},
 	{key: "secrets.vault.ca_cert", env: "SECRETS_VAULT_CA_CERT", isPath: true},
 	{key: "secrets.vault.client_cert", env: "SECRETS_VAULT_CLIENT_CERT", isPath: true},
 	{key: "secrets.vault.client_key", env: "SECRETS_VAULT_CLIENT_KEY", isPath: true},
@@ -2148,7 +2481,10 @@ var envBindings = []envBinding{
 	{key: "scheduler.lock_retry_interval", env: "SCHEDULER_LOCK_RETRY_INTERVAL"},
 	{key: "scheduler.zombie_detection_interval", env: "SCHEDULER_ZOMBIE_DETECTION_INTERVAL"},
 	{key: "scheduler.retry_failure_window", env: "SCHEDULER_RETRY_FAILURE_WINDOW"},
+	{key: "scheduler.failover_recovery_window", env: "SCHEDULER_FAILOVER_RECOVERY_WINDOW"},
 	{key: "scheduler.failure_threshold", env: "SCHEDULER_FAILURE_THRESHOLD"},
+	{key: "scheduler.wake_hold", env: "SCHEDULER_WAKE_HOLD"},
+	{key: "scheduler.backfill_max_slots", env: "SCHEDULER_BACKFILL_MAX_SLOTS"},
 
 	// Proc
 	{key: "proc.heartbeat_interval", env: "PROC_HEARTBEAT_INTERVAL"},
@@ -2173,10 +2509,12 @@ var envBindings = []envBinding{
 	// Auth
 	{key: "auth.mode", env: "AUTH_MODE"},
 	{key: "auth.basic.username", env: "AUTH_BASIC_USERNAME"},
-	{key: "auth.basic.password", env: "AUTH_BASIC_PASSWORD"},
+	{key: "auth.basic.password", env: "AUTH_BASIC_PASSWORD", secret: true},
+	{key: "auth.basic.password_file", env: "AUTH_BASIC_PASSWORD_FILE", isPath: true, secret: true},
 	// Auth OIDC
 	{key: "auth.oidc.client_id", env: "AUTH_OIDC_CLIENT_ID"},
-	{key: "auth.oidc.client_secret", env: "AUTH_OIDC_CLIENT_SECRET"},
+	{key: "auth.oidc.client_secret", env: "AUTH_OIDC_CLIENT_SECRET", secret: true},
+	{key: "auth.oidc.client_secret_file", env: "AUTH_OIDC_CLIENT_SECRET_FILE", isPath: true, secret: true},
 	{key: "auth.oidc.client_url", env: "AUTH_OIDC_CLIENT_URL"},
 	{key: "auth.oidc.issuer", env: "AUTH_OIDC_ISSUER"},
 	{key: "auth.oidc.scopes", env: "AUTH_OIDC_SCOPES"},
@@ -2204,10 +2542,12 @@ var envBindings = []envBinding{
 	{key: "auth.proxy.role_mapping.require_mapping", env: "AUTH_PROXY_REQUIRE_MAPPING", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.skip_org_role_sync", env: "AUTH_PROXY_SKIP_ORG_ROLE_SYNC", requires: SectionServer},
 	// Auth (builtin)
-	{key: "auth.builtin.token.secret", env: "AUTH_TOKEN_SECRET"},
+	{key: "auth.builtin.token.secret", env: "AUTH_TOKEN_SECRET", secret: true},
+	{key: "auth.builtin.token.secret_file", env: "AUTH_TOKEN_SECRET_FILE", isPath: true, secret: true},
 	{key: "auth.builtin.token.ttl", env: "AUTH_TOKEN_TTL"},
 	{key: "auth.builtin.initial_admin.username", env: "AUTH_BUILTIN_INITIAL_ADMIN_USERNAME"},
-	{key: "auth.builtin.initial_admin.password", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD"},
+	{key: "auth.builtin.initial_admin.password", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD", secret: true},
+	{key: "auth.builtin.initial_admin.password_file", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD_FILE", isPath: true, secret: true},
 
 	// TLS
 	{key: "tls.cert_file", env: "CERT_FILE"},
@@ -2229,6 +2569,7 @@ var envBindings = []envBinding{
 	{key: "paths.admin_logs_dir", env: "ADMIN_LOG_DIR", isPath: true},
 	{key: "paths.event_store_dir", env: "EVENT_STORE_DIR", isPath: true},
 	{key: "paths.base_config", env: "BASE_CONFIG", isPath: true},
+	{key: "paths.calendars_dir", env: "CALENDARS_DIR", isPath: true},
 	{key: "paths.dag_runs_dir", env: "DAG_RUNS_DIR", isPath: true},
 	{key: "paths.dag_run_work_dir", env: "DAG_RUN_WORK_DIR", isPath: true},
 	{key: "paths.proc_dir", env: "PROC_DIR", isPath: true},
@@ -2241,6 +2582,9 @@ var envBindings = []envBinding{
 	// Execution
 	{key: "default_execution_mode", env: "DEFAULT_EXECUTION_MODE"},
 
+	// Signal handling
+	{key: "signal_handling.enable_propagation", env: "SIGNAL_PROPAGATION"},
+
 	// Queues
 	{key: "queues.enabled", env: "QUEUE_ENABLED"},
 
@@ -2250,6 +2594,7 @@ var envBindings = []envBinding{
 	{key: "coordinator.advertise", env: "COORDINATOR_ADVERTISE"},
 	{key: "coordinator.port", env: "COORDINATOR_PORT"},
 	{key: "coordinator.health_port", env: "COORDINATOR_HEALTH_PORT"},
+	{key: "coordinator.worker_wait_timeout", env: "COORDINATOR_WORKER_WAIT_TIMEOUT"},
 
 	// Worker
 	{key: "worker.id", env: "WORKER_ID"},
@@ -2257,6 +2602,7 @@ var envBindings = []envBinding{
 	{key: "worker.labels", env: "WORKER_LABELS"},
 	{key: "worker.coordinators", env: "WORKER_COORDINATORS"},
 	{key: "worker.health_port", env: "WORKER_HEALTH_PORT"},
+	{key: "worker.shutdown_timeout", env: "WORKER_SHUTDOWN_TIMEOUT"},
 
 	// Peer
 	{key: "peer.cert_file", env: "PEER_CERT_FILE"},
@@ -2278,7 +2624,7 @@ var envBindings = []envBinding{
 	// Tunnel
 	{key: "tunnel.enabled", env: "TUNNEL"},
 	{key: "tunnel.enabled", env: "TUNNEL_ENABLED"},
-	{key: "tunnel.tailscale.auth_key", env: "TUNNEL_TAILSCALE_AUTH_KEY"},
+	{key: "tunnel.tailscale.auth_key", env: "TUNNEL_TAILSCALE_AUTH_KEY", secret: true},
 	{key: "tunnel.tailscale.hostname", env: "TUNNEL_TAILSCALE_HOSTNAME"},
 	{key: "tunnel.tailscale.funnel", env: "TUNNEL_TAILSCALE_FUNNEL"},
 	{key: "tunnel.tailscale.https", env: "TUNNEL_TAILSCALE_HTTPS"},
@@ -2291,8 +2637,14 @@ var envBindings = []envBinding{
 	{key: "tunnel.rate_limiting.block_duration_seconds", env: "TUNNEL_RATE_LIMITING_BLOCK_DURATION_SECONDS"},
 
 	// License
-	{key: "license.key", env: "LICENSE_KEY"},
+	{key: "license.key", env: "LICENSE_KEY", secret: true},
 	{key: "license.cloud_url", env: "LICENSE_CLOUD_URL"},
+	{key: "license.server_name", env: "LICENSE_SERVER_NAME"},
+
+	// Dagu Console
+	{key: "cloud.report", env: "CLOUD_REPORT"},
+	{key: "cloud.remote_access", env: "CLOUD_REMOTE_ACCESS"},
+	{key: "cloud.remote_approvals", env: "CLOUD_REMOTE_APPROVALS"},
 
 	// GitSync
 	{key: "git_sync.enabled", env: "GITSYNC_ENABLED"},
@@ -2301,9 +2653,11 @@ var envBindings = []envBinding{
 	{key: "git_sync.path", env: "GITSYNC_PATH"},
 	{key: "git_sync.push_enabled", env: "GITSYNC_PUSH_ENABLED"},
 	{key: "git_sync.auth.type", env: "GITSYNC_AUTH_TYPE"},
-	{key: "git_sync.auth.token", env: "GITSYNC_AUTH_TOKEN"},
+	{key: "git_sync.auth.token", env: "GITSYNC_AUTH_TOKEN", secret: true},
+	{key: "git_sync.auth.token_file", env: "GITSYNC_AUTH_TOKEN_FILE", isPath: true, secret: true},
 	{key: "git_sync.auth.ssh_key_path", env: "GITSYNC_AUTH_SSH_KEY_PATH", isPath: true},
-	{key: "git_sync.auth.ssh_passphrase", env: "GITSYNC_AUTH_SSH_PASSPHRASE"},
+	{key: "git_sync.auth.ssh_passphrase", env: "GITSYNC_AUTH_SSH_PASSPHRASE", secret: true},
+	{key: "git_sync.auth.ssh_passphrase_file", env: "GITSYNC_AUTH_SSH_PASSPHRASE_FILE", isPath: true, secret: true},
 	{key: "git_sync.auto_sync.enabled", env: "GITSYNC_AUTOSYNC_ENABLED"},
 	{key: "git_sync.auto_sync.on_startup", env: "GITSYNC_AUTOSYNC_ON_STARTUP"},
 	{key: "git_sync.auto_sync.interval", env: "GITSYNC_AUTOSYNC_INTERVAL"},
@@ -2442,4 +2796,14 @@ func getHomeDir() (string, error) {
 		return "", fmt.Errorf("could not determine home directory: %w", err)
 	}
 	return dir, nil
+}
+
+// skipDirectories reads dag_discovery.skip_directories as directory names,
+// so "./jobs" and "jobs/" name the jobs directory.
+func skipDirectories(input any) []string {
+	dirs := parseStringList(input)
+	for i, dir := range dirs {
+		dirs[i] = filepath.Clean(dir)
+	}
+	return dirs
 }

@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -60,6 +61,9 @@ function makeConfig(licenseOverrides: Partial<Config['license']> = {}): Config {
     gitSyncEnabled: false,
     updateAvailable: false,
     latestVersion: '',
+    upgradeCommand: '',
+    restartRequired: false,
+    restartCommand: '',
     permissions: {
       writeDags: true,
       runDags: true,
@@ -130,7 +134,9 @@ function renderPage({
   render(
     <ConfigContext.Provider value={makeConfig(license)}>
       <AppBarContext.Provider value={appBarValue}>
-        <APIKeysPage />
+        <MemoryRouter>
+          <APIKeysPage />
+        </MemoryRouter>
       </AppBarContext.Provider>
     </ConfigContext.Provider>
   );
@@ -184,6 +190,27 @@ describe('APIKeysPage', () => {
     expect(
       screen.getByRole('button', { name: /create api key/i })
     ).toBeEnabled();
+  });
+
+  it('names the free plan when it reaches 2 API keys', async () => {
+    renderPage({
+      license: {
+        valid: true,
+        plan: 'free',
+        features: [],
+        community: false,
+        source: 'file',
+      },
+      apiKeys: [makeAPIKey('1'), makeAPIKey('2')],
+    });
+
+    expect(
+      await screen.findByText('The Free plan supports up to 2 API keys.')
+    ).toBeVisible();
+    expect(screen.getByText(/Revoke a key to create another/)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: /create api key/i })
+    ).toBeDisabled();
   });
 
   it('warns when an inactive loaded license reaches 2 API keys', async () => {
@@ -278,7 +305,7 @@ describe('APIKeyFormModal', () => {
     if (!mcpSurface) {
       fireEvent.click(screen.getByRole('checkbox', { name: 'MCP' }));
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Create Key' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     await screen.findByText('API Key Created');
   }
 

@@ -42,6 +42,21 @@ func TestToStepIncludesHarnessPrompt(t *testing.T) {
 	assert.Nil(t, (*step.Commands)[0].Args)
 }
 
+func TestToStepIncludesExpectedAny(t *testing.T) {
+	step := toStep(ir.Step{
+		Preconditions: []*ir.Condition{
+			{Condition: "${MODE}", ExpectedAny: []string{"full", "minimal"}},
+		},
+	})
+
+	require.NotNil(t, step.Preconditions)
+	require.Len(t, *step.Preconditions, 1)
+	precondition := (*step.Preconditions)[0]
+	require.NotNil(t, precondition.ExpectedAny)
+	assert.Equal(t, []string{"full", "minimal"}, *precondition.ExpectedAny)
+	assert.Nil(t, precondition.Expected)
+}
+
 func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 	status := ir.DAGRunStatus{
 		Name:           "test-dag",
@@ -89,6 +104,67 @@ func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
 	assert.True(t, details.ArtifactsAvailable)
 	require.NotNil(t, details.TriggerActor)
 	assert.Equal(t, "alice", *details.TriggerActor)
+}
+
+// A run's detail shows each step's model usage and the run's total, its
+// handlers included, with zero counts left out; a run that used no model
+// shows none.
+func TestToDAGRunDetailsIncludesModelUsage(t *testing.T) {
+	step := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: 2, InputTokens: 300, OutputTokens: 40, Cost: 0.0012, CostReportedCalls: 2}}}
+	handler := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: 1, InputTokens: 100, OutputTokens: 10}}}
+	details := ToDAGRunDetails(ir.DAGRunStatus{
+		Name: "test-dag", DAGRunID: "run-1",
+		Nodes:     []*ir.Node{{Step: ir.Step{Name: "ask"}, ModelUsage: step}, {Step: ir.Step{Name: "copy"}}},
+		OnFailure: &ir.Node{Step: ir.Step{Name: "onFailure"}, ModelUsage: handler},
+	})
+
+	require.NotNil(t, details.Nodes[0].ModelUsage)
+	require.NotNil(t, details.Nodes[0].ModelUsage.Models)
+	node := (*details.Nodes[0].ModelUsage.Models)[0]
+	assert.Equal(t, int64(2), node.Calls)
+	require.NotNil(t, node.Cost)
+	assert.InDelta(t, 0.0012, *node.Cost, 1e-12)
+	assert.Nil(t, node.CachedInputTokens, "zero counts are left out")
+	assert.Nil(t, details.Nodes[1].ModelUsage)
+
+	require.NotNil(t, details.ModelUsage)
+	total := (*details.ModelUsage.Models)[0]
+	assert.Equal(t, int64(3), total.Calls)
+	assert.Equal(t, int64(400), *total.InputTokens)
+	assert.Equal(t, int64(2), *total.CostReportedCalls, "the handler's call reported no cost")
+
+	assert.Nil(t, ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2"}).ModelUsage, "recorded before the engine recorded usage")
+	none := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3", ModelUsageRecorded: true}).ModelUsage
+	require.NotNil(t, none, "a run that used no model says so")
+	assert.Nil(t, none.Models)
+}
+
+// A step's usage counts what the tools it ran reported, and names a tool
+// whose usage could not be read.
+func TestToDAGRunDetailsStepModelUsageSources(t *testing.T) {
+	reported := &ir.StepModelUsage{
+		Models:   []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 1, InputTokens: 10}},
+		Reported: []ir.ReportedModelUsage{{Source: "opencode:s1:0", Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 4, InputTokens: 40}}}},
+	}
+	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "code"}, ModelUsage: reported},
+		{Step: ir.Step{Name: "agent"}, ModelUsage: &ir.StepModelUsage{NotReported: "claude"}},
+	}})
+
+	models := *details.Nodes[0].ModelUsage.Models
+	require.Len(t, models, 1)
+	assert.Equal(t, int64(5), models[0].Calls)
+	assert.Equal(t, int64(50), *models[0].InputTokens)
+
+	require.NotNil(t, details.Nodes[1].ModelUsage)
+	assert.Equal(t, "claude", *details.Nodes[1].ModelUsage.NotReported)
+	assert.Equal(t, int64(5), (*details.ModelUsage.Models)[0].Calls)
+}
+
+func TestToDAGRunDetailsIncludesAttemptID(t *testing.T) {
+	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", AttemptID: "attempt-2"})
+	require.NotNil(t, details.AttemptId)
+	assert.Equal(t, "attempt-2", *details.AttemptId)
 }
 
 func TestTriggerActorFromContext(t *testing.T) {
@@ -209,6 +285,30 @@ func TestToDAGRunDetailsTreatsHumanTaskFormWithTrailingDataAsAbsent(t *testing.T
 	assert.Nil(t, details.Nodes[0].Step.HumanTask.Form)
 }
 
+func TestToDAGRunDetailsIncludesError(t *testing.T) {
+	status := ir.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Status:   ir.Failed,
+		Error:    "field 'actions.broken_action.input_schema': failed to parse schema JSON",
+	}
+
+	details := ToDAGRunDetails(status)
+	require.NotNil(t, details.Error)
+	assert.Equal(t, status.Error, *details.Error)
+}
+
+func TestToDAGRunDetailsOmitsErrorWhenEmpty(t *testing.T) {
+	status := ir.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Status:   ir.Succeeded,
+	}
+
+	details := ToDAGRunDetails(status)
+	assert.Nil(t, details.Error)
+}
+
 func TestToDAGRunSummaryOmitsAutoRetryLimitWhenUnconfigured(t *testing.T) {
 	status := ir.DAGRunStatus{
 		Name:           "test-dag",
@@ -302,6 +402,23 @@ func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 	require.Len(t, *details.ParamDefs, 1)
 	require.NotNil(t, (*details.ParamDefs)[0].Description)
 	assert.Equal(t, "Free-form operator notes", *(*details.ParamDefs)[0].Description)
+}
+
+func TestToDAGDetailsIncludesDateNames(t *testing.T) {
+	details := toDAGDetails(&ir.DAG{
+		Name:  "dated",
+		Dates: []ir.DateSpec{{Name: "run_date"}, {Name: "prev_day"}},
+	})
+	require.NotNil(t, details.DateNames)
+	assert.Equal(t, []string{"run_date", "prev_day"}, *details.DateNames)
+
+	assert.Nil(t, toDAGDetails(&ir.DAG{Name: "undated"}).DateNames)
+}
+
+func TestToDAGDetailsIncludesQueue(t *testing.T) {
+	details := toDAGDetails(&ir.DAG{Name: "test-dag", Queue: "normal"})
+	require.NotNil(t, details.Queue)
+	assert.Equal(t, "normal", *details.Queue)
 }
 
 func TestToDAGDetailsIncludesHistoryRetentionRuns(t *testing.T) {
@@ -501,6 +618,10 @@ func TestToAgentSession(t *testing.T) {
 			{ID: "ask-1-1", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending, ExpiresAt: "2026-09-24T12:00:00Z"},
 			{ID: "perm-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending},
 		},
+		Events: []ir.AgentSessionEvent{
+			{Sequence: 1, ID: "computer-1-1", Type: "tool", Name: "launch", DurationMs: 40},
+			{Sequence: 2, ID: "computer-1-2", Type: "tool", Name: "act", Via: "screen", DurationMs: 300, Tokens: 0},
+		},
 	})
 
 	require.NotNil(t, session.Interactions)
@@ -509,6 +630,18 @@ func TestToAgentSession(t *testing.T) {
 	require.NotNil(t, interactions[0].ExpiresAt)
 	assert.Equal(t, "2026-09-24T12:00:00Z", *interactions[0].ExpiresAt)
 	assert.Nil(t, interactions[1].ExpiresAt)
+
+	// An operation that decides nothing has no via, and a replay that used
+	// no tokens has none, as every zero-valued optional field is omitted.
+	require.NotNil(t, session.Events)
+	events := *session.Events
+	require.Len(t, events, 2)
+	assert.Nil(t, events[0].Via)
+	require.NotNil(t, events[1].Via)
+	assert.Equal(t, "screen", *events[1].Via)
+	assert.Nil(t, events[1].Tokens)
+	require.NotNil(t, events[1].DurationMs)
+	assert.Equal(t, int64(300), *events[1].DurationMs)
 }
 
 func TestToDAGIncludesTypedSchedules(t *testing.T) {

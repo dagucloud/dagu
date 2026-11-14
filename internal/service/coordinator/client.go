@@ -348,6 +348,9 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 		dag, err = spec.LoadYAML(ctx, []byte(task.Definition), loadOpts...)
 	}
 	if err != nil {
+		if ctx.Err() == nil && !spec.IsSourceUnavailable(err) {
+			return &dispatch.DefinitionError{Err: err}
+		}
 		return fmt.Errorf("load DAG for file dependency snapshot: %w", err)
 	}
 	// A configured working_dir does not establish that this host owns the DAG source.

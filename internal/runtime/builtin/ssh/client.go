@@ -5,6 +5,7 @@ package ssh
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -33,8 +35,10 @@ type bastionClientConfig struct {
 	cfg      *ssh.ClientConfig
 }
 
-func NewClient(cfg *Config) (*Client, error) {
-	authMethod, err := selectSSHAuthMethod(cfg)
+// NewClient creates a client for cfg. Credentials given as secret refs are
+// read from the values resolved at run start (see WithSecretValues).
+func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
+	authMethod, err := selectSSHAuthMethod(ctx, cfg.SSHAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +54,7 @@ func NewClient(cfg *Config) (*Client, error) {
 	var bastionCfg *bastionClientConfig
 	if cfg.Bastion != nil {
 		// Bastion inherits host key verification settings from main config
-		bastionCfg, err = newBastionClientConfig(cfg.Bastion, timeout, hostKeyCallback)
+		bastionCfg, err = newBastionClientConfig(ctx, cfg.Bastion, timeout, hostKeyCallback)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup bastion client: %w", err)
 		}
@@ -229,8 +233,8 @@ func (c *bastionWrappedConn) Close() error {
 
 // newBastionClientConfig creates the bastion client configuration.
 // It inherits the host key callback from the main SSH config for security.
-func newBastionClientConfig(bastion *BastionConfig, timeout time.Duration, hostKeyCallback ssh.HostKeyCallback) (*bastionClientConfig, error) {
-	authMethod, err := selectBastionAuthMethod(bastion)
+func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout time.Duration, hostKeyCallback ssh.HostKeyCallback) (*bastionClientConfig, error) {
+	authMethod, err := selectBastionAuthMethod(ctx, bastion.SSHAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -247,27 +251,29 @@ func newBastionClientConfig(bastion *BastionConfig, timeout time.Duration, hostK
 }
 
 // selectBastionAuthMethod determines the authentication method for bastion host.
-func selectBastionAuthMethod(bastion *BastionConfig) (ssh.AuthMethod, error) {
-	if bastion.Key != "" {
-		keyPath, err := fileutil.ResolvePath(bastion.Key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve bastion key path: %w", err)
-		}
-		signer, err := getPublicKeySigner(keyPath)
+// Priority: explicit key > password > default keys.
+func selectBastionAuthMethod(ctx context.Context, auth ir.SSHAuth) (ssh.AuthMethod, error) {
+	if auth.HasKey() {
+		signer, err := keySigner(ctx, auth, "bastion.")
 		if err != nil {
 			return nil, fmt.Errorf("failed to load bastion SSH key: %w", err)
 		}
 		return ssh.PublicKeys(signer), nil
 	}
 
-	if bastion.Password != "" {
-		return ssh.Password(bastion.Password), nil
+	if auth.HasPassword() {
+		password, err := credentialValue(ctx, "bastion.password", auth.Password, auth.PasswordSecret)
+		if err != nil {
+			return nil, err
+		}
+		return ssh.Password(password), nil
 	}
 
 	// Try default keys for bastion
 	for _, defaultKey := range getDefaultSSHKeys() {
 		if _, err := os.Stat(defaultKey); err == nil {
-			signer, err := getPublicKeySigner(defaultKey)
+			auth.Key = defaultKey
+			signer, err := keySigner(ctx, auth, "bastion.")
 			if err == nil {
 				return ssh.PublicKeys(signer), nil
 			}
@@ -319,33 +325,89 @@ func getDefaultSSHKeys() []string {
 }
 
 // selectSSHAuthMethod selects the authentication method based on the configuration.
-// Priority: explicit key > default keys > password.
-func selectSSHAuthMethod(cfg *Config) (ssh.AuthMethod, error) {
-	if cfg.Key != "" {
-		return loadKeyAuth(cfg.Key)
-	}
-
-	if cfg.Password == "" {
-		if keyPath := findDefaultSSHKey(); keyPath != "" {
-			return loadKeyAuth(keyPath)
+// Priority: explicit key > default keys when no password is set > password.
+func selectSSHAuthMethod(ctx context.Context, auth ir.SSHAuth) (ssh.AuthMethod, error) {
+	if !auth.HasKey() && !auth.HasPassword() {
+		auth.Key = findDefaultSSHKey()
+		if auth.Key == "" {
+			return nil, fmt.Errorf("no SSH key specified and no default keys found (~/.ssh/id_rsa, id_ecdsa, id_ed25519, or id_dsa)")
 		}
-		return nil, fmt.Errorf("no SSH key specified and no default keys found (~/.ssh/id_rsa, id_ecdsa, id_ed25519, or id_dsa)")
 	}
 
-	return ssh.Password(cfg.Password), nil
-}
+	if auth.HasKey() {
+		signer, err := keySigner(ctx, auth, "")
+		if err != nil {
+			return nil, err
+		}
+		return ssh.PublicKeys(signer), nil
+	}
 
-// loadKeyAuth loads an SSH key and returns a PublicKeys auth method.
-func loadKeyAuth(keyPath string) (ssh.AuthMethod, error) {
-	resolvedPath, err := fileutil.ResolvePath(keyPath)
+	password, err := credentialValue(ctx, "password", auth.Password, auth.PasswordSecret)
 	if err != nil {
 		return nil, err
 	}
-	signer, err := getPublicKeySigner(resolvedPath)
+	return ssh.Password(password), nil
+}
+
+// keySigner loads the key of auth from its path or its secret, unlocking it
+// with the passphrase when the key is encrypted. prefix names the hop in
+// errors, which never include a secret value.
+func keySigner(ctx context.Context, auth ir.SSHAuth, prefix string) (ssh.Signer, error) {
+	passphrase, err := credentialValue(ctx, prefix+"passphrase", auth.Passphrase, auth.PassphraseSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	if auth.KeySecret != "" {
+		pem, err := secretValue(ctx, prefix+"key", auth.KeySecret)
+		if err != nil {
+			return nil, err
+		}
+		signer, err := parseSigner([]byte(pem), passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("%skey: secret %q: %w", prefix, auth.KeySecret, secretKeyError(err))
+		}
+		return signer, nil
+	}
+
+	resolvedPath, err := fileutil.ResolvePath(auth.Key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve %skey path: %w", prefix, err)
+	}
+	pem, err := fileutil.ReadFile(resolvedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load SSH key from %s: %w", resolvedPath, err)
 	}
-	return ssh.PublicKeys(signer), nil
+	signer, err := parseSigner(pem, passphrase)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load SSH key from %s: %w", resolvedPath, err)
+	}
+	return signer, nil
+}
+
+// parseSigner parses a private key. The passphrase is used only when the key
+// is encrypted.
+func parseSigner(pem []byte, passphrase string) (ssh.Signer, error) {
+	signer, err := ssh.ParsePrivateKey(pem)
+	var missing *ssh.PassphraseMissingError
+	if errors.As(err, &missing) && passphrase != "" {
+		return ssh.ParsePrivateKeyWithPassphrase(pem, []byte(passphrase))
+	}
+	return signer, err
+}
+
+// secretKeyError describes why a key read from a secret failed to parse
+// without repeating any part of the value.
+func secretKeyError(err error) error {
+	var missing *ssh.PassphraseMissingError
+	switch {
+	case errors.As(err, &missing):
+		return errors.New("the key is encrypted and no passphrase is set")
+	case errors.Is(err, x509.IncorrectPasswordError):
+		return errors.New("the passphrase does not unlock the key")
+	default:
+		return errors.New("the value is not a private key; check that its line breaks were kept")
+	}
 }
 
 // findDefaultSSHKey returns the first existing default SSH key path, or empty string.
@@ -356,12 +418,4 @@ func findDefaultSSHKey() string {
 		}
 	}
 	return ""
-}
-
-func getPublicKeySigner(path string) (ssh.Signer, error) {
-	key, err := fileutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return ssh.ParsePrivateKey(key)
 }
