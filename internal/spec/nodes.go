@@ -95,7 +95,12 @@ func nodeSelector(raw any) (string, error) {
 			if !ok {
 				return "", fmt.Errorf("each selector term must be a string, got %T", item)
 			}
-			terms = append(terms, strings.TrimSpace(term))
+			// Checked here, since a term with a reference defers the rest of
+			// the selector's checks to step start.
+			if term = strings.TrimSpace(term); term == "" {
+				return "", errors.New("each selector term must be non-empty")
+			}
+			terms = append(terms, term)
 		}
 		return strings.Join(terms, ","), nil
 	default:
@@ -196,7 +201,7 @@ func validateNodeRequired(dag *ir.DAG) ir.ErrorList {
 	}{
 		{"ssh", dag.SSH != nil},
 		{"container", dag.Container != nil},
-		{"worker_selector", len(dag.WorkerSelector) > 0},
+		{"worker_selector", len(dag.WorkerSelector) > 0 || dag.ForceLocal},
 	} {
 		if conflict.set {
 			errs = append(errs, ir.NewValidationError("node", nodeRequiredValue,

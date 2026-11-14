@@ -62,12 +62,13 @@ the only value.
 - `with.shell_packages` is set on a step with `nodes`;
 - an `sftp.download` step with `nodes` has a `with.destination` that does not
   use `${node.name}`, since every node would write the same local path;
-- a selector without a reference has an invalid term or no terms;
+- a selector without a reference has an invalid term or no terms, or a list
+  form has an empty term;
 - the object form has an unknown field, no `labels`, a `max_concurrent`
   outside 1 to 1000, or a `keep_going` that is not a boolean;
 - `node` has a value other than `required`;
-- a `node: required` DAG sets `ssh`, `container`, or `worker_selector`, or has
-  a step with `nodes`.
+- a `node: required` DAG sets `ssh`, `container`, or `worker_selector`
+  (`local` included), or has a step with `nodes`.
 
 ## Examples
 

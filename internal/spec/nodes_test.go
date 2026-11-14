@@ -88,6 +88,7 @@ func TestNodesFieldRejects(t *testing.T) {
 		{"InvalidTerm", "nodes: env==prod\n", `invalid label filter "env==prod"`},
 		{"EmptySelector", "nodes: \",\"\n", "selector is empty"},
 		{"NotAString", "nodes: 5\n", "must be a selector string"},
+		{"EmptyListTermBesideReference", "nodes: [\"\", \"${TARGETS}\"]\n", "each selector term must be non-empty"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -145,6 +146,7 @@ func TestNodeRequired(t *testing.T) {
 		{"WithSSH", "node: required\nssh: {host: example.com, user: deploy}\nsteps:\n  - run: \"true\"\n", "cannot be combined with ssh"},
 		{"WithContainer", "node: required\ncontainer: {image: alpine}\nsteps:\n  - run: \"true\"\n", "cannot be combined with container"},
 		{"WithWorkerSelector", "node: required\nworker_selector: {gpu: \"true\"}\nsteps:\n  - run: \"true\"\n", "cannot be combined with worker_selector"},
+		{"WithWorkerSelectorLocal", "node: required\nworker_selector: local\nsteps:\n  - run: \"true\"\n", "cannot be combined with worker_selector"},
 		{"WithNodesStep", "node: required\nsteps:\n  - id: fan\n    run: \"true\"\n    nodes: web\n", "steps.fan.nodes': a node: required DAG runs on one node"},
 	}
 	for _, tt := range tests {
