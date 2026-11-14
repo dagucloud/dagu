@@ -15,7 +15,7 @@ secrets:
 handler_on:
   exit:
     run: |
-      printf 'handler [%s]\n' "$TOKEN" >> received.out
+      printf 'handler [%s]\n' '${env.TOKEN}' >> received.out
 steps:
   - id: login
     run: |

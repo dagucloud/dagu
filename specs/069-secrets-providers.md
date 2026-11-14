@@ -105,9 +105,11 @@ where value resolution inserts it into one of the step's fields:
 Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, and a
 `js` or `template` script, which is passed on as written. In a command or script
-that a shell runs, Dagu leaves `$NAME` and `${NAME}` to the shell, which reads
-them from its environment like any program, so they are not checked;
-`${env.NAME}` and the step-output forms are resolved by Dagu and are.
+that a local POSIX shell runs, Dagu leaves `$NAME` and `${NAME}` to the shell,
+which reads them from its environment like any program, so they are not checked.
+With another shell, a direct command, SSH, or a container, Dagu inserts the
+value itself, so the read is checked, and `${env.NAME}` and the step-output
+forms are resolved by Dagu everywhere.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it, and
@@ -127,10 +129,11 @@ Outputs that masking did not change are reused unchanged, and a value supplied
 for an output of a carried step replaces the recorded one, including the
 captured output when it names the step's `output:` variable.
 
-A precondition decides on what it reads, including the step's env and working
-directory, so a step whose env or working directory reads a recorded output
-fails before its preconditions run, and a precondition that reads one fails the
-step whatever it decides. A step whose preconditions are not met and that read
+A precondition decides on what it reads, including the fields Dagu resolves
+before it: the step's env, working directory, stdout and stderr paths, and retry
+and repeat settings. A step whose such field reads a recorded output fails
+before its preconditions run, and a precondition that reads one fails the step
+whatever it decides. A step whose preconditions are not met and that read
 nothing recorded is skipped as before. A field that an executor resolves while
 the step runs, such as foreach items, fails the step at the read, before the
 executor uses the value. A repeat condition runs after each execution, so one

@@ -12,7 +12,8 @@ import (
 )
 
 // A retry restores outputs that were stored with a secret masked. Resolving a
-// value that inserts one of them, or that a shell expands from one, is a read.
+// value that inserts one of them is a read; a name Dagu leaves to a POSIX shell
+// is not.
 func TestMaskedRead(t *testing.T) {
 	t.Parallel()
 

@@ -5323,8 +5323,8 @@ func TestHumanTask(t *testing.T) {
 
 // A retry restores fetch with its token stored masked. A step that resolves
 // the token fails instead of running on starred text, but only once its
-// preconditions hold, unless its env or working directory, which a
-// precondition can decide on, read the token.
+// preconditions hold, unless a field resolved before them, which a
+// precondition can decide on, reads the token.
 func TestRetryMaskedOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -5337,9 +5337,6 @@ func TestRetryMaskedOutputs(t *testing.T) {
 		{name: "PublishedOutput", use: []stepOption{withCommand(`echo ${steps.fetch.outputs.token}`)}, wantNode: ir.NodeFailed, wantRead: "token"},
 		{name: "UnmaskedPublishedOutput", use: []stepOption{withCommand(`echo ${steps.fetch.outputs.region}`)}, wantNode: ir.NodeSucceeded},
 		{name: "EnvNamespace", use: []stepOption{withCommand(`echo ${env.TOKEN}`)}, wantNode: ir.NodeFailed, wantRead: "TOKEN"},
-		// A shell expands $TOKEN from its environment like any program, so it
-		// runs on the mask unchecked.
-		{name: "ShellVariable", use: []stepOption{withCommand(`echo "$TOKEN"`)}, wantNode: ir.NodeSucceeded},
 		// The step's env resolves in order, so an entry after the one that
 		// defines TOKEN reads the step's own value.
 		{
@@ -5513,7 +5510,7 @@ func TestRetryMaskedOutputShadowed(t *testing.T) {
 func TestRetryMaskedOutputInHandler(t *testing.T) {
 	t.Parallel()
 
-	r := setupRunner(t, withOnExit(newStep("onExit", withCommand(`echo "$TOKEN"`))))
+	r := setupRunner(t, withOnExit(newStep("onExit", withCommand(`echo ${env.TOKEN}`))))
 	fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
 	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch}}
 	plan, err := runtime.CreateRetryPlan(r.Context, dag,

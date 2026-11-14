@@ -19,5 +19,5 @@ steps:
           env:
             - TOKEN: local
           run: |
-            printf '%s\n' "${TOKEN}" >> received.out
+            printf '%s\n' '${env.TOKEN}' >> received.out
             [ -f ready ]

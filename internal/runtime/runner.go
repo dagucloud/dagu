@@ -654,9 +654,9 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		return
 	}
 
-	// A precondition can decide on a value the step's env or working
-	// directory read, so a masked read there fails the step whatever the
-	// preconditions decide.
+	// A precondition can decide on a value resolved before it, such as the
+	// step's env, working directory, or log paths, so a masked read there
+	// fails the step whatever the preconditions decide.
 	if err := maskedReadError(ctx, node); err != nil {
 		r.setLastError(err)
 		node.MarkError(err)
