@@ -109,9 +109,11 @@ type Scheduler struct {
 	notificationMonitor *chatbridge.NotificationMonitor
 	// backfillNotifier sends the summary of each backfill that ends.
 	backfillNotifier backfillNotifier
-	incidentMonitor  *chatbridge.NotificationMonitor
-	publicWebhooks   *publicwebhook.Service
-	folderWatcher    *folderWatcher // Starts runs for files arriving in watched folders
+	// backfillSummaries queues the ended backfills whose summary is sent.
+	backfillSummaries chan *backfill.Record
+	incidentMonitor   *chatbridge.NotificationMonitor
+	publicWebhooks    *publicwebhook.Service
+	folderWatcher     *folderWatcher // Starts runs for files arriving in watched folders
 }
 
 type schedulerHooks struct {
@@ -202,6 +204,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 		scheduler.planner.cfg.BackfillGuard = scheduler.guardCatchupSlot
 		if deps.NotificationStore != nil {
 			scheduler.backfillNotifier = newNotificationService(cfg, deps.NotificationStore, deps.DAGRepository, deps.DAGRunRepository)
+			scheduler.backfillSummaries = make(chan *backfill.Record, backfillSummaryQueueSize)
 			scheduler.backfills.Ended = scheduler.notifyBackfillEnded
 		}
 	}
@@ -815,6 +818,10 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 
 	wg.Go(func() {
 		s.startBackfillDispatcher(ctx)
+	})
+
+	wg.Go(func() {
+		s.sendBackfillSummaries(ctx)
 	})
 
 	wg.Go(func() {

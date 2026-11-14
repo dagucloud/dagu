@@ -44,24 +44,34 @@ func TestBackfillSummaryOf(t *testing.T) {
 	}, summary)
 }
 
-// blockingNotifier holds each summary until released, as a target that
-// takes long to answer.
+// blockingNotifier holds each summary until released or cancelled, as a
+// target that takes long to answer, and reports how each send ended.
 type blockingNotifier struct {
+	started chan struct{}
 	release chan struct{}
-	sent    chan notificationservice.BackfillSummary
+	sent    chan error
 }
 
-func (n *blockingNotifier) SendBackfillSummary(_ context.Context, summary notificationservice.BackfillSummary) error {
-	<-n.release
-	n.sent <- summary
+func newBlockingNotifier() *blockingNotifier {
+	return &blockingNotifier{started: make(chan struct{}, 1), release: make(chan struct{}), sent: make(chan error, 1)}
+}
+
+func (n *blockingNotifier) SendBackfillSummary(ctx context.Context, _ notificationservice.BackfillSummary) error {
+	n.started <- struct{}{}
+	select {
+	case <-n.release:
+		n.sent <- nil
+	case <-ctx.Done():
+		n.sent <- ctx.Err()
+	}
 	return nil
 }
 
-// A target that takes long to answer does not hold the dispatch loop: the
-// summary is sent while the loop goes on.
-func TestNotifyBackfillEndedDoesNotWaitForTargets(t *testing.T) {
-	t.Parallel()
-
+// newSummaryScheduler is a scheduler that sends the summaries of ended
+// backfills to notifier, with its summary worker running until the test
+// ends or the scheduler stops.
+func newSummaryScheduler(t *testing.T, notifier backfillNotifier) (*Scheduler, *backfill.Record, chan struct{}) {
+	t.Helper()
 	ctx := context.Background()
 	store := filebackfill.New(t.TempDir())
 	record := &backfill.Record{
@@ -70,18 +80,42 @@ func TestNotifyBackfillEndedDoesNotWaitForTargets(t *testing.T) {
 		EndedAt:   time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC),
 	}
 	require.NoError(t, store.Create(ctx, record))
-	notifier := &blockingNotifier{release: make(chan struct{}), sent: make(chan notificationservice.BackfillSummary, 1)}
 	s := &Scheduler{
+		quit: make(chan any),
 		backfills: &backfill.Dispatcher{
 			Store:   store,
 			ReadRun: func(context.Context, ir.DAGRunRef) (*ir.DAGRunStatus, error) { return nil, nil },
 		},
-		backfillNotifier: notifier,
+		backfillNotifier:  notifier,
+		backfillSummaries: make(chan *backfill.Record, backfillSummaryQueueSize),
 	}
+	stopped := make(chan struct{})
+	go func() {
+		s.sendBackfillSummaries(ctx)
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		select {
+		case <-s.quit:
+		default:
+			close(s.quit)
+		}
+		<-stopped
+	})
+	return s, record, stopped
+}
+
+// A target that takes long to answer does not hold the dispatch loop: the
+// summary is sent while the loop goes on.
+func TestNotifyBackfillEndedDoesNotWaitForTargets(t *testing.T) {
+	t.Parallel()
+
+	notifier := newBlockingNotifier()
+	s, record, _ := newSummaryScheduler(t, notifier)
 
 	returned := make(chan struct{})
 	go func() {
-		s.notifyBackfillEnded(ctx, record)
+		s.notifyBackfillEnded(context.Background(), record)
 		close(returned)
 	}()
 	select {
@@ -92,9 +126,36 @@ func TestNotifyBackfillEndedDoesNotWaitForTargets(t *testing.T) {
 
 	close(notifier.release)
 	select {
-	case summary := <-notifier.sent:
-		assert.Equal(t, "bf123456", summary.ID)
+	case err := <-notifier.sent:
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the summary was not sent")
+	}
+}
+
+// Stopping the scheduler cancels the summary being sent and ends the worker.
+func TestStopCancelsBackfillSummary(t *testing.T) {
+	t.Parallel()
+
+	notifier := newBlockingNotifier()
+	s, record, stopped := newSummaryScheduler(t, notifier)
+	s.notifyBackfillEnded(context.Background(), record)
+	select {
+	case <-notifier.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the summary was not sent")
+	}
+	close(s.quit)
+
+	select {
+	case err := <-notifier.sent:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the summary was not cancelled")
+	}
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the summary worker did not stop")
 	}
 }

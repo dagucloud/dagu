@@ -18,16 +18,50 @@ type backfillNotifier interface {
 	SendBackfillSummary(ctx context.Context, summary notificationservice.BackfillSummary) error
 }
 
-// notifyBackfillEnded sends one summary of a backfill that succeeded or
+// backfillSummaryQueueSize bounds the summaries waiting to be sent.
+// Backfills end rarely, so a full queue means the targets are not
+// answering, and a summary that does not fit is dropped.
+const backfillSummaryQueueSize = 32
+
+// notifyBackfillEnded queues one summary of a backfill that succeeded or
 // failed. A cancelled backfill sends none, and its runs sent none. The
-// summary is sent in the background, since a target can take long to
-// answer and the dispatch loop must not wait on it.
+// dispatch loop calls it, so it never waits: a target can take long to
+// answer.
 func (s *Scheduler) notifyBackfillEnded(ctx context.Context, record *backfill.Record) {
-	if s.backfillNotifier == nil || s.backfills == nil ||
+	if s.backfillSummaries == nil ||
 		(record.Status != backfill.StatusSucceeded && record.Status != backfill.StatusFailed) {
 		return
 	}
-	go s.sendBackfillSummary(ctx, record)
+	select {
+	case s.backfillSummaries <- record:
+	default:
+		logger.Warn(ctx, "Dropped a backfill's summary: earlier summaries are still being sent", slog.String("backfill", record.ID))
+	}
+}
+
+// sendBackfillSummaries sends the queued summaries one at a time until the
+// scheduler stops, which also cancels the summary being sent.
+func (s *Scheduler) sendBackfillSummaries(ctx context.Context) {
+	if s.backfillSummaries == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-s.quit:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case record := <-s.backfillSummaries:
+			s.sendBackfillSummary(ctx, record)
+		}
+	}
 }
 
 // sendBackfillSummary describes an ended backfill and sends its summary.
