@@ -175,7 +175,7 @@ func shellEnvReads(text string) []string {
 	if err != nil {
 		return unparsedShellReads(text)
 	}
-	scan := shellScan{calls: firstCalls(file)}
+	scan := shellScan{calls: functionRuns(file, uint(len(text)))}
 	root := scan.newScope(-1, scopeScript)
 	for _, stmt := range file.Stmts {
 		scan.walk(stmt, root, nil)
@@ -230,8 +230,8 @@ type shellVar struct {
 }
 
 type shellScan struct {
-	// calls holds the point where each function first runs.
-	calls  map[string]shellPos
+	// calls holds how each function first runs.
+	calls  map[string]functionRun
 	scopes []shellScope
 	reads  []shellVar
 	sets   []shellVar
@@ -309,9 +309,14 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 	syntax.Walk(node, func(node syntax.Node) bool {
 		switch n := node.(type) {
 		case *syntax.FuncDecl:
-			if first, ok := s.calls[n.Name.Value]; ok {
-				s.walk(n.Body, s.newScope(scope, scopeFunction), first)
+			run := s.calls[n.Name.Value]
+			parent := scope
+			if !run.sure {
+				// The values a body sets hold after its call only when the
+				// call surely runs it in this shell.
+				parent = s.newScope(scope, scopeContained)
 			}
+			s.walk(n.Body, s.newScope(parent, scopeFunction), run.at)
 			return false
 		case *syntax.Subshell:
 			nested(n.Stmts, scopeContained)
@@ -335,8 +340,23 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 			nested(n.Do, scopeContained)
 			return false
 		case *syntax.ForClause:
-			s.walk(n.Loop, scope, call)
-			nested(n.Do, scopeContained)
+			body := s.newScope(scope, scopeContained)
+			if iter, ok := n.Loop.(*syntax.WordIter); ok {
+				for _, item := range iter.Items {
+					s.walk(item, scope, call)
+				}
+				// The loop sets its variable only when it runs at least once.
+				target := body
+				if surelyIterates(iter) {
+					target = s.globalScope(scope)
+				}
+				set(iter.Name.Value, iter.End(), target)
+			} else {
+				s.walk(n.Loop, scope, call)
+			}
+			for _, stmt := range n.Do {
+				s.walk(stmt, body, call)
+			}
 			return false
 		case *syntax.CaseClause:
 			s.walk(n.Word, scope, call)
@@ -383,6 +403,10 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 			// value, only a local starts empty; others keep the inherited
 			// value.
 			variant := n.Variant.Value
+			if variant == "local" && !s.inFunction(scope) {
+				// bash rejects local outside a function.
+				break
+			}
 			local := variant == "local" || ((variant == "declare" || variant == "typeset") && s.inFunction(scope))
 			target := s.globalScope(scope)
 			if local {
@@ -397,8 +421,6 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 				}
 				set(a.Name.Value, a.End(), target)
 			}
-		case *syntax.WordIter:
-			set(n.Name.Value, n.End(), s.globalScope(scope))
 		case *syntax.ArithmExp:
 			arithmReads(n.X, read)
 		case *syntax.ArithmCmd:
@@ -480,60 +502,133 @@ func assignedNames(args []*syntax.Word) []string {
 	return names
 }
 
-// firstCalls returns the point where each function text defines first runs:
-// its first call outside a function, or its call in the body of a function,
-// placed where that function first runs.
-func firstCalls(file *syntax.File) map[string]shellPos {
+// surelyIterates reports whether a for loop runs at least once: its list is
+// plain words, so it does not expand to nothing.
+func surelyIterates(iter *syntax.WordIter) bool {
+	if !iter.InPos.IsValid() || len(iter.Items) == 0 {
+		return false
+	}
+	for _, item := range iter.Items {
+		if item.Lit() == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// functionRun is how a function first runs.
+type functionRun struct {
+	// at is the point of its first run.
+	at shellPos
+	// sure is set when that run surely happens in the script's own shell,
+	// so the values the body sets hold after it.
+	sure bool
+}
+
+// functionRuns returns how each function text defines first runs: its first
+// call outside a function, or its call in the body of a function, placed
+// where that function first runs. A function no call names, such as one a
+// trap runs, counts as running at the end of the script, which is end bytes
+// long.
+func functionRuns(file *syntax.File, end uint) map[string]functionRun {
 	type callSite struct {
 		// caller is the function whose body holds the call, or empty.
 		caller string
 		offset uint
+		// sure is set when the call is not in a subshell or in code that
+		// may not run.
+		sure bool
 	}
 	functions := make(map[string]bool)
 	sites := make(map[string][]callSite)
-	var visit func(node syntax.Node, caller string)
-	visit = func(node syntax.Node, caller string) {
+	var visit func(node syntax.Node, caller string, sure bool)
+	visitAll := func(stmts []*syntax.Stmt, caller string, sure bool) {
+		for _, stmt := range stmts {
+			visit(stmt, caller, sure)
+		}
+	}
+	visit = func(node syntax.Node, caller string, sure bool) {
 		syntax.Walk(node, func(node syntax.Node) bool {
 			switch n := node.(type) {
 			case *syntax.FuncDecl:
 				functions[n.Name.Value] = true
-				visit(n.Body, n.Name.Value)
+				visit(n.Body, n.Name.Value, true)
 				return false
 			case *syntax.CallExpr:
 				if len(n.Args) > 0 {
 					if name := n.Args[0].Lit(); name != "" {
-						sites[name] = append(sites[name], callSite{caller: caller, offset: n.Pos().Offset()})
+						sites[name] = append(sites[name], callSite{caller: caller, offset: n.Pos().Offset(), sure: sure})
 					}
 				}
+			case *syntax.Subshell:
+				visitAll(n.Stmts, caller, false)
+				return false
+			case *syntax.CmdSubst:
+				visitAll(n.Stmts, caller, false)
+				return false
+			case *syntax.ProcSubst:
+				visitAll(n.Stmts, caller, false)
+				return false
+			case *syntax.IfClause:
+				visitAll(n.Cond, caller, sure)
+				visitAll(n.Then, caller, false)
+				if n.Else != nil {
+					visit(n.Else, caller, false)
+				}
+				return false
+			case *syntax.WhileClause:
+				visitAll(n.Cond, caller, sure)
+				visitAll(n.Do, caller, false)
+				return false
+			case *syntax.ForClause:
+				visit(n.Loop, caller, sure)
+				visitAll(n.Do, caller, false)
+				return false
+			case *syntax.CaseClause:
+				visit(n.Word, caller, sure)
+				for _, item := range n.Items {
+					visitAll(item.Stmts, caller, false)
+				}
+				return false
+			case *syntax.BinaryCmd:
+				pipe := n.Op == syntax.Pipe || n.Op == syntax.PipeAll
+				visit(n.X, caller, sure && !pipe)
+				visit(n.Y, caller, false)
+				return false
 			}
 			return true
 		})
 	}
-	visit(file, "")
-	calls := make(map[string]shellPos)
+	visit(file, "", true)
+	runs := make(map[string]functionRun)
 	// A call in a function body runs when that function first runs, so the
-	// points settle over passes. A recursive call never comes first.
+	// first runs settle over passes. A recursive call never comes first.
 	for changed := true; changed; {
 		changed = false
 		for name := range functions {
 			for _, site := range sites[name] {
-				var caller shellPos
+				caller := functionRun{sure: true}
 				if site.caller != "" {
-					first, ok := calls[site.caller]
+					first, ok := runs[site.caller]
 					if !ok {
 						continue
 					}
 					caller = first
 				}
-				at := append(slices.Clip(caller), site.offset)
-				if prev, ok := calls[name]; !ok || at.before(prev) {
-					calls[name] = at
+				at := append(slices.Clip(caller.at), site.offset)
+				if prev, ok := runs[name]; !ok || at.before(prev.at) {
+					runs[name] = functionRun{at: at, sure: site.sure && caller.sure}
 					changed = true
 				}
 			}
 		}
 	}
-	return calls
+	for name := range functions {
+		if _, ok := runs[name]; !ok {
+			runs[name] = functionRun{at: shellPos{end}}
+		}
+	}
+	return runs
 }
 
 // arithmReads reports each variable that an arithmetic expression names
