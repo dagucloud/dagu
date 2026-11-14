@@ -5,9 +5,11 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -158,11 +160,33 @@ func TestListDAGRunsOfABackfill(t *testing.T) {
 	assert.Equal(t, "first-bf-run", page.DagRuns[1].DagRunId)
 	assert.Equal(t, new("bf123456"), page.DagRuns[0].BackfillId)
 
+	// The run list keeps only backfill runs, or leaves them out.
+	runIDs := func(query string) []string {
+		var page api.DAGRunsPageResponse
+		// The list reads from today unless a range is given.
+		since := fmt.Sprintf("&fromDate=%d", now.Add(-72*time.Hour).Unix())
+		server.Client().Get("/api/v1/dag-runs?"+query+since).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &page)
+		var ids []string
+		for _, run := range page.DagRuns {
+			ids = append(ids, run.DagRunId)
+		}
+		slices.Sort(ids)
+		return ids
+	}
+	assert.Equal(t, []string{"bf-run", "first-bf-run", "other-bf-run"}, runIDs("backfill=only"))
+	assert.Equal(t, []string{"live-run"}, runIDs("backfill=exclude"))
+	server.Client().Get("/api/v1/dag-runs?backfill=sometimes").ExpectStatus(http.StatusBadRequest).Send(t)
+
 	live, err := newDAGPinAPIWithStore(server.Helper, nil, localapi.WithBackfillStore(store)).GetDAGRunsListData(ctx, "backfillId=bf123456")
 	require.NoError(t, err)
 	liveRuns := live.(api.DAGRunsPageResponse).DagRuns
 	require.Len(t, liveRuns, 2, "the live run list filters alike")
 	assert.Equal(t, "bf-run", liveRuns[0].DagRunId)
+	excluded, err := newDAGPinAPIWithStore(server.Helper, nil, localapi.WithBackfillStore(store)).GetDAGRunsListData(ctx, "backfill=exclude")
+	require.NoError(t, err)
+	excludedRuns := excluded.(api.DAGRunsPageResponse).DagRuns
+	require.Len(t, excludedRuns, 1, "the live run list leaves backfill runs out alike")
+	assert.Equal(t, "live-run", excludedRuns[0].DagRunId)
 
 	var details api.GetDAGRunDetails200JSONResponse
 	server.Client().Get("/api/v1/dag-runs/"+dag.Name+"/bf-run").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)

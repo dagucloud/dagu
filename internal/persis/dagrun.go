@@ -59,6 +59,8 @@ type DAGRunStatusQuery struct {
 	ExcludeDAGNames []string
 	// ExcludeBackfill drops backfill runs.
 	ExcludeBackfill bool
+	// OnlyBackfill keeps only backfill runs.
+	OnlyBackfill bool
 	// BackfillID keeps only the runs of this backfill.
 	BackfillID string
 }
@@ -219,6 +221,8 @@ type DAGRunListOptions struct {
 	FullStatus bool
 	// ExcludeBackfill drops backfill runs.
 	ExcludeBackfill bool
+	// OnlyBackfill keeps only backfill runs.
+	OnlyBackfill bool
 	// BackfillID keeps only the runs of this backfill.
 	BackfillID string
 }

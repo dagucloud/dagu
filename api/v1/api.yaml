@@ -2625,6 +2625,15 @@ paths:
           schema:
             type: "string"
           description: "List only the runs of this backfill"
+        - name: "backfill"
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "exclude"
+              - "only"
+          description: "Leave out backfill runs (exclude), or list only them (only)"
       responses:
         "200":
           description: "A successful response"

@@ -12115,6 +12115,8 @@ export interface operations {
                 tags?: string;
                 /** @description List only the runs of this backfill */
                 backfillId?: string;
+                /** @description Leave out backfill runs (exclude), or list only them (only) */
+                backfill?: PathsDagRunsGetParametersQueryBackfill;
             };
             header?: never;
             path?: never;
@@ -24615,6 +24617,10 @@ export enum PathsDagsGetParametersQuerySort {
 export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
+}
+export enum PathsDagRunsGetParametersQueryBackfill {
+    exclude = "exclude",
+    only = "only"
 }
 export enum PathsWikiGetParametersQuerySort {
     name = "name",

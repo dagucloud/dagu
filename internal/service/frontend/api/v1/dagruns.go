@@ -708,6 +708,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		cursor:   request.Params.Cursor,
 
 		backfillID:            request.Params.BackfillId,
+		backfill:              string(valueOf(request.Params.Backfill)),
 		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
 	if err != nil {
@@ -817,6 +818,9 @@ type dagRunListFilterInput struct {
 	cursor    *string
 	// backfillID keeps only the runs of a backfill.
 	backfillID *string
+	// backfill leaves out backfill runs ("exclude") or keeps only them
+	// ("only").
+	backfill string
 	// excludeServiceDAGRuns drops the runs of the service DAGs.
 	excludeServiceDAGRuns bool
 }
@@ -855,6 +859,19 @@ func buildDAGRunListOptions(input dagRunListFilterInput) (dagRunListOptions, err
 		opts.query.Labels = labels
 	}
 	opts.query.BackfillID = valueOf(input.backfillID)
+	switch api.ListDAGRunsParamsBackfill(input.backfill) {
+	case "":
+	case api.ListDAGRunsParamsBackfillExclude:
+		opts.query.ExcludeBackfill = true
+	case api.ListDAGRunsParamsBackfillOnly:
+		opts.query.OnlyBackfill = true
+	default:
+		return dagRunListOptions{}, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("invalid backfill %q: use exclude or only", input.backfill),
+		}
+	}
 	if input.limit != nil {
 		limit = clampInt(*input.limit, 1, maxLimit)
 	}
@@ -5557,6 +5574,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		cursor:   cursor,
 
 		backfillID:            backfillID,
+		backfill:              params.Get("backfill"),
 		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
 	if err != nil {

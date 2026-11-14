@@ -111,6 +111,7 @@ func queryFilterHash(opts persis.DAGRunStatusQuery) string {
 		// which DAGs they are.
 		ExcludesDAGs    bool   `json:"excludes_dags,omitempty"`
 		ExcludeBackfill bool   `json:"exclude_backfill,omitempty"`
+		OnlyBackfill    bool   `json:"only_backfill,omitempty"`
 		BackfillID      string `json:"backfill_id,omitempty"`
 	}{
 		DAGRunID:          opts.DAGRunID,
@@ -123,6 +124,7 @@ func queryFilterHash(opts persis.DAGRunStatusQuery) string {
 		IncludeUnlabelled: includeUnlabelled,
 		ExcludesDAGs:      opts.ExcludeDAGNames != nil,
 		ExcludeBackfill:   opts.ExcludeBackfill,
+		OnlyBackfill:      opts.OnlyBackfill,
 		BackfillID:        opts.BackfillID,
 	}
 	if !opts.From.IsZero() {
