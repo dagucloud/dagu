@@ -259,6 +259,26 @@ func TestDispatchKeepsSummaries(t *testing.T) {
 	assert.False(t, ok, "the failed slot succeeded since")
 }
 
+// A slot a stopped backfill did not reach does not count as failed in its
+// summary once a retry opens the backfill again.
+func TestDispatchSummaryLeavesOutUnreachedSlots(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	f.retry(f.queued[0])
+	require.True(t, f.record(record.ID).Open(), "the retry opens the backfill again")
+	f.tick()
+	summary, ok := f.summary(record.ID)
+	require.True(t, ok)
+	assert.Equal(t, 0, summary.Failed)
+	assert.Equal(t, 2, summary.Done, "the slots not reached ended")
+}
+
 // A failed backfill whose DAG is gone needs no mention.
 func TestDispatchClearsSummaryOfAGoneDAG(t *testing.T) {
 	t.Parallel()

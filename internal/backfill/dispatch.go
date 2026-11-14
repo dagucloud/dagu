@@ -173,7 +173,11 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 		case slotFailed:
 			failed = true
 			done++
-			failedSlots++
+			// A slot the backfill did not reach ends as failed, yet its
+			// run did not fail.
+			if event.Kind != ProgressNotRun {
+				failedSlots++
+			}
 		case slotSucceeded, slotSettled:
 			done++
 		}
