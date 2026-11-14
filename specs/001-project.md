@@ -203,8 +203,9 @@ It resolves the same way when `dagu start deploy` runs from
 
 ## Project state
 
-Project-mode runs keep their state in one directory, `project_root/.dagu/`,
-laid out so that a person who opens it finds what they look for:
+A project keeps its state and its own settings in one directory,
+`project_root/.dagu/`, laid out so that a person who opens it finds what they
+look for:
 
 ```text
 .dagu/
@@ -212,20 +213,30 @@ laid out so that a person who opens it finds what they look for:
   runs/          run records, by workflow and date
   logs/          step logs
   artifacts/     run artifacts
+  settings/      secrets, profiles, notification routes, incident policies
   state/         workflow state, queue, scheduler, and other internal state
 ```
 
 Rules:
 
 - Dagu creates `.dagu/` and its `.gitignore` on first use, so git ignores the
-  state without setup.
+  state without setup. `git clean -x` removes `.dagu/`, and with it the
+  project's run history and secrets.
 - One directory keeps Dagu's files apart from a project's own `logs/` or
   `runs/`, and discovery never enters it, since it skips hidden directories.
 - Project mode uses the user's Dagu configuration, except that its DAG
-  directory is the workflow directory and its state lives under `.dagu/` as
-  shown.
+  directory is the workflow directory and its state and settings live under
+  `.dagu/` as shown.
+- A workflow uses the project's secrets, profiles, notification routes, and
+  incident policies, then those of the server layer of the user's Dagu home,
+  in the order [RFC 003](../rfcs/003-projects.md#server-layer) gives. In
+  project mode, `dagu secret` and `dagu profile` act on the project's
+  entries.
+- Secrets are encrypted with the key of the user's Dagu home, as on a
+  server.
 - A server project on an existing folder ([RFC 003](../rfcs/003-projects.md))
-  uses the same layout, so the CLI and the server read one history.
+  uses the same layout, so the CLI and the server read one history and one
+  set of secrets and profiles.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs, so people rarely need to open `.dagu/`.
 - Project loading and workflow discovery do not write workflow events, run
