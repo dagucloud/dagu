@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -2605,4 +2606,162 @@ func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 	typed, err := eng.(*stagehandEngine).evaluate(t.Context(), `Object.fromEntries([...frames[1].document.querySelectorAll("input[type=text]")].map((input) => [input.name, input.value]))`)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"AnkenName":"道路","DateFrom":"","DateTo":"2026/04/30","Mojiretu":"","Tantoka":"","FreeWord":"舗装","Slotted":""}`, string(typed))
+}
+
+// A launch that lost its port to another process, whether the launch found
+// it in use or the browser could not bind it, tries another port. Other
+// failures end the launch at once.
+func TestOnFreePort(t *testing.T) {
+	t.Parallel()
+
+	inUse := fmt.Errorf("launch browser: %w", syscall.EADDRINUSE)
+	taken := errors.Join(errPortTaken, errors.New("launch browser: wait for Chrome debugging port"))
+	tests := []struct {
+		name         string
+		errs         []error
+		wantErr      bool
+		wantAttempts int
+	}{
+		{name: "port in use once", errs: []error{inUse, nil}, wantAttempts: 2},
+		{name: "port taken once", errs: []error{taken, nil}, wantAttempts: 2},
+		{name: "port taken every time", errs: []error{taken, inUse, taken}, wantErr: true, wantAttempts: portAttempts},
+		{name: "other failure", errs: []error{errors.New("executable not found")}, wantErr: true, wantAttempts: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attempts := 0
+			port, err := onFreePort(func(port int) (int, error) {
+				attempts++
+				return port, tt.errs[attempts-1]
+			})
+			assert.Equal(t, tt.wantAttempts, attempts)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotZero(t, port)
+		})
+	}
+}
+
+// A launch that failed while another process holds its port lost the port,
+// so it is tried again.
+func TestMarkPortTaken(t *testing.T) {
+	t.Parallel()
+
+	held, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = held.Close() })
+	port := held.Addr().(*net.TCPAddr).Port
+	failed := errors.New("launch browser: wait for Chrome debugging port: context deadline exceeded")
+
+	marked := markPortTaken(failed, port)
+	assert.ErrorIs(t, marked, errPortTaken)
+	assert.ErrorIs(t, marked, failed)
+
+	inUse := fmt.Errorf("launch browser: %w", syscall.EADDRINUSE)
+	assert.Same(t, inUse, markPortTaken(inUse, port), "already retried as in use")
+	assert.NoError(t, markPortTaken(nil, port))
+}
+
+// A browser another process starts on the launch's debugging port after the
+// launch checked it, as one another run starts at the same moment, answers
+// the launch in place of its own. That browser is left running, and the
+// launch starts its own on another port.
+func TestStagehandLaunchLeavesABrowserThatTookItsPort(t *testing.T) {
+	t.Parallel()
+	path := chrometest.Require(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the browser wrapper is a shell script")
+	}
+
+	// The wrapper's first start on the test's profile writes its debugging
+	// port, waits until the test has started another browser there, and only
+	// then starts its own. Starts that learn the user agent run unraced.
+	profile := browserProfileDir(t)
+	wrapper := filepath.Join(t.TempDir(), "chrome")
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+	script := "#!/bin/sh\n" +
+		"main=\nport=\n" +
+		"for arg in \"$@\"; do case \"$arg\" in --user-data-dir=" + quote(profile) + ") main=1;; --remote-debugging-port=*) port=\"${arg#--remote-debugging-port=}\";; esac; done\n" +
+		"if [ -n \"$main\" ] && [ ! -e \"$0.raced\" ]; then\n" +
+		"  : > \"$0.raced\"\n" +
+		"  printf '%s\\n' \"$port\" > \"$0.port.tmp\"; mv \"$0.port.tmp\" \"$0.port\"\n" +
+		"  while [ ! -e \"$0.go\" ]; do sleep 0.1; done\n" +
+		"fi\n" +
+		"exec " + quote(path) + " \"$@\"\n"
+	require.NoError(t, os.WriteFile(wrapper, []byte(script), 0o700)) //nolint:gosec // test browser wrapper must be executable
+
+	type other struct {
+		cdpURL string
+		err    error
+	}
+	started := make(chan other, 1)
+	otherProfile := t.TempDir()
+	go func() {
+		// The wrapper waits for the go file even when the race cannot be set
+		// up, so the launch ends and the test reports why.
+		defer func() { _ = os.WriteFile(wrapper+".go", nil, 0o600) }()
+		cdpURL, err := startBrowserOnRacedPort(t.Context(), path, wrapper+".port", otherProfile)
+		started <- other{cdpURL: cdpURL, err: err}
+	}()
+
+	eng := launchBrowser(t, launchOptions{Executable: wrapper, UserDataDir: profile, Generate: (&shopModel{}).generate})
+	raced := <-started
+	require.NoError(t, raced.err)
+
+	cdpURL := eng.Handle().CDPURL
+	assert.NotEqual(t, raced.cdpURL, cdpURL)
+	owned, err := browserhost.UsesProfile(t.Context(), cdpURL, profile)
+	require.NoError(t, err)
+	assert.True(t, owned, "the launch drives its own browser")
+	_, err = browserhost.BrowserVersion(t.Context(), raced.cdpURL)
+	assert.NoError(t, err, "the browser that took the port still runs")
+}
+
+// racedBrowserStartLimit only guards against a browser that hangs. A loaded
+// CI host can take long to start one.
+const racedBrowserStartLimit = 2 * time.Minute
+
+// startBrowserOnRacedPort waits for portFile, starts a browser on profile at
+// the port it names, and returns that browser's CDP URL once it answers. The
+// wait for portFile lasts as long as ctx, as the launch can first wait for
+// other tests' browsers to start. The browser ends with ctx.
+func startBrowserOnRacedPort(ctx context.Context, path, portFile, profile string) (string, error) {
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	var port string
+	for {
+		if data, err := os.ReadFile(portFile); err == nil { //nolint:gosec // test-owned file
+			port = strings.TrimSpace(string(data))
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("the launch never reported its port: %w", ctx.Err())
+		case <-tick.C:
+		}
+	}
+	cmd := exec.CommandContext(ctx, path, "--headless", "--no-sandbox", "--no-first-run", "--no-default-browser-check", //nolint:gosec // test Chrome
+		"--remote-allow-origins=*", "--password-store=basic", "--use-mock-keychain",
+		"--remote-debugging-port="+port, "--user-data-dir="+profile, "about:blank")
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	go func() { _ = cmd.Wait() }()
+	cdpURL := "http://127.0.0.1:" + port
+	limit := time.After(racedBrowserStartLimit)
+	for {
+		if _, err := browserhost.BrowserVersion(ctx, cdpURL); err == nil {
+			return cdpURL, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-limit:
+			return "", errors.New("the browser on the raced port never answered")
+		case <-tick.C:
+		}
+	}
 }

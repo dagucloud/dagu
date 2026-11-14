@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ import (
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
+	"github.com/dagucloud/dagu/v2/internal/cmn/netutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/sysproxy"
 )
@@ -351,10 +353,13 @@ func (l stagehandLauncher) launch(ctx context.Context, opts launchOptions) (*sta
 // start launches the browser opts describe, with the certificate proxy it
 // needs, sending userAgent when it is set.
 func (l stagehandLauncher) start(ctx context.Context, opts launchOptions, userAgent string) (startedBrowser, error) {
-	port, err := freeLoopbackPort()
-	if err != nil {
-		return startedBrowser{}, err
-	}
+	return onFreePort(func(port int) (startedBrowser, error) {
+		return l.startOnPort(ctx, opts, userAgent, port)
+	})
+}
+
+// startOnPort launches the browser of start with its debugging server on port.
+func (l stagehandLauncher) startOnPort(ctx context.Context, opts launchOptions, userAgent string, port int) (startedBrowser, error) {
 	launch := &stagehand.LocalBrowserLaunchOptions{
 		ExecutablePath: opts.Executable,
 		Headless:       opts.Headless,
@@ -384,7 +389,10 @@ func (l stagehandLauncher) start(ctx context.Context, opts launchOptions, userAg
 			return startedBrowser{}, fmt.Errorf("clear the profile's service workers: %w", err)
 		}
 	}
-	var proxy *certproxy.Handle
+	var (
+		proxy *certproxy.Handle
+		err   error
+	)
 	if len(opts.ClientCertificates) > 0 || len(opts.TrustedCAs) > 0 || opts.Guard {
 		if proxy, err = l.startCertProxy(ctx, cdpURL, opts); err != nil {
 			return startedBrowser{}, err
@@ -398,7 +406,11 @@ func (l stagehandLauncher) start(ctx context.Context, opts launchOptions, userAg
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
 		launchErr := fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.NoSandbox))
-		return startedBrowser{}, errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL, opts.UserDataDir), killCertProxy(proxy))
+		err = errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL, opts.UserDataDir), killCertProxy(proxy))
+		return startedBrowser{}, markPortTaken(err, port)
+	}
+	if err := confirmLaunched(ctx, browser, cdpURL, opts.UserDataDir); err != nil {
+		return startedBrowser{}, errors.Join(err, killCertProxy(proxy))
 	}
 	return startedBrowser{browser: browser, cdpURL: cdpURL, proxy: proxy}, nil
 }
@@ -1850,6 +1862,67 @@ func messageText(content stagehand.LLMMessageContent) (string, error) {
 		}
 	}
 	return text.String(), nil
+}
+
+// portAttempts bounds how many ports a launch tries when another process takes
+// each port between the launch picking it and the browser binding it.
+const portAttempts = 3
+
+// errPortTaken marks a launch whose debugging port another process took.
+var errPortTaken = errors.New("another process took the browser debugging port")
+
+// onFreePort calls launch with a free loopback port. A launch that fails
+// because another process took the port by then, as a browser another run
+// started at the same moment, is called again with another port.
+func onFreePort[T any](launch func(port int) (T, error)) (T, error) {
+	for attempt := 1; ; attempt++ {
+		port, err := freeLoopbackPort()
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		result, err := launch(port)
+		if err == nil || attempt == portAttempts || !(errors.Is(err, errPortTaken) || netutil.IsAddrInUse(err)) {
+			return result, err
+		}
+	}
+}
+
+// markPortTaken marks err with errPortTaken when another process holds port
+// after a launch on it failed. A browser that loses its port after the launch
+// checked it never answers there, and the launch then fails on its wait.
+func markPortTaken(err error, port int) error {
+	if err == nil || netutil.IsAddrInUse(err) {
+		return err
+	}
+	listener, listenErr := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if listenErr == nil {
+		_ = listener.Close()
+		return err
+	}
+	if !netutil.IsAddrInUse(listenErr) {
+		return err
+	}
+	return errors.Join(errPortTaken, err)
+}
+
+// confirmLaunched checks that the browser answering at cdpURL runs on
+// profileDir. When another browser took the port before the launched one
+// bound it, the launch reached that browser instead. The launched browser is
+// then closed, which ends only its own process, and the other is left alone.
+func confirmLaunched(ctx context.Context, browser *stagehand.Browser, cdpURL, profileDir string) error {
+	owned, err := boundCall(ctx, unstartedCallTimeout, func(ctx context.Context) (bool, error) {
+		return browserhost.UsesProfile(ctx, cdpURL, profileDir)
+	})
+	if err == nil && owned {
+		return nil
+	}
+	if err == nil {
+		err = errPortTaken
+	} else {
+		err = fmt.Errorf("identify the launched browser: %w", err)
+	}
+	return errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
 }
 
 func freeLoopbackPort() (int, error) {

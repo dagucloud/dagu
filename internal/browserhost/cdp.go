@@ -127,19 +127,53 @@ func UsesProfile(ctx context.Context, cdpURL, dir string) (bool, error) {
 	if err := call(ctx, cdpURL, "SystemInfo.getInfo", map[string]any{}, &info); err != nil {
 		return false, err
 	}
-	flag := "--user-data-dir=" + dir
-	rest := info.CommandLine
-	for {
-		i := strings.Index(rest, flag)
-		if i < 0 {
-			return false, nil
-		}
-		rest = rest[i+len(flag):]
-		// A longer path that starts with dir names another directory.
-		if rest == "" || rest[0] == ' ' || rest[0] == '"' {
-			return true, nil
+	return passesProfile(info.CommandLine, dir), nil
+}
+
+// passesProfile reports whether commandLine passes dir as the user data
+// directory. On Windows, Chromium quotes a switch value that holds a space,
+// tab, backslash, or quote, as every Windows path does.
+func passesProfile(commandLine, dir string) bool {
+	for _, flag := range []string{"--user-data-dir=" + dir, "--user-data-dir=" + quoteArgv(dir)} {
+		rest := commandLine
+		for {
+			i := strings.Index(rest, flag)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(flag):]
+			// A longer path that starts with dir names another directory.
+			if rest == "" || rest[0] == ' ' || rest[0] == '"' {
+				return true
+			}
 		}
 	}
+	return false
+}
+
+// quoteArgv quotes s as Chromium quotes a command-line value on Windows, for
+// CommandLineToArgvW to read back: backslashes before a quote or the closing
+// quote are doubled, and a quote is escaped.
+func quoteArgv(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	backslashes := 0
+	for _, r := range s {
+		switch r {
+		case '\\':
+			backslashes++
+			continue
+		case '"':
+			b.WriteString(strings.Repeat(`\`, 2*backslashes+1))
+		default:
+			b.WriteString(strings.Repeat(`\`, backslashes))
+		}
+		backslashes = 0
+		b.WriteRune(r)
+	}
+	b.WriteString(strings.Repeat(`\`, 2*backslashes))
+	b.WriteByte('"')
+	return b.String()
 }
 
 // CloseBrowser asks the browser at cdpURL to exit. A browser that no longer

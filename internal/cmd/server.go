@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/netutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
@@ -224,20 +224,10 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 // withPortInUseHint appends hint to err when err reports an address already
 // in use, and returns other errors unchanged.
 func withPortInUseHint(err error, hint string) error {
-	if !isAddrInUse(err) {
+	if !netutil.IsAddrInUse(err) {
 		return err
 	}
 	return fmt.Errorf("%w (%s)", err, hint)
-}
-
-// isAddrInUse reports whether err comes from binding an address already in
-// use. Windows reports WSAEADDRINUSE (10048), which syscall.EADDRINUSE does
-// not match there.
-func isAddrInUse(err error) bool {
-	if errors.Is(err, syscall.EADDRINUSE) {
-		return true
-	}
-	return goruntime.GOOS == "windows" && errors.Is(err, syscall.Errno(10048))
 }
 
 func startLocalAgentSessionCleanup(ctx context.Context, persistence Persistence, host *opencodehost.Host) (context.CancelFunc, <-chan struct{}) {

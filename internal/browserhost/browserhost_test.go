@@ -238,14 +238,18 @@ func TestUsesProfile(t *testing.T) {
 	t.Parallel()
 
 	// The command line is set before the server starts serving it.
-	fake := &fakeBrowser{commandLine: `chrome --remote-debugging-port=9222 --user-data-dir=/tmp/profile-1 about:blank "--user-data-dir=C:\Temp\my profile"`}
+	// On Windows, Chromium quotes a switch value with backslashes in it.
+	fake := &fakeBrowser{commandLine: `chrome --remote-debugging-port=9222 --user-data-dir=/tmp/profile-1 about:blank "--user-data-dir=C:\Temp\my profile" --user-data-dir="C:\Users\me\Temp\dagu-browser-probe-1" --user-data-dir="D:\profiles\\"`}
 	fake.start()
 	t.Cleanup(fake.server.Close)
 	for dir, want := range map[string]bool{
-		"/tmp/profile-1":     true,
-		`C:\Temp\my profile`: true,
-		"/tmp/profile":       false,
-		"/tmp/profile-2":     false,
+		"/tmp/profile-1":                        true,
+		`C:\Temp\my profile`:                    true,
+		`C:\Users\me\Temp\dagu-browser-probe-1`: true,
+		`C:\Users\me\Temp\dagu-browser-probe-`:  false,
+		`D:\profiles\`:                          true,
+		"/tmp/profile":                          false,
+		"/tmp/profile-2":                        false,
 	} {
 		got, err := browserhost.UsesProfile(context.Background(), fake.server.URL, dir)
 		require.NoError(t, err)
