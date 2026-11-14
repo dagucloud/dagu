@@ -2848,6 +2848,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "data.filter" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dataFilterActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "data.pick" } },
             "required": ["action"]
           },
@@ -7263,6 +7275,7 @@
             "dag.run",
             "data.convert",
             "data.pick",
+            "data.filter",
             "decision.evaluate",
             "docker.run",
             "exec",
@@ -7869,6 +7882,46 @@
         }
       },
       "description": "Configuration for action: data.convert."
+    },
+    "dataFilterActionConfig": {
+      "type": "object",
+      "required": ["from", "where"],
+      "oneOf": [{ "required": ["data"] }, { "required": ["input"] }],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "enum": ["json", "yaml", "csv", "tsv", "text"], "description": "Input format." },
+        "to": { "type": "string", "enum": ["json", "yaml", "csv", "tsv", "text"], "description": "Output format of the kept rows. Defaults to json." },
+        "data": { "description": "Inline data to read." },
+        "input": { "type": "string", "description": "File path to read input from." },
+        "select": { "type": "string", "minLength": 1, "description": "jq-style path to the list of rows within the input." },
+        "where": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "The condition each named field of a row must meet; a row passes when all hold. A field takes one kind: min and max read the value as a number (4,280万円 reads as 42800000, 徒歩4分 as 4); from, to, and within read it as a date (2026/11/12, 1983年5月, 昭和58年5月); is, any, and none compare text.",
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "min": { "type": ["number", "string"], "description": "Lowest number kept." },
+              "max": { "type": ["number", "string"], "description": "Highest number kept." },
+              "from": { "type": "string", "description": "Earliest date kept, as 1981, 1981-06, or 1981-06-01, inclusive." },
+              "to": { "type": "string", "description": "Latest date kept, inclusive to the end of the year, month, or day it names." },
+              "within": { "type": ["string", "integer"], "description": "Keeps dates no more than this many days before today, as 7d, 2w, or 7." },
+              "is": { "type": "string", "description": "Text the value must be." },
+              "any": { "type": ["string", "array"], "items": { "type": "string" }, "description": "Texts the value must contain one of." },
+              "none": { "type": ["string", "array"], "items": { "type": "string" }, "description": "Texts the value must contain none of." }
+            }
+          }
+        },
+        "sort": { "type": ["string", "array"], "items": { "type": "string" }, "description": "Fields to order the kept rows by, each with - before it to sort descending." },
+        "limit": { "type": "integer", "minimum": 0, "description": "Most rows to keep after sorting; 0 keeps every row." },
+        "has_header": { "type": "boolean", "description": "Whether CSV or TSV input has a header row. Defaults to true." },
+        "headers": { "type": "boolean", "description": "Include a header row for CSV or TSV output. Defaults to true." },
+        "delimiter": { "type": "string", "minLength": 1, "maxLength": 1, "description": "Single-character delimiter override for CSV or TSV input and output." },
+        "columns": { "type": "array", "items": { "type": "string" }, "description": "Column names for headerless CSV/TSV input or CSV/TSV output ordering." }
+      },
+      "description": "Configuration for action: data.filter."
     },
     "dataPickActionConfig": {
       "type": "object",

@@ -41,6 +41,19 @@ func TestDataText(t *testing.T) {
 	}
 }
 
+// data.filter reads each value as written: prices with 万 and 億, and
+// dates with 年 and 月, keeping the rows every condition holds for in order.
+func TestDataFilter(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "filter_listings.yaml")
+	result.ExpectExitCode(0)
+	data, err := os.ReadFile(dagu.ProjectPath("result.out"))
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"name":"Honmachi","price":"6,800万円","built":"1990年10月"},{"name":"Tenma","price":"4,280万円","built":"1983年5月"}]`, string(data))
+}
+
 func TestDataErrors(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"dag.run":             normalizeDagRunAction,
 	"data.convert":        operationAction("data", "convert"),
 	"data.pick":           operationAction("data", "pick"),
+	"data.filter":         operationAction("data", "filter"),
 	"decision.evaluate":   normalizeDecisionAction,
 	"docker.run":          optionalCommandAction("docker", "command"),
 	"exec":                normalizeExecAction,

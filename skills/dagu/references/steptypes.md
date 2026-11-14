@@ -553,6 +553,32 @@ Do not set the multipart `Content-Type` header manually. `body` cannot be combin
 
 `with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
 
+## data.filter
+
+Keep the rows of a list that meet conditions on their fields, read as a page or a sheet writes them, then order and cut them. Use it for rows a `browser.run` or `computer.run` extract read, such as listings or orders, instead of code that parses each value.
+
+```yaml
+params:
+  - MAX_PRICE: 70000000
+steps:
+  - id: keep
+    action: data.filter
+    with:
+      from: json
+      data: ${steps.read.outputs.listings}
+      where:
+        price: {max: "${params.MAX_PRICE}"}   # 4,280万円 reads as 42800000
+        access: {max: 5}                      # 京阪本線「天満橋」徒歩4分 reads as 4
+        built: {from: "1981-06"}              # 1983年5月 and 昭和58年5月 read as 1983-05
+        updated: {within: 7d}                 # 情報更新日：2026/11/12 reads as that day
+        address: {any: [北区, 中央区]}
+      sort: [built, -price]
+      limit: 20
+    output: KEPT
+```
+
+Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
+
 ## jq.filter
 
 JSON processing.
