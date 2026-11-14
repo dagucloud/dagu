@@ -1,0 +1,31 @@
+working_dir: .
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: secret-child
+    parallel:
+      items: [a]
+
+---
+name: secret-child
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+steps:
+  - id: login
+    run: |
+      printf 'login\n' >> logins.out
+      printf '%s\n' "$API_TOKEN"
+    output: TOKEN
+
+  - id: use
+    depends: login
+    run: |
+      printf '%s\n' "$TOKEN" >> received.out
+      if [ ! -f attempted ]; then touch attempted; exit 1; fi
+    retry_policy:
+      limit: 2
+      interval_sec: 1

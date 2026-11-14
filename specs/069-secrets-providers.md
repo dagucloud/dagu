@@ -83,8 +83,9 @@ of the same run reads a published output with the secret intact.
 
 A run can instead restore a step's stored result without executing the step
 again: a retry of the run or of a step, a retry with an edited DAG, resume
-after an approval or a human task, and a run that carries another run's
-outputs. Stored outputs stay masked, and stored
+after an approval or a human task, a run that carries another run's outputs,
+and the retry of a step in a child run of a `parallel:` step, which restores
+the child run. Stored outputs stay masked, and stored
 status records which outputs masking changed. A step that reads a recorded
 output after such a restore fails before it runs, with an error that names the
 step and the output and says the producing step has to run again, together

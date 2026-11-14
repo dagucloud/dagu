@@ -129,6 +129,21 @@ func TestStepOutputUnmaskedOnRetry(t *testing.T) {
 	dagu.ExpectTextFileContent("logins.out", "login\n")
 }
 
+// A parallel step retries a step of its child run by restoring the child run
+// from its stored status, so the retry fails on the masked output variable
+// instead of running on the mask.
+func TestStepOutputMaskedOnParallelRetry(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	run := dagu.RunWithEnv(env, "start", "step_output_parallel_retry.yaml")
+	run.ExpectNonZeroExitCode()
+	run.ExpectStderrContains(`reads output "TOKEN" of step "login"`)
+	dagu.ExpectTextFileContent("received.out", "filesecretvalue123\n")
+}
+
 // A foreach body step that defines the name of a masked output variable in its
 // own env reads its own value, so the retry runs.
 func TestStepOutputShadowedOnRetry(t *testing.T) {
