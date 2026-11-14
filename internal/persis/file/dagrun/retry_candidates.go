@@ -160,9 +160,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 
 func updateRetryCandidateFromStatus(statusFile string, status ir.DAGRunStatus) error {
 	runDir, dayDir, ok := retryCandidateRootPaths(statusFile)
-	if !ok || isChildStatus(status) || isChildRecordDir(runDir) {
-		// Child run records mirror the canonical attempt nested under the
-		// root dag-run; a child's retry is owned by its parent.
+	if !ok {
 		return nil
 	}
 
