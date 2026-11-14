@@ -127,6 +127,7 @@ func TestViewsAPI_CreateRunView(t *testing.T) {
 	workspace := "production"
 	dagRunId := "019df6cf-0127-7340-bd96-d51bc1453045"
 	runStatus := "5"
+	backfill := apigen.RunBackfillFilterExclude
 	specificValue := "2026-09-15"
 	fromDate := "2026-09-15T00:00"
 	toDate := "2026-09-15T23:59"
@@ -138,6 +139,7 @@ func TestViewsAPI_CreateRunView(t *testing.T) {
 		WorkspaceScope: &workspaceScope,
 		DagRunId:       &dagRunId,
 		RunStatus:      &runStatus,
+		Backfill:       &backfill,
 		DateMode:       &dateMode,
 		DatePreset:     &datePreset,
 		SpecificPeriod: &specificPeriod,
@@ -155,6 +157,8 @@ func TestViewsAPI_CreateRunView(t *testing.T) {
 	assert.Equal(t, dagRunId, *created.DagRunId)
 	require.NotNil(t, created.RunStatus)
 	assert.Equal(t, runStatus, *created.RunStatus)
+	require.NotNil(t, created.Backfill)
+	assert.Equal(t, backfill, *created.Backfill)
 	require.NotNil(t, created.DateMode)
 	assert.Equal(t, dateMode, *created.DateMode)
 	require.NotNil(t, created.DatePreset)

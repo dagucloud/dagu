@@ -124,6 +124,7 @@ func TestView_ValidateRunRejectsInvalidFields(t *testing.T) {
 		{"runStatus not a status", func(v *view.View) { v.RunStatus = "failed" }, view.ErrInvalidRunStatus},
 		{"runStatus out of range", func(v *view.View) { v.RunStatus = "9" }, view.ErrInvalidRunStatus},
 		{"runStatus too long", func(v *view.View) { v.RunStatus = strings.Repeat("s", view.MaxRunStatusLength+1) }, view.ErrRunStatusTooLong},
+		{"unknown backfill filter", func(v *view.View) { v.Backfill = "some" }, view.ErrInvalidBackfill},
 		{"specific value not a date", func(v *view.View) { v.DateMode = view.DateModeSpecific; v.SpecificValue = "not-a-date" }, view.ErrInvalidSpecificValue},
 		{"specific month value malformed", func(v *view.View) {
 			v.DateMode = view.DateModeSpecific
@@ -240,6 +241,7 @@ func TestView_NormalizeRunDefaults(t *testing.T) {
 
 	assert.Equal(t, view.WorkspaceScopeAll, v.WorkspaceScope)
 	assert.Equal(t, view.RunStatusAll, v.RunStatus)
+	assert.Equal(t, view.BackfillAll, v.Backfill)
 	assert.Equal(t, view.DateModePreset, v.DateMode)
 	assert.Equal(t, view.DatePresetToday, v.DatePreset)
 	assert.Equal(t, view.SpecificPeriodDate, v.SpecificPeriod)
@@ -390,6 +392,7 @@ func TestView_RunStorageRoundTrip(t *testing.T) {
 		Labels:         []string{"team=platform"},
 		DAGRunID:       "019df6cf-0127-7340-bd96-d51bc1453045",
 		RunStatus:      "5",
+		Backfill:       view.BackfillOnly,
 		DateMode:       view.DateModeSpecific,
 		DatePreset:     view.DatePresetToday,
 		SpecificPeriod: view.SpecificPeriodMonth,

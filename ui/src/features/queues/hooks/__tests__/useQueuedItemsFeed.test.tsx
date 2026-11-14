@@ -4,6 +4,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RunBackfillFilter } from '@/api/v1/schema';
 import { useQueuedItemsFeed } from '../useQueuedItemsFeed';
 
 const getMock = vi.fn();
@@ -72,5 +73,30 @@ describe('useQueuedItemsFeed', () => {
     });
     expect(getMock).toHaveBeenCalledTimes(2);
     expectLastCursor('cursor-1');
+  });
+
+  // A changed filter lists the queue again from its head.
+  it('lists the queue again with the backfill filter', async () => {
+    const { rerender } = renderHook(
+      ({ backfill }: { backfill: RunBackfillFilter }) =>
+        useQueuedItemsFeed({ ...feedProps, backfill }),
+      { initialProps: { backfill: RunBackfillFilter.all } }
+    );
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(1));
+    expect(getMock.mock.calls[0]?.[1].params.query.backfill).toBeUndefined();
+
+    rerender({ backfill: RunBackfillFilter.exclude });
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+    expect(getMock).toHaveBeenLastCalledWith(
+      '/queues/{name}/items',
+      expect.objectContaining({
+        params: expect.objectContaining({
+          query: expect.objectContaining({
+            backfill: 'exclude',
+            cursor: undefined,
+          }),
+        }),
+      })
+    );
   });
 });

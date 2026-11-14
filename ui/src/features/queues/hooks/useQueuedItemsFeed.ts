@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { components } from '@/api/v1/schema';
+import {
+  components,
+  PathsQueuesNameItemsGetParametersQueryBackfill,
+  RunBackfillFilter,
+} from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient } from '@/hooks/api';
 
@@ -14,7 +18,20 @@ interface UseQueuedItemsFeedProps {
   enabled: boolean;
   queueName: string;
   refreshToken: string;
+  /** Lists every queued run, all but backfill runs, or only them. */
+  backfill?: RunBackfillFilter;
 }
+
+/** The items' backfill parameter for each backfill filter. */
+const BACKFILL_QUERY: Record<
+  RunBackfillFilter,
+  PathsQueuesNameItemsGetParametersQueryBackfill | undefined
+> = {
+  [RunBackfillFilter.all]: undefined,
+  [RunBackfillFilter.exclude]:
+    PathsQueuesNameItemsGetParametersQueryBackfill.exclude,
+  [RunBackfillFilter.only]: PathsQueuesNameItemsGetParametersQueryBackfill.only,
+};
 
 const getQueueFeedKey = (dagRun: QueueDAGRun): string =>
   `${dagRun.name}\u0000${dagRun.dagRunId}`;
@@ -44,6 +61,7 @@ export function useQueuedItemsFeed({
   enabled,
   queueName,
   refreshToken,
+  backfill = RunBackfillFilter.all,
 }: UseQueuedItemsFeedProps) {
   const client = useClient();
   const appBarContext = React.useContext(AppBarContext);
@@ -102,6 +120,7 @@ export function useQueuedItemsFeed({
               cursor: reset ? undefined : (nextCursorRef.current ?? undefined),
               limit: defaultQueuePageSize,
               remoteNode,
+              backfill: BACKFILL_QUERY[backfill],
             },
           },
         });
@@ -148,6 +167,7 @@ export function useQueuedItemsFeed({
       }
     },
     [
+      backfill,
       client,
       enabled,
       queueName,

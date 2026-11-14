@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { components, QueueType } from '@/api/v1/schema';
+import { components, QueueType, RunBackfillFilter } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -39,6 +39,7 @@ import {
 import { useServiceDAGs } from '@/features/service-dags/hooks/useServiceDAGs';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
+import { BackfillRunsFilter } from '@/features/backfills/components/BackfillRunsFilter';
 import {
   QueueBatchResult,
   useQueueBatchDequeue,
@@ -164,6 +165,9 @@ function QueueDetailsPage() {
   const refreshToken = React.useMemo(() => queueRefreshToken(queue), [queue]);
   const mayHaveQueuedItems =
     (queue?.queuedCount ?? 0) > 0 || queue?.queuedCountCapped === true;
+  const [backfillFilter, setBackfillFilter] = React.useState(
+    RunBackfillFilter.all
+  );
   const {
     items: queuedItems,
     error: queuedItemsError,
@@ -176,6 +180,7 @@ function QueueDetailsPage() {
     enabled: mayHaveQueuedItems,
     queueName,
     refreshToken,
+    backfill: backfillFilter,
   });
 
   const handleLoadMore = React.useCallback(() => {
@@ -434,6 +439,14 @@ function QueueDetailsPage() {
                   <span className="text-xs text-muted-foreground">
                     {selectionSummary}
                   </span>
+                  <BackfillRunsFilter
+                    value={backfillFilter}
+                    onChange={(value) => {
+                      clearSelection();
+                      setBackfillFilter(value);
+                    }}
+                    className="h-7 w-[170px] text-xs"
+                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button

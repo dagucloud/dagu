@@ -222,6 +222,46 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	assert.Nil(t, secondPage.NextCursor)
 }
 
+// A queue's page lists the runs a backfill queued, or the others, as asked.
+func TestListQueueItemsFiltersBackfillRuns(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
+	inBackfill := func(status *ir.DAGRunStatus) { status.BackfillID = "bf123456" }
+	createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "mixed-q", "live-1", ir.Queued)
+	createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "mixed-q", "backfill-1", ir.Queued, inBackfill)
+	createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "mixed-q", "live-2", ir.Queued)
+
+	a := &API{
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		procRepository:   newTestProcRepository(filepath.Join(tmpDir, "proc")),
+		config:           &config.Config{},
+	}
+	runIDs := func(backfill *openapiv1.ListQueueItemsParamsBackfill) []string {
+		resp, err := a.ListQueueItems(ctx, openapiv1.ListQueueItemsRequestObject{
+			Name:   "mixed-q",
+			Params: openapiv1.ListQueueItemsParams{Backfill: backfill},
+		})
+		require.NoError(t, err)
+		page, ok := resp.(openapiv1.ListQueueItems200JSONResponse)
+		require.True(t, ok)
+		var ids []string
+		for _, item := range page.Items {
+			ids = append(ids, item.DagRunId)
+		}
+		return ids
+	}
+
+	exclude, only := openapiv1.ListQueueItemsParamsBackfillExclude, openapiv1.ListQueueItemsParamsBackfillOnly
+	assert.Equal(t, []string{"live-1", "backfill-1", "live-2"}, runIDs(nil))
+	assert.Equal(t, []string{"live-1", "live-2"}, runIDs(&exclude))
+	assert.Equal(t, []string{"backfill-1"}, runIDs(&only))
+}
+
 func TestListQueueItemsCapsScannedEntries(t *testing.T) {
 	// Not parallel: this test temporarily lowers the package-level scan cap.
 	originalCap := queueItemsScanCap
@@ -402,6 +442,7 @@ func createQueuedQueueRun(
 	name string,
 	dagRunID string,
 	status ir.Status,
+	changes ...func(*ir.DAGRunStatus),
 ) {
 	t.Helper()
 
@@ -428,6 +469,9 @@ func createQueuedQueueRun(
 	runStatus.CreatedAt = time.Now().UnixMilli()
 	if status == ir.Running {
 		runStatus.StartedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	for _, change := range changes {
+		change(&runStatus)
 	}
 
 	require.NoError(t, attempt.Write(ctx, runStatus))

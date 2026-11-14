@@ -57,7 +57,12 @@ const (
 // Run filter values. RunStatusAll matches every run status; date-related
 // constants mirror the Executions page filter controls.
 const (
-	RunStatusAll         = "all"
+	RunStatusAll = "all"
+	// BackfillAll, BackfillExclude, and BackfillOnly filter runs by whether
+	// a backfill queued them.
+	BackfillAll          = "all"
+	BackfillExclude      = "exclude"
+	BackfillOnly         = "only"
 	DateModePreset       = "preset"
 	DateModeSpecific     = "specific"
 	DateModeCustom       = "custom"
@@ -122,6 +127,7 @@ var (
 	ErrInvalidSortOrder      = errors.New("view: invalid sort order")
 	ErrDAGRunIDTooLong       = errors.New("view: dagRunId too long")
 	ErrInvalidRunStatus      = errors.New("view: invalid run status")
+	ErrInvalidBackfill       = errors.New("view: invalid backfill filter")
 	ErrRunStatusTooLong      = errors.New("view: runStatus too long")
 	ErrInvalidSpecificValue  = errors.New("view: invalid specific value")
 	ErrInvalidDateMode       = errors.New("view: invalid date mode")
@@ -152,8 +158,11 @@ type View struct {
 	ActiveOnly     bool
 	// Run and artifact filters. DAGRunID and RunStatus are TypeRun only;
 	// SpecificPeriod and SpecificValue back the TypeRun "specific" date mode.
-	DAGRunID       string
-	RunStatus      string
+	DAGRunID  string
+	RunStatus string
+	// Backfill is BackfillAll, BackfillExclude, or BackfillOnly. TypeRun
+	// only.
+	Backfill       string
 	DateMode       string
 	DatePreset     string
 	SpecificPeriod string
@@ -220,6 +229,10 @@ func (v *View) Normalize() {
 		if v.RunStatus == "" {
 			v.RunStatus = RunStatusAll
 		}
+		v.Backfill = strings.TrimSpace(v.Backfill)
+		if v.Backfill == "" {
+			v.Backfill = BackfillAll
+		}
 		v.DateMode = strings.TrimSpace(v.DateMode)
 		if v.DateMode == "" {
 			v.DateMode = DateModePreset
@@ -259,6 +272,7 @@ func (v *View) Normalize() {
 		// The Artifacts page has no run, status, label, or sort filters.
 		v.DAGRunID = ""
 		v.RunStatus = ""
+		v.Backfill = ""
 		v.SpecificPeriod = ""
 		v.SpecificValue = ""
 		v.Labels = nil
@@ -319,6 +333,8 @@ func (v *View) Validate() error {
 			return ErrRunStatusTooLong
 		case !ValidRunStatus(v.RunStatus):
 			return ErrInvalidRunStatus
+		case v.Backfill != BackfillAll && v.Backfill != BackfillExclude && v.Backfill != BackfillOnly:
+			return ErrInvalidBackfill
 		case !ValidRunDateMode(v.DateMode):
 			return ErrInvalidDateMode
 		case !ValidRunDatePreset(v.DatePreset):
@@ -542,6 +558,7 @@ type ViewForStorage struct {
 	ActiveOnly     bool      `json:"active_only,omitempty"`
 	DAGRunID       string    `json:"dag_run_id,omitempty"`
 	RunStatus      string    `json:"run_status,omitempty"`
+	Backfill       string    `json:"backfill,omitempty"`
 	DateMode       string    `json:"date_mode,omitempty"`
 	DatePreset     string    `json:"date_preset,omitempty"`
 	SpecificPeriod string    `json:"specific_period,omitempty"`
@@ -573,6 +590,7 @@ func (v *View) ToStorage() *ViewForStorage {
 		ActiveOnly:     v.ActiveOnly,
 		DAGRunID:       v.DAGRunID,
 		RunStatus:      v.RunStatus,
+		Backfill:       v.Backfill,
 		DateMode:       v.DateMode,
 		DatePreset:     v.DatePreset,
 		SpecificPeriod: v.SpecificPeriod,
@@ -609,6 +627,7 @@ func (s *ViewForStorage) ToView() *View {
 		ActiveOnly:     s.ActiveOnly,
 		DAGRunID:       s.DAGRunID,
 		RunStatus:      s.RunStatus,
+		Backfill:       s.Backfill,
 		DateMode:       s.DateMode,
 		DatePreset:     s.DatePreset,
 		SpecificPeriod: s.SpecificPeriod,
