@@ -297,6 +297,10 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 		logger.Warn(ctx, "Failed to update DAG-run latest attempt pointer", tag.Error(err))
 	}
 
+	if err := updateLatestSubAttemptPointer(ctx, att.file, status); err != nil {
+		logger.Warn(ctx, "Failed to update latest sub DAG-run pointer", tag.Error(err))
+	}
+
 	if err := att.updateArtifactIndex(status); err != nil {
 		logger.Warn(ctx, "Failed to update DAG-run artifact index", tag.Error(err))
 	}

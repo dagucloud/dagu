@@ -31,6 +31,9 @@ type DAGRunStore interface {
 	CompareAndSwapLatestAttemptStatus(ctx context.Context, req DAGRunCompareAndSwapStatusRequest) (*ir.DAGRunStatus, bool, error)
 	FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error)
 	FindSubAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error)
+	// LatestSubAttempt returns the newest attempt of the named DAG that ran as
+	// a sub DAG-run of another DAG, created at or after NotBefore.
+	LatestSubAttempt(ctx context.Context, query DAGRunLatestAttemptQuery) (dagrun.Attempt, error)
 	RemoveOldDAGRuns(ctx context.Context, req DAGRunRetentionRequest) ([]ir.DAGRunRef, error)
 	RemoveDAGRun(ctx context.Context, req DAGRunRemoveRequest) error
 	// PruneArtifacts removes artifact directories and index records that no

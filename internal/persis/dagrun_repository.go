@@ -146,6 +146,21 @@ func (r *DAGRunRepository) LatestAttempt(
 	return newEventingAttempt(attempt, nil, false), nil
 }
 
+// LatestSubAttempt returns the newest attempt of the named DAG that ran as a
+// sub DAG-run of another DAG, with the same today-only cutoff as LatestAttempt.
+// A caller shows it only for display: it is not one of the DAG's own runs.
+func (r *DAGRunRepository) LatestSubAttempt(
+	ctx context.Context,
+	name string,
+	options DAGRunLatestAttemptOptions,
+) (dagrun.Attempt, error) {
+	query := DAGRunLatestAttemptQuery{Name: name}
+	if r.latestStatusToday && !options.AllHistory {
+		query.NotBefore = NewUTC(r.startOfDay())
+	}
+	return r.store.LatestSubAttempt(ctx, query)
+}
+
 // LatestStatuses returns the status of each DAG's newest run when that run
 // was created at or after query.NotBefore and matches the query's filters.
 // As for LatestAttempt, a DAG's newest run is its newest run that is not a

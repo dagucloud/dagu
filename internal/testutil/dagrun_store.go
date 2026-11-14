@@ -52,6 +52,10 @@ func (DAGRunStoreStub) FindSubAttempt(context.Context, ir.DAGRunRef, string) (da
 	panic("unexpected DAG-run store call: FindSubAttempt")
 }
 
+func (DAGRunStoreStub) LatestSubAttempt(context.Context, persis.DAGRunLatestAttemptQuery) (dagrun.Attempt, error) {
+	return nil, dagrun.ErrNoStatusData
+}
+
 func (DAGRunStoreStub) RemoveOldDAGRuns(context.Context, persis.DAGRunRetentionRequest) ([]ir.DAGRunRef, error) {
 	panic("unexpected DAG-run store call: RemoveOldDAGRuns")
 }
