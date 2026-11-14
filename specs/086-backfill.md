@@ -202,6 +202,15 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
 - `mail_on` and notification routes do not fire for a backfill run, except
   for a run waiting for a person. A backfill run neither opens nor resolves
   an incident. `handler_on` steps still run.
+- When a backfill ends succeeded or failed, the scheduler sends one summary
+  to the notification targets a run of its DAG with that outcome notifies:
+  its DAG's notification settings, else its workspace's routes. The summary
+  gives the slot counts, the time from submission to the end, up to 10
+  groups of failed slots by step and error with a link to each group's
+  first run, and a link to the backfill. Slack, Teams, Telegram, email, and
+  webhook targets receive it; a webhook gets `{"type": "backfill.ended",
+  "backfill": …, "message": …}`. Command targets and a cancelled backfill
+  send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
 - A DAG's latest run is its newest run that is not a backfill run, wherever

@@ -61,7 +61,11 @@ type Dispatcher struct {
 	// RetryWindow is how long after a run's creation the scheduler retries
 	// it under its DAG's retry policy. Zero retries no run.
 	RetryWindow time.Duration
-	Now         func() time.Time
+	// Ended, when set, is called with each backfill that ended in a tick,
+	// once its DAG's lock is released. It runs on the dispatch loop, so it
+	// returns without waiting on slow work.
+	Ended func(ctx context.Context, record *Record)
+	Now   func() time.Time
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer
@@ -74,8 +78,12 @@ func (d *Dispatcher) Tick(ctx context.Context) error {
 	}
 	var errs []error
 	for _, record := range records {
-		if err := d.advanceLocked(ctx, record.ID, record.DAGName); err != nil {
+		ended, err := d.advanceLocked(ctx, record.ID, record.DAGName)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("backfill %s: %w", record.ID, err))
+		}
+		if ended != nil && d.Ended != nil {
+			d.Ended(ctx, ended)
 		}
 	}
 	return errors.Join(errs...)
@@ -83,20 +91,35 @@ func (d *Dispatcher) Tick(ctx context.Context) error {
 
 // advanceLocked advances a backfill under its DAG's lock, which a submit,
 // a cancel, and a resume also hold, and rereads the record under it.
-func (d *Dispatcher) advanceLocked(ctx context.Context, id, dagName string) error {
+func (d *Dispatcher) advanceLocked(ctx context.Context, id, dagName string) (*Record, error) {
 	unlock, err := d.Store.LockDAG(ctx, dagName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer unlock()
 	record, err := d.Store.Get(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !record.Open() {
-		return nil
+		return nil, nil
 	}
-	return d.advance(ctx, record)
+	if err := d.advance(ctx, record); err != nil {
+		return nil, err
+	}
+	if d.Ended == nil {
+		return nil, nil
+	}
+	// The record was open and the lock is held, so a record no longer open
+	// ended in this tick.
+	after, err := d.Store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if after.Open() {
+		return nil, nil
+	}
+	return after, nil
 }
 
 // slotOutcome is where a slot of a backfill stands.

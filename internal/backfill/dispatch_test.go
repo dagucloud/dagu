@@ -658,3 +658,26 @@ func TestDescribeGroupsAFailureNotYetRecorded(t *testing.T) {
 	assert.Equal(t, "load", report.Failures[0].Step)
 	assert.Equal(t, "connection refused", report.Failures[0].Error)
 }
+
+// The dispatcher reports a backfill once, in the tick it ends.
+func TestDispatchReportsTheEnd(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	var ended []*backfill.Record
+	f.dispatcher.Ended = func(_ context.Context, record *backfill.Record) {
+		ended = append(ended, record)
+	}
+	record := f.submit(backfill.Options{})
+	for range 3 {
+		f.tick()
+		require.Empty(t, ended, "the backfill is open while a slot is left")
+		f.finish(f.queued[len(f.queued)-1], ir.Succeeded)
+	}
+	f.tick()
+	require.Len(t, ended, 1)
+	assert.Equal(t, record.ID, ended[0].ID)
+	assert.Equal(t, backfill.StatusSucceeded, ended[0].Status)
+
+	f.tick()
+	assert.Len(t, ended, 1, "an ended backfill is not reported again")
+}
