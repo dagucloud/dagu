@@ -44,7 +44,8 @@ compare text with full-width letters and digits folded. A row whose value does
 not read as its condition's kind is left out, and stderr reports how many
 such rows each field left out with one value. `with.sort` orders the kept
 rows by fields, descending for a field written with `-` before it, comparing
-each as its condition reads it, else as a date, a number, or text;
+each as its condition reads it, else as the kind most of its values read as,
+with the values that do not read as that kind last in either direction;
 `with.limit` keeps at most that many. The kept rows are written as JSON, or
 in `with.to`, and stderr reports how many of the rows were kept.
 

@@ -792,7 +792,7 @@ steps:
     action: data.filter
     with:
       from: json
-      data: ${steps.read.outputs.listings}
+      data: ${steps.read.outputs.listings}   # rows an earlier browser.run step, read, extracted
       where:
         price: {max: "${params.MAX_PRICE}"}   # 4,280万円 reads as 42800000
         access: {max: 5}                      # 京阪本線「天満橋」徒歩4分 reads as 4
@@ -804,7 +804,7 @@ steps:
     output: KEPT
 ```
 
-Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
+Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it, else as the kind most of its values read as; values that do not read as it come last. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
 
 ## jq.filter
 

@@ -92,6 +92,8 @@ func TestFilterConditions(t *testing.T) {
 		{name: "IsAndNone", where: map[string]any{"address": map[string]any{"none": []any{"北区", "淀川区"}}}, want: []string{"ライオンズマンション本町", "本町ガーデン"}},
 		{name: "FullWidthText", where: map[string]any{"name": map[string]any{"is": "梅田タワー"}}, want: []string{"梅田タワー"}},
 		{name: "SortDescendingAndLimit", where: map[string]any{"price": map[string]any{"min": 0}}, sort: []any{"-price"}, limit: 2, want: []string{"梅田タワー", "ライオンズマンション本町"}},
+		{name: "SortPutsWhatDoesNotReadLast", where: map[string]any{"address": map[string]any{"any": []any{"大阪市"}}}, sort: "-price",
+			want: []string{"梅田タワー", "ライオンズマンション本町", "南森町パークハイツ", "本町ガーデン", "グランドメゾン天満橋", "淀川リバーサイド", "天神橋ハイツ"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -103,6 +105,19 @@ func TestFilterConditions(t *testing.T) {
 			assert.Equal(t, tc.want, names(t, out))
 		})
 	}
+}
+
+// A value the input holds as a number is compared as that number, however
+// large.
+func TestFilterReadsNumbersTheInputHolds(t *testing.T) {
+	t.Parallel()
+
+	out, _ := runDataFilter(t, map[string]any{
+		"from":  "json",
+		"data":  `[{"name":"large","price":2e21},{"name":"small","price":5}]`,
+		"where": map[string]any{"price": map[string]any{"min": 1e21}},
+	})
+	assert.Equal(t, []string{"large"}, names(t, out))
 }
 
 // A filter given an object picks its list of rows with select.
@@ -170,5 +185,9 @@ func TestParseNumberAndDate(t *testing.T) {
 		got, ok := parseDate(text)
 		assert.True(t, ok, text)
 		assert.Equal(t, want, got.start().Format("2006-01-02"), text)
+	}
+	for _, text := range []string{"2026/02/31", "2026/11/0", "2026年13月"} {
+		_, ok := parseDate(text)
+		assert.False(t, ok, "a day or month the calendar lacks: %s", text)
 	}
 }

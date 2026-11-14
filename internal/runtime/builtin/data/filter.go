@@ -288,12 +288,11 @@ func (e *executorImpl) runFilter(ctx context.Context) error {
 func (s filterSpec) passes(row map[string]any, today time.Time, missed *unreadable) bool {
 	for _, field := range slices.Sorted(maps.Keys(s.where)) {
 		c := s.where[field]
-		text := stringifyText(row[field])
-		holds, read := c.holds(text, today)
+		holds, read := c.holds(row[field], today)
 		if !read {
 			missed.count[field]++
 			if _, seen := missed.example[field]; !seen {
-				missed.example[field] = text
+				missed.example[field] = stringifyText(row[field])
 			}
 		}
 		if !holds {
@@ -303,18 +302,18 @@ func (s filterSpec) passes(row map[string]any, today time.Time, missed *unreadab
 	return true
 }
 
-// holds reports whether the condition holds for text, and whether text read
-// as the kind of value the condition compares.
-func (c condition) holds(text string, today time.Time) (holds, read bool) {
+// holds reports whether the condition holds for value, and whether value
+// read as the kind of value the condition compares.
+func (c condition) holds(value any, today time.Time) (holds, read bool) {
 	switch c.kind {
 	case kindNumber:
-		n, ok := parseNumber(text)
+		n, ok := numberOf(value)
 		if !ok {
 			return false, false
 		}
 		return (c.min == nil || n >= *c.min) && (c.max == nil || n <= *c.max), true
 	case kindDate:
-		d, ok := parseDate(text)
+		d, ok := dateOf(value)
 		if !ok {
 			return false, false
 		}
@@ -333,7 +332,7 @@ func (c condition) holds(text string, today time.Time) (holds, read bool) {
 		}
 		return true, true
 	default:
-		normalized := stringutil.NormalizeText(text)
+		normalized := stringutil.NormalizeText(stringifyText(value))
 		if c.is != nil && normalized != *c.is {
 			return false, true
 		}
@@ -348,45 +347,119 @@ func (c condition) holds(text string, today time.Time) (holds, read bool) {
 }
 
 // order sorts rows by the sort keys, keeping the order rows came in among
-// equals. A field is compared as its condition's kind of value, else as
-// dates when both read as dates, as numbers when both read as numbers, and
-// as text otherwise.
+// equals. A field is compared as its condition's kind of value, else as the
+// kind most of its values read as; values that do not read as that kind
+// come after the others in either direction, in text order.
 func (s filterSpec) order(rows []any) {
 	if len(s.sort) == 0 {
 		return
 	}
-	slices.SortStableFunc(rows, func(a, b any) int {
-		left, _ := asMap(a)
-		right, _ := asMap(b)
-		for _, key := range s.sort {
-			order := compareField(s.where[key.field].kind, stringifyText(left[key.field]), stringifyText(right[key.field]))
-			if key.desc {
-				order = -order
-			}
-			if order != 0 {
+	keys := make([][]sortValue, len(s.sort))
+	for i, key := range s.sort {
+		keys[i] = sortValues(rows, key.field, s.where[key.field].kind)
+	}
+	at := make([]int, len(rows))
+	for i := range at {
+		at[i] = i
+	}
+	slices.SortStableFunc(at, func(a, b int) int {
+		for i, key := range s.sort {
+			if order := keys[i][a].compare(keys[i][b], key.desc); order != 0 {
 				return order
 			}
 		}
 		return 0
 	})
+	sorted := make([]any, len(rows))
+	for i, row := range at {
+		sorted[i] = rows[row]
+	}
+	copy(rows, sorted)
 }
 
-func compareField(kind, a, b string) int {
-	if kind == "" || kind == kindDate {
-		if x, ok := parseDate(a); ok {
-			if y, ok := parseDate(b); ok {
-				return x.start().Compare(y.start())
+// sortValue is one row's value of a field rows are ordered by.
+type sortValue struct {
+	// read reports whether the value read as the field's kind.
+	read bool
+	// number is a number, or a date's first day in Unix seconds.
+	number float64
+	// text is the folded text of a text value or of one that did not read.
+	text string
+}
+
+// compare orders v before w, or after when desc is set; a value that did not
+// read comes after one that did either way.
+func (v sortValue) compare(w sortValue, desc bool) int {
+	if v.read != w.read {
+		if v.read {
+			return -1
+		}
+		return 1
+	}
+	order := cmp.Compare(v.number, w.number)
+	if order == 0 {
+		order = strings.Compare(v.text, w.text)
+	}
+	if desc {
+		order = -order
+	}
+	return order
+}
+
+// sortValues reads each row's value of field as kind, or as the kind most of
+// the values read as when kind is empty.
+func sortValues(rows []any, field, kind string) []sortValue {
+	values := make([]any, len(rows))
+	for i, row := range rows {
+		fields, _ := asMap(row)
+		values[i] = fields[field]
+	}
+	if kind == "" {
+		kind = likelyKind(values)
+	}
+	out := make([]sortValue, len(values))
+	for i, value := range values {
+		switch kind {
+		case kindNumber:
+			if n, ok := numberOf(value); ok {
+				out[i] = sortValue{read: true, number: n}
+				continue
 			}
+		case kindDate:
+			if d, ok := dateOf(value); ok {
+				out[i] = sortValue{read: true, number: float64(d.start().Unix())}
+				continue
+			}
+		default:
+			out[i] = sortValue{read: true, text: stringutil.NormalizeText(stringifyText(value))}
+			continue
+		}
+		out[i] = sortValue{text: stringutil.NormalizeText(stringifyText(value))}
+	}
+	return out
+}
+
+// likelyKind is a date when at least half of values read as dates, else a
+// number when any reads as one, else text. A date also reads as a number,
+// its year, so dates are counted first.
+func likelyKind(values []any) string {
+	dates, numbers := 0, 0
+	for _, value := range values {
+		if _, ok := dateOf(value); ok {
+			dates++
+		}
+		if _, ok := numberOf(value); ok {
+			numbers++
 		}
 	}
-	if kind == "" || kind == kindNumber {
-		if x, ok := parseNumber(a); ok {
-			if y, ok := parseNumber(b); ok {
-				return cmp.Compare(x, y)
-			}
-		}
+	switch {
+	case dates > 0 && dates*2 >= len(values):
+		return kindDate
+	case numbers > 0:
+		return kindNumber
+	default:
+		return kindText
 	}
-	return strings.Compare(stringutil.NormalizeText(a), stringutil.NormalizeText(b))
 }
 
 // numberPart is a number as a page writes it, with a Japanese unit of ten
@@ -434,7 +507,7 @@ func numberOf(value any) (float64, bool) {
 	case float64:
 		return v, true
 	default:
-		return parseNumber(fmt.Sprint(v))
+		return parseNumber(stringifyText(v))
 	}
 }
 
@@ -522,15 +595,24 @@ func dateParts(month, day string, precision int) (int, int, int) {
 }
 
 func (d dateValue) valid() bool {
-	if d.year < 1000 || d.year > 9999 || d.month < 0 || d.month > 12 || d.day < 0 || d.day > 31 {
+	if d.year < 1000 || d.year > 9999 || d.month < 0 || d.month > 12 {
 		return false
 	}
-	return d.precision == precisionYear || d.month >= 1
+	switch d.precision {
+	case precisionYear:
+		return true
+	case precisionMonth:
+		return d.month >= 1
+	default:
+		// A day the month does not have, such as February 31, is no date.
+		at := d.start()
+		return d.month >= 1 && d.day >= 1 && at.Month() == time.Month(d.month) && at.Day() == d.day
+	}
 }
 
 func dateOf(value any) (dateValue, bool) {
 	if t, ok := value.(time.Time); ok {
 		return dateValue{year: t.Year(), month: int(t.Month()), day: t.Day(), precision: precisionDay}, true
 	}
-	return parseDate(fmt.Sprint(value))
+	return parseDate(stringifyText(value))
 }
