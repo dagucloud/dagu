@@ -91,6 +91,36 @@ func TestExtractPagesStopAtMax(t *testing.T) {
 	assert.Contains(t, limited.stderr.String(), "extract read pages.max, 2 pages, and read no page after it")
 }
 
+// A page the site refuses partway through the list fails the extract
+// instead of leaving a gap in it, though the page after it loads.
+func TestExtractPagesFailOnRefusedPage(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, listModel)
+	run.engine.listRefusal = &pageOutcome{Host: "shop.example.com", Status: 429}
+	run.engine.showList("rows: A,B", "Too many requests", "rows: E")
+	refused := run.execute(pagedOrders, nil)
+	require.ErrorContains(t, refused.err, "shop.example.com refused the page (HTTP 429 Too Many Requests)")
+}
+
+// A recording of pages.next made with another value of a variable it names
+// that its clicks do not use is not replayed for this value; the model
+// turns the page and its click replaces the recording.
+func TestExtractPagesReplayOnlyFittingRecording(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, listModel)
+	withYear := func(year string) string {
+		return strings.Replace(strings.Replace(pagedOrders, `"Click Next"`, `"Click Next for %year%"`, 1),
+			`"url"`, `"variables": {"year": "`+year+`"}, "url"`, 1)
+	}
+	for _, year := range []string{"2025", "2026", "2026"} {
+		run.engine.showList("rows: A", "rows: B")
+		require.NoError(t, run.execute(withYear(year), nil).err)
+	}
+	assert.Len(t, run.engine.actInstructions(), 2, "the 2026 run asks the model, and the next 2026 run replays")
+}
+
 func TestExtractPagesValidation(t *testing.T) {
 	t.Parallel()
 

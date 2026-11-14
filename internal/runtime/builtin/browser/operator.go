@@ -557,6 +557,11 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 		if err != nil || !changed {
 			return read, err
 		}
+		// A page the site refused holds none of the list, which an extract
+		// would read as a page without items.
+		if refused, err := o.pageRefusal(ctx); err == nil && refused != nil {
+			return read, refusedPage{*refused}
+		}
 		data, err := o.eng.Extract(ctx, spec.Instruction, schema, timeout)
 		if err != nil {
 			return read, err
@@ -579,13 +584,13 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 }
 
 // turnPage performs pages.next and reports whether it clicked anything. It
-// replays what made holds, what the model clicked to turn a page earlier in
-// this run, or else a recording of it; once a page has turned in this run,
-// an element that is gone means the list ended. Before that, the model
-// looks for the element, as an act heals, and the recording is replaced
-// only when it finds one, so a list that has one page today keeps the
-// recording for the days it has more. The model finding nothing ends the
-// list too.
+// replays what made holds, what turned a page earlier in this run, or else
+// a recording of it that fits the variables; once a page has turned in
+// this run, an element that is gone means the list ended. Before that, the
+// model looks for the element, as an act heals, and the recording is
+// replaced only when it finds one, so a list that has one page today keeps
+// the recording for the days it has more. The model finding nothing ends
+// the list too.
 func (o *operator) turnPage(ctx context.Context, index int, next string, turned bool, made *[]recordedAction, timeout time.Duration) (bool, error) {
 	document, _ := o.eng.DocumentID(ctx)
 	choice, recorded := o.decide("", nil)
@@ -599,12 +604,15 @@ func (o *operator) turnPage(ctx context.Context, index int, next string, turned 
 	}
 	actions := *made
 	if len(actions) == 0 {
-		if rec, ok := o.recording(choice, key); ok {
+		if rec, ok := o.recording(choice, key); ok && unfit(next, rec, o.variables) == "" {
 			actions = rec.Actions
 		}
 	}
 	if len(actions) > 0 {
 		replayed, err := o.replay(ctx, actions, document, timeout)
+		if err == nil && replayed == len(actions) {
+			*made = actions
+		}
 		if err != nil || replayed > 0 {
 			return replayed > 0, err
 		}

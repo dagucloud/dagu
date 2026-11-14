@@ -157,6 +157,9 @@ type fakeEngine struct {
 	listPages         []string
 	listPage          int
 	lastPageKeepsNext bool
+	// listRefusal, if set, is what the browser shows while the list is on
+	// its second page, as a site refusing one request does.
+	listRefusal *pageOutcome
 	// snapshot is the page's accessibility tree; its URL is the page's.
 	snapshot pageSnapshot
 	// opener is the title of the page that opened the window operations
@@ -599,6 +602,12 @@ func (e *fakeEngine) turnListPage() bool {
 	}
 	e.listPage++
 	e.pageText = e.listPages[e.listPage]
+	if e.listRefusal != nil {
+		e.outcome = pageOutcome{}
+		if e.listPage == 1 {
+			e.outcome = *e.listRefusal
+		}
+	}
 	return true
 }
 
