@@ -5383,6 +5383,14 @@ func TestRetryMaskedOutputs(t *testing.T) {
 			wantNode: ir.NodeFailed,
 			wantRead: "TOKEN",
 		},
+		// Building an executor can use the values, so the read fails the
+		// step before an executor is built, here one that does not exist.
+		{
+			name:     "BeforeExecutorIsBuilt",
+			use:      []stepOption{withCommand(`echo "$TOKEN"`), withExecutorType("no-such-executor")},
+			wantNode: ir.NodeFailed,
+			wantRead: "TOKEN",
+		},
 		{
 			name:     "MarkSuccess",
 			use:      []stepOption{withCommand(`echo "$TOKEN"`), withContinueOn(ir.ContinueOn{Failure: true, MarkSuccess: true})},

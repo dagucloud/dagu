@@ -948,6 +948,12 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		n.SetStdin(resolved)
 	}
 
+	// Building an executor can already use the values, such as to connect,
+	// so a masked read fails the step before.
+	if err := maskedReadError(ctx, n); err != nil {
+		return ctx, nil, err
+	}
+
 	// Create the executor
 	cmd, err := executor.NewExecutor(ctx, n.Step())
 	if err != nil {
