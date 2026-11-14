@@ -181,7 +181,7 @@ func (b outlineBuilder) build(n *outlineNode) []*outlineEntry {
 	case slices.Contains(toggleRoles, n.role), slices.Contains(pressableRoles, n.role):
 		return []*outlineEntry{{line: withRef(n, withFlags(withName(n.role, n.name), n.flags)), shape: n.role}}
 	case n.role == "heading":
-		return []*outlineEntry{{line: "heading: " + clip(n.name, outlineTextRunes), shape: "heading"}}
+		return []*outlineEntry{b.heading(n)}
 	case slices.Contains(messageRoles, n.role):
 		return []*outlineEntry{{line: n.role + ": " + clip(textOf(n), outlineTextRunes), shape: n.role}}
 	case slices.Contains(tableRoles, n.role):
@@ -287,6 +287,21 @@ func (b outlineBuilder) row(n *outlineNode) []*outlineEntry {
 	}
 	controls := b.controls(n)
 	return []*outlineEntry{{line: "row: " + clip(strings.Join(cells, " | "), outlineTextRunes), shape: "row" + shapeOf(controls), children: controls}}
+}
+
+// heading describes a heading by its text, with the controls in it under
+// it. A heading that is one link, as the titles of a list's entries often
+// are, is shown as that link, so its address and ID are not lost.
+func (b outlineBuilder) heading(n *outlineNode) *outlineEntry {
+	controls := b.controls(n)
+	shape := "heading"
+	if len(controls) > 0 {
+		shape += shapeOf(controls)
+	}
+	if links := descendants(n, "link"); len(controls) == 1 && len(links) == 1 && links[0].name == n.name {
+		return &outlineEntry{line: "heading " + controls[0].line, shape: shape}
+	}
+	return &outlineEntry{line: "heading: " + clip(n.name, outlineTextRunes), shape: shape, children: controls}
 }
 
 // item describes a list item by its text, with the controls in it under it.

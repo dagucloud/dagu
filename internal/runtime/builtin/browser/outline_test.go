@@ -77,6 +77,14 @@ list
 [0-354] radio "Newest" [checked]
 [0-355] radio "Price"
 [0-229] textbox "Note"`},
+		// A list's entries titled by a linked heading each show the link.
+		{"cards", `heading: 大阪市の中古マンション
+heading [0-11] link "グランドメゾン天満橋" -> https://homes.example.com/ms/chuko/osaka/sc_osaka/nc_70010001/
+text: 4,280万円
+heading [0-21] link "ライオンズマンション本町" -> https://homes.example.com/ms/chuko/osaka/sc_osaka/nc_70020002/
+text: 6,800万円
+heading: 資料請求のご案内
+  [0-32] button "資料を請求する"`},
 		{"frame", `heading: Outer
 iframe "login frame"
   heading: 取引先ポータル

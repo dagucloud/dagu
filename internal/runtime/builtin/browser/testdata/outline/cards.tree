@@ -1,0 +1,13 @@
+[0-1] RootWebArea: 大阪市の中古マンション購入
+  [0-2] scrollable, html
+    [0-3] body
+      [0-4] heading: 大阪市の中古マンション
+      [0-10] heading: グランドメゾン天満橋
+        [0-11] link: グランドメゾン天満橋
+      [0-13] StaticText: 4,280万円
+      [0-20] heading: ライオンズマンション本町
+        [0-21] link: ライオンズマンション本町
+      [0-23] StaticText: 6,800万円
+      [0-30] heading: 資料請求のご案内
+        [0-31] StaticText: 資料請求のご案内
+        [0-32] button: 資料を請求する
