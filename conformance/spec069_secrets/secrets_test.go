@@ -144,6 +144,24 @@ func TestStepOutputMaskedOnParallelRetry(t *testing.T) {
 	dagu.ExpectTextFileContent("received.out", "filesecretvalue123\n")
 }
 
+// Template config reads the step's variables through a scope of its own, which
+// keeps the masked mark, so a template that reads a masked output fails.
+func TestStepOutputMaskedInTemplate(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-template"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_template.yaml").ExpectNonZeroExitCode()
+
+	dagu.WriteFile("ready", "")
+	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_template.yaml")
+	retry.ExpectNonZeroExitCode()
+	retry.ExpectStderrContains(`reads output "TOKEN" of step "login"`)
+	dagu.ExpectNoFile("received.out")
+}
+
 // A child run that a step starts in process checks its own reads, so its
 // handler reads the masked output variable as it is and the retry succeeds.
 func TestStepOutputMaskedInChildHandler(t *testing.T) {

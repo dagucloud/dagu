@@ -1049,7 +1049,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any, pathKeys []s
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, false)
 	}
-	scope = scope.WithEntries(templateConfigEvalVariables(env), cmnvalue.EnvSourceStepEnv)
+	scope = scope.WithEnvEntries(templateConfigEvalEntries(scope, templateConfigEvalVariables(env)))
 
 	config = maps.Clone(config)
 	rawRef, hasRef := config["template_ref"]
