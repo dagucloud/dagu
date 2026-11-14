@@ -626,6 +626,31 @@ func TestCmdStart_Only(t *testing.T) {
 		require.Equal(t, "RESULT=got-from-source", outputVariable(t, status.Nodes[1], "RESULT"))
 	})
 
+	// --reuse-from runs only the steps that changed since a run, and the
+	// steps after them; the others carry their outputs from that run.
+	t.Run("ReuseFrom", func(t *testing.T) {
+		t.Parallel()
+		th := test.SetupCommand(t)
+		dag := th.DAG(t, outputsDAG)
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=source", dag.Location},
+		})
+		require.NoError(t, os.WriteFile(dag.Location, []byte(strings.Replace(outputsDAG, "echo got-", "echo now-", 1)), 0o600))
+
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=reused", "--reuse-from=source", dag.Location},
+		})
+
+		status := readRunStatus(t, th, dag.Name, "reused")
+		require.Equal(t, []ir.NodeStatus{ir.NodeSkipped, ir.NodeSucceeded}, nodeStatuses(status))
+		require.Equal(t, "RESULT=now-from-source", outputVariable(t, status.Nodes[1], "RESULT"))
+
+		err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=both", "--reuse-from=source", "--only=consume", dag.Location},
+		})
+		require.ErrorContains(t, err, "--reuse-from chooses the steps to run itself")
+	})
+
 	// --output-from names the run that gives the outputs of one skipped step,
 	// and the run records that run with the times of the source step.
 	t.Run("OutputFrom", func(t *testing.T) {
@@ -828,6 +853,8 @@ func TestCmdStart_Only(t *testing.T) {
 		{name: "OutputWithoutName", args: []string{"--only=third", "--output=first=x"}, wantErr: `invalid --output "first": expected <step>.<name>=<value>`},
 		{name: "OutputTwice", args: []string{"--only=third", "--output=first.value=a", "--output=first.value=b"}, wantErr: `--output sets "first.value" more than once`},
 		{name: "OutputOfSelectedStep", args: []string{"--only=third", "--output=third.value=x"}, wantErr: `cannot set outputs of step "third": it is selected to run`},
+		{name: "ReuseFromEmpty", args: []string{"--reuse-from= "}, wantErr: "--reuse-from must name a run"},
+		{name: "ReuseFromSubDAGRun", args: []string{"--reuse-from=source", "--run-id=child", "--parent=parent:run", "--root=parent:run"}, wantErr: "--reuse-from cannot be combined with --parent"},
 	}
 	for _, tt := range rejects {
 		t.Run(tt.name, func(t *testing.T) {
