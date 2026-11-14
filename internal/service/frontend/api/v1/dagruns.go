@@ -5327,7 +5327,7 @@ func buildArtifactPreview(archiveDir, relPath string) (api.ArtifactPreviewRespon
 		return api.ArtifactPreviewResponse{}, err
 	}
 	mimeType := detectArtifactMimeType(absPath, sniffBytes)
-	kind := artifactPreviewKind(relPath, mimeType)
+	kind := artifactPreviewKind(relPath, mimeType, sniffBytes)
 	previewLimit := artifactPreviewLimit(kind)
 	tooLarge := previewLimit > 0 && info.Size() > previewLimit
 
@@ -5400,7 +5400,17 @@ func detectArtifactMimeType(path string, previewBytes []byte) string {
 	return http.DetectContentType(previewBytes)
 }
 
-func artifactPreviewKind(path, mimeType string) api.ArtifactPreviewKind {
+// Office files report a MIME type that mentions "xml", but their content is
+// binary: a zip package, or an OLE compound file once password-protected.
+var (
+	zipMagic = []byte("PK\x03\x04")
+	oleMagic = []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+)
+
+func artifactPreviewKind(path, mimeType string, previewBytes []byte) api.ArtifactPreviewKind {
+	if bytes.HasPrefix(previewBytes, zipMagic) || bytes.HasPrefix(previewBytes, oleMagic) {
+		return api.ArtifactPreviewKindBinary
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".md", ".markdown", ".mdown", ".mkd":
 		return api.ArtifactPreviewKindMarkdown

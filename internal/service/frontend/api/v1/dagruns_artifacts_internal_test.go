@@ -84,6 +84,24 @@ func TestBuildArtifactPreviewAllowsLargerTextWithinTextLimit(t *testing.T) {
 	assert.NotEmpty(t, *preview.Content)
 }
 
+// Office files report a MIME type that mentions "xml". The type is passed in
+// directly because mime.TypeByExtension knows .xlsx only on hosts that ship a
+// MIME table.
+func TestArtifactPreviewKindTreatsOfficeFilesAsBinary(t *testing.T) {
+	t.Parallel()
+
+	const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	for name, content := range map[string][]byte{
+		"ZipPackage": []byte("PK\x03\x04rest"),
+		"Encrypted":  []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, openapiv1.ArtifactPreviewKindBinary, artifactPreviewKind("out.xlsx", xlsxType, content))
+		})
+	}
+}
+
 func TestResolveArtifactPathRejectsSymlinkEscape(t *testing.T) {
 	t.Parallel()
 
