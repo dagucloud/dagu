@@ -200,6 +200,53 @@ jobs:
           }
           Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/health" -UseBasicParsing | Out-Null
 
+          # A run in progress keeps going while the service restarts. The
+          # service wrapper ends the whole process tree unless it stops Dagu
+          # through service-stop.
+          [xml]$serviceConfig = Get-Content "$installDir\dagu-service.xml"
+          $daguHome = ($serviceConfig.service.env | Where-Object { $_.name -eq "DAGU_HOME" }).value
+          $markerDir = "$env:RUNNER_TEMP\dagu-restart-run"
+          New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
+          $dagFile = "$env:RUNNER_TEMP\restart-run.yaml"
+          Set-Content -Path $dagFile -Encoding UTF8 -Value @"
+          steps:
+            - id: work
+              run: |
+                Set-Content -Path '$markerDir\started' -Value ok
+                Start-Sleep -Seconds 30
+                Set-Content -Path '$markerDir\finished' -Value done
+              with:
+                shell: powershell
+          "@
+          $env:DAGU_HOME = $daguHome
+          & "$installDir\dagu.exe" enqueue $dagFile
+          if ($LASTEXITCODE -ne 0) {
+            throw "Enqueueing the restart run failed with exit code $LASTEXITCODE."
+          }
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$markerDir\started")) {
+            if ((Get-Date) -gt $deadline) { throw "The restart run did not start." }
+            Start-Sleep -Seconds 1
+          }
+          Restart-Service -Name Dagu
+          if ((Get-Service -Name Dagu).Status -ne "Running") {
+            throw "The Dagu service is not running after a restart."
+          }
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$markerDir\finished")) {
+            if ((Get-Date) -gt $deadline) { throw "The run did not outlive the service restart." }
+            Start-Sleep -Seconds 1
+          }
+          $deadline = (Get-Date).AddSeconds(30)
+          do {
+            $status = Get-ChildItem -Path (Join-Path $daguHome "data\dag-runs") -Recurse -Filter status.jsonl |
+              Get-Content -Tail 1 | ConvertFrom-Json
+            if ($status.status -eq 4) { break }
+            if ((Get-Date) -gt $deadline) { throw "The restarted run did not succeed: $($status | ConvertTo-Json -Compress)" }
+            Start-Sleep -Seconds 1
+          } while ($true)
+          Remove-Item Env:\DAGU_HOME
+
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
             -NoPrompt -Uninstall -ServiceOnly -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) {

@@ -6,6 +6,7 @@ package upgrade
 import (
 	"bufio"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,12 +76,29 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 		}
 	case "windows":
 		// The installer keeps the service wrapper next to the binary it runs.
-		// WinSW stops the whole process tree of the service, runs included.
-		if execDir != "" && fileutil.IsFile(filepath.Join(execDir, winswServiceConfig)) {
-			return &Service{RestartCommand: "Restart-Service " + winswServiceName, StopsRuns: true}
+		if config := filepath.Join(execDir, winswServiceConfig); execDir != "" && fileutil.IsFile(config) {
+			return &Service{RestartCommand: "Restart-Service " + winswServiceName, StopsRuns: winswStopsRuns(config)}
 		}
 	}
 	return nil
+}
+
+// winswStopsRuns reports whether stopping the WinSW service configured at
+// configPath also ends the runs it started. WinSW ends the whole process
+// tree of the service, unless it stops the service through Dagu's
+// service-stop command, which an older installer did not set.
+func winswStopsRuns(configPath string) bool {
+	data, err := os.ReadFile(configPath) //nolint:gosec // path names the WinSW config of the Dagu service
+	if err != nil {
+		return true
+	}
+	var config struct {
+		StopArguments string `xml:"stoparguments"`
+	}
+	if err := xml.Unmarshal(data, &config); err != nil {
+		return true
+	}
+	return !strings.HasPrefix(strings.TrimSpace(config.StopArguments), "service-stop")
 }
 
 // systemdService describes the service of the systemd unit at unitPath.
