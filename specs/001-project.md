@@ -61,7 +61,7 @@ project/
       daily.yaml
   scripts/
     deploy.sh
-  .dagu/
+  .dagu/                 run state, ignored by git; see Project state
 ```
 
 ## Finding the project
@@ -71,7 +71,8 @@ project/
   `project_root`.
 - A project nested inside another project hides the outer one.
 - Without `.dagu.yaml` in the current directory or above it, commands do not
-  run in project mode.
+  run in project mode. A folder that a server project uses is still found
+  without it; see [Server projects](#server-projects).
 
 ## Commands
 
@@ -82,7 +83,7 @@ project/
 | `dagu validate [<target>]` | Validates the project file and every workflow, or one workflow. |
 | `dagu start <target> [-- params]` | Runs one workflow. |
 | Other commands that take a DAG, such as `status`, `stop`, `retry`, and `enqueue` | Resolve the DAG as a workflow target. |
-| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. |
+| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. Both refuse inside a server project's DAG directory; see [Server projects](#server-projects). |
 
 Rules:
 
@@ -202,13 +203,31 @@ It resolves the same way when `dagu start deploy` runs from
 
 ## Project state
 
-- Project-mode runs keep their run history, logs, artifacts, and other state
-  under `project_root/.dagu/`.
-- Dagu creates `.dagu/` and `.dagu/.gitignore`, containing `*`, on first use,
-  so git ignores the state without setup.
+Project-mode runs keep their state in one directory, `project_root/.dagu/`,
+laid out so that a person who opens it finds what they look for:
+
+```text
+.dagu/
+  .gitignore     contains "*"
+  runs/          run records, by workflow and date
+  logs/          step logs
+  artifacts/     run artifacts
+  state/         workflow state, queue, scheduler, and other internal state
+```
+
+Rules:
+
+- Dagu creates `.dagu/` and its `.gitignore` on first use, so git ignores the
+  state without setup.
+- One directory keeps Dagu's files apart from a project's own `logs/` or
+  `runs/`, and discovery never enters it, since it skips hidden directories.
 - Project mode uses the user's Dagu configuration, except that its DAG
-  directory is the workflow directory and its data and log directories are
-  under `.dagu/`.
+  directory is the workflow directory and its state lives under `.dagu/` as
+  shown.
+- A server project on an existing folder ([RFC 003](../rfcs/003-projects.md))
+  uses the same layout, so the CLI and the server read one history.
+- `dagu start` prints where the run's logs are when it finishes, and
+  `dagu history` lists past runs, so people rarely need to open `.dagu/`.
 - Project loading and workflow discovery do not write workflow events, run
   logs, artifacts, or result files.
 
@@ -224,14 +243,22 @@ Rules:
   discovers workflows, applies base config, and sets working directories as
   this spec says, whatever the server's `dag_discovery` settings are.
 - On a server, a `project` field that differs from the server project's name
-  is a loading error.
+  is a warning on the projects page, not a loading error, so renaming a
+  project never stops it from loading. The rename asks the admin to update
+  the field.
 - A command runs in the first of these that applies:
   1. The server project named by `--project` or `DAGU_PROJECT`.
-  2. The server project of the configured Dagu home whose DAG directory is
-     `project_root`, with that project's base config, secrets, and run
-     history.
-  3. Project mode, with its state in `.dagu/`.
+  2. The server project of the configured Dagu home whose DAG directory
+     contains the current directory, with or without `.dagu.yaml`. This
+     includes a project on an existing folder. The command uses that
+     project's rules, base config, secrets, and run history.
+  3. Project mode, when `.dagu.yaml` is found from the current directory,
+     with its state in `.dagu/`.
   4. The default project of the configured Dagu home, as without projects.
+- Inside a server project's DAG directory, as in step 2, `dagu server` and
+  `dagu start-all` refuse to start. The server already schedules that
+  project, and a second scheduler with its own lock would run each
+  scheduled workflow twice.
 - When the CLI addresses a remote server through a context, a project-mode
   command addresses the server project named by `project`, and fails when
   `project` is not set.
