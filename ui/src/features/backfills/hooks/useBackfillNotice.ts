@@ -44,6 +44,23 @@ function writeDismissed(ids: string[]): void {
 }
 
 /**
+ * The backfills whose failure was dismissed in this browser, and a dismiss
+ * of one. The workflow page's notice and the DAG list's chip share them.
+ */
+export function useDismissedBackfills(): {
+  dismissed: readonly string[];
+  dismiss: (id: string) => void;
+} {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const dismiss = useCallback((id: string) => {
+    const next = [...readDismissed(), id];
+    writeDismissed(next);
+    setDismissed(next);
+  }, []);
+  return { dismissed, dismiss };
+}
+
+/**
  * The notice of a DAG's latest backfill: one that runs, with its progress,
  * or one that ended failed while a slot it failed has not succeeded since.
  * An open backfill follows its live feed while the tab is visible. A
@@ -59,13 +76,10 @@ export function useBackfillNotice(
   const path = backfill ? backfillPath(backfill.id, remoteNode) : '/';
   // A new tab opens the page under the app's base path.
   const href = useHref(path);
-  const [dismissed, setDismissed] = useState(readDismissed);
+  const { dismissed, dismiss: dismissID } = useDismissedBackfills();
   const dismiss = useCallback(() => {
-    if (!backfill) return;
-    const next = [...readDismissed(), backfill.id];
-    writeDismissed(next);
-    setDismissed(next);
-  }, [backfill]);
+    if (backfill) dismissID(backfill.id);
+  }, [backfill, dismissID]);
 
   return useMemo(() => {
     if (!backfill) return null;

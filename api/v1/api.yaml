@@ -14045,6 +14045,29 @@ components:
         - revision
         - slots
 
+    DAGBackfillSummary:
+      type: object
+      description: "The DAG's newest open backfill, else its newest backfill that ended failed while a slot it failed has not succeeded since"
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/BackfillStatus"
+        slots:
+          type: integer
+        done:
+          type: integer
+          description: "Slots that ended"
+        failed:
+          type: integer
+          description: "Slots whose run failed"
+      required:
+        - id
+        - status
+        - slots
+        - done
+        - failed
+
     BackfillStatus:
       type: string
       enum:
@@ -16020,6 +16043,8 @@ components:
         pinned:
           type: boolean
           description: "Whether the DAG is pinned to the top of the DAG list"
+        backfill:
+          $ref: "#/components/schemas/DAGBackfillSummary"
         errors:
           type: array
           description: "List of errors encountered during the request"
