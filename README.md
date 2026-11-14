@@ -914,6 +914,7 @@ set or append the verified client address. Keep trusted proxy ranges narrow.
 | `DAGU_DAGS_DIR` | `~/.config/dagu/dags` | DAG definitions directory |
 | `DAGU_DAG_DISCOVERY_RECURSIVE` | `false` | Discover DAGs in subdirectories |
 | `DAGU_DAG_DISCOVERY_SYMLINKS` | `false` | Include recursive file symlinks and allow external targets |
+| `DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES` | - | Comma-separated directories directly under the DAGs directory that recursive discovery skips |
 | `DAGU_LOG_DIR` | `~/.local/share/dagu/logs` | Log files |
 | `DAGU_DATA_DIR` | `~/.local/share/dagu/data` | Application state |
 | `DAGU_SUSPEND_FLAGS_DIR` | `{DAGU_DATA_DIR}/suspend` | DAG suspension flags |
@@ -973,6 +974,18 @@ can be viewed, scheduled, and run, but cannot be updated, deleted, or renamed
 through Dagu. Without the opt-in, top-level YAML file symlinks whose targets
 remain inside `paths.dags_dir` continue to work. A symlink configured as
 `paths.dags_dir` itself is also supported.
+
+Set `dag_discovery.skip_directories` to keep directories directly under
+`paths.dags_dir` out of recursive discovery, such as a tree of child DAGs or
+build output. Their DAGs are not listed, scheduled, or watched, but a parent
+DAG can still run one by path. Entries are case-sensitive directory names, so
+`jobs` skips `jobs/` but not `team/jobs/`.
+
+```yaml
+dag_discovery:
+  recursive: true
+  skip_directories: [jobs, build]
+```
 
 ### Authentication
 
