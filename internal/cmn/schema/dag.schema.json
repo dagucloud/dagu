@@ -916,6 +916,11 @@
       },
       "description": "Start a run for each file that arrives in a folder."
     },
+    "node": {
+      "type": "string",
+      "enum": ["required"],
+      "description": "Set to required to make the DAG run only bound to one inventory node: as the child of a dag.run step with nodes, or started with exactly one node. The node gives the SSH connection, so the DAG sets no ssh, container, or worker_selector, and no step of it has nodes."
+    },
     "worker_selector": {
       "oneOf": [
         {
@@ -2381,6 +2386,48 @@
             }
           },
           "description": "Inline item-body iteration. The body steps run once for each item and may publish collected outputs."
+        },
+        "nodes": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Node selector: label filter terms separated by commas, such as web,env=prod,!canary."
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Node selector as a list of label filter terms."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["labels"],
+              "properties": {
+                "labels": {
+                  "oneOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+                  ],
+                  "description": "Node selector: label filter terms, as a comma-separated string or a list."
+                },
+                "max_concurrent": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000,
+                  "default": 1,
+                  "description": "Nodes running at once. Defaults to 1, one node at a time."
+                },
+                "keep_going": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Start the remaining nodes after one fails. Defaults to false."
+                }
+              }
+            }
+          ],
+          "description": "Run the step once per inventory node the selector matches (RFC 013). Allowed on dag.run, whose child DAG must declare node: required, and on command steps (run, command, script, ssh.run, sftp.*)."
         },
         "worker_selector": {
           "type": "object",

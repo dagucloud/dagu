@@ -1,0 +1,26 @@
+params:
+  - name: env
+    default: prod
+steps:
+  - id: rollout
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes:
+      labels: web,env=${params.env}
+      max_concurrent: 2
+      keep_going: true
+  - id: clean
+    run: rm -rf /tmp/app-cache
+    nodes: web,!canary
+  - id: logs
+    action: sftp.download
+    with:
+      source: /var/log/app.log
+      destination: logs/${node.name}.log
+    nodes: [web]
+---
+name: deploy-one
+node: required
+steps:
+  - run: echo deploying

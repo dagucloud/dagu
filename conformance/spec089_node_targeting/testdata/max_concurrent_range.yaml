@@ -1,0 +1,5 @@
+steps:
+  - run: "true"
+    nodes:
+      labels: web
+      max_concurrent: 1001

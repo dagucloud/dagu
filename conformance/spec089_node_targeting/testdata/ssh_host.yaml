@@ -1,0 +1,6 @@
+steps:
+  - action: ssh.run
+    with:
+      host: example.com
+      command: "true"
+    nodes: web

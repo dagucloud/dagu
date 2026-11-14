@@ -223,6 +223,9 @@ type DAG struct {
 	Queue string `json:"queue,omitempty"`
 	// RetryPolicy controls automatic DAG-level retry behavior for failed runs.
 	RetryPolicy *DAGRetryPolicy `json:"retryPolicy,omitempty"`
+	// NodeRequired makes the DAG run only bound to one inventory node, as a
+	// child of a node step or started with exactly one node (RFC 013).
+	NodeRequired bool `json:"nodeRequired,omitempty"`
 	// WorkerSelector defines labels required for worker selection in distributed execution.
 	// If specified, the DAG will only run on workers with matching labels.
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`

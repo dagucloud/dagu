@@ -110,6 +110,10 @@ type step struct {
 	Parallel any `yaml:"parallel,omitempty"`
 	// Foreach specifies inline item-body iteration configuration.
 	Foreach any `yaml:"foreach,omitempty"`
+	// Nodes runs the step once per matched inventory node (RFC 013): a
+	// selector, a list of selector terms, or an object with labels,
+	// max_concurrent, and keep_going.
+	Nodes any `yaml:"nodes,omitempty"`
 	// WorkerSelector specifies required worker labels for execution.
 	WorkerSelector map[string]string `yaml:"worker_selector,omitempty"`
 	// Env specifies the environment variables for the step.
@@ -458,6 +462,7 @@ var stepLogOutputStage = stepTransformStage{
 var stepExecutionPlacementStage = stepTransformStage{
 	stepField("mail_on_error", buildStepMailOnError, func(out *ir.Step, v bool) { out.MailOnError = v }),
 	stepField("worker_selector", buildStepWorkerSelector, func(out *ir.Step, v map[string]string) { out.WorkerSelector = v }),
+	stepField("nodes", buildStepNodes, func(out *ir.Step, v *ir.NodeTargets) { out.Nodes = v }),
 	stepField("working_dir", buildStepWorkingDir, func(out *ir.Step, v string) { out.Dir = v }),
 	stepShellField(),
 	stepField("timeout", buildStepTimeout, func(out *ir.Step, v time.Duration) { out.Timeout = v }),
@@ -588,6 +593,7 @@ var stepExecutionValidationStage = stepValidationStage{
 	{"container", validateContainer},
 	{"dag", validateSubDAG},
 	{"worker_selector", validateWorkerSelector},
+	{"nodes", validateNodeTargets},
 }
 
 var stepInteractionValidationStage = stepValidationStage{
