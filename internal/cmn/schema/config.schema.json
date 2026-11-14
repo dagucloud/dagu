@@ -327,6 +327,9 @@
         },
         "builtin": {
           "$ref": "#/definitions/AuthBuiltinDef"
+        },
+        "external": {
+          "$ref": "#/definitions/AuthExternalDef"
         }
       }
     },
@@ -707,6 +710,80 @@
         "role": {
           "type": "string",
           "enum": ["manager", "developer", "operator", "viewer"]
+        }
+      }
+    },
+    "AuthExternalDef": {
+      "type": "object",
+      "description": "External authorization hook. Verifies a signed identity token set by an access gateway and asks an OpenID AuthZEN 1.0 policy decision point for each action. Requires auth.mode 'none'.",
+      "additionalProperties": false,
+      "if": {
+        "required": ["enabled"],
+        "properties": {
+          "enabled": {"const": true}
+        }
+      },
+      "then": {
+        "required": ["token", "authzen"],
+        "properties": {
+          "token": {"required": ["header", "issuer", "audience", "public_keys_file"]},
+          "authzen": {"required": ["base_url"]}
+        }
+      },
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the external authorization hook. Defaults to false."
+        },
+        "token": {
+          "type": "object",
+          "description": "Verification of the identity token that the access gateway sets on each request.",
+          "additionalProperties": false,
+          "properties": {
+            "header": {
+              "type": "string",
+              "description": "Request header that carries the compact JWT, for example X-Identity-Token."
+            },
+            "issuer": {
+              "type": "string",
+              "description": "Required value of the iss claim."
+            },
+            "audience": {
+              "type": "string",
+              "description": "Required value of the aud claim."
+            },
+            "max_age": {
+              "type": "string",
+              "description": "Maximum token age measured from the iat claim. Defaults to 60s."
+            },
+            "public_keys_file": {
+              "type": "string",
+              "description": "PEM file or JWKS document with the Ed25519 or P-256 public keys. Tokens must use EdDSA or ES256."
+            }
+          }
+        },
+        "authzen": {
+          "type": "object",
+          "description": "OpenID AuthZEN Authorization API 1.0 policy decision point.",
+          "additionalProperties": false,
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "description": "PDP base URL. Dagu calls <base_url>/access/v1/evaluation and <base_url>/access/v1/evaluations."
+            },
+            "timeout": {
+              "type": "string",
+              "description": "Timeout of each PDP request. Defaults to 2s."
+            },
+            "cache_ttl": {
+              "type": "string",
+              "description": "Keep PDP decisions in memory for this duration. Defaults to 0 (no cache)."
+            },
+            "token_file": {
+              "type": "string",
+              "description": "Optional file that holds a bearer token for the PDP."
+            }
+          }
         }
       }
     },
