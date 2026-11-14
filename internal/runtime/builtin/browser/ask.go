@@ -93,6 +93,7 @@ func (r *run) detachForAnswer(ctx context.Context, index, cursor int, kind strin
 		return r.fail(ctx, index, kind, fmt.Errorf("keep browser open: %w", err))
 	}
 	r.eng = nil
+	r.detachShared()
 	r.record.State = browserhost.StateDetached
 	r.record.Deadline = deadline
 	r.record.Cursor = cursor
@@ -108,6 +109,7 @@ func (r *run) detachForAnswer(ctx context.Context, index, cursor int, kind strin
 	// The record marks the profile as held while the browser waits.
 	r.profile.release()
 	r.profile = nil
+	r.leaveShared()
 	return nil
 }
 
@@ -156,7 +158,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	r.refreshMasker()
 
 	if name := record.Profile; name != "" {
-		lease, err := acquireProfile(ctx, r.browser, name, recordID, true)
+		lease, err := r.lockProfile(ctx, name, recordID)
 		if err != nil {
 			return 0, err
 		}

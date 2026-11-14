@@ -74,7 +74,17 @@ type run struct {
 	artifacts *agentstep.ArtifactStore
 	timeline  *agentstep.Timeline
 	record    browserhost.Record
-	profile   *profileLease
+	// stepRecordID is the record a browser the step keeps for an ask's
+	// answer waits under.
+	stepRecordID string
+	profile      *profileLease
+	// shared is the browser the step shares with other steps of its run,
+	// whose turn it holds from its start to its end; nil when it shares
+	// none. sharedOwn is set while the step's browser is that browser, and
+	// dropShared once the step failed in a way that leaves it untrustworthy.
+	shared     *sharedBrowser
+	sharedOwn  bool
+	dropShared bool
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
@@ -816,9 +826,17 @@ func (r *run) publishDownloads() {
 func (r *run) startSession(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
 	recordID := browserhost.RecordID(r.dagRunID, runtime.GetEnv(ctx).ForeachItem, r.stepName)
+	r.stepRecordID = recordID
+	if err := r.takeShared(ctx); err != nil {
+		return 0, err
+	}
 	answer, answered := agentstep.PendingAnswer(session, providerName)
 	if answered {
-		return r.resumeSession(ctx, recordID, session, answer)
+		start, err := r.resumeSession(ctx, recordID, session, answer)
+		if err == nil {
+			r.adoptShared()
+		}
+		return start, err
 	}
 	if stale, err := r.store.Load(recordID); err == nil {
 		// A previous attempt left a browser behind; it cannot be resumed. When
@@ -848,15 +866,49 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 	})
 	generation := r.exec.GetAgentSession().Generation
 
-	opts, err := r.launchOptions(ctx, recordID)
+	joined, err := r.joinShared(ctx, generation)
 	if err != nil {
 		return 0, err
+	}
+	if !joined {
+		if err := r.launch(ctx, recordID, generation); err != nil {
+			return 0, err
+		}
+	}
+	if r.cfg.URL != "" {
+		result, err := r.gotoURL(ctx, -1, r.cfg.URL, defaultOperationTimeout)
+		if err != nil {
+			return 0, err
+		}
+		r.report(ctx, result.Report)
+	}
+	return 0, nil
+}
+
+// launch starts the step's browser and records it under recordID, or,
+// for a browser the step shares, under the record of the shared browser.
+func (r *run) launch(ctx context.Context, recordID string, generation int) error {
+	if r.shared != nil {
+		recordID = browserhost.SharedRecordID(r.dagRunID, r.shared.name)
+		// A run retried in a new process starts its shared browsers over.
+		if stale, err := r.store.Load(recordID); err == nil {
+			if err := browserhost.Release(ctx, r.store, stale); err != nil {
+				return fmt.Errorf("close the shared browser a previous attempt left open: %w", err)
+			}
+		}
+	}
+	if err := checkSharedSlots(ctx); err != nil {
+		return err
+	}
+	opts, err := r.launchOptions(ctx, recordID)
+	if err != nil {
+		return err
 	}
 	r.timeline.Lifecycle(agentstep.StatusRunning, "Starting browser")
 	eng, err := r.exec.launcher.Launch(ctx, opts)
 	if err != nil {
 		r.releaseProfile(ctx, opts)
-		return 0, err
+		return err
 	}
 	r.eng = eng
 	handle := eng.Handle()
@@ -883,17 +935,8 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 	}
 	recordCertProxy(&r.record, handle.CertProxy)
 	recordWriteGate(&r.record, handle.WriteGate)
-	if err := r.saveRunningRecord(); err != nil {
-		return 0, err
-	}
-	if r.cfg.URL != "" {
-		result, err := r.gotoURL(ctx, -1, r.cfg.URL, defaultOperationTimeout)
-		if err != nil {
-			return 0, err
-		}
-		r.report(ctx, result.Report)
-	}
-	return 0, nil
+	r.adoptShared()
+	return r.saveRunningRecord()
 }
 
 func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions, error) {
@@ -937,9 +980,12 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		BrowserDir:         r.browser,
 		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
 		Waiting:            func() { r.timeline.Lifecycle(agentstep.StatusRunning, "Waiting for another browser to close") },
+		// A browser of another step of the run may start meanwhile and be
+		// shared, keeping its place until the run ends.
+		StopWaiting: func() error { return checkSharedSlots(ctx) },
 	}
 	if name := r.cfg.Browser.Profile; name != "" {
-		lease, err := acquireProfile(ctx, r.browser, name, recordID, true)
+		lease, err := r.lockProfile(ctx, name, recordID)
 		if err != nil {
 			return launchOptions{}, err
 		}
@@ -1074,6 +1120,9 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	if ctx.Err() != nil && errors.Is(cause, context.Canceled) {
 		cause = ctx.Err()
 	}
+	// A browser that stopped answering, or whose write gate is gone, is not
+	// left open for the next step that shares it.
+	r.dropShared = errors.Is(cause, errBrowserUnresponsive) || errors.Is(cause, errWriteGateLost)
 	r.reportBlocked(index)
 	if !errors.Is(cause, errWriteGateLost) {
 		// What the gate decided before a cancellation still belongs in the
@@ -1169,10 +1218,17 @@ func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause e
 	}
 }
 
-// shutdown closes the browser and removes everything it owned.
+// shutdown closes the browser and removes everything it owned. A browser
+// the step shares stays open for the next step that shares it.
 func (r *run) shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
+	if r.shared != nil {
+		defer r.leaveShared()
+		if r.keepShared(ctx) {
+			return nil
+		}
+	}
 	var errs []error
 	if r.eng != nil {
 		errs = append(errs, r.eng.Close(ctx))

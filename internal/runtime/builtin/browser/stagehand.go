@@ -283,7 +283,7 @@ func (l stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engi
 		return nil, fmt.Errorf("launch browser: the browser sandbox is on, but the browser runtime turns it off %s; "+
 			"set browser.sandbox: false in the Dagu config or DAGU_BROWSER_SANDBOX=false to run without it", reason)
 	}
-	slot, err := browserhost.TakeSlot(ctx, opts.BrowserDir, opts.MaxOpen, opts.Waiting)
+	slot, err := browserhost.TakeSlot(ctx, opts.BrowserDir, opts.MaxOpen, opts.Waiting, opts.StopWaiting)
 	if err != nil {
 		return nil, err
 	}

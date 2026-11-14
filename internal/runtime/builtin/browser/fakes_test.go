@@ -28,7 +28,13 @@ import (
 // fakeLauncher hands out one shared fakeEngine so a test can observe a
 // session across launch, detach, and reattach.
 type fakeLauncher struct {
-	engine          *fakeEngine
+	engine *fakeEngine
+	// reattachErr, if set, is what reattaching reports, as for a browser
+	// that has gone.
+	reattachErr error
+	// onLaunch, if set, runs as a launch starts, for what the launch waits
+	// for; its error fails the launch.
+	onLaunch        func(launchOptions) error
 	mu              sync.Mutex
 	launches        []launchOptions
 	reattaches      []browserHandle
@@ -36,6 +42,11 @@ type fakeLauncher struct {
 }
 
 func (l *fakeLauncher) Launch(_ context.Context, opts launchOptions) (engine, error) {
+	if l.onLaunch != nil {
+		if err := l.onLaunch(opts); err != nil {
+			return nil, err
+		}
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.launches = append(l.launches, opts)
@@ -48,6 +59,9 @@ func (l *fakeLauncher) Reattach(_ context.Context, handle browserHandle, opts la
 	defer l.mu.Unlock()
 	l.reattaches = append(l.reattaches, handle)
 	l.reattachOptions = append(l.reattachOptions, opts)
+	if l.reattachErr != nil {
+		return nil, l.reattachErr
+	}
 	l.engine.attach(opts.Generate)
 	return l.engine, nil
 }

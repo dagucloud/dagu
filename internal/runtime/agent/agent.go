@@ -48,6 +48,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/browser"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
@@ -1290,7 +1291,16 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		return context.Canceled
 	}
 	executionStarted = true
-	lastErr := a.runner.Run(ctx, a.plan, progressCh)
+	// Browser steps that give the same browser.share name use one browser,
+	// which stays open until the run ends. Goroutines started above read
+	// ctx, so the steps get a context of their own.
+	stepsCtx, closeBrowsers := browser.WithSharedBrowsers(ctx)
+	defer func() {
+		if err := closeBrowsers(); err != nil {
+			logger.Warn(ctx, "Failed to close shared browsers", tag.Error(err))
+		}
+	}()
+	lastErr := a.runner.Run(stepsCtx, a.plan, progressCh)
 	finishRunner()
 
 	// Drain the progress goroutine before computing the final status.
