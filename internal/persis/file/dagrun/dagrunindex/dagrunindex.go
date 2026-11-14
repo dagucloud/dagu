@@ -36,7 +36,7 @@ const (
 	// IndexFileName is the name of the DAG run index file.
 	IndexFileName = ".dagrun.index"
 	// IndexVersion is the current index format version.
-	IndexVersion = 10
+	IndexVersion = 9
 	// MinRunsForIndex is the minimum number of runs needed to create an index.
 	MinRunsForIndex = 10
 
@@ -787,8 +787,8 @@ func encodeDates(dates []ir.DateValue) string {
 	return string(data)
 }
 
-// decodeDates reads a run's dates from the index; an entry that cannot be
-// read has none.
+// decodeDates reads a run's dates from the index. An entry written before
+// the index kept dates has none, as its run recorded none.
 func decodeDates(data string) []ir.DateValue {
 	if data == "" {
 		return nil

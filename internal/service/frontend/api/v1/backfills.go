@@ -125,11 +125,11 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 	return api.ListDAGSlots200JSONResponse{Slots: slots}, nil
 }
 
-// slotDates returns the dates a slot's run recorded, or, for a slot whose
-// run is no longer in history or that has none, the dates the DAG would
-// give it now.
+// slotDates returns the dates a slot's run recorded, or, for a slot without
+// a run, whose run is no longer in history, or whose run recorded none, the
+// dates the DAG would give it now.
 func slotDates(dag *ir.DAG, sched backfill.SlotSchedule, state backfill.Slot) []ir.DateValue {
-	if state.RunRecorded {
+	if state.RunRecorded && len(state.Dates) > 0 {
 		return state.Dates
 	}
 	return backfill.SlotDates(dag, sched, state.At)
