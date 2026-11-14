@@ -36,6 +36,7 @@
           updateAvailable: "{{ $update.UpdateAvailable }}" === "true",
           latestVersion: "{{ js $update.LatestVersion }}",
           upgradeCommand: "{{ js $update.UpgradeCommand }}",
+          installMethod: "{{ js $update.InstallMethod }}",
           restartRequired: "{{ $update.RestartRequired }}" === "true",
           restartCommand: "{{ js $update.RestartCommand }}",
           restartStopsRuns: "{{ $update.RestartStopsRuns }}" === "true",

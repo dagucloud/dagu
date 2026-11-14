@@ -127,6 +127,8 @@ type UpdateStatus struct {
 	LatestVersion   string
 	// UpgradeCommand updates this installation; empty when no single command applies.
 	UpgradeCommand string
+	// InstallMethod names how Dagu was installed, such as "binary" or "container".
+	InstallMethod string
 	// RestartRequired reports that a different binary was installed since the server started.
 	RestartRequired bool
 	// RestartCommand restarts the installer-managed service; empty when none is found.
