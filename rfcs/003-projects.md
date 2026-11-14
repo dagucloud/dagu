@@ -132,6 +132,11 @@ $DAGU_HOME/projects/
 `base.yaml` at the root of a project's DAG directory is the project base
 config, not a DAG.
 
+A project can instead keep its DAG files in an existing folder that the
+admin chooses when creating it, such as a repository checkout elsewhere on
+the machine. Its runtime state stays under `projects/<name>/`. See
+[Lifecycle](#lifecycle).
+
 ### Names
 
 A project name is a directory name, so it must work as one on macOS,
@@ -341,7 +346,23 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - **Create.** An admin creates a project in the UI or API, or with `dagu
   project create`, or adds a directory that discovery finds. Either way the
   registry assigns its ID, and the scheduler starts its unit without a
-  restart.
+  restart. When creating, the admin chooses where its DAG files live:
+  - **Default.** Dagu creates the project's DAG directory where
+    [Layout](#layout) puts it.
+  - **An existing folder,** such as a repository checkout, by its absolute
+    path. Dagu reads the DAG files and `base.yaml` there, and spec 001 rules
+    when the folder holds `.dagu.yaml`. Dagu never moves or deletes the
+    folder. The project's runtime state still lives under
+    `projects/<name>/`, and the registry records the folder's path.
+
+  The UI suggests the folder's name as the project name and display name.
+  An existing folder must lie under one of the directories that
+  `paths.allowed_project_folders` in `config.yaml` lists. With none listed,
+  only the default is offered, so an admin of the UI cannot expose files of
+  the server's machine that its operator did not allow. A folder already
+  used by a project, inside another project's directories, inside
+  `paths.projects_dir` or `paths.projects_dags_dir`, or inside the library
+  is refused. Paths are compared as the operating system compares them.
 - **Display name.** An admin changes it in the UI or API at any time. Only
   the registry changes.
 - **Rename.** An admin renames a project in the UI or API, or with `dagu
@@ -359,13 +380,15 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   The ID, grants, Dagu Cloud binding, and run history stay. Clients that
   address the project by name use the new name. With
   `paths.projects_dags_dir` set, a git checkout shows the moved DAG
-  directory as a change to commit.
+  directory as a change to commit. A project on an existing folder keeps
+  its folder; only its runtime state moves.
 - **Delete.** An admin deletes a project in the UI or API, or with `dagu
   project delete`. After the same first step as a rename, it removes the
   project's directories, registry entry, grants, and Dagu Cloud binding.
   With `paths.projects_dags_dir` set, it is refused while the project's DAG
   directory exists: the checkout owns that directory, so it is removed
-  there first.
+  there first. Deleting a project on an existing folder leaves the folder
+  as it is.
 - Rename and delete are refused while the project has runs queued, running,
   or waiting.
 - **Changed on disk.** A project whose DAG directory disappears outside
@@ -385,7 +408,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     steps as a rename, and the project keeps everything else.
 
   An admin can also relink a missing project to any unregistered directory,
-  or delete it.
+  or delete it. A project on an existing folder that was moved or removed
+  is listed as missing the same way, and the admin relinks it to the
+  folder's new path.
 - **The default project** cannot be renamed or deleted. Its display name
   can change.
 
@@ -457,9 +482,10 @@ scheduler process   HA lock, health server, service registry, signals, license
   scheduler pauses every unit.
 - Queues defined in `config.yaml` are shared across units through one limiter,
   as they are shared across workspaces in v2. Other queues are per project.
-- One file watcher covers `projects/`, and `paths.projects_dags_dir` when
-  set, and routes events by path. A watcher per project would reach the Linux
-  inotify instance limit (128 by default) on servers with many projects.
+- One file watcher covers `projects/`, `paths.projects_dags_dir` when set,
+  and every existing folder a project uses, and routes events by path. A
+  watcher per project would reach the Linux inotify instance limit (128 by
+  default) on servers with many projects.
 
 ## Distributed execution
 
@@ -603,7 +629,7 @@ item, not the first one found.
 | --- | --- |
 | v2.22 | Warnings and an admin notice that list workspace settings in use. |
 | Next v2 release | The warning and notice say that v3.0 moves workspaces into projects, and stop asking operators to move settings by hand. |
-| v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create, rename, and delete, with an admin confirming each rename made on disk; `dagu migrate workspaces`, the migration-required mode, and the fallback for existing clients; report protocol 3 (RFC 002). |
+| v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create, on the default directory or an existing folder, rename, and delete, with an admin confirming each rename made on disk; `dagu migrate workspaces`, the migration-required mode, and the fallback for existing clients; report protocol 3 (RFC 002). |
 | v3.1 | Drops the `workspace_mappings` and `default_workspace_access` aliases. |
 | After v3.0 | Moving DAGs between projects; the All projects view; renames made on disk that finish without an admin when the DAG files match; Dagu Cloud bindings (RFC 002); checkouts, with spec 001. |
 
@@ -676,6 +702,13 @@ without an admin, apply from the release that ships the feature.
 28. A `.dagu.yaml` path that leads out of its project's DAG directory is a
     load error.
 29. A v3.0 coordinator gives no task to an older worker, and both say why.
+30. An admin can create a project on an existing folder under
+    `paths.allowed_project_folders`. Dagu reads its DAGs there, keeps the
+    project's runtime state under `projects/<name>/`, and never moves or
+    deletes the folder.
+31. A folder outside `paths.allowed_project_folders`, already used by a
+    project, or inside another project's or Dagu's own directories is
+    refused.
 
 ## Alternatives considered
 
