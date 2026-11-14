@@ -155,8 +155,8 @@ func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string)
 		return nil, err
 	}
 
-	// A run directory name starts with the run's creation time, so the
-	// greatest matching name is the newest run with this ID.
+	// Matching names differ only in their creation time, a fixed-width
+	// timestamp, so the greatest name is the newest run with this ID.
 	var newest string
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
