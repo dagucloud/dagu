@@ -897,6 +897,9 @@ func (r *run) launch(ctx context.Context, recordID string, generation int) error
 			}
 		}
 	}
+	if err := checkSharedSlots(ctx); err != nil {
+		return err
+	}
 	opts, err := r.launchOptions(ctx, recordID)
 	if err != nil {
 		return err
@@ -979,10 +982,7 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Waiting:            func() { r.timeline.Lifecycle(agentstep.StatusRunning, "Waiting for another browser to close") },
 	}
 	if name := r.cfg.Browser.Profile; name != "" {
-		if err := checkSharedProfile(ctx, name); err != nil {
-			return launchOptions{}, err
-		}
-		lease, err := acquireProfile(ctx, r.browser, name, recordID, true)
+		lease, err := r.lockProfile(ctx, name, recordID)
 		if err != nil {
 			return launchOptions{}, err
 		}

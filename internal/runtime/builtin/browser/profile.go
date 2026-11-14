@@ -28,6 +28,8 @@ type profileLease struct {
 	dir  string
 	lock dirlock.DirLock
 	stop context.CancelFunc
+	// onRelease, if set, runs once the profile is unlocked.
+	onRelease func()
 }
 
 // profileHeldError reports a profile whose browser something else keeps
@@ -108,4 +110,8 @@ func (l *profileLease) release() {
 	}
 	l.stop()
 	_ = l.lock.Unlock()
+	if l.onRelease != nil {
+		l.onRelease()
+		l.onRelease = nil
+	}
 }

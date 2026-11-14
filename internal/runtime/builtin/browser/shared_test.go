@@ -132,6 +132,58 @@ func TestSharedBrowserHoldsProfileUntilRunEnds(t *testing.T) {
 	lease.release()
 }
 
+// A run whose shared browsers take every place browser.max_open allows
+// fails a launch of its own at once instead of waiting for itself.
+func TestSharedBrowsersFillingMaxOpenFailLaunch(t *testing.T) {
+	t.Parallel()
+
+	run, closeBrowsers := shareRun(t)
+	t.Cleanup(func() { _ = closeBrowsers() })
+	run.maxOpen = 1
+	require.NoError(t, run.executeStep("sign_in", signInStep, nil).err)
+
+	alone := run.executeStep("report", `{"url": "https://shop.example.com/report", "do": [{"act": "Open the report"}]}`, nil)
+	require.ErrorContains(t, alone.err, "browser.max_open allows 1 open browsers, and this run keeps 1 open until it ends for its shared browsers shop")
+	require.NoError(t, run.executeStep("orders", ordersStep, nil).err, "a step sharing the browser takes no new place")
+}
+
+// A step of a run waits for a profile another step of the run holds for a
+// browser of its own, and fails at once for one a shared browser of the
+// run holds, whichever step asked first.
+func TestSharedBrowsersGateProfiles(t *testing.T) {
+	t.Parallel()
+
+	browserDir := t.TempDir()
+	shared := &sharedBrowsers{browsers: map[string]*sharedBrowser{}, profiles: map[string]*profileGate{}}
+	own, err := shared.acquireProfile(t.Context(), browserDir, "shop", "", "")
+	require.NoError(t, err)
+
+	taken := make(chan *profileLease, 1)
+	go func() {
+		lease, err := shared.acquireProfile(t.Context(), browserDir, "shop", "", "portal")
+		assert.NoError(t, err)
+		taken <- lease
+	}()
+	select {
+	case <-taken:
+		t.Fatal("the shared browser took the profile while a step held it")
+	case <-time.After(50 * time.Millisecond):
+	}
+	own.release()
+	sharedLease := <-taken
+	require.NotNil(t, sharedLease)
+
+	_, err = shared.acquireProfile(t.Context(), browserDir, "shop", "", "orders")
+	require.ErrorContains(t, err, `browser profile "shop" is held by the browser shared as "portal" in this run`)
+	_, err = shared.acquireProfile(t.Context(), browserDir, "shop", "", "")
+	require.ErrorContains(t, err, `browser profile "shop" is held by the browser shared as "portal" in this run`)
+
+	sharedLease.release()
+	lease, err := shared.acquireProfile(t.Context(), browserDir, "shop", "", "")
+	require.NoError(t, err, "a released shared browser frees the profile")
+	lease.release()
+}
+
 // A step sharing a browser that waits for an answer keeps the browser under
 // its own record, where its resumed execution finds it, and once it ends
 // leaves the browser to the next step.

@@ -607,7 +607,8 @@ step that gives the name starts the browser; when it ends, the browser stays
 open, and the next step that gives the name continues in it, on the page the
 step before left, with its cookies, session cookies included, and storage.
 A step without `url` starts on that page. The steps take turns, foreach
-items included: a step waits while another uses the browser. A step that
+items included: a step waits while another uses the browser. The name sets
+no order among them; `depends` does. A step that
 fails leaves the browser open too, unless the browser stopped answering or
 its write gate is gone; a shared browser that no longer answers is replaced
 by a new one. Each step keeps its own `allowed_domains`, `on_confirm`,
@@ -621,7 +622,11 @@ The browser closes when the run ends, including a run that waits for a
 person between the steps, and with it the profile it holds. While it is
 open it keeps its profile, so a step of the same run that names the profile
 without sharing the browser fails at once instead of waiting for its own
-run. A step sharing a browser that waits for an `ask` keeps the browser
+run, and a step of the run that waits for a profile another step of it
+holds for a browser of its own waits only for that step. The browsers a run
+shares count toward `browser.max_open` while they are open, so a launch of
+the same run that would wait for one of their places fails at once and says
+so. A step sharing a browser that waits for an `ask` keeps the browser
 apart until it resumes and ends; meanwhile, the next step that shares the
 name starts a new browser.
 

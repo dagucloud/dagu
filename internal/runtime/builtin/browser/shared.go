@@ -10,10 +10,12 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
@@ -26,7 +28,19 @@ import (
 type sharedBrowsers struct {
 	mu       sync.Mutex
 	browsers map[string]*sharedBrowser
+	// profiles holds, by name, the profiles a step of the run holds or
+	// waits to lock.
+	profiles map[string]*profileGate
 	closed   bool
+}
+
+// profileGate is a profile a step of the run holds or waits to lock. share
+// names the shared browser it is for, which keeps it until the run ends,
+// and is empty for a step's own browser, which frees it when the step
+// ends. freed closes once the profile is free.
+type profileGate struct {
+	share string
+	freed chan struct{}
 }
 
 // sharedBrowser is the browser shared under one browser.share name.
@@ -39,12 +53,11 @@ type sharedBrowser struct {
 	// holder is the step using the browser, or "" when none does.
 	holder string
 	// open is set while the browser runs, whether a step uses it or not.
-	// starter is the step that started it, settings the launch settings it
-	// started with, and profile its browser.profile.
+	// starter is the step that started it, and settings the launch
+	// settings it started with.
 	open     bool
 	starter  string
 	settings string
-	profile  string
 	// parked keeps the browser while it is open and no step uses it.
 	parked *parkedBrowser
 }
@@ -65,7 +78,7 @@ type sharedBrowsersKey struct{}
 // closes the browsers they left open. A DAG run calls it once and closes
 // them when it ends.
 func WithSharedBrowsers(ctx context.Context) (context.Context, func() error) {
-	shared := &sharedBrowsers{browsers: map[string]*sharedBrowser{}}
+	shared := &sharedBrowsers{browsers: map[string]*sharedBrowser{}, profiles: map[string]*profileGate{}}
 	return context.WithValue(ctx, sharedBrowsersKey{}, shared), shared.close
 }
 
@@ -105,21 +118,67 @@ func (s *sharedBrowsers) take(ctx context.Context, name, step string, waiting fu
 	return b, nil
 }
 
-// profileUser returns the name of the shared browser whose open browser
-// uses the profile, or "" when none does.
-func (s *sharedBrowsers) profileUser(profile string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, name := range slices.Sorted(maps.Keys(s.browsers)) {
-		b := s.browsers[name]
-		b.mu.Lock()
-		uses := b.open && b.profile == profile
-		b.mu.Unlock()
-		if uses {
-			return name
+// acquireProfile takes the named profile for a step of the run whose
+// browser is shared as share, or is its own when share is empty. It waits
+// while another step of the run holds the profile for a browser of its
+// own, and fails at once when a browser the run shares holds it, since
+// that browser keeps it until the run ends. It waits for other runs as
+// acquireProfile does.
+func (s *sharedBrowsers) acquireProfile(ctx context.Context, browserDir, name, ownRecordID, share string) (*profileLease, error) {
+	gate := &profileGate{share: share, freed: make(chan struct{})}
+	for {
+		s.mu.Lock()
+		held := s.profiles[name]
+		if held == nil {
+			s.profiles[name] = gate
+		}
+		s.mu.Unlock()
+		if held == nil {
+			break
+		}
+		if held.share != "" {
+			return nil, &profileHeldError{message: fmt.Sprintf(
+				"browser profile %q is held by the browser shared as %q in this run, which keeps it until the run ends; give this step browser.share: %s to use that browser",
+				name, held.share, held.share)}
+		}
+		select {
+		case <-held.freed:
+		case <-ctx.Done():
+			return nil, fmt.Errorf("wait for browser profile %q: %w", name, ctx.Err())
 		}
 	}
-	return ""
+	lease, err := acquireProfile(ctx, browserDir, name, ownRecordID, true)
+	if err != nil {
+		s.freeProfile(name, gate)
+		return nil, err
+	}
+	lease.onRelease = func() { s.freeProfile(name, gate) }
+	return lease, nil
+}
+
+func (s *sharedBrowsers) freeProfile(name string, gate *profileGate) {
+	s.mu.Lock()
+	if s.profiles[name] == gate {
+		delete(s.profiles, name)
+	}
+	s.mu.Unlock()
+	close(gate.freed)
+}
+
+// openBrowsers returns the names of the shared browsers that are open.
+func (s *sharedBrowsers) openBrowsers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var names []string
+	for name, b := range s.browsers {
+		b.mu.Lock()
+		if b.open {
+			names = append(names, name)
+		}
+		b.mu.Unlock()
+	}
+	slices.Sort(names)
+	return names
 }
 
 // close closes the shared browsers no step uses, as the run does when it
@@ -160,13 +219,13 @@ func (b *sharedBrowser) started() (starter, settings string) {
 
 // adopt makes the browser of the step holding the turn the shared browser,
 // unless another is open, and reports whether it did.
-func (b *sharedBrowser) adopt(step, settings, profile string) bool {
+func (b *sharedBrowser) adopt(step, settings string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.open {
 		return false
 	}
-	b.open, b.starter, b.settings, b.profile = true, step, settings, profile
+	b.open, b.starter, b.settings = true, step, settings
 	return true
 }
 
@@ -192,7 +251,7 @@ func (b *sharedBrowser) park(parked *parkedBrowser) {
 func (b *sharedBrowser) closedBrowser() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.open, b.starter, b.settings, b.profile, b.parked = false, "", "", "", nil
+	b.open, b.starter, b.settings, b.parked = false, "", "", nil
 }
 
 // release ends the turn of the step using the browser.
@@ -286,7 +345,7 @@ func (r *run) joinShared(ctx context.Context, generation int) (bool, error) {
 // the browser it shares, unless another step started one meanwhile.
 func (r *run) adoptShared() {
 	if r.shared != nil && r.eng != nil {
-		r.sharedOwn = r.shared.adopt(r.stepName, r.cfg.launchSettings(), r.cfg.Browser.Profile)
+		r.sharedOwn = r.shared.adopt(r.stepName, r.cfg.launchSettings())
 	}
 }
 
@@ -370,18 +429,35 @@ func (r *run) leaveShared() {
 	}
 }
 
-// checkSharedProfile fails when a browser the run shares holds the
-// profile: it keeps the profile until the run ends, so a step waiting for
-// it would wait for its own run.
-func checkSharedProfile(ctx context.Context, profile string) error {
+// lockProfile takes the named profile for the step, through its run's
+// shared browsers when it runs in one, so it never waits for a profile its
+// own run keeps until it ends.
+func (r *run) lockProfile(ctx context.Context, name, recordID string) (*profileLease, error) {
 	shared := sharedBrowsersFrom(ctx)
 	if shared == nil {
+		return acquireProfile(ctx, r.browser, name, recordID, true)
+	}
+	share := ""
+	if r.shared != nil {
+		share = r.shared.name
+	}
+	return shared.acquireProfile(ctx, r.browser, name, recordID, share)
+}
+
+// checkSharedSlots fails when the browsers the run shares take every place
+// browser.max_open allows: they stay open until the run ends, so a launch
+// waiting for a place would wait for its own run.
+func checkSharedSlots(ctx context.Context) error {
+	limit := cmnconfig.GetConfig(ctx).Browser.MaxOpen
+	shared := sharedBrowsersFrom(ctx)
+	if limit < 1 || shared == nil {
 		return nil
 	}
-	if name := shared.profileUser(profile); name != "" {
-		return &profileHeldError{message: fmt.Sprintf(
-			"browser profile %q is held by the browser shared as %q in this run, which keeps it until the run ends; give this step browser.share: %s to use that browser",
-			profile, name, name)}
+	open := shared.openBrowsers()
+	if len(open) < limit {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("browser.max_open allows %d open browsers, and this run keeps %d open until it ends for its shared browsers %s; "+
+		"raise browser.max_open, or give this step the browser.share of one of them",
+		limit, len(open), strings.Join(open, ", "))
 }
