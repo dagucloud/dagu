@@ -458,8 +458,8 @@ func (s *shellScan) walk(node syntax.Node, scope int, call shellPos) {
 				if a.Name == nil || a.Naked {
 					continue
 				}
-				if referred := a.Value.Lit(); nameref && ValidEnvName(referred) {
-					read(referred, a.Pos())
+				if nameref && a.Value != nil && ValidEnvName(a.Value.Lit()) {
+					read(a.Value.Lit(), a.Pos())
 				}
 				if a.Append {
 					read(a.Name.Value, a.Pos())

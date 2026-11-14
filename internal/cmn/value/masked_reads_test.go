@@ -92,6 +92,15 @@ func TestMaskedRead(t *testing.T) {
 		{name: "c-style for loop", raw: `for ((i = 0; i < TOKEN; i++)); do :; done`, field: shell, want: "TOKEN"},
 		{name: "array index", raw: `deploy "${arr[TOKEN]}"`, field: shell, want: "TOKEN"},
 		{name: "name reference", raw: `declare -n ref=TOKEN; deploy "$ref"`, field: shell, want: "TOKEN"},
+		// A declaration without a value word, such as an array or an empty
+		// value, sets the variable.
+		{name: "array declaration", raw: `declare -a TOKEN=(a b); deploy "${TOKEN[0]}"`, field: shell},
+		{name: "associative array declaration", raw: `declare -A TOKEN=([a]=1); deploy "${TOKEN[a]}"`, field: shell},
+		{name: "local array", raw: `f() { local -a TOKEN=(a b); deploy "$TOKEN"; }; f`, field: shell},
+		{name: "empty local", raw: `f() { local TOKEN=; deploy "$TOKEN"; }; f`, field: shell},
+		{name: "empty export", raw: `export TOKEN=; deploy "$TOKEN"`, field: shell},
+		{name: "empty readonly", raw: `readonly TOKEN=; deploy "$TOKEN"`, field: shell},
+		{name: "mixed export", raw: `export A TOKEN=1 C=; deploy "$TOKEN"`, field: shell},
 		{name: "shell append", raw: `TOKEN+=x; deploy "$TOKEN"`, field: shell, want: "TOKEN"},
 		{name: "shell variable after unset", raw: `unset TOKEN; deploy "${TOKEN:-none}"`, field: shell},
 		{name: "shell variable printf sets", raw: `printf -v TOKEN '%s' local; deploy "$TOKEN"`, field: shell},
@@ -190,4 +199,22 @@ func TestRejectMaskedReads(t *testing.T) {
 	var read *MaskedReadError
 	require.ErrorAs(t, err, &read)
 	assert.Equal(t, MaskedReadError{Step: "fetch", Output: "TOKEN"}, *read)
+}
+
+// The shell scan runs on every POSIX shell step of a restored run, so it must
+// not fail on any script text.
+func FuzzShellEnvReads(f *testing.F) {
+	for _, seed := range []string{
+		`deploy "$TOKEN"`,
+		`declare -a arr=(1 2); local x=; export A B=1 C=`,
+		`f() { local -n ref=TOKEN; }; trap f EXIT; f &`,
+		`for ((i = 0; i < N; i++)); do echo "${arr[i]:1:2}"; done`,
+		`if a; then X=1; elif b; then X=2; else X=3; fi | cat; coproc { :; }`,
+		"cat <<'EOF'\n$X\nEOF",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, text string) {
+		_ = shellEnvReads(text)
+	})
 }
