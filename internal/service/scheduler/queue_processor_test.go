@@ -142,10 +142,8 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 		WithBackoffConfig(BackoffConfig{InitialInterval: 10 * time.Millisecond, MaxInterval: 50 * time.Millisecond, MaxRetries: 2}),
 		WithDAGRunLeaseStore(f.leaseStore),
 	}, opts...)
-	// A directory exists but cannot be executed, so launches fail without
-	// reporting a missing executable.
 	f.processor = NewQueueProcessor(f.queueStore, f.dagRunRepository, f.procRepository,
-		NewDAGExecutor(nil, launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: f.t.TempDir()}}), config.ExecutionModeLocal, ""),
+		localDAGExecutor(unlaunchableExecutable(f.t)),
 		cfg, options...,
 	)
 	f.dispatchStore = store.NewDispatchTaskStore(
@@ -154,6 +152,41 @@ func (f *queueFixture) withProcessor(cfg config.Queues, opts ...QueueProcessorOp
 	)
 	f.processor.dispatchTaskStore = f.dispatchStore
 	return f
+}
+
+// withExecutable makes the processor launch local runs with executable.
+func (f *queueFixture) withExecutable(executable string) *queueFixture {
+	f.processor.dagExecutor = localDAGExecutor(executable)
+	return f
+}
+
+func localDAGExecutor(executable string) *DAGExecutor {
+	return NewDAGExecutor(
+		nil,
+		launcher.NewSubCmdBuilder(&config.Config{Paths: config.PathsConfig{Executable: executable}}),
+		config.ExecutionModeLocal,
+		"",
+	)
+}
+
+// unlaunchableExecutable returns a path that exists but cannot be executed,
+// so a launch fails for a reason other than a missing executable.
+func unlaunchableExecutable(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
+// reachRetryScan moves the queue's parked scan to its retry time, as the
+// fallback interval passing would.
+func reachRetryScan(t *testing.T, q *queue) {
+	t.Helper()
+	q.mu.Lock()
+	generation := q.scanGeneration
+	retryAt := q.scanRetryAt
+	q.mu.Unlock()
+	require.False(t, retryAt.IsZero())
+	_, parked := q.scanPosition(generation, retryAt)
+	require.False(t, parked)
 }
 
 func (f *queueFixture) simulateQueue(maxConcurrency int, isGlobal bool) *queueFixture {
@@ -230,17 +263,7 @@ func TestQueueProcessor_PermanentStartupFailureIsFailedAndDequeued(t *testing.T)
 	f.withProcessor(config.Queues{
 		Enabled: true,
 		Config:  []config.QueueConfig{{Name: "fifo-dag", MaxActiveRuns: 1}},
-	}).simulateQueue(1, false)
-	// A directory exists but cannot be executed, so the launch fails for a
-	// reason other than a missing executable.
-	f.processor.dagExecutor = NewDAGExecutor(
-		nil,
-		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: t.TempDir()},
-		}),
-		config.ExecutionModeLocal,
-		"",
-	)
+	}).simulateQueue(1, false).withExecutable(unlaunchableExecutable(t))
 
 	f.processor.ProcessQueueItems(f.ctx, "fifo-dag")
 
@@ -829,18 +852,9 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 	f := newQueueFixture(t).
 		withDAG(dagName, 1).
 		withProcessor(config.Queues{}).
-		simulateQueue(1, false)
+		simulateQueue(1, false).
+		withExecutable(unlaunchableExecutable(t))
 	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeManual)
-	// A directory exists but cannot be executed, so the launch fails for a
-	// reason other than a missing executable.
-	f.processor.dagExecutor = NewDAGExecutor(
-		nil,
-		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: t.TempDir()},
-		}),
-		config.ExecutionModeLocal,
-		"",
-	)
 
 	queueStore := &unreadableQueueScanStore{QueueStore: f.queueStore}
 	queueStore.unreadable.Store(true)
@@ -853,14 +867,7 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 	assert.Equal(t, int32(1), queueStore.scanCalls.Load(), "unreadable item should not be retried before the fallback deadline")
 
 	queueStore.unreadable.Store(false)
-	q := f.getQueue(dagName)
-	q.mu.Lock()
-	generation := q.scanGeneration
-	retryAt := q.scanRetryAt
-	q.mu.Unlock()
-	require.False(t, retryAt.IsZero())
-	_, parked := q.scanPosition(generation, retryAt)
-	require.False(t, parked)
+	reachRetryScan(t, f.getQueue(dagName))
 
 	f.processor.ProcessQueueItems(f.ctx, dagName)
 	assert.Equal(t, int32(2), queueStore.scanCalls.Load())
@@ -873,20 +880,13 @@ func TestQueueProcessorRetriesUnreadableItemAfterFallback(t *testing.T) {
 // the fallback scan once the executable exists.
 func TestQueueProcessorRetriesRunHeldByMissingExecutable(t *testing.T) {
 	dagName := "missing-executable-dag"
+	executable := filepath.Join(t.TempDir(), "dagu")
 	f := newQueueFixture(t).
 		withDAG(dagName, 1).
 		withProcessor(config.Queues{}).
-		simulateQueue(1, false)
+		simulateQueue(1, false).
+		withExecutable(executable)
 	f.enqueueRunWithTrigger("run-1", ir.TriggerTypeManual)
-	executable := filepath.Join(t.TempDir(), "dagu")
-	f.processor.dagExecutor = NewDAGExecutor(
-		nil,
-		launcher.NewSubCmdBuilder(&config.Config{
-			Paths: config.PathsConfig{Executable: executable},
-		}),
-		config.ExecutionModeLocal,
-		"",
-	)
 
 	f.processor.ProcessQueueItems(f.ctx, dagName)
 	items, err := f.queueStore.List(f.ctx, dagName)
@@ -896,14 +896,7 @@ func TestQueueProcessorRetriesRunHeldByMissingExecutable(t *testing.T) {
 	// The executable exists again but cannot be executed, so the retried
 	// launch fails the run.
 	require.NoError(t, os.Mkdir(executable, 0o750))
-	q := f.getQueue(dagName)
-	q.mu.Lock()
-	generation := q.scanGeneration
-	retryAt := q.scanRetryAt
-	q.mu.Unlock()
-	require.False(t, retryAt.IsZero())
-	_, parked := q.scanPosition(generation, retryAt)
-	require.False(t, parked)
+	reachRetryScan(t, f.getQueue(dagName))
 
 	f.processor.ProcessQueueItems(f.ctx, dagName)
 	items, err = f.queueStore.List(f.ctx, dagName)

@@ -789,7 +789,7 @@ func TestQueueProcessorFinalizesLaunchFailure(t *testing.T) {
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			executable: unlaunchableExecutable(t),
+			executable: scheduler.UnlaunchableExecutableForTest(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -887,7 +887,7 @@ func TestQueueProcessorPreservesRetryPublishedDuringFailureCleanup(t *testing.T)
 		nil,
 		&queueConditionDispatcher{},
 		queueConditionFixtureConfig{
-			executable: unlaunchableExecutable(t),
+			executable: scheduler.UnlaunchableExecutableForTest(t),
 			procRepository: func(base processRepository) processRepository {
 				return &queueConditionProcRepository{
 					processRepository: base,
@@ -1097,7 +1097,7 @@ func newQueueConditionFixtureWithConfig(
 	}
 	executable := fixtureConfig.executable
 	if executable == "" {
-		executable = unlaunchableExecutable(t)
+		executable = scheduler.UnlaunchableExecutableForTest(t)
 	}
 	executor := scheduler.NewDAGExecutor(
 		dispatcher,
@@ -1414,13 +1414,6 @@ func executableMissingConditions() []expectedQueuedCondition {
 			message:       "The Dagu executable that launches DAG-runs does not exist.",
 		},
 	}
-}
-
-// unlaunchableExecutable returns a path that exists but cannot be executed,
-// so a launch fails for a reason other than a missing executable.
-func unlaunchableExecutable(t *testing.T) string {
-	t.Helper()
-	return t.TempDir()
 }
 
 func startupNotObservedConditions() []expectedQueuedCondition {
