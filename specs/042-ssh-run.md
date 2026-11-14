@@ -4,9 +4,10 @@
 
 Partially implemented.
 
-Conformance covers action configuration and the run-start resolution of
-credentials without an SSH server. Authentication, remote shell behavior, and
-cancellation belong in executor unit and integration tests.
+Conformance covers action configuration, the run-start resolution of
+credentials, and running a command through a bastion against SSH servers the
+test harness starts in its own process. Authentication methods, remote shell
+behavior, and cancellation belong in executor unit and integration tests.
 
 ## Scope
 
