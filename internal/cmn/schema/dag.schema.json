@@ -3154,6 +3154,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "mcp.call" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/mcpCallActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "jq.filter" } },
             "required": ["action"]
           },
@@ -7220,6 +7232,7 @@
         "ssh",
         "s3",
         "jq",
+        "mcp",
         "dag",
         "subworkflow",
         "parallel",
@@ -7301,6 +7314,7 @@
             "mail.organize",
             "mail.search",
             "mail.send",
+            "mcp.call",
             "noop",
             "outputs.write",
             "postgres.import",
@@ -7773,6 +7787,37 @@
         }
       },
       "description": "Labeled scalar choice for a human task form property."
+    },
+    "mcpCallActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "tool"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Streamable HTTP MCP endpoint (http or https). Must not contain credentials."
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the MCP tool to call."
+        },
+        "arguments": {
+          "type": "object",
+          "description": "JSON arguments passed to the tool."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}."
+        },
+        "include_raw": {
+          "type": "boolean",
+          "description": "Also emit the unmodified MCP tool result under raw."
+        }
+      },
+      "description": "Configuration for action: mcp.call."
     },
     "jqFilterActionConfig": {
       "type": "object",

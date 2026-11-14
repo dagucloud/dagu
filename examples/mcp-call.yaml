@@ -1,0 +1,26 @@
+# Calls one tool on a remote MCP server (Streamable HTTP) without an LLM.
+# For an authenticated endpoint, add a header that reads a Dagu secret:
+#   headers:
+#     Authorization: Bearer ${FIRECRAWL_API_KEY}
+
+params:
+  - PAGE_URL: https://example.com
+
+steps:
+  - id: scrape
+    action: mcp.call
+    with:
+      url: https://mcp.firecrawl.dev/v2/mcp
+      tool: firecrawl_scrape
+      arguments:
+        url: "${PAGE_URL}"
+        formats: ["markdown"]
+        onlyMainContent: true
+    timeout_sec: 60
+    output: PAGE
+
+  - id: consume
+    depends: scrape
+    env:
+      - CONTENT: ${PAGE.content}
+    run: printf '%s\n' "$CONTENT"
