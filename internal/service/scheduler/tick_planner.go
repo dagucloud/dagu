@@ -715,8 +715,15 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 		if !ok {
 			continue
 		}
-		// The slots of this tick run.
-		tp.releaseDAG(dagName, active.start, now, now.Truncate(time.Minute).Add(-time.Second))
+		// The slots of this tick run, and so do those catch-up queued at
+		// startup, before a tick found the DAG held.
+		through := now.Truncate(time.Minute).Add(-time.Second)
+		if buf := tp.buffers[dagName]; buf != nil && buf.Len() > 0 {
+			if queued := buf.items[0].ScheduledTime.Add(-time.Second); queued.Before(through) {
+				through = queued
+			}
+		}
+		tp.releaseDAG(dagName, active.start, now, through)
 		tp.reconcileNextRun(dagName, active.start, now.In(tp.cfg.Location), false)
 
 		// Check catchup buffer first (catchup has priority over live)

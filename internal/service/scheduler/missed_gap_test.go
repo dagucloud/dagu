@@ -228,3 +228,30 @@ func TestTickPlanner_InitLeavesOutRecoveredPlannedSlot(t *testing.T) {
 	assert.Contains(t, bufferedSlots(tp, dag.Name), at(11, 0))
 	assert.Nil(t, missedGap(tp, dag.Name))
 }
+
+// A DAG still held at startup has its catch-up queued; when its hold ends
+// before a tick finds it held, catch-up runs those slots, so the gap leaves
+// them out.
+func TestTickPlanner_HoldGapLeavesOutQueuedCatchup(t *testing.T) {
+	t.Parallel()
+	heldSince := at(10, 0)
+	state := newMockState(at(11, 0))
+	state.DAGs["caught-up"] = schedulerstate.DAGWatermark{
+		LastScheduledTime: at(11, 0), HeldSince: &heldSince, HeldBy: schedulerstate.GapSuspended,
+	}
+	tp, _ := newTestTickPlanner(&mockStateStore{state: state})
+	tp.cfg.Clock = func() time.Time { return at(14, 0) }
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
+	held := true
+	tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return held, nil }
+	dag := newHourlyCatchupDAG(t, "caught-up")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	queued := bufferedSlots(tp, dag.Name)
+	require.NotEmpty(t, queued)
+
+	held = false
+	tp.Plan(t.Context(), at(14, 0))
+	gap := missedGap(tp, dag.Name)
+	require.NotNil(t, gap)
+	assert.Equal(t, 2, gap.Slots, "10:00 and 11:00 passed; catch-up runs %v", queued)
+}
