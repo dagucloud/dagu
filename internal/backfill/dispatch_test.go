@@ -230,12 +230,14 @@ func TestDispatchKeepsSummaries(t *testing.T) {
 	f.tick()
 	summary, ok := f.summary(record.ID)
 	require.True(t, ok)
-	assert.Equal(t, backfill.Summary{ID: record.ID, DAGName: "etl", Slots: 3, Done: 1}, summary)
+	assert.Equal(t, backfill.Summary{ID: record.ID, DAGName: "etl", Slots: 3, Done: 1, CreatedAt: record.CreatedAt}, summary)
 
 	f.finish(f.queued[1], ir.Failed)
 	f.tick()
 	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
-	failed := backfill.Summary{ID: record.ID, DAGName: "etl", Status: backfill.StatusFailed, Slots: 3, Done: 2, Failed: 1}
+	failed := backfill.Summary{
+		ID: record.ID, DAGName: "etl", Status: backfill.StatusFailed, Slots: 3, Done: 2, Failed: 1, CreatedAt: record.CreatedAt,
+	}
 	summary, ok = f.summary(record.ID)
 	require.True(t, ok)
 	assert.Equal(t, failed, summary)

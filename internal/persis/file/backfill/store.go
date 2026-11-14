@@ -355,7 +355,7 @@ func (s *Store) ClearSummary(_ context.Context, id string) error {
 // openSummary is the summary of an open backfill before its slots are
 // counted.
 func openSummary(record *backfill.Record) backfill.Summary {
-	return backfill.Summary{ID: record.ID, DAGName: record.DAGName, Slots: len(record.Slots)}
+	return backfill.Summary{ID: record.ID, DAGName: record.DAGName, Slots: len(record.Slots), CreatedAt: record.CreatedAt}
 }
 
 func (s *Store) readSummary(id string) (backfill.Summary, error) {

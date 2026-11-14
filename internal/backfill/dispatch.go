@@ -198,6 +198,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	}
 	if err := d.Store.SaveSummary(ctx, Summary{
 		ID: record.ID, DAGName: record.DAGName, Slots: len(record.Slots), Done: done, Failed: failedSlots,
+		CreatedAt: record.CreatedAt,
 	}); err != nil {
 		return err
 	}

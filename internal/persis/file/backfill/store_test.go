@@ -227,9 +227,9 @@ func TestStoreSummaries(t *testing.T) {
 
 	summary, ok := summaryOf(t, store, "aaaaaaaa")
 	require.True(t, ok)
-	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1}, summary)
+	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, CreatedAt: now}, summary)
 
-	saved := backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, Done: 1, Failed: 1}
+	saved := backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, Done: 1, Failed: 1, CreatedAt: now}
 	require.NoError(t, store.SaveSummary(ctx, saved))
 	require.NoError(t, store.End(ctx, "aaaaaaaa", backfill.StatusFailed, now))
 	summary, ok = summaryOf(t, store, "aaaaaaaa")
@@ -248,7 +248,7 @@ func TestStoreSummaries(t *testing.T) {
 	require.NoError(t, store.Update(ctx, reopened))
 	summary, ok = summaryOf(t, store, "aaaaaaaa")
 	require.True(t, ok)
-	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1}, summary)
+	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, CreatedAt: now}, summary)
 
 	// A create that finds the ID taken leaves the summary of the backfill
 	// that has it.

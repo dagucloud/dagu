@@ -24,6 +24,9 @@ type Summary struct {
 	// failed.
 	Done   int `json:"done"`
 	Failed int `json:"failed"`
+	// CreatedAt is when the backfill was submitted, which orders the
+	// backfills of one DAG.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // summaryCheckInterval is how often the dispatcher checks whether the
