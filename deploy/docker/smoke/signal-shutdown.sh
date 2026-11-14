@@ -20,11 +20,11 @@ cleanup() {
 trap cleanup EXIT
 
 # Use the shipped command and Tini entrypoint with the host-owned data mount.
+# A container forwards the stop signal to runs without DAGU_SIGNAL_PROPAGATION.
 timeout 20 docker run -d --name "$container" \
   -e "PUID=$(id -u)" -e "PGID=$(id -g)" \
   -e DAGU_HOME=/data -e DAGU_AUTH_MODE=none \
   -e DAGU_SKIP_EXAMPLES=true -e DAGU_COORDINATOR_ENABLED=false \
-  -e DAGU_SIGNAL_PROPAGATION=true \
   -v "$data_dir:/data" -v "$smoke_dir:/smoke:ro" dagu-ci:dev
 
 timeout 20 docker exec --user "$(id -u):$(id -g)" "$container" \
