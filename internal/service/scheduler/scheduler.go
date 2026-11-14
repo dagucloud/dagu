@@ -80,6 +80,7 @@ type Scheduler struct {
 	lockLost            atomic.Pointer[error]
 	fenceExit           func(error)
 	fenceExitAfter      time.Duration
+	drainTimeout        time.Duration // Wait for started runs before stopping them
 	fenceMu             sync.Mutex
 	fenceWatchdog       *time.Timer
 	startReturned       bool
@@ -447,6 +448,7 @@ func newScheduler(
 		quit:             make(chan any),
 		fenceExit:        exitOnLostLock,
 		fenceExitAfter:   defaultFenceExitAfter,
+		drainTimeout:     cfg.SignalHandling.DrainTimeout,
 		entryReader:      er,
 		dagRepository:    dagRepository,
 		dagRunRepository: dagRunRepository,
@@ -1066,13 +1068,13 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 		signal.Stop(sig)
 		var received os.Signal
 		_ = errors.As(context.Cause(ctx), &received)
-		<-launcher.StopRuns(ctx, received, s.config.SignalHandling.DrainTimeout)
+		<-launcher.StopRuns(ctx, received, s.drainTimeout)
 		return false
 	case received := <-sig:
 		signalctx.AbsorbRepeatedTerminate(ctx)
 		signal.Stop(sig)
 		// Stop releases the lock, so a standby schedules while runs drain.
-		runsDone := launcher.StopRuns(ctx, received, s.config.SignalHandling.DrainTimeout)
+		runsDone := launcher.StopRuns(ctx, received, s.drainTimeout)
 		s.Stop(ctx)
 		<-runsDone
 		return false
