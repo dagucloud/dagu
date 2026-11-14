@@ -8,20 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"time"
-
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-)
-
-// Background service definitions written by scripts/installer.sh and
-// scripts/installer.ps1.
-const (
-	launchdServiceLabel  = "local.dagu.server"
-	systemdServiceUnit   = "dagu.service"
-	systemdSystemUnitDir = "/etc/systemd/system"
-	winswServiceConfig   = "dagu-service.xml"
-	winswServiceName     = "Dagu"
 )
 
 // RunningBinary identifies the executable file the current process started from.
@@ -88,44 +76,19 @@ func (b *RunningBinary) Replaced() bool {
 	return info.Size() != b.size || !info.ModTime().Equal(b.modTime)
 }
 
-// RestartCommand returns the shell command that restarts the background
-// service the Dagu installer set up on this machine, or "" when none is found.
-func RestartCommand() string {
-	var execDir string
-	if execPath, err := GetExecutablePath(); err == nil {
-		execDir = filepath.Dir(execPath)
-	}
-	homeDir, _ := os.UserHomeDir()
-	return restartCommand(runtime.GOOS, execDir, homeDir, systemdSystemUnitDir)
-}
-
-func restartCommand(goos, execDir, homeDir, systemUnitDir string) string {
-	switch goos {
-	case "darwin":
-		if homeDir != "" && fileutil.IsFile(filepath.Join(homeDir, "Library", "LaunchAgents", launchdServiceLabel+".plist")) {
-			return "launchctl kickstart -k gui/$(id -u)/" + launchdServiceLabel
-		}
-	case "linux":
-		if fileutil.IsFile(filepath.Join(systemUnitDir, systemdServiceUnit)) {
-			return "sudo systemctl restart dagu"
-		}
-		if homeDir != "" && fileutil.IsFile(filepath.Join(homeDir, ".config", "systemd", "user", systemdServiceUnit)) {
-			return "systemctl --user restart dagu"
-		}
-	case "windows":
-		// The installer keeps the service wrapper next to the binary it runs.
-		if execDir != "" && fileutil.IsFile(filepath.Join(execDir, winswServiceConfig)) {
-			return "Restart-Service " + winswServiceName
-		}
-	}
-	return ""
-}
-
 // FormatRestartHint formats the guidance shown after a successful upgrade.
-// restartCommand is the command from [RestartCommand], or "" when unknown.
-func FormatRestartHint(restartCommand string) string {
-	if restartCommand == "" {
+// service is the result of [DetectService], or nil when none is found.
+func FormatRestartHint(service *Service) string {
+	if service == nil {
 		return "Restart any running Dagu processes to use the new version.\n"
 	}
-	return fmt.Sprintf("Restart Dagu to use the new version:\n  %s\n", restartCommand)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Restart Dagu to use the new version:\n  %s\n", service.RestartCommand)
+	switch {
+	case service.KeepRunsCommand != "":
+		fmt.Fprintf(&sb, "\nThe restart also ends runs in progress. To keep them running, first run:\n  %s\n", service.KeepRunsCommand)
+	case service.StopsRuns:
+		sb.WriteString("\nThe restart also ends runs in progress.\n")
+	}
+	return sb.String()
 }
