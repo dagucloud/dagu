@@ -67,9 +67,10 @@ type Dispatcher struct {
 	Ended func(ctx context.Context, record *Record)
 	Now   func() time.Time
 
-	// summariesCheckedAt is when clearResolved last checked the summaries
-	// of failed backfills.
+	// summariesCheckedAt is when clearResolved last read the summaries of
+	// failed backfills, and summaryChecks when it next checks each.
 	summariesCheckedAt time.Time
+	summaryChecks      map[string]summaryCheck
 }
 
 // Tick advances every open backfill: it queues the next slots while fewer

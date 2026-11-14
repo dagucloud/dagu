@@ -279,6 +279,31 @@ func TestDispatchSummaryLeavesOutUnreachedSlots(t *testing.T) {
 	assert.Equal(t, 2, summary.Done, "the slots not reached ended")
 }
 
+// A check of a failed backfill reads its record, progress, and history, so
+// while its failures stay unresolved the checks grow apart: after one a
+// minute from the failure, then two, four, and eight minutes.
+func TestDispatchChecksAnUnresolvedFailureLessOften(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	f.finish(f.queued[0], ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	var checks []int
+	target := f.dispatcher.Target
+	f.dispatcher.Target = func(ctx context.Context, record *backfill.Record) (backfill.Target, error) {
+		checks = append(checks, int(f.clock.Sub(at(20, 0))/time.Minute))
+		return target(ctx, record)
+	}
+	for range 16 {
+		f.clock = f.clock.Add(time.Minute)
+		f.tick()
+	}
+	assert.Equal(t, []int{1, 2, 4, 8, 16}, checks)
+}
+
 // A failed backfill whose DAG is gone needs no mention.
 func TestDispatchClearsSummaryOfAGoneDAG(t *testing.T) {
 	t.Parallel()

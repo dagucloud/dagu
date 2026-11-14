@@ -29,13 +29,27 @@ type Summary struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// summaryCheckInterval is how often the dispatcher checks whether the
-// failures of a failed backfill were resolved since.
-const summaryCheckInterval = time.Minute
+const (
+	// summaryCheckInterval is how often the dispatcher reads the summaries
+	// of failed backfills.
+	summaryCheckInterval = time.Minute
+	// maxSummaryCheckInterval bounds how far apart the checks of one failed
+	// backfill grow while its failures stay unresolved.
+	maxSummaryCheckInterval = time.Hour
+)
+
+// summaryCheck is when the dispatcher next checks a failed backfill, and
+// how long it waited since the last check.
+type summaryCheck struct {
+	next  time.Time
+	every time.Duration
+}
 
 // clearResolved clears the summary of each failed backfill whose failed
-// slots have all succeeded since, or whose DAG is gone, at most once per
-// summaryCheckInterval.
+// slots have all succeeded since, or whose DAG is gone. A check reads the
+// backfill's record, progress, and slot history, so the checks of a
+// backfill whose failures stay unresolved grow apart, from a minute to an
+// hour.
 func (d *Dispatcher) clearResolved(ctx context.Context) error {
 	now := d.now()
 	if !d.summariesCheckedAt.IsZero() && now.Sub(d.summariesCheckedAt) < summaryCheckInterval {
@@ -46,56 +60,79 @@ func (d *Dispatcher) clearResolved(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if d.summaryChecks == nil {
+		d.summaryChecks = make(map[string]summaryCheck)
+	}
+	failed := make(map[string]bool, len(summaries))
 	var errs []error
 	for _, summary := range summaries {
 		if summary.Status != StatusFailed {
 			continue
 		}
-		if err := d.clearIfResolved(ctx, summary); err != nil {
+		failed[summary.ID] = true
+		check := d.summaryChecks[summary.ID]
+		if now.Before(check.next) {
+			continue
+		}
+		cleared, err := d.clearIfResolved(ctx, summary)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("backfill %s: %w", summary.ID, err))
+		}
+		if cleared {
+			delete(d.summaryChecks, summary.ID)
+			continue
+		}
+		check.every = min(max(2*check.every, summaryCheckInterval), maxSummaryCheckInterval)
+		check.next = now.Add(check.every)
+		d.summaryChecks[summary.ID] = check
+	}
+	for id := range d.summaryChecks {
+		if !failed[id] {
+			delete(d.summaryChecks, id)
 		}
 	}
 	return errors.Join(errs...)
 }
 
 // clearIfResolved clears a failed backfill's summary under its DAG's lock,
-// which a resume that opens it again also holds.
-func (d *Dispatcher) clearIfResolved(ctx context.Context, summary Summary) error {
+// which a resume that opens it again also holds. It reports whether the
+// backfill needs no further check.
+func (d *Dispatcher) clearIfResolved(ctx context.Context, summary Summary) (bool, error) {
 	unlock, err := d.Store.LockDAG(ctx, summary.DAGName)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer unlock()
 	record, err := d.Store.Get(ctx, summary.ID)
 	if errors.Is(err, ErrNotFound) {
-		return d.Store.ClearSummary(ctx, summary.ID)
+		return true, d.Store.ClearSummary(ctx, summary.ID)
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if record.Status != StatusFailed {
-		return nil
+		return true, nil
 	}
 	if d.DAGExists != nil {
 		exists, err := d.DAGExists(ctx, record)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !exists {
-			return d.Store.ClearSummary(ctx, summary.ID)
+			return true, d.Store.ClearSummary(ctx, summary.ID)
 		}
 	}
 	target, err := d.Target(ctx, record)
 	if err != nil {
-		return err
+		return false, err
 	}
 	report, err := Describe(ctx, d.Store, d.ReadRun, record)
 	if err != nil {
-		return err
+		return false, err
 	}
 	unresolved, err := hasUnresolvedFailure(ctx, d.History, target.DAG, target.Schedule, &report)
 	if err != nil || unresolved {
-		return err
+		return false, err
 	}
-	return d.Store.ClearSummary(ctx, summary.ID)
+	return true, d.Store.ClearSummary(ctx, summary.ID)
 }
