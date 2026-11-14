@@ -322,7 +322,7 @@ export function StartBackfillDialog({
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="sm:max-w-[540px]">
+      <DialogContent className="max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-[540px]">
         <DialogHeader>
           <DialogTitle>{ts('Backfill')}</DialogTitle>
           <DialogDescription>
@@ -334,7 +334,7 @@ export function StartBackfillDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 text-sm">
+        <div className="-mx-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-1 text-sm">
           {pickRange && (
             <BackfillRangePicker
               fileName={fileName}
