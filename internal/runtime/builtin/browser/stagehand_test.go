@@ -208,7 +208,8 @@ func TestSleeperHelper(t *testing.T) {
 		t.Skip("helper process")
 	}
 	if role == "tree" {
-		child := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$")
+		// The child is started as a Chrome helper is, with its --type.
+		child := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$", "--", "--type=sleeper")
 		child.Env = append(os.Environ(), sleeperHelperEnv+"=sleeper")
 		require.NoError(t, child.Start())
 		fmt.Printf("SLEEPER %d\n", child.Process.Pid)
