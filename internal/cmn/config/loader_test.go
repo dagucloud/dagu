@@ -72,9 +72,9 @@ dag_discovery:
 			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
 		})
 		t.Run("Environment", func(t *testing.T) {
-			t.Setenv("DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES", "jobs")
+			t.Setenv("DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES", "./jobs, builds/")
 			cfg := testLoad(t)
-			assert.Equal(t, []string{"jobs"}, cfg.DAGDiscovery.SkipDirs)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
 		})
 	})
 }

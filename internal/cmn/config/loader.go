@@ -595,7 +595,7 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
-		SkipDirs:  nilToEmpty(l.v.GetStringSlice("dag_discovery.skip_directories")),
+		SkipDirs:  skipDirectories(l.v.Get("dag_discovery.skip_directories")),
 	}
 
 	if err := setTimezone(&cfg.Core); err != nil {
@@ -2781,11 +2781,12 @@ func getHomeDir() (string, error) {
 	return dir, nil
 }
 
-// nilToEmpty returns nil for an empty slice so that config structs compare
-// equal against the golden defaults, which leave optional slices nil.
-func nilToEmpty(s []string) []string {
-	if len(s) == 0 {
-		return nil
+// skipDirectories reads dag_discovery.skip_directories as directory names,
+// so "./jobs" and "jobs/" name the jobs directory.
+func skipDirectories(input any) []string {
+	dirs := parseStringList(input)
+	for i, dir := range dirs {
+		dirs[i] = filepath.Clean(dir)
 	}
-	return s
+	return dirs
 }
