@@ -183,8 +183,8 @@ func runUpgrade(ctx *Context, _ []string) error {
 
 // restartAfterUpgrade offers to restart service so the new binary takes
 // effect. When the restart would end runs in progress, it first offers to
-// reconfigure the service so they keep running, then checks the result with
-// detect.
+// reconfigure the service so they keep running, then checks a successful
+// change with detect.
 func restartAfterUpgrade(
 	ctx context.Context,
 	service *upgrade.Service,
@@ -194,10 +194,11 @@ func restartAfterUpgrade(
 	if service.KeepRunsCommand != "" {
 		fmt.Printf("\nRestarting Dagu also ends runs in progress. This command keeps them running across restarts:\n  %s\n", service.KeepRunsCommand)
 		if ask("Run it now?", true) {
+			// A failed command may have written the drop-in without reloading
+			// systemd, so only a success is checked against the files.
 			if err := service.KeepRuns(ctx); err != nil {
 				fmt.Printf("Failed to update the service: %v\n", err)
-			}
-			if updated := detect(); updated != nil {
+			} else if updated := detect(); updated != nil {
 				service = updated
 			}
 		}

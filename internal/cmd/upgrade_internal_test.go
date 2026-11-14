@@ -100,12 +100,9 @@ func TestRestartAfterUpgrade(t *testing.T) {
 					KeepRunsCommand: keepRunsCommand,
 				}
 			}
-			detect := func() *upgrade.Service {
-				if tt.keepRunsFail {
-					return service
-				}
-				return keepsRuns
-			}
+			// The files always read as keeping runs once the command ran, as
+			// when the drop-in was written but reloading systemd failed.
+			detect := func() *upgrade.Service { return keepsRuns }
 
 			var prompts []prompt
 			ask := func(text string, defaultYes bool) bool {
