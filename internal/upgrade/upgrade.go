@@ -13,6 +13,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/container"
 )
 
 // Options configures the upgrade operation.
@@ -60,9 +61,6 @@ const (
 	InstallMethodContainer
 	InstallMethodGoInstall
 )
-
-// containerMarkerFiles are created inside containers by Docker and Podman.
-var containerMarkerFiles = []string{"/.dockerenv", "/run/.containerenv"}
 
 var installMethodNames = map[InstallMethod]string{
 	InstallMethodUnknown:   "unknown",
@@ -112,7 +110,7 @@ func DetectInstallMethod() InstallMethod {
 		return InstallMethodSnap
 	}
 
-	if runningInContainer() {
+	if container.Detected() {
 		return InstallMethodContainer
 	}
 
@@ -127,21 +125,6 @@ func DetectInstallMethod() InstallMethod {
 	}
 
 	return InstallMethodBinary
-}
-
-// runningInContainer reports whether dagu runs in an application container,
-// which is updated by pulling a new image rather than replacing its binary.
-func runningInContainer() bool {
-	// Kubernetes sets this in every pod, whichever container runtime runs it.
-	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
-		return true
-	}
-	for _, marker := range containerMarkerFiles {
-		if _, err := os.Stat(marker); err == nil {
-			return true
-		}
-	}
-	return false
 }
 
 // CanSelfUpgrade returns true if dagu can perform a self-upgrade.
