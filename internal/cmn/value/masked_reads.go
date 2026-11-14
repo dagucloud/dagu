@@ -140,6 +140,9 @@ func (m *maskedReads) noteEntry(entry EnvEntry) {
 // ".outputs.token", reads, and whether masking changed it.
 func (s StepMasks) path(path string) (string, bool) {
 	field, ok := stepTextPathField(path)
+	if field == "" {
+		field = bracketField(path)
+	}
 	switch {
 	case !ok:
 		return "", false
@@ -153,6 +156,25 @@ func (s StepMasks) path(path string) (string, bool) {
 	default:
 		return field, s.field(field)
 	}
+}
+
+// bracketField returns the top-level field a step property path selects in
+// brackets, such as region in .outputs["region"], or "" when it selects none
+// by name.
+func bracketField(path string) string {
+	rest, ok := strings.CutPrefix(path, ".outputs")
+	if !ok {
+		rest = strings.TrimPrefix(path, ".output")
+	}
+	inner, ok := strings.CutPrefix(rest, "[")
+	if !ok {
+		return ""
+	}
+	inner, _, ok = strings.Cut(inner, "]")
+	if !ok || len(inner) < 2 || (inner[0] != '"' && inner[0] != '\'') || inner[len(inner)-1] != inner[0] {
+		return ""
+	}
+	return inner[1 : len(inner)-1]
 }
 
 // field reports whether masking changed the named published output.

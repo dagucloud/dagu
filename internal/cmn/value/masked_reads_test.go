@@ -61,8 +61,11 @@ func TestMaskedRead(t *testing.T) {
 		{name: "captured output", raw: "deploy ${fetch.output}", field: workflow, want: "output"},
 		{name: "masked field of a captured object", raw: "deploy ${config.output.token}", field: workflow, want: "token", step: "config"},
 		{name: "unmasked field of a captured object", raw: "deploy ${config.output.region}", field: workflow},
+		{name: "unmasked field of a captured object in brackets", raw: `deploy ${config.output["region"]}`, field: workflow},
 		{name: "published output", raw: "deploy ${fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked published output", raw: "deploy ${fetch.outputs.region}", field: workflow},
+		{name: "published output in brackets", raw: `deploy ${fetch.outputs["token"]}`, field: workflow, want: "token"},
+		{name: "unmasked published output in brackets", raw: `deploy ${fetch.outputs["region"]}`, field: workflow},
 		{name: "declared output", raw: "deploy ${steps.fetch.outputs.token}", field: workflow, want: "token"},
 		{name: "unmasked declared output", raw: "deploy ${steps.fetch.outputs.region}", field: workflow},
 		// Executor config reads variables from a copy of the scope.
