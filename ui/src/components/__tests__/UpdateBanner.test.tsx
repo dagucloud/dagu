@@ -1,14 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UpdateBanner } from '@/components/UpdateBanner';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+
+const { isAdmin } = vi.hoisted(() => ({ isAdmin: vi.fn(() => true) }));
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: isAdmin }));
 
 const updateConfig = {
   version: '2.0.0',
   updateAvailable: true,
   latestVersion: 'v2.1.0',
   upgradeCommand: 'dagu upgrade',
+  installMethod: 'binary',
   restartRequired: false,
   restartCommand: '',
   restartStopsRuns: false,
@@ -28,6 +32,40 @@ function renderBanner(overrides: Partial<Config> = {}) {
 describe('UpdateBanner', () => {
   beforeEach(() => {
     localStorage.clear();
+    isAdmin.mockReturnValue(true);
+  });
+
+  // Only an administrator can upgrade or restart the server.
+  it('renders nothing for a user who is not an administrator', () => {
+    isAdmin.mockReturnValue(false);
+    const { container } = renderBanner({ restartRequired: true });
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('links to the upgrade guide', () => {
+    renderBanner();
+
+    expect(screen.getByRole('link', { name: 'Upgrade guide' })).toHaveAttribute(
+      'href',
+      'https://docs.dagu.sh/server-admin/upgrades'
+    );
+  });
+
+  it('offers to copy the update command', () => {
+    renderBanner();
+
+    expect(
+      screen.getByRole('button', { name: 'Copy command' })
+    ).toBeInTheDocument();
+  });
+
+  it('tells a container install to update its image', () => {
+    renderBanner({ installMethod: 'container', upgradeCommand: '' });
+
+    expect(
+      screen.getByText(/Update the container image to v2\.1\.0/)
+    ).toBeInTheDocument();
   });
 
   it('renders nothing when Dagu is up to date', () => {
@@ -122,7 +160,8 @@ describe('UpdateBanner', () => {
     ).toBeInTheDocument();
   });
 
-  it('stays dismissed for the same version only', async () => {
+  // Patch releases come out several times a week; a minor release is news.
+  it('stays dismissed through patch releases until the next minor release', async () => {
     const user = userEvent.setup();
     const { unmount } = renderBanner();
 
@@ -132,9 +171,10 @@ describe('UpdateBanner', () => {
     expect(screen.queryByText(/v2\.1\.0/)).not.toBeInTheDocument();
 
     unmount();
-    renderBanner();
-    expect(screen.queryByText(/v2\.1\.0/)).not.toBeInTheDocument();
+    const { unmount: unmountPatch } = renderBanner({ latestVersion: 'v2.1.3' });
+    expect(screen.queryByText(/v2\.1\.3/)).not.toBeInTheDocument();
 
+    unmountPatch();
     renderBanner({ latestVersion: 'v2.2.0' });
     expect(screen.getByText(/v2\.0\.0 → v2\.2\.0/)).toBeInTheDocument();
   });

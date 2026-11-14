@@ -1,7 +1,10 @@
+import { CopyButton } from '@/components/ui/copy-button';
+import { useIsAdmin } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { X } from 'lucide-react';
 import * as React from 'react';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -9,12 +12,16 @@ import { cn } from '@/lib/utils';
 
 const UPDATE_DISMISSED_KEY = 'update-banner-dismissed';
 const RESTART_DISMISSED_KEY = 'restart-banner-dismissed';
-const KEEP_RUNS_DOCS_URL =
-  'https://docs.dagu.sh/server-admin/upgrades#keep-runs-across-restarts';
+const UPGRADE_GUIDE_URL = 'https://docs.dagu.sh/server-admin/upgrades';
+const KEEP_RUNS_DOCS_URL = `${UPGRADE_GUIDE_URL}#keep-runs-across-restarts`;
 
 export function UpdateBanner() {
   const config = useConfig();
+  const isAdmin = useIsAdmin();
   const phone = useIsMobile();
+
+  // Only an administrator can upgrade or restart the server.
+  if (!isAdmin) return null;
 
   // Restarting is the only step left once a new binary is installed, so it
   // replaces the update notice.
@@ -58,48 +65,60 @@ export function UpdateBanner() {
 
   if (!config.updateAvailable) return null;
 
-  const releaseLink = (
-    <ExternalLink
-      href="https://github.com/dagucloud/dagu/releases"
-      className="ml-2"
-    >
-      <I18nText text="View release" />
-    </ExternalLink>
-  );
+  const values = {
+    current: config.version,
+    latest: config.latestVersion,
+    guideLink: (
+      <ExternalLink href={UPGRADE_GUIDE_URL} className="ml-2">
+        <I18nText text="Upgrade guide" />
+      </ExternalLink>
+    ),
+  };
 
   return (
     <DismissibleBanner
       key={UPDATE_DISMISSED_KEY}
       storageKey={UPDATE_DISMISSED_KEY}
-      dismissedValue={config.latestVersion}
+      dismissedValue={minorSeries(config.latestVersion)}
     >
-      {/* A phone has one line for it: the command is for a terminal. */}
-      {config.upgradeCommand && !phone ? (
+      {/* A phone has one line for it: the instruction is for a terminal. */}
+      {phone ? (
         <I18nTemplate
-          text="Update available: v{current} → {latest} {releaseLink} · Run {command} to update"
+          text="Update available: v{current} → {latest} {guideLink}"
+          values={values}
+        />
+      ) : config.installMethod === 'container' ? (
+        <I18nTemplate
+          text="Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}"
+          values={values}
+        />
+      ) : config.upgradeCommand ? (
+        <I18nTemplate
+          text="Update available: v{current} → {latest} {guideLink} · Run {command} to update"
           values={{
-            current: config.version,
-            latest: config.latestVersion,
-            releaseLink,
+            ...values,
             command: <Command text={config.upgradeCommand} />,
           }}
         />
       ) : (
         <I18nTemplate
-          text="Update available: v{current} → {latest} {releaseLink}"
-          values={{
-            current: config.version,
-            latest: config.latestVersion,
-            releaseLink,
-          }}
+          text="Update available: v{current} → {latest} {guideLink}"
+          values={values}
         />
       )}
     </DismissibleBanner>
   );
 }
 
+// minorSeries returns the major and minor part of a version, such as v2.26
+// for v2.26.3, so a dismissed notice stays hidden through patch releases.
+function minorSeries(version: string): string {
+  const match = /^v?(\d+)\.(\d+)\./.exec(version);
+  return match ? `v${match[1]}.${match[2]}` : version;
+}
+
 // DismissibleBanner stays hidden while storageKey holds dismissedValue, so a
-// new version brings it back.
+// new value brings it back.
 function DismissibleBanner({
   storageKey,
   dismissedValue,
@@ -160,9 +179,18 @@ function ExternalLink({
 }
 
 function Command({ text }: { text: string }) {
+  const { ts } = useI18n();
   return (
-    <code className="font-mono bg-violet-100 dark:bg-[#2a2452] px-1 rounded text-xs">
-      {text}
-    </code>
+    <span className="inline-flex items-center gap-0.5 align-middle">
+      <code className="font-mono bg-violet-100 dark:bg-[#2a2452] px-1 rounded text-xs">
+        {text}
+      </code>
+      <CopyButton
+        text={text}
+        label={ts('Copy command')}
+        size="sm"
+        className="-my-1 hover:bg-violet-100 dark:hover:bg-[#2a2452]"
+      />
+    </span>
   );
 }

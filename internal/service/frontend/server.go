@@ -775,9 +775,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 // updateChecker implements UpdateChecker from the upgrade cache store and the
 // binary the server started from.
 type updateChecker struct {
-	store          upgrade.CacheStore // nil when update checks are disabled
-	binary         *upgrade.RunningBinary
-	upgradeCommand string
+	store         upgrade.CacheStore // nil when update checks are disabled
+	binary        *upgrade.RunningBinary
+	installMethod upgrade.InstallMethod
 }
 
 func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChecker {
@@ -786,15 +786,16 @@ func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChec
 		logger.Debug(ctx, "Cannot detect replacement of the running binary", tag.Error(err))
 	}
 	return &updateChecker{
-		store:          store,
-		binary:         binary,
-		upgradeCommand: upgrade.DetectInstallMethod().UpgradeCommand(),
+		store:         store,
+		binary:        binary,
+		installMethod: upgrade.DetectInstallMethod(),
 	}
 }
 
 func (u *updateChecker) UpdateStatus() UpdateStatus {
 	status := UpdateStatus{
-		UpgradeCommand:  u.upgradeCommand,
+		UpgradeCommand:  u.installMethod.UpgradeCommand(),
+		InstallMethod:   u.installMethod.String(),
 		RestartRequired: u.binary != nil && u.binary.Replaced(),
 	}
 	// The service is read only once a restart is due, so the notice reflects
@@ -1220,9 +1221,22 @@ func (srv *Server) startPeriodicUpdateCheck(ctx context.Context) {
 
 func (srv *Server) runAutomaticUpdateCheck(ctx context.Context) {
 	retryCtx := backoff.WithRetryFailureLogLevel(ctx, slog.LevelDebug)
-	if _, err := upgrade.CheckAndUpdateCache(retryCtx, srv.upgradeStore, config.Version); err != nil {
+	result, err := upgrade.CheckAndUpdateCache(retryCtx, srv.upgradeStore, config.Version)
+	if err != nil {
 		logger.Debug(ctx, "Automatic update check failed", tag.Error(err))
+		return
 	}
+	if result == nil || !result.UpdateAvailable {
+		return
+	}
+	attrs := []slog.Attr{
+		tag.Version(config.Version),
+		slog.String("latest-version", result.LatestVersion),
+	}
+	if command := upgrade.DetectInstallMethod().UpgradeCommand(); command != "" {
+		attrs = append(attrs, tag.Command(command))
+	}
+	logger.Info(ctx, "Update available", attrs...)
 }
 
 func (srv *Server) configureAPIPath(_ context.Context) string {

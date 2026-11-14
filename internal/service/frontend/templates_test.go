@@ -178,6 +178,7 @@ func TestBaseTemplateRendersUpdateStatus(t *testing.T) {
 			UpdateAvailable:    true,
 			LatestVersion:      "v2.1.0",
 			UpgradeCommand:     "brew upgrade dagu",
+			InstallMethod:      "homebrew",
 			RestartRequired:    true,
 			RestartCommand:     `</script><script>alert("injected")</script>`,
 			RestartStopsRuns:   true,
@@ -188,6 +189,7 @@ func TestBaseTemplateRendersUpdateStatus(t *testing.T) {
 	assert.Contains(t, output, `updateAvailable: "true" === "true"`)
 	assert.Contains(t, output, `latestVersion: "v2.1.0"`)
 	assert.Contains(t, output, `upgradeCommand: "brew upgrade dagu"`)
+	assert.Contains(t, output, `installMethod: "homebrew"`)
 	assert.Contains(t, output, `restartRequired: "true" === "true"`)
 	assert.Contains(t, output, `restartStopsRuns: "true" === "true"`)
 	assert.Contains(t, output, `restartCanKeepRuns: "true" === "true"`)

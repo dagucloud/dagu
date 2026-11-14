@@ -129,6 +129,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     updateAvailable: false,
     latestVersion: '',
     upgradeCommand: '',
+    installMethod: 'binary',
     restartRequired: false,
     restartCommand: '',
     restartStopsRuns: false,
