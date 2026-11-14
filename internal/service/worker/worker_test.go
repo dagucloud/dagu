@@ -529,6 +529,7 @@ func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
 				t.Fatal("no heartbeat sent")
 			}
 			assert.Equal(t, host, req.Host)
+			assert.Equal(t, config.Version, req.Version)
 			assert.True(t, proto.Equal(tc.want, req.Machine), "machine sample: %v", req.Machine)
 		})
 	}

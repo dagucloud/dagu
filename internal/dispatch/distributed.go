@@ -131,6 +131,8 @@ type WorkerHeartbeatRecord struct {
 	// Machine is the worker's latest machine sample; nil when the worker
 	// sends none.
 	Machine *MachineSample `json:"machine,omitempty"`
+	// Version is the Dagu version the worker runs; empty when it reports none.
+	Version string `json:"version,omitempty"`
 }
 
 // MachineSample is a reading of the resources of the machine a worker runs
