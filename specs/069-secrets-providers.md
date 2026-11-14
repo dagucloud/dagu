@@ -108,22 +108,25 @@ Each reference fails only when masking changed the output it reads. A reference
 that resolution leaves as written reads nothing: an escaped reference, a name a
 shell leaves in a comment, in single quotes, or in a quoted heredoc, a name a
 script expands after it sets or unsets its own value, and a `js` or `template`
-script, which is passed on as written. A value a script sets in a subshell, in
-code that may not run, or as a function's local holds only there, and a value
-every branch of an `if` sets holds after it. A function body runs where the
-function first runs, and the values it sets hold after that only when the call
-surely runs it in the script's own shell; a function no call names, such as one
-`trap` runs, runs at the end of the script. A `for` loop's variable holds after
-the loop only when its list is plain words. `declare`, `export`, or `readonly`
-without a value keeps the inherited value. Text a script hands to another shell,
-as with `eval` or `sh -c`, and a script whose shebang names an interpreter other
-than a POSIX shell are programs reading their environment.
+script, which is passed on as written. A value a script sets in a subshell or a
+background job, in code that may not run, or as a function's local holds only
+there, and a value every branch of an `if` sets holds after it. A function body
+runs where the function first runs, and the values it sets hold after that only
+when the call surely runs it in the script's own shell; a function no call
+names, such as one `trap` runs, runs at the end of the script. A `for` loop's
+variable holds after the loop only when its list is plain words. A function
+defined more than once sets nothing sure. `declare`, `export`, `readonly`, or
+`local` without a value keeps the inherited value, as dash does. Text a script
+hands to another shell, as with `eval` or `sh -c`, and a script whose shebang
+names an interpreter other than a POSIX shell are programs reading their
+environment.
 
 A variable the step's own `env:` defines takes the place of the output variable
 in its other fields and in the `env:` entries after the one that defines it, and
 of two predecessors that set the same variable, the one later in scope order
 does. A foreach body step reads outputs in its own scope, which holds the
-foreach step's output variables under its own `env:`.
+foreach step's output variables under its own `env:`. A child run a step starts
+checks the reads of its own steps, not the starting step's.
 
 A program the step runs that reads an output variable from its environment, and
 an executor that takes a variable by name, such as through `pass_env`, receive
