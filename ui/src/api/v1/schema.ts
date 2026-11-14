@@ -8032,7 +8032,20 @@ export interface components {
             /** @description RFC3339 timestamp of the last heartbeat received from this worker */
             lastHeartbeatAt: string;
             healthStatus: components["schemas"]["WorkerHealthStatus"];
+            /** @description Dagu version the worker runs. Absent when the worker reports none, as workers of earlier releases do. */
+            version?: string;
+            versionDrift: components["schemas"]["WorkerVersionDrift"];
         };
+        /**
+         * @description How the worker's Dagu version compares with the version of the server that answers:
+         *     - none: the same version.
+         *     - behind: an older version.
+         *     - ahead: a newer version.
+         *     - unknown: the versions cannot be compared, as when the worker reports no version or either side is a development build.
+         *
+         * @enum {string}
+         */
+        WorkerVersionDrift: WorkerVersionDrift;
         /** @description Information about a task currently being executed */
         RunningTask: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -25111,6 +25124,12 @@ export enum AvailabilityWindowWindow {
 export enum RepeatMode {
     While = "while",
     Until = "until"
+}
+export enum WorkerVersionDrift {
+    none = "none",
+    behind = "behind",
+    ahead = "ahead",
+    unknown = "unknown"
 }
 export enum ServiceDAGState {
     pending = "pending",

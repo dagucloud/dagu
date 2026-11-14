@@ -56,6 +56,7 @@ type heartbeatInfo struct {
 	labels          map[string]string
 	stats           *coordinatorv1.WorkerStats
 	lastHeartbeatAt time.Time
+	version         string
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
@@ -1506,6 +1507,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				Labels:          hb.labels,
 				LastHeartbeatAt: hb.lastHeartbeatAt.Unix(),
 				HealthStatus:    calculateHealthStatus(now.Sub(hb.lastHeartbeatAt)),
+				Version:         hb.version,
 			}
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
@@ -1531,6 +1533,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			Labels:          hb.Labels,
 			LastHeartbeatAt: hb.LastHeartbeatTime().Unix(),
 			HealthStatus:    calculateHealthStatus(now.Sub(hb.LastHeartbeatTime())),
+			Version:         hb.Version,
 		}
 
 		if hb.Stats != nil {
@@ -1574,6 +1577,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		labels:          req.Labels,
 		stats:           req.Stats,
 		lastHeartbeatAt: receivedAt,
+		version:         req.Version,
 	}
 	h.mu.Unlock()
 
@@ -1585,6 +1589,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			LastHeartbeatAt: receivedAt.UnixMilli(),
 			Host:            req.Host,
 			Machine:         convert.ProtoToMachineSample(req.Machine),
+			Version:         req.Version,
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}

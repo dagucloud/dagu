@@ -1316,6 +1316,7 @@ type WorkerInfo struct {
 	RunningTasks    []*RunningTask     `protobuf:"bytes,7,rep,name=running_tasks,json=runningTasks,proto3" json:"running_tasks,omitempty"`
 	LastHeartbeatAt int64              `protobuf:"varint,8,opt,name=last_heartbeat_at,json=lastHeartbeatAt,proto3" json:"last_heartbeat_at,omitempty"`                             // Unix timestamp of last heartbeat
 	HealthStatus    WorkerHealthStatus `protobuf:"varint,9,opt,name=health_status,json=healthStatus,proto3,enum=coordinator.v1.WorkerHealthStatus" json:"health_status,omitempty"` // Health status based on heartbeat recency
+	Version         string             `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`                                                                      // Dagu version the worker runs; empty when it reports none
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1408,6 +1409,13 @@ func (x *WorkerInfo) GetHealthStatus() WorkerHealthStatus {
 	return WorkerHealthStatus_WORKER_HEALTH_STATUS_UNSPECIFIED
 }
 
+func (x *WorkerInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 func (x *WorkerInfo) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -1444,6 +1452,10 @@ func (x *WorkerInfo) SetHealthStatus(v WorkerHealthStatus) {
 	x.HealthStatus = v
 }
 
+func (x *WorkerInfo) SetVersion(v string) {
+	x.Version = v
+}
+
 type WorkerInfo_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1457,6 +1469,7 @@ type WorkerInfo_builder struct {
 	RunningTasks    []*RunningTask
 	LastHeartbeatAt int64
 	HealthStatus    WorkerHealthStatus
+	Version         string
 }
 
 func (b0 WorkerInfo_builder) Build() *WorkerInfo {
@@ -1472,6 +1485,7 @@ func (b0 WorkerInfo_builder) Build() *WorkerInfo {
 	x.RunningTasks = b.RunningTasks
 	x.LastHeartbeatAt = b.LastHeartbeatAt
 	x.HealthStatus = b.HealthStatus
+	x.Version = b.Version
 	return m0
 }
 
@@ -1483,6 +1497,7 @@ type HeartbeatRequest struct {
 	Stats         *WorkerStats           `protobuf:"bytes,3,opt,name=stats,proto3" json:"stats,omitempty"`
 	Host          string                 `protobuf:"bytes,4,opt,name=host,proto3" json:"host,omitempty"`       // Name of the machine the worker runs on
 	Machine       *MachineSample         `protobuf:"bytes,5,opt,name=machine,proto3" json:"machine,omitempty"` // Unset until the worker samples its machine
+	Version       string                 `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"` // Dagu version the worker runs
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1547,6 +1562,13 @@ func (x *HeartbeatRequest) GetMachine() *MachineSample {
 	return nil
 }
 
+func (x *HeartbeatRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 func (x *HeartbeatRequest) SetWorkerId(v string) {
 	x.WorkerId = v
 }
@@ -1565,6 +1587,10 @@ func (x *HeartbeatRequest) SetHost(v string) {
 
 func (x *HeartbeatRequest) SetMachine(v *MachineSample) {
 	x.Machine = v
+}
+
+func (x *HeartbeatRequest) SetVersion(v string) {
+	x.Version = v
 }
 
 func (x *HeartbeatRequest) HasStats() bool {
@@ -1597,6 +1623,7 @@ type HeartbeatRequest_builder struct {
 	Stats    *WorkerStats
 	Host     string
 	Machine  *MachineSample
+	Version  string
 }
 
 func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
@@ -1608,6 +1635,7 @@ func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
 	x.Stats = b.Stats
 	x.Host = b.Host
 	x.Machine = b.Machine
+	x.Version = b.Version
 	return m0
 }
 
@@ -6645,7 +6673,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x16_base_config_workspace\"\x13\n" +
 	"\x11GetWorkersRequest\"J\n" +
 	"\x12GetWorkersResponse\x124\n" +
-	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xe3\x03\n" +
+	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xfd\x03\n" +
 	"\n" +
 	"WorkerInfo\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1b\n" +
@@ -6656,16 +6684,19 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\fbusy_pollers\x18\x06 \x01(\x05R\vbusyPollers\x12@\n" +
 	"\rrunning_tasks\x18\a \x03(\v2\x1b.coordinator.v1.RunningTaskR\frunningTasks\x12*\n" +
 	"\x11last_heartbeat_at\x18\b \x01(\x03R\x0flastHeartbeatAt\x12G\n" +
-	"\rhealth_status\x18\t \x01(\x0e2\".coordinator.v1.WorkerHealthStatusR\fhealthStatus\x1a9\n" +
+	"\rhealth_status\x18\t \x01(\x0e2\".coordinator.v1.WorkerHealthStatusR\fhealthStatus\x12\x18\n" +
+	"\aversion\x18\n" +
+	" \x01(\tR\aversion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xca\x02\n" +
 	"\x10HeartbeatRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12D\n" +
 	"\x06labels\x18\x02 \x03(\v2,.coordinator.v1.HeartbeatRequest.LabelsEntryR\x06labels\x121\n" +
 	"\x05stats\x18\x03 \x01(\v2\x1b.coordinator.v1.WorkerStatsR\x05stats\x12\x12\n" +
 	"\x04host\x18\x04 \x01(\tR\x04host\x127\n" +
-	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x1a9\n" +
+	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8c\x03\n" +

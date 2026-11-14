@@ -832,6 +832,7 @@ func (w *Worker) sendHeartbeat(ctx context.Context) error {
 		},
 		Host:    w.host,
 		Machine: convert.MachineSampleToProto(w.machineSample()),
+		Version: config.Version,
 	}
 
 	resp, err := w.coordinatorCli.Heartbeat(ctx, req)

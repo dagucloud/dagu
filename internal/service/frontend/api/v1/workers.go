@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -74,6 +76,10 @@ func (a *API) GetWorkers(ctx context.Context, _ api.GetWorkersRequestObject) (ap
 			RunningTasks:    transformRunningTasks(w.RunningTasks),
 			LastHeartbeatAt: time.Unix(w.LastHeartbeatAt, 0).Format(time.RFC3339),
 			HealthStatus:    healthStatus,
+			VersionDrift:    workerVersionDrift(w.Version, config.Version),
+		}
+		if w.Version != "" {
+			worker.Version = &w.Version
 		}
 		workers = append(workers, worker)
 	}
@@ -99,4 +105,25 @@ func transformRunningTasks(tasks []*coordinatorv1.RunningTask) []api.RunningTask
 		}
 	}
 	return result
+}
+
+// workerVersionDrift compares the Dagu version a worker reports with the
+// server's.
+func workerVersionDrift(workerVersion, serverVersion string) api.WorkerVersionDrift {
+	worker, err := upgrade.ParseVersion(workerVersion)
+	if err != nil {
+		return api.WorkerVersionDriftUnknown
+	}
+	server, err := upgrade.ParseVersion(serverVersion)
+	if err != nil {
+		return api.WorkerVersionDriftUnknown
+	}
+	switch worker.Compare(server) {
+	case -1:
+		return api.WorkerVersionDriftBehind
+	case 1:
+		return api.WorkerVersionDriftAhead
+	default:
+		return api.WorkerVersionDriftNone
+	}
 }
