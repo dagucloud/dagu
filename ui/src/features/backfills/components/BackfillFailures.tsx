@@ -4,6 +4,7 @@
 import { Link } from 'react-router-dom';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
+import { runPath } from '../lib/backfillLinks';
 import type { Backfill } from '../lib/backfillState';
 
 /**
@@ -11,7 +12,14 @@ import type { Backfill } from '../lib/backfillState';
  * count, the step, and the error, the largest group first. Each group links
  * to the run of its earliest slot, whose page holds the log.
  */
-export function BackfillFailures({ backfill }: { backfill: Backfill }) {
+export function BackfillFailures({
+  backfill,
+  remoteNode,
+}: {
+  backfill: Backfill;
+  /** The node of the backfill, which the links to runs keep. */
+  remoteNode: string;
+}) {
   const { ts } = useI18n();
   const failures = backfill.failures ?? [];
   if (failures.length === 0) return null;
@@ -41,7 +49,7 @@ export function BackfillFailures({ backfill }: { backfill: Backfill }) {
               {failure.error || ts('No error recorded')}
             </span>
             <Link
-              to={`/dag-runs/${encodeURIComponent(backfill.dag)}/${encodeURIComponent(failure.runId)}`}
+              to={runPath(backfill.dag, failure.runId, remoteNode)}
               className="text-xs underline-offset-2 hover:underline"
             >
               {ts('Run of {time}', {

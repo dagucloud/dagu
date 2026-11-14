@@ -31,6 +31,7 @@ describe('BackfillFailures', () => {
     render(
       <MemoryRouter>
         <BackfillFailures
+          remoteNode="edge"
           backfill={{
             ...backfill,
             failures: [
@@ -62,7 +63,7 @@ describe('BackfillFailures', () => {
     expect(groups[0]).toHaveTextContent('connection refused');
     expect(screen.getAllByRole('link')[0]).toHaveAttribute(
       'href',
-      '/dag-runs/etl/run-2'
+      '/dag-runs/etl/run-2?remoteNode=edge'
     );
     expect(groups[1]).toHaveTextContent('1 slot');
   });
@@ -70,7 +71,7 @@ describe('BackfillFailures', () => {
   it('shows nothing without failures', () => {
     const { container } = render(
       <MemoryRouter>
-        <BackfillFailures backfill={backfill} />
+        <BackfillFailures backfill={backfill} remoteNode="edge" />
       </MemoryRouter>
     );
     expect(container).toBeEmptyDOMElement();

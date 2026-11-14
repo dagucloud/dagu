@@ -200,7 +200,7 @@ export default function BackfillPage() {
           </ul>
         </section>
 
-        <BackfillFailures backfill={backfill} />
+        <BackfillFailures backfill={backfill} remoteNode={remoteNode} />
 
         <section className="card-obsidian">
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
