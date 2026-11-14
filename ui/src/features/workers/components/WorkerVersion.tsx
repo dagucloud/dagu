@@ -17,8 +17,8 @@ export function WorkerVersion({ worker }: { worker: Worker }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-xs">
-      <span className="font-mono text-muted-foreground">
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs">
+      <span className="min-w-0 whitespace-normal break-all font-mono text-muted-foreground">
         {worker.version.startsWith('v') ? worker.version : `v${worker.version}`}
       </span>
       {worker.versionDrift === WorkerVersionDrift.behind && (
