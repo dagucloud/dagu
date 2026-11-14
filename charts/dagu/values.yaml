@@ -83,6 +83,16 @@ license:
 podSecurityContext:
   fsGroup: 1000
 
+# Stopping a pod, as an upgrade does, ends the DAG runs inside it. A stopping
+# pod starts no new runs and waits up to drainTimeoutSeconds for its running
+# runs to finish, then stops the rest so they run their abort and exit
+# handlers. Each pod's termination grace period adds room for that cleanup.
+# In standalone mode an upgrade waits for the drain, because only one pod can
+# use the data volume. Set 0 to stop runs at once. Images 2.26.0 and earlier
+# do not drain.
+shutdown:
+  drainTimeoutSeconds: 300
+
 # Scheduler configuration for distributed mode.
 scheduler:
   replicas: 1
