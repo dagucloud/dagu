@@ -21,6 +21,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"apibaseurl":                       "api_base_url",
 	"publicurl":                        "public_url",
 	"checkupdates":                     "check_updates",
+	"allowwebupgrade":                  "allow_web_upgrade",
 	"defaultshell":                     "default_shell",
 	"logformat":                        "log_format",
 	"envpassthrough":                   "env_passthrough",

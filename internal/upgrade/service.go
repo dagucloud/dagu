@@ -56,6 +56,38 @@ func DetectService() *Service {
 	return detectService(runtime.GOOS, execDir, homeDir, systemdSystemUnitDir)
 }
 
+// RunsUnderService reports whether this process is the one the service of
+// DetectService runs, so that the service starts it again when it exits.
+// A Dagu started by hand on a machine with that service is not.
+func RunsUnderService() bool {
+	var execDir string
+	if execPath, err := GetExecutablePath(); err == nil {
+		execDir = filepath.Dir(execPath)
+	}
+	cgroup, _ := os.ReadFile("/proc/self/cgroup")
+	return runsUnderService(runtime.GOOS, os.Getenv, string(cgroup), execDir)
+}
+
+func runsUnderService(goos string, getenv func(string) string, cgroup, execDir string) bool {
+	switch goos {
+	case "darwin":
+		// launchd names the job of each process it starts.
+		return getenv("XPC_SERVICE_NAME") == launchdServiceLabel
+	case "linux":
+		// systemd keeps the processes of a unit in a cgroup named after it.
+		for line := range strings.SplitSeq(cgroup, "\n") {
+			if strings.HasSuffix(strings.TrimSpace(line), "/"+systemdServiceUnit) {
+				return true
+			}
+		}
+	case "windows":
+		// WinSW names the service and the directory of its config.
+		return strings.EqualFold(getenv("SERVICE_ID"), winswServiceName) &&
+			execDir != "" && strings.EqualFold(filepath.Clean(getenv("BASE")), filepath.Clean(execDir))
+	}
+	return false
+}
+
 func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 	switch goos {
 	case "darwin":

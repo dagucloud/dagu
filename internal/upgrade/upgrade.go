@@ -278,7 +278,8 @@ func FetchReleaseInfo(ctx context.Context, opts Options) (*ReleaseInfo, error) {
 	}, nil
 }
 
-// UpgradeWithReleaseInfo performs the upgrade using pre-fetched release information.
+// UpgradeWithReleaseInfo performs the upgrade using pre-fetched release
+// information. A nil store skips recording the result for update notices.
 func UpgradeWithReleaseInfo(ctx context.Context, opts Options, info *ReleaseInfo, store CacheStore) (*Result, error) {
 	result := &Result{
 		CurrentVersion:         config.Version,
@@ -386,12 +387,14 @@ func UpgradeWithReleaseInfo(ctx context.Context, opts Options, info *ReleaseInfo
 	}
 
 	// Update cache with new version info
-	_ = store.Save(&UpgradeCheckCache{
-		LastCheck:       time.Now(),
-		CurrentVersion:  info.Release.TagName,
-		LatestVersion:   info.Release.TagName,
-		UpdateAvailable: false,
-	})
+	if store != nil {
+		_ = store.Save(&UpgradeCheckCache{
+			LastCheck:       time.Now(),
+			CurrentVersion:  info.Release.TagName,
+			LatestVersion:   info.Release.TagName,
+			UpdateAvailable: false,
+		})
+	}
 
 	return result, nil
 }

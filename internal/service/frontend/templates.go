@@ -139,6 +139,9 @@ type UpdateStatus struct {
 	// RestartCanKeepRuns reports that the service can be reconfigured so a
 	// restart leaves runs in progress running.
 	RestartCanKeepRuns bool
+	// WebUpgradeAvailable reports that an administrator can install the
+	// available update from the web UI.
+	WebUpgradeAvailable bool
 }
 
 type funcsConfig struct {

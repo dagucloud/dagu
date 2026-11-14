@@ -67,6 +67,7 @@ function makeConfig(licenseOverrides: Partial<Config['license']> = {}): Config {
     restartCommand: '',
     restartStopsRuns: false,
     restartCanKeepRuns: false,
+    webUpgradeAvailable: false,
     permissions: {
       writeDags: true,
       runDags: true,
