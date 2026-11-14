@@ -125,7 +125,7 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 	active, failed := 0, false
 	for _, slot := range record.Slots {
 		event := byslot[slot.At.UTC()]
-		outcome, err := d.outcome(ctx, record, event, observed)
+		outcome, status, err := d.outcome(ctx, record, event, observed)
 		if err != nil {
 			return err
 		}
@@ -143,7 +143,11 @@ func (d *Dispatcher) advance(ctx context.Context, record *Record) error {
 			if outcome == slotFailed {
 				kind = ProgressFailed
 			}
-			ended = append(ended, Progress{Slot: slot.At, Kind: kind, RunID: event.RunID, Generation: record.Generation, At: observed})
+			end := Progress{Slot: slot.At, Kind: kind, RunID: event.RunID, Generation: record.Generation, At: observed}
+			if outcome == slotFailed && status != nil {
+				end.Step, end.Error = runFailure(status)
+			}
+			ended = append(ended, end)
 		}
 	}
 	// Recording how runs ended spares later reads from looking them up. A
@@ -266,38 +270,62 @@ func awaitsRetry(event Progress, status *ir.DAGRunStatus, now time.Time) bool {
 
 // outcome reads where a slot stands from its last progress event and, while
 // its run has not been seen to end, from its run.
-func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress, now time.Time) (slotOutcome, error) {
+func (d *Dispatcher) outcome(ctx context.Context, record *Record, event Progress, now time.Time) (slotOutcome, *ir.DAGRunStatus, error) {
 	switch event.Kind {
 	case ProgressSkipped, ProgressCancelled:
-		return slotSettled, nil
+		return slotSettled, nil, nil
 	case ProgressNotRun:
 		// A slot that a stopped backfill did not reach did not succeed,
 		// also once a retry opens the backfill again.
-		return slotFailed, nil
+		return slotFailed, nil, nil
 	case ProgressSucceeded:
-		return slotSucceeded, nil
+		return slotSucceeded, nil, nil
 	case ProgressFailed:
-		return slotFailed, nil
+		return slotFailed, nil, nil
 	case ProgressEnqueued:
 	default:
-		return slotPending, nil
+		return slotPending, nil, nil
 	}
 	status, err := d.ReadRun(ctx, ir.NewDAGRunRef(record.DAGName, event.RunID))
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return d.removedOutcome(ctx, record, event)
+		outcome, err := d.removedOutcome(ctx, record, event)
+		return outcome, nil, err
 	}
 	if err != nil {
-		return slotPending, err
+		return slotPending, nil, err
 	}
 	switch {
 	case status.Status.IsActive(), awaitsRetry(event, status, now),
 		awaitsAutoRetry(status, now, d.RetryWindow):
-		return slotActive, nil
+		return slotActive, status, nil
 	case status.Status.IsSuccess():
-		return slotSucceeded, nil
+		return slotSucceeded, status, nil
 	default:
-		return slotFailed, nil
+		return slotFailed, status, nil
 	}
+}
+
+// maxFailureError bounds the error a failed slot keeps, so that the
+// backfill's progress stays small.
+const maxFailureError = 300
+
+// runFailure returns how a failed run failed: its first failed step and the
+// first line of that step's error, or the first line of the run's own error
+// when no step failed.
+func runFailure(status *ir.DAGRunStatus) (string, string) {
+	firstLine := func(text string) string {
+		line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+		if len(line) > maxFailureError {
+			line = strings.ToValidUTF8(line[:maxFailureError], "")
+		}
+		return strings.TrimSpace(line)
+	}
+	for _, node := range status.Nodes {
+		if node != nil && node.Status == ir.NodeFailed {
+			return node.Step.Name, firstLine(node.Error)
+		}
+	}
+	return "", firstLine(status.Error)
 }
 
 // removedOutcome reads how a run that is gone ended from the status history

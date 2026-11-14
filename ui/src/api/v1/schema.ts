@@ -5172,6 +5172,23 @@ export interface components {
             waitingRunId?: string;
             /** @description About how long an open backfill's slots left take, from the pace of the runs that ended since its slots were last planned. Absent until one has. */
             secondsLeft?: number;
+            /** @description The failed slots grouped by the step their runs failed at and its error, the largest group first */
+            failures?: components["schemas"]["BackfillFailure"][];
+        };
+        /** @description Failed slots of a backfill whose runs failed alike */
+        BackfillFailure: {
+            /** @description The step the runs failed at; absent when no step failed */
+            step?: string;
+            /** @description The first line of that step's error, or of the run's */
+            error?: string;
+            slots: number;
+            /**
+             * Format: date-time
+             * @description The group's earliest slot
+             */
+            slot: string;
+            /** @description The run of that slot */
+            runId: string;
         };
         /** @description The DAG's open backfill, or else its newest backfill that ended failed while a slot it failed has not succeeded since */
         LatestBackfill: components["schemas"]["Backfill"];

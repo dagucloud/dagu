@@ -263,6 +263,12 @@ dagu backfill status <backfill id> [--watch] [--format text|json]
   pace of the runs that ended since its slots were last planned:
   `About 1h 40m left, at the pace of its runs so far`. The API gives it as
   `secondsLeft`, and the run that blocks a backfill as `waitingRunId`.
+- `status` groups the failed slots by the step their runs failed at and the
+  first line of its error, the largest group first, each with its slot
+  count, its earliest slot, and that slot's run:
+  `Failed: 2 slots at step load: connection refused (first <slot>, run <id>)`.
+  The dispatcher records the step and error when it sees a run fail, so
+  reading them needs no run's status. The API gives them as `failures`.
 - `status --watch` prints a line each time the backfill's progress changes,
   then the status when the backfill ends. It exits 0 only when the backfill
   succeeded. With `--format json`, the progress lines go to stderr and stdout

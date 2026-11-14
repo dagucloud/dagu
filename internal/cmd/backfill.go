@@ -411,6 +411,26 @@ func readBackfillStatus(ctx *Context, id string) (backfillStatus, error) {
 	return backfillStatus{report: report, label: backfillStatusLabel(ctx, record), wait: wait.Reason}, nil
 }
 
+// backfillFailureLine tells a group of failed slots in one line, such as
+// "2 slots at step load: connection refused (first 2025-10-02 02:00, run
+// backfill-…)".
+func backfillFailureLine(ctx *Context, failure backfill.Failure) string {
+	var b strings.Builder
+	if failure.Slots == 1 {
+		b.WriteString("1 slot")
+	} else {
+		fmt.Fprintf(&b, "%d slots", failure.Slots)
+	}
+	if failure.Step != "" {
+		fmt.Fprintf(&b, " at step %s", failure.Step)
+	}
+	if failure.Error != "" {
+		fmt.Fprintf(&b, ": %s", failure.Error)
+	}
+	fmt.Fprintf(&b, " (first %s, run %s)", formatBackfillTime(failure.At.In(ctx.Config.Core.Location)), failure.RunID)
+	return b.String()
+}
+
 func writeBackfillStatus(ctx *Context, out io.Writer, format string, status backfillStatus) error {
 	record, report := status.report.Record, status.report
 	if format == backfillFormatJSON {
@@ -422,6 +442,7 @@ func writeBackfillStatus(ctx *Context, out io.Writer, format string, status back
 			"counts":      report.Counts,
 			"slots":       report.Slots,
 			"secondsLeft": int(report.Estimate.Round(time.Second) / time.Second),
+			"failures":    report.Failures,
 		})
 	}
 	var b strings.Builder
@@ -434,6 +455,9 @@ func writeBackfillStatus(ctx *Context, out io.Writer, format string, status back
 		// The estimate is rough, so it is told to the minute, at least one.
 		left := max(report.Estimate.Round(time.Minute), time.Minute)
 		fmt.Fprintf(&b, "About %s left, at the pace of its runs so far\n", formatDurationHuman(left))
+	}
+	for _, failure := range report.Failures {
+		fmt.Fprintf(&b, "Failed: %s\n", backfillFailureLine(ctx, failure))
 	}
 	b.WriteString("\n")
 	if _, err := io.WriteString(out, b.String()); err != nil {

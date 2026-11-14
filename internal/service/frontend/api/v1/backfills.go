@@ -547,6 +547,7 @@ func toAPIBackfill(report backfill.Report, schedulerRunning bool) api.Backfill {
 		SlotCount:      len(record.Slots),
 		Counts:         counts,
 		SecondsLeft:    secondsOrNil(report.Estimate),
+		Failures:       toAPIBackfillFailures(report.Failures),
 	}
 }
 
@@ -556,6 +557,23 @@ func secondsOrNil(d time.Duration) *int {
 		return nil
 	}
 	return new(int(d.Round(time.Second) / time.Second))
+}
+
+func toAPIBackfillFailures(failures []backfill.Failure) *[]api.BackfillFailure {
+	if len(failures) == 0 {
+		return nil
+	}
+	out := make([]api.BackfillFailure, len(failures))
+	for i, failure := range failures {
+		out[i] = api.BackfillFailure{
+			Step:  stringOrNil(failure.Step),
+			Error: stringOrNil(failure.Error),
+			Slots: failure.Slots,
+			Slot:  failure.At,
+			RunId: failure.RunID,
+		}
+	}
+	return &out
 }
 
 func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []string) api.BackfillPlan {
