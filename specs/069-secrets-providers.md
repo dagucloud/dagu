@@ -102,13 +102,15 @@ where value resolution inserts it into one of the step's fields:
   reads the part of it the path selects, and a path that no longer resolves
   because masking left the text no longer JSON counts as reading the variable.
 
-Each reference fails only when masking changed the output it reads. A reference
-that resolution leaves as written reads nothing: an escaped reference, and a
-`js` or `template` script, which is passed on as written. In a step's command or
-script that a local POSIX shell runs, Dagu leaves `$NAME` and `${NAME}` to the
-shell, which reads them from its environment like any program, so they are not
-checked. Dagu inserts the value itself, so the read is checked, in a condition,
-with another shell, a direct command, SSH, or a container, and for a `"${NAME}"`
+Each reference fails only when masking changed the output it reads. Within a
+JSON output, a field counts as changed when it holds the mask, `*******`, so a
+field that held seven or more asterisks of its own counts too. A reference that
+resolution leaves as written reads nothing: an escaped reference, and a `js` or
+`template` script, which is passed on as written. In a step's command or script
+that a local POSIX shell runs, Dagu leaves `$NAME` and `${NAME}` to the shell,
+which reads them from its environment like any program, so they are not checked.
+Dagu inserts the value itself, so the read is checked, in a condition, with
+another shell, a direct command, SSH, or a container, and for a `"${NAME}"`
 inside a single-quoted span, which it quotes into place. `${env.NAME}` and the
 step-output forms are resolved by Dagu everywhere.
 
