@@ -61,6 +61,8 @@ func TestKeySignerCachesWithinRun(t *testing.T) {
 		_, err := keySigner(run, auth, "")
 		require.NoError(t, err)
 	}
+	// keySigner reports no parse count, so the cache entries show that the
+	// three connections shared one parse.
 	assert.Len(t, credentialsFromContext(run).signers.entries, 1)
 
 	// Another run starts with an empty cache.

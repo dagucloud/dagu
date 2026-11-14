@@ -14,6 +14,10 @@ import (
 // the key text and passphrase. Decrypting a passphrase-protected key runs a
 // deliberately slow key derivation, so a run that connects many times parses
 // each key once. Concurrent requests for the same key wait for one parse.
+//
+// A failed parse is kept as well. Parsing depends only on the key text and
+// passphrase, which form the cache key, so a retry with the same pair would
+// fail again, and a key file that changes gets a new entry.
 type signerCache struct {
 	mu      sync.Mutex
 	entries map[[sha256.Size]byte]*signerEntry
