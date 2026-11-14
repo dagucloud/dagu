@@ -89,6 +89,10 @@ func expandAllVariables(ctx context.Context, input string, opts *options) (strin
 
 // substitutePhase runs backtick command substitution.
 func substitutePhase(ctx context.Context, input string, opts *options) (string, error) {
+	// A command does not run on a masked value it would be given.
+	if err := maskedReadsFrom(ctx).rejected(); err != nil {
+		return "", err
+	}
 	value, err := substituteCommandsWithContext(ctx, input)
 	if err != nil {
 		return "", err
@@ -155,6 +159,9 @@ func evalStringValue(ctx context.Context, value string, opts *options) (string, 
 	var err error
 	value = expandVariables(ctx, value, opts)
 	if opts.Substitute {
+		if err := maskedReadsFrom(ctx).rejected(); err != nil {
+			return "", err
+		}
 		value, err = substituteCommandsWithContext(ctx, value)
 		if err != nil {
 			return "", err

@@ -5,6 +5,7 @@ package value
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -129,4 +130,10 @@ func TestRejectMaskedReads(t *testing.T) {
 	var read *MaskedReadError
 	require.ErrorAs(t, err, &read)
 	assert.Equal(t, MaskedReadError{Step: "fetch", Output: "TOKEN"}, *read)
+
+	// A command substitution does not run on the value.
+	ran := filepath.Join(t.TempDir(), "ran")
+	_, err = resolver.String(ctx, "`echo ${TOKEN} > "+ran+"`", ConditionEvalField("preconditions"))
+	require.ErrorAs(t, err, &read)
+	assert.NoFileExists(t, ran)
 }

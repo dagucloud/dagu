@@ -2035,6 +2035,8 @@ func (r *Runner) handlePreconditionError(plan *Plan, err error) {
 // precondition decides; readErr reports it.
 func evalPreconditions(ctx context.Context, node *Node) (err, readErr error) {
 	ctx = cmnvalue.TrackMaskedReads(ctx)
+	// A precondition command does not run on a masked value.
+	cmnvalue.RejectMaskedReads(ctx)
 	err = node.evalPreconditions(ctx)
 	return err, maskedReadError(ctx, node)
 }

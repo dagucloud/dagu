@@ -5487,6 +5487,27 @@ func TestRetryMaskedOutputs(t *testing.T) {
 	}
 }
 
+// A precondition command that reads a masked output fails the step without
+// running.
+func TestRetryMaskedOutputPreconditionCommand(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t)
+	ran := filepath.Join(t.TempDir(), "ran")
+	fetch := newStep("fetch", withID("fetch"), withOutput("TOKEN"))
+	use := newStep("use", withDepends("fetch"), withCommand("true"),
+		withPrecondition(&ir.Condition{Condition: "echo ${TOKEN} > " + ran}))
+	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{fetch, use}}
+	plan, err := runtime.CreateRetryPlan(r.Context, dag,
+		restoredNode(fetch, "*******", &ir.MaskedOutputs{Variables: []string{"TOKEN"}}),
+		runtime.NewNode(use, runtime.NodeState{Status: ir.NodeNotStarted}),
+	)
+	require.NoError(t, err)
+	result := (planHelper{testHelper: r, Plan: plan, workDir: t.TempDir()}).assertRun(t, ir.Failed)
+	assert.ErrorContains(t, result.nodeByName(t, "use").Error(), `reads output "TOKEN" of step "fetch"`)
+	assert.NoFileExists(t, ran)
+}
+
 // The error names the producing step by its name, which retry selects it by,
 // though the reference names it by id.
 func TestRetryMaskedOutputNamesProducer(t *testing.T) {
