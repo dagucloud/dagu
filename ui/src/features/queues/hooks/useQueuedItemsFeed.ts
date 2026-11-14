@@ -76,6 +76,8 @@ export function useQueuedItemsFeed({
   // soon as it is set, before any re-render or effect.
   const nextCursorRef = React.useRef<string | null>(null);
   const loadingMoreRef = React.useRef(false);
+  // The filter the listed items were read with.
+  const itemsFilterRef = React.useRef(backfill);
 
   const updateNextCursor = React.useCallback((cursor: string | null) => {
     nextCursorRef.current = cursor;
@@ -106,7 +108,16 @@ export function useQueuedItemsFeed({
       } else {
         setIsLoading(true);
         updateLoadingMore(false);
+        // A load of more items waits for the head of this listing, so it
+        // never continues from another listing's cursor.
+        updateNextCursor(null);
         setError(null);
+        // Items another filter listed are not shown or selectable while
+        // this one loads, nor after it fails.
+        if (itemsFilterRef.current !== backfill) {
+          itemsFilterRef.current = backfill;
+          setItems([]);
+        }
       }
 
       const requestID = requestIDRef.current + 1;

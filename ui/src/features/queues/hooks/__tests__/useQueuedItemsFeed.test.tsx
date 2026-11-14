@@ -75,6 +75,34 @@ describe('useQueuedItemsFeed', () => {
     expectLastCursor('cursor-1');
   });
 
+  // Until the new filter's head arrives, the other filter's items are gone,
+  // and no load continues from its cursor.
+  it('drops the items and cursor of the previous filter at once', async () => {
+    getMock.mockReset();
+    getMock.mockResolvedValueOnce({
+      data: {
+        items: [{ name: 'etl', dagRunId: 'run-1' }],
+        nextCursor: 'cursor-1',
+      },
+    });
+    getMock.mockReturnValue(new Promise(() => {}));
+    const { result, rerender } = renderHook(
+      ({ backfill }: { backfill: RunBackfillFilter }) =>
+        useQueuedItemsFeed({ ...feedProps, backfill }),
+      { initialProps: { backfill: RunBackfillFilter.all } }
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    rerender({ backfill: RunBackfillFilter.exclude });
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+    expect(result.current.items).toEqual([]);
+    expect(result.current.hasMore).toBe(false);
+    act(() => {
+      void result.current.loadMore();
+    });
+    expect(getMock).toHaveBeenCalledTimes(2);
+  });
+
   // A changed filter lists the queue again from its head.
   it('lists the queue again with the backfill filter', async () => {
     const { rerender } = renderHook(

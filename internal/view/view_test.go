@@ -408,6 +408,13 @@ func TestView_RunStorageRoundTrip(t *testing.T) {
 	assert.Equal(t, original, original.ToStorage().ToView())
 }
 
+// A run view stored before the backfill filter existed lists every run.
+func TestView_RunStoredWithoutBackfill(t *testing.T) {
+	stored := &view.ViewForStorage{ID: "run-id", Name: "Runs", Type: view.TypeRun}
+
+	assert.Equal(t, view.BackfillAll, stored.ToView().Backfill)
+}
+
 func TestView_ArtifactStorageRoundTrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	original := &view.View{

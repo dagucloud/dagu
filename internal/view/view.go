@@ -610,6 +610,11 @@ func (s *ViewForStorage) ToView() *View {
 	if len(columns) == 0 && (s.Type == "" || s.Type == TypeKanban) {
 		columns = DefaultColumns()
 	}
+	// A run view stored before the backfill filter existed lists every run.
+	backfill := s.Backfill
+	if backfill == "" && s.Type == TypeRun {
+		backfill = BackfillAll
+	}
 	return &View{
 		ID:             s.ID,
 		Name:           s.Name,
@@ -627,7 +632,7 @@ func (s *ViewForStorage) ToView() *View {
 		ActiveOnly:     s.ActiveOnly,
 		DAGRunID:       s.DAGRunID,
 		RunStatus:      s.RunStatus,
-		Backfill:       s.Backfill,
+		Backfill:       backfill,
 		DateMode:       s.DateMode,
 		DatePreset:     s.DatePreset,
 		SpecificPeriod: s.SpecificPeriod,
