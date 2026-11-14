@@ -69,6 +69,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 			workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir),
 			filedag.WithChangeMarker(file.DAGChangeMarkerPath(ctx.Config), 0),
 			filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
+			filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
 		)
 	}
 	deps.DAGRepository = ctx.Persistence.DAGRepository

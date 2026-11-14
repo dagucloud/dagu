@@ -306,6 +306,29 @@ func TestHandleFSEvent_NameChangeEmitsDeleteThenAdd(t *testing.T) {
 	assert.Equal(t, "new-name", receivedEvents[1].DAG.Name)
 }
 
+// A DAG under a skipped directory is neither scheduled nor watched, wired as
+// the scheduler wires the store and the reader.
+func TestRecursiveEntryReaderSkipsDirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	for _, dir := range []string{"team", "jobs"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0750))
+		writeDAGFile(t, filepath.Join(tmpDir, dir), dir+".yaml", dir)
+	}
+
+	skip := []string{"jobs"}
+	store := newRepository(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true), WithSkipDirs(skip))
+	er := NewFileEntryReader(tmpDir, store, true, "", "", SkipDirectories(skip))
+	require.NoError(t, er.Init(context.Background()))
+	t.Cleanup(er.Stop)
+
+	require.Len(t, er.Entries(), 1)
+	assert.Equal(t, "team", er.Entries()[0].DAG.Name)
+	assert.NotContains(t, er.watchedDirs, filepath.Join(tmpDir, "jobs"))
+
+	require.NoError(t, er.refreshRegistry(context.Background()))
+	require.Len(t, er.Entries(), 1)
+}
+
 func TestRecursiveEntryReaderRecoversFromNameConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "team"), 0750))
