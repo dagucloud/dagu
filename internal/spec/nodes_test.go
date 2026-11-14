@@ -82,8 +82,9 @@ func TestNodesFieldRejects(t *testing.T) {
 	}{
 		{"UnknownObjectField", "nodes:\n      labels: web\n      rank_by: name\n", `unknown field "rank_by"`},
 		{"MissingLabels", "nodes:\n      max_concurrent: 2\n", "nodes.labels': is required"},
-		{"MaxConcurrentZero", "nodes:\n      labels: web\n      max_concurrent: 0\n", "must be an integer from 1 to 1000"},
-		{"MaxConcurrentTooHigh", "nodes:\n      labels: web\n      max_concurrent: 1001\n", "must be an integer from 1 to 1000"},
+		{"MaxConcurrentZero", "nodes:\n      labels: web\n      max_concurrent: 0\n", "must be an integer from 1 through 1000"},
+		{"MaxConcurrentTooHigh", "nodes:\n      labels: web\n      max_concurrent: 1001\n", "must be an integer from 1 through 1000"},
+		{"MaxConcurrentNotInteger", "nodes:\n      labels: web\n      max_concurrent: \"2\"\n", "must be an integer, got string"},
 		{"KeepGoingNotBool", "nodes:\n      labels: web\n      keep_going: \"yes\"\n", "must be true or false"},
 		{"InvalidTerm", "nodes: env==prod\n", `invalid label filter "env==prod"`},
 		{"EmptySelector", "nodes: \",\"\n", "selector is empty"},
@@ -96,6 +97,26 @@ func TestNodesFieldRejects(t *testing.T) {
 
 			_, err := spec.LoadYAML(context.Background(), []byte("steps:\n  - run: \"true\"\n    "+tt.yaml))
 			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// A step with nodes runs on each node, so a DAG-level container or ssh does
+// not become its executor, and the step stays a command step.
+func TestNodesStepIgnoresDAGTransport(t *testing.T) {
+	t.Parallel()
+
+	for name, transport := range map[string]string{
+		"Container": "container: {image: alpine}\n",
+		"SSH":       "ssh: {host: example.com, user: deploy}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			dag, err := spec.LoadYAML(context.Background(), []byte(transport+"steps:\n  - run: whoami\n    nodes: web\n  - run: whoami\n"))
+			require.NoError(t, err)
+			assert.True(t, dag.Steps[0].ExecutorConfig.IsCommand())
+			assert.False(t, dag.Steps[1].ExecutorConfig.IsCommand(), "a step without nodes keeps the DAG's transport")
 		})
 	}
 }

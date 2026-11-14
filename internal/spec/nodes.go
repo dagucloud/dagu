@@ -66,10 +66,9 @@ func parseNodesObject(obj map[string]any, targets *ir.NodeTargets) error {
 	targets.Selector = selector
 
 	if raw, ok := obj[nodesFieldMaxConcurrent]; ok {
-		n, err := toInt(raw)
-		if err != nil || n < 1 || n > ir.MaxNodeMaxConcurrent {
-			return ir.NewValidationError("nodes.max_concurrent", raw,
-				fmt.Errorf("must be an integer from 1 to %d", ir.MaxNodeMaxConcurrent))
+		n, err := parseMaxConcurrent("nodes.max_concurrent", raw)
+		if err != nil {
+			return err
 		}
 		targets.MaxConcurrent = n
 	}

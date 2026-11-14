@@ -19,6 +19,4 @@ const (
 	// DefaultNodeMaxConcurrent runs one node at a time, so a command that
 	// restarts a service never reaches every host at once by default.
 	DefaultNodeMaxConcurrent = 1
-	// MaxNodeMaxConcurrent is the largest max_concurrent a node step takes.
-	MaxNodeMaxConcurrent = 1000
 )

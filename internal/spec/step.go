@@ -2183,11 +2183,14 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 		return nil
 	}
 
-	// Infer type from DAG-level configuration
+	// Infer type from DAG-level configuration. A step with nodes runs on each
+	// node, so the DAG-level transports, container and ssh, do not apply to
+	// it (RFC 013).
 	if result.ExecutorConfig.Type == "" && ctx.dag != nil {
-		if ctx.dag.Container != nil {
+		transport := s.Nodes == nil
+		if transport && ctx.dag.Container != nil {
 			result.ExecutorConfig.Type = "container"
-		} else if ctx.dag.SSH != nil {
+		} else if transport && ctx.dag.SSH != nil {
 			result.ExecutorConfig.Type = "ssh"
 		} else if ctx.dag.Redis != nil {
 			result.ExecutorConfig.Type = "redis"

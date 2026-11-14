@@ -20,7 +20,7 @@ func TestNodeTargetingValidation(t *testing.T) {
 		{"valid.yaml", ""},
 		{"unknown_field.yaml", `unknown field "rank_by"`},
 		{"missing_labels.yaml", "field 'nodes.labels': is required"},
-		{"max_concurrent_range.yaml", "must be an integer from 1 to 1000"},
+		{"max_concurrent_range.yaml", "must be an integer from 1 through 1000"},
 		{"invalid_term.yaml", `invalid label filter "env==prod"`},
 		{"wrong_action.yaml", "is allowed only on dag.run and on command steps"},
 		{"with_worker_selector.yaml", "cannot be combined with worker_selector"},

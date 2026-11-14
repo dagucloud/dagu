@@ -488,6 +488,10 @@ func (d *DAG) HasApprovalSteps() bool {
 // with approval steps, which must run locally.
 var ErrWorkerSelectorApproval = errors.New("DAG with approval steps cannot be dispatched to workers")
 
+// errWorkerSelectorNodeRequired is returned when a worker selector is set on
+// a node: required DAG, whose bound node decides where it runs.
+var errWorkerSelectorNodeRequired = errors.New("a node: required DAG runs on its bound node and cannot be dispatched to workers")
+
 // ValidateWorkerSelector checks a selector given for one run: every key must
 // be a valid label key and every value a non-empty valid label value.
 func ValidateWorkerSelector(selector map[string]string) error {
@@ -517,6 +521,9 @@ func (d *DAG) ApplyWorkerSelector(selector map[string]string) error {
 	}
 	if d.HasApprovalSteps() {
 		return NewValidationError("worker_selector", selector, ErrWorkerSelectorApproval)
+	}
+	if d.NodeRequired {
+		return NewValidationError("worker_selector", selector, errWorkerSelectorNodeRequired)
 	}
 	d.WorkerSelector = maps.Clone(selector)
 	d.ForceLocal = false

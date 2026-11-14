@@ -43,13 +43,16 @@ leading `!` as a tag.
 
 `nodes` is allowed on a `dag.run` step and on command steps: `run`,
 `command`, or `script` with no `action`, `ssh.run`, and `sftp.upload` and
-`sftp.download`.
+`sftp.download`. A step with `nodes` runs on each node, so a DAG-level
+`container` or `ssh` does not apply to it, and a `run` step under either is
+still a command step.
 
 ### The `node` DAG field
 
 `node: required` makes a DAG run only bound to one node: as the child of a
 `dag.run` step with `nodes`, or started with exactly one node. `required` is
-the only value.
+the only value. A worker selector given when such a DAG is started or
+enqueued is refused, since the bound node decides where it runs.
 
 ## Errors
 
