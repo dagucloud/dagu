@@ -166,6 +166,46 @@ for a request, tick, or SSE path; most changes need no measurement.
 - Run frontend tests, type checking, and build checks for UI changes.
 - Run `make test-e2e` for user-visible flows that need browser coverage.
 
+## Pull request body
+
+Write the body so a reviewer understands the change in a minute. Put the
+core of the change in the body; leave plumbing, tests, and generated code
+to the diff.
+
+Every pull request body has these sections:
+
+- `Summary`: the problem and why it matters, in two or three sentences.
+- `Changes`: the list of changes, one per line, and user-visible behavior
+  before and after, such as CLI output, API fields, YAML, or a UI
+  screenshot.
+- `Core change`: the mechanism in two to four sentences, and the few lines
+  of code that decide the new behavior, about 30 lines at most, with file
+  and line.
+- `Testing`: what shows the change works. For a bug fix, name the test that
+  failed before the fix.
+- `Performance`: as described in the Performance section.
+
+Add these only when they apply, and omit the heading otherwise:
+
+- `Compatibility`: changes to persisted data, API, CLI, YAML, or config.
+  State whether an older binary still reads the data, whether a downgrade
+  is safe, and whether a coordinator and workers on different versions
+  still work together.
+- `Review guide`: when the diff is over about 300 lines, or the change
+  alters state transitions, the flow between components, or the order of
+  locks, leases, or events.
+  - Which files are mechanical or generated, and which decisions need a
+    reviewer's judgment.
+  - A Mermaid diagram for state transitions, component flow, or ordering.
+    Draw only the changed part, in about ten nodes, and mark what changed.
+    Keep the prose too: `gh pr view` and email show the diagram as code.
+- `Security`: changes to authentication, permissions, or exposure of
+  secrets in logs or responses.
+- `Out of scope`: what the change leaves out on purpose, and follow-up
+  pull requests.
+- `Agent`: optional. The agent harness, model, and reasoning effort that
+  wrote the change, such as `Claude Code, claude-opus-5-5, xhigh`.
+
 ## Pull request CI
 
 - Each workflow runs only for changes to the paths it covers. A pull request
