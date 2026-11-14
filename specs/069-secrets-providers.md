@@ -85,13 +85,15 @@ A run can instead restore a step's stored result without executing the step
 again: a retry of the run or of a step, a retry with an edited DAG, resume after
 an approval or a human task, a run that carries another run's outputs, and the
 retry of a step that starts a child run, including one in a `parallel:` step,
-which retries the child run and restores its steps. Stored outputs stay masked,
-and stored status records which outputs masking changed. A step that reads a
-recorded output after such a restore fails before it runs, with an error that
-names the step and the output and says the producing step has to run again,
-together with the steps after it. When both are steps of a child run, that
-takes a retry of the child run, not of the parent. A step reads an output where
-value resolution inserts it into one of the step's fields:
+which retries the child run and restores its steps. A step in a child run of a
+`parallel:` step that retries under its own retry policy is retried that way
+too, within the same run of the parent. Stored outputs stay masked, and stored
+status records which outputs masking changed. A step that reads a recorded
+output after such a restore fails before it runs, with an error that names the
+step and the output and says the producing step has to run again, together with
+the steps after it. When both are steps of a child run, that takes a retry of
+the child run, not of the parent. A step reads an output where value resolution
+inserts it into one of the step's fields:
 
 - `${steps.<id>.outputs.<name>}` reads that published output.
 - `${<id>.outputs}` and any path or slice under it read the published outputs
@@ -139,14 +141,15 @@ A precondition decides on what it reads, including the fields Dagu resolves
 before it: the step's env, working directory, stdout and stderr paths, and retry
 and repeat settings. A step whose such field reads a recorded output fails
 before its preconditions run, and a precondition that reads one fails the step
-whatever it decides. A step whose preconditions are not met and that read
-nothing recorded is skipped as before. A field that an executor resolves while
-the step runs, such as foreach items, fails the step at the read, before the
-executor uses the value. A repeat condition runs after each execution, so one
-that reads a recorded output fails the step after the execution that evaluates
-it, and so does a field of an object-form `output:`, which Dagu resolves once
-the step has produced its output. The failure is the same on every attempt, so
-it is not retried, repeated, or marked successful.
+whatever it decides, without running a command it would pass the value to. A
+step whose preconditions are not met and that read nothing recorded is skipped
+as before. A field that an executor resolves while the step runs, such as
+foreach items, fails the step at the read, before the executor uses the value. A
+repeat condition runs after each execution, so one that reads a recorded output
+fails the step after the execution that evaluates it, and so does a field of an
+object-form `output:`, which Dagu resolves once the step has produced its
+output. The failure is the same on every attempt, so it is not retried,
+repeated, or marked successful.
 
 Resume after an approval or a human task cannot run a step before the gate again
 without reopening it, so a step after the gate that reads a recorded output
