@@ -158,7 +158,11 @@ func (r *DAGRunRepository) LatestSubAttempt(
 	if r.latestStatusToday && !options.AllHistory {
 		query.NotBefore = NewUTC(r.startOfDay())
 	}
-	return r.store.LatestSubAttempt(ctx, query)
+	attempt, err := r.store.LatestSubAttempt(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return newEventingAttempt(attempt, nil, false), nil
 }
 
 // LatestStatuses returns the status of each DAG's newest run when that run

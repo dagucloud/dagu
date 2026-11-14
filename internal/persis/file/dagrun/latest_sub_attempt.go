@@ -144,14 +144,9 @@ func parseSubAttemptStatusFile(statusFile string) (subAttemptStatusFileInfo, boo
 	if matches == nil {
 		return subAttemptStatusFileInfo{}, false
 	}
-	// Attempt timestamps are "YYYYMMDD_HHMMSS_mmmZ"; the part before the
-	// millisecond separator is the "YYYYMMDD_HHMMSSZ" run format.
-	attemptTime, err := parseDAGRunTimestamp(matches[1][:dagRunTimestampLen-1] + "Z")
-	if err != nil {
-		return subAttemptStatusFileInfo{}, false
-	}
 
 	// Walk the "<container>/<run-id>" segments up to the top-level run.
+	// Every root-run write ends here, so this comes before the time parse.
 	dir := filepath.Dir(attemptDir)
 	nested := false
 	for !reDAGRunDir.MatchString(filepath.Base(dir)) {
@@ -176,6 +171,12 @@ func parseSubAttemptStatusFile(statusFile string) (subAttemptStatusFileInfo, boo
 	}
 	dagRunsDir := filepath.Dir(yearDir)
 	if filepath.Base(dagRunsDir) != "dag-runs" {
+		return subAttemptStatusFileInfo{}, false
+	}
+	// Attempt timestamps are "YYYYMMDD_HHMMSS_mmmZ"; the part before the
+	// millisecond separator is the "YYYYMMDD_HHMMSSZ" run format.
+	attemptTime, err := parseDAGRunTimestamp(matches[1][:dagRunTimestampLen-1] + "Z")
+	if err != nil {
 		return subAttemptStatusFileInfo{}, false
 	}
 
