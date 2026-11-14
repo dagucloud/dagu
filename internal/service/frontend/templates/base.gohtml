@@ -38,6 +38,8 @@
           upgradeCommand: "{{ js $update.UpgradeCommand }}",
           restartRequired: "{{ $update.RestartRequired }}" === "true",
           restartCommand: "{{ js $update.RestartCommand }}",
+          restartStopsRuns: "{{ $update.RestartStopsRuns }}" === "true",
+          restartCanKeepRuns: "{{ $update.RestartCanKeepRuns }}" === "true",
           license: {
             valid: "{{ licenseValid }}" === "true",
             plan: "{{ licensePlan }}",

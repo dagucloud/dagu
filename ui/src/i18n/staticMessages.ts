@@ -3133,6 +3133,11 @@ const baseEnglish = {
     'A new Dagu binary is installed. Run {command} to restart and use it.',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     'A new Dagu binary is installed. Restart Dagu to use it.',
+  'The restart also ends runs in progress.':
+    'The restart also ends runs in progress.',
+  'The restart also ends runs in progress. {keepRunsLink}':
+    'The restart also ends runs in progress. {keepRunsLink}',
+  'Keep them running': 'Keep them running',
   'Upcoming runs': 'Upcoming runs',
   '{count} parameter override': '{count} parameter override',
   '{count} parameter overrides': '{count} parameter overrides',
@@ -6309,6 +6314,10 @@ const baseChinese = {
     '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
+  'The restart also ends runs in progress.': '重启也会结束正在进行的运行。',
+  'The restart also ends runs in progress. {keepRunsLink}':
+    '重启也会结束正在进行的运行。{keepRunsLink}',
+  'Keep them running': '如何保持运行',
   'Upcoming runs': '即将进行的运行',
   '{count} parameter override': '{count} 个参数覆盖',
   '{count} parameter overrides': '{count} 个参数覆盖',
@@ -9585,6 +9594,11 @@ const baseJapanese = {
     '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
+  'The restart also ends runs in progress.':
+    '再起動すると、進行中の実行も終了します。',
+  'The restart also ends runs in progress. {keepRunsLink}':
+    '再起動すると、進行中の実行も終了します。{keepRunsLink}',
+  'Keep them running': '実行を続ける方法',
   'Upcoming runs': '今後の実行',
   '{count} parameter override': '{count} 件のパラメータ上書き',
   '{count} parameter overrides': '{count} 件のパラメータ上書き',

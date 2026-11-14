@@ -5,9 +5,12 @@ import { I18nProps } from '@/i18n/I18nProps';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { cn } from '@/lib/utils';
 
 const UPDATE_DISMISSED_KEY = 'update-banner-dismissed';
 const RESTART_DISMISSED_KEY = 'restart-banner-dismissed';
+const KEEP_RUNS_DOCS_URL =
+  'https://docs.dagu.sh/server-admin/upgrades#keep-runs-across-restarts';
 
 export function UpdateBanner() {
   const config = useConfig();
@@ -30,6 +33,25 @@ export function UpdateBanner() {
         ) : (
           <I18nText text="A new Dagu binary is installed. Restart Dagu to use it." />
         )}
+        {config.restartStopsRuns && (
+          <>
+            {' '}
+            {config.restartCanKeepRuns ? (
+              <I18nTemplate
+                text="The restart also ends runs in progress. {keepRunsLink}"
+                values={{
+                  keepRunsLink: (
+                    <ExternalLink href={KEEP_RUNS_DOCS_URL}>
+                      <I18nText text="Keep them running" />
+                    </ExternalLink>
+                  ),
+                }}
+              />
+            ) : (
+              <I18nText text="The restart also ends runs in progress." />
+            )}
+          </>
+        )}
       </DismissibleBanner>
     );
   }
@@ -37,14 +59,12 @@ export function UpdateBanner() {
   if (!config.updateAvailable) return null;
 
   const releaseLink = (
-    <a
+    <ExternalLink
       href="https://github.com/dagucloud/dagu/releases"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="ml-2 underline hover:no-underline"
+      className="ml-2"
     >
       <I18nText text="View release" />
-    </a>
+    </ExternalLink>
   );
 
   return (
@@ -115,6 +135,27 @@ function DismissibleBanner({
         </button>
       </I18nProps>
     </div>
+  );
+}
+
+function ExternalLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn('underline hover:no-underline', className)}
+    >
+      {children}
+    </a>
   );
 }
 
