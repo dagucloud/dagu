@@ -34,6 +34,9 @@ type Config struct {
 	ShellArgs     []string       // Additional shell arguments (e.g., -e, -o pipefail)
 	Timeout       time.Duration  // Connection timeout (defaults to 30s)
 	Bastion       *BastionConfig // Optional bastion/jump host configuration
+	// NodeHostKey, when set, checks the host key against an inventory
+	// node's keys in place of StrictHostKey and KnownHostFile.
+	NodeHostKey *NodeHostKey
 }
 
 // BastionConfig represents bastion/jump host connection info
@@ -42,6 +45,9 @@ type BastionConfig struct {
 	Port string
 	User string
 	ir.SSHAuth
+	// NodeHostKey checks the bastion's host key against its node's keys. A
+	// connection to a node sets it, since each hop is a node of its own.
+	NodeHostKey *NodeHostKey
 }
 
 // sshMapConfig is the structure for decoding SSH config from a map.
