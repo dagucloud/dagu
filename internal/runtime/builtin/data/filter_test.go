@@ -92,6 +92,10 @@ func TestFilterConditions(t *testing.T) {
 		{name: "IsAndNone", where: map[string]any{"address": map[string]any{"none": []any{"北区", "淀川区"}}}, want: []string{"ライオンズマンション本町", "本町ガーデン"}},
 		{name: "FullWidthText", where: map[string]any{"name": map[string]any{"is": "梅田タワー"}}, want: []string{"梅田タワー"}},
 		{name: "SortDescendingAndLimit", where: map[string]any{"price": map[string]any{"min": 0}}, sort: []any{"-price"}, limit: 2, want: []string{"梅田タワー", "ライオンズマンション本町"}},
+		{name: "EmptyBoundsSetNoLimit", where: map[string]any{"price": map[string]any{"max": ""}, "updated": map[string]any{"within": nil}, "address": map[string]any{"any": []any{}}}, limit: 3,
+			want: []string{"グランドメゾン天満橋", "ライオンズマンション本町", "南森町パークハイツ"}},
+		{name: "TextListsWordsSeparatedByCommas", where: map[string]any{"address": map[string]any{"any": "淀川区, 中央区"}},
+			want: []string{"ライオンズマンション本町", "淀川リバーサイド", "本町ガーデン"}},
 		{name: "SortPutsWhatDoesNotReadLast", where: map[string]any{"address": map[string]any{"any": []any{"大阪市"}}}, sort: "-price",
 			want: []string{"梅田タワー", "ライオンズマンション本町", "南森町パークハイツ", "本町ガーデン", "グランドメゾン天満橋", "淀川リバーサイド", "天神橋ハイツ"}},
 	} {

@@ -40,7 +40,10 @@ and `within` read it as the first date it holds, written as `2026/11/12`,
 `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a
 year, with `from` and `to` inclusive at the precision they are written in and
 `within` counting days back from the day the step runs; `is`, `any`, and `none`
-compare text with full-width letters and digits folded. A row whose value does
+compare text with full-width letters and digits folded, and a text given to
+`any` or `none` lists the words its commas separate. A bound that is empty,
+null, or an empty list, as a parameter not set yet gives, sets no limit, and a
+field whose every bound is empty has no condition. A row whose value does
 not read as its condition's kind is left out, and stderr reports how many
 such rows each field left out with one value. `with.sort` orders the kept
 rows by fields, descending for a field written with `-` before it, comparing
