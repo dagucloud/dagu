@@ -197,10 +197,12 @@ func TestSpanStoreSharesSpansThroughFiles(t *testing.T) {
 // A DAG's dismissal needs no span of its own, as when only the scheduler's
 // spans held its slots. A suspension and a dismissal of one DAG each keep
 // what the other recorded, and a later dismissal replaces an earlier one,
-// but not the other way round, as when an earlier request is written last.
+// but not the other way round, as when an earlier request is written last;
+// that one writes nothing.
 func TestSpanStoreKeepsADismissal(t *testing.T) {
 	t.Parallel()
-	s := newSpanStore()
+	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans)}
+	s := store.NewSpanStore(col)
 	ctx := t.Context()
 
 	first := schedulerstate.Dismissal{Through: spanAt(1, 9), By: "alice"}
@@ -212,7 +214,9 @@ func TestSpanStoreKeepsADismissal(t *testing.T) {
 	latest := schedulerstate.Dismissal{Through: spanAt(1, 11), By: "bob"}
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, true, spanAt(1, 10)))
 	require.NoError(t, s.Dismiss(ctx, "etl", latest))
+	swaps := col.swaps
 	require.NoError(t, s.Dismiss(ctx, "etl", schedulerstate.Dismissal{Through: spanAt(1, 10), By: "carol"}))
+	assert.Equal(t, swaps, col.swaps, "the earlier dismissal writes nothing")
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, false, spanAt(1, 12)))
 
 	spans, got, err := s.Ended(ctx, "etl")
