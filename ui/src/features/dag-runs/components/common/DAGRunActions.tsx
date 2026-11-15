@@ -197,13 +197,16 @@ function DAGRunActions({
     isRootLevel,
     copy: {
       stopConfirmText: ts('Running steps are canceled.'),
+      waitingStopConfirmText: ts(
+        'Waiting steps are canceled and the remaining steps do not run.'
+      ),
       cancelConfirmText: ts(
         'The failed run will not be retried automatically.'
       ),
     },
   });
   const terminateAction = terminateDetails.action;
-  const offersStopAll = Boolean(stopAll) && terminateAction === 'stop';
+  const offersStopAll = Boolean(stopAll) && terminateDetails.offersStopAll;
   const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(
     dagRun &&
@@ -439,8 +442,8 @@ function DAGRunActions({
                 );
                 return;
               }
-              // The run stops later; the note confirms the request.
-              showToast(ts('Stop signal sent'), { variant: 'info' });
+              // A running run stops later; the note confirms the request.
+              showToast(ts(terminateDetails.successText), { variant: 'info' });
               reloadData();
             }}
           >

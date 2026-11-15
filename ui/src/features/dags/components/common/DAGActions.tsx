@@ -283,6 +283,9 @@ function DAGActions({
       stopTooltipText: 'Stop the latest run',
       cancelTooltipText: 'Cancel auto-retry for the latest run',
       stopConfirmText: ts('Running steps are canceled.'),
+      waitingStopConfirmText: ts(
+        'Waiting steps are canceled and the remaining steps do not run.'
+      ),
       cancelConfirmText: ts(
         'The failed run will not be retried automatically.'
       ),
@@ -525,7 +528,7 @@ function DAGActions({
               setIsStopModal(false);
 
               // If stopAllRunning is checked, use the stop-all endpoint
-              if (terminateAction === 'stop' && stopAllRunning) {
+              if (terminateDetails.offersStopAll && stopAllRunning) {
                 const { error } = await client.POST(
                   '/dags/{fileName}/stop-all',
                   {
@@ -573,7 +576,7 @@ function DAGActions({
                     );
                     return;
                   }
-                  showToast('Stop signal sent');
+                  showToast(terminateDetails.successText);
                   reloadData();
                 } else {
                   console.error('Cannot stop DAG: missing DAG name or run ID');
@@ -587,7 +590,7 @@ function DAGActions({
           >
             <div>
               <p className="mb-2">
-                {terminateAction === 'stop' && stopAllRunning ? (
+                {terminateDetails.offersStopAll && stopAllRunning ? (
                   <I18nText
                     text={
                       'Running steps in every instance of this workflow are canceled.'
@@ -629,7 +632,7 @@ function DAGActions({
                   </LabeledItem>
                 </I18nProps>
               )}
-              {terminateAction === 'stop' && (
+              {terminateDetails.offersStopAll && (
                 <div className="mt-4 flex items-center space-x-2 p-2 bg-warning-muted rounded border border-warning/30">
                   <Checkbox
                     id="stop-all"

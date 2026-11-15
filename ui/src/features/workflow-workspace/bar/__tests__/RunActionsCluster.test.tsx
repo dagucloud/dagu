@@ -88,6 +88,7 @@ type RunCase =
   | 'running'
   | 'queued'
   | 'waiting-approval'
+  | 'waiting-human-task'
   | 'failed-auto-retry'
   | 'failed'
   | 'succeeded';
@@ -122,6 +123,18 @@ function details(kind: RunCase): ApiDAGRunDetails {
         nodes: [
           {
             step: { name: 'approve', approval: {} },
+            status: NodeStatus.Waiting,
+          },
+        ],
+      } as unknown as ApiDAGRunDetails;
+    case 'waiting-human-task':
+      return {
+        ...base,
+        status: Status.Waiting,
+        statusLabel: StatusLabel.waiting,
+        nodes: [
+          {
+            step: { name: 'review', humanTask: {} },
             status: NodeStatus.Waiting,
           },
         ],
@@ -248,6 +261,7 @@ describe('RunActionsCluster', () => {
     ['running', ['Stop']],
     ['queued', ['Dequeue']],
     ['waiting-approval', ['Action required', 'Reject']],
+    ['waiting-human-task', ['Action required', 'Stop']],
     ['failed-auto-retry', ['Cancel', 'Retry']],
     ['failed', ['Retry']],
     ['succeeded', ['Retry']],
@@ -264,6 +278,7 @@ describe('RunActionsCluster', () => {
     'running',
     'queued',
     'waiting-approval',
+    'waiting-human-task',
     'failed-auto-retry',
     'failed',
     'succeeded',

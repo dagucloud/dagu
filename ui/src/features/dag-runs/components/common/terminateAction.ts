@@ -15,8 +15,11 @@ export type DAGRunTerminateActionDetails = {
   buttonText: 'Stop' | 'Cancel';
   tooltipText: string;
   confirmText: string;
+  successText: string;
   errorTitle: string;
   errorDescription: string;
+  // Stop-all reaches running instances only, so a waiting run is stopped alone.
+  offersStopAll: boolean;
 };
 
 type DAGRunTerminateCopy = {
@@ -24,6 +27,7 @@ type DAGRunTerminateCopy = {
   stopTooltipText: string;
   cancelTooltipText: string;
   stopConfirmText: string;
+  waitingStopConfirmText: string;
   cancelConfirmText: string;
   stopErrorDescription: string;
   cancelErrorDescription: string;
@@ -39,6 +43,8 @@ const defaultTerminateCopy: DAGRunTerminateCopy = {
   stopTooltipText: 'Stop this run',
   cancelTooltipText: 'Cancel auto-retry for this run',
   stopConfirmText: 'Running steps are canceled.',
+  waitingStopConfirmText:
+    'Waiting steps are canceled and the remaining steps do not run.',
   cancelConfirmText: 'The failed run will not be retried automatically.',
   stopErrorDescription:
     'The DAG run may have already completed or the worker is unavailable.',
@@ -58,7 +64,7 @@ export function isFailedAutoRetryPendingRun(
 export function getDAGRunTerminateAction(
   run?: AutoRetryCancelableRun | null
 ): DAGRunTerminateAction {
-  if (run?.status === Status.Running) {
+  if (run?.status === Status.Running || run?.status === Status.Waiting) {
     return 'stop';
   }
   if (isFailedAutoRetryPendingRun(run)) {
@@ -82,8 +88,10 @@ export function getDAGRunTerminateActionDetails(
       buttonText: 'Stop',
       tooltipText: copy.nonRootTooltipText,
       confirmText: copy.stopConfirmText,
+      successText: 'Stop signal sent',
       errorTitle: 'Failed to stop DAG run',
       errorDescription: copy.stopErrorDescription,
+      offersStopAll: false,
     };
   }
 
@@ -94,17 +102,23 @@ export function getDAGRunTerminateActionDetails(
       buttonText: 'Cancel',
       tooltipText: copy.cancelTooltipText,
       confirmText: copy.cancelConfirmText,
+      successText: 'Stop signal sent',
       errorTitle: 'Failed to cancel DAG run',
       errorDescription: copy.cancelErrorDescription,
+      offersStopAll: false,
     };
   }
 
+  // A waiting run holds no process, so the stop ends it before the reply.
+  const waiting = run?.status === Status.Waiting;
   return {
     action,
     buttonText: 'Stop',
     tooltipText: copy.stopTooltipText,
-    confirmText: copy.stopConfirmText,
+    confirmText: waiting ? copy.waitingStopConfirmText : copy.stopConfirmText,
+    successText: waiting ? 'Run stopped' : 'Stop signal sent',
     errorTitle: 'Failed to stop DAG run',
     errorDescription: copy.stopErrorDescription,
+    offersStopAll: action === 'stop' && !waiting,
   };
 }

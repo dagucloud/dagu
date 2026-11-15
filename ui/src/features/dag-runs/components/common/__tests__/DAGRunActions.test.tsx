@@ -64,6 +64,12 @@ const runningRun = {
   finishedAt: '',
 };
 
+const waitingRun = {
+  ...runningRun,
+  status: Status.Waiting,
+  statusLabel: StatusLabel.waiting,
+};
+
 function openStopDialog() {
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
   return screen.getByRole('dialog');
@@ -89,6 +95,18 @@ describe('DAGRunActions', () => {
       buttonText: 'Stop',
       tooltipText: 'Stop this run',
       errorTitle: 'Failed to stop DAG run',
+    });
+  });
+
+  it('treats waiting runs as stoppable on their own', () => {
+    expect(getDAGRunTerminateAction(waitingRun)).toBe('stop');
+    expect(getDAGRunTerminateActionDetails(waitingRun)).toMatchObject({
+      action: 'stop',
+      buttonText: 'Stop',
+      confirmText:
+        'Waiting steps are canceled and the remaining steps do not run.',
+      successText: 'Run stopped',
+      offersStopAll: false,
     });
   });
 
@@ -226,6 +244,43 @@ describe('DAGRunActions', () => {
       expect(h.showToast).toHaveBeenCalledWith('Stop signal sent', {
         variant: 'info',
       })
+    );
+  });
+
+  // A waiting run holds no process, so the reply already reports it ended.
+  it('stops a waiting run without offering to stop all', async () => {
+    render(
+      <DAGRunActions
+        dagRun={waitingRun}
+        name="etl"
+        displayMode="full"
+        stopAll={{ fileName: 'etl.yaml' }}
+      />
+    );
+
+    const dialog = openStopDialog();
+    expect(
+      within(dialog).getByText(
+        'Waiting steps are canceled and the remaining steps do not run.'
+      )
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop' }));
+    await waitFor(() =>
+      expect(h.showToast).toHaveBeenCalledWith('Run stopped', {
+        variant: 'info',
+      })
+    );
+    expect(h.client.POST).toHaveBeenCalledTimes(1);
+    expect(h.client.POST).toHaveBeenCalledWith(
+      '/dag-runs/{name}/{dagRunId}/stop',
+      {
+        params: {
+          query: { remoteNode: 'local' },
+          path: { name: 'etl', dagRunId: 'run-7' },
+        },
+      }
     );
   });
 
