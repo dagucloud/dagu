@@ -7,6 +7,7 @@ import (
 	"context"
 	"path/filepath"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -57,7 +58,7 @@ func dagWikiDir(ctx context.Context, dag *ir.DAG) string {
 		return ""
 	}
 	if workspaceName, ok := workspace.WorkspaceNameFromLabels(dag.Labels); ok {
-		return filepath.Join(cfg.Paths.WikiDir, workspaceName, dag.Name)
+		return filepath.Join(cfg.Paths.WikiDir, fileutil.EscapeName(workspaceName), fileutil.EscapeName(dag.Name))
 	}
-	return filepath.Join(cfg.Paths.WikiDir, dag.Name)
+	return filepath.Join(cfg.Paths.WikiDir, fileutil.EscapeName(dag.Name))
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/notification"
@@ -99,6 +100,25 @@ func TestFindWithoutWorkspaceSettings(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, items)
+}
+
+// The Wiki directory of a DAG named after a Windows device is listed under
+// the name that its runs store it as.
+func TestFindDeviceNamedWikiDirectory(t *testing.T) {
+	wikiDir := t.TempDir()
+	dir := filepath.Join(wikiDir, "billing", fileutil.EscapeName("nul"))
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+
+	items, err := deprecation.Find(context.Background(), deprecation.Sources{
+		DAGsDir: t.TempDir(),
+		WikiDir: wikiDir,
+		DAGs:    dagLister{dag("nul", "workspace=billing")},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []deprecation.Item{
+		{Kind: deprecation.KindWikiDirectory, Name: "billing/nul", Path: dir},
+	}, items)
 }
 
 // A failing source must not hide what the other sources hold.

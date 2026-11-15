@@ -18,6 +18,7 @@ import (
 	"slices"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -315,7 +316,7 @@ func wikiDirectories(ctx context.Context, lister DAGLister, wikiDir string) ([]I
 		if !ok {
 			continue
 		}
-		dir := filepath.Join(wikiDir, name, dag.Name)
+		dir := filepath.Join(wikiDir, fileutil.EscapeName(name), fileutil.EscapeName(dag.Name))
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
 			items = append(items, Item{Kind: KindWikiDirectory, Name: name + "/" + dag.Name, Path: dir})
 		}
