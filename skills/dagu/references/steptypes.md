@@ -581,11 +581,13 @@ steps:
     run: echo "${PAGE.structured_content.pages}"
 ```
 
-stdout is `{"content": [...], "structured_content": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+
+Image, audio, and blob resource data is base64 in the output by default. With `save_binary: true`, each such item is saved to the run artifacts under `mcp/<step id>/`, and the item carries `path` (relative to `$DAG_RUN_ARTIFACTS_DIR`) instead of the data.
 
 Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
 
-`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`.
+`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
 
 ## data.filter
 

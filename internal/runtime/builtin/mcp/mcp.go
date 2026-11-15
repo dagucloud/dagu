@@ -4,6 +4,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -15,8 +16,11 @@ import (
 	"time"
 
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -30,16 +34,31 @@ type caller struct {
 	stdout io.Writer
 	stderr io.Writer
 	cfg    config
+	// files stores binary content when save_binary is set; nil otherwise.
+	files  *agentstep.ArtifactStore
 	cancel context.CancelFunc
 	killed bool
 }
 
-func newCaller(_ context.Context, step ir.Step) (executor.Executor, error) {
+func newCaller(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	cfg, err := decodeConfig(step, false)
 	if err != nil {
 		return nil, err
 	}
-	return &caller{stdout: os.Stdout, stderr: os.Stderr, cfg: cfg}, nil
+	c := &caller{stdout: os.Stdout, stderr: os.Stderr, cfg: cfg}
+	if cfg.SaveBinary {
+		env := runtime.GetEnv(ctx)
+		dir := ""
+		if env.Scope != nil {
+			dir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
+		}
+		if dir == "" {
+			return nil, errors.New("mcp.call: with.save_binary requires artifacts, which are disabled for this DAG")
+		}
+		stepKey := cmp.Or(step.ID, step.Name)
+		c.files = agentstep.NewArtifactStore(dir, binarySubdir, stepKey)
+	}
+	return c, nil
 }
 
 func (c *caller) SetStdout(out io.Writer) { c.stdout = out }
@@ -71,7 +90,11 @@ func (c *caller) Run(ctx context.Context) error {
 	redact := newRedactor(c.cfg.Headers, c.cfg.URL)
 	res, cerr := c.call(ctx, redact)
 	if cerr == nil {
-		if err := writeRedacted(c.stdout, newOutput(res, c.cfg.IncludeRaw), redact); err != nil {
+		out, err := newOutput(res, c.cfg.IncludeRaw, c.files)
+		if err != nil {
+			return err
+		}
+		if err := writeRedacted(c.stdout, out, redact); err != nil {
 			return fmt.Errorf("mcp.call: writing output: %w", err)
 		}
 		if res.IsError {

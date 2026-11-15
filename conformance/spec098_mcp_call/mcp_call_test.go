@@ -14,7 +14,10 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const token = "conformance-token"
+const (
+	token      = "conformance-token"
+	chartImage = "fake png bytes"
+)
 
 type mcpServer struct {
 	url     string
@@ -34,6 +37,13 @@ func newMCPServer(t *testing.T) *mcpServer {
 				Content:           []sdk.Content{&sdk.TextContent{Text: "status of " + string(req.Params.Arguments) + " via " + token}},
 				StructuredContent: map[string]any{"pages": 3},
 			}, nil
+		})
+	server.AddTool(&sdk.Tool{Name: "chart", InputSchema: schema},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			return &sdk.CallToolResult{Content: []sdk.Content{
+				&sdk.TextContent{Text: `{"title":"Weekly sales"}`},
+				&sdk.ImageContent{Data: []byte(chartImage), MIMEType: "image/png"},
+			}}, nil
 		})
 	server.AddTool(&sdk.Tool{Name: "explode", InputSchema: schema},
 		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
@@ -66,6 +76,21 @@ func TestMCPCall(t *testing.T) {
 	dagu.ExpectFileContains("call.out", `"structured_content":{"pages":3}`, `"is_error":false`, "status of", "***")
 	dagu.ExpectFileNotContains("call.out", token)
 	dagu.ExpectFileContains("result.out", "pages=3 err=false")
+}
+
+// JSON a tool returns as text is readable by path, and save_binary writes
+// image data to a run artifact that a later step reads by its path.
+func TestMCPCallJSONAndBinary(t *testing.T) {
+	t.Parallel()
+	server := newMCPServer(t)
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv([]string{"MCP_URL=" + server.url}, "start", "json_binary.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContains("chart.out", `"path":"mcp/chart/`, `/content-1.png"`)
+	dagu.ExpectFileNotContains("chart.out", `"data"`)
+	dagu.ExpectFileContains("result.out", "title=Weekly sales")
+	dagu.ExpectFileContains("image.out", chartImage)
 }
 
 // A tool that reports isError fails the step, writes the normal output, and

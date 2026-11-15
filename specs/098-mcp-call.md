@@ -51,6 +51,7 @@ stored and does not send `tools/call` again.
 | `arguments` | no | JSON object passed as the tool arguments. Dagu references resolve as in other `with` values. |
 | `headers` | no | Map of request headers. Use `${SECRET}` references for credentials. |
 | `include_raw` | no | When true, adds the full MCP result as `raw`, masked like the rest of the output. |
+| `save_binary` | no | When true, saves binary content as run artifacts instead of writing it as base64. See [Binary content](#binary-content). |
 
 Unknown fields fail validation.
 
@@ -59,7 +60,7 @@ Unknown fields fail validation.
 On a completed call, stdout is one JSON object:
 
 ```json
-{"content": [{"type": "text", "text": "..."}], "structured_content": null, "is_error": false}
+{"content": [{"type": "text", "text": "..."}], "structured_content": null, "json": null, "is_error": false}
 ```
 
 `content` is the tool's content array (`[]` when absent), `structured_content`
@@ -67,9 +68,36 @@ is the tool's structured result or `null`, and `is_error` is the MCP `isError`
 flag. With `output: PAGE`, later steps read `${PAGE.content}` and
 `${PAGE.structured_content}`.
 
+`json` serves tools that return JSON as text instead of structured content.
+When `structured_content` is `null` and `content` has exactly one text item
+whose text is one JSON object or array, `json` is that value, so later steps
+read `${PAGE.json.title}`. Otherwise `json` is `null`. Because `json` repeats
+the data of that text, such a result counts about twice toward the DAG's
+`max_output_size` (1MB by default) when the step sets `output`.
+
 Numbers in `structured_content` and `raw` are decoded as 64-bit floating
 point, so integers beyond 2^53 lose precision. Tools that return such IDs
-should return them as strings.
+should return them as strings. Numbers in `json` keep every digit.
+
+### Binary content
+
+Image and audio items carry their data as base64 in `data`, and embedded
+resources in `resource.blob`. By default the output keeps them, so a large
+image can exceed the DAG's `max_output_size` when the step sets `output`.
+
+With `save_binary: true`, each such item's data is written to
+`mcp/<step>/<call>/content-<index><ext>` in the run artifacts directory.
+`<step>` is the step id, or its name when it has no id. `<call>` is a
+directory each call creates, so retries and `foreach` items that run the same
+step keep separate files. `<index>` is the item's position in `content`, and
+`<ext>` follows the MIME type (`.bin` when unknown). The item drops `data` or
+`resource.blob` and gains `path`, the file's path relative to the artifacts
+directory; its other fields are kept. Later steps read the file at
+`$DAG_RUN_ARTIFACTS_DIR/${PAGE.content[1].path}`. The data is written as
+received and is not masked. `raw` is not changed.
+
+`save_binary` enables artifacts for the DAG. When the DAG sets
+`artifacts.enabled: false`, the step fails before connecting.
 
 ### Errors
 
@@ -87,6 +115,10 @@ stdout still carries the kind. Kinds:
 | `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 429, 500, 502, 503, or 504. |
 | `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
+
+When the call succeeds but the step cannot write its output or a saved file,
+the step fails with `mcp.call: writing output:` or
+`mcp.call: saving binary content:` and no kind.
 
 On a stop or timeout, the client notifies the server that the request is
 canceled and then closes the session. Against a server that does not answer,

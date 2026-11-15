@@ -1656,7 +1656,8 @@ func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	// explicitly.
 	usesScreenAction := dagUsesBuiltinAction(d, browserActionPrefix) || dagUsesBuiltinAction(d, computerActionPrefix)
 	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction ||
-		dagSavesMailAttachments(d) || dagKeepsXlsxArtifact(d)
+		dagSetsActionFlag(d, "mail.search", "save_attachments") ||
+		dagSetsActionFlag(d, "mcp.call", "save_binary") || dagKeepsXlsxArtifact(d)
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(
@@ -1719,19 +1720,19 @@ func dagUsesBuiltinAction(d *dag, prefix string) bool {
 	})
 }
 
-// dagSavesMailAttachments reports whether a mail.search step writes
-// save_attachments: true literally.
-func dagSavesMailAttachments(d *dag) bool {
-	return dagDeclaresAction(d, func(action string, with reflect.Value) bool {
-		if action != "mail.search" {
+// dagSetsActionFlag reports whether a step of the given action writes
+// with.<field>: true literally.
+func dagSetsActionFlag(d *dag, action, field string) bool {
+	return dagDeclaresAction(d, func(stepAction string, with reflect.Value) bool {
+		if stepAction != action {
 			return false
 		}
 		with, ok := derefForSearch(with)
 		if !ok || with.Kind() != reflect.Map {
 			return false
 		}
-		save, ok := derefForSearch(with.MapIndex(reflect.ValueOf("save_attachments")))
-		return ok && save.Kind() == reflect.Bool && save.Bool()
+		flag, ok := derefForSearch(with.MapIndex(reflect.ValueOf(field)))
+		return ok && flag.Kind() == reflect.Bool && flag.Bool()
 	})
 }
 

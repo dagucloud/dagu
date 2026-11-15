@@ -1693,6 +1693,22 @@ steps:
 	assert.Equal(t, "https://mcp.example.com/mcp", step.ExecutorConfig.Config["url"])
 }
 
+func TestStepSchemaV2_ActionMCPCallSaveBinary(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: screenshot
+      save_binary: true
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Artifacts)
+	assert.True(t, dag.Artifacts.Enabled)
+}
+
 func TestStepSchemaV2_ActionMCPCallRejectsBadConfig(t *testing.T) {
 	t.Parallel()
 
