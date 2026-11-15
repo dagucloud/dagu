@@ -329,6 +329,8 @@ jobs:
       # /PORT and /COORDINATORPORT) to installer.ps1, which must leave a
       # running service behind; the uninstaller must take it away again.
       - name: Test Inno Setup installer service mode
+        # A step that hangs fails here, in time for the logs step to run.
+        timeout-minutes: 10
         shell: powershell
         run: |
           $installDir = "$env:ProgramFiles\Dagu"
