@@ -241,6 +241,23 @@ func TestMaskNodeSecretsRecordsMaskedOutputs(t *testing.T) {
 	assert.Equal(t, want, node.MaskedOutputs)
 }
 
+// A restore reads an output variable's value from after the first "=", so a
+// secret that masking replaced only in the name leaves the value intact.
+func TestMaskNodeSecretsRecordsVariableByValue(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"PIN=4242"})
+	require.NotNil(t, masker)
+	variables := &collections.SyncMap{}
+	variables.Store("BUILD_4242", "BUILD_4242=release")
+	variables.Store("CODE", "CODE=4242")
+	node := &ir.Node{Step: ir.Step{Name: "fetch"}, OutputVariables: variables}
+
+	maskNodeSecrets(masker, node)
+
+	assert.Equal(t, &ir.MaskedOutputs{Variables: []string{"CODE"}}, node.MaskedOutputs)
+}
+
 func TestMaskNodeSecretsRecordsNothingForCleanOutputs(t *testing.T) {
 	t.Parallel()
 

@@ -223,8 +223,10 @@ func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, ma
 			return true
 		}
 		maskedText := masker.MaskString(text)
-		if maskedText != text {
-			// The stored text is NAME=value, so the key is the output name.
+		// The stored text is NAME=value, and a restore reads the value after
+		// the first "=", so only a changed value counts.
+		_, original, _ := strings.Cut(text, "=")
+		if _, restored, ok := strings.Cut(maskedText, "="); !ok || restored != original {
 			name, _ := key.(string)
 			masked.Variables = append(masked.Variables, name)
 		}
