@@ -168,7 +168,7 @@ Each error below exits non-zero and changes nothing.
 | Case | Message |
 | --- | --- |
 | A selector term is invalid | `invalid label filter "<term>"`, as Spec 087 defines |
-| A selector has no terms, such as `,` | `node selector is empty` |
+| `--labels` is given without terms, such as `,` or a blank value | `node selector is empty` |
 | `--inventory` names no inventory | `inventory "<name or id>" not found` |
 | `show` names no node | `node "<name>" not found` |
 | The import file is not JSON, or a record has an unknown field | `invalid inventory JSON: <reason>` |

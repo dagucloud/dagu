@@ -263,6 +263,7 @@ func TestInvalidInput(t *testing.T) {
 		{"UnknownField", []string{"import", "unknown_field.json"}, `invalid inventory JSON: json: unknown field "hosts"`},
 		{"InvalidTerm", []string{"list", "--labels=env==prod"}, `invalid label filter "env==prod"`},
 		{"EmptySelector", []string{"list", "--labels=,"}, "node selector is empty"},
+		{"BlankSelector", []string{"list", "--labels= "}, "node selector is empty"},
 		{"UnknownInventory", []string{"export", "--inventory=Kobe"}, `inventory "Kobe" not found`},
 		{"Format", []string{"list", "--format=yaml"}, `invalid --format "yaml": use table or json`},
 	} {

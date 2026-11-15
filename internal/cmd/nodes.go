@@ -89,11 +89,7 @@ func nodesListCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		selector, err := ctx.StringParam("labels")
-		if err != nil {
-			return err
-		}
-		nodes, err := selectNodes(ctx, store, selector)
+		nodes, err := selectNodes(ctx, store)
 		if err != nil {
 			return err
 		}
@@ -405,11 +401,15 @@ func nodesFormat(ctx *Context) (string, error) {
 	}
 }
 
-// selectNodes returns the nodes a selector matches, or every node when the
-// selector is blank.
-func selectNodes(ctx *Context, store inventory.Store, selector string) ([]inventory.ResolvedNode, error) {
-	if strings.TrimSpace(selector) == "" {
+// selectNodes returns the nodes the --labels selector matches, or every node
+// when the flag is not given. A given selector without terms is an error.
+func selectNodes(ctx *Context, store inventory.Store) ([]inventory.ResolvedNode, error) {
+	if !ctx.Command.Flags().Changed("labels") {
 		return store.Nodes(ctx)
+	}
+	selector, err := ctx.StringParam("labels")
+	if err != nil {
+		return nil, err
 	}
 	return store.Select(ctx, selector)
 }
