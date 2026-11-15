@@ -1397,6 +1397,27 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		assert.Equal(t, "stored before", msgs[0].Content)
 	})
 
+	// A step whose name is the shortened file name of another, longer step
+	// keeps its own messages.
+	t.Run("ShortenedNameKeepsStepsApart", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-shortened-step-name")
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		long := strings.Repeat("a", 241)
+		short := strings.TrimSuffix(stepMessagesName(long), ".json")
+		for _, name := range []string{long, short} {
+			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
+		}
+		for _, name := range []string{long, short} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, name, msgs[0].Content)
+		}
+	})
+
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-retry-messages")
