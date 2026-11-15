@@ -53,6 +53,15 @@ const (
 	eventOtherMouseUp      = 26
 	eventOtherMouseDragged = 27
 
+	// Trackpad events. Quartz names none of them; the window server counts
+	// them under their NSEvent type numbers.
+	eventRotate       = 18
+	eventGesture      = 29
+	eventMagnify      = 30
+	eventSwipe        = 31
+	eventSmartMagnify = 32
+	eventPressure     = 34
+
 	mouseButtonLeft   = 0
 	mouseButtonRight  = 1
 	mouseButtonCenter = 2
@@ -595,15 +604,16 @@ func (b *darwinBackend) Type(text string) error {
 }
 
 // personInputEventTypes are the event types a pointer, keyboard, scroll
-// wheel, or tablet produces. The window server's count of any input also
-// takes in the null events system processes post, such as the Dock when it
-// starts, which no person made.
+// wheel, tablet, or trackpad produces. The window server's count of any
+// input also takes in the null events system processes post, such as the
+// Dock when it starts, which no person made.
 var personInputEventTypes = [...]uint32{
 	eventLeftMouseDown, eventLeftMouseUp, eventRightMouseDown, eventRightMouseUp,
 	eventMouseMoved, eventLeftMouseDragged, eventRightMouseDragged,
 	eventKeyDown, eventKeyUp, eventFlagsChanged,
 	eventScrollWheel, eventTabletPointer, eventTabletProximity,
 	eventOtherMouseDown, eventOtherMouseUp, eventOtherMouseDragged,
+	eventRotate, eventGesture, eventMagnify, eventSwipe, eventSmartMagnify, eventPressure,
 }
 
 func (b *darwinBackend) LastInput() time.Time {
