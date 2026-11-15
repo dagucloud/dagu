@@ -526,7 +526,7 @@ func New(
 		triggerType:              opts.TriggerType,
 		triggerActor:             opts.TriggerActor,
 		parallelItem:             opts.ParallelItem,
-		boundNode:                opts.BoundNode,
+		boundNode:                boundNodeOf(opts),
 		nodeSelector:             opts.NodeSelector,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
@@ -1692,10 +1692,6 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 	if parallelItem == "" && source != nil {
 		parallelItem = source.ParallelItem
 	}
-	boundNode := a.boundNode
-	if boundNode == "" && source != nil {
-		boundNode = source.BoundNode
-	}
 
 	// Handle case where runner wasn't initialized (early failure in Run())
 	if a.runner == nil {
@@ -1707,7 +1703,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithTriggerType(a.triggerType),
 			ir.WithTriggerActor(a.triggerActor),
 			ir.WithParallelItem(parallelItem),
-			ir.WithBoundNode(boundNode),
+			ir.WithBoundNode(a.boundNode),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1769,7 +1765,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithTriggerType(a.triggerType),
 		ir.WithTriggerActor(a.triggerActor),
 		ir.WithParallelItem(parallelItem),
-		ir.WithBoundNode(boundNode),
+		ir.WithBoundNode(a.boundNode),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
