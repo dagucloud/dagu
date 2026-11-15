@@ -384,7 +384,7 @@ func TestInventoryAPI_ImportPermissionsAndAudit(t *testing.T) {
 }
 
 // The import refuses a body that holds more than the array, though the
-// generated handler would decode the array alone. Strict validation stays off,
+// generated handler would decode the array alone, and a body over the limit. Strict validation stays off,
 // so no OpenAPI validator stands in front of the handler.
 func TestInventoryAPI_ImportOverHTTP(t *testing.T) {
 	cfg := &config.Config{Server: config.Server{
@@ -409,6 +409,11 @@ func TestInventoryAPI_ImportOverHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 	assert.Contains(t, resp.Body.String(), "unexpected data after the value")
 	assert.Empty(t, listInventorySummaries(t, api))
+
+	// The body is read whole before the role is checked, so it is bounded:
+	// 32 MiB of whitespace inside an array is one byte too many.
+	resp = post("[" + strings.Repeat(" ", 32<<20-1) + "]")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.Code)
 
 	resp = post(testInventories)
 	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())

@@ -12359,6 +12359,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          description: "The import exceeds the 32 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Generic error response"
           content:

@@ -224,6 +224,10 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 
 type inventoryImportBodyKey struct{}
 
+// maxInventoryImportBytes bounds the body of an import, which is read whole
+// before the caller's role is checked.
+const maxInventoryImportBytes int64 = 32 << 20
+
 // inventoryImportBodyMiddleware keeps the body of an inventory import as it
 // arrived. The generated handler decodes only the first JSON value and drops
 // unknown fields, and an import must refuse both.
@@ -235,8 +239,17 @@ func inventoryImportBodyMiddleware(mountedAPIPath string) func(http.Handler) htt
 				next.ServeHTTP(w, r)
 				return
 			}
-			raw, err := io.ReadAll(r.Body)
-			_ = r.Body.Close()
+			body := http.MaxBytesReader(w, r.Body, maxInventoryImportBytes)
+			raw, err := io.ReadAll(body)
+			_ = body.Close()
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				WriteErrorResponse(w, &Error{
+					HTTPStatus: http.StatusRequestEntityTooLarge,
+					Code:       api.ErrorCodePayloadTooLarge,
+					Message:    fmt.Sprintf("an inventory import is at most %d bytes", maxInventoryImportBytes),
+				})
+				return
+			}
 			if err != nil {
 				WriteErrorResponse(w, &Error{
 					HTTPStatus: http.StatusBadRequest,
