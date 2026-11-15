@@ -19,6 +19,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// startWithMarkerDir runs a DAG whose child runs write child-ran into the
+// project directory, given to them as the param DIR.
+func startWithMarkerDir(t *testing.T, dagu *harness.Runner, file string) *harness.Result {
+	t.Helper()
+	return dagu.RunWithEnv(nodesEnv(t), "start", file, "--", "DIR="+filepath.ToSlash(dagu.ProjectPath(".")))
+}
+
 // fleet is the inventory the runs target: three web nodes, one disabled.
 var fleet = []inventory.Node{
 	{Name: "web01", Host: "10.0.1.11", Labels: []string{"web"}},
@@ -68,25 +75,26 @@ func nodeStatuses(t *testing.T, dagu *harness.Runner) []string {
 func TestNodeStepRuns(t *testing.T) {
 	t.Parallel()
 
+	t.Run("fanout.yaml", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		startWithMarkerDir(t, dagu, "fanout.yaml").ExpectExitCode(0)
+		require.Equal(t, []string{"web01=succeeded", "web02=disabled", "web03=succeeded"}, nodeStatuses(t, dagu))
+		dagu.ExpectFileContent("child-ran", "ran")
+	})
 	for _, tc := range []struct {
-		file     string
-		exitZero bool
-		want     []string
+		file string
+		want []string
 	}{
-		{"fanout.yaml", true, []string{"web01=succeeded", "web02=disabled", "web03=succeeded"}},
-		{"stop_at_failure.yaml", false, []string{"web01=failed", "web02=disabled", "web03=not_started"}},
-		{"keep_going.yaml", false, []string{"web01=failed", "web02=disabled", "web03=failed"}},
+		{"stop_at_failure.yaml", []string{"web01=failed", "web02=disabled", "web03=not_started"}},
+		{"keep_going.yaml", []string{"web01=failed", "web02=disabled", "web03=failed"}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
-			result := dagu.RunWithEnv(nodesEnv(t), "start", tc.file)
-			if tc.exitZero {
-				result.ExpectExitCode(0)
-			} else {
-				result.ExpectNonZeroExitCode()
-			}
+			dagu.RunWithEnv(nodesEnv(t), "start", tc.file).ExpectNonZeroExitCode()
 			require.Equal(t, tc.want, nodeStatuses(t, dagu))
 		})
 	}
@@ -107,9 +115,10 @@ func TestNodeStepFailsBeforeAnyNode(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
-			result := dagu.RunWithEnv(nodesEnv(t), "start", tc.file)
+			result := startWithMarkerDir(t, dagu, tc.file)
 			result.ExpectNonZeroExitCode()
 			result.ExpectStderrContains(tc.wantError)
+			dagu.ExpectNoFile("child-ran")
 		})
 	}
 }

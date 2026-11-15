@@ -53,8 +53,13 @@ type nodeAggregate struct {
 // run's status and that step's aggregate.
 func runNodeStep(t *testing.T, nodes staticNodes, yaml string, wantErr string) (*ir.DAGRunStatus, nodeAggregate) {
 	t.Helper()
+	_, status, aggregate := runNodeStepIn(t, test.Setup(t), nodes, yaml, wantErr)
+	return status, aggregate
+}
 
-	th := test.Setup(t)
+func runNodeStepIn(t *testing.T, th test.Helper, nodes staticNodes, yaml string, wantErr string) (test.Helper, *ir.DAGRunStatus, nodeAggregate) {
+	t.Helper()
+
 	dag := th.DAG(t, yaml)
 	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{NodeSelector: nodes}))
 	if wantErr == "" {
@@ -69,7 +74,7 @@ func runNodeStep(t *testing.T, nodes staticNodes, yaml string, wantErr string) (
 	if data, err := os.ReadFile(status.Nodes[0].Stdout); err == nil && len(data) > 0 {
 		require.NoError(t, json.Unmarshal(data, &aggregate))
 	}
-	return &status, aggregate
+	return th, &status, aggregate
 }
 
 func nodeStatuses(aggregate nodeAggregate) map[string]string {
@@ -202,8 +207,13 @@ func TestNodeSteps_FailBeforeAnyChild(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			status, _ := runNodeStep(t, nodes, tc.yaml, tc.wantErr)
+			th, status, _ := runNodeStepIn(t, test.Setup(t), nodes, tc.yaml, tc.wantErr)
 			require.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
+			root := ir.NewDAGRunRef(status.Name, status.DAGRunID)
+			for _, run := range status.Nodes[0].SubRuns {
+				_, err := th.DAGRunRepository.FindSubAttempt(th.Context, root, run.DAGRunID)
+				require.Error(t, err, "child run %s for node %s started", run.DAGRunID, run.Node)
+			}
 		})
 	}
 }
