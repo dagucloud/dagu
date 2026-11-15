@@ -275,9 +275,16 @@ func TestManager(t *testing.T) {
 		procs := newCheckpointProcesses()
 		mgr := runtime.NewManager(th.DAGRunRepository, procs, th.Config)
 
+		// A stop that never checks liveness fails here instead of hanging.
+		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
 		statusWhileAlive := make(chan ir.Status, 1)
 		go func() {
-			<-procs.observedAlive
+			select {
+			case <-procs.observedAlive:
+			case <-waitCtx.Done():
+				return
+			}
 			status, err := attempt.ReadStatus(ctx)
 			if err != nil {
 				statusWhileAlive <- ir.NotStarted
@@ -288,7 +295,12 @@ func TestManager(t *testing.T) {
 		}()
 
 		require.NoError(t, mgr.Stop(ctx, dag.DAG, dagRunID))
-		require.Equal(t, ir.Waiting, <-statusWhileAlive)
+		select {
+		case status := <-statusWhileAlive:
+			require.Equal(t, ir.Waiting, status)
+		case <-waitCtx.Done():
+			require.FailNow(t, "stop did not check whether the checkpoint process was alive")
+		}
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
