@@ -53,14 +53,13 @@ const (
 	eventOtherMouseUp      = 26
 	eventOtherMouseDragged = 27
 
-	// Trackpad events. Quartz names none of them; the window server counts
-	// them under their NSEvent type numbers.
-	eventRotate       = 18
-	eventGesture      = 29
-	eventMagnify      = 30
-	eventSwipe        = 31
-	eventSmartMagnify = 32
-	eventPressure     = 34
+	// Trackpad gestures. Quartz names none of them; the window server counts
+	// them under their NSEvent type numbers. The other gesture types, such
+	// as gesture (29) and pressure (34), read the same as any input, null
+	// events included.
+	eventRotate  = 18
+	eventMagnify = 30
+	eventSwipe   = 31
 
 	mouseButtonLeft   = 0
 	mouseButtonRight  = 1
@@ -613,7 +612,7 @@ var personInputEventTypes = [...]uint32{
 	eventKeyDown, eventKeyUp, eventFlagsChanged,
 	eventScrollWheel, eventTabletPointer, eventTabletProximity,
 	eventOtherMouseDown, eventOtherMouseUp, eventOtherMouseDragged,
-	eventRotate, eventGesture, eventMagnify, eventSwipe, eventSmartMagnify, eventPressure,
+	eventRotate, eventMagnify, eventSwipe,
 }
 
 func (b *darwinBackend) LastInput() time.Time {
