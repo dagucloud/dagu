@@ -17,8 +17,8 @@
 (*   GapHasNoRuns   no slot the gap counts has a run or a queued catch-up. *)
 (*   GapCountExact  the gap's count is the number of slots it spans, up to *)
 (*                  the cap.                                               *)
-(*   HoldGapComplete a hold's gap counts every slot of its span that no   *)
-(*                  tick decided, no run took, and no catch-up holds.      *)
+(*   HoldGapComplete a hold that ends counts every slot of its span that  *)
+(*                  no tick decided, no run took, and no catch-up holds.   *)
 (*                                                                         *)
 (* Each Mutation other than "none" puts back one bug that was fixed, so a  *)
 (* check of it shows the rules catch that bug.                             *)
@@ -83,12 +83,15 @@ Range(s) == {s[i] : i \in DOMAIN s}
 FiresIn(from, to) == {s \in SlotTimes : s > from /\ s <= to}
 CountSlots(from, to) == Min2(Cap, Cardinality(FiresIn(from, to)))
 
-(* start is a ghost: the tick that started a hold, where its span begins. *)
 NoGap == [valid |-> FALSE, from |-> Zero, to |-> Zero, through |-> Zero,
-          reason |-> "none", slots |-> 0, start |-> Zero]
-Gap(from, to, through, reason, n, start) ==
+          reason |-> "none", slots |-> 0]
+Gap(from, to, through, reason, n) ==
     [valid |-> TRUE, from |-> from, to |-> to, through |-> through,
-     reason |-> reason, slots |-> n, start |-> start]
+     reason |-> reason, slots |-> n]
+
+(* The latest hold that ended: the tick that started it, the instant it   *)
+(* ended at, and the slots its release counted, which may be none.        *)
+NoRelease == [valid |-> FALSE, start |-> Zero, to |-> Zero, counted |-> {}]
 
 (* gapStart: a hold's gap holds the slot of the tick that found the DAG   *)
 (* held, while an outage's starts after the last tick.                    *)
@@ -104,6 +107,7 @@ VARIABLES
     susp,        \* the DAG is suspended
     heldSince,   \* DAGWatermark.HeldSince
     holdStart,   \* the tick that started the hold under way
+    released,    \* the latest hold that ended
     missed,      \* DAGWatermark.Missed
     buf,         \* the catch-up buffer, kept in memory only
     lastTick,    \* State.LastTick
@@ -117,7 +121,7 @@ VARIABLES
     abandoned,   \* catch-up slots a suspension or a crash dropped
     toggles, restarts, backfills
 
-vars == <<clock, phase, nextTick, susp, heldSince, holdStart, missed, buf, lastTick,
+vars == <<clock, phase, nextTick, susp, heldSince, holdStart, released, missed, buf, lastTick,
           lastSched, lastSlot, lastPlanned, starting, handled, decided,
           abandoned, toggles, restarts, backfills>>
 
@@ -126,10 +130,12 @@ HeldSlots == IF heldSince = Zero THEN {} ELSE FiresIn(heldSince - Sec, MinuteOf(
 
 (* releaseDAG(to, through) *)
 Release(hs, m, to, through) ==
-    IF hs = Zero THEN [held |-> hs, gap |-> m]
+    IF hs = Zero THEN [held |-> hs, gap |-> m, released |-> released]
     ELSE LET n == CountSlots(hs - Sec, through)
-         IN [held |-> Zero,
-             gap  |-> IF n > 0 THEN Gap(hs, to, through, "hold", n, holdStart) ELSE m]
+         IN [held     |-> Zero,
+             gap      |-> IF n > 0 THEN Gap(hs, to, through, "hold", n) ELSE m,
+             released |-> [valid |-> TRUE, start |-> holdStart, to |-> to,
+                           counted |-> FiresIn(hs - Sec, through)]]
 
 (* endGapBeforeTick(limit) *)
 EndGapBefore(g, limit) ==
@@ -141,7 +147,7 @@ EndGapBefore(g, limit) ==
 RecordGap(m, s, from, to, through) ==
     IF from = Zero \/ ~(to > from) THEN m
     ELSE LET n == CountSlots(from, through)
-         IN IF n = 0 \/ s THEN m ELSE Gap(from, to, through, "down", n, from)
+         IN IF n = 0 \/ s THEN m ELSE Gap(from, to, through, "down", n)
 
 (* The longest run of fire times after from and by to that the backfill's *)
 (* slots S hold, walked oldest first: lastCovered.                        *)
@@ -199,6 +205,7 @@ Init ==
     /\ susp = FALSE
     /\ heldSince = Zero
     /\ holdStart = Zero
+    /\ released = NoRelease
     /\ missed = NoGap
     /\ buf = <<>>
     /\ lastTick = Zero
@@ -220,12 +227,13 @@ StartupSettle ==
            settled   == IF Mutation /= "restored-hold-at-first-tick" /\ heldSince /= Zero
                            /\ lastTick /= Zero /\ ~susp
                         THEN Release(heldSince, missed, lastTick, through)
-                        ELSE [held |-> heldSince, gap |-> missed]
+                        ELSE [held |-> heldSince, gap |-> missed, released |-> released]
            \* recordDownGap leaves a DAG with catch-up to initBuffers.
            gap == IF Window > 0 THEN settled.gap
                   ELSE RecordGap(settled.gap, susp, lastTick, firstTick, firstTick - Sec)
        IN /\ heldSince' = settled.held
           /\ holdStart' = IF settled.held = Zero THEN Zero ELSE holdStart
+          /\ released' = settled.released
           /\ missed' = gap
     /\ phase' = "initB"
     /\ UNCHANGED <<clock, nextTick, susp, buf, lastTick, lastSched, lastSlot, lastPlanned,
@@ -244,7 +252,7 @@ StartupBuffers ==
     /\ phase' = "up"
     /\ nextTick' = MinuteOf(clock)
     /\ starting' = 1
-    /\ UNCHANGED <<clock, susp, heldSince, holdStart, lastTick, lastSched, lastSlot, lastPlanned,
+    /\ UNCHANGED <<clock, susp, heldSince, holdStart, released, lastTick, lastSched, lastSlot, lastPlanned,
                    handled, decided, abandoned, toggles, restarts, backfills>>
 
 (* The first tick after a restart within the last tick's minute. *)
@@ -258,8 +266,9 @@ PlanGap(T) ==
                     THEN Head(buf) - Sec ELSE through0
         rel      == Release(heldSince, missed, T, through)
         trim     == Repeated(T) /\ Mutation \notin {"repeated-tick-keeps-gap", "settle-assumes-first-tick"}
-    IN [held |-> rel.held,
-        gap  |-> IF trim THEN EndGapBefore(rel.gap, MinuteOf(T) - Sec) ELSE rel.gap]
+    IN [held     |-> rel.held,
+        released |-> rel.released,
+        gap      |-> IF trim THEN EndGapBefore(rel.gap, MinuteOf(T) - Sec) ELSE rel.gap]
 
 (* holdDAG: a hold leaves out a slot the last tick of its minute settled. *)
 HoldFrom(T) ==
@@ -286,6 +295,7 @@ Tick ==
                \* when it repeats a minute an earlier tick decided.
                /\ heldSince' = HoldFrom(T)
                /\ holdStart' = IF heldSince = Zero THEN T ELSE holdStart
+               /\ UNCHANGED released
                /\ decided' = decided \ {T}
                /\ buf' = <<>>
                /\ abandoned' = abandoned \cup Range(buf)
@@ -293,6 +303,7 @@ Tick ==
                /\ UNCHANGED <<missed, handled, lastSlot, lastPlanned>>
           ELSE /\ heldSince' = PlanGap(T).held
                /\ holdStart' = Zero
+               /\ released' = PlanGap(T).released
                /\ missed' = PlanGap(T).gap
                /\ decided' = IF T \in SlotTimes THEN decided \cup {T} ELSE decided
                /\ UNCHANGED abandoned
@@ -323,6 +334,7 @@ TickThenCrash ==
     /\ LET T == nextTick IN
        /\ heldSince' = PlanGap(T).held
        /\ holdStart' = Zero
+       /\ released' = PlanGap(T).released
        /\ missed' = PlanGap(T).gap
        /\ decided' = decided \cup {T}
        /\ lastSched' = T
@@ -344,13 +356,13 @@ Crash ==
     /\ buf' = <<>>
     /\ abandoned' = abandoned \cup Range(buf)
     /\ restarts' = restarts + 1
-    /\ UNCHANGED <<clock, nextTick, susp, heldSince, holdStart, missed, lastTick, lastSched,
+    /\ UNCHANGED <<clock, nextTick, susp, heldSince, holdStart, released, missed, lastTick, lastSched,
                    lastSlot, lastPlanned, starting, handled, decided, toggles, backfills>>
 
 Restart ==
     /\ phase = "down"
     /\ phase' = "initA"
-    /\ UNCHANGED <<clock, nextTick, susp, heldSince, holdStart, missed, buf, lastTick,
+    /\ UNCHANGED <<clock, nextTick, susp, heldSince, holdStart, released, missed, buf, lastTick,
                    lastSched, lastSlot, lastPlanned, starting, handled, decided, abandoned,
                    toggles, restarts, backfills>>
 
@@ -360,7 +372,7 @@ Clock ==
     /\ phase \in {"down", "up"}
     /\ ~(phase = "up" /\ nextTick <= clock)
     /\ clock' = clock + 2
-    /\ UNCHANGED <<phase, nextTick, susp, heldSince, holdStart, missed, buf, lastTick,
+    /\ UNCHANGED <<phase, nextTick, susp, heldSince, holdStart, released, missed, buf, lastTick,
                    lastSched, lastSlot, lastPlanned, starting, handled, decided, abandoned,
                    toggles, restarts, backfills>>
 
@@ -374,7 +386,7 @@ StartLate ==
     /\ clock' = MinuteOf(clock) + 4
     /\ nextTick' = MinuteOf(clock) + 4
     /\ starting' = 2
-    /\ UNCHANGED <<phase, susp, heldSince, holdStart, missed, buf, lastTick, lastSched,
+    /\ UNCHANGED <<phase, susp, heldSince, holdStart, released, missed, buf, lastTick, lastSched,
                    lastSlot, lastPlanned, handled, decided, abandoned, toggles, restarts,
                    backfills>>
 
@@ -383,7 +395,7 @@ Toggle ==
     /\ toggles < MaxToggles
     /\ susp' = ~susp
     /\ toggles' = toggles + 1
-    /\ UNCHANGED <<clock, phase, nextTick, heldSince, holdStart, missed, buf, lastTick,
+    /\ UNCHANGED <<clock, phase, nextTick, heldSince, holdStart, released, missed, buf, lastTick,
                    lastSched, lastSlot, lastPlanned, starting, handled, decided, abandoned,
                    restarts, backfills>>
 
@@ -408,7 +420,7 @@ Backfill ==
                /\ missed' = CoverMissed(missed, slots)
                /\ heldSince' = CoverHold(heldSince, slots)
     /\ backfills' = backfills + 1
-    /\ UNCHANGED <<clock, phase, nextTick, susp, holdStart, buf, lastTick, lastSched,
+    /\ UNCHANGED <<clock, phase, nextTick, susp, holdStart, released, buf, lastTick, lastSched,
                    lastSlot, lastPlanned, starting, decided, abandoned, toggles, restarts>>
 
 Next == Tick \/ TickThenCrash \/ Crash \/ Restart \/ StartupSettle \/ StartupBuffers \/ Clock
@@ -422,17 +434,18 @@ GapHasNoRuns == Counted(missed) \cap (handled \cup Range(buf)) = {}
 
 GapCountExact == missed.valid => missed.slots = Min2(Cap, Cardinality(Counted(missed)))
 
-(* A hold's span runs from its first slot to the tick that ended it, whose *)
-(* own slots that tick decided, or to the last tick for a hold settled at  *)
-(* startup.                                                               *)
-HoldSpan(g) == {s \in SlotTimes : s >= g.start /\ s <= g.to}
-
-(* The slots of the hold under way, which its own gap will count. *)
+(* The slots of the hold under way, which its release will count. *)
 OpenHold == IF holdStart = Zero THEN {} ELSE {s \in SlotTimes : s >= holdStart}
 
+(* A hold's span runs from the tick that started it to the tick that ended *)
+(* it, whose own slots that tick decided, or to the last tick for a hold  *)
+(* settled at startup. Its release counts every slot of the span that no  *)
+(* tick decided, no run took, and no catch-up holds, whether or not that  *)
+(* makes a gap.                                                           *)
 HoldGapComplete ==
-    missed.valid /\ missed.reason = "hold" =>
-        HoldSpan(missed) \ (handled \cup decided \cup abandoned \cup Range(buf) \cup OpenHold)
-            \subseteq Counted(missed)
+    released.valid =>
+        {s \in SlotTimes : s >= released.start /\ s <= released.to}
+            \ (handled \cup decided \cup abandoned \cup Range(buf) \cup OpenHold)
+            \subseteq released.counted
 
 =============================================================================

@@ -47,8 +47,9 @@ Its invariants, from `specs/086-backfill.md`:
 - `GapHasNoRuns`: no slot the gap counts has a run or a queued catch-up.
 - `GapCountExact`: the gap's count is the number of slots it spans, up to the
   cap.
-- `HoldGapComplete`: a hold's gap counts every slot of its span that no tick
-  decided, no run took, and no catch-up holds.
+- `HoldGapComplete`: when a hold ends, it counts every slot of its span that no
+  tick decided, no run took, and no catch-up holds, also when it counts none
+  and so makes no gap.
 
 It leaves out the failover recovery window, overlap policies, schedule edits,
 and backfills whose range starts inside a gap or a hold, which leave the gap as
