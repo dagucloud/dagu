@@ -25,9 +25,9 @@ func ServiceStop() *cobra.Command {
 			Long: `Ask the dagu start-all process serving this data directory to shut down
 as it does on SIGTERM.
 
-The Windows service the installer sets up runs this command to stop Dagu,
-so that stopping or restarting the service leaves runs in progress
-running. The service wrapper appends the service's own arguments, which
+A Windows service wrapper whose stop arguments name this command runs it
+to stop Dagu, so that stopping or restarting the service leaves runs in
+progress running. The wrapper appends the service's own arguments, which
 this command ignores.`,
 			Args: cobra.ArbitraryArgs,
 		},
@@ -46,8 +46,8 @@ this command ignores.`,
 // serviceStopTimeout bounds how long service-stop waits, beyond the drain,
 // for Dagu to shut down before it ends Dagu, leaving runs in progress
 // running. It matches the stoptimeout the installer gives the service
-// wrapper, which ends the whole process tree once it passes when Dagu lacks
-// service-stop.
+// wrapper, after which a wrapper that stops Dagu itself ends the whole
+// process tree.
 const serviceStopTimeout = 30 * time.Second
 
 // serviceStopEventName names the Windows event through which service-stop

@@ -743,87 +743,6 @@ function Remove-UninstallFile {
     }
 }
 
-# Get-ProcessDescendants returns what the Roots processes started, at any
-# depth, among the processes in All; a root may have exited. Windows keeps a
-# process's parent ID after the parent exits and may give that ID to a new
-# process, so a child counts only when it started after its parent and
-# before any later process with the parent's ID.
-function Get-ProcessDescendants {
-    param([object[]]$Roots, [object[]]$All)
-    $found = @()
-    $seen = @{}
-    $parents = @($Roots)
-    while ($parents.Count -gt 0) {
-        $children = @()
-        foreach ($parent in $parents) {
-            $reuse = $All | Where-Object { $_.ProcessId -eq $parent.ProcessId -and $_.CreationDate -gt $parent.CreationDate } |
-                Select-Object -First 1
-            $children += @($All | Where-Object {
-                    $_.ParentProcessId -eq $parent.ProcessId -and $_.CreationDate -ge $parent.CreationDate -and
-                    (-not $reuse -or $_.CreationDate -lt $reuse.CreationDate) -and
-                    -not $seen.ContainsKey("$($_.ProcessId)@$($_.CreationDate)")
-                })
-        }
-        foreach ($child in $children) {
-            $seen["$($child.ProcessId)@$($child.CreationDate)"] = $true
-        }
-        $found += $children
-        $parents = $children
-    }
-    return $found
-}
-
-# RunCommandPattern matches the command line of a run the scheduler starts.
-$Script:RunCommandPattern = '^\s*("[^"]*"|\S+)\s+(start|restart|retry)(\s|$)'
-
-# Get-ServiceProcessTree returns the processes of the Dagu service, runs
-# included, with their start times: what the service wrapper runs, and the
-# runs an earlier service stop left running. Those run the service's binary,
-# or one an upgrade set aside, as a run command, and outlived the process
-# that started them.
-function Get-ServiceProcessTree {
-    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-    $roots = @()
-    $service = Get-CimInstance Win32_Service -Filter "Name='$($Script:ServiceName)'" -ErrorAction SilentlyContinue
-    if ($service -and $service.ProcessId) {
-        $roots += @($all | Where-Object { $_.ProcessId -eq $service.ProcessId })
-    }
-    $binary = [WildcardPattern]::Escape($Script:DaguExe)
-    $leftRuns = @($all | Where-Object {
-            $process = $_
-            $process.ExecutablePath -and ($process.ExecutablePath -like $binary -or $process.ExecutablePath -like "$binary.*old") -and
-            $process.CommandLine -match $Script:RunCommandPattern -and
-            -not ($all | Where-Object { $_.ProcessId -eq $process.ParentProcessId -and $_.CreationDate -le $process.CreationDate })
-        })
-    return @($leftRuns) + @(Get-ProcessDescendants -Roots (@($roots) + @($leftRuns)) -All $all)
-}
-
-# Stop-ProcessTree ends the processes of Get-ServiceProcessTree that still
-# run, skipping a later process that reuses an ID, and then what any of them
-# started since the tree was read, those that exited meanwhile included,
-# until nothing more is found.
-function Stop-ProcessTree {
-    param([object[]]$Tree)
-    $ended = @()
-    $endedKeys = @{}
-    for ($pass = 0; $pass -lt 10; $pass++) {
-        $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-        $live = @(@($Tree) + @(Get-ProcessDescendants -Roots (@($Tree) + @($ended)) -All $all) | Where-Object {
-                $candidate = $_
-                -not $endedKeys.ContainsKey("$($candidate.ProcessId)@$($candidate.CreationDate)") -and
-                ($all | Where-Object { $_.ProcessId -eq $candidate.ProcessId -and $_.CreationDate -eq $candidate.CreationDate })
-            })
-        if ($live.Count -eq 0) {
-            return
-        }
-        foreach ($process in $live) {
-            Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-            $endedKeys["$($process.ProcessId)@$($process.CreationDate)"] = $true
-            $ended += $process
-        }
-    }
-}
-
 function Invoke-Uninstall {
     if (-not (Test-UninstallHasAnything)) {
         Write-Section "Uninstall"
@@ -836,9 +755,6 @@ function Invoke-Uninstall {
     }
     if ($Script:UninstallServicePresent) {
         if (Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) {
-            # Stopping the service leaves runs running; an uninstall ends them
-            # with the rest of the service, as the wrapper's own stop did.
-            $serviceTree = Get-ServiceProcessTree
             if ($Script:ServiceWrapperExe -and (Test-Path $Script:ServiceWrapperExe)) {
                 try { Invoke-WinSW stop } catch {}
                 try { Invoke-WinSW uninstall } catch {}
@@ -858,15 +774,10 @@ function Invoke-Uninstall {
             if (Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) {
                 throw "The $($Script:ServiceName) Windows service is still registered, so its files were left in place. Stop whatever holds the service open, then run the uninstall again."
             }
-            Stop-ProcessTree -Tree $serviceTree
         }
     }
     foreach ($path in $Script:UninstallInstallPaths) {
         Remove-UninstallFile -Path $path
-        if (-not [string]::IsNullOrWhiteSpace($path) -and -not $DryRun) {
-            Get-ChildItem -Path "$path.*old" -ErrorAction SilentlyContinue |
-                Remove-Item -Force -ErrorAction SilentlyContinue
-        }
     }
     foreach ($path in @($Script:ServiceWrapperExe, $Script:ServiceConfigXml)) {
         Remove-UninstallFile -Path $path
@@ -1093,23 +1004,6 @@ function New-TempDir {
     return $path
 }
 
-# Move-AsideRunningBinary renames the installed binary out of the way. Runs in
-# progress keep running across a service stop and keep that file in use, and
-# Windows lets a file in use be renamed but not replaced. An earlier binary
-# set aside is removed once nothing runs it.
-function Move-AsideRunningBinary {
-    if (-not (Test-Path $DaguExe)) {
-        return
-    }
-    Get-ChildItem -Path "$DaguExe.*old" -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-    $aside = "$DaguExe.old"
-    if (Test-Path $aside) {
-        $aside = "$DaguExe.$((Get-Date).ToString('yyyyMMddHHmmss')).old"
-    }
-    Move-Item -Path $DaguExe -Destination $aside -Force
-}
-
 function Install-DaguBinary {
     if ($ServiceOnly) {
         Write-Info "Using the existing Dagu binary at $DaguExe"
@@ -1135,7 +1029,6 @@ function Install-DaguBinary {
             return
         }
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-        Move-AsideRunningBinary
         Move-Item -Path $sourceExe -Destination $DaguExe -Force
         Write-Success "Installed Dagu to $DaguExe"
     }
@@ -1182,34 +1075,17 @@ function Install-WinSWWrapper {
     Write-Success "Downloaded the Windows service wrapper"
 }
 
-# Test-ServiceStopSupport reports whether the Dagu binary has the
-# service-stop command. The wrapper waits for a stop that never comes when
-# the binary lacks it, as a release before it does.
-function Test-ServiceStopSupport {
-    if ($DryRun -or -not (Test-Path $Script:DaguExe)) {
-        return $false
-    }
-    & $Script:DaguExe service-stop --help *> $null
-    return ($LASTEXITCODE -eq 0)
-}
-
 function Write-ServiceXml {
     param([switch]$IncludeBootstrap)
 
     $logDir = Join-Path $DaguHome "logs"
-    # Stopping through Dagu leaves runs in progress running; by default the
-    # wrapper ends the whole process tree.
-    $stopArguments = ""
-    if (Test-ServiceStopSupport) {
-        $stopArguments = "`n  <stoparguments>service-stop</stoparguments>"
-    }
     $xml = @"
 <service>
   <id>$($Script:ServiceName)</id>
   <name>Dagu</name>
   <description>Dagu Workflow Engine</description>
   <executable>$(Escape-XmlValue $Script:DaguExe)</executable>
-  <arguments>start-all</arguments>$stopArguments
+  <arguments>start-all</arguments>
   <workingdirectory>$(Escape-XmlValue $Script:DaguHome)</workingdirectory>
   <startmode>Automatic</startmode>
   <onfailure action="restart" delay="10 sec"/>

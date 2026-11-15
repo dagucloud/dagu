@@ -172,9 +172,6 @@ jobs:
       # Mirrors how the Inno Setup installer drives the script: the binary is
       # already in place and only the Windows service should be configured.
       - name: Test installer service-only mode
-        # A step that times out keeps its log; a job that does is cancelled
-        # without one.
-        timeout-minutes: 8
         shell: powershell
         run: |
           $installerPath = (Resolve-Path "scripts/installer.ps1").Path
@@ -203,82 +200,6 @@ jobs:
           }
           Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/health" -UseBasicParsing | Out-Null
 
-          # A run in progress keeps going while the service restarts. The
-          # service wrapper ends the whole process tree unless it stops Dagu
-          # through service-stop.
-          [xml]$serviceConfig = Get-Content "$installDir\dagu-service.xml"
-          $daguHome = ($serviceConfig.service.env | Where-Object { $_.name -eq "DAGU_HOME" }).value
-          $markerDir = "$env:RUNNER_TEMP\dagu-restart-run"
-          New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
-          $dagFile = "$env:RUNNER_TEMP\restart-run.yaml"
-          Set-Content -Path $dagFile -Encoding ascii -Value @"
-          steps:
-            - id: work
-              run: |
-                Set-Content -Path '$markerDir\started' -Value ok
-                Start-Sleep -Seconds 30
-                Set-Content -Path '$markerDir\finished' -Value done
-              with:
-                shell: powershell
-          "@
-          $env:DAGU_HOME = $daguHome
-          & "$installDir\dagu.exe" enqueue $dagFile
-          if ($LASTEXITCODE -ne 0) {
-            throw "Enqueueing the restart run failed with exit code $LASTEXITCODE."
-          }
-          $deadline = (Get-Date).AddSeconds(90)
-          while (-not (Test-Path "$markerDir\started")) {
-            if ((Get-Date) -gt $deadline) { throw "The restart run did not start." }
-            Start-Sleep -Seconds 1
-          }
-          Restart-Service -Name Dagu
-          if ((Get-Service -Name Dagu).Status -ne "Running") {
-            throw "The Dagu service is not running after a restart."
-          }
-          $deadline = (Get-Date).AddSeconds(90)
-          while (-not (Test-Path "$markerDir\finished")) {
-            if ((Get-Date) -gt $deadline) { throw "The run did not outlive the service restart." }
-            Start-Sleep -Seconds 1
-          }
-          $deadline = (Get-Date).AddSeconds(30)
-          do {
-            $status = Get-ChildItem -Path (Join-Path $daguHome "data\dag-runs") -Recurse -Filter status.jsonl |
-              Get-Content -Tail 1 | ConvertFrom-Json
-            if ($status.status -eq 4) { break }
-            if ((Get-Date) -gt $deadline) { throw "The restarted run did not succeed: $($status | ConvertTo-Json -Compress)" }
-            Start-Sleep -Seconds 1
-          } while ($true)
-
-          # An uninstall still ends the runs of the service, with what they
-          # started: one left running by an earlier restart, whose start-all
-          # has exited, and one of the service running now.
-          $longRuns = @("before-restart", "after-restart")
-          foreach ($name in $longRuns) {
-            $longDag = "$env:RUNNER_TEMP\uninstall-$name.yaml"
-            Set-Content -Path $longDag -Encoding ascii -Value @"
-          steps:
-            - id: work
-              run: |
-                Set-Content -Path '$markerDir\$name' -Value `$PID
-                Start-Sleep -Seconds 600
-              with:
-                shell: powershell
-          "@
-            & "$installDir\dagu.exe" enqueue $longDag
-            if ($LASTEXITCODE -ne 0) {
-              throw "Enqueueing the $name run failed with exit code $LASTEXITCODE."
-            }
-            $deadline = (Get-Date).AddSeconds(90)
-            while (-not (Test-Path "$markerDir\$name")) {
-              if ((Get-Date) -gt $deadline) { throw "The $name run did not start." }
-              Start-Sleep -Seconds 1
-            }
-            if ($name -eq "before-restart") {
-              Restart-Service -Name Dagu
-            }
-          }
-          Remove-Item Env:\DAGU_HOME
-
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
             -NoPrompt -Uninstall -ServiceOnly -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) {
@@ -286,16 +207,6 @@ jobs:
           }
           if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
             throw "The Dagu service survived a service-only uninstall."
-          }
-          $leftover = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq "$installDir\dagu.exe" })
-          if ($leftover.Count -gt 0) {
-            throw "A service-only uninstall left Dagu processes running: $($leftover.ProcessId -join ', ')"
-          }
-          foreach ($name in $longRuns) {
-            $stepPid = [int](Get-Content "$markerDir\$name" -Raw).Trim()
-            if (Get-Process -Id $stepPid -ErrorAction SilentlyContinue) {
-              throw "A service-only uninstall left the step of the $name run running."
-            }
           }
           if (-not (Test-Path "$installDir\dagu.exe")) {
             throw "Service-only uninstall removed the Dagu binary."
@@ -365,7 +276,6 @@ jobs:
       # /PORT and /COORDINATORPORT) to installer.ps1, which must leave a
       # running service behind; the uninstaller must take it away again.
       - name: Test Inno Setup installer service mode
-        timeout-minutes: 8
         shell: powershell
         run: |
           $installDir = "$env:ProgramFiles\Dagu"
