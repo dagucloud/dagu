@@ -140,7 +140,9 @@ not reach every host at once unless the author says so.
   node, as if it were a `node: required` DAG started by `dag.run` with the
   same `nodes`. `timeout_sec` and `retry_policy` apply to each node, so one
   hung host does not use up the others' time. `preconditions`,
-  `continue_on`, and `output` apply to the step.
+  `continue_on`, and `output` apply to the step. The command reads what it
+  would read without `nodes`: the run's params, env, and the outputs of
+  earlier steps, plus `${node.*}`.
 
 ### References in a selector
 
