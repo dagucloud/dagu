@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -3447,4 +3448,85 @@ func TestFailoverRecovery(t *testing.T) {
 			}
 		})
 	}
+}
+
+// spanRecorder keeps the spans the planner records as ended.
+type spanRecorder struct {
+	mu    sync.Mutex
+	spans []schedulerstate.Span
+}
+
+func (r *spanRecorder) Mark(context.Context, string, schedulerstate.SpanReason, bool, time.Time) error {
+	return nil
+}
+
+func (r *spanRecorder) Add(_ context.Context, dag string, span schedulerstate.Span) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if dag != "" {
+		return fmt.Errorf("an outage holds for every DAG, not for %s", dag)
+	}
+	r.spans = append(r.spans, span)
+	return nil
+}
+
+func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.spans), nil
+}
+
+// A scheduler that starts more than a minute after the last tick records the
+// time between as one span in which no scheduler ran, up to its first tick,
+// which runs its own minute. A takeover replays the slots of its recovery
+// window, so the span ends where the window starts.
+func TestTickPlanner_InitRecordsOutage(t *testing.T) {
+	t.Parallel()
+	feb7 := func(hour, minute int) time.Time { return time.Date(2026, 2, 7, hour, minute, 0, 0, time.UTC) }
+	for _, tc := range []struct {
+		name     string
+		lastTick time.Time
+		recovery time.Duration
+		want     []schedulerstate.Span
+	}{
+		{name: "outage", lastTick: feb7(9, 0), want: []schedulerstate.Span{{From: feb7(9, 0), To: feb7(12, 0), Reason: schedulerstate.SpanDown}}},
+		{name: "takeover", lastTick: feb7(9, 0), recovery: 2 * time.Minute, want: []schedulerstate.Span{{From: feb7(9, 0), To: feb7(11, 58), Reason: schedulerstate.SpanDown}}},
+		{name: "restart within a minute", lastTick: feb7(11, 59)},
+		{name: "first start"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(tc.lastTick)})
+			spans := &spanRecorder{}
+			tp.cfg.Spans = spans
+			tp.cfg.RecoveryWindow = func() time.Duration { return tc.recovery }
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			recorded, err := spans.Ended(t.Context(), "")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, recorded)
+		})
+	}
+}
+
+// A tick that comes late, as after the host slept, records the time it
+// missed as a span in which no scheduler ran.
+func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	spans := &spanRecorder{}
+	tp.cfg.Spans = spans
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp.Advance(lastTick)
+
+	tp.resume(t.Context(), lastTick.Add(45*time.Minute))
+
+	recorded, err := spans.Ended(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, []schedulerstate.Span{
+		{From: lastTick, To: lastTick.Add(45 * time.Minute), Reason: schedulerstate.SpanDown},
+	}, recorded)
 }

@@ -127,6 +127,8 @@ type TickPlannerConfig struct {
 	// RecoveryWindow returns how far back startup replays slots missed while
 	// the lock passed from a failed scheduler, or 0 after a normal start.
 	RecoveryWindow func() time.Duration
+	// Spans records the time no scheduler ran. Nil records none.
+	Spans schedulerstate.SpanStore
 }
 
 // TickPlanner is the unified scheduling decision module.
@@ -415,6 +417,7 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	if recovery > 0 {
 		missedBefore = tp.cfg.Clock().Add(-recovery)
 	}
+	tp.recordOutage(ctx, state.LastTick, missedBefore)
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
@@ -429,6 +432,18 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	tp.initBuffers(ctx, entries, activeByDAG, recovery)
 	tp.Flush(ctx)
 	return nil
+}
+
+// recordOutage records the time from the last tick to to as a span in which
+// no scheduler ran, when a minute or more passed between them.
+func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time) {
+	if tp.cfg.Spans == nil || lastTick.IsZero() || !to.After(lastTick.Add(time.Minute)) {
+		return
+	}
+	span := schedulerstate.Span{From: lastTick, To: to, Reason: schedulerstate.SpanDown}
+	if err := tp.cfg.Spans.Add(ctx, "", span); err != nil {
+		logger.Warn(ctx, "Failed to record the time no scheduler ran", tag.Error(err))
+	}
 }
 
 // settlePlannedSlots settles each slot left planned, as when the scheduler
@@ -1730,6 +1745,7 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 	tp.mu.RLock()
 	lastTick := tp.watermarkState.LastTick
 	tp.mu.RUnlock()
+	tp.recordOutage(ctx, lastTick, now)
 	for name, entry := range tp.entries {
 		dag := entry.DAG
 		active, ok := tp.activeDAGSchedules(ctx, entry.DAGEntry)

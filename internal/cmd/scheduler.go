@@ -81,6 +81,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.SchedulerStateStore = ctx.Persistence.SchedulerStateStore
 	deps.SchedulerPauseStore = ctx.Persistence.SchedulerPauseStore
 	deps.RestartBackoffStore = ctx.Persistence.RestartBackoffStore
+	deps.SpanStore = ctx.Persistence.SpanStore
 	deps.BackfillStore = ctx.Persistence.BackfillStore
 	deps.WatchStore = ctx.Persistence.WatchStateStore
 	deps.DAGRunLeaseStore = ctx.Persistence.DAGRunLeaseStore
