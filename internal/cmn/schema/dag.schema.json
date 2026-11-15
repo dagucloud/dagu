@@ -7818,6 +7818,10 @@
         "include_raw": {
           "type": "boolean",
           "description": "Also emit the unmodified MCP tool result under raw."
+        },
+        "save_binary": {
+          "type": "boolean",
+          "description": "Save image, audio, and blob resource data as run artifacts and output each file's path instead of base64. Enables artifacts for the DAG."
         }
       },
       "description": "Configuration for action: mcp.call."

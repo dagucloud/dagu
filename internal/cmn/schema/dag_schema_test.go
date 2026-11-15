@@ -435,6 +435,7 @@ steps:
       arguments: {formats: [markdown]}
       headers:
         Authorization: Bearer ${TOKEN}
+      save_binary: true
 `,
 		},
 		{

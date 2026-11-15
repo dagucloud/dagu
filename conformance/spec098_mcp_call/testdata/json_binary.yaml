@@ -1,0 +1,19 @@
+working_dir: .
+env:
+  - MCP_URL: ${MCP_URL}
+steps:
+  - id: chart
+    action: mcp.call
+    with:
+      url: ${MCP_URL}
+      tool: chart
+      headers:
+        Authorization: Bearer conformance-token
+      save_binary: true
+    stdout: chart.out
+    output: CHART
+  - id: consume
+    depends: chart
+    run: |
+      echo "title=${CHART.json.title}" > result.out
+      cat "$DAG_RUN_ARTIFACTS_DIR/${CHART.content[1].path}" > image.out
