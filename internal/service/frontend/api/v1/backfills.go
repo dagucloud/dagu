@@ -193,6 +193,9 @@ func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGM
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err
 	}
+	if a.spanStore == nil {
+		return api.DismissDAGMissedSlots204Response{}, nil
+	}
 	dismissal := schedulerstate.Dismissal{Through: time.Now(), By: triggerActorFromContext(ctx)}
 	if err := a.spanStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
 		return nil, fmt.Errorf("error dismissing the missed slots of %s: %w", request.FileName, err)

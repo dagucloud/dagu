@@ -366,6 +366,12 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	missed := missedSlots("ops-report")
 	require.NotNil(t, missed, "a newer span shows the missed slots again")
 	assert.True(t, newer.To.Equal(missed.Until), "until %s", missed.Until)
+
+	// A server that keeps no spans shows no missed slots, so a dismissal
+	// there has nothing to hide.
+	bare := newDAGPinAPIWithStore(helper, nil, localapi.WithAuthService(stubAuthService{}))
+	_, err = bare.DismissDAGMissedSlots(viewer("alice", "ops"), api.DismissDAGMissedSlotsRequestObject{FileName: "ops-report"})
+	assert.NoError(t, err)
 }
 
 // getCounter counts the records a collection reads.
