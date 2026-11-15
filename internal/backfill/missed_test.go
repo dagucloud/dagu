@@ -4,12 +4,17 @@
 package backfill_test
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +33,43 @@ func (f *dispatchFixture) missed(catchup time.Duration, spans ...schedulerstate.
 
 func reasons(reasons ...schedulerstate.SpanReason) []schedulerstate.SpanReason {
 	return reasons
+}
+
+// dagAt returns the fixture's DAG under another schedule.
+func (f *dispatchFixture) dagAt(schedule string) *ir.DAG {
+	f.t.Helper()
+	dag, err := spec.LoadYAML(f.ctx, fmt.Appendf(nil, "name: etl\nschedule: %q\nsteps:\n  - run: echo hi\n", schedule))
+	require.NoError(f.t, err)
+	return dag
+}
+
+// writeCreated writes a scheduler run created at created.
+func (f *dispatchFixture) writeCreated(runID string, slot time.Time, status ir.Status, created time.Time) {
+	f.t.Helper()
+	f.writeStatus(created, ir.DAGRunStatus{
+		DAGRunID: runID, Status: status, ScheduleTime: slot.Format(time.RFC3339),
+		TriggerType: ir.TriggerTypeScheduler, StartedAt: "2026-11-01T00:00:00Z",
+	})
+}
+
+// writeUnstarted writes a scheduler run aborted before it started, as the
+// queue leaves one it drops for a suspended DAG.
+func (f *dispatchFixture) writeUnstarted(runID string, slot time.Time) {
+	f.t.Helper()
+	f.writeStatus(time.Now(), ir.DAGRunStatus{
+		DAGRunID: runID, Status: ir.Aborted, ScheduleTime: slot.Format(time.RFC3339),
+		TriggerType: ir.TriggerTypeScheduler,
+	})
+}
+
+func (f *dispatchFixture) writeStatus(created time.Time, status ir.DAGRunStatus) {
+	f.t.Helper()
+	attempt, err := f.repository.CreateAttempt(f.ctx, f.dag, created, status.DAGRunID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(f.t, err)
+	require.NoError(f.t, attempt.Open(f.ctx))
+	status.Name, status.AttemptID = f.dag.Name, attempt.ID()
+	require.NoError(f.t, attempt.Write(f.ctx, status))
+	require.NoError(f.t, attempt.Close(f.ctx))
 }
 
 // The slots that came due while the DAG was suspended, the scheduler paused,
@@ -109,6 +151,128 @@ func TestFindMissedLeavesOutReplayedAndExpiredSlots(t *testing.T) {
 	missed = f.missed(0, spanOf(schedulerstate.SpanSuspended, at(12, 0), at(18, 0)))
 	assert.Equal(t, 3, missed.Slots)
 	assert.Equal(t, at(15, 2), missed.First)
+}
+
+// FindMissed reads the status of a run only near the slots it looks at, yet
+// leaves missing the same slots as the whole run history does: a run that
+// never started, or that a dequeue or an operator removed, counts for none,
+// and one that retention removed counts with its final status.
+func TestFindMissedAgreesWithRunHistory(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	ref := func(id string) ir.DAGRunRef { return ir.NewDAGRunRef(f.dag.Name, id) }
+	f.writeCreated("retired", at(9, 2), ir.Succeeded, time.Now().AddDate(0, 0, -10))
+	require.NoError(t, f.write("before", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	removed, err := f.repository.RemoveOldDAGRuns(f.ctx, f.dag.Name, 0, persis.DAGRunRetentionOptions{RetentionRuns: new(1)})
+	require.NoError(t, err)
+	require.Equal(t, []string{"retired"}, removed)
+	require.NoError(t, f.write("manual", at(3, 2), ir.Succeeded, ir.TriggerTypeManual, ""))
+	require.NoError(t, f.write("failed", at(4, 2), ir.Failed, ir.TriggerTypeBackfill, "bf1"))
+	require.NoError(t, f.write("running", at(5, 2), ir.Running, ir.TriggerTypeCatchUp, ""))
+	require.NoError(t, f.write("queued", at(6, 2), ir.Queued, ir.TriggerTypeBackfill, "bf1"))
+	require.NoError(t, f.write("dequeued", at(7, 2), ir.Queued, ir.TriggerTypeBackfill, "bf1"))
+	require.NoError(t, queue.AbortQueuedDAGRun(f.ctx, f.repository, ref("dequeued")))
+	f.writeUnstarted("dropped", at(8, 2))
+	require.NoError(t, f.write("deleted", at(10, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	require.NoError(t, f.repository.RemoveDAGRun(f.ctx, ref("deleted"), persis.DAGRunRemoveOptions{}))
+	// A run of an earlier schedule of the same cadence covers the slot
+	// nearest to it; one of another cadence covers none.
+	require.NoError(t, f.writeRun(f.dagAt("0 1 * * *"), "earlier", at(11, 1), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	require.NoError(t, f.writeRun(f.dagAt("0 * * * *"), "hourly", at(12, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	require.NoError(t, f.repository.RecordSkippedSlot(f.ctx, "etl", at(13, 2), "0 2 * * *", "running"))
+	require.NoError(t, f.write("requeued", at(14, 2), ir.Queued, ir.TriggerTypeScheduler, ""))
+	require.NoError(t, queue.AbortQueuedDAGRun(f.ctx, f.repository, ref("requeued")))
+	require.NoError(t, f.write("rerun", at(14, 2), ir.Succeeded, ir.TriggerTypeManual, ""))
+
+	span := spanOf(schedulerstate.SpanSuspended, at(3, 0), at(19, 0))
+	missing := []time.Time{at(7, 2), at(8, 2), at(10, 2), at(12, 2), at(15, 2), at(16, 2), at(17, 2), at(18, 2)}
+	var fires []time.Time
+	for day := 3; day <= 18; day++ {
+		fires = append(fires, at(day, 2))
+	}
+	history, err := backfill.LoadHistory(f.ctx, f.repository, f.dag, f.sched, fires[0], fires[len(fires)-1])
+	require.NoError(t, err)
+	var byHistory []time.Time
+	for _, state := range backfill.SlotStates(fires, f.sched, history) {
+		// The skipped slot has no run either; its skip leaves it out.
+		if state.Status == backfill.SlotMissing && !state.At.Equal(at(13, 2)) {
+			byHistory = append(byHistory, state.At)
+		}
+	}
+	require.Equal(t, missing, byHistory, "the whole run history")
+
+	assert.Equal(t, backfill.Missed{
+		Slots: len(missing), First: missing[0], Last: missing[len(missing)-1],
+		Reasons: reasons(schedulerstate.SpanSuspended), Until: at(19, 0),
+	}, f.missed(0, span))
+}
+
+// countingHistory is a run history whose runs were created as the slot index
+// recorded them. It counts the statuses it lists.
+type countingHistory struct {
+	events   []persis.SlotEvent
+	statuses []*ir.DAGRunStatus
+	listed   int
+}
+
+// run records a run of a slot created at created.
+func (h *countingHistory) run(id string, slot, created time.Time, trigger ir.TriggerType) {
+	h.events = append(h.events, persis.SlotEvent{
+		Kind: persis.SlotEventRun, DAGName: "etl", Slot: slot, RunID: id,
+		TriggerType: trigger, Schedule: "0 2 * * *", RecordedAt: created,
+	})
+	status := started(id, ir.Succeeded)
+	status.CreatedAt = created.UnixMilli()
+	h.statuses = append(h.statuses, status)
+}
+
+func (h *countingHistory) SlotEvents(_ context.Context, _ *ir.DAG, from, to time.Time) ([]persis.SlotEvent, error) {
+	var events []persis.SlotEvent
+	for _, event := range h.events {
+		if !event.Slot.Before(from) && !event.Slot.After(to) {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+// ListStatuses lists the runs created in the range, as run history is kept
+// by creation time.
+func (h *countingHistory) ListStatuses(_ context.Context, options persis.DAGRunListOptions) ([]*ir.DAGRunStatus, error) {
+	var statuses []*ir.DAGRunStatus
+	for _, status := range h.statuses {
+		created := time.UnixMilli(status.CreatedAt)
+		if (options.From.IsZero() || !created.Before(options.From.Time)) && (options.To.IsZero() || !created.After(options.To.Time)) {
+			statuses = append(statuses, status)
+		}
+	}
+	h.listed += len(statuses)
+	return statuses, nil
+}
+
+// The statuses FindMissed reads are those of the runs created near the runs
+// of the slots it looks at, however many runs the DAG has besides.
+func TestFindMissedReadsOnlyRunsNearItsSlots(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	history := &countingHistory{}
+	// The scheduler ran each day outside the spans, and a backfill ran the
+	// 6th on the 25th.
+	for day := 1; day <= 27; day++ {
+		if (day < 5 || day > 7) && (day < 20 || day > 22) {
+			history.run(fmt.Sprintf("daily-%d", day), at(day, 2), at(day, 2), ir.TriggerTypeScheduler)
+		}
+	}
+	history.run("backfill", at(6, 2), at(25, 12), ir.TriggerTypeBackfill)
+
+	missed, err := backfill.FindMissed(f.ctx, history, f.dag, f.sched, []schedulerstate.Span{
+		spanOf(schedulerstate.SpanSuspended, at(5, 0), at(8, 0)),
+		spanOf(schedulerstate.SpanSuspended, at(20, 0), at(23, 0)),
+	}, 0, at(28, 0))
+	require.NoError(t, err)
+
+	assert.Equal(t, 5, missed.Slots)
+	assert.Equal(t, 1, history.listed, "of %d runs", len(history.statuses))
 }
 
 // At most 10,000 slots are looked at, the oldest first.
