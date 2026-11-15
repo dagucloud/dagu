@@ -165,6 +165,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   duration of up to 20 of those runs, times the number of rounds the runs
   take at that concurrency.
 - The plan warns when no scheduler is running, when the DAG is suspended,
+  when the DAG does not read its slot, so every run does the same work,
   when the queue's limit lowers the concurrency, when the backfill can fill
   the queue so live runs may wait behind an executing backfill run (with the
   median duration when known), which `handler_on` steps will run once per
@@ -242,8 +243,13 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   keeps its summary, with its slot count and how many slots ended and
   failed. The list reads the summaries once per request, whatever the
   number of DAGs.
-- `GET /api/v1/dags/{fileName}` returns the DAG's latest missed gap as
-  `missedSlots`. The DAG's page then says `12 slots passed from 2026-11-01
+- A DAG reads its slot when it declares `dates`, refers in its definition
+  or base config to `${context.run.scheduled_at}`, `interval_start`,
+  `interval_end`, `next_scheduled_at`, or `${dates.*}`, or calls a sub-DAG,
+  which inherits the slot. A run reaches its slot only through these.
+- `GET /api/v1/dags/{fileName}` returns the latest missed gap of a DAG that
+  reads its slot as `missedSlots`; the runs of any other DAG all do the same
+  work, so it has none. The DAG's page then says `12 slots passed from 2026-11-01
   09:00 to 2026-11-01 21:00 while this DAG was suspended` (or while the
   scheduler was paused or down). For a user who may run the DAG, it has a
   Backfill action that opens the start panel on that span, with its bounds
