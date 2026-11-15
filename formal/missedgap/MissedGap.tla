@@ -317,11 +317,14 @@ StartLate ==
 (* resume(T): what a late tick missed. A DAG without catch-up counts it in *)
 (* its gap; one with catch-up queues it after what it has queued.          *)
 Resume(T) ==
+    \* A first scheduler follows no last tick: its slots start with the
+    \* minute Init read.
+    LET last == IF lastTick = Zero THEN MinuteOf(initClock) - Sec ELSE lastTick IN
     IF Window = 0
-    THEN [gap |-> RecordGap(missed, susp, lastTick, T, T - Sec), buf |-> buf]
-    ELSE LET rf   == Max2(T - 4 * Window, Max2(lastTick, lastSched))
-             from == IF Mutation = "late-tick-gap-over-queue" THEN Max2(lastTick, lastSched)
-                     ELSE Max2(Max2(lastTick, lastSched), LastOf(buf))
+    THEN [gap |-> RecordGap(missed, susp, last, T, T - Sec), buf |-> buf]
+    ELSE LET rf   == Max2(T - 4 * Window, Max2(last, lastSched))
+             from == IF Mutation = "late-tick-gap-over-queue" THEN Max2(last, lastSched)
+                     ELSE Max2(Max2(last, lastSched), LastOf(buf))
              gap  == IF rf > from THEN RecordGap(missed, susp, from, rf, rf) ELSE missed
              new  == FiresIn(Max2(rf, LastOf(buf)), T)
          IN [gap |-> gap, buf |-> buf \o SortSet(new)]
@@ -401,9 +404,8 @@ Tick ==
                        /\ buf' = b
        \* resume may record a gap that the hold's release then replaces.
        /\ superseded' = superseded \cup ((Counted(missed) \cup Counted(r.gap)) \ Counted(missed'))
-       \* A suspended DAG records no outage, and a first scheduler, which
-       \* follows no last tick, records none either.
-       /\ lateLost' = IF starting = 2 /\ ~susp /\ lastTick /= Zero
+       \* A suspended DAG records no outage.
+       /\ lateLost' = IF starting = 2 /\ ~susp
                       THEN FiresIn(initClock, MinuteOf(T) - Sec)
                            \ (Counted(missed') \cup superseded' \cup Range(buf') \cup handled' \cup owed')
                       ELSE lateLost
