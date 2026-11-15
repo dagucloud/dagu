@@ -6,7 +6,10 @@ package intg_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
@@ -16,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -53,13 +57,8 @@ type nodeAggregate struct {
 // run's status and that step's aggregate.
 func runNodeStep(t *testing.T, nodes staticNodes, yaml string, wantErr string) (*ir.DAGRunStatus, nodeAggregate) {
 	t.Helper()
-	_, status, aggregate := runNodeStepIn(t, test.Setup(t), nodes, yaml, wantErr)
-	return status, aggregate
-}
 
-func runNodeStepIn(t *testing.T, th test.Helper, nodes staticNodes, yaml string, wantErr string) (test.Helper, *ir.DAGRunStatus, nodeAggregate) {
-	t.Helper()
-
+	th := test.Setup(t)
 	dag := th.DAG(t, yaml)
 	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{NodeSelector: nodes}))
 	if wantErr == "" {
@@ -74,7 +73,39 @@ func runNodeStepIn(t *testing.T, th test.Helper, nodes staticNodes, yaml string,
 	if data, err := os.ReadFile(status.Nodes[0].Stdout); err == nil && len(data) > 0 {
 		require.NoError(t, json.Unmarshal(data, &aggregate))
 	}
-	return th, &status, aggregate
+	return &status, aggregate
+}
+
+// childRecorder is a sub-workflow runner that records each child run it is
+// asked to start, and starts none.
+type childRecorder struct {
+	mu      sync.Mutex
+	started []string
+}
+
+func (r *childRecorder) ShouldRun(context.Context, executor.SubWorkflowRequest) bool { return true }
+
+func (r *childRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
+	return nil, r.record(req.RunID)
+}
+
+func (r *childRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
+	return nil, r.record(req.RunID)
+}
+
+func (*childRecorder) Cancel(context.Context, executor.SubWorkflowCancelRequest) error { return nil }
+
+func (r *childRecorder) record(runID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.started = append(r.started, runID)
+	return errors.New("child runs are not started in this test")
+}
+
+func (r *childRecorder) runs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.started)
 }
 
 func nodeStatuses(aggregate nodeAggregate) map[string]string {
@@ -207,13 +238,18 @@ func TestNodeSteps_FailBeforeAnyChild(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			th, status, _ := runNodeStepIn(t, test.Setup(t), nodes, tc.yaml, tc.wantErr)
-			require.Equal(t, ir.NodeFailed, status.Nodes[0].Status)
-			root := ir.NewDAGRunRef(status.Name, status.DAGRunID)
-			for _, run := range status.Nodes[0].SubRuns {
-				_, err := th.DAGRunRepository.FindSubAttempt(th.Context, root, run.DAGRunID)
-				require.Error(t, err, "child run %s for node %s started", run.DAGRunID, run.Node)
-			}
+			children := &childRecorder{}
+			th := test.Setup(t)
+			dag := th.DAG(t, tc.yaml)
+			dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+				NodeSelector: nodes,
+				SubWorkflowRunnerFactory: func(context.Context) (executor.SubWorkflowRunner, error) {
+					return children, nil
+				},
+			}))
+			dagAgent.RunCheckErr(t, tc.wantErr)
+			require.Equal(t, ir.NodeFailed, dagAgent.Status(th.Context).Nodes[0].Status)
+			require.Empty(t, children.runs(), "a child run was started")
 		})
 	}
 }
