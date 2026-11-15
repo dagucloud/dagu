@@ -74,7 +74,7 @@ An inventory is a JSON record in a collection-backed store
 
 ```json
 {
-  "id": "inv_7f3k2a",
+  "id": "inv_7f3k2awqxm",
   "name": "Tokyo production (DC-1)",
   "description": "Racks A and B",
   "defaults": {
@@ -118,9 +118,10 @@ An inventory is a JSON record in a collection-backed store
 An inventory belongs to a project, as defined in
 [RFC 003](003-projects.md). It belongs to the server, not to the
 DAG files. A DAG is the same in every environment and names a role, such as
-`web`. Which hosts have that role differs between staging and production. So
-inventories are project state, kept where RFC 003 keeps a project's state and
-never among its DAG files, and git sync never reads or writes them.
+`web`. Staging and production are separate projects, each with its own
+inventories, so the same DAG reaches different hosts in each. Inventories are
+project state, kept where RFC 003 keeps a project's state and never among its
+DAG files, and git sync never reads or writes them.
 
 A project's nodes are the nodes of all its inventories, plus the workers. A
 project without inventories has only its worker nodes.
@@ -136,6 +137,9 @@ file-backed collection lays them out (`internal/persis/file/collection.go`):
 | `host-keys/` | The project's state | Trusted host key, keyed by node name |
 | `worker-nodes/` | `<data dir>/`, since workers are server-wide | Worker node, keyed by worker ID |
 
+- **Location.** In a project state laid out as spec 001 lays out `.dagu/`,
+  `inventories/` and `host-keys/` are in `settings/`, beside the project's
+  secrets and profiles.
 - **Writes.** Every write to a project's inventories holds one lock for the
   project (`internal/cmn/dirlock`), checks the change against all of the
   project's inventories, and then stores it. A stored inventory is therefore
@@ -364,6 +368,9 @@ side.
   inventories and they differ, nothing is copied until an admin chooses
   which side to keep. Unbinding stops sync and leaves the local inventories
   as they are.
+- **Plan.** Sync needs a paid plan or a trial, as RFC 018 defines. On the
+  Free plan nothing syncs, runs and local edits are unaffected, and the
+  Nodes page says why.
 
 ### Surfaces
 
