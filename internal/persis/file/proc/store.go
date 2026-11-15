@@ -269,24 +269,26 @@ func (s *Store) filePath(groupName string, meta proc.ProcMeta, t time.Time) stri
 	return filepath.Join(s.groupDir(groupName), fileutil.EscapeName(meta.Name), procRecordName(meta, t)+procFileExt)
 }
 
-// groupDir returns the directory of a process group. Each path separator in
-// a queue name starts a nested directory, which keeps the directories of runs
-// already in progress.
+// groupDir returns the directory of a process group.
 func (s *Store) groupDir(groupName string) string {
-	dirs := []string{s.root}
-	for _, segment := range strings.FieldsFunc(groupName, isPathSeparator) {
-		dirs = append(dirs, fileutil.EscapeName(segment))
-	}
-	return filepath.Join(dirs...)
+	return filepath.Join(s.root, fileutil.EscapeName(groupName))
 }
 
-// groupNameOf returns the process group that a directory under the store
-// root holds. A group with a path separator is never a single directory.
-func groupNameOf(dir string) string {
-	if name := fileutil.UnescapeName(dir); !strings.ContainsFunc(name, isPathSeparator) {
-		return name
+// groupDirs returns the directories that may hold a group's proc files.
+// Released versions nested the directories of a queue name with a path
+// separator, and a run they started may still heartbeat there.
+func (s *Store) groupDirs(groupName string) []string {
+	dirs := []string{s.groupDir(groupName)}
+	if !strings.ContainsFunc(groupName, isPathSeparator) || !filepath.IsLocal(groupName) {
+		return dirs
 	}
-	return dir
+	for _, segment := range strings.FieldsFunc(groupName, isPathSeparator) {
+		// A segment the host cannot store never held a heartbeat.
+		if fileutil.EscapeName(segment) != segment {
+			return dirs
+		}
+	}
+	return append(dirs, filepath.Join(s.root, groupName))
 }
 
 func isPathSeparator(r rune) bool {
@@ -399,15 +401,25 @@ func removeEmptyProcDirs(dir string) {
 
 // ListEntries returns proc entries for a group.
 func (s *Store) ListEntries(_ context.Context, groupName string) ([]proc.ProcEntry, error) {
-	groupDir := s.groupDir(groupName)
-	if _, err := fileutil.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	files, err := procFilesInGroup(groupDir)
+	files, err := s.groupFiles(groupName)
 	if err != nil {
 		return nil, err
 	}
 	return s.entriesFromFiles(groupName, files)
+}
+
+// groupFiles returns the proc files of a group from each of its directories.
+func (s *Store) groupFiles(groupName string) ([]string, error) {
+	var files []string
+	for _, dir := range s.groupDirs(groupName) {
+		dirFiles, _, err := procFilesInGroup(dir)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, dirFiles...)
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // ListAllEntries returns all proc entries under the store root.
@@ -425,11 +437,7 @@ func (s *Store) ListAllEntries(_ context.Context) ([]proc.ProcEntry, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		files, err := procFilesInGroup(filepath.Join(s.root, entry.Name()))
-		if err != nil {
-			return nil, err
-		}
-		groupEntries, err := s.entriesFromFiles(groupNameOf(entry.Name()), files)
+		groupEntries, err := s.entriesInGroupDir(filepath.Join(s.root, entry.Name()), fileutil.UnescapeName(entry.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -438,13 +446,31 @@ func (s *Store) ListAllEntries(_ context.Context) ([]proc.ProcEntry, error) {
 	return entries, nil
 }
 
+// entriesInGroupDir returns the entries of the group whose directory is dir,
+// and of the groups nested in it, where released versions kept a queue name
+// with a path separator.
+func (s *Store) entriesInGroupDir(dir, groupName string) ([]proc.ProcEntry, error) {
+	files, nested, err := procFilesInGroup(dir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.entriesFromFiles(groupName, files)
+	if err != nil {
+		return nil, err
+	}
+	for _, nestedDir := range nested {
+		nestedEntries, err := s.entriesInGroupDir(nestedDir, groupName+"/"+filepath.Base(nestedDir))
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, nestedEntries...)
+	}
+	return entries, nil
+}
+
 // LatestHeartbeat returns the latest heartbeat for dagRun.
 func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun ir.DAGRunRef) (*proc.ProcHeartbeat, error) {
-	groupDir := s.groupDir(groupName)
-	if _, err := fileutil.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	files, err := procFilesInGroup(groupDir)
+	files, err := s.groupFiles(groupName)
 	if err != nil {
 		return nil, err
 	}
@@ -478,35 +504,44 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun ir.D
 	return latest, nil
 }
 
-func procFilesInGroup(groupDir string) ([]string, error) {
+// procFilesInGroup returns the proc files in a group directory, and the
+// directories in it that hold nested groups.
+func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 	dagEntries, err := fileutil.ReadDir(groupDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	var files []string
 	for _, dagEntry := range dagEntries {
 		if !dagEntry.IsDir() || dagEntry.Name() == "" || dagEntry.Name()[0] == '.' {
 			continue
 		}
-		procEntries, err := fileutil.ReadDir(filepath.Join(groupDir, dagEntry.Name()))
+		dagDir := filepath.Join(groupDir, dagEntry.Name())
+		procEntries, err := fileutil.ReadDir(dagDir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
+		holdsGroups := false
 		for _, procEntry := range procEntries {
-			if procEntry.IsDir() || filepath.Ext(procEntry.Name()) != procFileExt {
+			if procEntry.IsDir() {
+				holdsGroups = holdsGroups || !strings.HasPrefix(procEntry.Name(), ".")
 				continue
 			}
-			files = append(files, filepath.Join(groupDir, dagEntry.Name(), procEntry.Name()))
+			if filepath.Ext(procEntry.Name()) == procFileExt {
+				files = append(files, filepath.Join(dagDir, procEntry.Name()))
+			}
+		}
+		if holdsGroups {
+			nested = append(nested, dagDir)
 		}
 	}
 	sort.Strings(files)
-	return files, nil
+	return files, nested, nil
 }
 
 func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcEntry, error) {
