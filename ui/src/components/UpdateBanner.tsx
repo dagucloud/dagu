@@ -118,6 +118,7 @@ export function UpdateBanner() {
               <UpdateNowButton
                 latest={config.latestVersion}
                 restartStopsRuns={config.restartStopsRuns}
+                restartCanKeepRuns={config.restartCanKeepRuns}
                 error={upgrade.requestError}
                 onConfirm={upgrade.start}
               />
@@ -158,11 +159,13 @@ function minorSeries(version: string): string {
 function UpdateNowButton({
   latest,
   restartStopsRuns,
+  restartCanKeepRuns,
   error,
   onConfirm,
 }: {
   latest: string;
   restartStopsRuns: boolean;
+  restartCanKeepRuns: boolean;
   error: string | null;
   onConfirm: () => void;
 }) {
@@ -206,7 +209,7 @@ function UpdateNowButton({
               values={{ latest }}
             />
           </p>
-          {restartStopsRuns && (
+          {restartStopsRuns && restartCanKeepRuns && (
             <p className="mt-2">
               <ExternalLink href={KEEP_RUNS_DOCS_URL}>
                 <I18nText text="Keep them running" />

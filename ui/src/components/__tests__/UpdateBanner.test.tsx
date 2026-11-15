@@ -219,6 +219,25 @@ describe('UpdateBanner', () => {
 
     it('warns before an update whose restart ends runs', async () => {
       const user = userEvent.setup();
+      renderBanner({
+        webUpgradeAvailable: true,
+        restartStopsRuns: true,
+        restartCanKeepRuns: true,
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Update now' }));
+
+      expect(
+        screen.getByText(/The restart also ends runs in progress/)
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', { name: 'Keep them running' })
+      ).toBeInTheDocument();
+    });
+
+    // Where the service cannot keep runs, the guide has nothing to offer.
+    it('links no guide when the service cannot keep runs', async () => {
+      const user = userEvent.setup();
       renderBanner({ webUpgradeAvailable: true, restartStopsRuns: true });
 
       await user.click(screen.getByRole('button', { name: 'Update now' }));
@@ -226,6 +245,9 @@ describe('UpdateBanner', () => {
       expect(
         screen.getByText(/The restart also ends runs in progress/)
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: 'Keep them running' })
+      ).not.toBeInTheDocument();
     });
 
     it('shows the progress of the update it started', async () => {
