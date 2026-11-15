@@ -99,6 +99,11 @@ func TestStoreWindowsUnsafeNames(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, alive)
 
+			heartbeat, err := s.LatestHeartbeat(ctx, tc.group, ref)
+			require.NoError(t, err)
+			require.NotNil(t, heartbeat)
+			assert.Equal(t, ref, heartbeat.DAGRun)
+
 			entries, err := s.ListAllEntries(ctx)
 			require.NoError(t, err)
 			require.Len(t, entries, 1)

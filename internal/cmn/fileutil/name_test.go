@@ -114,7 +114,7 @@ func TestSafeNameDeviceNames(t *testing.T) {
 func TestEscapeName(t *testing.T) {
 	names := []string{
 		"plain", "50%", "fetch/parse", `fetch\parse`, "db:query", "why?",
-		"tab\there", "nul", "nul.json", "con", "COM1.txt", "nightly.", "trailing ",
+		"tab\there", "nul\x00byte", "nul", "nul.json", "con", "COM1.txt", "nightly.", "trailing ",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
