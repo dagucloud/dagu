@@ -1444,7 +1444,8 @@ func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) erro
 
 // A DAG's details, read or streamed, have the fields they had before the
 // slots a DAG missed moved to their own endpoint, so the live feed sends no
-// more on each update than it did then.
+// more on each update than it did then. A field added on purpose joins the
+// list here, after weighing what it adds to every update.
 func TestDAGDetailsPayloadShape(t *testing.T) {
 	t.Parallel()
 
