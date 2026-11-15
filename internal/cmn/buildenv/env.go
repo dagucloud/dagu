@@ -19,6 +19,10 @@ import (
 // to a subprocess.
 const PresolvedEnvFileKey = "_DAGU_PRESOLVED_BUILD_ENV_FILE"
 
+// standInParentKey is the env var key naming the process a launcher had the
+// process it started regard as its parent, in place of the launcher.
+const standInParentKey = "_DAGU_PRESOLVED_BUILD_ENV_PARENT"
+
 // transportFilePrefix starts the name of a transport file, which goes on with
 // the ID of the process that wrote it.
 const transportFilePrefix = "dagu-buildenv-"
@@ -76,6 +80,12 @@ func Prepare(snapshot Snapshot) ([]string, func() error, error) {
 	return []string{PresolvedEnvFileKey + "=" + path}, cleanup, nil
 }
 
+// StandInParentEnv returns the env entry telling a started process that it
+// regards the process with pid as its parent, in place of its launcher.
+func StandInParentEnv(pid int) string {
+	return standInParentKey + "=" + strconv.Itoa(pid)
+}
+
 // Claim takes over the transport file this process was started with, when
 // the process that wrote it started this one. Its launcher removes the file
 // once this process exits, but a launcher that ends first never does, so
@@ -88,12 +98,23 @@ func Claim() {
 		return
 	}
 	writer, _, ok := strings.Cut(rest, "-")
-	if pid, err := strconv.Atoi(writer); !ok || err != nil || pid != parentPID() {
+	if pid, err := strconv.Atoi(writer); !ok || err != nil || !startedBy(pid) {
 		return
 	}
 	claimMu.Lock()
 	defer claimMu.Unlock()
 	claimed = path
+}
+
+// startedBy reports whether the process with pid started this one: it is
+// this process's parent, or it named the stand-in that is.
+func startedBy(pid int) bool {
+	parent := parentPID()
+	if pid == parent {
+		return true
+	}
+	standIn, err := strconv.Atoi(os.Getenv(standInParentKey))
+	return err == nil && standIn == parent
 }
 
 // Release removes the transport file Claim took over, if any.

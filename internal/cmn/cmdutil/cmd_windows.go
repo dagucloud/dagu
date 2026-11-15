@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"golang.org/x/sys/windows"
 )
 
@@ -51,10 +52,16 @@ func killProcessTree(pid uint32) error {
 		return fmt.Errorf("Process32First failed: %w", err)
 	}
 
+	// Windows keeps a process's parent ID after the parent exits and may give
+	// that ID to a later process, so a process that started before pid only
+	// shares the ID of its parent and is left alone.
+	started, known := procutil.StartTime(int(pid))
+	older := func(child uint32) bool { return known && startedBefore(child, started) }
+
 	// Iterate all processes
 	var errs []error
 	for {
-		if entry.ParentProcessID == pid && entry.ProcessID != pid {
+		if entry.ParentProcessID == pid && entry.ProcessID != pid && !older(entry.ProcessID) {
 			// Recursively kill children first
 			if err := killProcessTree(entry.ProcessID); err != nil {
 				errs = append(errs, err)
@@ -72,6 +79,13 @@ func killProcessTree(pid uint32) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// startedBefore reports whether the process with pid is known to have started
+// before the given time, in the form procutil.StartTime returns.
+func startedBefore(pid uint32, at int64) bool {
+	started, ok := procutil.StartTime(int(pid))
+	return ok && started < at
 }
 
 // terminateProcess force-terminates a single process. A process that has already

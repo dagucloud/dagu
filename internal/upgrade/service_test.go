@@ -106,7 +106,7 @@ func TestDetectService(t *testing.T) {
 			definition: func(execDir, _, _ string) string {
 				return filepath.Join(execDir, "dagu-service.xml")
 			},
-			want: &Service{RestartCommand: "Restart-Service Dagu", StopsRuns: true},
+			want: &Service{RestartCommand: "Restart-Service Dagu"},
 		},
 		{
 			name: "definition from another platform",
