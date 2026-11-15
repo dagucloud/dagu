@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -272,24 +272,23 @@ func TestManager(t *testing.T) {
 		ctx := th.Context
 		dagRunID := uuid.Must(uuid.NewV7()).String()
 		attempt := createWaitingRootAttempt(t, th, dag.DAG, dagRunID)
-		process, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
-			StartedAt:    time.Now().Unix(),
-			Name:         dag.Name,
-			DAGRunID:     dagRunID,
-			AttemptID:    attempt.ID(),
-			RootName:     dag.Name,
-			RootDAGRunID: dagRunID,
-		})
-		require.NoError(t, err)
-		var releasing atomic.Bool
+		procs := newCheckpointProcesses()
+		mgr := runtime.NewManager(th.DAGRunRepository, procs, th.Config)
+
+		statusWhileAlive := make(chan ir.Status, 1)
 		go func() {
-			time.Sleep(300 * time.Millisecond)
-			releasing.Store(true)
-			_ = process.Stop(ctx)
+			<-procs.observedAlive
+			status, err := attempt.ReadStatus(ctx)
+			if err != nil {
+				statusWhileAlive <- ir.NotStarted
+			} else {
+				statusWhileAlive <- status.Status
+			}
+			close(procs.released)
 		}()
 
-		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
-		require.True(t, releasing.Load(), "stop finished before the process released the run")
+		require.NoError(t, mgr.Stop(ctx, dag.DAG, dagRunID))
+		require.Equal(t, ir.Waiting, <-statusWhileAlive)
 
 		status, err := attempt.ReadStatus(ctx)
 		require.NoError(t, err)
@@ -1233,6 +1232,40 @@ func createLiveRootAttempt(t *testing.T, th test.Helper, dag *ir.DAG, dagRunID s
 	})
 
 	return attempt
+}
+
+// checkpointProcesses reports every attempt alive until released, and signals
+// the first liveness check that saw an attempt alive.
+type checkpointProcesses struct {
+	observedAlive chan struct{}
+	released      chan struct{}
+	observe       sync.Once
+}
+
+func newCheckpointProcesses() *checkpointProcesses {
+	return &checkpointProcesses{observedAlive: make(chan struct{}), released: make(chan struct{})}
+}
+
+func (p *checkpointProcesses) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
+	select {
+	case <-p.released:
+		return false, nil
+	default:
+	}
+	p.observe.Do(func() { close(p.observedAlive) })
+	return true, nil
+}
+
+func (p *checkpointProcesses) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
+	return false, nil
+}
+
+func (p *checkpointProcesses) ListAlive(context.Context, string) ([]ir.DAGRunRef, error) {
+	return nil, nil
+}
+
+func (p *checkpointProcesses) FreshEntriesByDAGName(context.Context, string, string) ([]procctrl.ProcEntry, error) {
+	return nil, nil
 }
 
 // createWaitingRootAttempt records a root run whose process reached a waiting
