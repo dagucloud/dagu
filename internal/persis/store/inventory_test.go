@@ -5,6 +5,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -448,4 +449,34 @@ func TestInventoryStore_ReadDuringImport(t *testing.T) {
 	require.NoError(t, selectErr)
 	require.Len(t, selected, 1)
 	assert.Equal(t, "Osaka", selected[0].InventoryName)
+}
+
+// lostLock is a lock that passes to another client while its holder works.
+type lostLock struct{}
+
+var errLockLost = errors.New("lock lost")
+
+func (lostLock) Do(_ context.Context, fn func(held func() error) error) error {
+	return fn(func() error { return errLockLost })
+}
+
+// A read during which the lock passed to another client may have seen an
+// import partly applied, so it fails rather than return that set.
+func TestInventoryStore_ReadRefusedWhenLockLost(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	col := backend.Collection(persis.CollectionInventories)
+	writer := newInventoryStore(t, backend)
+	_, err := writer.Create(ctx, testInventory("Tokyo", "web01"))
+	require.NoError(t, err)
+
+	reader, err := store.NewInventoryStore(col, lostLock{})
+	require.NoError(t, err)
+	list, err := reader.List(ctx)
+	require.ErrorIs(t, err, errLockLost)
+	assert.Empty(t, list)
+	nodes, err := reader.Nodes(ctx)
+	require.ErrorIs(t, err, errLockLost)
+	assert.Empty(t, nodes)
 }

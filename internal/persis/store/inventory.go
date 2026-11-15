@@ -233,13 +233,20 @@ func (s *InventoryStore) Select(ctx context.Context, selector string) ([]invento
 // loadLocked reads every inventory under the lock. An import writes one
 // inventory at a time, so a read between two of its writes could miss a node
 // that moves between inventories, and a step would then run on part of the
-// fleet without an error.
+// fleet without an error. A read during which the lock passed to another
+// client may have seen such a change, so it fails.
 func (s *InventoryStore) loadLocked(ctx context.Context) ([]storedInventory, error) {
 	var all []storedInventory
-	err := s.lock.Do(ctx, func(func() error) error {
-		var err error
-		all, err = s.load(ctx)
-		return err
+	err := s.lock.Do(ctx, func(held func() error) error {
+		loaded, err := s.load(ctx)
+		if err != nil {
+			return err
+		}
+		if err := held(); err != nil {
+			return err
+		}
+		all = loaded
+		return nil
 	})
 	return all, err
 }
