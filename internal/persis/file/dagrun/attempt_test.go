@@ -1357,8 +1357,9 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		}
 	})
 
-	// A step never reads the messages of another step whose escaped name
-	// matches its own raw name, such as fetch/parse for ./fetch%2Fparse.
+	// A step never reads the messages of another step whose file its raw
+	// name resolves to, such as fetch/parse for ./fetch%2Fparse, or b for
+	// x/../b.
 	t.Run("DoesNotReadAnotherStepsMessages", func(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-alias-step-name")
@@ -1366,9 +1367,12 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, att.WriteStepMessages(ctx, "fetch/parse", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "parse"}}))
-		msgs, err := att.ReadStepMessages(ctx, "./fetch%2Fparse")
-		require.NoError(t, err)
-		assert.Nil(t, msgs)
+		require.NoError(t, att.WriteStepMessages(ctx, "b", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "b"}}))
+		for _, name := range []string{"./fetch%2Fparse", "x/../b"} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			assert.Nil(t, msgs, name)
+		}
 	})
 
 	// Escaping can make a step name longer than a file name may be, so such a
@@ -1408,9 +1412,12 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		long := strings.Repeat("a", 241)
 		short := strings.TrimSuffix(stepMessagesName(long), ".json")
 		require.NoError(t, att.WriteStepMessages(ctx, long, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: long}}))
-		msgs, err := att.ReadStepMessages(ctx, short)
-		require.NoError(t, err)
-		assert.Nil(t, msgs, "a step without messages reads none")
+		// A file system that ignores case finds the file under either case.
+		for _, name := range []string{short, strings.ToUpper(short)} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			assert.Nil(t, msgs, "a step without messages reads none")
+		}
 
 		for _, name := range []string{long, short} {
 			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
