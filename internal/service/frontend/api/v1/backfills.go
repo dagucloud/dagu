@@ -167,6 +167,11 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	if err != nil || missed.Slots == 0 {
 		return none, err
 	}
+	// A dismissal hides the slots until a span that ended after it holds one.
+	dismissal, err := a.spanStore.Dismissed(ctx, request.FileName)
+	if err != nil || !missed.Until.After(dismissal.Through) {
+		return none, err
+	}
 	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
 	for _, reason := range missed.Reasons {
 		reasons = append(reasons, api.MissedSlotsReason(reason))
@@ -174,6 +179,29 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	return api.GetDAGMissedSlots200JSONResponse{MissedSlots: &api.MissedSlots{
 		Slots: missed.Slots, First: missed.First, Last: missed.Last, Reasons: reasons, Until: missed.Until,
 	}}, nil
+}
+
+// DismissDAGMissedSlots hides a DAG's missed slots from every user until a
+// newer span adds missed slots. Any user who can see the DAG may dismiss
+// them.
+func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGMissedSlotsRequestObject) (api.DismissDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	dismissal := schedulerstate.Dismissal{Through: time.Now(), By: triggerActorFromContext(ctx)}
+	if err := a.spanStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
+		return nil, fmt.Errorf("error dismissing the missed slots of %s: %w", request.FileName, err)
+	}
+	a.logAudit(ctx, audit.CategoryDAG, "dag_missed_slots_dismiss", map[string]any{"dag_name": request.FileName})
+	return api.DismissDAGMissedSlots204Response{}, nil
 }
 
 // markSpan records that the slots of a DAG, or of every DAG for the empty

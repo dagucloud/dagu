@@ -304,3 +304,56 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	_, err := apiImpl.GetDAGMissedSlots(user("other"), api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})
 	requireAPIErrorStatus(t, err, http.StatusNotFound)
 }
+
+// Any user who can see a DAG may dismiss its missed slots, which hides them
+// from every user until a span that ended later holds a missed slot. Here
+// only the scheduler's spans hold them, so the DAG has no span record of its
+// own before the dismissal.
+func TestDismissDAGMissedSlots(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans))
+	hour := time.Now().Truncate(time.Hour)
+	ctx := context.Background()
+	for _, dag := range []string{"ops-load", "ops-report"} {
+		helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, dag, []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./run.sh ${context.run.scheduled_at}\n"))
+		// The slot before the spans ran, so the DAGs were on their schedule.
+		require.NoError(t, helper.DAGRunRepository.RecordSkippedSlot(ctx, dag, hour.Add(-3*time.Hour), "0 * * * *", "running"))
+	}
+	require.NoError(t, spans.Add(ctx, "", schedulerstate.Span{From: hour.Add(-150 * time.Minute), To: hour.Add(-90 * time.Minute), Reason: schedulerstate.SpanPaused}))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans), localapi.WithAuthService(stubAuthService{}))
+	viewer := func(name, workspace string) context.Context {
+		return auth.WithUser(ctx, &auth.User{
+			Username: name, Role: auth.RoleViewer,
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: workspace, Role: auth.RoleViewer}}},
+		})
+	}
+	dismiss := func(ctx context.Context, fileName string) error {
+		_, err := apiImpl.DismissDAGMissedSlots(ctx, api.DismissDAGMissedSlotsRequestObject{FileName: fileName})
+		return err
+	}
+	// Another user of the workspace reads the missed slots.
+	missedSlots := func(fileName string) *api.MissedSlots {
+		t.Helper()
+		resp, err := apiImpl.GetDAGMissedSlots(viewer("bob", "ops"), api.GetDAGMissedSlotsRequestObject{FileName: fileName})
+		require.NoError(t, err)
+		return resp.(api.GetDAGMissedSlots200JSONResponse).MissedSlots
+	}
+	require.NotNil(t, missedSlots("ops-report"))
+
+	requireAPIErrorStatus(t, dismiss(viewer("carol", "other"), "ops-report"), http.StatusNotFound)
+	requireAPIErrorStatus(t, dismiss(viewer("alice", "ops"), "missing"), http.StatusNotFound)
+	require.NoError(t, dismiss(viewer("alice", "ops"), "ops-report"))
+
+	assert.Nil(t, missedSlots("ops-report"), "dismissed for every user")
+	assert.NotNil(t, missedSlots("ops-load"), "dismissed for that DAG only")
+	dismissal, err := spans.Dismissed(ctx, "ops-report")
+	require.NoError(t, err)
+	assert.Equal(t, "alice", dismissal.By)
+
+	newer := schedulerstate.Span{From: hour.Add(-70 * time.Minute), To: time.Now(), Reason: schedulerstate.SpanPaused}
+	require.NoError(t, spans.Add(ctx, "", newer))
+	missed := missedSlots("ops-report")
+	require.NotNil(t, missed, "a newer span shows the missed slots again")
+	assert.True(t, newer.To.Equal(missed.Until), "until %s", missed.Until)
+}
