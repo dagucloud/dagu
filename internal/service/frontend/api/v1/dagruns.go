@@ -3547,6 +3547,25 @@ func failedAutoRetryCancelStateChangedError(updatedStatus *ir.DAGRunStatus) *Err
 	}
 }
 
+func waitingStopError(err error) error {
+	switch {
+	case errors.Is(err, dagrun.ErrWaitingAbortNotRoot):
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	case errors.Is(err, dagrun.ErrWaitingAbortStateChanged):
+		return &Error{
+			HTTPStatus: http.StatusConflict,
+			Code:       api.ErrorCodeConflict,
+			Message:    err.Error() + ". Refresh and try again.",
+		}
+	default:
+		return fmt.Errorf("error stopping waiting DAG-run: %w", err)
+	}
+}
+
 func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRequestObject) (api.TerminateDAGRunResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
@@ -3575,7 +3594,8 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 	}
 
 	terminateMode := "running_stop"
-	if savedStatus.Status == ir.Failed {
+	switch savedStatus.Status {
+	case ir.Failed:
 		if !dagrun.CanCancelFailedAutoRetryPendingRun(savedStatus) {
 			return nil, failedAutoRetryCancelError(savedStatus)
 		}
@@ -3586,7 +3606,18 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 			return nil, err
 		}
 		terminateMode = "failed_auto_retry_cancel"
-	} else {
+	case ir.Waiting:
+		// A waiting run holds no process or worker, so it ends in the run
+		// store whether it ran locally or on a worker.
+		dag, err := attempt.ReadDAG(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error reading DAG: %w", err)
+		}
+		if err := a.dagRunMgr.Stop(a.withEventContext(ctx), dag, request.DagRunId); err != nil {
+			return nil, waitingStopError(err)
+		}
+		terminateMode = "waiting_stop"
+	case ir.NotStarted, ir.Queued, ir.Running, ir.Succeeded, ir.PartiallySucceeded, ir.Aborted, ir.Rejected:
 		dag, err := attempt.ReadDAG(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error reading DAG: %w", err)

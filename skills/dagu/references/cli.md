@@ -84,6 +84,8 @@ Dequeue a DAG run from a queue (marks it as aborted): `dagu dequeue <queue-name>
 
 Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
 
+With `--run-id`, a root run waiting for an approval or a human task ends as aborted without running its remaining steps.
+
 ### dagu restart
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`

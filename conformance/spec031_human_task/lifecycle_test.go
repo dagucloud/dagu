@@ -39,6 +39,31 @@ func TestAcknowledgementCheckpointAndResume(t *testing.T) {
 	repeat.ExpectStderr("")
 }
 
+// A stopped waiting run ends aborted without running the steps after its
+// task, rejects completion, and opens the task again when retried.
+func TestStopEndsWaitingRunAborted(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-stop"
+	const file = "acknowledgement.yaml"
+
+	startWaiting(t, dagu, env, runID, file)
+	dagu.RunWithEnv(env, "stop", "--run-id="+runID, file).ExpectExitCode(0)
+
+	status := waitForStatus(t, dagu, env, runID, file, "Aborted")
+	require.Regexp(t, `(?m)maintenance_started .*\[aborted\]`, status.Stdout())
+	_, err := os.Stat(dagu.ProjectPath("continued.txt"))
+	require.True(t, os.IsNotExist(err), "the step after the task ran: %v", err)
+
+	result := complete(t, dagu, env, runID, "maintenance_started", file)
+	assertCompletionError(t, result, runID, "not waiting")
+
+	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, fixtureDAGName(file))
+	retry.ExpectExitCode(0)
+	status = waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Regexp(t, `(?m)maintenance_started .*\[waiting\]`, status.Stdout())
+}
+
 // A partial foreach can leave an independent human checkpoint waiting while
 // completion resumes the newly eligible branch without reopening that gate.
 func TestPartialCheckpointResume(t *testing.T) {

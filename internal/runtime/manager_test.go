@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -240,6 +241,59 @@ func TestManager(t *testing.T) {
 		aborting, err := attempt.IsAborting(ctx)
 		require.NoError(t, err)
 		require.True(t, aborting)
+	})
+	t.Run("StopEndsWaitingRunAsAborted", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		attempt := createWaitingRootAttempt(t, th, dag.DAG, dagRunID)
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Aborted, status.Status)
+		require.Equal(t, ir.NodeAborted, status.Nodes[0].Status)
+		// The cancel request marks the stop as an operator's.
+		aborting, err := attempt.IsAborting(ctx)
+		require.NoError(t, err)
+		require.True(t, aborting)
+	})
+	// The process that recorded the checkpoint may still be exiting; its last
+	// status write must land before the stop, or it would replace the stop.
+	t.Run("StopWaitsForWaitingCheckpointProcessToExit", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		attempt := createWaitingRootAttempt(t, th, dag.DAG, dagRunID)
+		process, err := th.ProcRepository.Acquire(ctx, dag.ProcGroup(), procctrl.ProcMeta{
+			StartedAt:    time.Now().Unix(),
+			Name:         dag.Name,
+			DAGRunID:     dagRunID,
+			AttemptID:    attempt.ID(),
+			RootName:     dag.Name,
+			RootDAGRunID: dagRunID,
+		})
+		require.NoError(t, err)
+		var releasing atomic.Bool
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			releasing.Store(true)
+			_ = process.Stop(ctx)
+		}()
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+		require.True(t, releasing.Load(), "stop finished before the process released the run")
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Aborted, status.Status)
 	})
 	t.Run("StopFallsBackToLegacyRootSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
@@ -1178,6 +1232,23 @@ func createLiveRootAttempt(t *testing.T, th test.Helper, dag *ir.DAG, dagRunID s
 		_ = process.Stop(ctx)
 	})
 
+	return attempt
+}
+
+// createWaitingRootAttempt records a root run whose process reached a waiting
+// checkpoint and exited.
+func createWaitingRootAttempt(t *testing.T, th test.Helper, dag *ir.DAG, dagRunID string) dagrun.Attempt {
+	t.Helper()
+
+	ctx := th.Context
+	attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := testNewStatus(dag, dagRunID, ir.Waiting, ir.NodeWaiting)
+	status.AttemptID = attempt.ID()
+	status.FinishedAt = stringutil.FormatTime(time.Now())
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
 	return attempt
 }
 
