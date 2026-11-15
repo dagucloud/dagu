@@ -143,28 +143,60 @@ func TestStoreListsQueueWithSlash(t *testing.T) {
 func TestStoreFindsNestedQueueHeartbeat(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	root := t.TempDir()
-	s := New(root)
-	ref := ir.NewDAGRunRef("etl", "run-1")
-	meta := testProcMeta(ref)
-	now := time.Now().UTC()
-	path := filepath.Join(root, "team", "etl", ref.Name, procRecordName(meta, now)+procFileExt)
-	require.NoError(t, writeProcFile(path, now.Unix(), meta))
+	for _, group := range []string{"team/etl", "team/.hidden"} {
+		t.Run(group, func(t *testing.T) {
+			t.Parallel()
 
-	alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, "team/etl", ref)
+			ctx := context.Background()
+			root := t.TempDir()
+			s := New(root)
+			ref := ir.NewDAGRunRef("etl", "run-1")
+			meta := testProcMeta(ref)
+			now := time.Now().UTC()
+			path := filepath.Join(root, filepath.FromSlash(group), ref.Name, procRecordName(meta, now)+procFileExt)
+			require.NoError(t, writeProcFile(path, now.Unix(), meta))
+
+			alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, group, ref)
+			require.NoError(t, err)
+			assert.True(t, alive)
+
+			heartbeat, err := s.LatestHeartbeat(ctx, group, ref)
+			require.NoError(t, err)
+			require.NotNil(t, heartbeat)
+			assert.Equal(t, ref, heartbeat.DAGRun)
+
+			entries, err := s.ListAllEntries(ctx)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			assert.Equal(t, group, entries[0].GroupName)
+		})
+	}
+}
+
+// A DAG name may start with a dot. Only the group lock keeps internal
+// directories in a group.
+func TestStoreDotPrefixedDAGName(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+	ref := ir.NewDAGRunRef(".hidden", "run-1")
+	require.NoError(t, s.WithLock(ctx, "queue-a", func() error {
+		handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
+		if err == nil {
+			t.Cleanup(func() { _ = handle.Stop(ctx) })
+		}
+		return err
+	}))
+
+	alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, "queue-a", ref)
 	require.NoError(t, err)
 	assert.True(t, alive)
-
-	heartbeat, err := s.LatestHeartbeat(ctx, "team/etl", ref)
-	require.NoError(t, err)
-	require.NotNil(t, heartbeat)
-	assert.Equal(t, ref, heartbeat.DAGRun)
 
 	entries, err := s.ListAllEntries(ctx)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
-	assert.Equal(t, "team/etl", entries[0].GroupName)
+	assert.Equal(t, ref, entries[0].Meta.DAGRun())
 }
 
 func TestStoreWithLockSerializesIndependentStores(t *testing.T) {
