@@ -32,10 +32,12 @@ type InventoryStore struct {
 // inventoryStoredRecord keeps its own timestamps, since a backend may derive a
 // record's from the time it was last written.
 type inventoryStoredRecord struct {
-	Version   int64               `json:"version"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
-	Inventory inventory.Inventory `json:"inventory"`
+	// SchemaVersion is the record's format. Version counts the changes stored.
+	SchemaVersion int                 `json:"schema_version"`
+	Version       int64               `json:"version"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	Inventory     inventory.Inventory `json:"inventory"`
 }
 
 // storedInventory pairs a decoded inventory with the record it came from, so
@@ -46,6 +48,11 @@ type storedInventory struct {
 }
 
 const (
+	// inventorySchemaVersion is the record format this version writes. A
+	// newer format is refused on read, so a record is never written back
+	// without the fields this version does not know.
+	inventorySchemaVersion = 1
+
 	inventoryIDPrefix = "inv_"
 	// inventoryIDLength is the number of random characters after the prefix.
 	inventoryIDLength = 10
@@ -287,7 +294,13 @@ func (s *InventoryStore) create(ctx context.Context, inv inventory.Inventory) (i
 	now := time.Now().UTC()
 	for range createAttempts {
 		inv.ID = newInventoryID()
-		data, err := persis.Encode(&inventoryStoredRecord{Version: 1, CreatedAt: now, UpdatedAt: now, Inventory: inv})
+		data, err := persis.Encode(&inventoryStoredRecord{
+			SchemaVersion: inventorySchemaVersion,
+			Version:       1,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			Inventory:     inv,
+		})
 		if err != nil {
 			return inventory.Stored{}, fmt.Errorf("inventory store: encode %q: %w", inv.Name, err)
 		}
@@ -306,10 +319,11 @@ func (s *InventoryStore) create(ctx context.Context, inv inventory.Inventory) (i
 func (s *InventoryStore) replace(ctx context.Context, current storedInventory, inv inventory.Inventory) (inventory.Stored, error) {
 	inv.ID = current.stored.ID
 	next := inventoryStoredRecord{
-		Version:   current.stored.Version + 1,
-		CreatedAt: current.stored.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-		Inventory: inv,
+		SchemaVersion: inventorySchemaVersion,
+		Version:       current.stored.Version + 1,
+		CreatedAt:     current.stored.CreatedAt,
+		UpdatedAt:     time.Now().UTC(),
+		Inventory:     inv,
 	}
 	data, err := persis.Encode(&next)
 	if err != nil {
@@ -394,6 +408,10 @@ func decodeStoredInventory(rec *persis.Record) (storedInventory, error) {
 	var payload inventoryStoredRecord
 	if err := persis.Decode(rec, &payload); err != nil {
 		return storedInventory{}, fmt.Errorf("inventory store: decode %q: %w", rec.ID, err)
+	}
+	if payload.SchemaVersion > inventorySchemaVersion {
+		return storedInventory{}, fmt.Errorf("inventory store: %q has schema version %d, newer than %d, which this version of Dagu reads",
+			rec.ID, payload.SchemaVersion, inventorySchemaVersion)
 	}
 	payload.Inventory.ID = rec.ID
 	return storedInventory{rec: rec, stored: storedOf(payload)}, nil

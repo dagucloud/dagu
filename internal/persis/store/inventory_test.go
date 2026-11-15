@@ -480,3 +480,30 @@ func TestInventoryStore_ReadRefusedWhenLockLost(t *testing.T) {
 	require.ErrorIs(t, err, errLockLost)
 	assert.Empty(t, nodes)
 }
+
+// A record written by a newer Dagu may hold fields this one does not know.
+// Reading or changing the project would drop them, so both are refused.
+func TestInventoryStore_NewerSchemaRefused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	col := backend.Collection(persis.CollectionInventories)
+	newer := &persis.Record{
+		ID: "inv_aaaaaaaaaa",
+		Data: []byte(`{"schema_version":2,"version":1,"created_at":"2026-11-15T00:00:00Z",` +
+			`"updated_at":"2026-11-15T00:00:00Z","inventory":{"name":"Tokyo","nodes":[],"sync":{}}}`),
+	}
+	require.NoError(t, col.Put(ctx, newer))
+	s := newInventoryStore(t, backend)
+
+	_, err := s.Get(ctx, newer.ID)
+	assert.ErrorContains(t, err, "schema version 2")
+	_, err = s.List(ctx)
+	assert.ErrorContains(t, err, "schema version 2")
+	_, err = s.Import(ctx, []inventory.Inventory{testInventory("Tokyo")}, inventory.ImportOptions{Replace: true})
+	assert.ErrorContains(t, err, "schema version 2")
+
+	got, err := col.Get(ctx, newer.ID)
+	require.NoError(t, err)
+	assert.Equal(t, newer.Data, got.Data, "the newer record is left as written")
+}
