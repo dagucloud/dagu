@@ -962,20 +962,33 @@ func TestUpdateCheckerStatus(t *testing.T) {
 			LastCheck:       time.Now(),
 			LatestVersion:   "v9.9.9",
 			UpdateAvailable: true,
-		}})
+		}}, false)
 
 		status := checker.UpdateStatus()
 		assert.True(t, status.UpdateAvailable)
 		assert.Equal(t, "v9.9.9", status.LatestVersion)
 		assert.Equal(t, wantCommand, status.UpgradeCommand)
 		assert.False(t, status.RestartRequired)
+		assert.False(t, status.WebUpgradeAvailable)
+	})
+
+	// The web UI offers the upgrade only while there is one to install.
+	t.Run("web upgrade", func(t *testing.T) {
+		t.Parallel()
+
+		cache := &upgrade.UpgradeCheckCache{LastCheck: time.Now(), LatestVersion: "v9.9.9", UpdateAvailable: true}
+		assert.True(t, newUpdateChecker(context.Background(), staticUpgradeCacheStore{cache: cache}, true).UpdateStatus().WebUpgradeAvailable)
+
+		upToDate := &upgrade.UpgradeCheckCache{LastCheck: time.Now(), LatestVersion: "v1.0.0"}
+		assert.False(t, newUpdateChecker(context.Background(), staticUpgradeCacheStore{cache: upToDate}, true).UpdateStatus().WebUpgradeAvailable)
+		assert.False(t, newUpdateChecker(context.Background(), nil, true).UpdateStatus().WebUpgradeAvailable)
 	})
 
 	// Restart detection is local, so it stays on when update checks are disabled.
 	t.Run("update checks disabled", func(t *testing.T) {
 		t.Parallel()
 
-		status := newUpdateChecker(context.Background(), nil).UpdateStatus()
+		status := newUpdateChecker(context.Background(), nil, false).UpdateStatus()
 		assert.False(t, status.UpdateAvailable)
 		assert.Empty(t, status.LatestVersion)
 		assert.Equal(t, wantCommand, status.UpgradeCommand)

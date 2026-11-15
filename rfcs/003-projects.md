@@ -447,8 +447,9 @@ new project, and its runs stay in the old one.
   can hold data the source project never shared. The move asks to confirm
   that before it starts.
 - Before anything moves, the move lists the secrets, profiles, and
-  notification routes the DAG uses that the target project lacks, so what
-  the DAG runs with never changes silently.
+  notification routes the DAG uses that the target project lacks, and the
+  nodes its literal node selectors ([RFC 013](013-node-targeting.md)) match
+  in each project, so what the DAG runs with never changes silently.
 - The source project's scheduler unit stops scheduling the DAG before its
   files move, and the target's unit picks it up after.
 - The move is refused while a DAG in the source project calls it with

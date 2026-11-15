@@ -213,8 +213,13 @@ func startBrowserOn(t *testing.T, profile string) *browser {
 	if err := os.Remove(activePort); !errors.Is(err, os.ErrNotExist) {
 		require.NoError(t, err)
 	}
+	// The backgrounding flags match the browser runtime's launch. Without
+	// them, the hidden tab a gate probes its socket rule in runs at
+	// background priority, which a busy Windows host can starve past the
+	// gate's startup deadline.
 	cmd := exec.Command(path, "--headless", "--no-sandbox", "--no-first-run", "--no-default-browser-check",
 		"--enable-unsafe-extension-debugging", "--remote-allow-origins=*", "--password-store=basic", "--use-mock-keychain",
+		"--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows",
 		"--remote-debugging-port=0", "--user-data-dir="+profile, "about:blank")
 	var out output
 	cmd.Stdout, cmd.Stderr = &out, &out

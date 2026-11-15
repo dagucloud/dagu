@@ -178,8 +178,10 @@ fails when it starts, before any child starts.
 ### Matching
 
 - The selector is resolved and matched when the step starts, after its
-  dependencies and preconditions. The run's [node list](#narrowing-a-run),
-  if any, is applied.
+  dependencies and preconditions, against the nodes of the run's project. A
+  library DAG runs in its caller's project (RFC 003), so it matches that
+  project's nodes. The run's [node list](#narrowing-a-run), if any, is
+  applied.
 - SSH nodes and worker nodes match alike. Nodes are taken in name order, and
   the list is recorded in the step's status.
 - A resolution error fails the step before any node starts.

@@ -28,6 +28,7 @@ type config struct {
 	Arguments  map[string]any    `mapstructure:"arguments"`
 	Headers    map[string]string `mapstructure:"headers"`
 	IncludeRaw bool              `mapstructure:"include_raw"`
+	SaveBinary bool              `mapstructure:"save_binary"`
 }
 
 // argumentsHook lets a whole-value reference such as ${params.args} resolve to
@@ -37,16 +38,26 @@ func argumentsHook(from, to reflect.Type, data any) (any, error) {
 	if !ok || from.Kind() != reflect.String || to.Kind() != reflect.Map {
 		return data, nil
 	}
-	dec := json.NewDecoder(strings.NewReader(str))
-	dec.UseNumber()
-	var obj map[string]any
-	if err := dec.Decode(&obj); err != nil || obj == nil || dec.More() {
-		return nil, errors.New("arguments must be a JSON object")
-	}
-	if _, err := dec.Token(); err != io.EOF {
+	obj, ok := decodeJSON(str).(map[string]any)
+	if !ok {
 		return nil, errors.New("arguments must be a JSON object")
 	}
 	return obj, nil
+}
+
+// decodeJSON returns the single JSON value s holds, with numbers kept as
+// written, or nil when s is not exactly one JSON value.
+func decodeJSON(s string) any {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil
+	}
+	return v
 }
 
 // decodeConfig decodes with.*; at load time an unresolved reference in
@@ -113,6 +124,7 @@ var configSchema = &jsonschema.Schema{
 		}, Description: "JSON arguments passed to the tool."},
 		"headers":     {Type: "object", Description: "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}.", AdditionalProperties: &jsonschema.Schema{Type: "string"}},
 		"include_raw": {Type: "boolean", Description: "Also emit the unmodified MCP tool result under raw."},
+		"save_binary": {Type: "boolean", Description: "Save image, audio, and blob resource data as run artifacts and output each file's path instead of base64. Requires artifacts."},
 	},
 }
 

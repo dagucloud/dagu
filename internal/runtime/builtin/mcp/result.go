@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/url"
 	"slices"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -26,10 +28,11 @@ const (
 )
 
 type output struct {
-	Content           []sdk.Content `json:"content"`
-	StructuredContent any           `json:"structured_content"`
-	IsError           bool          `json:"is_error"`
-	Raw               any           `json:"raw,omitempty"`
+	Content           []any `json:"content"`
+	StructuredContent any   `json:"structured_content"`
+	JSON              any   `json:"json"`
+	IsError           bool  `json:"is_error"`
+	Raw               any   `json:"raw,omitempty"`
 }
 
 type errorOutput struct {
@@ -50,19 +53,57 @@ func (e *callError) Error() string {
 	return "mcp.call: " + e.kind + " error: " + e.message
 }
 
-func newOutput(res *sdk.CallToolResult, includeRaw bool) output {
+// newOutput builds the step output. A non-nil files store receives the data
+// of binary content items, which then carry the saved file's path.
+func newOutput(res *sdk.CallToolResult, includeRaw bool, files *agentstep.ArtifactStore) (output, error) {
 	out := output{
-		Content:           res.Content,
+		Content:           make([]any, 0, len(res.Content)),
 		StructuredContent: res.StructuredContent,
+		JSON:              textJSON(res),
 		IsError:           res.IsError,
 	}
-	if out.Content == nil {
-		out.Content = []sdk.Content{}
+	var writer *binaryWriter
+	if files != nil {
+		writer = &binaryWriter{files: files}
+	}
+	for i, content := range res.Content {
+		item := any(content)
+		if writer != nil {
+			saved, err := writer.save(i, content)
+			if err != nil {
+				return output{}, fmt.Errorf("mcp.call: saving binary content: %w", err)
+			}
+			item = saved
+		}
+		out.Content = append(out.Content, item)
 	}
 	if includeRaw {
 		out.Raw = res
 	}
-	return out
+	return out, nil
+}
+
+// textJSON returns the JSON object or array a tool returned as its only text
+// item, for tools that send JSON as text instead of structured content. It is
+// nil when the tool sent structured content, which already holds the result.
+func textJSON(res *sdk.CallToolResult) any {
+	if res.StructuredContent != nil {
+		return nil
+	}
+	var texts []string
+	for _, content := range res.Content {
+		if text, ok := content.(*sdk.TextContent); ok {
+			texts = append(texts, text.Text)
+		}
+	}
+	if len(texts) != 1 {
+		return nil
+	}
+	switch v := decodeJSON(texts[0]).(type) {
+	case map[string]any, []any:
+		return v
+	}
+	return nil
 }
 
 func writeJSON(w io.Writer, v any) error {
