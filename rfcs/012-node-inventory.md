@@ -119,17 +119,11 @@ An inventory belongs to a project, as defined in
 [RFC 003](003-projects.md). It belongs to the server, not to the
 DAG files. A DAG is the same in every environment and names a role, such as
 `web`. Which hosts have that role differs between staging and production. So
-inventories never live in a DAG directory, and git sync never reads or writes
-them.
+inventories are project state, kept where RFC 003 keeps a project's state and
+never among its DAG files, and git sync never reads or writes them.
 
 A project's nodes are the nodes of all its inventories, plus the workers. A
 project without inventories has only its worker nodes.
-
-Until RFC 003 ships, the installation has one project. Its secret refs
-resolve in the global scope, and roles on its nodes are server-wide. A DAG
-in a workspace cannot target nodes: `dagu validate` and admission reject it.
-So RFC 003's migration moves no DAG that targets nodes, and needs no
-inventory step.
 
 ### Storage
 
@@ -138,8 +132,8 @@ file-backed collection lays them out (`internal/persis/file/collection.go`):
 
 | Collection | Location | One record per |
 | --- | --- | --- |
-| `inventories/` | The project's data directory: `<data dir>/` for the default project, `projects/<name>/data/` for a project | Inventory, keyed by its ID |
-| `host-keys/` | The project's data directory | Trusted host key, keyed by node name |
+| `inventories/` | The project's state, where [RFC 003](003-projects.md#layout) keeps it | Inventory, keyed by its ID |
+| `host-keys/` | The project's state | Trusted host key, keyed by node name |
 | `worker-nodes/` | `<data dir>/`, since workers are server-wide | Worker node, keyed by worker ID |
 
 - **Writes.** Every write to a project's inventories holds one lock for the
@@ -196,8 +190,10 @@ Rules:
 - `host` is a DNS name, an IPv4 address, or an IPv6 address. `user` matches
   `^[A-Za-z0-9_][A-Za-z0-9._-]*$`. These fields and label values are
   therefore safe to insert into a command unquoted.
-- `{ "secret": <ref> }` names an entry in the project's secret registry.
-  Literal passwords are rejected, so an exported inventory is safe to share.
+- `{ "secret": <ref> }` names a secret, which resolves as
+  [RFC 003](003-projects.md#server-layer) defines: the project's secret of
+  that name, else the server's. Literal passwords are rejected, so an
+  exported inventory is safe to share.
 - A key path is read on the host that opens the connection: the server, or
   the worker that runs the run.
 - A node that sets `key` takes no `passphrase` from `defaults`, as #3769
@@ -234,8 +230,8 @@ project (RFC 003), so every project lists them.
   connects again.
 - A worker's labels come from its configuration, so `disabled` does not apply
   to it. A worker is kept out of a selector by changing its labels.
-- A worker ID that names a node of an inventory makes the worker no node, and
-  the Nodes page shows the clash.
+- A worker ID that names a node of a project's inventory makes the worker no
+  node in that project, and that project's Nodes page shows the clash.
 
 ### Selecting nodes
 
@@ -292,9 +288,8 @@ inventories between servers and take bulk edits made in a text editor.
 
 ### Reading the inventory from a run
 
-- A run on the server reads the project's inventories from the store. The
-  server and coordinator keep them in memory and reload them after each
-  change. Worker nodes come from the coordinator.
+- A run on the server reads the project's inventories from the store when a
+  node step starts. Worker nodes come from the coordinator.
 - A run on a worker calls a new coordinator RPC, `ResolveNodes`, with a
   selector or with exact node names. The answer holds the matched nodes, the
   nodes they use as bastions, and the project's trusted host keys for them.
@@ -412,7 +407,7 @@ A **Nodes** page in each project:
 | --- | --- |
 | `GET /nodes?labels=&inventory=&name=` | Matched nodes, one page at a time, with the total and selector errors. `inventory` limits them to one inventory, and `name` matches part of a node name |
 | `GET /nodes/{name}` | One node |
-| `DELETE /nodes/{name}` | Forget an offline worker |
+| `DELETE /nodes/{name}` | Forget an offline worker, in every project |
 | `GET /inventories`, `POST /inventories` | List the project's inventories, or create one |
 | `GET /inventories/{id}`, `PUT /inventories/{id}`, `DELETE /inventories/{id}` | Read, replace, or delete one. `PUT` takes the version it read |
 | `PUT /inventories/{id}/nodes/{name}`, `DELETE /inventories/{id}/nodes/{name}` | Add, change, or remove one node |
@@ -423,7 +418,7 @@ A **Nodes** page in each project:
 | `POST /node-host-keys` | Trust host keys, given each node and the fingerprint the user saw |
 
 Collection operations sit outside `/nodes/{name}`, so every valid node name
-reaches its node. Once RFC 003 ships, every path takes `project`. Tests and
+reaches its node. Every path takes `project`, as RFC 003 defines. Tests and
 trusts answer with a server-sent event stream, one event per node. The
 schemas are named `InventoryNode` and so on, since the API's `Node` schema is
 a step's status.
@@ -443,7 +438,7 @@ dagu nodes import inventories.json [--replace] [--dry-run]
 ```
 
 Each command works against a remote server like the other remote CLI
-commands, and takes `--project` once RFC 003 ships. `--labels` is the flag
+commands, and takes `--project` as RFC 003 defines. `--labels` is the flag
 `dagu history` takes. `--inventory` takes a name or an ID, and `add` may
 leave it out when the project has one inventory. A new inventory is created
 in the UI or by import. `add` tests the connection and asks before it trusts
@@ -500,7 +495,7 @@ The inventory is in the free tier.
 | A selector is invalid | The API, CLI, and UI report the term and the error. A step with that selector fails before any node starts |
 | A worker node is offline | It is listed as `offline`, and RFC 013 fails a run that targets it |
 | A worker's labels break the label rules | The worker does not start, and names the label |
-| A worker ID names a node of an inventory | The worker is not a node. The Nodes page shows the clash |
+| A worker ID names a node of a project's inventory | The worker is not a node in that project, and its Nodes page shows the clash |
 | The coordinator is unreachable from a worker | Resolution fails, as secret resolution does |
 | Dagu Cloud is unreachable with sync on | Runs and local edits are unaffected. The change is sent later, and the Nodes page shows the delay |
 | A pulled version does not validate | It is not applied. The local record stays, and the Nodes page shows the error |
@@ -596,7 +591,9 @@ checked with RFC 013's first rollout phase.
 - SSH keys move off the Dagu host into the secret store.
 - Rundeck and Ansible users convert their inventory once, and Dagu's
   inventories become the source of truth.
-- "Node" now means an inventory entry in the UI and docs.
+- "Node" now means an inventory entry or a worker in the UI and docs. The
+  Remote Nodes page, which lists other Dagu servers, keeps its name until
+  [Future enhancements](#future-enhancements) renames it.
 - With sync on, Dagu Cloud holds host lists for the first time.
 
 ## Future enhancements
