@@ -494,6 +494,41 @@ func pipe(a, b net.Conn) {
 	<-done
 }
 
+// closeGracefully makes site close each connection as a server that
+// half-closes after its last message and reads what the client sent
+// meanwhile, before StartTLS. A refused handshake otherwise closes with the
+// client's data unread, which resets the connection, and on Windows a reset
+// discards what the proxy received and had not yet read: the alert refusing
+// its certificate.
+func closeGracefully(site *httptest.Server) {
+	site.Listener = gracefulListener{Listener: site.Listener}
+}
+
+// gracefulCloseWait bounds how long a closing connection reads what the
+// client still sends.
+const gracefulCloseWait = 2 * time.Second
+
+type gracefulListener struct{ net.Listener }
+
+func (l gracefulListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return gracefulConn{Conn: conn}, nil
+}
+
+type gracefulConn struct{ net.Conn }
+
+func (c gracefulConn) Close() error {
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		_ = tcp.CloseWrite()
+		_ = tcp.SetReadDeadline(time.Now().Add(gracefulCloseWait))
+		_, _ = io.Copy(io.Discard, tcp)
+	}
+	return c.Conn.Close()
+}
+
 // waitForEvent polls the proxy's events until one of kind arrives.
 func waitForEvent(t *testing.T, ready Ready, token, kind string) Event {
 	t.Helper()
