@@ -880,14 +880,15 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 
 // stepMessagesName returns the name of the file that holds a step's messages.
 // A name that escaping makes too long for a file name is cut short and ends in
-// a hash of the step name.
+// "%-" and a hash of the step name. EscapeName writes every "%" as %XX, so no
+// other step's file name holds "%-".
 func stepMessagesName(stepName string) string {
 	name := fileutil.EscapeName(stepName + ".json")
 	if len(name) <= maxStepMessagesNameBytes {
 		return name
 	}
 	sum := sha256.Sum256([]byte(stepName))
-	suffix := "-" + hex.EncodeToString(sum[:16]) + ".json"
+	suffix := "%-" + hex.EncodeToString(sum[:16]) + ".json"
 	cut := maxStepMessagesNameBytes - len(suffix)
 	for cut > 0 && !utf8.RuneStart(name[cut]) {
 		cut--
