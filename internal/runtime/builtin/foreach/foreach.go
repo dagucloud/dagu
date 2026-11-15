@@ -624,7 +624,7 @@ func (e *foreachExecutor) resolveStepDir(ctx context.Context) (string, func(), e
 	}
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.DAGRunLogDir != "" {
-		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, fileutil.SafeName(e.step.Name)), keep, nil
+		return logpath.ForeachStepDirIn(rCtx.DAGRunLogDir, e.step.Name), keep, nil
 	}
 	dir, err := os.MkdirTemp("", scratchLogDirPrefix)
 	if err != nil {
