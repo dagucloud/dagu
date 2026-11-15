@@ -57,8 +57,9 @@ func dagWikiDir(ctx context.Context, dag *ir.DAG) string {
 	if cfg.Paths.WikiDir == "" {
 		return ""
 	}
+	dir := cfg.Paths.WikiDir
 	if workspaceName, ok := workspace.WorkspaceNameFromLabels(dag.Labels); ok {
-		return filepath.Join(cfg.Paths.WikiDir, fileutil.EscapeName(workspaceName), fileutil.EscapeName(dag.Name))
+		dir = filepath.Join(dir, fileutil.ExistingName(dir, fileutil.EscapeName(workspaceName), workspaceName))
 	}
-	return filepath.Join(cfg.Paths.WikiDir, fileutil.EscapeName(dag.Name))
+	return filepath.Join(dir, fileutil.ExistingName(dir, fileutil.EscapeName(dag.Name), dag.Name))
 }

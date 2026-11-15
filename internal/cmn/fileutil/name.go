@@ -116,7 +116,7 @@ func LegacyEntry(dir, legacy string) (string, bool) {
 		return "", false
 	}
 	info, err := os.Lstat(path)
-	if err != nil || !(info.IsDir() || info.Mode().IsRegular()) {
+	if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
 		return "", false
 	}
 	return rel, true

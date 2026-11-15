@@ -36,7 +36,8 @@ var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 // ForeachStepDir returns the directory holding the item bodies of a foreach
 // step whose own log file is stepLogFile.
 func ForeachStepDir(stepLogFile, stepName string) string {
-	return filepath.Join(filepath.Dir(stepLogFile), ForeachLogDirName, fileutil.SafeName(stepName))
+	dir := filepath.Join(filepath.Dir(stepLogFile), ForeachLogDirName)
+	return filepath.Join(dir, fileutil.ExistingName(dir, fileutil.SafeName(stepName), stepName))
 }
 
 // ForeachItemPath builds the item path of an item nested under parent. An

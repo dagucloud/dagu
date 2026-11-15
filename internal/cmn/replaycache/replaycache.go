@@ -36,7 +36,8 @@ func New(dataDir string) *Store {
 
 // Path returns the file that holds the records of a step.
 func (c *Store) Path(dagName, stepKey string) string {
-	return filepath.Join(c.dagDir(dagName), fileutil.SafeName(stepKey)+replayCacheFileExt)
+	dir := c.dagDir(dagName)
+	return filepath.Join(dir, fileutil.ExistingName(dir, fileutil.SafeName(stepKey)+replayCacheFileExt, stepKey+replayCacheFileExt))
 }
 
 // Steps returns the sorted keys of the DAG's steps that have records. A step
@@ -130,5 +131,5 @@ func (c *Store) dagDir(dagName string) string {
 		sum := sha256.Sum256([]byte(dagName))
 		name += "-" + hex.EncodeToString(sum[:16])
 	}
-	return filepath.Join(c.dir, name)
+	return filepath.Join(c.dir, fileutil.ExistingName(c.dir, name, dagName))
 }

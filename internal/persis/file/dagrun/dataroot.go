@@ -60,7 +60,7 @@ func NewDataRoot(baseDir, dagName string) DataRoot {
 // NewDataRootWithArtifactDir creates a new DataRoot with an explicit trusted artifact root.
 func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir}
-	root.prefix = dagDirName(dagName)
+	root.prefix = existingDAGDirName(baseDir, dagName)
 	root.dagRunsDir = filepath.Join(baseDir, root.prefix, "dag-runs")
 	root.globPattern = filepath.Join(root.dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*")
 	root.DirLock = dirlock.New(root.dagRunsDir, &dirlock.LockOptions{
@@ -72,11 +72,7 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 }
 
 func dagDirName(dagName string) string {
-	base := filepath.Base(dagName)
-	if fileutil.IsYAMLFile(dagName) {
-		base = strings.TrimSuffix(base, filepath.Ext(dagName))
-	}
-
+	base := dagDirBase(dagName)
 	name := fileutil.SafeName(base)
 	if name == base {
 		return name
@@ -85,12 +81,28 @@ func dagDirName(dagName string) string {
 	return name + "-" + hex.EncodeToString(hash[:])[:4]
 }
 
+// existingDAGDirName returns the directory in dir that holds a DAG's data.
+// Earlier versions kept a Windows device name such as con as written, which
+// Windows 11 stores, so a directory under that name is still used.
+func existingDAGDirName(dir, dagName string) string {
+	return fileutil.ExistingName(dir, dagDirName(dagName), dagDirBase(dagName))
+}
+
+func dagDirBase(dagName string) string {
+	base := filepath.Base(dagName)
+	if fileutil.IsYAMLFile(dagName) {
+		base = strings.TrimSuffix(base, filepath.Ext(dagName))
+	}
+	return base
+}
+
 // dagDirNames returns the names of the directories that hold the runs of the
 // DAGs, so that a list can leave a DAG out without reading its runs.
 func dagDirNames(names []string) map[string]struct{} {
-	dirs := make(map[string]struct{}, len(names))
+	dirs := make(map[string]struct{}, 2*len(names))
 	for _, name := range names {
 		dirs[dagDirName(name)] = struct{}{}
+		dirs[dagDirBase(name)] = struct{}{}
 	}
 	return dirs
 }

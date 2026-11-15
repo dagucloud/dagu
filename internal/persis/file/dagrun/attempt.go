@@ -850,8 +850,9 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 
 	data, err := fileutil.ReadFile(file)
 	if os.IsNotExist(err) {
-		if raw, ok := rawStepMessagesFile(dir, stepName); ok && raw != file {
-			data, err = fileutil.ReadFile(raw)
+		// Messages stored before step names were escaped sit under the raw name.
+		if raw, ok := fileutil.LegacyEntry(dir, stepName+".json"); ok {
+			data, err = fileutil.ReadFile(filepath.Join(dir, raw))
 		}
 	}
 	if err != nil {
@@ -872,18 +873,4 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 // stepMessagesName returns the name of the file that holds a step's messages.
 func stepMessagesName(stepName string) string {
 	return fileutil.EscapeName(stepName + ".json")
-}
-
-// rawStepMessagesFile returns the file named after the raw step name, where
-// messages were kept before step names were escaped. A "/" in the name could
-// resolve it to another file in dir. ok is false when the file is outside dir
-// or has a name that this host cannot hold.
-func rawStepMessagesFile(dir, stepName string) (string, bool) {
-	raw := filepath.Join(dir, stepName+".json")
-	rel, err := filepath.Rel(dir, raw)
-	if err != nil || !filepath.IsLocal(rel) {
-		return "", false
-	}
-	base := filepath.Base(raw)
-	return raw, fileutil.EscapeName(base) == base
 }

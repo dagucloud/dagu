@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -280,30 +279,27 @@ func dagDirName(dagName string) string {
 	return name
 }
 
+// inDAGDir reports whether a proc file at path sits in the directory of
+// dagName: the escaped one, or the raw one that released versions used.
+func inDAGDir(path, dagName string) bool {
+	dir := filepath.Base(filepath.Dir(path))
+	return dir == dagDirName(dagName) || dir == dagName
+}
+
 // groupDir returns the directory of a process group.
 func (s *Store) groupDir(groupName string) string {
 	return filepath.Join(s.root, fileutil.EscapeName(groupName))
 }
 
 // groupDirs returns the directories that may hold a group's proc files.
-// Released versions nested the directories of a queue name with a path
-// separator, and a run they started may still heartbeat there.
+// Released versions named the directory after the raw queue name, nested at
+// each path separator, and a run they started may still heartbeat there.
 func (s *Store) groupDirs(groupName string) []string {
-	dirs := []string{s.groupDir(groupName)}
-	if !strings.ContainsFunc(groupName, isPathSeparator) || !filepath.IsLocal(groupName) {
-		return dirs
+	dir := s.groupDir(groupName)
+	if legacy, ok := fileutil.LegacyEntry(s.root, groupName); ok && filepath.Join(s.root, legacy) != dir {
+		return []string{dir, filepath.Join(s.root, legacy)}
 	}
-	for _, segment := range strings.FieldsFunc(groupName, isPathSeparator) {
-		// A segment the host cannot store never held a heartbeat.
-		if fileutil.EscapeName(segment) != segment {
-			return dirs
-		}
-	}
-	return append(dirs, filepath.Join(s.root, groupName))
-}
-
-func isPathSeparator(r rune) bool {
-	return r == '/' || r == filepath.Separator
+	return []string{dir}
 }
 
 func writeProcFile(path string, heartbeatUnix int64, meta proc.ProcMeta) error {
@@ -579,7 +575,7 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcE
 // A name that cannot be parsed is a possible match, because attributing such a
 // file needs its contents.
 func procFileMayBelongTo(path string, dagRun ir.DAGRunRef) bool {
-	if filepath.Base(filepath.Dir(path)) != dagDirName(dagRun.Name) {
+	if !inDAGDir(path, dagRun.Name) {
 		return false
 	}
 	parsed, err := parseProcFileName(filepath.Base(path))
@@ -711,7 +707,7 @@ func procMetaFromData(path string, parsedName procFileName, payload []byte, hear
 		if parsedName.dagRunID != meta.DAGRunID || parsedName.attemptID != meta.AttemptID {
 			return proc.ProcMeta{}, fmt.Errorf("%w: proc filename/body mismatch for %s", errInvalidProcFile, path)
 		}
-		if filepath.Base(filepath.Dir(path)) != dagDirName(meta.Name) {
+		if !inDAGDir(path, meta.Name) {
 			return proc.ProcMeta{}, fmt.Errorf("%w: proc path/body DAG name mismatch for %s", errInvalidProcFile, path)
 		}
 		return meta, nil
