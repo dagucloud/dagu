@@ -308,7 +308,7 @@ func TestAttempt_WriteReopensUnusableFile(t *testing.T) {
 		blockStatusFile(t, att.file)
 		require.ErrorIs(t, att.Write(ctx, statusWithPID(2)), ErrWriteFailed)
 
-		require.NoError(t, os.Remove(att.file))
+		require.NoError(t, fileutil.Remove(att.file))
 		require.NoError(t, att.Write(ctx, statusWithPID(3)))
 
 		status, err := att.ReadStatus(ctx)
@@ -321,7 +321,7 @@ func TestAttempt_WriteReopensUnusableFile(t *testing.T) {
 // it for writing fails until the directory is removed.
 func blockStatusFile(t *testing.T, file string) {
 	t.Helper()
-	require.NoError(t, os.Remove(file))
+	require.NoError(t, fileutil.Remove(file))
 	require.NoError(t, os.Mkdir(file, 0750))
 }
 
