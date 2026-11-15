@@ -1,0 +1,5 @@
+labels: [workspace=ops]
+steps:
+  - id: clean
+    run: "true"
+    nodes: web
