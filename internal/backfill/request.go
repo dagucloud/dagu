@@ -170,6 +170,9 @@ func (p Plan) Warnings(in WarningInput) []string {
 	if in.Suspended {
 		warnings = append(warnings, "The DAG is suspended; its backfill runs still run.")
 	}
+	if in.DAG != nil && !ReadsSlot(in.DAG) {
+		warnings = append(warnings, "The DAG does not read the slot it runs for, so every run does the same work.")
+	}
 	if out := in.Outlook; out.MaxConcurrency > out.Concurrency {
 		warnings = append(warnings, fmt.Sprintf("The queue %s runs %d at once, so the backfill runs %d at a time.", out.QueueName, out.QueueLimit, out.Concurrency))
 	}

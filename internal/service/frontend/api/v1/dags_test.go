@@ -1442,6 +1442,8 @@ func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) erro
 
 // A DAG's details, read or streamed, give the latest span whose slots the
 // scheduler recorded as missed, which the DAG's page offers to backfill.
+// The details offer a DAG's missed slots only when its runs read their
+// slot, since the runs of any other DAG all do the same work.
 func TestDAGDetailsMissedSlots(t *testing.T) {
 	t.Parallel()
 
@@ -1450,13 +1452,20 @@ func TestDAGDetailsMissedSlots(t *testing.T) {
 name: missed-slots-dag
 schedule: "0 * * * *"
 steps:
-  - run: echo hi
+  - run: ./load.sh ${context.run.scheduled_at}
+`)
+	ignores := helper.DAG(t, `
+name: missed-slots-sync
+schedule: "0 * * * *"
+steps:
+  - run: ./sync.sh
 `)
 	from := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	gap := schedulerstate.DAGWatermark{Missed: &schedulerstate.MissedGap{
+		From: from, To: from.Add(12 * time.Hour), Reason: schedulerstate.GapSuspended, Slots: 12,
+	}}
 	state := &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
-		dag.Name: {Missed: &schedulerstate.MissedGap{
-			From: from, To: from.Add(12 * time.Hour), Reason: schedulerstate.GapSuspended, Slots: 12,
-		}},
+		dag.Name: gap, ignores.Name: gap,
 	}}
 	apiImpl := localapi.New(
 		helper.DAGRepository,
@@ -1486,6 +1495,12 @@ steps:
 	streamed, ok := live.(api.GetDAGDetails200JSONResponse)
 	require.True(t, ok)
 	assert.Equal(t, want, streamed.MissedSlots, "a live update keeps the gap")
+
+	respObj, err = apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: ignores.FileName()})
+	require.NoError(t, err)
+	resp, ok = respObj.(api.GetDAGDetails200JSONResponse)
+	require.True(t, ok)
+	assert.Nil(t, resp.MissedSlots)
 }
 
 func TestListDAGsDataPreservesNextRunAcrossSSEPath(t *testing.T) {

@@ -5174,7 +5174,7 @@ export interface components {
             /** @description Slots whose run failed */
             failed: number;
         };
-        /** @description The latest span whose start-schedule slots passed without a run, as the scheduler recorded it. A backfill that runs the span's first slots takes them from it. */
+        /** @description The latest span whose start-schedule slots passed without a run, as the scheduler recorded it. A backfill that runs the span's first slots takes them from it. Set only for a DAG whose runs read their slot: one that declares dates, refers to its run's slot, window, or dates, or calls a sub-DAG. */
         MissedSlots: {
             /** Format: date-time */
             from: string;

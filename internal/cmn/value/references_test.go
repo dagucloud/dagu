@@ -138,6 +138,28 @@ func TestHasReferenceToNamespace(t *testing.T) {
 	}
 }
 
+func TestHasReferenceToPath(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []string{
+		"${context.run.scheduled_at}",
+		"since $context.run.scheduled_at done",
+		"${run.scheduled_at}",
+		`"${context.run.scheduled_at}"`,
+	} {
+		assert.True(t, value.HasReferenceToPath(input, "context.run.scheduled_at"), input)
+	}
+
+	for _, input := range []string{
+		"${context.run.scheduled_at_utc}",
+		"${context.run.timezone}",
+		`\${context.run.scheduled_at}`,
+		"context.run.scheduled_at",
+	} {
+		assert.False(t, value.HasReferenceToPath(input, "context.run.scheduled_at"), input)
+	}
+}
+
 func TestResolverStringResolvesParamsAndPreservesOtherNamespaces(t *testing.T) {
 	t.Parallel()
 

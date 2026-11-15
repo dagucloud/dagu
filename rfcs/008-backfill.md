@@ -262,6 +262,7 @@ Start 28 runs? [y/N]
     deadline (RFC 009) that wait would miss. When a backfill run outlasts the
     cadence, how many live slots `overlap_policy: skip` drops.
   - The DAG is suspended, and its backfill runs will still run.
+  - The DAG does not read its slot, so every run does the same work.
   - The `handler_on` steps that will run once per slot, by name.
   - A `--params` value for a param that would otherwise follow the slot.
   - Slots with no record, and slots that run because the cadence changed.
@@ -426,6 +427,11 @@ DAG shows **12 slots passed while this DAG was suspended: Backfill**, which
 opens the panel with that gap selected. Slots skipped because the DAG was busy
 raise no notice. Dismissing the notice hides that gap until another is missed.
 
+Only a DAG that reads its slot shows the notice: one that declares `dates`,
+refers to its run's slot, window, or dates, or calls a sub-DAG, which inherits
+the slot. The runs of any other DAG all do the same work, so backfilling it
+repeats one run.
+
 ### Watching a backfill
 
 Each backfill has its own page and URL. A DAG lists its backfills, and the runs
@@ -549,7 +555,8 @@ and queue pages filter by `backfill`.
 30. A submit with a stale plan revision starts nothing and returns the new
     plan.
 31. Lifting a suspension shows the slots that passed, and the panel opens with
-    them selected.
+    them selected, for a DAG that reads its slot; a DAG that does not shows
+    nothing.
 32. A slot skipped under `skip_if_successful` is listed as `skip: succeeded`.
 33. The page of a 10,000-slot backfill renders without loading every slot.
 34. `--by target_day --from 2026-10-01 --to 2026-10-31` on an hourly DAG with

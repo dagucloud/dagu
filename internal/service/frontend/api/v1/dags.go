@@ -634,12 +634,13 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 }
 
 // missedSlots reports the latest span whose slots the DAG missed, as the
-// scheduler recorded it, or nil.
-func missedSlots(state *schedulerstate.State, dagName string) *api.MissedSlots {
-	if state == nil {
+// scheduler recorded it. It reports none for a DAG whose runs do not read
+// their slot, since backfilling it repeats one run.
+func missedSlots(state *schedulerstate.State, dag *ir.DAG) *api.MissedSlots {
+	if state == nil || !backfill.ReadsSlot(dag) {
 		return nil
 	}
-	gap := state.DAGs[dagName].Missed
+	gap := state.DAGs[dag.Name].Missed
 	if gap == nil {
 		return nil
 	}
@@ -703,7 +704,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 		Warnings:     dag.BuildWarnings,
 		Spec:         &yamlSpec,
 		EditorHints:  a.buildDAGEditorHints(ctx, dag, fileName),
-		MissedSlots:  missedSlots(schedulerState, dag.Name),
+		MissedSlots:  missedSlots(schedulerState, dag),
 	}, nil
 }
 

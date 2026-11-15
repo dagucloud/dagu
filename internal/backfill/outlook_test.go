@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +110,23 @@ func TestRecordSlotPosition(t *testing.T) {
 	assert.Equal(t, 2, position)
 	_, ok = record.SlotPosition(second.Add(time.Hour))
 	assert.False(t, ok)
+}
+
+// The runs of a DAG that reads none of its slot do the same work, so a
+// backfill of it repeats one run.
+func TestPlanWarnsOfDAGThatIgnoresItsSlot(t *testing.T) {
+	t.Parallel()
+
+	ignores, err := spec.LoadYAML(t.Context(), []byte("name: sync\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
+	require.NoError(t, err)
+	reads, err := spec.LoadYAML(t.Context(), []byte("name: etl\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	require.NoError(t, err)
+	warnings := func(dag *ir.DAG) []string {
+		return backfill.Plan{}.Warnings(backfill.WarningInput{SchedulerRunning: true, DAG: dag})
+	}
+
+	assert.Equal(t, []string{
+		"The DAG does not read the slot it runs for, so every run does the same work.",
+	}, warnings(ignores))
+	assert.Empty(t, warnings(reads))
 }
