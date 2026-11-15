@@ -175,6 +175,23 @@ func TestFindMissedCountsSlotsCatchupDrops(t *testing.T) {
 	assert.Equal(t, 7, missed.Slots)
 }
 
+// Of an outage longer than catch-up's window holds and older than the
+// slot retention, the retained slots before the newest 1,000 are missed.
+func TestFindMissedCountsRetainedSlotsBeforeCatchup(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	f.dag.SlotRetentionDays = 7
+
+	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, dailyAt(t, "* * * * *"),
+		[]schedulerstate.Span{spanOf(schedulerstate.SpanDown, at(1, 0), at(21, 0))}, 30*24*time.Hour, at(21, 0))
+	require.NoError(t, err)
+
+	// The retention keeps the slots from 00:00 on the 14th.
+	assert.Equal(t, 9080, missed.Slots)
+	assert.Equal(t, at(14, 0), missed.First)
+	assert.Equal(t, at(21, 0).Add(-1001*time.Minute), missed.Last)
+}
+
 // FindMissed reads the status of a run only near the slots it looks at, yet
 // leaves missing the same slots as the whole run history does: a run that
 // never started, or that a dequeue or an operator removed, counts for none,
