@@ -3085,6 +3085,13 @@ steps:
       prompt: hi
       model: [{provider: $fetch.stdout, name: m}]
 `, true},
+		// A plain $NAME is not a value reference, so it names an unknown
+		// provider in both the schema and the parser.
+		{"chat plain unbraced provider", `
+steps:
+  - action: chat.completion
+    with: {provider: $PROVIDER, model: gpt-5, prompt: hi}
+`, false},
 		{"SMTP OAuth missing tenant", `
 smtp:
   username: alerts@example.com
