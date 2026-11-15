@@ -3082,6 +3082,25 @@ check_updates: true
 	})
 }
 
+func TestLoad_AllowWebUpgrade(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# empty")
+		assert.False(t, cfg.Server.AllowWebUpgrade)
+	})
+
+	t.Run("Enabled", func(t *testing.T) {
+		cfg := loadFromYAML(t, "allow_web_upgrade: true\n")
+		assert.True(t, cfg.Server.AllowWebUpgrade)
+	})
+
+	t.Run("EnabledFromEnv", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_ALLOW_WEB_UPGRADE": "true",
+		})
+		assert.True(t, cfg.Server.AllowWebUpgrade)
+	})
+}
+
 func TestLoad_Audit(t *testing.T) {
 	t.Run("AuditDefault", func(t *testing.T) {
 		cfg := loadFromYAML(t, "# empty")

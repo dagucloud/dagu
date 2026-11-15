@@ -192,6 +192,7 @@ const config = (licensed: boolean): Config => ({
   restartCommand: '',
   restartStopsRuns: false,
   restartCanKeepRuns: false,
+  webUpgradeAvailable: false,
   permissions: { writeDags: true, runDags: true },
   license: {
     valid: licensed,

@@ -212,7 +212,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
-	err = server.Serve(serviceCtx)
+	err = restartExit(server.Serve(serviceCtx))
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
 	if err != nil {
 		return fmt.Errorf("failed to start server: %w", withPortInUseHint(err, webPortInUseHint))

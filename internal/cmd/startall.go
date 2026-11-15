@@ -345,5 +345,5 @@ func runStartAll(ctx *Context, _ []string) error {
 		logger.Error(ctx, "Timeout waiting for services to stop")
 	}
 
-	return firstErr
+	return restartExit(firstErr)
 }

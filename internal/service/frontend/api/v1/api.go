@@ -120,6 +120,7 @@ type API struct {
 	schedulerStateStore  schedulerstate.Store
 	backfillStore        backfill.Store
 	schedulerPauseStore  schedulerstate.PauseStore
+	selfUpgrader         SelfUpgrader
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
 	baseConfigProvider   dagsettings.BaseConfigProvider
