@@ -1048,7 +1048,14 @@ func (e *stagehandEngine) settleDocument(ctx context.Context, deadline, limit ti
 			quiet, err := page.Evaluate(ctx, quietExpression)
 			switch {
 			case err == nil && string(quiet) == "true":
-				if !checked.Before(watched) && !e.loads.Loading() {
+				if checked.Before(watched) {
+					break
+				}
+				// The answer comes over another connection than the loads,
+				// so those the browser reported before it are taken in
+				// first. A watcher that cannot sync tells what it has.
+				_ = e.loads.Sync(ctx)
+				if !e.loads.Loading() {
 					return
 				}
 			case err == nil && string(quiet) == "false":
