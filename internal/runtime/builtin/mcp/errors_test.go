@@ -346,25 +346,26 @@ func TestRedactorOverlappingSecrets(t *testing.T) {
 	t.Parallel()
 	headers := map[string]string{"X-Api-Key": "acme", "Authorization": "Bearer acme_live_0123456789abcdef"}
 	for range 50 {
-		r := newRedactor(headers, "https://h/mcp?k=acme_live")
+		r := newRedactor(headers, "https://h/mcp?api_key=acme_live")
 		got := r.apply("a acme_live_0123456789abcdef b acme c Bearer acme_live_0123456789abcdef")
 		assert.Equal(t, "a *** b *** c ***", got)
 	}
 }
 
-// Only credential headers are masked; an ordinary header value must not
-// rewrite matching text in the tool result.
-func TestPlainHeadersLeaveOutputIntact(t *testing.T) {
+// Only credential headers and query parameters are masked; an ordinary value
+// must not rewrite matching text in the tool result.
+func TestPlainValuesLeaveOutputIntact(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	cfg := f.cfg("echo", map[string]any{
+		"url":       f.srv.URL + "?format=json",
 		"headers":   map[string]any{"Authorization": "Bearer " + token, "X-Region": "us"},
-		"arguments": map[string]any{"q": "status of business users"},
+		"arguments": map[string]any{"q": "status of business users as json"},
 	})
 
 	out, err := run(t.Context(), t, cfg)
 	require.NoError(t, err)
-	assert.Contains(t, out, "status of business users")
+	assert.Contains(t, out, "status of business users as json")
 }
 
 // net/http reports the URL as written, so the percent-encoded form of a
@@ -372,7 +373,7 @@ func TestPlainHeadersLeaveOutputIntact(t *testing.T) {
 func TestEncodedQuerySecretNotInError(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	cfg := f.cfg("echo", map[string]any{"url": f.srv.URL + "/mcp?api_key=q1w2%2Be3r4%3D&alt=x9y8+z7w6"})
+	cfg := f.cfg("echo", map[string]any{"url": f.srv.URL + "/mcp?api_key=q1w2%2Be3r4%3D&token=x9y8+z7w6"})
 	f.srv.Close()
 
 	out, err := run(t.Context(), t, cfg)

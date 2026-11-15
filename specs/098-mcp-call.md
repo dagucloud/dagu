@@ -98,9 +98,11 @@ The step masks these values with `***` in its output and error messages:
 - the value of a header whose name contains `auth`, `cookie`, `key`, `token`,
   `secret`, or `password` (case-insensitive), and the part after the first
   space, such as the token in `Bearer <token>`
-- URL query values of four or more characters, decoded and as written
+- the value of a URL query parameter whose name contains one of those words,
+  decoded and as written
 
-Other header values are not masked, so they never alter the tool result.
+Other header and query values are not masked, so they never alter the tool
+result.
 Masking applies to string values in the output; object keys are not masked.
 Values declared under `secrets` are also masked in step logs by Dagu.
 

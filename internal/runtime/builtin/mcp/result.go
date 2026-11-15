@@ -71,22 +71,20 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// redactor masks credential header values, and the credential part of
-// scheme-prefixed values such as "Bearer <token>", at any length. Other headers
-// are left alone so ordinary values never rewrite tool output. URL query
-// values, decoded and as written, are masked only above minQuerySecretLen to
-// avoid hitting ubiquitous short substrings. Secrets are applied longest first
-// so a short secret cannot split a longer one.
+// redactor masks the values of credential headers and query parameters at any
+// length, query values both decoded and as written, plus the credential part
+// of scheme-prefixed header values such as "Bearer <token>". Other values are
+// left alone so ordinary values never rewrite tool output. Secrets are applied
+// longest first so a short secret cannot split a longer one.
 type redactor []string
 
-const minQuerySecretLen = 4
+// credentialNameWords mark a header or query parameter name as carrying a
+// credential.
+var credentialNameWords = []string{"auth", "cookie", "key", "token", "secret", "password"}
 
-// credentialHeaderWords mark a header name as carrying a credential.
-var credentialHeaderWords = []string{"auth", "cookie", "key", "token", "secret", "password"}
-
-func isCredentialHeader(name string) bool {
+func isCredentialName(name string) bool {
 	name = strings.ToLower(name)
-	return slices.ContainsFunc(credentialHeaderWords, func(w string) bool {
+	return slices.ContainsFunc(credentialNameWords, func(w string) bool {
 		return strings.Contains(name, w)
 	})
 }
@@ -94,7 +92,7 @@ func isCredentialHeader(name string) bool {
 func newRedactor(headers map[string]string, rawURL string) redactor {
 	var r redactor
 	for k, v := range headers {
-		if v == "" || !isCredentialHeader(k) {
+		if v == "" || !isCredentialName(k) {
 			continue
 		}
 		r = append(r, v)
@@ -104,15 +102,16 @@ func newRedactor(headers map[string]string, rawURL string) redactor {
 	}
 	if u, err := url.Parse(rawURL); err == nil {
 		for pair := range strings.SplitSeq(u.RawQuery, "&") {
-			_, raw, _ := strings.Cut(pair, "=")
-			forms := []string{raw}
-			if decoded, err := url.QueryUnescape(raw); err == nil && decoded != raw {
-				forms = append(forms, decoded)
+			name, raw, _ := strings.Cut(pair, "=")
+			if decoded, err := url.QueryUnescape(name); err == nil {
+				name = decoded
 			}
-			for _, v := range forms {
-				if len(v) >= minQuerySecretLen {
-					r = append(r, v)
-				}
+			if raw == "" || !isCredentialName(name) {
+				continue
+			}
+			r = append(r, raw)
+			if decoded, err := url.QueryUnescape(raw); err == nil && decoded != raw {
+				r = append(r, decoded)
 			}
 		}
 	}
