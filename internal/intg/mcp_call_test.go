@@ -76,9 +76,7 @@ steps:
 
   - id: consume
     depends: call
-    env:
-      - CONTENT: ${PAGE.content}
-    run: echo "$CONTENT pages=${PAGE.structured_content.pages} err=${PAGE.is_error}"
+    run: echo "${PAGE.content[0].text} pages=${PAGE.structured_content.pages} err=${PAGE.is_error}"
     output: RESULT
 `)
 }
