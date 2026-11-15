@@ -88,9 +88,9 @@ run_check() {
 	return 1
 }
 
-names=$(echo "$CHECKS" | cut -d'|' -f1 | tr -d ' ')
+names=$(echo "$CHECKS" | cut -d'|' -f1 | tr -d ' ' | sed '/^$/d')
 for name in "$@"; do
-	echo "$names" | grep -qx "$name" || {
+	echo "$names" | grep -qFx -- "$name" || {
 		echo "formal/check.sh: no check named $name" >&2
 		exit 2
 	}
