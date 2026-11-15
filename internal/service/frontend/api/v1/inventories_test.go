@@ -340,7 +340,7 @@ func TestInventoryAPI_ImportRefusesBrokenRules(t *testing.T) {
 }
 
 // Reads take any role. An import takes the role that edits base config, and
-// is audited; a dry run changes nothing and is not.
+// is audited when it stores something.
 func TestInventoryAPI_ImportPermissionsAndAudit(t *testing.T) {
 	auditStore := &recordingAuditStore{}
 	api := newInventoryTestAPI(t,
@@ -359,7 +359,8 @@ func TestInventoryAPI_ImportPermissionsAndAudit(t *testing.T) {
 	}
 
 	mustImportInventories(t, api, devCtx, testInventories, apigen.ImportInventoriesParams{DryRun: new(true)})
-	assert.Empty(t, auditStore.entries)
+	mustImportInventories(t, api, devCtx, `[]`, apigen.ImportInventoriesParams{})
+	assert.Empty(t, auditStore.entries, "an import that stores nothing is not audited")
 	mustImportInventories(t, api, devCtx, testInventories, apigen.ImportInventoriesParams{})
 	require.Len(t, auditStore.entries, 1)
 	assert.Equal(t, "inventory_import", auditStore.entries[0].Action)
