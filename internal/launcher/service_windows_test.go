@@ -13,6 +13,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/buildenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,13 @@ func TestLaunchOutsideServiceParent(t *testing.T) {
 		serviceParent.Store(0)
 		_ = windows.CloseHandle(parent)
 	})
+
+	// The command learns which process stands in for its launcher, to claim
+	// the env file the launcher wrote for it.
+	withEnv, cleanup, err := newCommand(t.Context(), CmdSpec{Executable: "powershell", BuildEnv: []string{"KEY=value"}}, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { cleanupTransport(cleanup) })
+	assert.Contains(t, withEnv.Env, buildenv.StandInParentEnv(stand.Process.Pid))
 
 	output, err := os.Create(filepath.Join(t.TempDir(), "output"))
 	require.NoError(t, err)

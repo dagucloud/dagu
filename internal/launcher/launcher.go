@@ -611,6 +611,11 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	}
 	if len(extraEnv) > 0 {
 		env = append(env, extraEnv...)
+		// The command claims the transport file from the process it regards
+		// as its parent.
+		if parent := serviceParentPID(); parent != 0 {
+			env = append(env, buildenv.StandInParentEnv(parent))
+		}
 	}
 	cmd.Env = env
 	cmd.Stdout = fileOrDefault(spec.Stdout, os.Stdout)

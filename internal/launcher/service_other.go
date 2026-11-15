@@ -16,3 +16,5 @@ func LaunchOutsideService(string, string) (string, error) {
 }
 
 func launchOutsideService(*exec.Cmd) {}
+
+func serviceParentPID() int { return 0 }

@@ -116,3 +116,17 @@ func launchOutsideService(cmd *exec.Cmd) {
 	// its own to start with.
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
 }
+
+// serviceParentPID returns the ID of the process LaunchOutsideService chose
+// as the parent of launched commands, or zero if it chose none.
+func serviceParentPID() int {
+	parent := serviceParent.Load()
+	if parent == 0 {
+		return 0
+	}
+	pid, err := windows.GetProcessId(windows.Handle(parent))
+	if err != nil {
+		return 0
+	}
+	return int(pid)
+}
