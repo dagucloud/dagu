@@ -276,35 +276,46 @@ func TestNodeHostKeyBastionNamesNoNode(t *testing.T) {
 	assert.ErrorContains(t, err, `the bastion of node "web01" names no node`)
 }
 
-// A server presents one host key per handshake, of the first type the client
-// offers that it holds. A node whose expected keys differ in type is tried
-// once per type, so the expected key the server still holds is accepted, and
-// the refused handshake sends no credential.
+// A server presents one host key per handshake, of the first offered type it
+// holds. A node whose expected keys differ in type is tried once per type, so
+// the expected key the server still holds is accepted, whether or not the
+// server holds a key of the other type, and a refused handshake sends no
+// credential.
 func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 	t.Parallel()
 
 	ed25519Host := newEd25519Signer(t)
 	ecdsaHost := newECDSASigner(t)
 	outdatedECDSA := newECDSASigner(t).PublicKey()
+	outdatedPin := &NodeHostKey{
+		Node: "web01", Strict: true, Pinned: authorizedKey(outdatedECDSA),
+		Trusted: trustedKeys{"web01": ed25519Host.PublicKey()},
+	}
 	tests := []struct {
-		name    string
-		hostKey *NodeHostKey
+		name       string
+		serverKeys []gossh.Signer
+		hostKey    *NodeHostKey
 	}{
 		{
 			// Go prefers ECDSA host keys, so the server would present its
 			// ECDSA key unless the client asks for the trusted type.
-			name:    "Trusted",
-			hostKey: &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": ed25519Host.PublicKey()}},
+			name:       "Trusted",
+			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
+			hostKey:    &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": ed25519Host.PublicKey()}},
 		},
 		{
-			name: "OutdatedPinBesideTrusted",
-			hostKey: &NodeHostKey{
-				Node: "web01", Strict: true, Pinned: authorizedKey(outdatedECDSA),
-				Trusted: trustedKeys{"web01": ed25519Host.PublicKey()},
-			},
+			name:       "OutdatedPinBesideTrusted",
+			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
+			hostKey:    outdatedPin,
 		},
 		{
-			name: "OutdatedTrustBesidePin",
+			name:       "OutdatedPinOfTypeServerLacks",
+			serverKeys: []gossh.Signer{ed25519Host},
+			hostKey:    outdatedPin,
+		},
+		{
+			name:       "OutdatedTrustBesidePin",
+			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
 			hostKey: &NodeHostKey{
 				Node: "web01", Strict: true, Pinned: authorizedKey(ed25519Host.PublicKey()),
 				Trusted: trustedKeys{"web01": outdatedECDSA},
@@ -314,7 +325,7 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			server := startHandshakeServer(t, ecdsaHost, ed25519Host)
+			server := startHandshakeServer(t, tt.serverKeys...)
 
 			err := connect(t, &Config{Host: server.host, Port: server.port, NodeHostKey: tt.hostKey})
 
@@ -330,26 +341,59 @@ func TestNodeHostKeyServerWithSeveralKeysThroughBastion(t *testing.T) {
 	t.Parallel()
 
 	ed25519Host := newEd25519Signer(t)
-	target := startHandshakeServer(t, newECDSASigner(t), ed25519Host)
-	bastion := startTestServer(t)
-	trusted := trustedKeys{"jump": bastion.HostKey, "web01": ed25519Host.PublicKey()}
+	tests := []struct {
+		name       string
+		serverKeys []gossh.Signer
+	}{
+		{name: "ServerHoldsBothTypes", serverKeys: []gossh.Signer{newECDSASigner(t), ed25519Host}},
+		{name: "ServerHoldsTrustedTypeOnly", serverKeys: []gossh.Signer{ed25519Host}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			target := startHandshakeServer(t, tt.serverKeys...)
+			bastion := startTestServer(t)
+			trusted := trustedKeys{"jump": bastion.HostKey, "web01": ed25519Host.PublicKey()}
+
+			err := connect(t, &Config{
+				Host: target.host,
+				Port: target.port,
+				NodeHostKey: &NodeHostKey{
+					Node: "web01", Strict: true, Pinned: authorizedKey(newECDSASigner(t).PublicKey()), Trusted: trusted,
+				},
+				Bastion: &BastionConfig{
+					Host:        "127.0.0.1",
+					Port:        bastion.Port,
+					NodeHostKey: &NodeHostKey{Node: "jump", Strict: true, Trusted: trusted},
+				},
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, bastion.AuthAttempts())
+			assert.EqualValues(t, 1, target.authAttempts.Load(), "only the accepted handshake sends a credential")
+		})
+	}
+}
+
+// A server that holds no key of an expected type is refused as changed,
+// naming the node and the algorithms it offers, before any credential.
+func TestNodeHostKeyServerHoldsNoExpectedType(t *testing.T) {
+	t.Parallel()
+
+	server := startHandshakeServer(t, newECDSASigner(t))
+	trusted := newPublicKey(t)
 
 	err := connect(t, &Config{
-		Host: target.host,
-		Port: target.port,
-		NodeHostKey: &NodeHostKey{
-			Node: "web01", Strict: true, Pinned: authorizedKey(newECDSASigner(t).PublicKey()), Trusted: trusted,
-		},
-		Bastion: &BastionConfig{
-			Host:        "127.0.0.1",
-			Port:        bastion.Port,
-			NodeHostKey: &NodeHostKey{Node: "jump", Strict: true, Trusted: trusted},
-		},
+		Host: server.host, Port: server.port,
+		NodeHostKey: &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": trusted}},
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, 1, bastion.AuthAttempts())
-	assert.EqualValues(t, 1, target.authAttempts.Load(), "only the accepted handshake sends a credential")
+	hostKeyErr := requireHostKeyError(t, err)
+	assert.Equal(t, "web01", hostKeyErr.node)
+	assert.Empty(t, hostKeyErr.presented)
+	assert.Equal(t, []string{gossh.KeyAlgoECDSA256}, hostKeyErr.offered)
+	assert.Equal(t, []string{gossh.FingerprintSHA256(trusted)}, hostKeyErr.expected)
+	assert.Zero(t, server.authAttempts.Load(), "no credential may reach the host")
 }
 
 // A pinned RSA host certificate is accepted from a server that signs with

@@ -24,19 +24,18 @@ import (
 type Client struct {
 	hostPort string
 	cfg      *ssh.ClientConfig
-	// hostKeyAlgorithms are the host key algorithm sets to try, one
-	// handshake each (see hostKeyPolicy).
-	hostKeyAlgorithms [][]string
-	Shell             string   // Shell for remote command execution
-	ShellArgs         []string // Shell arguments for remote command execution
-	bastionCfg        *bastionClientConfig
+	// hostKey chooses the host key algorithms each handshake offers.
+	hostKey    hostKeyPolicy
+	Shell      string   // Shell for remote command execution
+	ShellArgs  []string // Shell arguments for remote command execution
+	bastionCfg *bastionClientConfig
 }
 
 // bastionClientConfig holds bastion connection configuration
 type bastionClientConfig struct {
-	hostPort          string
-	cfg               *ssh.ClientConfig
-	hostKeyAlgorithms [][]string
+	hostPort string
+	cfg      *ssh.ClientConfig
+	hostKey  hostKeyPolicy
 }
 
 // NewClient creates a client for cfg. Credentials given as secret refs are
@@ -75,10 +74,10 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 			HostKeyCallback: hostKey.callback,
 			Timeout:         timeout,
 		},
-		hostKeyAlgorithms: hostKey.algorithmSets,
-		Shell:             cfg.Shell,
-		ShellArgs:         slices.Clone(cfg.ShellArgs),
-		bastionCfg:        bastionCfg,
+		hostKey:    hostKey,
+		Shell:      cfg.Shell,
+		ShellArgs:  slices.Clone(cfg.ShellArgs),
+		bastionCfg: bastionCfg,
 	}, nil
 }
 
@@ -126,7 +125,7 @@ func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 	if c.bastionCfg != nil {
 		return c.dialViaBastion(ctx)
 	}
-	return handshakeEach(c.cfg, c.hostKeyAlgorithms, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	return c.hostKey.handshake(c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
 		return dialContext(ctx, c.hostPort, cfg)
 	})
 }
@@ -134,14 +133,14 @@ func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 // dialViaBastion establishes an SSH connection through a bastion/jump host.
 func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 	// Connect to bastion host first
-	bastionConn, err := handshakeEach(c.bastionCfg.cfg, c.bastionCfg.hostKeyAlgorithms, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	bastionConn, err := c.bastionCfg.hostKey.handshake(c.bastionCfg.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
 		return dialContext(ctx, c.bastionCfg.hostPort, cfg)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bastion host: %w", err)
 	}
 
-	client, err := handshakeEach(c.cfg, c.hostKeyAlgorithms, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	client, err := c.hostKey.handshake(c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
 		return c.dialThroughBastion(bastionConn, cfg)
 	})
 	if err != nil {
@@ -180,29 +179,6 @@ func (c *Client) dialThroughBastion(bastionConn *ssh.Client, cfg *ssh.ClientConf
 		bastion: bastionConn,
 	}
 	return ssh.NewClient(wrappedConn, chans, reqs), nil
-}
-
-// handshakeEach runs handshake once per host key algorithm set, until one
-// succeeds or fails for a reason other than the host key. With no sets it
-// runs once with the default algorithms. A server refused for its host key
-// has received no credential, so the next set is safe to try.
-func handshakeEach(cfg *ssh.ClientConfig, algorithmSets [][]string, handshake func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
-	if len(algorithmSets) == 0 {
-		return handshake(cfg)
-	}
-	var err error
-	for _, algorithms := range algorithmSets {
-		attempt := *cfg
-		attempt.HostKeyAlgorithms = algorithms
-		var client *ssh.Client
-		if client, err = handshake(&attempt); err == nil {
-			return client, nil
-		}
-		if _, refused := errors.AsType[*hostKeyError](err); !refused {
-			return nil, err
-		}
-	}
-	return nil, err
 }
 
 func dialContext(ctx context.Context, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
@@ -313,7 +289,7 @@ func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout
 			HostKeyCallback: hostKey.callback,
 			Timeout:         timeout,
 		},
-		hostKeyAlgorithms: hostKey.algorithmSets,
+		hostKey: hostKey,
 	}, nil
 }
 

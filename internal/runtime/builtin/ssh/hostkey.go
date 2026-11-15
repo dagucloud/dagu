@@ -47,14 +47,58 @@ const (
 	hopBastion = "bastion"
 )
 
+// hostKeyNegotiation is what x/crypto names a failure to agree on a host
+// key algorithm (ssh.AlgorithmNegotiationError).
+const hostKeyNegotiation = "host key"
+
 // hostKeyPolicy is how one hop checks the key its server presents.
 type hostKeyPolicy struct {
 	callback ssh.HostKeyCallback
-	// algorithmSets, when set, are offered one handshake each, in order. A
-	// server presents one key per handshake, of the first type the client
-	// offers that it holds, so a node whose expected keys differ in type is
-	// tried once per type.
-	algorithmSets [][]string
+	// check, when set, is the node check behind callback. Its expected keys
+	// choose the host key algorithms each handshake offers.
+	check *hostKeyCheck
+}
+
+// handshake runs dial with cfg until a host key is accepted, offering the
+// algorithms of one type of expected key per handshake. A server presents
+// one host key per handshake, of the first offered type it holds, so a node
+// whose expected keys differ in type is tried once per type. A handshake
+// that fails on the host key has sent no credential, so the next type is
+// safe to try.
+func (p hostKeyPolicy) handshake(cfg *ssh.ClientConfig, dial func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
+	var sets [][]string
+	if p.check != nil {
+		sets = p.check.algorithmSets()
+	}
+	if len(sets) == 0 {
+		return dial(cfg)
+	}
+	var refused error
+	var offered []string
+	for _, algorithms := range sets {
+		attempt := *cfg
+		attempt.HostKeyAlgorithms = algorithms
+		client, err := dial(&attempt)
+		if err == nil {
+			return client, nil
+		}
+		if _, ok := errors.AsType[*hostKeyError](err); ok {
+			if refused == nil {
+				refused = err
+			}
+			continue
+		}
+		if negotiation, ok := errors.AsType[*ssh.AlgorithmNegotiationError](err); ok && negotiation.What == hostKeyNegotiation {
+			// The server holds no key of this type.
+			offered = negotiation.RequestedAlgorithms
+			continue
+		}
+		return nil, err
+	}
+	if refused != nil {
+		return nil, refused
+	}
+	return nil, p.check.refusal("", offered)
 }
 
 // policy reads the keys the node accepts. A server presents a key before
@@ -64,7 +108,7 @@ func (k *NodeHostKey) policy(ctx context.Context, hop string) (hostKeyPolicy, er
 	if !k.Strict {
 		return hostKeyPolicy{callback: ssh.InsecureIgnoreHostKey()}, nil //nolint:gosec // strict_host_key: false opts out.
 	}
-	check := hostKeyCheck{hop: hop, node: k.Node}
+	check := &hostKeyCheck{hop: hop, node: k.Node}
 	if k.Pinned != "" {
 		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(k.Pinned))
 		if err != nil {
@@ -87,7 +131,7 @@ func (k *NodeHostKey) policy(ctx context.Context, hop string) (hostKeyPolicy, er
 			check.expected = append(check.expected, key)
 		}
 	}
-	return hostKeyPolicy{callback: check.verify, algorithmSets: check.algorithmSets()}, nil
+	return hostKeyPolicy{callback: check.verify, check: check}, nil
 }
 
 // hostKeyCheck accepts the keys a node is expected to present.
@@ -103,7 +147,13 @@ func (c hostKeyCheck) verify(_ string, _ net.Addr, presented ssh.PublicKey) erro
 			return nil
 		}
 	}
-	err := &hostKeyError{hop: c.hop, node: c.node, presented: ssh.FingerprintSHA256(presented)}
+	return c.refusal(ssh.FingerprintSHA256(presented), nil)
+}
+
+// refusal reports the key the server presented, or, when it presented
+// none, the host key algorithms it offers.
+func (c hostKeyCheck) refusal(presented string, offered []string) error {
+	err := &hostKeyError{hop: c.hop, node: c.node, presented: presented, offered: offered}
 	for _, key := range c.expected {
 		err.expected = append(err.expected, ssh.FingerprintSHA256(key))
 	}
@@ -141,18 +191,27 @@ func keyAlgorithms(key ssh.PublicKey) []string {
 
 // hostKeyError reports a host key that a node connection refused.
 type hostKeyError struct {
-	hop       string
-	node      string
+	hop  string
+	node string
+	// presented is the fingerprint of the key the server presented. It is
+	// empty when the server holds no key of an expected type, and offered
+	// lists the host key algorithms it offers instead.
 	presented string
+	offered   []string
 	// expected are the fingerprints of the keys the node may present. None
 	// means the key is unknown, and some means it has changed.
 	expected []string
 }
 
 func (e *hostKeyError) Error() string {
-	if len(e.expected) == 0 {
+	switch {
+	case len(e.expected) == 0:
 		return fmt.Sprintf("host key of %s %q is unknown: it presented %s", e.hop, e.node, e.presented)
+	case e.presented == "":
+		return fmt.Sprintf("host key of %s %q has changed: it holds no key of an expected type and offers %s, expected %s",
+			e.hop, e.node, strings.Join(e.offered, ", "), strings.Join(e.expected, " or "))
+	default:
+		return fmt.Sprintf("host key of %s %q has changed: it presented %s, expected %s",
+			e.hop, e.node, e.presented, strings.Join(e.expected, " or "))
 	}
-	return fmt.Sprintf("host key of %s %q has changed: it presented %s, expected %s",
-		e.hop, e.node, e.presented, strings.Join(e.expected, " or "))
 }
