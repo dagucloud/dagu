@@ -296,6 +296,47 @@ func TestTickPlanner_RestoredHoldLeavesOutFirstTick(t *testing.T) {
 	}
 }
 
+// A scheduler restarted in the minute of the last tick ticks that minute
+// again. A DAG suspended by then is held from after the slot that tick ran,
+// while a slot it only planned is held.
+func TestTickPlanner_HoldAfterRestartLeavesOutRanSlot(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		outcome schedulerstate.SlotOutcome
+		want    *schedulerstate.MissedGap
+	}{
+		{
+			outcome: schedulerstate.SlotDispatched,
+			want:    &schedulerstate.MissedGap{From: at(10, 0).Add(time.Second), To: at(12, 0), Through: before(at(12, 0)), Reason: schedulerstate.GapSuspended, Slots: 1},
+		},
+		{
+			outcome: schedulerstate.SlotPlanned,
+			want:    &schedulerstate.MissedGap{From: at(10, 0), To: at(12, 0), Through: before(at(12, 0)), Reason: schedulerstate.GapSuspended, Slots: 2},
+		},
+	} {
+		t.Run(string(tc.outcome), func(t *testing.T) {
+			t.Parallel()
+			state := newMockState(at(10, 0))
+			state.DAGs["hourly"] = schedulerstate.DAGWatermark{
+				LastScheduledTime: at(10, 0),
+				LastSlot:          &schedulerstate.ScheduleSlot{At: at(10, 0), Outcome: tc.outcome},
+			}
+			tp, _ := newTestTickPlanner(&mockStateStore{state: state})
+			tp.cfg.Clock = func() time.Time { return at(10, 0).Add(30 * time.Second) }
+			held := true
+			tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return held, nil }
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			tp.Plan(t.Context(), at(10, 0))
+			tp.Plan(t.Context(), at(11, 0))
+			held = false
+			tp.Plan(t.Context(), at(12, 0))
+			assert.Equal(t, tc.want, missedGap(tp, dag.Name))
+		})
+	}
+}
+
 // heldGap returns a planner whose hourly DAG missed the slots of 12:00,
 // 13:00, and 14:00 while it was suspended.
 func heldGap(t *testing.T) (*TickPlanner, string) {

@@ -23,7 +23,9 @@ func (tp *TickPlanner) holdReason(ctx context.Context) schedulerstate.GapReason 
 	return schedulerstate.GapSuspended
 }
 
-// holdDAG notes when the scheduler first found a DAG held.
+// holdDAG notes when the scheduler first found a DAG held. A restart within
+// the minute of the last tick ticks that minute again, and a slot the last
+// tick settled stays out of the hold.
 func (tp *TickPlanner) holdDAG(dagName string, reason schedulerstate.GapReason, now time.Time) {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -32,6 +34,10 @@ func (tp *TickPlanner) holdDAG(dagName string, reason schedulerstate.GapReason, 
 	}
 	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[dagName])
 	heldSince := now
+	if last := watermark.LastSlot; last != nil && !last.At.Before(now) && last.Outcome != schedulerstate.SlotPlanned {
+		// A hold's gap holds the slots after the second before its start.
+		heldSince = last.At.Add(time.Second)
+	}
 	watermark.HeldSince, watermark.HeldBy = &heldSince, reason
 	tp.watermarkState.DAGs[dagName] = watermark
 }
