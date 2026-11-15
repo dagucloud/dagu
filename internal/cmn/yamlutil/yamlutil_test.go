@@ -62,3 +62,9 @@ func requireDocBodies(t *testing.T, data string, want ...string) {
 	}
 	assert.Equal(t, want, got)
 }
+
+func TestTrimByteOrderMark(t *testing.T) {
+	assert.Equal(t, []byte("steps: []\n"), yamlutil.TrimByteOrderMark([]byte("\ufeffsteps: []\n")))
+	assert.Equal(t, []byte("steps: []\n"), yamlutil.TrimByteOrderMark([]byte("steps: []\n")))
+	assert.Equal(t, []byte("a: \ufeff\n"), yamlutil.TrimByteOrderMark([]byte("a: \ufeff\n")), "only a leading mark")
+}
