@@ -1407,6 +1407,11 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 
 		long := strings.Repeat("a", 241)
 		short := strings.TrimSuffix(stepMessagesName(long), ".json")
+		require.NoError(t, att.WriteStepMessages(ctx, long, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: long}}))
+		msgs, err := att.ReadStepMessages(ctx, short)
+		require.NoError(t, err)
+		assert.Nil(t, msgs, "a step without messages reads none")
+
 		for _, name := range []string{long, short} {
 			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
 		}

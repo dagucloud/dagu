@@ -96,6 +96,19 @@ func TestForeachParentDir(t *testing.T) {
 	}
 }
 
+// A nested foreach step named after a Windows device, whose items earlier
+// versions stored under its raw name, is listed under that directory.
+func TestForeachNestedParentKeepsRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	stepDir := t.TempDir()
+	raw := filepath.Join(stepDir, "0", ForeachLogDirName, "con")
+	require.NoError(t, os.MkdirAll(raw, 0o750))
+	dir, err := ForeachParentDir(stepDir, ForeachNestedParent("0", "con"))
+	require.NoError(t, err)
+	assert.Equal(t, raw, dir)
+}
+
 func TestForeachItemPathRoundTrip(t *testing.T) {
 	t.Parallel()
 
