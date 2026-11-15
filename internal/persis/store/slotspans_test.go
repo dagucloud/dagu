@@ -196,7 +196,8 @@ func TestSpanStoreSharesSpansThroughFiles(t *testing.T) {
 
 // A DAG's dismissal needs no span of its own, as when only the scheduler's
 // spans held its slots. A suspension and a dismissal of one DAG each keep
-// what the other recorded, and a later dismissal replaces an earlier one.
+// what the other recorded, and a later dismissal replaces an earlier one,
+// but not the other way round, as when an earlier request is written last.
 func TestSpanStoreKeepsADismissal(t *testing.T) {
 	t.Parallel()
 	s := newSpanStore()
@@ -211,6 +212,7 @@ func TestSpanStoreKeepsADismissal(t *testing.T) {
 	latest := schedulerstate.Dismissal{Through: spanAt(1, 11), By: "bob"}
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, true, spanAt(1, 10)))
 	require.NoError(t, s.Dismiss(ctx, "etl", latest))
+	require.NoError(t, s.Dismiss(ctx, "etl", schedulerstate.Dismissal{Through: spanAt(1, 10), By: "carol"}))
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, false, spanAt(1, 12)))
 
 	got, err = s.Dismissed(ctx, "etl")

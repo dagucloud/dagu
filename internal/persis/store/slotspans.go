@@ -80,11 +80,13 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 	return spans, err
 }
 
-// Dismiss records a dismissal of the DAG's missed slots in place of the one
-// before.
+// Dismiss records a dismissal of the DAG's missed slots in place of an
+// earlier one.
 func (s *SpanStore) Dismiss(ctx context.Context, dag string, dismissal schedulerstate.Dismissal) error {
 	return s.update(ctx, dag, dismissal.Through, func(record *spanRecord) {
-		record.Dismissal = dismissal
+		if dismissal.Through.After(record.Dismissal.Through) {
+			record.Dismissal = dismissal
+		}
 	})
 }
 

@@ -48,8 +48,8 @@ type SpanStore interface {
 	// Ended returns the spans of the scheduler and of the DAG that have
 	// ended, oldest first.
 	Ended(ctx context.Context, dag string) ([]Span, error)
-	// Dismiss records a dismissal of the DAG's missed slots in place of
-	// the one before.
+	// Dismiss records a dismissal of the DAG's missed slots in place of an
+	// earlier one; a dismissal through an earlier time leaves the record.
 	Dismiss(ctx context.Context, dag string, dismissal Dismissal) error
 	// Dismissed returns the DAG's latest dismissal, or the zero Dismissal.
 	Dismissed(ctx context.Context, dag string) (Dismissal, error)
