@@ -4,10 +4,12 @@
 package scheduler
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,5 +172,43 @@ func TestComputeMissedIntervals_CappedAtMax(t *testing.T) {
 	// Should keep the most recent runs (closest to replayTo)
 	if len(got) > 0 {
 		assert.True(t, got[len(got)-1].Before(replayTo) || got[len(got)-1].Equal(replayTo))
+	}
+}
+
+// Queued catch-up runs every slot it holds, also those a late tick's window
+// has moved past, so the gap that tick records starts after the queue.
+func TestTickPlanner_LateTickLeavesOutQueuedCatchup(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		late   time.Time
+		queued []time.Time
+		gap    *schedulerstate.MissedGap
+	}{
+		{
+			name:   "queue reaches the window",
+			late:   at(14, 0),
+			queued: []time.Time{at(11, 0), at(12, 0), at(13, 0), at(14, 0)},
+			gap:    &schedulerstate.MissedGap{From: at(9, 0), To: at(10, 0), Through: at(10, 0), Reason: schedulerstate.GapDown, Slots: 1},
+		},
+		{
+			name:   "queue before the window",
+			late:   at(15, 0),
+			queued: []time.Time{at(11, 0), at(12, 0), at(14, 0), at(15, 0)},
+			gap:    &schedulerstate.MissedGap{From: at(12, 0), To: at(13, 0), Through: at(13, 0), Reason: schedulerstate.GapDown, Slots: 1},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(9, 0))})
+			tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
+			dag := &ir.DAG{Name: "hourly", CatchupWindow: 2 * time.Hour, Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+			require.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
+
+			tp.resume(t.Context(), tc.late)
+			assert.Equal(t, tc.queued, bufferedSlots(tp, dag.Name))
+			assert.Equal(t, tc.gap, missedGap(tp, dag.Name))
+		})
 	}
 }

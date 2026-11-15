@@ -1745,14 +1745,18 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 		lastScheduled := tp.watermarkState.DAGs[name].LastScheduledTime
 		from := ComputeReplayFrom(dag.CatchupWindow, tp.watermarkState.LastTick, lastScheduled, now)
 		tp.mu.RUnlock()
-		tp.recordClampedGap(ctx, entry.DAGEntry, active, lastTick, lastScheduled, from)
 		buffer := tp.buffers[name]
+		// Pending buffers already cover their interval, including gaps between
+		// cron slots, so neither the gap nor the replay takes their slots.
+		covered := lastScheduled
 		if buffer != nil && buffer.Len() > 0 {
-			// Pending buffers already cover their interval, including gaps between cron slots.
-			last := buffer.items[len(buffer.items)-1].ScheduledTime
-			if last.After(from) {
-				from = last
+			if last := buffer.items[buffer.Len()-1].ScheduledTime; last.After(covered) {
+				covered = last
 			}
+		}
+		tp.recordClampedGap(ctx, entry.DAGEntry, active, lastTick, covered, from)
+		if covered.After(from) {
+			from = covered
 		}
 		missed := computeMissedScheduleIntervals(active.start, from.In(tp.cfg.Location), now)
 		if len(missed) == 0 {
