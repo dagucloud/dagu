@@ -1690,6 +1690,13 @@ func TestLoadYAML(t *testing.T) {
 			wantCommand: "true",
 		},
 		{
+			// Notepad and PowerShell 5 start a UTF-8 file with a byte order mark.
+			name:        "ByteOrderMark",
+			input:       "\ufeffsteps:\n  - name: \"1\"\n    run: \"true\"\n",
+			wantName:    "1",
+			wantCommand: "true",
+		},
+		{
 			name:    "InvalidYAMLData",
 			input:   "invalid",
 			wantErr: true,
@@ -1712,6 +1719,22 @@ func TestLoadYAML(t *testing.T) {
 			assert.Empty(t, ret.SourceFile)
 		})
 	}
+}
+
+// A DAG file and its base config written by a Windows editor start with a
+// byte order mark, which must not become part of their first key.
+func TestLoadFilesWithByteOrderMark(t *testing.T) {
+	t.Parallel()
+
+	const bom = "\ufeff"
+	base := createTempYAMLFile(t, bom+"env:\n  - FROM_BASE: base\n")
+	dagFile := createTempYAMLFile(t, bom+"steps:\n  - name: a\n    run: echo hi\n---\nname: child\nsteps:\n  - name: b\n    run: echo child\n")
+
+	dag, err := spec.Load(context.Background(), dagFile, spec.WithBaseConfig(base))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+	assert.Equal(t, "a", dag.Steps[0].Name)
+	assert.Contains(t, dag.Env, "FROM_BASE=base")
 }
 
 func TestLoadPreservesSourceFileForFileBasedDAG(t *testing.T) {

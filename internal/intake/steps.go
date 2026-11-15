@@ -461,8 +461,13 @@ func setNodeOutputs(node *runtime.NodeData, values map[string]string) error {
 				node.State.OutputVariables = &collections.SyncMap{}
 			}
 			node.State.OutputVariables.Store(name, name+"="+value)
+			// ${<id>.output} reads the captured output, which the value
+			// replaces too.
+			captured := value
+			node.State.OutputValue = &captured
 		}
 	}
+	node.State.MaskedOutputs = unmaskSuppliedOutputs(*node, published, values)
 
 	if len(published) == 0 {
 		return nil
@@ -474,6 +479,35 @@ func setNodeOutputs(node *runtime.NodeData, values map[string]string) error {
 	value := string(encoded)
 	node.State.StepOutputsValue = &value
 	return nil
+}
+
+// unmaskSuppliedOutputs returns the masked record of a carried node without
+// the supplied outputs, whose values replace the stored ones. A record that
+// could not name the published outputs is narrowed to the ones still stored.
+func unmaskSuppliedOutputs(node runtime.NodeData, published map[string]json.RawMessage, supplied map[string]string) *ir.MaskedOutputs {
+	masked := node.State.MaskedOutputs.Clone()
+	if masked == nil {
+		return nil
+	}
+	if masked.AllPublished {
+		masked.Published = slices.Sorted(maps.Keys(published))
+		masked.AllPublished = false
+	}
+	isSupplied := func(name string) bool {
+		_, ok := supplied[name]
+		return ok
+	}
+	masked.Published = slices.DeleteFunc(masked.Published, isSupplied)
+	masked.Variables = slices.DeleteFunc(masked.Variables, isSupplied)
+	// The value of the output variable replaces the captured output, unless
+	// ${<id>.outputs} still reads a stored payload of its own.
+	if node.Step.Output != "" && isSupplied(node.Step.Output) && node.State.OutputsValue == nil {
+		masked.Captured = false
+	}
+	if len(masked.Published) == 0 && len(masked.Variables) == 0 && !masked.Captured {
+		return nil
+	}
+	return masked
 }
 
 // resolveStepName maps a step name or ID to the step's name. Names win over

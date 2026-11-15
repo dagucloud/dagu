@@ -8,6 +8,8 @@ import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { PeekLink } from '@/features/peek/PeekLink';
 import { runningTaskRoot } from '../../dag-runs/lib/dagRunUrls';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
+import { countWorkersBehind, WorkerVersion } from './WorkerVersion';
 
 type Worker = components['schemas']['Worker'];
 type RunningTask = components['schemas']['RunningTask'];
@@ -69,8 +71,23 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
     );
   }
 
+  const behind = countWorkersBehind(workers);
+
   return (
     <div className="divide-y">
+      {behind > 0 && (
+        <div className="px-3 py-2 flex items-center gap-2 text-xs text-warning">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <I18nTemplate
+            text={
+              behind === 1
+                ? '{count} worker runs an older Dagu version than the server.'
+                : '{count} workers run an older Dagu version than the server.'
+            }
+            values={{ count: behind }}
+          />
+        </div>
+      )}
       {workers.map((worker) => {
         const isExpanded = expandedWorkers.has(worker.id);
         const hasRunningTasks =
@@ -105,6 +122,7 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
               {/* Worker ID */}
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-sm truncate">{worker.id}</div>
+                <WorkerVersion worker={worker} />
               </div>
 
               {/* Labels */}

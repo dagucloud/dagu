@@ -22,7 +22,9 @@ import (
 // definition other than its steps, the run's parameters, and the steps it
 // depends on are as they were in source, and it succeeded there or carried
 // outputs into it. Every other step runs, and so does every step after one
-// that runs, so it reads what that step does now. dag has its run's
+// that runs, so it reads what that step does now, and every step that shares
+// a browser with one that runs, since each starts on the page the one before
+// it left. dag has its run's
 // parameters resolved, which a run's status records as source.Params does,
 // and profile is the runtime profile the run uses, which can change the
 // environment of every step.
@@ -45,13 +47,23 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 		}
 	}
 	runs := make(map[string]bool, len(dag.Steps))
-	for _, step := range dag.Steps {
-		node := nodes[step.Name]
-		if current[step.Name] != earlier[step.Name] || node == nil || !carriesOutputs(node) {
-			runs[step.Name] = true
+	// sharedRuns names the shared browsers a step that runs uses.
+	sharedRuns := make(map[string]bool)
+	run := func(step *ir.Step) {
+		runs[step.Name] = true
+		if share := browserShare(step); share != "" {
+			sharedRuns[share] = true
 		}
 	}
-	// A step after one that runs runs too.
+	for i := range dag.Steps {
+		step := &dag.Steps[i]
+		node := nodes[step.Name]
+		if current[step.Name] != earlier[step.Name] || node == nil || !carriesOutputs(node) {
+			run(step)
+		}
+	}
+	// A step after one that runs runs too, and so does one sharing its
+	// browser.
 	for changed := true; changed; {
 		changed = false
 		for i := range dag.Steps {
@@ -59,8 +71,9 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 			if runs[step.Name] {
 				continue
 			}
-			if slices.ContainsFunc(step.AllDepends(), func(dep string) bool { return runs[dep] }) {
-				runs[step.Name], changed = true, true
+			if slices.ContainsFunc(step.AllDepends(), func(dep string) bool { return runs[dep] }) || sharedRuns[browserShare(step)] {
+				run(step)
+				changed = true
 			}
 		}
 	}
@@ -160,4 +173,15 @@ func stepDefinition(step *ir.Step) ([]byte, error) {
 		return nil, fmt.Errorf("read step %q: %w", step.Name, err)
 	}
 	return json.Marshal(kept)
+}
+
+// browserShare is the name of the browser a step shares with other steps of
+// its run, or empty when it shares none.
+func browserShare(step *ir.Step) string {
+	if step.ExecutorConfig.Type != ir.ExecutorTypeBrowser {
+		return ""
+	}
+	browser, _ := step.ExecutorConfig.Config["browser"].(map[string]any)
+	share, _ := browser["share"].(string)
+	return share
 }

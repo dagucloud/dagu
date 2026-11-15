@@ -1,0 +1,18 @@
+working_dir: .
+params:
+  - MAX_PRICE: 70000000
+steps:
+  - action: data.filter
+    with:
+      from: json
+      data:
+        - {name: Tenma, price: "4,280万円", built: "1983年5月"}
+        - {name: Honmachi, price: "6,800万円", built: "1990年10月"}
+        - {name: Umeda, price: "1億2,000万円", built: "2008年1月"}
+        - {name: Juso, price: "3,200万円", built: "1979年3月"}
+        - {name: Tenroku, price: "価格未定", built: "1985年4月"}
+      where:
+        price: {max: "${params.MAX_PRICE}"}
+        built: {from: "1981-06"}
+      sort: -price
+    stdout: result.out

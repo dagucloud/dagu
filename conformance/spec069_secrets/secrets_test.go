@@ -74,12 +74,22 @@ func TestFileProviderMissingFile(t *testing.T) {
 }
 
 // A later step of the same run reads a published output with the secret
-// intact. A retry reuses the succeeded step's stored output, which holds the
-// mask, including for a secret that JSON escapes.
+// intact. A retry restores the succeeded step with that output stored masked,
+// so the step reading it fails instead of running on the mask, including for a
+// secret that JSON escapes, the ${<id>.outputs.<name>} form, and an output
+// variable read as ${env.<name>}.
 func TestStepOutputMaskedOnRetry(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"step_output_retry.yaml", "step_output_retry_escaped.yaml"} {
+	for _, tc := range []struct{ fixture, output string }{
+		{fixture: "step_output_retry.yaml", output: "token"},
+		{fixture: "step_output_retry_escaped.yaml", output: "token"},
+		{fixture: "step_output_retry_property.yaml", output: "outputs"},
+		{fixture: "step_output_retry_env.yaml", output: "TOKEN"},
+		// foreach resolves its items while it runs.
+		{fixture: "step_output_retry_items.yaml", output: "TOKEN"},
+	} {
+		fixture := tc.fixture
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
@@ -91,11 +101,101 @@ func TestStepOutputMaskedOnRetry(t *testing.T) {
 			dagu.ExpectTextFileContent("received.out", "real\n")
 
 			dagu.WriteFile("ready", "")
-			dagu.RunWithEnv(env, "retry", "--run-id="+runID, fixture).ExpectExitCode(0)
-			dagu.ExpectTextFileContent("received.out", "real\n*******\n")
+			retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, fixture)
+			retry.ExpectNonZeroExitCode()
+			retry.ExpectStderrContains(`reads output "`+tc.output+`" of step "login"`, `step "login" has to run again`)
+			dagu.ExpectTextFileContent("received.out", "real\n")
 			dagu.ExpectTextFileContent("logins.out", "login\n")
 		})
 	}
+}
+
+// A retried step that reads only outputs masking did not change runs on their
+// stored values. An escaped reference to the masked output is literal text.
+func TestStepOutputUnmaskedOnRetry(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-step-output-unread"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_unread.yaml").ExpectNonZeroExitCode()
+	first := "us-east\n${steps.login.outputs.token}\n"
+	dagu.ExpectTextFileContent("received.out", first)
+
+	dagu.WriteFile("ready", "")
+	dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_unread.yaml").ExpectExitCode(0)
+	dagu.ExpectTextFileContent("received.out", first+first)
+	dagu.ExpectTextFileContent("logins.out", "login\n")
+}
+
+// A parallel step retries a step of its child run by restoring the child run
+// from its stored status, so the retry fails on the masked output variable
+// instead of running on the mask.
+func TestStepOutputMaskedOnParallelRetry(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	run := dagu.RunWithEnv(env, "start", "step_output_parallel_retry.yaml")
+	run.ExpectNonZeroExitCode()
+	run.ExpectStderrContains(`reads output "TOKEN" of step "login"`)
+	dagu.ExpectTextFileContent("received.out", "filesecretvalue123\n")
+}
+
+// Template config reads the step's variables through a scope of its own, which
+// keeps the masked mark, so a template that reads a masked output fails.
+func TestStepOutputMaskedInTemplate(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-template"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_template.yaml").ExpectNonZeroExitCode()
+
+	dagu.WriteFile("ready", "")
+	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_template.yaml")
+	retry.ExpectNonZeroExitCode()
+	retry.ExpectStderrContains(`reads output "TOKEN" of step "login"`)
+	dagu.ExpectNoFile("received.out")
+}
+
+// A child run that a step starts in process checks its own reads, so its
+// handler reads the masked output variable as it is and the retry succeeds.
+func TestStepOutputMaskedInChildHandler(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-child-handler"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_child_handler.yaml").ExpectNonZeroExitCode()
+	first := "use ran\nhandler [filesecretvalue123]\n"
+	dagu.ExpectTextFileContent("received.out", first)
+
+	dagu.WriteFile("ready", "")
+	dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_child_handler.yaml").ExpectExitCode(0)
+	dagu.ExpectTextFileContent("received.out", first+"use ran\nhandler [*******]\n")
+}
+
+// A foreach body step that defines the name of a masked output variable in its
+// own env reads its own value, so the retry runs.
+func TestStepOutputShadowedOnRetry(t *testing.T) {
+	t.Parallel()
+
+	const runID = "spec069-step-output-shadowed"
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+
+	dagu.RunWithEnv(env, "start", "--run-id="+runID, "step_output_retry_foreach.yaml").ExpectNonZeroExitCode()
+	dagu.ExpectTextFileContent("received.out", "local\n")
+
+	dagu.WriteFile("ready", "")
+	dagu.RunWithEnv(env, "retry", "--run-id="+runID, "step_output_retry_foreach.yaml").ExpectExitCode(0)
+	dagu.ExpectTextFileContent("received.out", "local\nlocal\n")
+	dagu.ExpectTextFileContent("logins.out", "login\n")
 }
 
 func TestUnknownProvider(t *testing.T) {

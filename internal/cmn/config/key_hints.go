@@ -46,6 +46,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"gitsync":                          "git_sync",
 	"signalhandling":                   "signal_handling",
 	"signalhandling.enablepropagation": "signal_handling.enable_propagation",
+	"signalhandling.draintimeout":      "signal_handling.drain_timeout",
 
 	// TLS
 	"tls.certfile": "tls.cert_file",

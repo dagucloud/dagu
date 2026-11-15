@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,6 +50,9 @@ type EnvEntry struct {
 	Value  string
 	Source EnvSource
 	Origin string // stepID for outputs, filepath for dotenv (optional metadata)
+	// Masked marks an output variable restored with a secret masked. A read
+	// of it is recorded (see TrackMaskedReads).
+	Masked bool
 }
 
 // EnvScope is an isolated, immutable environment scope for DAG loading/execution.
@@ -60,14 +64,22 @@ type EnvScope struct {
 	// by label. Only AllSecrets returns them.
 	masked map[string]string
 	parent *EnvScope
+	// holdsMaskedOutput is set when this scope or a parent holds an entry
+	// marked Masked.
+	holdsMaskedOutput bool
+}
+
+func (e *EnvScope) hasMaskedOutput() bool {
+	return e != nil && e.holdsMaskedOutput
 }
 
 // NewEnvScope creates a new EnvScope, optionally inheriting from parent.
 // If includeOS is true, it includes os.Environ() as the base layer.
 func NewEnvScope(parent *EnvScope, includeOS bool) *EnvScope {
 	e := &EnvScope{
-		entries: make(map[string]EnvEntry),
-		parent:  parent,
+		entries:           make(map[string]EnvEntry),
+		parent:            parent,
+		holdsMaskedOutput: parent.hasMaskedOutput(),
 	}
 	if includeOS {
 		for _, env := range os.Environ() {
@@ -113,8 +125,9 @@ func (e *EnvScope) WithEntry(key, value string, source EnvSource) *EnvScope {
 // The original scope is not modified (immutable).
 func (e *EnvScope) WithEntryOrigin(key, value string, source EnvSource, origin string) *EnvScope {
 	newScope := &EnvScope{
-		entries: make(map[string]EnvEntry, 1),
-		parent:  e,
+		entries:           make(map[string]EnvEntry, 1),
+		parent:            e,
+		holdsMaskedOutput: e.hasMaskedOutput(),
 	}
 	newScope.entries[key] = EnvEntry{Key: key, Value: value, Source: source, Origin: origin}
 	return newScope
@@ -127,17 +140,21 @@ func (e *EnvScope) WithEntries(entries map[string]string, source EnvSource) *Env
 }
 
 // WithStepOutputs returns a new EnvScope with step output variables added.
-// The stepID is recorded as the origin for debugging.
-func (e *EnvScope) WithStepOutputs(outputs map[string]string, stepID string) *EnvScope {
+// The stepID is recorded as the origin. The variables named in masked were
+// restored with a secret masked.
+func (e *EnvScope) WithStepOutputs(outputs map[string]string, stepID string, masked ...string) *EnvScope {
 	if len(outputs) == 0 {
 		return e
 	}
 	newScope := &EnvScope{
-		entries: make(map[string]EnvEntry, len(outputs)),
-		parent:  e,
+		entries:           make(map[string]EnvEntry, len(outputs)),
+		parent:            e,
+		holdsMaskedOutput: e.hasMaskedOutput(),
 	}
 	for k, v := range outputs {
-		newScope.entries[k] = EnvEntry{Key: k, Value: v, Source: EnvSourceOutput, Origin: stepID}
+		entry := EnvEntry{Key: k, Value: v, Source: EnvSourceOutput, Origin: stepID, Masked: slices.Contains(masked, k)}
+		newScope.entries[k] = entry
+		newScope.holdsMaskedOutput = newScope.holdsMaskedOutput || entry.Masked
 	}
 	return newScope
 }
@@ -245,7 +262,7 @@ func (e *EnvScope) WithEntriesOrigin(entries map[string]string, source EnvSource
 	if len(entries) == 0 {
 		return e
 	}
-	newScope := &EnvScope{entries: make(map[string]EnvEntry, len(entries)), parent: e}
+	newScope := &EnvScope{entries: make(map[string]EnvEntry, len(entries)), parent: e, holdsMaskedOutput: e.hasMaskedOutput()}
 	for key, value := range entries {
 		newScope.entries[key] = EnvEntry{Key: key, Value: value, Source: source, Origin: origin}
 	}
@@ -258,9 +275,10 @@ func (e *EnvScope) WithEnvEntries(entries []EnvEntry) *EnvScope {
 	if len(entries) == 0 {
 		return e
 	}
-	newScope := &EnvScope{entries: make(map[string]EnvEntry, len(entries)), parent: e}
+	newScope := &EnvScope{entries: make(map[string]EnvEntry, len(entries)), parent: e, holdsMaskedOutput: e.hasMaskedOutput()}
 	for _, entry := range entries {
 		newScope.entries[entry.Key] = entry
+		newScope.holdsMaskedOutput = newScope.holdsMaskedOutput || entry.Masked
 	}
 	return newScope
 }
@@ -394,9 +412,10 @@ func (e *EnvScope) WithMaskedSecrets(values map[string]string) *EnvScope {
 		return e
 	}
 	return &EnvScope{
-		entries: make(map[string]EnvEntry),
-		masked:  maps.Clone(values),
-		parent:  e,
+		entries:           make(map[string]EnvEntry),
+		masked:            maps.Clone(values),
+		parent:            e,
+		holdsMaskedOutput: e.hasMaskedOutput(),
 	}
 }
 

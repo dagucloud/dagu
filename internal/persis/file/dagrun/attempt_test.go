@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -282,6 +283,49 @@ func TestAttempt_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestAttempt_WriteReopensUnusableFile checks that a write still persists
+// when the open file can no longer be used, as an NFS handle goes stale when
+// another host replaces the file. Closing the file under the writer stands
+// in for that.
+func TestAttempt_WriteReopensUnusableFile(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("WritePersists", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		require.NoError(t, att.Write(ctx, statusWithPID(1)))
+		require.NoError(t, att.writer.file.Close())
+
+		require.NoError(t, att.Write(ctx, statusWithPID(2)))
+
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.PID(2), status.PID)
+	})
+
+	t.Run("FailedReopenRetries", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		require.NoError(t, att.Write(ctx, statusWithPID(1)))
+		require.NoError(t, att.writer.file.Close())
+		blockStatusFile(t, att.file)
+		require.ErrorIs(t, att.Write(ctx, statusWithPID(2)), ErrWriteFailed)
+
+		require.NoError(t, fileutil.Remove(att.file))
+		require.NoError(t, att.Write(ctx, statusWithPID(3)))
+
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.PID(3), status.PID)
+	})
+}
+
+// blockStatusFile replaces the status file with a directory, so that opening
+// it for writing fails until the directory is removed.
+func blockStatusFile(t *testing.T, file string) {
+	t.Helper()
+	require.NoError(t, fileutil.Remove(file))
+	require.NoError(t, os.Mkdir(file, 0750))
+}
+
 func TestAttempt_HandleNonExistentFile(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "invalid.dat")
@@ -458,6 +502,90 @@ func TestAttempt_ReadStatusFromTheEnd(t *testing.T) {
 	})
 }
 
+// TestAttempt_WriteAfterPartialLine checks that a status appended to a file
+// that ends in a partial line, as a write cut off by a crash or a full disk
+// leaves it, is read back, and that complete lines get no blank line.
+func TestAttempt_WriteAfterPartialLine(t *testing.T) {
+	ctx := context.Background()
+	line := func(t *testing.T, pid int) []byte {
+		t.Helper()
+		st := createTestStatus(ir.Running)
+		st.PID = ir.PID(pid)
+		data, err := json.Marshal(st)
+		require.NoError(t, err)
+		return append(data, '\n')
+	}
+	partial := func(t *testing.T, pid int) []byte {
+		t.Helper()
+		data := line(t, pid)
+		return data[:len(data)/2]
+	}
+	open := func(t *testing.T, data []byte) *Attempt {
+		t.Helper()
+		file := filepath.Join(createTempDir(t), "status.jsonl")
+		if data != nil {
+			require.NoError(t, os.WriteFile(file, data, 0600))
+		}
+		att, err := NewAttempt(file, nil)
+		require.NoError(t, err)
+		require.NoError(t, att.Open(ctx))
+		t.Cleanup(func() { _ = att.Close(ctx) })
+		return att
+	}
+	write := func(t *testing.T, att *Attempt, pid int) {
+		t.Helper()
+		st := createTestStatus(ir.Running)
+		st.PID = ir.PID(pid)
+		require.NoError(t, att.Write(ctx, st))
+	}
+	readPID := func(t *testing.T, att *Attempt) ir.PID {
+		t.Helper()
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		return status.PID
+	}
+
+	t.Run("Open", func(t *testing.T) {
+		att := open(t, append(line(t, 1), partial(t, 2)...))
+		write(t, att, 3)
+		assert.Equal(t, ir.PID(3), readPID(t, att))
+
+		require.NoError(t, att.Close(ctx))
+		assert.Equal(t, ir.PID(3), readPID(t, att), "compaction keeps it")
+	})
+
+	t.Run("ReopenAfterReplace", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows cannot replace a file that another handle holds open")
+		}
+		att := open(t, line(t, 1))
+		replacement := filepath.Join(filepath.Dir(att.file), "replacement")
+		require.NoError(t, os.WriteFile(replacement, append(line(t, 2), partial(t, 3)...), 0600))
+		require.NoError(t, os.Rename(replacement, att.file))
+
+		write(t, att, 4)
+		assert.Equal(t, ir.PID(4), readPID(t, att))
+	})
+
+	t.Run("CompleteLines", func(t *testing.T) {
+		for name, data := range map[string][]byte{"NewFile": nil, "EndsWithNewline": line(t, 1)} {
+			t.Run(name, func(t *testing.T) {
+				att := open(t, data)
+				write(t, att, 2)
+				require.NoError(t, att.writer.close())
+				require.NoError(t, att.writer.Open())
+				write(t, att, 3)
+
+				written, err := fileutil.ReadFile(att.file)
+				require.NoError(t, err)
+				assert.False(t, bytes.HasPrefix(written, []byte("\n")))
+				assert.NotContains(t, string(written), "\n\n")
+				assert.Equal(t, ir.PID(3), readPID(t, att))
+			})
+		}
+	})
+}
+
 func TestReadLineFrom(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "lines.txt")
@@ -598,6 +726,24 @@ func createTestDAG() *ir.DAG {
 		},
 		Params: []string{"--param1=value1", "--param2=value2"},
 	}
+}
+
+// openAttemptForTest opens an attempt on a new status file and closes it when
+// the test ends.
+func openAttemptForTest(t *testing.T) *Attempt {
+	t.Helper()
+	att, err := NewAttempt(filepath.Join(createTempDir(t), "status.jsonl"), nil)
+	require.NoError(t, err)
+	require.NoError(t, att.Open(context.Background()))
+	t.Cleanup(func() { _ = att.Close(context.Background()) })
+	return att
+}
+
+// statusWithPID returns a running status that the PID tells apart.
+func statusWithPID(pid int) ir.DAGRunStatus {
+	status := createTestStatus(ir.Running)
+	status.PID = ir.PID(pid)
+	return status
 }
 
 // createTestStatus creates a sample status for testing using StatusFactory

@@ -1771,216 +1771,239 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
               void saveSettings();
             }}
           >
-            <fieldset
-              disabled={isSavingSettings}
-              className="min-h-0 space-y-4 overflow-y-auto p-6"
-            >
-              {settingsError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {settingsError}
-                </p>
-              )}
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">
-                    <I18nText text={'SMTP authentication'} />
+            {/* Chromium never scrolls a fieldset shrunk by a flex parent. */}
+            <div className="min-h-0 overflow-y-auto p-6">
+              <fieldset disabled={isSavingSettings} className="space-y-4">
+                {settingsError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {settingsError}
                   </p>
-                  <Select
-                    value={smtpDraft.mode}
-                    onValueChange={(value) =>
-                      setSMTPDraft((current) =>
-                        value === 'oauth'
-                          ? {
-                              ...current,
-                              mode: 'oauth',
-                              password: '',
-                              clearPassword: false,
-                            }
-                          : { ...current, mode: 'password' }
-                      )
-                    }
-                  >
-                    <I18nProps>
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label="SMTP authentication"
-                      >
-                        <I18nProps>
-                          <SelectValue placeholder="Authentication" />
-                        </I18nProps>
-                      </SelectTrigger>
-                    </I18nProps>
-                    <SelectContent>
-                      <SelectItem value="password">
-                        <I18nText text={'Password'} />
-                      </SelectItem>
-                      <SelectItem value="oauth">
-                        <I18nText text={'OAuth 2.0'} />
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {smtpDraft.mode === 'oauth' && (
+                )}
+
+                <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
                     <p className="text-sm font-medium">
-                      <I18nText text={'OAuth provider'} />
+                      <I18nText text={'SMTP authentication'} />
                     </p>
                     <Select
-                      value={smtpDraft.oauthProvider}
+                      value={smtpDraft.mode}
                       onValueChange={(value) =>
                         setSMTPDraft((current) =>
-                          resetOAuthSecrets({
-                            ...current,
-                            oauthProvider:
-                              value as NotificationSMTPOAuthProvider,
-                            tenantId: '',
-                            clientId: '',
-                          })
+                          value === 'oauth'
+                            ? {
+                                ...current,
+                                mode: 'oauth',
+                                password: '',
+                                clearPassword: false,
+                              }
+                            : { ...current, mode: 'password' }
                         )
                       }
                     >
                       <I18nProps>
                         <SelectTrigger
                           className="w-full"
-                          aria-label="OAuth provider"
+                          aria-label="SMTP authentication"
                         >
                           <I18nProps>
-                            <SelectValue placeholder="OAuth provider" />
+                            <SelectValue placeholder="Authentication" />
                           </I18nProps>
                         </SelectTrigger>
                       </I18nProps>
                       <SelectContent>
-                        <SelectItem
-                          value={NotificationSMTPOAuthProvider.microsoft}
-                        >
-                          <I18nText text={'Microsoft 365'} />
+                        <SelectItem value="password">
+                          <I18nText text={'Password'} />
                         </SelectItem>
-                        <SelectItem
-                          value={
-                            NotificationSMTPOAuthProvider.google_service_account
-                          }
-                        >
-                          <I18nText text={'Google Workspace service account'} />
-                        </SelectItem>
-                        <SelectItem
-                          value={NotificationSMTPOAuthProvider.google_refresh}
-                        >
-                          <I18nText text={'Google refresh token'} />
+                        <SelectItem value="oauth">
+                          <I18nText text={'OAuth 2.0'} />
                         </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                )}
-              </div>
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px]">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium">
-                    <I18nText text={'SMTP host'} />
-                  </span>
-                  <I18nProps>
-                    <Input
-                      value={
-                        smtpDraft.mode === 'oauth'
-                          ? oauthDestination.host
-                          : smtpDraft.host
-                      }
-                      placeholder="SMTP host"
-                      disabled={smtpDraft.mode === 'oauth'}
-                      onChange={(event) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          host: event.target.value,
-                        }))
-                      }
-                    />
-                  </I18nProps>
-                </label>
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium">
-                    <I18nText text={'Port'} />
-                  </span>
-                  <I18nProps>
-                    <Input
-                      value={
-                        smtpDraft.mode === 'oauth'
-                          ? oauthDestination.port
-                          : smtpDraft.port
-                      }
-                      placeholder="Port"
-                      inputMode="numeric"
-                      disabled={smtpDraft.mode === 'oauth'}
-                      onChange={(event) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          port: event.target.value,
-                        }))
-                      }
-                    />
-                  </I18nProps>
-                </label>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium">
-                    <I18nText
-                      text={
-                        smtpDraft.mode === 'oauth'
-                          ? 'Sender mailbox'
-                          : 'Username'
-                      }
-                    />
-                  </span>
-                  <I18nProps>
-                    <Input
-                      value={smtpDraft.username}
-                      placeholder={
-                        smtpDraft.mode === 'oauth'
-                          ? 'Sender mailbox'
-                          : 'Username'
-                      }
-                      onChange={(event) => {
-                        const username = event.target.value;
-                        setSMTPDraft((current) => {
-                          const next = { ...current, username };
-                          return current.mode === 'oauth' &&
-                            username !== current.username
-                            ? resetOAuthSecretState(next)
-                            : next;
-                        });
-                      }}
-                    />
-                  </I18nProps>
-                </label>
-                {smtpDraft.mode === 'password' && (
-                  <I18nProps>
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium">
-                        <I18nText text={'Password'} />
-                      </span>
-                      <I18nProps>
-                        <Input
-                          type="password"
-                          value={smtpDraft.password}
-                          placeholder={
-                            smtpDraft.passwordConfigured
-                              ? 'Password configured'
-                              : 'Password'
-                          }
-                          onChange={(event) =>
-                            setSMTPDraft((current) => ({
+                  {smtpDraft.mode === 'oauth' && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">
+                        <I18nText text={'OAuth provider'} />
+                      </p>
+                      <Select
+                        value={smtpDraft.oauthProvider}
+                        onValueChange={(value) =>
+                          setSMTPDraft((current) =>
+                            resetOAuthSecrets({
                               ...current,
-                              password: event.target.value,
-                              clearPassword: false,
-                            }))
-                          }
-                        />
-                      </I18nProps>
-                    </label>
-                  </I18nProps>
-                )}
-                {smtpDraft.mode === 'oauth' && (
-                  <I18nProps>
+                              oauthProvider:
+                                value as NotificationSMTPOAuthProvider,
+                              tenantId: '',
+                              clientId: '',
+                            })
+                          )
+                        }
+                      >
+                        <I18nProps>
+                          <SelectTrigger
+                            className="w-full"
+                            aria-label="OAuth provider"
+                          >
+                            <I18nProps>
+                              <SelectValue placeholder="OAuth provider" />
+                            </I18nProps>
+                          </SelectTrigger>
+                        </I18nProps>
+                        <SelectContent>
+                          <SelectItem
+                            value={NotificationSMTPOAuthProvider.microsoft}
+                          >
+                            <I18nText text={'Microsoft 365'} />
+                          </SelectItem>
+                          <SelectItem
+                            value={
+                              NotificationSMTPOAuthProvider.google_service_account
+                            }
+                          >
+                            <I18nText
+                              text={'Google Workspace service account'}
+                            />
+                          </SelectItem>
+                          <SelectItem
+                            value={NotificationSMTPOAuthProvider.google_refresh}
+                          >
+                            <I18nText text={'Google refresh token'} />
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px]">
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium">
+                      <I18nText text={'SMTP host'} />
+                    </span>
+                    <I18nProps>
+                      <Input
+                        value={
+                          smtpDraft.mode === 'oauth'
+                            ? oauthDestination.host
+                            : smtpDraft.host
+                        }
+                        placeholder="SMTP host"
+                        disabled={smtpDraft.mode === 'oauth'}
+                        onChange={(event) =>
+                          setSMTPDraft((current) => ({
+                            ...current,
+                            host: event.target.value,
+                          }))
+                        }
+                      />
+                    </I18nProps>
+                  </label>
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium">
+                      <I18nText text={'Port'} />
+                    </span>
+                    <I18nProps>
+                      <Input
+                        value={
+                          smtpDraft.mode === 'oauth'
+                            ? oauthDestination.port
+                            : smtpDraft.port
+                        }
+                        placeholder="Port"
+                        inputMode="numeric"
+                        disabled={smtpDraft.mode === 'oauth'}
+                        onChange={(event) =>
+                          setSMTPDraft((current) => ({
+                            ...current,
+                            port: event.target.value,
+                          }))
+                        }
+                      />
+                    </I18nProps>
+                  </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="block space-y-2">
+                    <span className="text-sm font-medium">
+                      <I18nText
+                        text={
+                          smtpDraft.mode === 'oauth'
+                            ? 'Sender mailbox'
+                            : 'Username'
+                        }
+                      />
+                    </span>
+                    <I18nProps>
+                      <Input
+                        value={smtpDraft.username}
+                        placeholder={
+                          smtpDraft.mode === 'oauth'
+                            ? 'Sender mailbox'
+                            : 'Username'
+                        }
+                        onChange={(event) => {
+                          const username = event.target.value;
+                          setSMTPDraft((current) => {
+                            const next = { ...current, username };
+                            return current.mode === 'oauth' &&
+                              username !== current.username
+                              ? resetOAuthSecretState(next)
+                              : next;
+                          });
+                        }}
+                      />
+                    </I18nProps>
+                  </label>
+                  {smtpDraft.mode === 'password' && (
+                    <I18nProps>
+                      <label className="block space-y-2">
+                        <span className="text-sm font-medium">
+                          <I18nText text={'Password'} />
+                        </span>
+                        <I18nProps>
+                          <Input
+                            type="password"
+                            value={smtpDraft.password}
+                            placeholder={
+                              smtpDraft.passwordConfigured
+                                ? 'Password configured'
+                                : 'Password'
+                            }
+                            onChange={(event) =>
+                              setSMTPDraft((current) => ({
+                                ...current,
+                                password: event.target.value,
+                                clearPassword: false,
+                              }))
+                            }
+                          />
+                        </I18nProps>
+                      </label>
+                    </I18nProps>
+                  )}
+                  {smtpDraft.mode === 'oauth' && (
+                    <I18nProps>
+                      <label className="block space-y-2">
+                        <span className="text-sm font-medium">
+                          <I18nText text={'Default sender'} />
+                        </span>
+                        <I18nProps>
+                          <Input
+                            value={smtpDraft.from}
+                            placeholder="Default sender"
+                            onChange={(event) =>
+                              setSMTPDraft((current) => ({
+                                ...current,
+                                from: event.target.value,
+                              }))
+                            }
+                          />
+                        </I18nProps>
+                      </label>
+                    </I18nProps>
+                  )}
+                </div>
+                {smtpDraft.mode === 'password' && (
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
                     <label className="block space-y-2">
                       <span className="text-sm font-medium">
                         <I18nText text={'Default sender'} />
@@ -1998,66 +2021,116 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
                         />
                       </I18nProps>
                     </label>
-                  </I18nProps>
+                    <label className="flex h-9 self-end items-center gap-2 rounded-md border border-border px-3 text-sm">
+                      <Checkbox
+                        checked={smtpDraft.clearPassword}
+                        disabled={!smtpDraft.passwordConfigured}
+                        onCheckedChange={(value) =>
+                          setSMTPDraft((current) => ({
+                            ...current,
+                            password: '',
+                            clearPassword: !!value,
+                          }))
+                        }
+                      />
+                      <I18nText text={'Clear password'} />
+                    </label>
+                  </div>
                 )}
-              </div>
-              {smtpDraft.mode === 'password' && (
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                  <label className="block space-y-2">
-                    <span className="text-sm font-medium">
-                      <I18nText text={'Default sender'} />
-                    </span>
+                {smtpDraft.mode === 'oauth' &&
+                  smtpDraft.oauthProvider ===
+                    NotificationSMTPOAuthProvider.microsoft && (
+                    <>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="block space-y-2">
+                          <span className="text-sm font-medium">
+                            <I18nText text={'Microsoft tenant ID'} />
+                          </span>
+                          <I18nProps>
+                            <Input
+                              value={smtpDraft.tenantId}
+                              placeholder="Microsoft tenant ID"
+                              onChange={(event) => {
+                                const tenantId = event.target.value;
+                                setSMTPDraft((current) =>
+                                  resetOAuthSecretState({
+                                    ...current,
+                                    tenantId,
+                                  })
+                                );
+                              }}
+                            />
+                          </I18nProps>
+                        </label>
+                        <label className="block space-y-2">
+                          <span className="text-sm font-medium">
+                            <I18nText text={'Client ID'} />
+                          </span>
+                          <I18nProps>
+                            <Input
+                              value={smtpDraft.clientId}
+                              placeholder="Client ID"
+                              onChange={(event) => {
+                                const clientId = event.target.value;
+                                setSMTPDraft((current) =>
+                                  resetOAuthSecretState({
+                                    ...current,
+                                    clientId,
+                                  })
+                                );
+                              }}
+                            />
+                          </I18nProps>
+                        </label>
+                      </div>
+                      <label className="block space-y-2">
+                        <span className="text-sm font-medium">
+                          <I18nText text={'Client secret'} />
+                        </span>
+                        <I18nProps>
+                          <Input
+                            type="password"
+                            value={smtpDraft.clientSecret}
+                            placeholder={
+                              smtpDraft.clientSecretConfigured
+                                ? 'Client secret configured'
+                                : 'Client secret'
+                            }
+                            onChange={(event) =>
+                              setSMTPDraft((current) => ({
+                                ...current,
+                                clientSecret: event.target.value,
+                              }))
+                            }
+                          />
+                        </I18nProps>
+                      </label>
+                    </>
+                  )}
+                {smtpDraft.mode === 'oauth' &&
+                  smtpDraft.oauthProvider ===
+                    NotificationSMTPOAuthProvider.google_service_account && (
                     <I18nProps>
-                      <Input
-                        value={smtpDraft.from}
-                        placeholder="Default sender"
+                      <Textarea
+                        value={smtpDraft.serviceAccountJson}
+                        placeholder={
+                          smtpDraft.serviceAccountJsonConfigured
+                            ? 'Service-account JSON configured'
+                            : 'Service-account JSON'
+                        }
                         onChange={(event) =>
                           setSMTPDraft((current) => ({
                             ...current,
-                            from: event.target.value,
+                            serviceAccountJson: event.target.value,
                           }))
                         }
                       />
                     </I18nProps>
-                  </label>
-                  <label className="flex h-9 self-end items-center gap-2 rounded-md border border-border px-3 text-sm">
-                    <Checkbox
-                      checked={smtpDraft.clearPassword}
-                      disabled={!smtpDraft.passwordConfigured}
-                      onCheckedChange={(value) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          password: '',
-                          clearPassword: !!value,
-                        }))
-                      }
-                    />
-                    <I18nText text={'Clear password'} />
-                  </label>
-                </div>
-              )}
-              {smtpDraft.mode === 'oauth' &&
-                smtpDraft.oauthProvider ===
-                  NotificationSMTPOAuthProvider.microsoft && (
-                  <>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="block space-y-2">
-                        <span className="text-sm font-medium">
-                          <I18nText text={'Microsoft tenant ID'} />
-                        </span>
-                        <I18nProps>
-                          <Input
-                            value={smtpDraft.tenantId}
-                            placeholder="Microsoft tenant ID"
-                            onChange={(event) => {
-                              const tenantId = event.target.value;
-                              setSMTPDraft((current) =>
-                                resetOAuthSecretState({ ...current, tenantId })
-                              );
-                            }}
-                          />
-                        </I18nProps>
-                      </label>
+                  )}
+                {smtpDraft.mode === 'oauth' &&
+                  smtpDraft.oauthProvider ===
+                    NotificationSMTPOAuthProvider.google_refresh && (
+                    <>
                       <label className="block space-y-2">
                         <span className="text-sm font-medium">
                           <I18nText text={'Client ID'} />
@@ -2065,7 +2138,7 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
                         <I18nProps>
                           <Input
                             value={smtpDraft.clientId}
-                            placeholder="Client ID"
+                            placeholder="Google OAuth client ID"
                             onChange={(event) => {
                               const clientId = event.target.value;
                               setSMTPDraft((current) =>
@@ -2075,126 +2148,61 @@ function NotificationChannelsContent({ remoteNode }: { remoteNode: string }) {
                           />
                         </I18nProps>
                       </label>
-                    </div>
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium">
-                        <I18nText text={'Client secret'} />
-                      </span>
-                      <I18nProps>
-                        <Input
-                          type="password"
-                          value={smtpDraft.clientSecret}
-                          placeholder={
-                            smtpDraft.clientSecretConfigured
-                              ? 'Client secret configured'
-                              : 'Client secret'
-                          }
-                          onChange={(event) =>
-                            setSMTPDraft((current) => ({
-                              ...current,
-                              clientSecret: event.target.value,
-                            }))
-                          }
-                        />
-                      </I18nProps>
-                    </label>
-                  </>
-                )}
-              {smtpDraft.mode === 'oauth' &&
-                smtpDraft.oauthProvider ===
-                  NotificationSMTPOAuthProvider.google_service_account && (
-                  <I18nProps>
-                    <Textarea
-                      value={smtpDraft.serviceAccountJson}
-                      placeholder={
-                        smtpDraft.serviceAccountJsonConfigured
-                          ? 'Service-account JSON configured'
-                          : 'Service-account JSON'
-                      }
-                      onChange={(event) =>
-                        setSMTPDraft((current) => ({
-                          ...current,
-                          serviceAccountJson: event.target.value,
-                        }))
-                      }
-                    />
-                  </I18nProps>
-                )}
-              {smtpDraft.mode === 'oauth' &&
-                smtpDraft.oauthProvider ===
-                  NotificationSMTPOAuthProvider.google_refresh && (
-                  <>
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium">
-                        <I18nText text={'Client ID'} />
-                      </span>
-                      <I18nProps>
-                        <Input
-                          value={smtpDraft.clientId}
-                          placeholder="Google OAuth client ID"
-                          onChange={(event) => {
-                            const clientId = event.target.value;
-                            setSMTPDraft((current) =>
-                              resetOAuthSecretState({ ...current, clientId })
-                            );
-                          }}
-                        />
-                      </I18nProps>
-                    </label>
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium">
-                        <I18nText text={'Client secret'} />
-                      </span>
-                      <I18nProps>
-                        <Input
-                          type="password"
-                          value={smtpDraft.clientSecret}
-                          placeholder={
-                            smtpDraft.clientSecretConfigured
-                              ? 'Client secret configured'
-                              : 'Client secret'
-                          }
-                          onChange={(event) =>
-                            setSMTPDraft((current) => ({
-                              ...current,
-                              clientSecret: event.target.value,
-                            }))
+                      <label className="block space-y-2">
+                        <span className="text-sm font-medium">
+                          <I18nText text={'Client secret'} />
+                        </span>
+                        <I18nProps>
+                          <Input
+                            type="password"
+                            value={smtpDraft.clientSecret}
+                            placeholder={
+                              smtpDraft.clientSecretConfigured
+                                ? 'Client secret configured'
+                                : 'Client secret'
+                            }
+                            onChange={(event) =>
+                              setSMTPDraft((current) => ({
+                                ...current,
+                                clientSecret: event.target.value,
+                              }))
+                            }
+                          />
+                        </I18nProps>
+                      </label>
+                      <label className="block space-y-2">
+                        <span className="text-sm font-medium">
+                          <I18nText text={'Refresh token'} />
+                        </span>
+                        <I18nProps>
+                          <Input
+                            type="password"
+                            value={smtpDraft.refreshToken}
+                            placeholder={
+                              smtpDraft.refreshTokenConfigured
+                                ? 'Refresh token configured'
+                                : 'Refresh token'
+                            }
+                            onChange={(event) =>
+                              setSMTPDraft((current) => ({
+                                ...current,
+                                refreshToken: event.target.value,
+                              }))
+                            }
+                          />
+                        </I18nProps>
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        <I18nText
+                          text={
+                            'The refresh token must have been granted with offline access and the https://mail.google.com/ scope.'
                           }
                         />
-                      </I18nProps>
-                    </label>
-                    <label className="block space-y-2">
-                      <span className="text-sm font-medium">
-                        <I18nText text={'Refresh token'} />
-                      </span>
-                      <I18nProps>
-                        <Input
-                          type="password"
-                          value={smtpDraft.refreshToken}
-                          placeholder={
-                            smtpDraft.refreshTokenConfigured
-                              ? 'Refresh token configured'
-                              : 'Refresh token'
-                          }
-                          onChange={(event) =>
-                            setSMTPDraft((current) => ({
-                              ...current,
-                              refreshToken: event.target.value,
-                            }))
-                          }
-                        />
-                      </I18nProps>
-                    </label>
-                    <p className="text-xs text-muted-foreground">
-                      <I18nText
-                        text={
-                          'The refresh token must have been granted with offline access and the https://mail.google.com/ scope.'
-                        }
-                      />
-                    </p>
-                  </>
-                )}
-            </fieldset>
+                      </p>
+                    </>
+                  )}
+              </fieldset>
+            </div>
             <DialogFooter className="gap-2 border-t border-border px-6 py-4">
               <Button
                 type="button"

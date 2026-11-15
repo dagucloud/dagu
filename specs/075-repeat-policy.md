@@ -89,7 +89,8 @@ Rules:
   This also holds for the final evaluation at `limit`.
 - With a matching `mark_success` policy, the step reaches terminal status
   `succeeded` and its evaluation error does not fail the DAG run. The error
-  remains available on the step for diagnosis.
+  remains available on the step for diagnosis. A condition that reads an
+  output stored masked fails the step regardless, as Spec 069 defines.
 - A repeat-condition evaluation error is a step failure for DAG-run status
   calculation, following normal step-failure rules for dependents and
   `continue_on`.

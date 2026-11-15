@@ -30,6 +30,7 @@ const (
 
 	opConvert = "convert"
 	opPick    = "pick"
+	opFilter  = "filter"
 
 	formatJSON = "json"
 	formatYAML = "yaml"
@@ -124,6 +125,8 @@ func (e *executorImpl) Run(ctx context.Context) error {
 		return e.runConvert(ctx)
 	case opPick:
 		return e.runPick(ctx)
+	case opFilter:
+		return e.runFilter(ctx)
 	default:
 		return fmt.Errorf("%w: %q", errUnsupported, e.op)
 	}

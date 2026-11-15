@@ -6,9 +6,14 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -163,6 +168,58 @@ func (t *browserProcessTree) running() []int {
 	return running
 }
 
+// describeRunning names each recorded process that has not exited by its ID,
+// program, and for a Chrome helper its type, as in "2712 (chrome.exe
+// gpu-process)", so a process that outlives the close can be told apart.
+func (t *browserProcessTree) describeRunning() string {
+	var running []treeProcess
+	for _, member := range t.members {
+		if procutil.HandleIsAlive(member.handle) {
+			running = append(running, member)
+		}
+	}
+	slices.SortFunc(running, func(a, b treeProcess) int { return cmp.Compare(a.pid, b.pid) })
+	names := make([]string, 0, len(running))
+	for _, member := range running {
+		names = append(names, fmt.Sprintf("%d (%s)", member.pid, processKind(member.handle)))
+	}
+	return strings.Join(names, ", ")
+}
+
+// helperType is the --type= switch Chrome starts each helper with, such as
+// renderer, gpu-process, or crashpad-handler.
+var helperType = regexp.MustCompile(`--type=(\S+)`)
+
+// processKind is the program of the process behind handle and, when its
+// command line gives one, its helper type.
+func processKind(handle windows.Handle) string {
+	program := "unknown program"
+	path := make([]uint16, windows.MAX_LONG_PATH)
+	size := uint32(len(path))
+	if windows.QueryFullProcessImageName(handle, 0, &path[0], &size) == nil {
+		program = filepath.Base(windows.UTF16ToString(path[:size]))
+	}
+	if m := helperType.FindStringSubmatch(commandLine(handle)); m != nil {
+		return program + " " + m[1]
+	}
+	return program
+}
+
+// commandLine is the command line the process behind handle was started
+// with, or empty when it cannot be read.
+func commandLine(handle windows.Handle) string {
+	// The result is a UNICODE_STRING followed by the text it points to, which
+	// is at most 32767 UTF-16 units; a []uint64 keeps it aligned.
+	buf := make([]uint64, (1<<16+64)/8)
+	var size uint32
+	if err := windows.NtQueryInformationProcess(handle, windows.ProcessCommandLineInformation, unsafe.Pointer(&buf[0]), uint32(len(buf)*8), &size); err != nil {
+		return ""
+	}
+	text := (*windows.NTUnicodeString)(unsafe.Pointer(&buf[0])).String()
+	runtime.KeepAlive(buf)
+	return text
+}
+
 func (t *browserProcessTree) browserRunning() bool {
 	for _, member := range t.members {
 		if member.browser && procutil.HandleIsAlive(member.handle) {
@@ -207,7 +264,7 @@ func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 			t.end(false)
 			grace = nil
 		case <-timeout:
-			return fmt.Errorf("browser processes still running: %v", t.running())
+			return fmt.Errorf("browser processes still running: %s", t.describeRunning())
 		case <-ticker.C:
 		}
 	}

@@ -208,7 +208,8 @@ func TestSleeperHelper(t *testing.T) {
 		t.Skip("helper process")
 	}
 	if role == "tree" {
-		child := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$")
+		// The child is started as a Chrome helper is, with its --type.
+		child := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$", "--", "--type=sleeper")
 		child.Env = append(os.Environ(), sleeperHelperEnv+"=sleeper")
 		require.NoError(t, child.Start())
 		fmt.Printf("SLEEPER %d\n", child.Process.Pid)
@@ -763,7 +764,8 @@ func TestStagehandWaitsForTheFrameAPressLoads(t *testing.T) {
 // server stops, and closes the window as it loads; Search for details opens a details window that
 // stays while it posts the same search. Choose region opens a window to tick
 // regions in, which stays until Register gives them to the menu and closes
-// it. Mark marks the menu.
+// it. Mark marks the menu. Search shortly writes the "searching" window and
+// posts a moment later, as a site that draws the window first does.
 func serveWindowedSearch(t *testing.T, answer func(stopped context.Context)) string {
 	t.Helper()
 	stopped, stop := context.WithCancel(context.Background())
@@ -786,6 +788,7 @@ function closeSearching() { if (top.searching) top.searching.close(); }
 <button onclick="window.open('/regions', 'regions', 'width=800,height=600')">Choose region</button>
 <button onclick="window.open('/details', 'details', 'width=800,height=600'); document.getElementById('search').submit()">Search for details</button>
 <button onclick="document.getElementById('region').textContent = 'Marked'">Mark</button>
+<button onclick="top.openSearching(); setTimeout(() => document.getElementById('search').submit(), 200)">Search shortly</button>
 <script>function setRegion(name) { document.getElementById('region').textContent = name; }</script>`)
 		case "/regions":
 			_, _ = io.WriteString(w, `<title>Regions</title><label><input type="checkbox" value="Chiba">Chiba</label>
@@ -882,6 +885,20 @@ func TestStagehandWorksBehindASearchingWindow(t *testing.T) {
 	text, err = eng.PageText(t.Context())
 	require.NoError(t, err)
 	assert.Contains(t, text, "Opened", "the press the act made on the results")
+}
+
+// A search that posts a moment after its "searching" window opens waits for
+// the answer too, though the window is in front before the post begins.
+func TestStagehandWaitsForAPostAfterItsWindow(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answerAfter(1500*time.Millisecond)), time.Minute))
+
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 5, time.Minute))
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Road repair", "the results the post loaded")
 }
 
 // A search whose answer outlasts its timeout returns when the timeout ends,

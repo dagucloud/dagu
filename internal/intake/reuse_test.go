@@ -93,3 +93,42 @@ func TestStepsToRun(t *testing.T) {
 		})
 	}
 }
+
+// sharedBrowserSpec signs in and searches in one shared browser, and reads a
+// report in a browser of its own.
+const sharedBrowserSpec = `name: listings
+steps:
+  - id: sign_in
+    action: browser.run
+    with:
+      url: https://homes.example.com/login
+      browser: {share: homes}
+      do:
+        - wait: {selector: "form#login"}
+  - id: search
+    action: browser.run
+    depends: [sign_in]
+    with:
+      browser: {share: homes}
+      do:
+        - goto: https://homes.example.com/search?max=70000000
+  - id: report
+    action: browser.run
+    with:
+      url: https://homes.example.com/report
+      do:
+        - wait: {selector: "#report"}
+`
+
+// A step that runs starts the browser it shares from a blank page, so the
+// steps sharing that browser run with it, the earlier ones included; a
+// browser of its own is unaffected.
+func TestStepsToRunRunsTheStepsSharingABrowserTogether(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, sharedBrowserSpec)
+	dag := loadReuseDAG(t, strings.Replace(sharedBrowserSpec, "max=70000000", "max=50000000", 1))
+	got, err := intake.StepsToRun(dag, "", earlier, succeededRun(earlier))
+	require.NoError(t, err)
+	require.Equal(t, []string{"sign_in", "search"}, got)
+}

@@ -73,13 +73,48 @@ func (w *Writer) Open() error {
 	w.buffer = bufio.NewWriterSize(file, w.bufferSize)
 	w.encoder = json.NewEncoder(w.buffer)
 	w.encoder.SetEscapeHTML(false)
+	w.endPartialLineLocked()
 	return nil
 }
 
+// endPartialLineLocked starts the next record on a line of its own when the
+// file ends in a partial line, as a write cut off by a crash or a full disk
+// leaves it. A record appended to that line would join it, and neither could
+// be read. The newline goes out with the next record.
+func (w *Writer) endPartialLineLocked() {
+	if endsMidLine(w.target) {
+		_ = w.buffer.WriteByte('\n')
+	}
+}
+
+// endsMidLine reports whether the file ends in a partial line. A file that
+// cannot be read is taken to, since an extra newline only adds an empty line,
+// which readers skip.
+func endsMidLine(path string) bool {
+	file, err := fileutil.Open(path)
+	if err != nil {
+		return true
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return true
+	}
+	if info.Size() == 0 {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, info.Size()-1); err != nil {
+		return true
+	}
+	return last[0] != '\n'
+}
+
 // reopenIfReplaced opens the target again when the path names another file
-// than the open one, as after another writer of the same file compacted it.
-// Appends to the replaced file would reach no reader. A path that cannot be
-// read keeps the open file.
+// than the open one, as after another writer of the same file compacted it,
+// or when the open file can no longer be read, as an NFS handle goes stale
+// when another host replaces the file. Appends to such a file would reach no
+// reader. A usable open file is kept when the path cannot be read.
 func (w *Writer) reopenIfReplaced() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -87,13 +122,10 @@ func (w *Writer) reopenIfReplaced() error {
 	if !w.isOpenLocked() {
 		return nil
 	}
+	open, openErr := w.file.Stat()
 	current, err := os.Stat(w.target)
-	if err != nil {
+	if openErr == nil && (err != nil || os.SameFile(open, current)) {
 		return nil
-	}
-	open, err := w.file.Stat()
-	if err != nil || os.SameFile(open, current) {
-		return err
 	}
 	file, err := fileutil.OpenOrCreateFile(w.target)
 	if err != nil {
@@ -103,6 +135,7 @@ func (w *Writer) reopenIfReplaced() error {
 	_ = w.file.Close()
 	w.file = file
 	w.buffer.Reset(file)
+	w.endPartialLineLocked()
 	return nil
 }
 
@@ -127,10 +160,25 @@ func (w *Writer) write(st ir.DAGRunStatus) error {
 	}
 
 	if err := w.encoder.Encode(ir.StoredStatus(st)); err != nil {
+		w.discardLocked()
 		return fmt.Errorf("failed to encode status: %w", err)
 	}
 
-	return w.flushAndSyncLocked()
+	if err := w.flushAndSyncLocked(); err != nil {
+		w.discardLocked()
+		return err
+	}
+	return nil
+}
+
+// discardLocked closes the file after a failed write and drops what the write
+// left in the buffer. A buffer that failed to write keeps failing, so the file
+// must be opened again before the next write.
+func (w *Writer) discardLocked() {
+	_ = w.file.Close()
+	w.file = nil
+	w.buffer = nil
+	w.encoder = nil
 }
 
 // Close flushes any buffered data and closes the underlying file.

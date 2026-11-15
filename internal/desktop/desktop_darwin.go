@@ -43,9 +43,25 @@ const (
 	eventMouseMoved        = 5
 	eventLeftMouseDragged  = 6
 	eventRightMouseDragged = 7
+	eventKeyDown           = 10
+	eventKeyUp             = 11
+	eventFlagsChanged      = 12
+	eventScrollWheel       = 22
+	eventTabletPointer     = 23
+	eventTabletProximity   = 24
 	eventOtherMouseDown    = 25
 	eventOtherMouseUp      = 26
 	eventOtherMouseDragged = 27
+
+	// Events Quartz has no names for, which the window server counts under
+	// their NSEvent type numbers: the media and volume keys, and trackpad
+	// gestures. The type numbers from 32 up, such as pressure (34), read the
+	// same as any input, null events included.
+	eventSystemDefined = 14
+	eventRotate        = 18
+	eventGesture       = 29
+	eventMagnify       = 30
+	eventSwipe         = 31
 
 	mouseButtonLeft   = 0
 	mouseButtonRight  = 1
@@ -67,10 +83,9 @@ const (
 	// axTrustedCheckOptionPrompt is kAXTrustedCheckOptionPrompt.
 	axTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
 
-	// Arguments that make CGEventSourceSecondsSinceLastEventType report
-	// any input the window server received.
+	// eventSourceStateHIDSystem makes CGEventSourceSecondsSinceLastEventType
+	// report the input the window server received.
 	eventSourceStateHIDSystem = 1
-	anyInputEventType         = 0xFFFFFFFF
 
 	mouseEventClickState = 1
 	scrollUnitPixel      = 0
@@ -589,8 +604,24 @@ func (b *darwinBackend) Type(text string) error {
 	return nil
 }
 
+// personInputEventTypes are the event types a pointer, keyboard, media key,
+// scroll wheel, tablet, or trackpad produces. The window server's count of any
+// input also takes in the null events system processes post, such as the
+// Dock when it starts, which no person made.
+var personInputEventTypes = [...]uint32{
+	eventLeftMouseDown, eventLeftMouseUp, eventRightMouseDown, eventRightMouseUp,
+	eventMouseMoved, eventLeftMouseDragged, eventRightMouseDragged,
+	eventKeyDown, eventKeyUp, eventFlagsChanged,
+	eventScrollWheel, eventTabletPointer, eventTabletProximity,
+	eventOtherMouseDown, eventOtherMouseUp, eventOtherMouseDragged,
+	eventSystemDefined, eventRotate, eventGesture, eventMagnify, eventSwipe,
+}
+
 func (b *darwinBackend) LastInput() time.Time {
-	seconds := cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, anyInputEventType)
+	seconds := math.MaxFloat64
+	for _, eventType := range personInputEventTypes {
+		seconds = min(seconds, cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, eventType))
+	}
 	return time.Now().Add(-time.Duration(seconds * float64(time.Second)))
 }
 

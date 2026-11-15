@@ -572,10 +572,9 @@ and ends a call after 100 seconds.
 
 ## Projects
 
-[RFC 003](003-projects.md) groups a server's DAGs into projects,
-each with an ID that survives renames. Dagu Cloud tells a server's projects
-apart by that ID, and treats projects on two servers as one only through a
-binding.
+[RFC 003](003-projects.md) groups a server's DAGs into projects, each with
+an ID. Dagu Cloud tells a server's projects apart by that ID, and treats
+projects on two servers as one only through a binding.
 
 ### Binding
 

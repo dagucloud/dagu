@@ -43,13 +43,13 @@ func TestProcessRegistryFromContext(t *testing.T) {
 	assert.Same(t, reg, launcher.ProcessRegistryFrom(ctx))
 }
 
-func TestPropagateSignalWithoutRegistryIsNoop(t *testing.T) {
+func TestStopRunsWithoutRegistryIsNoop(t *testing.T) {
 	t.Parallel()
 
 	select {
-	case <-launcher.PropagateSignal(context.Background(), os.Interrupt):
+	case <-launcher.StopRuns(context.Background(), os.Interrupt, time.Minute):
 	default:
-		t.Fatal("propagation without a registry must already be complete")
+		t.Fatal("stopping runs without a registry must already be complete")
 	}
 }
 
