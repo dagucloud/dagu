@@ -7804,8 +7804,11 @@
           "description": "Name of the MCP tool to call."
         },
         "arguments": {
-          "type": "object",
-          "description": "JSON arguments passed to the tool."
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string" }
+          ],
+          "description": "JSON arguments passed to the tool, or a whole-value reference such as ${params.args} that resolves to a JSON object."
         },
         "headers": {
           "type": "object",

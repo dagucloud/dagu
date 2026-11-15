@@ -438,6 +438,17 @@ steps:
 `,
 		},
 		{
+			name: "ActionMCPCallReferences",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: ${MCP_URL}
+      tool: scrape
+      arguments: ${params.args}
+`,
+		},
+		{
 			name: "RejectActionMCPCallMissingTool",
 			spec: `
 steps:
