@@ -1409,13 +1409,61 @@ write_uninstall_dropin() {
     fi
 }
 
+# unit_process_count prints how many processes are left in the dagu unit of
+# the systemctl command given as arguments: its task count, or else the
+# processes listed in its cgroup. It prints nothing when neither can be read.
+unit_process_count() {
+    local tasks cgroup procs
+    tasks="$("$@" show -p TasksCurrent --value dagu 2>/dev/null || true)"
+    if [[ "$tasks" =~ ^[0-9]{1,9}$ ]]; then
+        printf '%s' "$tasks"
+        return 0
+    fi
+    if ! cgroup="$("$@" show -p ControlGroup --value dagu 2>/dev/null)"; then
+        return 0
+    fi
+    # systemd keeps no cgroup for a unit with no processes.
+    if [[ -z "$cgroup" ]]; then
+        printf '0'
+        return 0
+    fi
+    # cgroup v2, then the systemd hierarchy of cgroup v1.
+    for procs in "/sys/fs/cgroup${cgroup}/cgroup.procs" "/sys/fs/cgroup/systemd${cgroup}/cgroup.procs"; do
+        if [[ -r "$procs" ]]; then
+            wc -l <"$procs" | tr -d ' '
+            return 0
+        fi
+    done
+}
+
+# wait_unit_empty waits up to the given seconds for the dagu unit of the
+# systemctl command given after them to have no processes left. It returns 0
+# once it has none, 1 when some are left, and 2 when the count is unknown.
+wait_unit_empty() {
+    local seconds="$1" attempt count
+    shift
+    for ((attempt = 0; ; attempt++)); do
+        count="$(unit_process_count "$@")"
+        if [[ -z "$count" ]]; then
+            return 2
+        fi
+        if ((count == 0)); then
+            return 0
+        fi
+        if ((attempt >= seconds)); then
+            return 1
+        fi
+        sleep 1
+    done
+}
+
 # stop_linux_service_with_runs stops the Linux service of the given scope and
 # its runs. A stop leaves runs running under KillMode=process, but an
 # uninstall leaves nothing of Dagu running, as systemd's default did. The
 # stop restores that default for itself through a runtime drop-in, then the
 # runs a stop already left behind in the unit are ended directly.
 stop_linux_service_with_runs() {
-    local scope="$1" systemctl_cmd=(systemctl) attempt tasks
+    local scope="$1" systemctl_cmd=(systemctl) status
     if [[ "$scope" == "system" ]]; then
         systemctl_cmd=(sudo systemctl)
     else
@@ -1430,25 +1478,23 @@ stop_linux_service_with_runs() {
     fi
     # A unit stopped earlier is inactive, so the stop above did not reach the
     # runs it left in its cgroup. They get SIGTERM, then SIGKILL once their
-    # handlers had time. Without task accounting the count is unknown, and
-    # SIGTERM alone ends them.
-    tasks="$("${systemctl_cmd[@]}" show -p TasksCurrent --value dagu 2>/dev/null || true)"
-    if [[ ! "$tasks" =~ ^[0-9]{1,9}$ ]]; then
-        "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGTERM dagu >/dev/null 2>&1 || true
-        return 0
-    fi
-    if ((tasks == 0)); then
+    # handlers had time.
+    status=0
+    wait_unit_empty 0 "${systemctl_cmd[@]}" || status=$?
+    if ((status == 0)); then
         return 0
     fi
     "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGTERM dagu >/dev/null 2>&1 || true
-    for ((attempt = 0; attempt < 30; attempt++)); do
-        tasks="$("${systemctl_cmd[@]}" show -p TasksCurrent --value dagu 2>/dev/null || true)"
-        if [[ ! "$tasks" =~ ^[0-9]{1,9}$ ]] || ((tasks == 0)); then
-            return 0
-        fi
-        sleep 1
-    done
-    "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGKILL dagu >/dev/null 2>&1 || true
+    status=0
+    wait_unit_empty 30 "${systemctl_cmd[@]}" || status=$?
+    if ((status == 1)); then
+        "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGKILL dagu >/dev/null 2>&1 || true
+        status=0
+        wait_unit_empty 10 "${systemctl_cmd[@]}" || status=$?
+    fi
+    if ((status != 0)); then
+        ui_warn "Could not confirm that every run of the dagu service ended. Check with: ${systemctl_cmd[*]} status dagu"
+    fi
 }
 
 remove_linux_service_scope() {
