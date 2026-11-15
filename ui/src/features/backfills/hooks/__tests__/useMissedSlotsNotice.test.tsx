@@ -4,16 +4,23 @@
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { MissedSlotsReason } from '@/api/v1/schema';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MissedSlotsReason, type components } from '@/api/v1/schema';
+import { useQuery } from '@/hooks/api';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { useMissedSlotsNotice } from '../useMissedSlotsNotice';
 
-const gap = {
-  from: '2026-11-01T09:00:00Z',
-  to: '2026-11-01T21:00:00Z',
-  reason: MissedSlotsReason.suspended,
+vi.mock('@/hooks/api', () => ({ useQuery: vi.fn() }));
+const useQueryMock = useQuery as unknown as ReturnType<typeof vi.fn>;
+
+type MissedSlots = components['schemas']['MissedSlots'];
+
+const missed: MissedSlots = {
   slots: 12,
+  first: '2026-11-01T09:00:00Z',
+  last: '2026-11-01T20:00:00Z',
+  reasons: [MissedSlotsReason.suspended],
+  until: '2026-11-01T20:30:00Z',
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -24,16 +31,22 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-// The gap's bounds as the notice tells them, in the browser's zone.
-const span = `from ${formatAbsoluteTime(gap.from, { seconds: false })} to ${formatAbsoluteTime(gap.to, { seconds: false })}`;
+const bound = (value: string) => formatAbsoluteTime(value, { seconds: false });
 
+// The first and last slot as the notice tells them, in the browser's zone.
+const span = `from ${bound(missed.first)} to ${bound(missed.last)}`;
+
+// The endpoint gives the DAG's missed slots as given.
 function useNoticeAndLocation(
-  missed: typeof gap | undefined,
+  given: MissedSlots | undefined,
   dag = 'etl',
   canBackfill = true
 ) {
+  useQueryMock.mockReturnValue({
+    data: given ? { missedSlots: given } : {},
+  });
   return {
-    notice: useMissedSlotsNotice(missed, dag, 'local', canBackfill),
+    notice: useMissedSlotsNotice(`${dag}.yaml`, dag, 'local', canBackfill),
     location: useLocation(),
   };
 }
@@ -41,10 +54,28 @@ function useNoticeAndLocation(
 describe('useMissedSlotsNotice', () => {
   beforeEach(() => {
     localStorage.clear();
+    useQueryMock.mockReset();
+  });
+
+  // The page reads the missed slots as it opens and after a backfill
+  // starts; it neither polls nor reads them again on focus or reconnect.
+  it("reads the DAG's missed slots without polling", () => {
+    renderHook(() => useNoticeAndLocation(missed), { wrapper });
+
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/dags/{fileName}/missed-slots',
+      {
+        params: {
+          path: { fileName: 'etl.yaml' },
+          query: { remoteNode: 'local' },
+        },
+      },
+      { revalidateOnFocus: false, revalidateOnReconnect: false }
+    );
   });
 
   it('says how many slots passed, when, and why', () => {
-    const { result } = renderHook(() => useNoticeAndLocation(gap), {
+    const { result } = renderHook(() => useNoticeAndLocation(missed), {
       wrapper,
     });
 
@@ -53,10 +84,63 @@ describe('useMissedSlotsNotice', () => {
     );
   });
 
+  it('says when a single slot passed', () => {
+    const { result } = renderHook(
+      () =>
+        useNoticeAndLocation({
+          ...missed,
+          slots: 1,
+          last: missed.first,
+          reasons: [MissedSlotsReason.down],
+        }),
+      { wrapper }
+    );
+
+    expect(result.current.notice?.message).toBe(
+      `1 slot passed at ${bound(missed.first)} while the scheduler was down`
+    );
+  });
+
+  // Slots missed for more than one reason name none of them.
+  it('says the DAG could not run for slots missed for several reasons', () => {
+    const { result } = renderHook(
+      () =>
+        useNoticeAndLocation({
+          ...missed,
+          reasons: [MissedSlotsReason.paused, MissedSlotsReason.down],
+        }),
+      { wrapper }
+    );
+
+    expect(result.current.notice?.message).toBe(
+      `12 slots passed ${span} while this DAG could not run`
+    );
+  });
+
+  // At most 10,000 slots are looked at, so a count at the cap may be short.
+  it('tells a count at the cap as a lower bound', () => {
+    const { result } = renderHook(
+      () => useNoticeAndLocation({ ...missed, slots: 10000 }),
+      { wrapper }
+    );
+
+    expect(result.current.notice?.message).toBe(
+      `10000+ slots passed ${span} while this DAG was suspended`
+    );
+  });
+
+  it('shows nothing when no slot was missed', () => {
+    const { result } = renderHook(() => useNoticeAndLocation(undefined), {
+      wrapper,
+    });
+
+    expect(result.current.notice).toBeNull();
+  });
+
   // A user who may not run the DAG can read and dismiss the notice only.
   it('offers no backfill to a user who may not run the DAG', () => {
     const { result } = renderHook(
-      () => useNoticeAndLocation(gap, 'etl', false),
+      () => useNoticeAndLocation(missed, 'etl', false),
       { wrapper }
     );
 
@@ -64,9 +148,10 @@ describe('useMissedSlotsNotice', () => {
     expect(result.current.notice?.dismissible).toBe(true);
   });
 
-  // The action opens the Backfills tab, whose start panel opens on the gap.
-  it('opens the Backfills tab on the gap', () => {
-    const { result } = renderHook(() => useNoticeAndLocation(gap), {
+  // The action opens the Backfills tab, whose start panel opens on the
+  // first and last slot missed.
+  it('opens the Backfills tab on the missed slots', () => {
+    const { result } = renderHook(() => useNoticeAndLocation(missed), {
       wrapper,
     });
 
@@ -77,28 +162,15 @@ describe('useMissedSlotsNotice', () => {
     expect(search.get('run')).toBe('latest');
     expect(search.get('panel')).toBe('workflow');
     expect(search.get('wtab')).toBe('backfills');
-    expect(search.get('gapFrom')).toBe(gap.from);
-    expect(search.get('gapTo')).toBe(gap.to);
+    expect(search.get('gapFrom')).toBe(missed.first);
+    expect(search.get('gapTo')).toBe(missed.last);
   });
 
-  // The scheduler counts up to 10,000 slots, so a gap at the cap may hold
-  // more.
-  it('tells a count at the cap as a lower bound', () => {
-    const { result } = renderHook(
-      () => useNoticeAndLocation({ ...gap, slots: 10000 }),
-      { wrapper }
-    );
-
-    expect(result.current.notice?.message).toBe(
-      `10000+ slots passed ${span} while this DAG was suspended`
-    );
-  });
-
-  // An outage makes the same gap for every DAG; dismissing it for one
+  // An outage leaves every DAG missed slots; dismissing them for one DAG
   // leaves the others.
   it('stays dismissed for that DAG only', () => {
     const { result, rerender } = renderHook(
-      ({ dag }) => useNoticeAndLocation(gap, dag),
+      ({ dag }) => useNoticeAndLocation(missed, dag),
       { wrapper, initialProps: { dag: 'etl' } }
     );
 
@@ -109,29 +181,37 @@ describe('useMissedSlotsNotice', () => {
     expect(result.current.notice).not.toBeNull();
   });
 
-  it('stays dismissed for that gap only', () => {
+  // A backfill of some of the slots leaves the newest span as it was; a
+  // newer span that adds missed slots shows the notice again.
+  it('stays dismissed until a newer span adds missed slots', () => {
     const { result, rerender } = renderHook(
-      ({ missed }) => useNoticeAndLocation(missed),
-      { wrapper, initialProps: { missed: gap } }
+      ({ given }) => useNoticeAndLocation(given),
+      { wrapper, initialProps: { given: missed } }
     );
 
     act(() => result.current.notice?.dismiss?.());
+    rerender({ given: { ...missed, first: '2026-11-01T15:00:00Z', slots: 6 } });
     expect(result.current.notice).toBeNull();
 
-    rerender({ missed: { ...gap, to: '2026-11-02T09:00:00Z' } });
+    rerender({ given: { ...missed, until: '2026-11-02T09:30:00Z' } });
     expect(result.current.notice).not.toBeNull();
   });
 
-  // A backfill of the gap's first slots moves its start only.
-  it('stays dismissed when a backfill shortens the gap', () => {
-    const { result, rerender } = renderHook(
-      ({ missed }) => useNoticeAndLocation(missed),
-      { wrapper, initialProps: { missed: gap } }
+  // One outage leaves every scheduled DAG missed slots, and each dismissal
+  // holds however many DAGs were dismissed after it.
+  it('keeps the dismissal of every DAG', () => {
+    const dismissing = renderHook(
+      ({ dag }) => useNoticeAndLocation(missed, dag),
+      { wrapper, initialProps: { dag: 'dag-0' } }
     );
+    for (let i = 0; i < 30; i++) {
+      dismissing.rerender({ dag: `dag-${i}` });
+      act(() => dismissing.result.current.notice?.dismiss?.());
+    }
+    dismissing.unmount();
 
-    act(() => result.current.notice?.dismiss?.());
-    rerender({
-      missed: { ...gap, from: '2026-11-01T15:00:01Z', slots: 6 },
+    const { result } = renderHook(() => useNoticeAndLocation(missed, 'dag-0'), {
+      wrapper,
     });
     expect(result.current.notice).toBeNull();
   });

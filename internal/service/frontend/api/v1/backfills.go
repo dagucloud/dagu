@@ -128,6 +128,54 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 	return api.ListDAGSlots200JSONResponse{Slots: slots}, nil
 }
 
+// GetDAGMissedSlots returns the slots a DAG missed while it was suspended,
+// the scheduler paused, or no scheduler ran, as its slot history gives them.
+func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlotsRequestObject) (api.GetDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	none := api.GetDAGMissedSlots200JSONResponse{}
+	if a.spanStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
+		return none, nil
+	}
+	spans, err := a.spanStore.Ended(ctx, request.FileName)
+	if err != nil || len(spans) == 0 {
+		return none, err
+	}
+	var profile string
+	if slices.ContainsFunc(dag.Schedule, func(s ir.Schedule) bool { return s.Profile != "" }) {
+		if profile, err = a.defaultRunProfileName(ctx, request.FileName, dagWorkspaceName(dag)); err != nil {
+			return nil, err
+		}
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, a.calendarSource())
+	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
+	var catchup time.Duration
+	if a.config.Queues.Enabled {
+		catchup = dag.CatchupWindow
+	}
+	missed, err := backfill.FindMissed(ctx, a.dagRunRepository, dag, sched, spans, catchup, time.Now())
+	if err != nil || missed.Slots == 0 {
+		return none, err
+	}
+	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
+	for _, reason := range missed.Reasons {
+		reasons = append(reasons, api.MissedSlotsReason(reason))
+	}
+	return api.GetDAGMissedSlots200JSONResponse{MissedSlots: &api.MissedSlots{
+		Slots: missed.Slots, First: missed.First, Last: missed.Last, Reasons: reasons, Until: missed.Until,
+	}}, nil
+}
+
 // markSpan records that the slots of a DAG, or of every DAG for the empty
 // name, stopped or resumed running. A failure leaves the change made and
 // only the missed slots it would show unknown.

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1441,33 +1442,19 @@ func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) erro
 	return nil
 }
 
-// A DAG's details, read or streamed, give the latest span whose slots the
-// scheduler recorded as missed, which the DAG's page offers to backfill.
-// The details offer a DAG's missed slots only when its runs read their
-// slot, since the runs of any other DAG all do the same work.
-func TestDAGDetailsMissedSlots(t *testing.T) {
+// A DAG's details, read or streamed, have the fields they had before the
+// slots a DAG missed moved to their own endpoint, so the live feed sends no
+// more on each update than it did then.
+func TestDAGDetailsPayloadShape(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t)
 	dag := helper.DAG(t, `
-name: missed-slots-dag
+name: details-shape
 schedule: "0 * * * *"
 steps:
   - run: ./load.sh ${context.run.scheduled_at}
 `)
-	ignores := helper.DAG(t, `
-name: missed-slots-sync
-schedule: "0 * * * *"
-steps:
-  - run: ./sync.sh
-`)
-	from := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
-	gap := schedulerstate.DAGWatermark{Missed: &schedulerstate.MissedGap{
-		From: from, To: from.Add(12 * time.Hour), Reason: schedulerstate.GapSuspended, Slots: 12,
-	}}
-	state := &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
-		dag.Name: gap, ignores.Name: gap,
-	}}
 	apiImpl := localapi.New(
 		helper.DAGRepository,
 		helper.DAGRunRepository,
@@ -1479,29 +1466,20 @@ steps:
 		helper.ServiceRegistry,
 		nil,
 		nil,
-		localapi.WithSchedulerStateStore(stubSchedulerStateStore{state: state}),
 	)
-
-	want := &api.MissedSlots{
-		From: from, To: from.Add(12 * time.Hour), Reason: api.MissedSlotsReasonSuspended, Slots: 12,
-	}
-	respObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: dag.FileName()})
-	require.NoError(t, err)
-	resp, ok := respObj.(api.GetDAGDetails200JSONResponse)
-	require.True(t, ok)
-	assert.Equal(t, want, resp.MissedSlots)
 
 	live, err := apiImpl.GetDAGDetailsData(context.Background(), dag.FileName())
 	require.NoError(t, err)
-	streamed, ok := live.(api.GetDAGDetails200JSONResponse)
-	require.True(t, ok)
-	assert.Equal(t, want, streamed.MissedSlots, "a live update keeps the gap")
-
-	respObj, err = apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: ignores.FileName()})
-	require.NoError(t, err)
-	resp, ok = respObj.(api.GetDAGDetails200JSONResponse)
-	require.True(t, ok)
-	assert.Nil(t, resp.MissedSlots)
+	payload := reflect.TypeOf(live)
+	require.Equal(t, reflect.TypeFor[api.GetDAGDetails200JSONResponse](), payload, "the live feed sends the details as read")
+	var fields []string
+	for field := range payload.Fields() {
+		fields = append(fields, strings.Split(field.Tag.Get("json"), ",")[0])
+	}
+	assert.ElementsMatch(t, []string{
+		"dag", "editorHints", "errors", "latestBackfill", "latestDAGRun",
+		"localDags", "pinned", "spec", "suspended", "warnings",
+	}, fields)
 }
 
 func TestListDAGsDataPreservesNextRunAcrossSSEPath(t *testing.T) {

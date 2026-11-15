@@ -429,6 +429,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/missed-slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the slots a DAG missed
+         * @description Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, and that have had neither a run nor a recorded skip since. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work.
+         */
+        get: operations["getDAGMissedSlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/slots": {
         parameters: {
             query?: never;
@@ -5174,20 +5194,33 @@ export interface components {
             /** @description Slots whose run failed */
             failed: number;
         };
-        /** @description The latest span whose start-schedule slots passed without a run, as the scheduler recorded it. A backfill that runs the span's first slots takes them from it. Set only for a DAG whose runs read their slot: one that declares dates, refers to its run's slot, window, or dates, or calls a sub-DAG. */
+        /** @description The start-schedule slots a DAG missed, among the oldest 10,000 slots of the spans in which its slots could not run in the last 30 days and its slot retention. */
         MissedSlots: {
-            /** Format: date-time */
-            from: string;
-            /** Format: date-time */
-            to: string;
-            /**
-             * @description Why the slots did not run: the DAG was suspended, the scheduler paused, or no scheduler ran
-             * @enum {string}
-             */
-            reason: MissedSlotsReason;
-            /** @description Slots that passed, up to 10,000 */
+            /** @description How many slots were missed */
             slots: number;
+            /**
+             * Format: date-time
+             * @description The first slot missed
+             */
+            first: string;
+            /**
+             * Format: date-time
+             * @description The last slot missed
+             */
+            last: string;
+            /** @description Why the slots did not run, in the order of the slots */
+            reasons: components["schemas"]["MissedSlotsReason"][];
+            /**
+             * Format: date-time
+             * @description When the newest span that holds a missed slot ended. It changes only when a newer span adds missed slots, so it identifies them for a dismissal.
+             */
+            until: string;
         };
+        /**
+         * @description The DAG was suspended, the scheduler paused, or no scheduler ran
+         * @enum {string}
+         */
+        MissedSlotsReason: MissedSlotsReason;
         /** @enum {string} */
         BackfillStatus: BackfillStatus;
         /** @enum {string} */
@@ -10551,7 +10584,6 @@ export interface operations {
                         localDags: components["schemas"]["LocalDag"][];
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
                         latestBackfill?: components["schemas"]["LatestBackfill"];
-                        missedSlots?: components["schemas"]["MissedSlots"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;
                         /** @description Whether the DAG is pinned to the top of the DAG list */
@@ -10979,6 +11011,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackfillSubmitResponse"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGMissedSlots: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The slots the DAG missed, if any */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        missedSlots?: components["schemas"]["MissedSlots"];
+                    };
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Generic error response */

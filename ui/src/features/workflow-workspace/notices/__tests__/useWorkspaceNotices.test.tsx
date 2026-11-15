@@ -56,6 +56,22 @@ vi.mock('@/features/backfills/hooks/useBackfillNotice', () => ({
   useBackfillNotice: () => backfillNotice.value,
 }));
 
+// The DAG's missed slots, as their own endpoint gives them.
+const missedSlots = vi.hoisted(() => ({ value: undefined as unknown }));
+vi.mock('@/hooks/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/api')>();
+  return {
+    ...actual,
+    useQuery: ((path: string, ...rest: unknown[]) =>
+      path === '/dags/{fileName}/missed-slots'
+        ? { data: { missedSlots: missedSlots.value } }
+        : (actual.useQuery as (...args: unknown[]) => unknown)(
+            path,
+            ...rest
+          )) as typeof actual.useQuery,
+  };
+});
+
 const useIsAdminMock = vi.mocked(useIsAdmin);
 
 const community: LicenseStatus = {
@@ -189,6 +205,7 @@ function find(notices: WorkspaceNotice[], id: string): WorkspaceNotice {
 
 beforeEach(() => {
   backfillNotice.value = null;
+  missedSlots.value = undefined;
   subRunList.value = [];
   localStorage.clear();
   useIsAdminMock.mockReturnValue(true);
@@ -601,6 +618,30 @@ describe('useWorkspaceNotices', () => {
     const priorities = result.current.map((n) => n.priority);
     expect([...priorities].sort((a, b) => b - a)).toEqual(priorities);
     expect(new Set(priorities).size).toBe(priorities.length);
+  });
+
+  // The missed slots come from their own endpoint, not the DAG's data, and
+  // their notice ranks between the backfill's and the monitoring offer.
+  it('lists the missed slots its endpoint gives', () => {
+    missedSlots.value = {
+      slots: 12,
+      first: '2026-11-01T09:00:00Z',
+      last: '2026-11-01T20:00:00Z',
+      reasons: ['suspended'],
+      until: '2026-11-01T20:30:00Z',
+    };
+    backfillNotice.value = {
+      id: 'backfill',
+      tone: 'info',
+      message: 'Backfill running: 1 of 3 slots done',
+      priority: 20,
+    };
+    const { result } = renderNotices({ schedule: true });
+    expect(ids(result.current)).toEqual([
+      'backfill',
+      'missed-slots',
+      'monitoring-offer',
+    ]);
   });
 
   it('keeps the same list while nothing changes', () => {
