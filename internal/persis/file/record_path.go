@@ -6,6 +6,7 @@ package file
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -22,11 +23,11 @@ import (
 //     or aux.txt, which Windows reserves in any case and with any extension
 //   - the trailing dot or space of a directory, which Windows drops
 //
-// Records used to be written under their raw segments. On Linux and macOS a
-// record whose ID needs escaping may still have its file there, so reads
-// find it and the next write moves it to the escaped path. Windows never
-// held a usable file under such a name, and opening one there may open a
-// device, so the raw path is never read on Windows.
+// Records used to be written under their raw segments, so a record whose ID
+// needs escaping may still have its file there. Reads find it, and the next
+// write moves it to the escaped path. Windows never held a usable file under
+// a name it reserves, refuses, or rewrites, and opening one there may open a
+// device, so it reads a raw path only when its only escapes are of "%".
 
 // RecordIDFromPath returns the ID of the record a collection keeps at rel, a
 // path relative to the collection's directory.
@@ -56,6 +57,29 @@ func relPathToID(rel string) string {
 // rawRelPath is where a record was written before IDs were escaped.
 func rawRelPath(id string) string {
 	return filepath.Join(strings.Split(id, "/")...) + ".json"
+}
+
+// rawNameUsable reports whether this OS can hold the raw segments of id.
+// dir says whether the last segment names a directory.
+func rawNameUsable(id string, dir bool) bool {
+	if runtime.GOOS != "windows" {
+		return true
+	}
+	segments := strings.Split(id, "/")
+	for i, segment := range segments {
+		if isWindowsDeviceName(segment) {
+			return false
+		}
+		for j := 0; j < len(segment); j++ {
+			if forbiddenOnWindows(segment[j]) {
+				return false
+			}
+		}
+		if (dir || i < len(segments)-1) && (strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ")) {
+			return false
+		}
+	}
+	return true
 }
 
 // escapeSegment returns the name of the directory (dir) or file that holds
