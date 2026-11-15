@@ -3478,6 +3478,14 @@ func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, er
 	return slices.Clone(r.spans), nil
 }
 
+func (r *spanRecorder) Dismiss(context.Context, string, schedulerstate.Dismissal) error {
+	return nil
+}
+
+func (r *spanRecorder) Dismissed(context.Context, string) (schedulerstate.Dismissal, error) {
+	return schedulerstate.Dismissal{}, nil
+}
+
 // A scheduler that starts more than a minute after the last tick records the
 // time between as one span in which no scheduler ran, up to its first tick,
 // which runs its own minute. A takeover replays the slots of its recovery
