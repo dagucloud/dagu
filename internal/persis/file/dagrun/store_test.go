@@ -203,6 +203,21 @@ func TestStoreDeviceNamedDAG(t *testing.T) {
 	}
 }
 
+// Windows drops a trailing dot from a directory name, so etl. must not find
+// or join the runs of etl.
+func TestStoreKeepsTrailingDotDAGApart(t *testing.T) {
+	th := setupTestRepository(t)
+	ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
+	th.CreateAttemptWithDAG(t, ts, "etl-run", ir.Succeeded, th.DAG("etl").DAG)
+
+	_, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef("etl.", "etl-run"))
+	require.Error(t, err)
+
+	th.CreateAttemptWithDAG(t, ts, "dot-run", ir.Succeeded, th.DAG("etl.").DAG)
+	_, err = th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef("etl", "dot-run"))
+	require.Error(t, err)
+}
+
 // Windows 11 accepts a device name such as con as a directory, so earlier
 // versions stored a DAG's runs under its raw name. They are still found.
 func TestStoreFindsRunsUnderRawDeviceName(t *testing.T) {

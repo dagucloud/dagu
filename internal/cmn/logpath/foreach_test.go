@@ -28,6 +28,19 @@ func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
 	assert.NotEqual(t, ForeachStepDir(log, "con"), ForeachStepDir(log, "con_"))
 }
 
+// A step whose raw name cleans to another step's name, such as ./b for b,
+// keeps its own directory.
+func TestForeachStepDirKeepsCleanedNamesApart(t *testing.T) {
+	t.Parallel()
+
+	log := filepath.Join(t.TempDir(), "step.out")
+	dir := ForeachStepDir(log, "b")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	for _, name := range []string{"./b", "x/../b", "b/."} {
+		assert.NotEqual(t, dir, ForeachStepDir(log, name), name)
+	}
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so the items of a foreach step stored under it are
 // still found.

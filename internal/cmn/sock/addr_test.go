@@ -23,6 +23,15 @@ func TestAddr(t *testing.T) {
 		require.True(t, strings.HasSuffix(addr, ".sock"))
 	})
 
+	// The socket name embeds the identity, so even a Windows device name
+	// such as con is no device there. It keeps the name earlier versions
+	// used, so a run they started stays reachable.
+	t.Run("DeviceNameUnchanged", func(t *testing.T) {
+		t.Parallel()
+		name := filepath.Base(Addr("con", "run123"))
+		require.True(t, strings.HasPrefix(name, "@dagu_con_"), name)
+	})
+
 	t.Run("SafeAndPortableLength", func(t *testing.T) {
 		t.Parallel()
 		addr := Addr("my/dag\\with:special*chars"+strings.Repeat("x", 100), "run|with<>chars")

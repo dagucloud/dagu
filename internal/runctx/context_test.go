@@ -225,6 +225,24 @@ func TestNewContext_DAGWikiDirDeviceName(t *testing.T) {
 	}
 }
 
+// Windows drops a trailing dot from a directory name, so the Wiki directory
+// of etl. is never the one of etl.
+func TestNewContext_DAGWikiDirKeepsTrailingDotApart(t *testing.T) {
+	t.Parallel()
+
+	wikiDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(wikiDir, "etl"), 0o750))
+	cfg := &config.Config{}
+	cfg.Paths.WikiDir = wikiDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	ctx = runctx.NewContext(ctx, &ir.DAG{Name: "etl."}, "run-1", "test.log")
+
+	dir := runctx.GetContext(ctx).UserEnvsMap()[runenv.EnvKeyDAGWikiDir]
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.md"), []byte("etl."), 0o600))
+	assert.NoFileExists(t, filepath.Join(wikiDir, "etl", "notes.md"))
+}
+
 // Earlier versions used the raw DAG name for the Wiki directory, which
 // Windows 11 accepts even for a device name such as con, so it is still used.
 func TestNewContext_DAGWikiDirKeepsRawName(t *testing.T) {

@@ -137,6 +137,35 @@ func TestStoreListsQueueWithSlash(t *testing.T) {
 	assert.Equal(t, ref, entries[0].Meta.DAGRun())
 }
 
+// A queue whose raw name resolves to another queue's directory, such as ./b
+// for b, or nightly. for nightly on Windows, which drops a trailing dot,
+// does not see that queue's runs.
+func TestStoreKeepsResolvedQueueNamesApart(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ group, other string }{
+		{group: "b", other: "./b"},
+		{group: "b", other: "x/../b"},
+		{group: "b", other: "b/."},
+		{group: "nightly", other: "nightly."},
+	} {
+		t.Run(tc.other, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+			ref := ir.NewDAGRunRef("etl", "run-1")
+			handle, err := s.Acquire(ctx, tc.group, testProcMeta(ref))
+			require.NoError(t, err)
+			defer func() { _ = handle.Stop(ctx) }()
+
+			entries, err := s.ListEntries(ctx, tc.other)
+			require.NoError(t, err)
+			assert.Empty(t, entries)
+		})
+	}
+}
+
 // Released versions named a group's directory after the raw queue name,
 // nested at each "/", and a DAG's directory after the raw DAG name, which
 // Windows 11 accepts even for a device name such as con. A run they started

@@ -75,6 +75,18 @@ func TestCommitPointsKeepDeviceNamesApart(t *testing.T) {
 	assert.Len(t, mustLoad(t, store, "con", "con"), 1)
 }
 
+// A step whose raw name cleans to another step's name, such as ./b for b,
+// keeps its own commit points.
+func TestCommitPointsKeepCleanedNamesApart(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	require.NoError(t, store.Note(t.Context(), "books", "b", writegate.CommitPoint{Key: "k1"}))
+	for _, step := range []string{"./b", "x/../b", "b/."} {
+		assert.Empty(t, mustLoad(t, store, "books", step), step)
+	}
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so the commit points under it are still read.
 func TestCommitPointsUnderRawDeviceName(t *testing.T) {

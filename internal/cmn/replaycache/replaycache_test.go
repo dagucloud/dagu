@@ -138,6 +138,18 @@ func TestReplayCacheKeepsDeviceNamedStepApart(t *testing.T) {
 	assert.FileExists(t, cache.Path("billing", "con_"))
 }
 
+// A step key whose raw name cleans to another key, such as ./b for b, keeps
+// its own records.
+func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	seedReplayCache(t, cache, "billing", "b")
+	for _, key := range []string{"./b", "x/../b", "b/."} {
+		assert.NotEqual(t, cache.Path("billing", "b"), cache.Path("billing", key), key)
+	}
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so the records under it are still read.
 func TestReplayCacheReadsRawDeviceName(t *testing.T) {
