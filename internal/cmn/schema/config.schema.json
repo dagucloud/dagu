@@ -1470,7 +1470,7 @@
         },
         "drain_timeout": {
           "type": "string",
-          "description": "How long a process stopping on SIGINT or SIGTERM (start-all, scheduler, server, worker) waits for the DAG runs it started to finish, starting no new ones, before it stops them (with enable_propagation) or leaves them running. Default: '0', no wait. Set the supervisor's stop timeout above this value (docker stop defaults to 10s, Kubernetes terminationGracePeriodSeconds to 30s)."
+          "description": "How long a process stopping on SIGINT or SIGTERM waits for the DAG runs it started to finish, starting no new ones. Afterwards start-all, scheduler, and server signal the runs left with enable_propagation and otherwise leave them running; a worker always signals its runs, then waits worker.shutdown_timeout for them. Default: '0', no wait. Set the supervisor's stop timeout above this value (docker stop defaults to 10s, Kubernetes terminationGracePeriodSeconds to 30s)."
         }
       }
     },

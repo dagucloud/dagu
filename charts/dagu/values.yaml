@@ -122,6 +122,10 @@ worker:
   healthPort: 8092
   # Maximum concurrent DAG runs handled by each worker process.
   maxActiveRuns: 100
+  # How long a stopping worker waits for its runs to clean up after it signals
+  # them, after any drain. Empty keeps Dagu's default (60s) and the Kubernetes
+  # grace period unless a drain is set.
+  shutdownTimeoutSeconds:
 
 workerPools:
   general:

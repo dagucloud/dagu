@@ -356,6 +356,10 @@
         "maxActiveRuns": {
           "type": "integer",
           "minimum": 1
+        },
+        "shutdownTimeoutSeconds": {
+          "type": ["integer", "null"],
+          "minimum": 1
         }
       },
       "required": ["healthPort", "maxActiveRuns"]

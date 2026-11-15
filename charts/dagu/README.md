@@ -133,7 +133,7 @@ shutdown:
   drainTimeoutSeconds: 300
 ```
 
-In standalone mode an upgrade waits for the drain, because only one pod can use the data volume. In distributed mode, the server and scheduler pods carry only runs that stay local, and each worker pod drains its own runs. The default, `0`, stops runs at once and leaves the grace period at the Kubernetes default. Image tag `2.26.0` and earlier do not drain.
+In standalone mode an upgrade waits for the drain, because only one pod can use the data volume, so give `helm upgrade --wait` a `--timeout` longer than the drain plus the time the new pod takes to become ready, such as `--timeout 10m` for a 300-second drain. A worker pod's grace period is the drain plus `worker.shutdownTimeoutSeconds` (Dagu's default is 60) plus 15 seconds; set that value rather than `DAGU_WORKER_SHUTDOWN_TIMEOUT` in `extraEnv`, so both agree. In distributed mode, the server and scheduler pods carry only runs that stay local, and each worker pod drains its own runs. The default, `0`, stops runs at once and leaves the grace period at the Kubernetes default. Image tag `2.26.0` and earlier do not drain.
 
 ## Configuration
 
