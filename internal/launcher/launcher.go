@@ -597,6 +597,7 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	}
 
 	cmdutil.SetupCommand(cmd)
+	launchOutsideService(cmd)
 	if spec.Params != "" {
 		cmd.Stdin = strings.NewReader(spec.Params)
 	}
