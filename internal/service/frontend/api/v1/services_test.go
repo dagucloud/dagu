@@ -158,7 +158,7 @@ func TestSchedulerPause_RecordsSpan(t *testing.T) {
 		}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), "")
+	spans, _, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), "")
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanPaused, spans[0].Reason)

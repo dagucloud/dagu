@@ -2075,7 +2075,7 @@ steps:
 		}).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), dag.FileName())
+	spans, _, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), dag.FileName())
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanSuspended, spans[0].Reason)

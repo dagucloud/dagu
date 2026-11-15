@@ -308,11 +308,13 @@ func TestGetDAGMissedSlots(t *testing.T) {
 // Any user who can see a DAG may dismiss its missed slots, which hides them
 // from every user until a span that ended later holds a missed slot. Here
 // only the scheduler's spans hold them, so the DAG has no span record of its
-// own before the dismissal.
+// own before the dismissal. Reading a dismissed DAG's missed slots reads each
+// span record once, since storage may be slow.
 func TestDismissDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans))
+	records := &getCounter{Collection: helper.Backend.Collection(persis.CollectionSlotSpans)}
+	spans := store.NewSpanStore(records)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
 	for _, dag := range []string{"ops-load", "ops-report"} {
@@ -345,9 +347,11 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	requireAPIErrorStatus(t, dismiss(viewer("alice", "ops"), "missing"), http.StatusNotFound)
 	require.NoError(t, dismiss(viewer("alice", "ops"), "ops-report"))
 
+	gets := records.gets
 	assert.Nil(t, missedSlots("ops-report"), "dismissed for every user")
+	assert.Equal(t, 2, records.gets-gets, "the scheduler's span record and the DAG's are each read once")
 	assert.NotNil(t, missedSlots("ops-load"), "dismissed for that DAG only")
-	dismissal, err := spans.Dismissed(ctx, "ops-report")
+	_, dismissal, err := spans.Ended(ctx, "ops-report")
 	require.NoError(t, err)
 	assert.Equal(t, "alice", dismissal.By)
 
@@ -356,4 +360,15 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	missed := missedSlots("ops-report")
 	require.NotNil(t, missed, "a newer span shows the missed slots again")
 	assert.True(t, newer.To.Equal(missed.Until), "until %s", missed.Until)
+}
+
+// getCounter counts the records a collection reads.
+type getCounter struct {
+	persis.Collection
+	gets int
+}
+
+func (c *getCounter) Get(ctx context.Context, id string) (*persis.Record, error) {
+	c.gets++
+	return c.Collection.Get(ctx, id)
 }

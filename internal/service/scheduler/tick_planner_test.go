@@ -3472,18 +3472,14 @@ func (r *spanRecorder) Add(_ context.Context, dag string, span schedulerstate.Sp
 	return nil
 }
 
-func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, error) {
+func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, schedulerstate.Dismissal, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return slices.Clone(r.spans), nil
+	return slices.Clone(r.spans), schedulerstate.Dismissal{}, nil
 }
 
 func (r *spanRecorder) Dismiss(context.Context, string, schedulerstate.Dismissal) error {
 	return nil
-}
-
-func (r *spanRecorder) Dismissed(context.Context, string) (schedulerstate.Dismissal, error) {
-	return schedulerstate.Dismissal{}, nil
 }
 
 // A scheduler that starts more than a minute after the last tick records the
@@ -3513,7 +3509,7 @@ func TestTickPlanner_InitRecordsOutage(t *testing.T) {
 			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
-			recorded, err := spans.Ended(t.Context(), "")
+			recorded, _, err := spans.Ended(t.Context(), "")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, recorded)
 		})
@@ -3534,7 +3530,7 @@ func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
 
 	tp.resume(t.Context(), lastTick.Add(45*time.Minute))
 
-	recorded, err := spans.Ended(t.Context(), "")
+	recorded, _, err := spans.Ended(t.Context(), "")
 	require.NoError(t, err)
 	assert.Equal(t, []schedulerstate.Span{
 		{From: lastTick, To: lastTick.Add(45 * time.Minute), Reason: schedulerstate.SpanDown},

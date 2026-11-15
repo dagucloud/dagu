@@ -64,20 +64,20 @@ func (s *SpanStore) Add(ctx context.Context, dag string, span schedulerstate.Spa
 }
 
 // Ended returns the ended spans of the scheduler and of the DAG, oldest
-// first.
-func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, error) {
+// first, and the DAG's latest dismissal.
+func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, schedulerstate.Dismissal, error) {
 	record, _, err := s.load(ctx, schedulerSpansID)
-	spans := record.Spans
+	spans, dismissal := record.Spans, schedulerstate.Dismissal{}
 	if err == nil && dag != "" {
 		record, _, err = s.load(ctx, spansID(dag))
-		spans = append(spans, record.Spans...)
+		spans, dismissal = append(spans, record.Spans...), record.Dismissal
 	}
 	cutoff := time.Now().Add(-spanRetention)
 	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool {
 		return span.To.IsZero() || span.To.Before(cutoff)
 	})
 	slices.SortStableFunc(spans, func(a, b schedulerstate.Span) int { return a.From.Compare(b.From) })
-	return spans, err
+	return spans, dismissal, err
 }
 
 // Dismiss records a dismissal of the DAG's missed slots in place of an
@@ -89,12 +89,6 @@ func (s *SpanStore) Dismiss(ctx context.Context, dag string, dismissal scheduler
 			record.Dismissal = dismissal
 		}
 	})
-}
-
-// Dismissed returns the DAG's latest dismissal, or the zero Dismissal.
-func (s *SpanStore) Dismissed(ctx context.Context, dag string) (schedulerstate.Dismissal, error) {
-	record, _, err := s.load(ctx, spansID(dag))
-	return record.Dismissal, err
 }
 
 // update applies change to the record of a name, then keeps the spans that

@@ -146,7 +146,7 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	if a.spanStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
 		return none, nil
 	}
-	spans, err := a.spanStore.Ended(ctx, request.FileName)
+	spans, dismissal, err := a.spanStore.Ended(ctx, request.FileName)
 	if err != nil || len(spans) == 0 {
 		return none, err
 	}
@@ -168,9 +168,8 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 		return none, err
 	}
 	// A dismissal hides the slots until a span that ended after it holds one.
-	dismissal, err := a.spanStore.Dismissed(ctx, request.FileName)
-	if err != nil || !missed.Until.After(dismissal.Through) {
-		return none, err
+	if !missed.Until.After(dismissal.Through) {
+		return none, nil
 	}
 	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
 	for _, reason := range missed.Reasons {

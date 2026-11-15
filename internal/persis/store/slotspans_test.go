@@ -38,7 +38,7 @@ func TestSpanStoreMarksASpan(t *testing.T) {
 	ctx := t.Context()
 
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, true, spanAt(1, 9)))
-	spans, err := s.Ended(ctx, "etl")
+	spans, _, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	assert.Empty(t, spans, "a lasting span is not given")
 
@@ -46,7 +46,7 @@ func TestSpanStoreMarksASpan(t *testing.T) {
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, false, spanAt(1, 12)))
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, false, spanAt(1, 13)))
 
-	spans, err = s.Ended(ctx, "etl")
+	spans, _, err = s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	assert.Equal(t, []schedulerstate.Span{
 		{From: spanAt(1, 9), To: spanAt(1, 12), Reason: schedulerstate.SpanSuspended},
@@ -67,7 +67,7 @@ func TestSpanStoreGivesTheSchedulerSpans(t *testing.T) {
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, false, spanAt(1, 13)))
 	require.NoError(t, s.Add(ctx, "other", schedulerstate.Span{From: spanAt(1, 0), To: spanAt(1, 1), Reason: schedulerstate.SpanSuspended}))
 
-	spans, err := s.Ended(ctx, "etl")
+	spans, _, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	assert.Equal(t, []schedulerstate.Span{
 		{From: spanAt(1, 9), To: spanAt(1, 10), Reason: schedulerstate.SpanPaused},
@@ -91,7 +91,7 @@ func TestSpanStoreKeepsRecentSpans(t *testing.T) {
 		require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: from, To: from.Add(time.Minute), Reason: schedulerstate.SpanDown}))
 	}
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, start.Add(time.Hour), spans[0].From, "the oldest span over the bound is dropped")
@@ -106,7 +106,7 @@ func TestSpanStoreGivesNoExpiredSpan(t *testing.T) {
 	ended := time.Now().Add(-31 * 24 * time.Hour)
 	require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: ended.Add(-time.Hour), To: ended, Reason: schedulerstate.SpanDown}))
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	assert.Empty(t, spans)
 }
@@ -123,7 +123,7 @@ func TestSpanStoreKeepsALastingSpanPastTheBound(t *testing.T) {
 	}
 	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, false, spanAt(7, 0)))
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, schedulerstate.Span{From: spanAt(1, 0), To: spanAt(7, 0), Reason: schedulerstate.SpanPaused}, spans[0])
@@ -142,7 +142,7 @@ func TestSpanStoreKeepsTheSpansThatEndedLast(t *testing.T) {
 	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, true, spanAt(2, 0)))
 	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, false, spanAt(2, 1)))
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, schedulerstate.SpanDown, spans[0].Reason, "the pause ended first and is dropped")
@@ -187,7 +187,7 @@ func TestSpanStoreSharesSpansThroughFiles(t *testing.T) {
 	require.NoError(t, writer.Mark(ctx, "nested/etl", schedulerstate.SpanSuspended, true, spanAt(1, 9)))
 	require.NoError(t, writer.Mark(ctx, "nested/etl", schedulerstate.SpanSuspended, false, spanAt(1, 10)))
 
-	spans, err := reader.Ended(ctx, "nested/etl")
+	spans, _, err := reader.Ended(ctx, "nested/etl")
 	require.NoError(t, err)
 	assert.Equal(t, []schedulerstate.Span{
 		{From: spanAt(1, 9), To: spanAt(1, 10), Reason: schedulerstate.SpanSuspended},
@@ -205,7 +205,7 @@ func TestSpanStoreKeepsADismissal(t *testing.T) {
 
 	first := schedulerstate.Dismissal{Through: spanAt(1, 9), By: "alice"}
 	require.NoError(t, s.Dismiss(ctx, "etl", first))
-	got, err := s.Dismissed(ctx, "etl")
+	_, got, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	assert.Equal(t, first, got)
 
@@ -215,16 +215,14 @@ func TestSpanStoreKeepsADismissal(t *testing.T) {
 	require.NoError(t, s.Dismiss(ctx, "etl", schedulerstate.Dismissal{Through: spanAt(1, 10), By: "carol"}))
 	require.NoError(t, s.Mark(ctx, "etl", schedulerstate.SpanSuspended, false, spanAt(1, 12)))
 
-	got, err = s.Dismissed(ctx, "etl")
+	spans, got, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	assert.Equal(t, latest, got)
-	spans, err := s.Ended(ctx, "etl")
-	require.NoError(t, err)
 	assert.Equal(t, []schedulerstate.Span{
 		{From: spanAt(1, 10), To: spanAt(1, 12), Reason: schedulerstate.SpanSuspended},
 	}, spans)
 
-	other, err := s.Dismissed(ctx, "report")
+	_, other, err := s.Ended(ctx, "report")
 	require.NoError(t, err)
 	assert.Zero(t, other, "another DAG's slots are not dismissed")
 }
