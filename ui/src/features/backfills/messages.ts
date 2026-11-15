@@ -103,6 +103,12 @@ export const backfillMessages = defineMessages({
       '{count} slots passed from {from} to {to} while the scheduler was paused',
     '{count} slots passed from {from} to {to} while the scheduler was down':
       '{count} slots passed from {from} to {to} while the scheduler was down',
+    '{count} slot passed from {from} to {to} while this DAG was suspended':
+      '{count} slot passed from {from} to {to} while this DAG was suspended',
+    '{count} slot passed from {from} to {to} while the scheduler was paused':
+      '{count} slot passed from {from} to {to} while the scheduler was paused',
+    '{count} slot passed from {from} to {to} while the scheduler was down':
+      '{count} slot passed from {from} to {to} while the scheduler was down',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'Backfill running: {done} of {total} slots done, {failed} failed',
     'Backfill failed: {failed} slots did not succeed':
@@ -253,6 +259,12 @@ export const backfillMessages = defineMessages({
       '调度器暂停期间（{from} 至 {to}）错过了 {count} 个时段',
     '{count} slots passed from {from} to {to} while the scheduler was down':
       '调度器停止期间（{from} 至 {to}）错过了 {count} 个时段',
+    '{count} slot passed from {from} to {to} while this DAG was suspended':
+      'DAG 暂停期间（{from} 至 {to}）错过了 {count} 个时段',
+    '{count} slot passed from {from} to {to} while the scheduler was paused':
+      '调度器暂停期间（{from} 至 {to}）错过了 {count} 个时段',
+    '{count} slot passed from {from} to {to} while the scheduler was down':
+      '调度器停止期间（{from} 至 {to}）错过了 {count} 个时段',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       '回填运行中：{total} 个时段中已完成 {done} 个，{failed} 个失败',
     'Backfill failed: {failed} slots did not succeed':
@@ -400,6 +412,12 @@ export const backfillMessages = defineMessages({
     '{count} slots passed from {from} to {to} while the scheduler was paused':
       'スケジューラーの一時停止中（{from}〜{to}）に {count} スロットが過ぎました',
     '{count} slots passed from {from} to {to} while the scheduler was down':
+      'スケジューラーの停止中（{from}〜{to}）に {count} スロットが過ぎました',
+    '{count} slot passed from {from} to {to} while this DAG was suspended':
+      'DAG の一時停止中（{from}〜{to}）に {count} スロットが過ぎました',
+    '{count} slot passed from {from} to {to} while the scheduler was paused':
+      'スケジューラーの一時停止中（{from}〜{to}）に {count} スロットが過ぎました',
+    '{count} slot passed from {from} to {to} while the scheduler was down':
       'スケジューラーの停止中（{from}〜{to}）に {count} スロットが過ぎました',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了、{failed} 件が失敗',

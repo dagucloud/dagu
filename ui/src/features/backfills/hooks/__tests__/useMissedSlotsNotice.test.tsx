@@ -53,6 +53,17 @@ describe('useMissedSlotsNotice', () => {
     );
   });
 
+  it('says a single slot passed', () => {
+    const { result } = renderHook(
+      () => useNoticeAndLocation({ ...gap, slots: 1 }),
+      { wrapper }
+    );
+
+    expect(result.current.notice?.message).toBe(
+      `1 slot passed ${span} while this DAG was suspended`
+    );
+  });
+
   // A user who may not run the DAG can read and dismiss the notice only.
   it('offers no backfill to a user who may not run the DAG', () => {
     const { result } = renderHook(

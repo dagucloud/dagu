@@ -27,6 +27,15 @@ const MESSAGES: Record<MissedSlotsReason, string> = {
     '{count} slots passed from {from} to {to} while the scheduler was down',
 };
 
+const SINGLE_SLOT_MESSAGES: Record<MissedSlotsReason, string> = {
+  [MissedSlotsReason.suspended]:
+    '{count} slot passed from {from} to {to} while this DAG was suspended',
+  [MissedSlotsReason.paused]:
+    '{count} slot passed from {from} to {to} while the scheduler was paused',
+  [MissedSlotsReason.down]:
+    '{count} slot passed from {from} to {to} while the scheduler was down',
+};
+
 /** The most slots the scheduler counts in a gap. */
 const MAX_GAP_SLOTS = 10000;
 
@@ -113,6 +122,7 @@ export function useMissedSlotsNotice(
     // A gap at the cap may hold more slots than it counts.
     const count =
       gap.slots >= MAX_GAP_SLOTS ? `${MAX_GAP_SLOTS}+` : String(gap.slots);
+    const messages = gap.slots === 1 ? SINGLE_SLOT_MESSAGES : MESSAGES;
     const action = {
       label: ts('Backfill'),
       run: () => {
@@ -127,7 +137,7 @@ export function useMissedSlotsNotice(
     return {
       id: 'missed-slots',
       tone: 'warning',
-      message: ts(MESSAGES[gap.reason], {
+      message: ts(messages[gap.reason], {
         count,
         from: formatBound(gap.from),
         to: formatBound(gap.to),
