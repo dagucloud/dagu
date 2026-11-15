@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/sock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -25,6 +26,13 @@ import (
 )
 
 const staleLocalRunStartupGrace = 2 * time.Second
+
+// A stop of a waiting run waits up to waitingStopSettleTimeout for the process
+// that recorded the checkpoint to release the run.
+const (
+	waitingStopSettleTimeout = 5 * time.Second
+	waitingStopPollInterval  = 50 * time.Millisecond
+)
 
 // ServiceRunStartTimeout is how long a run of a DAG that sets restart_policy may
 // stay queued or not started before the scheduler checks whether anything will
@@ -94,8 +102,9 @@ type processRepository interface {
 	FreshEntriesByDAGName(ctx context.Context, groupName, dagName string) ([]proc.ProcEntry, error)
 }
 
-// Stop stops running DAG-runs and can cancel an explicit failed DAG-run that is
-// still pending DAG-level auto-retry when dagRunID is provided.
+// Stop stops running DAG-runs. When dagRunID is provided, it also cancels a
+// failed DAG-run that is still pending DAG-level auto-retry and ends a waiting
+// DAG-run as aborted.
 func (m *Manager) Stop(ctx context.Context, dag *ir.DAG, dagRunID string) error {
 	// Set DAG name in context for all logs in this function
 	ctx = logger.WithValues(ctx, tag.DAG(dag.Name))
@@ -190,6 +199,9 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 			logger.Info(ctx, "Canceled pending auto-retry for failed DAG run")
 			return nil
 		}
+		if statusErr == nil && status.Status == ir.Waiting {
+			return m.abortWaitingRun(ctx, dag, run, status)
+		}
 	}
 
 	// Check if the process is running locally using proc store
@@ -250,6 +262,76 @@ func (m *Manager) stopSingleDAGRun(ctx context.Context, dag *ir.DAG, dagRunID st
 
 	// Process is alive but we couldn't find the attempt - this shouldn't happen
 	return fmt.Errorf("failed to find dag-run attempt: %w", findErr)
+}
+
+// abortWaitingRun ends a waiting DAG-run once the process that recorded its
+// checkpoint has released it, so that process's last status write cannot
+// replace the stop.
+func (m *Manager) abortWaitingRun(ctx context.Context, dag *ir.DAG, run dagrun.Attempt, status *ir.DAGRunStatus) error {
+	status, err := m.settledWaitingStatus(ctx, dag, run, status)
+	if err != nil {
+		return err
+	}
+	if err := m.dagRunRepository.AbortWaitingRun(ctx, status, m.nowFunc()); err != nil {
+		return err
+	}
+	// The cancel request marks an operator stop, which keeps a DAG with a
+	// restart policy from starting again.
+	if err := run.Abort(ctx); err != nil {
+		return fmt.Errorf("record the stop of dag-run %s: %w", status.DAGRunID, err)
+	}
+	logger.Info(ctx, "Stopped waiting DAG run")
+	return nil
+}
+
+// settledWaitingStatus returns the latest status of a waiting run once the
+// process that recorded the checkpoint has exited and its final status landed.
+func (m *Manager) settledWaitingStatus(
+	ctx context.Context, dag *ir.DAG, run dagrun.Attempt, status *ir.DAGRunStatus,
+) (*ir.DAGRunStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, waitingStopSettleTimeout)
+	defer cancel()
+	ticker := time.NewTicker(waitingStopPollInterval)
+	defer ticker.Stop()
+	for {
+		settled, err := m.waitingCheckpointSettled(ctx, dag, status)
+		if err != nil {
+			return nil, err
+		}
+		if settled {
+			return status, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("%w: dag-run %s is still recording its waiting checkpoint",
+				dagrun.ErrWaitingAbortStateChanged, status.DAGRunID)
+		case <-ticker.C:
+		}
+		if status, err = run.ReadStatus(ctx); err != nil {
+			return nil, fmt.Errorf("reload status of dag-run %s: %w", run.ID(), err)
+		}
+	}
+}
+
+func (m *Manager) waitingCheckpointSettled(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (bool, error) {
+	if status.Status != ir.Waiting {
+		return true, nil
+	}
+	if status.FinishedAt == "" {
+		return false, nil
+	}
+	if dispatch.IsRemoteWorkerID(status.WorkerID) {
+		return true, nil
+	}
+	procGroup := status.ProcGroup
+	if procGroup == "" {
+		procGroup = dag.ProcGroup()
+	}
+	alive, err := m.procRepository.IsAttemptAlive(ctx, procGroup, status.DAGRun(), status.AttemptID)
+	if err != nil {
+		return false, fmt.Errorf("check whether dag-run %s is still recording its waiting checkpoint: %w", status.DAGRunID, err)
+	}
+	return !alive, nil
 }
 
 // IsRunning checks if a dag-run is currently running. It prefers the live socket
