@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -2077,6 +2078,29 @@ steps:
 	_, ok := respObj.(api.UpdateDAGSuspensionState200Response)
 	require.True(t, ok, "expected 200 response, got %T", respObj)
 	require.Equal(t, []string{dag.FileName()}, notified)
+}
+
+// A suspension, from its start to its resume, is a span in which the DAG's
+// slots do not run.
+func TestUpdateDAGSuspensionState_RecordsSpan(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	dag := server.DAG(t, `schedule: "0 * * * *"
+steps:
+  - run: "true"
+`)
+
+	for _, suspend := range []bool{true, false} {
+		server.Client().Post("/api/v1/dags/"+dag.FileName()+"/suspend", api.UpdateDAGSuspensionStateJSONRequestBody{
+			Suspend: suspend,
+		}).ExpectStatus(http.StatusOK).Send(t)
+	}
+
+	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), dag.FileName())
+	require.NoError(t, err)
+	require.Len(t, spans, 1)
+	assert.Equal(t, schedulerstate.SpanSuspended, spans[0].Reason)
+	assert.False(t, spans[0].To.Before(spans[0].From))
 }
 
 func TestLegacySuspensionViaAPI(t *testing.T) {

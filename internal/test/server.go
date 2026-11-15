@@ -124,6 +124,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 			srv.Backend.Collection(persis.CollectionSchedulerState),
 		),
 		BackfillStore: filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
+		SpanStore:     store.NewSpanStore(srv.Backend.Collection(persis.CollectionSlotSpans)),
 		Stores:        stores,
 	}, serverOpts...)
 	if err != nil {
