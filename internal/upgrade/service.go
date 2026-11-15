@@ -128,23 +128,24 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 // systemdService describes the service of the systemd unit at unitPath.
 func systemdService(unitPath, restartCommand, keepRunsCommand string) *Service {
 	service := &Service{RestartCommand: restartCommand}
+	settings := systemdSettings(unitPath)
 	// The default KillMode ends every process of the unit, runs included.
-	if killMode := systemdSetting(unitPath, "KillMode"); killMode != "process" && killMode != "none" {
+	if killMode := settings["KillMode"]; killMode != "process" && killMode != "none" {
 		service.StopsRuns = true
 		service.KeepRunsCommand = keepRunsCommand
 	}
 	// Dagu exits cleanly to load an upgraded binary, and the default Restart
 	// starts nothing afterwards.
-	if restart := systemdSetting(unitPath, "Restart"); restart == "always" || restart == "on-success" {
+	if restart := settings["Restart"]; restart == "always" || restart == "on-success" {
 		service.RestartsOnExit = true
 	}
 	return service
 }
 
-// systemdSetting returns the value of key in the [Service] section of the
-// unit at unitPath, or "" for its default. systemd applies the drop-ins next
-// to the unit in file name order.
-func systemdSetting(unitPath, key string) string {
+// systemdSettings returns the settings in the [Service] section of the unit
+// at unitPath by name. A setting left at its default is absent or empty.
+// systemd applies the drop-ins next to the unit in file name order.
+func systemdSettings(unitPath string) map[string]string {
 	files := []string{unitPath}
 	dropInDir := unitPath + ".d"
 	if entries, err := os.ReadDir(dropInDir); err == nil {
@@ -155,29 +156,24 @@ func systemdSetting(unitPath, key string) string {
 		}
 	}
 
-	var setting string
+	settings := make(map[string]string)
 	for _, file := range files {
-		if value, ok := readServiceSetting(file, key); ok {
-			setting = value
-		}
+		readServiceSettings(file, settings)
 	}
-	return setting
+	return settings
 }
 
-// readServiceSetting returns the last assignment of key in the [Service]
-// section of a unit file. An empty value resets the setting to its default.
-func readServiceSetting(path, key string) (string, bool) {
+// readServiceSettings adds the assignments in the [Service] section of a unit
+// file to settings. A later assignment replaces an earlier one, and an empty
+// value resets the setting to its default.
+func readServiceSettings(path string, settings map[string]string) {
 	f, err := os.Open(path) //nolint:gosec // path names a systemd unit file of the Dagu service
 	if err != nil {
-		return "", false
+		return
 	}
 	defer func() { _ = f.Close() }()
 
-	var (
-		setting string
-		found   bool
-		section string
-	)
+	var section string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -186,13 +182,11 @@ func readServiceSetting(path, key string) (string, bool) {
 		case strings.HasPrefix(line, "["):
 			section = line
 		case section == "[Service]":
-			name, value, ok := strings.Cut(line, "=")
-			if ok && strings.TrimSpace(name) == key {
-				setting, found = strings.TrimSpace(value), true
+			if name, value, ok := strings.Cut(line, "="); ok {
+				settings[strings.TrimSpace(name)] = strings.TrimSpace(value)
 			}
 		}
 	}
-	return setting, found
 }
 
 // Restart restarts the service. The command shares the caller's terminal, so
