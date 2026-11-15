@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
@@ -49,7 +50,7 @@ func argumentsHook(from, to reflect.Type, data any) (any, error) {
 }
 
 // decodeConfig decodes with.*; at load time an unresolved reference in
-// arguments is accepted and checked once resolved at runtime.
+// arguments or url is accepted and checked once resolved at runtime.
 func decodeConfig(step ir.Step, loadTime bool) (config, error) {
 	var cfg config
 	raw := step.ExecutorConfig.Config
@@ -68,15 +69,18 @@ func decodeConfig(step ir.Step, loadTime bool) (config, error) {
 	if err := dec.Decode(raw); err != nil {
 		return cfg, fmt.Errorf("mcp.call: invalid with: %w", err)
 	}
-	return cfg, cfg.validate()
+	return cfg, cfg.validate(loadTime)
 }
 
-func (c config) validate() error {
+func (c config) validate(loadTime bool) error {
 	if strings.TrimSpace(c.Tool) == "" {
 		return errors.New("mcp.call: with.tool is required")
 	}
 	if c.URL == "" {
 		return errors.New("mcp.call: with.url is required")
+	}
+	if loadTime && value.HasAnyReference(c.URL) {
+		return nil
 	}
 	u, err := url.Parse(c.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

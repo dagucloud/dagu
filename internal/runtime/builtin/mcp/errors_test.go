@@ -184,6 +184,21 @@ func TestArgumentsReference(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// A url reference resolves before the step runs, so load-time validation
+// defers the URL checks to the resolved value.
+func TestURLReference(t *testing.T) {
+	t.Parallel()
+	step := func(u string) ir.Step {
+		return ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "mcp", Config: map[string]any{"url": u, "tool": "t"}}}
+	}
+	for _, u := range []string{"${MCP_URL}", "https://${MCP_HOST}/mcp", "http://localhost:${PORT}/mcp"} {
+		assert.NoError(t, validateStep(step(u)), u)
+	}
+	assert.Error(t, validateStep(step("stdio://x")))
+	_, err := newCaller(t.Context(), step("${MCP_URL}"))
+	assert.Error(t, err, "an unresolved url must fail when the step runs")
+}
+
 func TestShortHeaderSecretsRedacted(t *testing.T) {
 	t.Parallel()
 	server := sdk.NewServer(&sdk.Implementation{Name: "short", Version: "1"}, nil)
