@@ -1414,7 +1414,7 @@ write_uninstall_dropin() {
 # task count, or else the processes listed in its cgroup. It prints nothing
 # when neither can be read.
 unit_process_count() {
-    local scope="$1" tasks cgroup uid hierarchy procs dropped=0 cgroups=()
+    local scope="$1" tasks cgroup uid hierarchy procs dropped=0 unreadable=0 cgroups=()
     shift
     tasks="$("$@" show -p TasksCurrent --value dagu 2>/dev/null || true)"
     if [[ "$tasks" =~ ^[0-9]{1,9}$ ]]; then
@@ -1449,11 +1449,14 @@ unit_process_count() {
                 wc -l <"$procs" | tr -d ' '
                 return 0
             fi
+            if [[ -e "${hierarchy}${cgroup}" ]]; then
+                unreadable=1
+            fi
         done
     done
     # A cgroup cannot be removed while processes are in it, so a unit with
     # neither a path nor its default cgroup has none left.
-    if ((dropped)); then
+    if ((dropped && !unreadable)); then
         printf '0'
     fi
 }
