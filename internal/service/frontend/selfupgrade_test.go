@@ -106,6 +106,24 @@ func TestSelfUpgraderReportsFailure(t *testing.T) {
 	}
 }
 
+// A stalled download ends as a failure, so the upgrade can be retried.
+func TestSelfUpgraderGivesUpOnAStall(t *testing.T) {
+	t.Parallel()
+
+	u, _ := testSelfUpgrader(t, "v9.9.9", nil)
+	u.timeout = 50 * time.Millisecond
+	u.install = func(ctx context.Context, _ *upgrade.ReleaseInfo, _ func(downloaded, total int64)) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	require.NoError(t, u.Start())
+	status := waitForState(t, u, api.SelfUpgradeStateFailed)
+	require.NotNil(t, status.Error)
+	assert.Contains(t, *status.Error, context.DeadlineExceeded.Error())
+	assert.NoError(t, u.Start(), "a stalled upgrade can be retried")
+}
+
 func TestSelfUpgraderRefusesAnOlderRelease(t *testing.T) {
 	t.Parallel()
 

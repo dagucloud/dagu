@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -22,13 +23,18 @@ import (
 // UI, so the service that runs Dagu restarts it with the new binary.
 var ErrRestartRequested = errors.New("exiting so the service restarts Dagu with the upgraded binary")
 
+// selfUpgradeTimeout bounds an upgrade, so one whose download stalls fails
+// and can be retried.
+const selfUpgradeTimeout = 30 * time.Minute
+
 // selfUpgrader upgrades the running binary to the latest release from the web
 // UI, then has restart end the server, so the service the installer set up
 // starts the new binary. Runs in progress keep running across that restart.
 type selfUpgrader struct {
 	ctx       context.Context
 	available bool
-	current   string // Version of the running Dagu
+	current   string        // Version of the running Dagu
+	timeout   time.Duration // Longest an upgrade may take before it fails
 	restart   func()
 	fetch     func(context.Context) (*upgrade.ReleaseInfo, error)
 	install   func(context.Context, *upgrade.ReleaseInfo, func(downloaded, total int64)) error
@@ -42,6 +48,7 @@ func newSelfUpgrader(ctx context.Context, cfg *config.Config, store upgrade.Cach
 		ctx:       ctx,
 		available: canUpgradeFromWeb(ctx, cfg),
 		current:   config.Version,
+		timeout:   selfUpgradeTimeout,
 		restart:   restart,
 		fetch: func(ctx context.Context) (*upgrade.ReleaseInfo, error) {
 			return upgrade.FetchReleaseInfo(ctx, upgrade.Options{})
@@ -110,7 +117,10 @@ func (u *selfUpgrader) Start() error {
 }
 
 func (u *selfUpgrader) run() {
-	info, err := u.fetch(u.ctx)
+	ctx, cancel := context.WithTimeout(u.ctx, u.timeout)
+	defer cancel()
+
+	info, err := u.fetch(ctx)
 	if err == nil {
 		err = newerRelease(u.current, info)
 	}
@@ -125,7 +135,7 @@ func (u *selfUpgrader) run() {
 		tag.Version(u.current),
 		slog.String("target-version", info.Release.TagName),
 	)
-	err = u.install(u.ctx, info, func(downloaded, total int64) {
+	err = u.install(ctx, info, func(downloaded, total int64) {
 		u.update(func(status *api.SelfUpgradeStatus) {
 			status.DownloadedBytes, status.TotalBytes = &downloaded, &total
 			if total > 0 && downloaded >= total {
