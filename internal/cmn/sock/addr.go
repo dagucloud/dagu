@@ -24,6 +24,11 @@ func Addr(identity, runID string) string {
 
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(identity+runID)))[:hashLength] //nolint:gosec
 	safeName := fileutil.SafeName(identity)
+	// The name sits between a prefix and a hash, so a Windows device name is
+	// no device here, and it keeps the address that earlier versions used.
+	if fileutil.SafeNameEscapesDevice(identity) {
+		safeName = identity
+	}
 	maxNameLen := maxSocketNameLength - len(prefix) - 1 - len(hash) - len(suffix)
 	if len(safeName) > maxNameLen {
 		safeName = safeName[:maxNameLen]
