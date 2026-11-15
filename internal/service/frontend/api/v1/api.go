@@ -31,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -109,6 +110,7 @@ type API struct {
 	secretStore          secretpkg.Store
 	profileStore         profilepkg.Store
 	viewStore            view.Store
+	inventoryStore       inventory.Store
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
@@ -330,6 +332,13 @@ func WithProfileStore(store profilepkg.Store) APIOption {
 func WithViewStore(store view.Store) APIOption {
 	return func(a *API) {
 		a.viewStore = store
+	}
+}
+
+// WithInventoryStore returns an APIOption that sets the node inventory store.
+func WithInventoryStore(store inventory.Store) APIOption {
+	return func(a *API) {
+		a.inventoryStore = store
 	}
 }
 
