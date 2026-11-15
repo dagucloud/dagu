@@ -6,6 +6,7 @@ package dagrun
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -154,6 +155,34 @@ func TestWriterErrorHandling(t *testing.T) {
 		read, err := ParseStatusFile(writerPath)
 		require.NoError(t, err)
 		assert.Equal(t, dagRunID, read.DAGRunID)
+	})
+
+	// A status that cannot be encoded leaves the file as it was, and the
+	// writer keeps writing.
+	t.Run("UnencodableStatus", func(t *testing.T) {
+		writerPath := filepath.Join(th.TmpDir, "unencodable.dat")
+		writer := NewWriter(writerPath)
+		require.NoError(t, writer.Open())
+		defer func() { _ = writer.close() }()
+
+		dag := th.DAG("test_unencodable_status")
+		status := ir.NewStatusBuilder(dag.DAG).Create(uuid.Must(uuid.NewV7()).String(), ir.Running, 1, time.Now())
+		require.NoError(t, writer.write(status))
+		before, err := os.ReadFile(writerPath)
+		require.NoError(t, err)
+
+		bad := status
+		bad.AutoRetryBackoff = math.NaN()
+		require.Error(t, writer.write(bad))
+		after, err := os.ReadFile(writerPath)
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+
+		status.Status = ir.Succeeded
+		require.NoError(t, writer.write(status))
+		read, err := ParseStatusFile(writerPath)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, read.Status)
 	})
 
 	t.Run("StoresARepeatedOutputOnce", func(t *testing.T) {

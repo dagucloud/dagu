@@ -6,7 +6,6 @@ package dagrun
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 )
 
 var (
@@ -26,7 +26,7 @@ var (
 type Writer struct {
 	target     string
 	buffer     *bufio.Writer
-	encoder    *json.Encoder
+	encoder    statusfile.Encoder
 	file       *os.File
 	mu         sync.Mutex
 	bufferSize int
@@ -71,8 +71,8 @@ func (w *Writer) Open() error {
 
 	w.file = file
 	w.buffer = bufio.NewWriterSize(file, w.bufferSize)
-	w.encoder = json.NewEncoder(w.buffer)
-	w.encoder.SetEscapeHTML(false)
+	// A change record must build on a line of the file it is appended to.
+	w.encoder.Reset()
 	w.endPartialLineLocked()
 	return nil
 }
@@ -135,12 +135,12 @@ func (w *Writer) reopenIfReplaced() error {
 	_ = w.file.Close()
 	w.file = file
 	w.buffer.Reset(file)
+	w.encoder.Reset()
 	w.endPartialLineLocked()
 	return nil
 }
 
-// Write serializes the status to JSON and appends it to the file.
-// It automatically flushes data to ensure durability.
+// Write appends a line that records the status to the file and syncs it.
 func (w *Writer) Write(ctx context.Context, st ir.DAGRunStatus) error {
 	if err := w.write(st); err != nil {
 		logger.Error(ctx, "Failed to write status", tag.Error(err))
@@ -159,11 +159,14 @@ func (w *Writer) write(st ir.DAGRunStatus) error {
 		return ErrWriterNotOpen
 	}
 
-	if err := w.encoder.Encode(ir.StoredStatus(st)); err != nil {
-		w.discardLocked()
+	line, err := w.encoder.Encode(st)
+	if err != nil {
 		return fmt.Errorf("failed to encode status: %w", err)
 	}
-
+	if _, err := w.buffer.Write(append(line, '\n')); err != nil {
+		w.discardLocked()
+		return fmt.Errorf("failed to write status: %w", err)
+	}
 	if err := w.flushAndSyncLocked(); err != nil {
 		w.discardLocked()
 		return err
@@ -178,7 +181,6 @@ func (w *Writer) discardLocked() {
 	_ = w.file.Close()
 	w.file = nil
 	w.buffer = nil
-	w.encoder = nil
 }
 
 // Close flushes any buffered data and closes the underlying file.
@@ -213,7 +215,6 @@ func (w *Writer) close() error {
 
 	w.file = nil
 	w.buffer = nil
-	w.encoder = nil
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -222,7 +223,7 @@ func (w *Writer) close() error {
 	return nil
 }
 
-// flushAndSyncLocked flushes the buffered encoder output and syncs the file.
+// flushAndSyncLocked flushes the buffered output and syncs the file.
 func (w *Writer) flushAndSyncLocked() error {
 	var errs []error
 
@@ -248,7 +249,7 @@ func (w *Writer) IsOpen() bool {
 	return w.isOpenLocked()
 }
 
-// isOpenLocked reports whether the writer has an active file and encoder.
+// isOpenLocked reports whether the writer has an open file.
 func (w *Writer) isOpenLocked() bool {
-	return w.file != nil && w.buffer != nil && w.encoder != nil
+	return w.file != nil && w.buffer != nil
 }
