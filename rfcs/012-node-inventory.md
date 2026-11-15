@@ -126,6 +126,11 @@ DAG files, and git sync never reads or writes them.
 A project's nodes are the nodes of all its inventories, plus the workers. A
 project without inventories has only its worker nodes.
 
+Until RFC 003 ships, the installation has one project, and its secret refs
+resolve in the global scope. A DAG in a workspace cannot target nodes:
+`dagu validate` and admission reject it. So RFC 003's migration moves no DAG
+that targets nodes, and needs no inventory step.
+
 ### Storage
 
 Three collections hold the data, each one JSON file per record, as the
@@ -425,7 +430,7 @@ A **Nodes** page in each project:
 | `POST /node-host-keys` | Trust host keys, given each node and the fingerprint the user saw |
 
 Collection operations sit outside `/nodes/{name}`, so every valid node name
-reaches its node. Every path takes `project`, as RFC 003 defines. Tests and
+reaches its node. Once RFC 003 ships, every path takes `project`. Tests and
 trusts answer with a server-sent event stream, one event per node. The
 schemas are named `InventoryNode` and so on, since the API's `Node` schema is
 a step's status.
@@ -445,7 +450,7 @@ dagu nodes import inventories.json [--replace] [--dry-run]
 ```
 
 Each command works against a remote server like the other remote CLI
-commands, and takes `--project` as RFC 003 defines. `--labels` is the flag
+commands, and takes `--project` once RFC 003 ships. `--labels` is the flag
 `dagu history` takes. `--inventory` takes a name or an ID, and `add` may
 leave it out when the project has one inventory. A new inventory is created
 in the UI or by import. `add` tests the connection and asks before it trusts
