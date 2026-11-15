@@ -159,14 +159,20 @@ func (w *FrameLoadWatcher) Sync(ctx context.Context) error {
 		w.mu.Unlock()
 	}()
 	// The browser answers after what it reported before on this connection,
-	// which the watcher reads in order. A write that outlives its context
-	// closes the connection, so the write ignores the end of ctx.
-	if err := writeCommand(context.WithoutCancel(ctx), w.conn, id, "", "Browser.getVersion", map[string]any{}); err != nil {
-		return err
-	}
+	// which the watcher reads in order. A write whose context ends closes
+	// the connection, so the write runs apart from the wait and ends with
+	// the connection at the latest.
+	failed := make(chan error, 1)
+	go func() {
+		if err := writeCommand(context.WithoutCancel(ctx), w.conn, id, "", "Browser.getVersion", map[string]any{}); err != nil {
+			failed <- err
+		}
+	}()
 	select {
 	case <-synced:
 		return nil
+	case err := <-failed:
+		return err
 	case <-w.done:
 		return errWatcherClosed
 	case <-ctx.Done():

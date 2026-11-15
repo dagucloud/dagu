@@ -1053,8 +1053,11 @@ func (e *stagehandEngine) settleDocument(ctx context.Context, deadline, limit ti
 				}
 				// The answer comes over another connection than the loads,
 				// so those the browser reported before it are taken in
-				// first. A watcher that cannot sync tells what it has.
-				_ = e.loads.Sync(ctx)
+				// first. A watcher that cannot sync in time tells what it
+				// has.
+				syncCtx, cancelSync := context.WithDeadline(ctx, end)
+				_ = e.loads.Sync(syncCtx)
+				cancelSync()
 				if !e.loads.Loading() {
 					return
 				}

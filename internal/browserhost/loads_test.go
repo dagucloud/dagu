@@ -109,6 +109,32 @@ func TestFrameLoadWatcherSyncTakesInEarlierLoads(t *testing.T) {
 	require.Error(t, watcher.Sync(t.Context()))
 }
 
+// Sync gives up when its context ends before the browser answers, and the
+// watcher goes on reading the browser.
+func TestFrameLoadWatcherSyncEndsWithContext(t *testing.T) {
+	t.Parallel()
+
+	fake := startScriptedBrowser(t, &scriptedBrowser{
+		script: func(command cdpCommand) []cdpEvent {
+			if command.Method == "Target.setAutoAttach" && command.SessionID == "" {
+				return []cdpEvent{pageAttached("page-1", "target-1")}
+			}
+			return nil
+		},
+		silent: func(command cdpCommand) bool { return command.Method == "Browser.getVersion" },
+	})
+	watcher, err := browserhost.WatchFrameLoads(context.Background(), fake.server.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = watcher.Close() })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, watcher.Sync(ctx), context.DeadlineExceeded)
+
+	fake.emit(frameEvent("Page.frameStartedLoading", "page-1", "main"))
+	require.Eventually(t, watcher.Loading, 5*time.Second, 20*time.Millisecond)
+}
+
 // A cross-origin frame is a target of its own under its page, whose loads
 // count once the watcher attaches to it and enables its Page domain.
 func TestFrameLoadWatcherTellsCrossOriginFrames(t *testing.T) {
