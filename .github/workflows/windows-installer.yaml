@@ -457,3 +457,20 @@ jobs:
           scripts\installer.cmd -NoPrompt -Uninstall -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
           if errorlevel 1 exit /b 1
           if exist "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" exit /b 1
+
+      # What the service and its runs wrote tells why a service test failed.
+      - name: Show Dagu service logs
+        if: failure()
+        shell: powershell
+        run: |
+          $daguHome = "$env:ProgramData\Dagu"
+          Get-ChildItem -Path "$daguHome\logs" -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "::group::$($_.FullName)"
+            Get-Content $_.FullName -Tail 200
+            Write-Host "::endgroup::"
+          }
+          Get-ChildItem -Path "$daguHome\data\dag-runs" -Recurse -Filter status.jsonl -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "::group::$($_.FullName)"
+            Get-Content $_.FullName -Tail 1
+            Write-Host "::endgroup::"
+          }
