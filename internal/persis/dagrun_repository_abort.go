@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -17,8 +19,8 @@ import (
 
 // AbortWaitingRun ends a waiting root DAG-run at stoppedAt without starting an
 // attempt. Its waiting steps end aborted, as do the waiting sub-DAG-runs those
-// steps wait on. It fails with dagrun.ErrWaitingAbortStateChanged when the run
-// has left the waiting checkpoint that status describes.
+// steps wait on. It fails with dagrun.ErrWaitingAbortStateChanged, changing
+// nothing, when the run has left the waiting checkpoint that status describes.
 func (r *DAGRunRepository) AbortWaitingRun(ctx context.Context, status *ir.DAGRunStatus, stoppedAt time.Time) error {
 	if status == nil || status.Status != ir.Waiting {
 		return dagrun.ErrWaitingAbortStateChanged
@@ -33,11 +35,6 @@ func (r *DAGRunRepository) AbortWaitingRun(ctx context.Context, status *ir.DAGRu
 		return nil
 	}
 
-	// Sub-DAG-runs end before the root. A failure leaves the root waiting, so
-	// stopping it again completes the stop.
-	if err := r.abortWaitingSubRuns(ctx, root, status, abort, map[string]struct{}{}); err != nil {
-		return err
-	}
 	latest, swapped, err := r.CompareAndSwapLatestAttemptStatus(
 		ctx, root, status.AttemptID, ir.Waiting, abort, DAGRunCompareAndSwapOptions{},
 	)
@@ -50,6 +47,11 @@ func (r *DAGRunRepository) AbortWaitingRun(ctx context.Context, status *ir.DAGRu
 		}
 		return fmt.Errorf("%w (status: %s)", dagrun.ErrWaitingAbortStateChanged, latest.Status)
 	}
+
+	// Sub-DAG-runs end after the root: a sub-DAG-run of a root that is no
+	// longer waiting cannot resume, so a failure to end one does not undo the
+	// stop.
+	r.abortWaitingSubRuns(ctx, root, latest, abort, map[string]struct{}{})
 	return nil
 }
 
@@ -62,9 +64,10 @@ func (r *DAGRunRepository) abortWaitingSubRuns(
 	parent *ir.DAGRunStatus,
 	abort func(*ir.DAGRunStatus) error,
 	seen map[string]struct{},
-) error {
+) {
 	for _, node := range parent.Nodes {
-		if node == nil || node.Status != ir.NodeWaiting {
+		// The root's waiting steps are already aborted when its sub-DAG-runs end.
+		if node == nil || (node.Status != ir.NodeWaiting && node.Status != ir.NodeAborted) {
 			continue
 		}
 		for _, subRun := range slices.Concat(node.SubRuns, node.SubRunsRepeated) {
@@ -72,31 +75,43 @@ func (r *DAGRunRepository) abortWaitingSubRuns(
 				continue
 			}
 			seen[subRun.DAGRunID] = struct{}{}
-
-			attempt, err := r.FindSubAttempt(ctx, root, subRun.DAGRunID)
-			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-				continue
-			}
-			if err != nil {
-				return fmt.Errorf("find sub dag-run %s: %w", subRun.DAGRunID, err)
-			}
-			status, err := attempt.ReadStatus(ctx)
-			if err != nil {
-				return fmt.Errorf("read sub dag-run %s: %w", subRun.DAGRunID, err)
-			}
-			if status.Status != ir.Waiting {
-				continue
-			}
-			if err := r.abortWaitingSubRuns(ctx, root, status, abort, seen); err != nil {
-				return err
-			}
-			if _, _, err := r.CompareAndSwapLatestAttemptStatus(
-				ctx, status.DAGRun(), status.AttemptID, ir.Waiting, abort,
-				DAGRunCompareAndSwapOptions{RootDAGRun: root},
-			); err != nil {
-				return fmt.Errorf("stop waiting sub dag-run %s: %w", subRun.DAGRunID, err)
+			if err := r.abortWaitingSubRun(ctx, root, subRun.DAGRunID, abort, seen); err != nil {
+				logger.Warn(ctx, "Failed to stop a waiting sub dag-run",
+					tag.SubRunID(subRun.DAGRunID),
+					tag.Error(err),
+				)
 			}
 		}
+	}
+}
+
+func (r *DAGRunRepository) abortWaitingSubRun(
+	ctx context.Context,
+	root ir.DAGRunRef,
+	runID string,
+	abort func(*ir.DAGRunStatus) error,
+	seen map[string]struct{},
+) error {
+	attempt, err := r.FindSubAttempt(ctx, root, runID)
+	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find sub dag-run: %w", err)
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("read sub dag-run: %w", err)
+	}
+	if status.Status != ir.Waiting {
+		return nil
+	}
+	r.abortWaitingSubRuns(ctx, root, status, abort, seen)
+	if _, _, err := r.CompareAndSwapLatestAttemptStatus(
+		ctx, status.DAGRun(), status.AttemptID, ir.Waiting, abort,
+		DAGRunCompareAndSwapOptions{RootDAGRun: root},
+	); err != nil {
+		return fmt.Errorf("stop waiting sub dag-run: %w", err)
 	}
 	return nil
 }

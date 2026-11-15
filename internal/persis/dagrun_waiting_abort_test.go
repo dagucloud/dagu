@@ -104,18 +104,32 @@ func TestAbortWaitingRunEndsWaitingSubRuns(t *testing.T) {
 }
 
 // A run that left the checkpoint it was read at, such as one queued for
-// resume, is not stopped.
+// resume, is not stopped, and neither is the sub-run it waits on.
 func TestAbortWaitingRunRejectsChangedRun(t *testing.T) {
 	ctx := context.Background()
 	repository := newRetryPathRepository(filepath.Join(t.TempDir(), "dag-runs"))
 	rootRef := ir.NewDAGRunRef("root", "root-run")
-	step := ir.Step{Name: "review", Approval: &ir.ApprovalConfig{}}
-	dag := &ir.DAG{Name: rootRef.Name, Steps: []ir.Step{step}}
-	attempt := createRetryTestAttempt(t, ctx, repository, dag, rootRef.ID, ir.DAGRunRef{}, ir.DAGRunStatus{
+	callStep := ir.Step{Name: "call-child", SubDAG: &ir.SubDAG{Name: "child"}}
+	rootDAG := &ir.DAG{Name: rootRef.Name, Steps: []ir.Step{callStep}}
+	attempt := createRetryTestAttempt(t, ctx, repository, rootDAG, rootRef.ID, ir.DAGRunRef{}, ir.DAGRunStatus{
 		Name:     rootRef.Name,
 		DAGRunID: rootRef.ID,
 		Status:   ir.Waiting,
-		Nodes:    []*ir.Node{{Step: step, Status: ir.NodeWaiting}},
+		Nodes: []*ir.Node{{
+			Step:    callStep,
+			Status:  ir.NodeWaiting,
+			SubRuns: []ir.SubDAGRun{{DAGRunID: "child-waiting", DAGName: "child"}},
+		}},
+	})
+	approveStep := ir.Step{Name: "approve", Approval: &ir.ApprovalConfig{}}
+	childDAG := &ir.DAG{Name: "child", Steps: []ir.Step{approveStep}}
+	createRetryTestAttempt(t, ctx, repository, childDAG, "child-waiting", rootRef, ir.DAGRunStatus{
+		Root:     rootRef,
+		Parent:   rootRef,
+		Name:     childDAG.Name,
+		DAGRunID: "child-waiting",
+		Status:   ir.Waiting,
+		Nodes:    []*ir.Node{{Step: approveStep, Status: ir.NodeWaiting}},
 	})
 	waiting := readRootStatus(t, ctx, repository, rootRef)
 
@@ -128,6 +142,7 @@ func TestAbortWaitingRunRejectsChangedRun(t *testing.T) {
 	err := repository.AbortWaitingRun(ctx, waiting, time.Now())
 	require.ErrorIs(t, err, dagrun.ErrWaitingAbortStateChanged)
 	require.Equal(t, ir.Queued, readRootStatus(t, ctx, repository, rootRef).Status)
+	require.Equal(t, ir.Waiting, readSubStatus(t, ctx, repository, rootRef, "child-waiting").Status)
 }
 
 func TestAbortWaitingRunRejectsSubRun(t *testing.T) {
