@@ -122,3 +122,20 @@ func TestReplayCacheClearRequiresDAGName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"login"}, steps)
 }
+
+// Earlier versions kept a device name such as con as written, which
+// Windows 11 stores, so the records under it are still read.
+func TestReplayCacheReadsRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	raw := filepath.Join(dataDir, "cache", "con", "con.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
+	require.NoError(t, os.WriteFile(raw, []byte("{}"), 0o600))
+
+	cache := replaycache.New(dataDir)
+	assert.Equal(t, raw, cache.Path("con", "con"))
+	steps, err := cache.Steps("con")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"con"}, steps)
+}

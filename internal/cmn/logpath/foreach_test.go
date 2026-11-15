@@ -4,6 +4,7 @@
 package logpath
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,6 +17,18 @@ func TestForeachStepDir(t *testing.T) {
 
 	dir := ForeachStepDir(filepath.Join("logs", "run", "each step.out"), "each step")
 	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each_step"), dir)
+}
+
+// Earlier versions kept a device name such as con as written, which
+// Windows 11 stores, so the items of a foreach step stored under it are
+// still found.
+func TestForeachStepDirKeepsRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	raw := filepath.Join(runDir, ForeachLogDirName, "con")
+	require.NoError(t, os.MkdirAll(raw, 0o750))
+	assert.Equal(t, raw, ForeachStepDir(filepath.Join(runDir, "con.out"), "con"))
 }
 
 func TestForeachItemDir(t *testing.T) {

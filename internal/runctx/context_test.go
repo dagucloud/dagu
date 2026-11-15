@@ -225,6 +225,22 @@ func TestNewContext_DAGWikiDirDeviceName(t *testing.T) {
 	}
 }
 
+// Earlier versions used the raw DAG name for the Wiki directory, which
+// Windows 11 accepts even for a device name such as con, so it is still used.
+func TestNewContext_DAGWikiDirKeepsRawName(t *testing.T) {
+	t.Parallel()
+
+	wikiDir := t.TempDir()
+	raw := filepath.Join(wikiDir, "con")
+	require.NoError(t, os.Mkdir(raw, 0o750))
+	cfg := &config.Config{}
+	cfg.Paths.WikiDir = wikiDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	ctx = runctx.NewContext(ctx, &ir.DAG{Name: "con"}, "run-1", "test.log")
+
+	assert.Equal(t, raw, runctx.GetContext(ctx).UserEnvsMap()[runenv.EnvKeyDAGWikiDir])
+}
+
 func TestNewContext_DAGWikiDirRequiresConfig(t *testing.T) {
 	t.Parallel()
 

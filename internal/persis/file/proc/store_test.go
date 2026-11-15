@@ -137,20 +137,27 @@ func TestStoreListsQueueWithSlash(t *testing.T) {
 	assert.Equal(t, ref, entries[0].Meta.DAGRun())
 }
 
-// Released versions nested the directories of a queue name with a "/". A run
-// they started before an upgrade still heartbeats there, so it must stay
-// alive and listed.
-func TestStoreFindsNestedQueueHeartbeat(t *testing.T) {
+// Released versions named a group's directory after the raw queue name,
+// nested at each "/", and a DAG's directory after the raw DAG name, which
+// Windows 11 accepts even for a device name such as con. A run they started
+// before an upgrade still heartbeats there, so it must stay alive and listed.
+func TestStoreFindsRawNameHeartbeat(t *testing.T) {
 	t.Parallel()
 
-	for _, group := range []string{"team/etl", "team/.hidden"} {
+	for _, tc := range []struct{ group, dag string }{
+		{group: "team/etl", dag: "etl"},
+		{group: "team/.hidden", dag: "etl"},
+		{group: "50%", dag: "etl"},
+		{group: "con", dag: "con"},
+	} {
+		group := tc.group
 		t.Run(group, func(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
 			root := t.TempDir()
 			s := New(root)
-			ref := ir.NewDAGRunRef("etl", "run-1")
+			ref := ir.NewDAGRunRef(tc.dag, "run-1")
 			meta := testProcMeta(ref)
 			now := time.Now().UTC()
 			path := filepath.Join(root, filepath.FromSlash(group), ref.Name, procRecordName(meta, now)+procFileExt)

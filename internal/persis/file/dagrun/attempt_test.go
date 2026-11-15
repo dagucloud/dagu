@@ -1331,23 +1331,30 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		}
 	})
 
-	// Earlier versions wrote a step's messages under its raw name. A "/" that
-	// still resolved inside the messages directory left them there.
+	// Earlier versions wrote a step's messages under its raw name: one with
+	// "%", a device name that Windows 11 accepts, or a "/" that still resolved
+	// inside the messages directory.
 	t.Run("ReadsMessagesUnderRawStepName", func(t *testing.T) {
-		th := setupTestRepository(t)
-		dag := th.DAG("test-raw-step-name")
-		att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+		for _, tc := range []struct{ step, file string }{
+			{step: "./fetch", file: "fetch.json"},
+			{step: "50%", file: "50%.json"},
+			{step: "con", file: "con.json"},
+		} {
+			th := setupTestRepository(t)
+			dag := th.DAG("test-raw-step-name")
+			att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
 
-		data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
-		require.NoError(t, err)
-		dir := filepath.Join(att.dagRunDir(), MessagesDir)
-		require.NoError(t, os.MkdirAll(dir, 0o750))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "fetch.json"), data, 0o600))
+			data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+			require.NoError(t, err)
+			dir := filepath.Join(att.dagRunDir(), MessagesDir)
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.file), data, 0o600))
 
-		msgs, err := att.ReadStepMessages(ctx, "./fetch")
-		require.NoError(t, err)
-		require.Len(t, msgs, 1)
-		assert.Equal(t, "stored before", msgs[0].Content)
+			msgs, err := att.ReadStepMessages(ctx, tc.step)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1, tc.step)
+			assert.Equal(t, "stored before", msgs[0].Content)
+		}
 	})
 
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {

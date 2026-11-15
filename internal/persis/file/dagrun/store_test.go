@@ -202,6 +202,24 @@ func TestStoreDeviceNamedDAG(t *testing.T) {
 	}
 }
 
+// Windows 11 accepts a device name such as con as a directory, so earlier
+// versions stored a DAG's runs under its raw name. They are still found.
+func TestStoreFindsRunsUnderRawDeviceName(t *testing.T) {
+	th := setupTestRepository(t)
+	dag := th.DAG("con")
+	ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
+	th.CreateAttemptWithDAG(t, ts, "raw-run", ir.Succeeded, dag.DAG)
+	if dir := dagDirName(dag.Name); dir != dag.Name {
+		require.NoError(t, os.Rename(filepath.Join(th.TmpDir, dir), filepath.Join(th.TmpDir, dag.Name)))
+	}
+
+	attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, "raw-run"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, status.Status)
+}
+
 func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
 	ctx := context.Background()
 	workRoot := t.TempDir()

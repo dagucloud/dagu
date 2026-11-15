@@ -5,6 +5,8 @@ package writegate_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -59,4 +61,25 @@ func mustLoad(t *testing.T, store *writegate.CommitStore, dag, step string) []wr
 	points, err := store.Load(dag, step)
 	require.NoError(t, err)
 	return points
+}
+
+// Earlier versions kept a device name such as con as written, which
+// Windows 11 stores, so the commit points under it are still read.
+func TestCommitPointsUnderRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	raw := filepath.Join(dir, "writes", "con", "con.json")
+	data, err := json.Marshal([]writegate.CommitPoint{{Key: "k1", Approved: true}})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
+	require.NoError(t, os.WriteFile(raw, data, 0o600))
+
+	store := writegate.NewCommitStore(dir)
+	points := mustLoad(t, store, "con", "con")
+	require.Len(t, points, 1)
+	assert.True(t, points[0].Approved)
+	steps, err := store.Steps("con")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"con"}, steps)
 }
