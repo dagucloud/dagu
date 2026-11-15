@@ -101,18 +101,11 @@ func TestPropagationWaitsForAllRuns(t *testing.T) {
 		}, 5*time.Second, 10*time.Millisecond)
 	}
 	cancel()
-	for _, sig := range []os.Signal{syscall.SIGHUP, syscall.SIGQUIT} {
-		select {
-		case <-launcher.PropagateSignal(ctx, sig):
-		default:
-			t.Fatal("unsupported signal must not wait for runners")
-		}
-	}
 
 	var callers sync.WaitGroup
 	completions := make([]<-chan struct{}, 8)
 	for i := range completions {
-		callers.Go(func() { completions[i] = launcher.PropagateSignal(ctx, syscall.SIGTERM) })
+		callers.Go(func() { completions[i] = launcher.StopRuns(ctx, syscall.SIGTERM, 0) })
 	}
 	callers.Wait()
 	done := completions[0]
@@ -231,5 +224,89 @@ func TestRunCancellationWithoutRegistry(t *testing.T) {
 		require.Error(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancellation did not stop the unregistered run")
+	}
+}
+
+// startTrackedShell starts script under sh with the registry of ctx, and ends
+// its process group when the test ends.
+func startTrackedShell(t *testing.T, ctx context.Context, script string, args ...string) *launcher.StartResult {
+	t.Helper()
+	result, err := launcher.StartProcess(ctx, launcher.CmdSpec{
+		Executable: "sh",
+		Args:       append([]string{"-c", script, "probe"}, args...),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Kill(-result.PID, syscall.SIGKILL) })
+	return result
+}
+
+// A signal the registry does not forward ends shutdown at once and leaves the
+// runs alone.
+func TestStopRunsIgnoresUnsupportedSignals(t *testing.T) {
+	for _, sig := range []os.Signal{syscall.SIGHUP, syscall.SIGQUIT} {
+		ctx := launcher.ContextWithProcessRegistry(t.Context(), launcher.NewProcessRegistry())
+		result := startTrackedShell(t, ctx, "sleep 30")
+
+		select {
+		case <-launcher.StopRuns(ctx, sig, 0):
+		default:
+			t.Fatalf("%v must not wait for runs", sig)
+		}
+		select {
+		case err := <-result.Done:
+			t.Fatalf("%v ended the run: %v", sig, err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// A drain lets runs finish on their own, without a signal, when they end
+// within the drain timeout.
+func TestStopRunsDrainsBeforeSignaling(t *testing.T) {
+	ctx := launcher.ContextWithProcessRegistry(t.Context(), launcher.NewProcessRegistry())
+	signaled := filepath.Join(t.TempDir(), "signaled")
+	result := startTrackedShell(t, ctx, `trap 'printf TERM > "$1"; exit 1' TERM; sleep 0.3; exit 0`, signaled)
+
+	select {
+	case <-launcher.StopRuns(ctx, syscall.SIGTERM, time.Minute):
+	case <-time.After(10 * time.Second):
+		t.Fatal("drain did not end once the run finished")
+	}
+	require.NoError(t, <-result.Done, "the run finished on its own")
+	require.NoFileExists(t, signaled)
+}
+
+// Runs still going when the drain times out receive the signal.
+func TestStopRunsSignalsAfterDrainTimeout(t *testing.T) {
+	ctx := launcher.ContextWithProcessRegistry(t.Context(), launcher.NewProcessRegistry())
+	result := startTrackedShell(t, ctx, "sleep 30")
+
+	start := time.Now()
+	select {
+	case <-launcher.StopRuns(ctx, syscall.SIGTERM, 200*time.Millisecond):
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run was not signaled after the drain timeout")
+	}
+	require.GreaterOrEqual(t, time.Since(start), 200*time.Millisecond, "the drain ended early")
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, <-result.Done, &exitErr)
+}
+
+// Without signal forwarding, runs outlive the drain, as a service manager
+// that keeps them running across a restart needs.
+func TestStopRunsWithoutForwardingLeavesRuns(t *testing.T) {
+	reg := launcher.NewProcessRegistry(launcher.WithoutSignalForwarding())
+	ctx := launcher.ContextWithProcessRegistry(t.Context(), reg)
+	result := startTrackedShell(t, ctx, "sleep 30")
+
+	select {
+	case <-launcher.StopRuns(ctx, syscall.SIGTERM, 200*time.Millisecond):
+	case <-time.After(10 * time.Second):
+		t.Fatal("the drain did not end at its timeout")
+	}
+	select {
+	case err := <-result.Done:
+		t.Fatalf("the run was ended: %v", err)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

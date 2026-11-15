@@ -395,9 +395,10 @@ const (
 	stopCleanupTimeout = 5 * time.Second
 )
 
-// Stop gracefully shuts down the worker. It stops polling, sends SIGTERM to
-// running tasks and waits until they finish their cleanup window and lifecycle
-// handlers, or until ctx is done. Without a deadline on ctx, Stop can wait
+// Stop gracefully shuts down the worker. It stops polling, waits up to
+// signal_handling.drain_timeout for running tasks to finish, then sends
+// SIGTERM to those left and waits until they finish their cleanup window and
+// lifecycle handlers, or until ctx is done. Without a deadline on ctx, Stop can wait
 // indefinitely for a task that does not exit. When ctx is done first, Stop
 // cancels the remaining tasks, waits up to stopCanceledRunsTimeout for them to
 // exit, then up to stopCleanupTimeout to release its resources.
@@ -412,6 +413,7 @@ func (w *Worker) Stop(ctx context.Context) error {
 		if w.stopPolling != nil {
 			w.stopPolling()
 		}
+		w.drain(ctx)
 		w.signalRunningTasks(syscall.SIGTERM)
 		if w.pollersDone != nil {
 			select {
@@ -480,6 +482,33 @@ func (w *Worker) Stop(ctx context.Context) error {
 	})
 
 	return err
+}
+
+// drain waits up to signal_handling.drain_timeout, or until ctx is done, for
+// the running tasks to finish without a signal.
+func (w *Worker) drain(ctx context.Context) {
+	if w.cfg == nil || w.cfg.SignalHandling.DrainTimeout <= 0 || w.pollersDone == nil {
+		return
+	}
+	select {
+	case <-w.pollersDone:
+		return
+	default:
+	}
+	timeout := w.cfg.SignalHandling.DrainTimeout
+	logger.Info(ctx, "Worker waiting for running tasks to finish",
+		tag.WorkerID(w.id),
+		slog.Duration("timeout", timeout),
+	)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-w.pollersDone:
+		logger.Info(ctx, "Worker tasks finished", tag.WorkerID(w.id))
+	case <-timer.C:
+		logger.Warn(ctx, "Worker tasks still running after the drain timeout", tag.WorkerID(w.id))
+	case <-ctx.Done():
+	}
 }
 
 // liveStopContext returns ctx while it is live. Once ctx is done, it returns a
