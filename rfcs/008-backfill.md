@@ -1,6 +1,6 @@
 # RFC 008: Backfill
 
-- **Status:** Implemented (#3689, #3860)
+- **Status:** Implemented
 - **Date:** 2026-11-10
 - **Affected areas:** `service/scheduler`, `intake`, `queue`, `persis`
   (backfill store, slot index), `notification`, `service/frontend` (API, UI),

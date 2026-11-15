@@ -1,6 +1,6 @@
 # RFC 007: Schedule Window and Derived Dates
 
-- **Status:** Implemented (#3689, #3860)
+- **Status:** Implemented
 - **Date:** 2026-11-10
 - **Affected areas:** `spec`, `ir`, `runtime` (run context), `intake`,
   `service/scheduler`, `service/frontend` (API, UI), `service/mcp`, `cmd`,
