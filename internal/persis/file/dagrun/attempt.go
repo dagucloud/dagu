@@ -858,9 +858,12 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 
 	data, err := fileutil.ReadFile(file)
 	if os.IsNotExist(err) {
-		// Messages stored before step names were escaped sit under the raw name.
-		if raw, ok := fileutil.LegacyEntry(dir, stepName+".json"); ok {
-			data, err = fileutil.ReadFile(filepath.Join(dir, raw))
+		// Earlier versions joined the raw step name to dir, which cleaned it,
+		// so a step such as ./fetch kept its messages in fetch.json.
+		if rel, relErr := filepath.Rel(dir, filepath.Join(dir, stepName+".json")); relErr == nil {
+			if raw, ok := fileutil.LegacyEntry(dir, rel); ok {
+				data, err = fileutil.ReadFile(filepath.Join(dir, raw))
+			}
 		}
 	}
 	if err != nil {

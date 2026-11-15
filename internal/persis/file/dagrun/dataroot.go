@@ -85,7 +85,11 @@ func dagDirName(dagName string) string {
 // Earlier versions kept a Windows device name such as con as written, which
 // Windows 11 stores, so a directory under that name is still used.
 func existingDAGDirName(dir, dagName string) string {
-	return fileutil.ExistingName(dir, dagDirName(dagName), dagDirBase(dagName))
+	name := dagDirName(dagName)
+	if base := dagDirBase(dagName); fileutil.SafeNameEscapesDevice(base) {
+		return fileutil.ExistingName(dir, name, base)
+	}
+	return name
 }
 
 func dagDirBase(dagName string) string {
@@ -99,10 +103,12 @@ func dagDirBase(dagName string) string {
 // dagDirNames returns the names of the directories that hold the runs of the
 // DAGs, so that a list can leave a DAG out without reading its runs.
 func dagDirNames(names []string) map[string]struct{} {
-	dirs := make(map[string]struct{}, 2*len(names))
+	dirs := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		dirs[dagDirName(name)] = struct{}{}
-		dirs[dagDirBase(name)] = struct{}{}
+		if base := dagDirBase(name); fileutil.SafeNameEscapesDevice(base) {
+			dirs[base] = struct{}{}
+		}
 	}
 	return dirs
 }

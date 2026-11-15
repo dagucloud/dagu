@@ -348,7 +348,7 @@ func foreachStepDir(node *ir.Node) string {
 	if node.Stdout == "" {
 		return ""
 	}
-	return logpath.ForeachStepDir(node.Stdout, node.Step.Name)
+	return logpath.ForeachStepDir(filepath.Dir(node.Stdout), node.Step.Name)
 }
 
 func (a *API) listForeachItems(node *ir.Node, query ForeachItemsQuery) (api.ForeachItemList, error) {

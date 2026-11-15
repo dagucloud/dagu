@@ -68,14 +68,23 @@ func NewCommitStore(browserDataDir string) *CommitStore {
 
 func (s *CommitStore) path(dag, step string) string {
 	dir := s.dagDir(dag)
-	return filepath.Join(dir, fileutil.ExistingName(dir, fileutil.SafeName(step)+commitFileExt, step+commitFileExt))
+	return filepath.Join(dir, existingSafeName(dir, step, commitFileExt))
 }
 
-// dagDir returns the directory of a DAG's commit points. Earlier versions
-// kept a Windows device name such as con as written, which Windows 11
-// stores, so a directory or file under that name is still used.
+// dagDir returns the directory of a DAG's commit points.
 func (s *CommitStore) dagDir(dag string) string {
-	return filepath.Join(s.dir, fileutil.ExistingName(s.dir, fileutil.SafeName(dag), dag))
+	return filepath.Join(s.dir, existingSafeName(s.dir, dag, ""))
+}
+
+// existingSafeName returns the name in dir of the entry for name with suffix.
+// Earlier versions kept a Windows device name such as con as written, which
+// Windows 11 stores, so an entry under that name is still used.
+func existingSafeName(dir, name, suffix string) string {
+	safe := fileutil.SafeName(name) + suffix
+	if fileutil.SafeNameEscapesDevice(name) {
+		return fileutil.ExistingName(dir, safe, name+suffix)
+	}
+	return safe
 }
 
 // Load returns the commit points of a step; none when it has no file.

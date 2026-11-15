@@ -15,7 +15,7 @@ import (
 func TestForeachStepDir(t *testing.T) {
 	t.Parallel()
 
-	dir := ForeachStepDir(filepath.Join("logs", "run", "each step.out"), "each step")
+	dir := ForeachStepDir(filepath.Join("logs", "run"), "each step")
 	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each_step"), dir)
 }
 
@@ -24,8 +24,8 @@ func TestForeachStepDir(t *testing.T) {
 func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
 	t.Parallel()
 
-	log := filepath.Join(t.TempDir(), "step.out")
-	assert.NotEqual(t, ForeachStepDir(log, "con"), ForeachStepDir(log, "con_"))
+	logDir := t.TempDir()
+	assert.NotEqual(t, ForeachStepDir(logDir, "con"), ForeachStepDir(logDir, "con_"))
 }
 
 // A step whose raw name cleans to another step's name, such as ./b for b,
@@ -33,11 +33,11 @@ func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
 func TestForeachStepDirKeepsCleanedNamesApart(t *testing.T) {
 	t.Parallel()
 
-	log := filepath.Join(t.TempDir(), "step.out")
-	dir := ForeachStepDir(log, "b")
+	logDir := t.TempDir()
+	dir := ForeachStepDir(logDir, "b")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	for _, name := range []string{"./b", "x/../b", "b/."} {
-		assert.NotEqual(t, dir, ForeachStepDir(log, name), name)
+		assert.NotEqual(t, dir, ForeachStepDir(logDir, name), name)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestForeachStepDirKeepsRawDeviceName(t *testing.T) {
 	runDir := t.TempDir()
 	raw := filepath.Join(runDir, ForeachLogDirName, "con")
 	require.NoError(t, os.MkdirAll(raw, 0o750))
-	assert.Equal(t, raw, ForeachStepDir(filepath.Join(runDir, "con.out"), "con"))
+	assert.Equal(t, raw, ForeachStepDir(runDir, "con"))
 }
 
 func TestForeachItemDir(t *testing.T) {
