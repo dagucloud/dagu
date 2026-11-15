@@ -125,7 +125,7 @@ func (u *selfUpgrader) run() {
 		err = newerRelease(u.current, info)
 	}
 	if err != nil {
-		u.fail(err)
+		u.fail(ctx, err)
 		return
 	}
 	u.update(func(status *api.SelfUpgradeStatus) {
@@ -138,13 +138,15 @@ func (u *selfUpgrader) run() {
 	err = u.install(ctx, info, func(downloaded, total int64) {
 		u.update(func(status *api.SelfUpgradeStatus) {
 			status.DownloadedBytes, status.TotalBytes = &downloaded, &total
+			// A retried download starts over from zero.
+			status.State = api.SelfUpgradeStateDownloading
 			if total > 0 && downloaded >= total {
 				status.State = api.SelfUpgradeStateInstalling
 			}
 		})
 	})
 	if err != nil {
-		u.fail(err)
+		u.fail(ctx, err)
 		return
 	}
 	u.update(func(status *api.SelfUpgradeStatus) {
@@ -171,7 +173,11 @@ func (u *selfUpgrader) update(change func(*api.SelfUpgradeStatus)) {
 	change(&u.status)
 }
 
-func (u *selfUpgrader) fail(err error) {
+// fail records err for an upgrade run under ctx.
+func (u *selfUpgrader) fail(ctx context.Context, err error) {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("the upgrade did not finish within %s: %w", u.timeout, err)
+	}
 	logger.Error(u.ctx, "Upgrading from the web UI failed", tag.Error(err))
 	message := err.Error()
 	u.update(func(status *api.SelfUpgradeStatus) {

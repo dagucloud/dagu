@@ -28,6 +28,7 @@ func testSelfUpgrader(t *testing.T, latest string, install func(func(downloaded,
 		ctx:       t.Context(),
 		available: true,
 		current:   "1.0.0",
+		timeout:   time.Minute,
 		restart:   func() { close(restarted) },
 		fetch: func(context.Context) (*upgrade.ReleaseInfo, error) {
 			return &upgrade.ReleaseInfo{
@@ -121,6 +122,7 @@ func TestSelfUpgraderGivesUpOnAStall(t *testing.T) {
 	status := waitForState(t, u, api.SelfUpgradeStateFailed)
 	require.NotNil(t, status.Error)
 	assert.Contains(t, *status.Error, context.DeadlineExceeded.Error())
+	assert.Contains(t, *status.Error, "did not finish within", "the error names the deadline")
 	assert.NoError(t, u.Start(), "a stalled upgrade can be retried")
 }
 
@@ -138,6 +140,28 @@ func TestSelfUpgraderRefusesAnOlderRelease(t *testing.T) {
 	require.NotNil(t, status.Error)
 	assert.Contains(t, *status.Error, "already the latest release")
 	assert.False(t, installed)
+}
+
+// A download that starts over after reaching its size reports downloading
+// again, not installing.
+func TestSelfUpgraderDownloadStartsOver(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	u, _ := testSelfUpgrader(t, "v9.9.9", func(onProgress func(downloaded, total int64)) error {
+		onProgress(100, 100)
+		onProgress(10, 100)
+		<-release
+		return nil
+	})
+	t.Cleanup(func() { close(release) })
+
+	require.NoError(t, u.Start())
+	require.Eventually(t, func() bool {
+		status := u.Status()
+		return status.DownloadedBytes != nil && *status.DownloadedBytes == 10
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, api.SelfUpgradeStateDownloading, u.Status().State)
 }
 
 func TestSelfUpgraderUnavailable(t *testing.T) {
