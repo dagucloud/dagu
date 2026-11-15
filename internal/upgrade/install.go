@@ -55,6 +55,9 @@ func Install(ctx context.Context, opts InstallOptions) (*InstallResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkServiceStop(runtime.GOOS, extractedBinary, opts.TargetPath, opts.ExpectedVersion); err != nil {
+		return nil, err
+	}
 
 	if opts.CreateBackup {
 		backupPath := opts.TargetPath + ".bak"

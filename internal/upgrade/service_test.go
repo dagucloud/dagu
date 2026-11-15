@@ -196,3 +196,33 @@ func TestKeepRunsCommandsKeepRuns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "daemon-reload\n--user daemon-reload\n", string(recorded))
 }
+
+// An upgrade to a binary without service-stop is refused while the Windows
+// service stops Dagu through it, since the next stop would never end. A
+// binary with the command, or a service stopped by the wrapper itself, is
+// installed. Stand-in binaries are shell scripts.
+func TestCheckServiceStop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in binaries are shell scripts")
+	}
+	binary := func(t *testing.T, exitCode string) string {
+		path := filepath.Join(t.TempDir(), "dagu")
+		require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nexit "+exitCode+"\n"), 0o755)) //nolint:gosec // test stand-in must be executable
+		return path
+	}
+	installed := func(t *testing.T, config string) string {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dagu-service.xml"), []byte(config), 0o600))
+		return filepath.Join(dir, "dagu.exe")
+	}
+	const stopsThroughDagu = "<service>\n  <stoparguments>service-stop</stoparguments>\n</service>"
+
+	err := checkServiceStop("windows", binary(t, "1"), installed(t, stopsThroughDagu), "v2.26.0")
+	require.ErrorContains(t, err, "v2.26.0 lacks the service-stop command")
+	assert.ErrorContains(t, err, windowsInstallerCommand+"v2.26.0")
+
+	assert.NoError(t, checkServiceStop("windows", binary(t, "0"), installed(t, stopsThroughDagu), "v2.27.0"))
+	assert.NoError(t, checkServiceStop("windows", binary(t, "1"), installed(t, "<service></service>"), "v2.26.0"))
+	assert.NoError(t, checkServiceStop("windows", binary(t, "1"), filepath.Join(t.TempDir(), "dagu.exe"), "v2.26.0"))
+	assert.NoError(t, checkServiceStop("linux", binary(t, "1"), installed(t, stopsThroughDagu), "v2.26.0"))
+}

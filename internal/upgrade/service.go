@@ -85,8 +85,8 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 
 // winswStopsRuns reports whether stopping the WinSW service configured at
 // configPath also ends the runs it started. WinSW ends the whole process
-// tree of the service, unless it stops the service through Dagu's
-// service-stop command, which an older installer did not set.
+// tree of the service, unless its config makes Dagu's service-stop command
+// the one that stops the service.
 func winswStopsRuns(configPath string) bool {
 	data, err := os.ReadFile(configPath) //nolint:gosec // path names the WinSW config of the Dagu service
 	if err != nil {
@@ -99,6 +99,30 @@ func winswStopsRuns(configPath string) bool {
 		return true
 	}
 	return !strings.HasPrefix(strings.TrimSpace(config.StopArguments), "service-stop")
+}
+
+// windowsInstallerCommand runs the PowerShell installer for a given version,
+// which the version is appended to.
+const windowsInstallerCommand = "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/dagucloud/dagu/main/scripts/installer.ps1))) -Service yes -Version "
+
+// checkServiceStop returns an error when the Windows service set up next to
+// target stops Dagu through service-stop and binary, the given version, lacks
+// that command. The service wrapper would then wait for Dagu to exit on its
+// next stop, which never comes. The installer sets the service up for any
+// version, so the error names it.
+func checkServiceStop(goos, binary, target, version string) error {
+	if goos != "windows" {
+		return nil
+	}
+	config := filepath.Join(filepath.Dir(target), winswServiceConfig)
+	if !fileutil.IsFile(config) || winswStopsRuns(config) {
+		return nil
+	}
+	if exec.Command(binary, "service-stop", "--help").Run() == nil { //nolint:gosec // binary is the one just extracted from the release archive
+		return nil
+	}
+	return fmt.Errorf("%s lacks the service-stop command that the Dagu Windows service stops Dagu with, so the service would not stop after this upgrade; install that version with the installer, which sets the service up for it: %s%s",
+		version, windowsInstallerCommand, version)
 }
 
 // systemdService describes the service of the systemd unit at unitPath.
