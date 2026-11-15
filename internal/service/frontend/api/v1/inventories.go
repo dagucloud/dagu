@@ -188,7 +188,11 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 	switch {
 	case errors.Is(err, inventory.ErrInvalid):
 		ruleErrs := appendRuleErrors(nil, err)
-		return importRefused(fmt.Sprintf("The import breaks %d rules, and nothing was stored", len(ruleErrs)), ruleErrs), nil
+		rules := "rules"
+		if len(ruleErrs) == 1 {
+			rules = "rule"
+		}
+		return importRefused(fmt.Sprintf("The import breaks %d %s, and nothing was stored", len(ruleErrs), rules), ruleErrs), nil
 	case errors.Is(err, inventory.ErrStale):
 		return api.ImportInventories409JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
@@ -198,7 +202,7 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 		return nil, fmt.Errorf("failed to import inventories: %w", err)
 	}
 
-	if !opts.DryRun {
+	if !opts.DryRun && len(result.Created)+len(result.Replaced) > 0 {
 		a.logAudit(ctx, audit.CategorySystem, "inventory_import", map[string]any{
 			"created":  result.Created,
 			"replaced": result.Replaced,
