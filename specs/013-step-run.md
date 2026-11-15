@@ -316,7 +316,7 @@ Shell selection order is:
 
 - `runId` MUST be a valid run ID, as for `outputsFromRunId`. The run does not need to exist, because the values can come from a run that was removed. `capturedAt` is an RFC 3339 timestamp. An invalid `runId` or `capturedAt` is rejected with HTTP 400.
 
-- A supplied output reaches `${steps.<id>.outputs.<name>}` in the selected steps. The name of a step's string-form `output: VAR` sets that variable.
+- A supplied output reaches `${steps.<id>.outputs.<name>}` in the selected steps. The name of a step's string-form `output: VAR` sets that variable and the step's captured output, which `${<id>.output}` reads. When the step also stores a legacy outputs payload and masking changed its captured output, `${<id>.output}` still fails as a masked read, as Spec 069 defines.
 
 - A request that supplies an output the step does not declare, an output of a selected step, or an output that is not valid for its declared type is rejected with HTTP 400.
 

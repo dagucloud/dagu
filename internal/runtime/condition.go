@@ -201,7 +201,7 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 
 	evaluatedVal, err := resolveRuntimeString(ctx, raw, field)
 	if err != nil {
-		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
+		return fmt.Errorf("failed to evaluate the value: Error=%w", err)
 	}
 
 	patterns := c.ExpectedPatterns()

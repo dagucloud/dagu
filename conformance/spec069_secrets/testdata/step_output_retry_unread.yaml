@@ -1,0 +1,21 @@
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+steps:
+  - id: login
+    run: |
+      printf 'login\n' >> logins.out
+      printf 'token=%s\n' "$API_TOKEN" >> "$DAGU_OUTPUT_FILE"
+      printf 'region=us-east\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: token
+      - name: region
+
+  - id: use
+    depends: login
+    run: |
+      printf '%s\n' '${steps.login.outputs.region}' >> received.out
+      printf '%s\n' '\${steps.login.outputs.token}' >> received.out
+      [ -f ready ]

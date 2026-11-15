@@ -17,6 +17,7 @@ type resolver struct {
 	expandOS               bool
 	deferShellVars         bool
 	recognizeEscapedDollar bool
+	maskedReads            *maskedReads
 }
 
 // newResolver creates a resolver from the given context and options.
@@ -28,17 +29,42 @@ func newResolver(ctx context.Context, opts *options) *resolver {
 		expandOS:               opts.ExpandOS,
 		deferShellVars:         opts.DeferShellVars,
 		recognizeEscapedDollar: opts.RecognizeEscapedDollar,
+		maskedReads:            maskedReadsFrom(ctx),
 	}
 }
 
-// lookupVariable searches the explicit variable maps for the given name.
+// lookupVariable searches the explicit variable maps for the given name and
+// records the read.
 func (r *resolver) lookupVariable(name string) (string, bool) {
+	val, ok := r.peekVariable(name)
+	if ok {
+		r.maskedReads.noteEntry(r.scopeEntry(name, val))
+	}
+	return val, ok
+}
+
+// peekVariable searches the explicit variable maps for the given name
+// without recording a read.
+func (r *resolver) peekVariable(name string) (string, bool) {
 	for _, vars := range r.variables {
 		if val, ok := vars[name]; ok {
 			return val, true
 		}
 	}
 	return "", false
+}
+
+// scopeEntry returns the scope entry that holds value under name, such as
+// the one an explicit variable map copied it from, which keeps its masked
+// mark.
+func (r *resolver) scopeEntry(name, value string) EnvEntry {
+	if r.maskedReads == nil || !r.scope.hasMaskedOutput() {
+		return EnvEntry{}
+	}
+	if entry, ok := r.scope.GetEntry(name); ok && entry.Value == value {
+		return entry
+	}
+	return EnvEntry{}
 }
 
 // lookupScopeNonOS searches the scope for a non-OS-sourced entry.
@@ -50,7 +76,19 @@ func (r *resolver) lookupScopeNonOS(name string) (string, bool) {
 	return entry.Value, true
 }
 
+// lookupScopeNonOSEntry returns the non-OS-sourced entry for name and
+// records it as read.
 func (r *resolver) lookupScopeNonOSEntry(name string) (EnvEntry, bool) {
+	entry, ok := r.peekScopeNonOSEntry(name)
+	if ok {
+		r.maskedReads.noteEntry(entry)
+	}
+	return entry, ok
+}
+
+// peekScopeNonOSEntry returns the non-OS-sourced entry for name without
+// recording a read.
+func (r *resolver) peekScopeNonOSEntry(name string) (EnvEntry, bool) {
 	if r.scope == nil {
 		return EnvEntry{}, false
 	}
@@ -81,7 +119,8 @@ func (r *resolver) resolveForReplace(name string) (string, bool) {
 	if r.deferShellVars && !isNumericVar(name) {
 		// A safe home-relative path is inlined so the shell expands its ~.
 		// A secret is never written into the command text.
-		if entry, ok := r.lookupScopeNonOSEntry(name); ok && entry.Source != EnvSourceSecret && isSafeHomeRelativeShellWord(entry.Value) {
+		if entry, ok := r.peekScopeNonOSEntry(name); ok && entry.Source != EnvSourceSecret && isSafeHomeRelativeShellWord(entry.Value) {
+			r.maskedReads.noteEntry(entry)
 			return entry.Value, true
 		}
 		return "", false
@@ -174,14 +213,17 @@ func (r *resolver) resolveReference(ctx context.Context, varName, path string) (
 	if !ok {
 		return "", false
 	}
+	// Any path into a masked variable counts, whatever part it selects.
+	r.maskedReads.noteEntry(r.scopeEntry(varName, jsonStr))
 	return resolveJSONPath(ctx, varName, jsonStr, path)
 }
 
 // resolveJSONSource looks up a variable's raw value for JSON path resolution.
 // Unlike resolve, this includes OS-sourced scope entries when expandOS is true,
 // because JSON path resolution needs the actual value regardless of source.
+// It records no read: the path decides what the reference reads.
 func (r *resolver) resolveJSONSource(name string) (string, bool) {
-	if val, ok := r.lookupVariable(name); ok {
+	if val, ok := r.peekVariable(name); ok {
 		return val, true
 	}
 	if r.expandOS {
@@ -192,7 +234,8 @@ func (r *resolver) resolveJSONSource(name string) (string, bool) {
 		}
 		return lookupProcessEnv(name)
 	}
-	return r.lookupScopeNonOS(name)
+	entry, ok := r.peekScopeNonOSEntry(name)
+	return entry.Value, ok
 }
 
 // replaceVars substitutes $VAR and ${VAR} patterns using all resolver sources.

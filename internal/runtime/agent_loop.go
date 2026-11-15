@@ -470,7 +470,7 @@ func (r *Runner) runAgentAction(
 
 	actionCtx, err := r.setupVariables(ctx, plan, node)
 	if err != nil {
-		node.MarkError(err)
+		node.MarkError(preferMaskedRead(actionCtx, node, err))
 		r.report(ctx, progressCh, node)
 		recordActionEvent(state, decision.ToolCallID, decision.Step, attempt, node)
 		state.Append(observe(ctx, node, decision.ToolCallID))
@@ -570,6 +570,7 @@ func (r *Runner) executeAgentAction(ctx context.Context, plan *Plan, node *Node,
 	}
 
 	if err := r.prepareNode(ctx, node); err != nil {
+		err = preferMaskedRead(ctx, node, err)
 		r.setLastError(err)
 		node.MarkError(err)
 		r.report(ctx, progressCh, node)

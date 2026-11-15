@@ -106,6 +106,7 @@ func skippedNodeState(source *ir.Node) runtime.NodeState {
 	state.ToolDefinitions = append([]ir.ToolDefinition(nil), source.ToolDefinitions...)
 	state.HumanTaskInput = append(state.HumanTaskInput, source.HumanTaskInput...)
 	state.StepOutputsValue = cloneString(source.StepOutputsValue)
+	state.MaskedOutputs = source.MaskedOutputs.Clone()
 	state.HumanTaskCompletedBy = source.HumanTaskCompletedBy
 	state.HumanTaskCompletedByID = source.HumanTaskCompletedByID
 	state.ApprovalInputs = cloneStringMap(source.ApprovalInputs)

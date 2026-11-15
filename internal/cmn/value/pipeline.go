@@ -89,6 +89,10 @@ func expandAllVariables(ctx context.Context, input string, opts *options) (strin
 
 // substitutePhase runs backtick command substitution.
 func substitutePhase(ctx context.Context, input string, opts *options) (string, error) {
+	// A command does not run on a masked value it would be given.
+	if err := maskedReadsFrom(ctx).rejected(); err != nil {
+		return "", err
+	}
 	value, err := substituteCommandsWithContext(ctx, input)
 	if err != nil {
 		return "", err
@@ -108,18 +112,13 @@ func regexExpandEnv(ctx context.Context, input string, opts *options) string {
 		if scope == nil {
 			return expandWithLookup(input, lookupProcessEnv, opts.RecognizeEscapedDollar)
 		}
-		return expandWithLookup(input, scope.Get, opts.RecognizeEscapedDollar)
+		return expandWithLookup(input, scopeLookup(ctx, scope), opts.RecognizeEscapedDollar)
 	}
 	scope := GetEnvScope(ctx)
 	if scope == nil {
 		return input
 	}
-	return expandWithLookup(input, func(key string) (string, bool) {
-		if entry, ok := scope.GetEntry(key); ok && entry.Source != EnvSourceOS {
-			return entry.Value, true
-		}
-		return "", false
-	}, opts.RecognizeEscapedDollar)
+	return expandWithLookup(input, scopeNonOSLookup(ctx, scope), opts.RecognizeEscapedDollar)
 }
 
 // shellExpandPhase performs shell-style variable expansion.
@@ -146,6 +145,9 @@ func evalStringValue(ctx context.Context, value string, opts *options) (string, 
 	var err error
 	value = expandVariables(ctx, value, opts)
 	if opts.Substitute {
+		if err := maskedReadsFrom(ctx).rejected(); err != nil {
+			return "", err
+		}
 		value, err = substituteCommandsWithContext(ctx, value)
 		if err != nil {
 			return "", err
