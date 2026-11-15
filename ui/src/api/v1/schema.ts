@@ -5174,6 +5174,20 @@ export interface components {
             /** @description Slots whose run failed */
             failed: number;
         };
+        /** @description The latest span whose start-schedule slots passed without a run, as the scheduler recorded it. A backfill that runs the span's first slots takes them from it. */
+        MissedSlots: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /**
+             * @description Why the slots did not run: the DAG was suspended, the scheduler paused, or no scheduler ran
+             * @enum {string}
+             */
+            reason: MissedSlotsReason;
+            /** @description Slots that passed, up to 10,000 */
+            slots: number;
+        };
         /** @enum {string} */
         BackfillStatus: BackfillStatus;
         /** @enum {string} */
@@ -10537,6 +10551,7 @@ export interface operations {
                         localDags: components["schemas"]["LocalDag"][];
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
                         latestBackfill?: components["schemas"]["LatestBackfill"];
+                        missedSlots?: components["schemas"]["MissedSlots"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;
                         /** @description Whether the DAG is pinned to the top of the DAG list */
@@ -24853,6 +24868,11 @@ export enum BackfillPlanSlotAction {
     skip_succeeded = "skip: succeeded",
     skip_failed = "skip: failed",
     skip_active = "skip: active"
+}
+export enum MissedSlotsReason {
+    suspended = "suspended",
+    paused = "paused",
+    down = "down"
 }
 export enum BackfillStatus {
     running = "running",

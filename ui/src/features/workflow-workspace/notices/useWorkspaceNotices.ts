@@ -5,7 +5,9 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import { useMonitoringOfferState } from '@/components/MonitoringOffer';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useBackfillNotice } from '@/features/backfills/hooks/useBackfillNotice';
+import { useMissedSlotsNotice } from '@/features/backfills/hooks/useMissedSlotsNotice';
 import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -45,7 +47,10 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { ts } = useI18n();
   const navigate = useNavigate();
   const run = useWorkspaceRun();
-  const { dagData, remoteNode } = useWorkspaceData('useWorkspaceNotices');
+  const { dagData, remoteNode, workspaceName } = useWorkspaceData(
+    'useWorkspaceNotices'
+  );
+  const canBackfill = useCanExecuteForWorkspace(workspaceName);
   const dock = useDockCommands();
   const offer = useMonitoringOfferState();
 
@@ -74,6 +79,12 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { dismiss: dismissOffer } = offer;
   const waitingSubRun = useWaitingSubRun();
   const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
+  const missedSlotsNotice = useMissedSlotsNotice(
+    dagData.missedSlots,
+    dagData.dag?.name ?? '',
+    remoteNode,
+    canBackfill
+  );
 
   return useMemo(() => {
     const notices: WorkspaceNotice[] = [];
@@ -164,6 +175,9 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     if (backfillNotice) {
       notices.push(backfillNotice);
     }
+    if (missedSlotsNotice) {
+      notices.push(missedSlotsNotice);
+    }
     if (offerVisible) {
       notices.push({
         id: 'monitoring-offer',
@@ -194,6 +208,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
     waitingSubRun,
     newerRunActive,
     backfillNotice,
+    missedSlotsNotice,
     offerVisible,
   ]);
 }

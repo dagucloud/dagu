@@ -93,6 +93,58 @@ describe('BackfillRangePicker', () => {
     });
   });
 
+  // A span recorded in UTC is shown and edited in UTC.
+  it('edits an initial range in its own offset', () => {
+    useQueryMock.mockReturnValue({ data: { slots: [] }, mutate: vi.fn() });
+    const onChange = vi.fn();
+    render(
+      <BackfillRangePicker
+        fileName="etl"
+        remoteNode="local"
+        initial={{ from: '2026-11-01T09:00:00Z', to: '2026-11-01T20:59:59Z' }}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByText('Times are in UTC.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('First fire time'), {
+      target: { value: '2026-11-01T12:00' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({
+      kind: 'range',
+      from: '2026-11-01T12:00:00Z',
+      to: '2026-11-01T20:59:59Z',
+    });
+  });
+
+  // A span across a daylight-saving change ends in another offset; both
+  // bounds show in the offset the picker names.
+  it('shows both bounds of an initial range in one offset', () => {
+    useQueryMock.mockReturnValue({ data: { slots: [] }, mutate: vi.fn() });
+    const onChange = vi.fn();
+    render(
+      <BackfillRangePicker
+        fileName="etl"
+        remoteNode="local"
+        initial={{
+          from: '2026-03-08T00:00:00-05:00',
+          to: '2026-03-08T04:00:00-04:00',
+        }}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByText('Times are in UTC-05:00.')).toBeInTheDocument();
+    const last = screen.getByLabelText('Last fire time');
+    expect(last).toHaveValue('2026-03-08T03:00');
+    fireEvent.change(last, { target: { value: '2026-03-08T02:30' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      kind: 'range',
+      from: '2026-03-08T00:00:00-05:00',
+      to: '2026-03-08T02:30:00-05:00',
+    });
+  });
+
   // A failed read says so and offers a retry, and the other presets stay.
   it('reports a failed read of the slots', () => {
     const mutate = vi.fn();

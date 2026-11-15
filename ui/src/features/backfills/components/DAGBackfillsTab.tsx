@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Link } from 'react-router-dom';
+import { useRef } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LoadErrorState } from '@/components/PageStates';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import RelativeTime from '@/components/ui/relative-time';
@@ -9,11 +10,13 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useLiveBackfill } from '../hooks/useBackfill';
+import { GAP_FROM_PARAM, GAP_TO_PARAM } from '../hooks/useMissedSlotsNotice';
 import { backfillPath } from '../lib/backfillLinks';
 import { type Backfill, slotsDone } from '../lib/backfillState';
 import { BackfillProgress } from './BackfillProgress';
 import { BackfillStatusChip } from './BackfillStatusChip';
 import { DAGSlotsView } from './DAGSlotsView';
+import { StartBackfillDialog } from './StartBackfillDialog';
 
 // Read again each time the tab opens, however soon after the last read: a
 // backfill started from it opens its own page, and the list on return must
@@ -28,7 +31,8 @@ const READ_ON_OPEN = {
 /**
  * A DAG's slots, to backfill from, and its backfills, newest first. The list
  * is read when the tab opens and on refresh; an open backfill in it follows
- * its own live feed.
+ * its own live feed. A link with a gap, as the notice of missed slots gives,
+ * opens the start panel on that gap.
  */
 export function DAGBackfillsTab({
   dagName,
@@ -49,8 +53,42 @@ export function DAGBackfillsTab({
   );
 
   const backfills = data ? [...data.backfills].reverse() : [];
+  const location = useLocation();
+  const navigate = useNavigate();
+  const search = new URLSearchParams(location.search);
+  const gapFrom = search.get(GAP_FROM_PARAM);
+  const gapTo = search.get(GAP_TO_PARAM);
+  // A start opens the backfill's page, which closing the panel must keep.
+  const started = useRef(false);
+  const closeGap = () => {
+    if (started.current) return;
+    search.delete(GAP_FROM_PARAM);
+    search.delete(GAP_TO_PARAM);
+    const rest = search.toString();
+    navigate(
+      { pathname: location.pathname, search: rest ? `?${rest}` : '' },
+      { replace: true }
+    );
+  };
   return (
     <div className="flex flex-col gap-6">
+      {canExecute && gapFrom && gapTo && (
+        <StartBackfillDialog
+          fileName={fileName}
+          remoteNode={remoteNode}
+          target={{ kind: 'range', from: gapFrom, to: gapTo }}
+          // A gap may hold more slots than one backfill may run.
+          pickRange
+          open
+          onOpenChange={(open) => {
+            if (!open) closeGap();
+          }}
+          onStarted={(backfill) => {
+            started.current = true;
+            navigate(backfillPath(backfill.id, remoteNode));
+          }}
+        />
+      )}
       <DAGSlotsView fileName={fileName} canExecute={canExecute} />
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">

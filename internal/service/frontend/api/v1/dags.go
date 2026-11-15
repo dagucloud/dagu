@@ -633,6 +633,21 @@ func (a *API) GetDAGDetails(ctx context.Context, request api.GetDAGDetailsReques
 	return resp, nil
 }
 
+// missedSlots reports the latest span whose slots the DAG missed, as the
+// scheduler recorded it, or nil.
+func missedSlots(state *schedulerstate.State, dagName string) *api.MissedSlots {
+	if state == nil {
+		return nil
+	}
+	gap := state.DAGs[dagName].Missed
+	if gap == nil {
+		return nil
+	}
+	return &api.MissedSlots{
+		From: gap.From, To: gap.To, Reason: api.MissedSlotsReason(gap.Reason), Slots: gap.Slots,
+	}
+}
+
 // getDAGDetailsData returns DAG details data. Used by both HTTP handler and SSE fetcher.
 func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDAGDetails200JSONResponse, error) {
 	dag, err := a.dagRepository.GetDetails(ctx, fileName, persis.DAGLoadOptions{AllowBuildErrors: true})
@@ -657,8 +672,9 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	}
 
 	details := toDAGDetails(dag)
+	schedulerState := a.schedulerState(ctx)
 	if details != nil {
-		details.NextRun = a.projectNextRun(ctx, dag)
+		details.NextRun = nextRunOf(a.nextRunProjectionFrom(ctx, schedulerState), dag)
 		details.UpcomingRuns = a.scheduleFires(dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
 		details.RecentFires = a.recentFires(ctx, fileName, dag)
@@ -687,6 +703,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 		Warnings:     dag.BuildWarnings,
 		Spec:         &yamlSpec,
 		EditorHints:  a.buildDAGEditorHints(ctx, dag, fileName),
+		MissedSlots:  missedSlots(schedulerState, dag.Name),
 	}, nil
 }
 
@@ -2812,7 +2829,12 @@ func comparePinned(pinned map[string]struct{}, a, b string) int {
 }
 
 func (a *API) projectNextRun(ctx context.Context, dag *ir.DAG) *time.Time {
-	nextRun := a.nextRunProjection(ctx)(dag, time.Now())
+	return nextRunOf(a.nextRunProjection(ctx), dag)
+}
+
+// nextRunOf returns the next run a projection gives a DAG, or nil.
+func nextRunOf(projection func(*ir.DAG, time.Time) time.Time, dag *ir.DAG) *time.Time {
+	nextRun := projection(dag, time.Now())
 	if nextRun.IsZero() {
 		return nil
 	}
@@ -2908,19 +2930,29 @@ func fireZoneLabel(fire time.Time) string {
 }
 
 func (a *API) nextRunProjection(ctx context.Context) func(*ir.DAG, time.Time) time.Time {
+	return a.nextRunProjectionFrom(ctx, a.schedulerState(ctx))
+}
+
+// schedulerState returns the scheduler's persisted state, or nil when it
+// cannot be read.
+func (a *API) schedulerState(ctx context.Context) *schedulerstate.State {
+	if a.schedulerStateStore == nil {
+		return nil
+	}
+	state, err := a.schedulerStateStore.Load(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to load scheduler state", tag.Error(err))
+		return nil
+	}
+	return state
+}
+
+// nextRunProjectionFrom projects next runs from the scheduler's state, which
+// may be nil.
+func (a *API) nextRunProjectionFrom(ctx context.Context, schedulerState *schedulerstate.State) func(*ir.DAG, time.Time) time.Time {
 	location := time.Local
 	if a.config != nil && a.config.Core.Location != nil {
 		location = a.config.Core.Location
-	}
-
-	var schedulerState *schedulerstate.State
-	if a.schedulerStateStore != nil {
-		state, loadErr := a.schedulerStateStore.Load(ctx)
-		if loadErr != nil {
-			logger.Warn(ctx, "Failed to load scheduler state for DAG next-run projection", tag.Error(loadErr))
-		} else {
-			schedulerState = state
-		}
 	}
 
 	projection := scheduler.NewNextRunProjection(location, schedulerState)

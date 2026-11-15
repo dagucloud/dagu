@@ -27,25 +27,68 @@ export function daysBack(days: number): BackfillTarget {
   return { kind: 'range', from: dayjs().subtract(days, 'day').toISOString() };
 }
 
+/** The leading wall time of an RFC 3339 time, as a time input shows it. */
+const WALL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** The offset an RFC 3339 time ends with, such as Z or +09:00. */
+const OFFSET = /(Z|[+-]\d{2}:\d{2})$/;
+
+/** A time input's value, which has no seconds. */
+const MINUTE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+/** Minutes east of UTC of an offset such as Z or +09:00. */
+function offsetMinutes(offset: string): number {
+  if (offset === 'Z') return 0;
+  const [hours = 0, minutes = 0] = offset.slice(1).split(':').map(Number);
+  return (offset.startsWith('-') ? -1 : 1) * (hours * 60 + minutes);
+}
+
 /**
- * Picks the range of a backfill started from the Run menu: the last 7 or 30
- * days, since the last success, or fire times typed in. Times typed without
- * an offset are read in the schedule's zone. The DAG's slots are read once,
- * to find the last success, when the panel opens.
+ * A bound as a time input shows it: a bound with an offset shows its wall
+ * time in the given offset, or else in its own.
+ */
+function inputValue(bound: string, offset: string | undefined): string {
+  const instant = Date.parse(bound);
+  if (offset && OFFSET.test(bound) && !Number.isNaN(instant)) {
+    return new Date(instant + offsetMinutes(offset) * 60_000)
+      .toISOString()
+      .slice(0, 16);
+  }
+  return WALL_TIME.exec(bound)?.[0] ?? bound;
+}
+
+/** A typed time read in the given offset, or in the schedule's zone. */
+function inOffset(value: string, offset: string | undefined): string {
+  if (!value || !offset) return value;
+  return `${MINUTE_TIME.test(value) ? `${value}:00` : value}${offset}`;
+}
+
+/**
+ * Picks the range of a backfill: the last 7 or 30 days, since the last
+ * success, or fire times typed in. Times typed without an offset are read in
+ * the schedule's zone. A given initial range starts as fire times, and each
+ * of its bounds is kept as given until edited. Both bounds show, and a
+ * bound typed then is read, in the offset of the initial start. The DAG's
+ * slots are read once, to find the last success, when the panel opens.
  */
 export function BackfillRangePicker({
   fileName,
   remoteNode,
+  initial,
   onChange,
 }: {
   fileName: string;
   remoteNode: string;
+  initial?: { from: string; to?: string };
   onChange: (target: BackfillTarget | null) => void;
 }) {
   const { ts } = useI18n();
-  const [choice, setChoice] = useState<Choice>('7d');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [choice, setChoice] = useState<Choice>(initial ? 'custom' : '7d');
+  const [from, setFrom] = useState(initial?.from ?? '');
+  const [to, setTo] = useState(initial?.to ?? '');
+  const [offset] = useState(() =>
+    initial ? OFFSET.exec(initial.from)?.[1] : undefined
+  );
   const lookback = useMemo(
     () => dayjs().subtract(SUCCESS_LOOKBACK_DAYS, 'day').toISOString(),
     []
@@ -163,8 +206,10 @@ export function BackfillRangePicker({
             type="datetime-local"
             aria-label={ts('First fire time')}
             className="w-52"
-            value={from}
-            onChange={(event) => typed(event.target.value, to)}
+            value={inputValue(from, offset)}
+            onChange={(event) =>
+              typed(inOffset(event.target.value, offset), to)
+            }
           />
           <span aria-hidden="true" className="text-muted-foreground">
             –
@@ -173,9 +218,18 @@ export function BackfillRangePicker({
             type="datetime-local"
             aria-label={ts('Last fire time')}
             className="w-52"
-            value={to}
-            onChange={(event) => typed(from, event.target.value)}
+            value={inputValue(to, offset)}
+            onChange={(event) =>
+              typed(from, inOffset(event.target.value, offset))
+            }
           />
+          {offset && (
+            <span className="text-xs text-muted-foreground">
+              {ts('Times are in {zone}.', {
+                zone: offset === 'Z' ? 'UTC' : `UTC${offset}`,
+              })}
+            </span>
+          )}
         </div>
       )}
     </fieldset>
