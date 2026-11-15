@@ -43,7 +43,7 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
-	hostKeyCallback, err := getHostKeyCallback(cfg.StrictHostKey, cfg.KnownHostFile)
+	hostKey, err := targetHostKeyPolicy(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup host key verification: %w", err)
 	}
@@ -53,8 +53,11 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 
 	var bastionCfg *bastionClientConfig
 	if cfg.Bastion != nil {
-		// Bastion inherits host key verification settings from main config
-		bastionCfg, err = newBastionClientConfig(ctx, cfg.Bastion, timeout, hostKeyCallback)
+		bastionHostKey, err := bastionHostKeyPolicy(ctx, cfg, hostKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup bastion host key verification: %w", err)
+		}
+		bastionCfg, err = newBastionClientConfig(ctx, cfg.Bastion, timeout, bastionHostKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup bastion client: %w", err)
 		}
@@ -63,10 +66,11 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 	return &Client{
 		hostPort: net.JoinHostPort(cfg.Host, port),
 		cfg: &ssh.ClientConfig{
-			User:            cfg.User,
-			Auth:            []ssh.AuthMethod{authMethod},
-			HostKeyCallback: hostKeyCallback,
-			Timeout:         timeout,
+			User:              cfg.User,
+			Auth:              []ssh.AuthMethod{authMethod},
+			HostKeyCallback:   hostKey.callback,
+			HostKeyAlgorithms: hostKey.algorithms,
+			Timeout:           timeout,
 		},
 		Shell:      cfg.Shell,
 		ShellArgs:  slices.Clone(cfg.ShellArgs),
@@ -231,9 +235,34 @@ func (c *bastionWrappedConn) Close() error {
 	return errors.Join(targetErr, bastionErr)
 }
 
+// targetHostKeyPolicy checks the target's key against its node's keys, or
+// else against the known hosts file.
+func targetHostKeyPolicy(ctx context.Context, cfg *Config) (hostKeyPolicy, error) {
+	if cfg.NodeHostKey != nil {
+		return cfg.NodeHostKey.policy(ctx, hopNode)
+	}
+	callback, err := getHostKeyCallback(cfg.StrictHostKey, cfg.KnownHostFile)
+	if err != nil {
+		return hostKeyPolicy{}, err
+	}
+	return hostKeyPolicy{callback: callback}, nil
+}
+
+// bastionHostKeyPolicy checks the bastion's key against its own node's keys.
+// A bastion that is not a node checks its key as the target does.
+func bastionHostKeyPolicy(ctx context.Context, cfg *Config, target hostKeyPolicy) (hostKeyPolicy, error) {
+	switch {
+	case cfg.Bastion.NodeHostKey != nil:
+		return cfg.Bastion.NodeHostKey.policy(ctx, hopBastion)
+	case cfg.NodeHostKey != nil:
+		return hostKeyPolicy{}, fmt.Errorf("the bastion of node %q names no node to check its host key against", cfg.NodeHostKey.Node)
+	default:
+		return target, nil
+	}
+}
+
 // newBastionClientConfig creates the bastion client configuration.
-// It inherits the host key callback from the main SSH config for security.
-func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout time.Duration, hostKeyCallback ssh.HostKeyCallback) (*bastionClientConfig, error) {
+func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout time.Duration, hostKey hostKeyPolicy) (*bastionClientConfig, error) {
 	authMethod, err := selectBastionAuthMethod(ctx, bastion.SSHAuth)
 	if err != nil {
 		return nil, err
@@ -242,10 +271,11 @@ func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout
 	return &bastionClientConfig{
 		hostPort: net.JoinHostPort(bastion.Host, defaultIfEmpty(bastion.Port, "22")),
 		cfg: &ssh.ClientConfig{
-			User:            bastion.User,
-			Auth:            []ssh.AuthMethod{authMethod},
-			HostKeyCallback: hostKeyCallback,
-			Timeout:         timeout,
+			User:              bastion.User,
+			Auth:              []ssh.AuthMethod{authMethod},
+			HostKeyCallback:   hostKey.callback,
+			HostKeyAlgorithms: hostKey.algorithms,
+			Timeout:           timeout,
 		},
 	}, nil
 }
