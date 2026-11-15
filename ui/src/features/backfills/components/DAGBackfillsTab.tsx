@@ -85,7 +85,9 @@ export function DAGBackfillsTab({
           }}
           onStarted={(backfill) => {
             started.current = true;
-            navigate(backfillPath(backfill.id, remoteNode));
+            // Back from the backfill then skips the link, which would open
+            // the panel again.
+            navigate(backfillPath(backfill.id, remoteNode), { replace: true });
           }}
         />
       )}

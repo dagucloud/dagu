@@ -47,7 +47,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { ts } = useI18n();
   const navigate = useNavigate();
   const run = useWorkspaceRun();
-  const { dagData, remoteNode, workspaceName } = useWorkspaceData(
+  const { fileName, dagData, remoteNode, workspaceName } = useWorkspaceData(
     'useWorkspaceNotices'
   );
   const canBackfill = useCanExecuteForWorkspace(workspaceName);
@@ -80,7 +80,7 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const waitingSubRun = useWaitingSubRun();
   const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
   const missedSlotsNotice = useMissedSlotsNotice(
-    dagData.missedSlots,
+    fileName,
     dagData.dag?.name ?? '',
     remoteNode,
     canBackfill

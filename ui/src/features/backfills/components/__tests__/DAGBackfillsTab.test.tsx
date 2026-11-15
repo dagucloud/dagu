@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DAGBackfillsTab } from '../DAGBackfillsTab';
@@ -112,6 +112,42 @@ describe('DAGBackfillsTab', () => {
     expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
       '/backfills/bf123456'
     );
+  });
+
+  // The backfill's page takes the place of the link that opened the panel,
+  // so going back returns to the DAG's page rather than to the panel.
+  it('goes back from a started backfill to the page before the link', () => {
+    function Back() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate(-1)}>
+          Back
+        </button>
+      );
+    }
+    render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <MemoryRouter
+          initialEntries={[
+            '/dags/etl',
+            '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z',
+          ]}
+          initialIndex={1}
+        >
+          <DAGBackfillsTab dagName="etl" fileName="etl" canExecute />
+          <Location />
+          <Back />
+        </MemoryRouter>
+      </SWRConfig>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
+      '/dags/etl'
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('opens no start panel for a user who may not run the workflow', () => {

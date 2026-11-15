@@ -26,6 +26,11 @@ vi.mock('@/hooks/api', () => ({
   useQuery: () => ({ data: details.dag ? { dag: details.dag } : undefined }),
 }));
 vi.mock('@/contexts/AuthContext', () => ({ useCanManageProfiles: () => true }));
+const mutate = vi.hoisted(() => vi.fn());
+vi.mock('swr', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('swr')>()),
+  useSWRConfig: () => ({ mutate }),
+}));
 vi.mock('@/features/dags/hooks/useProfiles', () => ({
   useProfiles: () => ({ activeProfiles: [{ name: 'night' }] }),
 }));
@@ -66,6 +71,7 @@ const lastBody = () =>
 describe('StartBackfillDialog', () => {
   beforeEach(() => {
     post.mockReset();
+    mutate.mockReset();
     details.dag = undefined;
   });
 
@@ -150,6 +156,39 @@ describe('StartBackfillDialog', () => {
       )
     );
     expect(lastBody()).toMatchObject({ revision: 'r1', dryRun: false });
+  });
+
+  // The backfill may run slots the DAG missed, so the page reads them again.
+  it('reads the missed slots again once a backfill starts', async () => {
+    post.mockImplementation(
+      async (_path: string, { body }: { body: { dryRun: boolean } }) =>
+        body.dryRun
+          ? { data: { plan: plan('r1', 2) } }
+          : {
+              data: {
+                plan: plan('r1', 2),
+                backfill: { id: 'bf123456', status: BackfillStatus.running },
+              },
+            }
+    );
+    const onStarted = renderDialog({
+      kind: 'range',
+      from: '2026-10-01T00:00:00Z',
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Start 2 runs' })
+    );
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+
+    const missedSlotsKey = [
+      '/',
+      '/dags/{fileName}/missed-slots',
+      { params: { path: { fileName: 'etl' } } },
+    ];
+    const matchers = mutate.mock.calls.map(
+      ([matcher]) => matcher as (key: unknown) => boolean
+    );
+    expect(matchers.some((matches) => matches(missedSlotsKey))).toBe(true);
   });
 
   // The options rest folded under a summary until the user opens them.

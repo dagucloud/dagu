@@ -3,6 +3,7 @@
 
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useSWRConfig } from 'swr';
 import {
   BackfillOnFailure,
   BackfillPlanSlotAction,
@@ -30,6 +31,7 @@ import { useClient, useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatRoughDurationMs } from '@/lib/formatDuration';
+import { isMissedSlotsKey } from '../hooks/useMissedSlotsNotice';
 import type { Backfill } from '../lib/backfillState';
 import { RERUN_LABEL } from '../lib/backfillState';
 import { BackfillRangePicker } from './BackfillRangePicker';
@@ -152,6 +154,7 @@ export function StartBackfillDialog({
 }: Props) {
   const { ts } = useI18n();
   const client = useClient();
+  const { mutate } = useSWRConfig();
   const canManageProfiles = useCanManageProfiles();
   const { activeProfiles } = useProfiles({
     enabled: open && canManageProfiles,
@@ -310,6 +313,8 @@ export function StartBackfillDialog({
         },
       });
       if (data?.backfill) {
+        // The backfill may run slots the DAG missed.
+        void mutate(isMissedSlotsKey);
         onStarted(data.backfill, !!data.existing);
         changeOpen(false);
       } else if (response.status === 409 && apiError && 'plan' in apiError) {
