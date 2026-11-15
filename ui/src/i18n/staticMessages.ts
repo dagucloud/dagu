@@ -1189,6 +1189,14 @@ const baseEnglish = {
     'No Wiki pages reference this DAG yet.',
   'No Wiki pages yet.': 'No Wiki pages yet.',
   'No workers connected': 'No workers connected',
+  'Version not reported': 'Version not reported',
+  'older than the server': 'older than the server',
+  'newer than the server': 'newer than the server',
+  '{count} worker runs an older Dagu version than the server.':
+    '{count} worker runs an older Dagu version than the server.',
+  '{count} workers run an older Dagu version than the server.':
+    '{count} workers run an older Dagu version than the server.',
+  '{count} on an older version': '{count} on an older version',
   'No workspaces available': 'No workspaces available',
   'Node.js': 'Node.js',
   None: 'None',
@@ -4426,6 +4434,14 @@ const baseChinese = {
   'No Wiki pages reference this DAG yet.': '还没有 Wiki 页面引用此 DAG。',
   'No Wiki pages yet.': '还没有百科页面',
   'No workers connected': '暂无连接的 Worker',
+  'Version not reported': '未报告版本',
+  'older than the server': '比服务器旧',
+  'newer than the server': '比服务器新',
+  '{count} worker runs an older Dagu version than the server.':
+    '{count} 个 Worker 运行的 Dagu 版本比服务器旧。',
+  '{count} workers run an older Dagu version than the server.':
+    '{count} 个 Worker 运行的 Dagu 版本比服务器旧。',
+  '{count} on an older version': '{count} 个版本较旧',
   'No workspaces available': '无可用工作区',
   'Node.js': 'Node.js',
   None: '无',
@@ -7644,6 +7660,14 @@ const baseJapanese = {
     'まだこの DAG を参照する Wiki ページはありません。',
   'No Wiki pages yet.': 'まだ Wiki ページはありません。',
   'No workers connected': 'ワーカーが接続されていません',
+  'Version not reported': 'バージョン未報告',
+  'older than the server': 'サーバーより古い',
+  'newer than the server': 'サーバーより新しい',
+  '{count} worker runs an older Dagu version than the server.':
+    '{count} 台のワーカーがサーバーより古い Dagu を実行しています。',
+  '{count} workers run an older Dagu version than the server.':
+    '{count} 台のワーカーがサーバーより古い Dagu を実行しています。',
+  '{count} on an older version': '{count} 台が旧バージョン',
   'No workspaces available': '利用可能なワークスペースがありません',
   'Node.js': 'Node.js',
   None: 'なし',
