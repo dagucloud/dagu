@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -54,6 +55,10 @@ const OutputsFile = "outputs.json"
 
 // MessagesDir is the directory where per-step LLM messages are stored.
 const MessagesDir = "messages"
+
+// shortenedMessagesName matches the file name that stepMessagesName gives a
+// step name too long for a file name.
+var shortenedMessagesName = regexp.MustCompile(`%-[0-9a-f]{32}\.json$`)
 
 // maxStepMessagesNameBytes keeps a messages file name, plus the ".tmp.<n>"
 // suffix of the temporary file that an atomic write adds, within the 255
@@ -859,8 +864,9 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 	data, err := fileutil.ReadFile(file)
 	if os.IsNotExist(err) {
 		// Earlier versions joined the raw step name to dir, which cleaned it,
-		// so a step such as ./fetch kept its messages in fetch.json.
-		if rel, relErr := filepath.Rel(dir, filepath.Join(dir, stepName+".json")); relErr == nil {
+		// so a step such as ./fetch kept its messages in fetch.json. A raw
+		// name in the shortened form is another step's file.
+		if rel, relErr := filepath.Rel(dir, filepath.Join(dir, stepName+".json")); relErr == nil && !shortenedMessagesName.MatchString(rel) {
 			if raw, ok := fileutil.LegacyEntry(dir, rel); ok {
 				data, err = fileutil.ReadFile(filepath.Join(dir, raw))
 			}
