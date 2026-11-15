@@ -35,6 +35,7 @@ const (
 	CollectionRemoteNodes           = "remote_nodes"
 	CollectionSchedulerState        = "scheduler_state"
 	CollectionSecrets               = "secrets"
+	CollectionSlotSpans             = "slot_spans"
 	CollectionUpgradeCheck          = "upgrade_check"
 	CollectionUsers                 = "users"
 	CollectionViews                 = "views"

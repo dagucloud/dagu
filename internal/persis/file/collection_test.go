@@ -74,6 +74,7 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 		{persis.CollectionRemoteNodes, paths.RemoteNodesDir, true},
 		{persis.CollectionSchedulerState, filepath.Join(dataDir, "scheduler"), true},
 		{persis.CollectionSecrets, filepath.Join(dataDir, "secrets"), true},
+		{persis.CollectionSlotSpans, filepath.Join(dataDir, "slot-spans"), true},
 		{persis.CollectionUpgradeCheck, filepath.Join(dataDir, "upgrade"), true},
 		{persis.CollectionUsers, paths.UsersDir, true},
 		{persis.CollectionViews, paths.ViewsDir, true},
