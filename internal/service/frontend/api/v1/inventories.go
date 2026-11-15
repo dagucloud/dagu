@@ -4,10 +4,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -169,11 +171,15 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 	if request.Body == nil {
 		return importRefused("Request body is required", nil), nil
 	}
-	// The body arrives as generic JSON so that the inventory decoder, which
-	// refuses unknown fields, reads every field the caller sent.
-	raw, err := json.Marshal(*request.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the imported inventories: %w", err)
+	// The inventory decoder refuses unknown fields and data after the array,
+	// so it reads the body as the caller sent it. An in-process caller passes
+	// only the decoded JSON, which holds every field it sent.
+	raw, ok := ctx.Value(inventoryImportBodyKey{}).([]byte)
+	if !ok {
+		var err error
+		if raw, err = json.Marshal(*request.Body); err != nil {
+			return nil, fmt.Errorf("failed to read the imported inventories: %w", err)
+		}
 	}
 	invs, err := inventory.DecodeList(raw)
 	if err != nil {
@@ -185,6 +191,14 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 		DryRun:  valueOf(request.Params.DryRun),
 	}
 	result, err := a.inventoryStore.Import(ctx, invs, opts)
+	// An import that fails partway keeps what it stored, so that is audited
+	// too.
+	if !opts.DryRun && len(result.Created)+len(result.Replaced) > 0 {
+		a.logAudit(ctx, audit.CategorySystem, "inventory_import", map[string]any{
+			"created":  result.Created,
+			"replaced": result.Replaced,
+		})
+	}
 	switch {
 	case errors.Is(err, inventory.ErrInvalid):
 		ruleErrs := appendRuleErrors(nil, err)
@@ -201,18 +215,40 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 	case err != nil:
 		return nil, fmt.Errorf("failed to import inventories: %w", err)
 	}
-
-	if !opts.DryRun && len(result.Created)+len(result.Replaced) > 0 {
-		a.logAudit(ctx, audit.CategorySystem, "inventory_import", map[string]any{
-			"created":  result.Created,
-			"replaced": result.Replaced,
-		})
-	}
 	return api.ImportInventories200JSONResponse{
 		Created:  append([]string{}, result.Created...),
 		Replaced: append([]string{}, result.Replaced...),
 		DryRun:   opts.DryRun,
 	}, nil
+}
+
+type inventoryImportBodyKey struct{}
+
+// inventoryImportBodyMiddleware keeps the body of an inventory import as it
+// arrived. The generated handler decodes only the first JSON value and drops
+// unknown fields, and an import must refuse both.
+func inventoryImportBodyMiddleware(mountedAPIPath string) func(http.Handler) http.Handler {
+	importPath := strings.TrimSuffix(mountedAPIPath, "/") + "/inventory-imports"
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != importPath {
+				next.ServeHTTP(w, r)
+				return
+			}
+			raw, err := io.ReadAll(r.Body)
+			_ = r.Body.Close()
+			if err != nil {
+				WriteErrorResponse(w, &Error{
+					HTTPStatus: http.StatusBadRequest,
+					Code:       api.ErrorCodeBadRequest,
+					Message:    "failed to read the imported inventories",
+				})
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), inventoryImportBodyKey{}, raw)))
+		})
+	}
 }
 
 // findInventory finds an inventory by its ID, or else by its name compared
