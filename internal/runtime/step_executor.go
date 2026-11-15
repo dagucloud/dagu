@@ -78,11 +78,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	}()
 	if err != nil {
 		// Setup can fail on starred text, which the masked read explains.
-		if readErr := maskedReadError(ctx, node); readErr != nil {
-			err = readErr
-		} else {
-			err = wrapStepSetupError(err)
-		}
+		err = preferMaskedRead(ctx, node, wrapStepSetupError(err))
 		node.SetError(err)
 		return err
 	}

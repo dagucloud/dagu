@@ -20,14 +20,7 @@ func ExpandEnvContext(ctx context.Context, s string) string {
 	if scope == nil {
 		return expandWithLookup(s, lookupProcessEnv, true)
 	}
-	reads := maskedReadsFrom(ctx)
-	return expandWithLookup(s, func(key string) (string, bool) {
-		entry, ok := scope.GetEntry(key)
-		if ok {
-			reads.noteEntry(entry)
-		}
-		return entry.Value, ok
-	}, true)
+	return expandWithLookup(s, scopeLookup(ctx, scope), true)
 }
 
 // expandEnvScopeOnly expands $VAR and ${VAR} using only non-OS-sourced
@@ -37,14 +30,32 @@ func expandEnvScopeOnly(ctx context.Context, s string) string {
 	if scope == nil {
 		return s
 	}
+	return expandWithLookup(s, scopeNonOSLookup(ctx, scope), true)
+}
+
+// scopeLookup returns a lookup of the entries in scope that records the
+// masked reads through ctx.
+func scopeLookup(ctx context.Context, scope *EnvScope) func(string) (string, bool) {
 	reads := maskedReadsFrom(ctx)
-	return expandWithLookup(s, func(key string) (string, bool) {
+	return func(key string) (string, bool) {
+		entry, ok := scope.GetEntry(key)
+		if ok {
+			reads.noteEntry(entry)
+		}
+		return entry.Value, ok
+	}
+}
+
+// scopeNonOSLookup is scopeLookup without the entries from the OS environment.
+func scopeNonOSLookup(ctx context.Context, scope *EnvScope) func(string) (string, bool) {
+	reads := maskedReadsFrom(ctx)
+	return func(key string) (string, bool) {
 		if entry, ok := scope.GetEntry(key); ok && entry.Source != EnvSourceOS {
 			reads.noteEntry(entry)
 			return entry.Value, true
 		}
 		return "", false
-	}, true)
+	}
 }
 
 // shellEnviron implements expand.Environ for POSIX shell expansion.

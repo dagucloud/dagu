@@ -112,27 +112,13 @@ func regexExpandEnv(ctx context.Context, input string, opts *options) string {
 		if scope == nil {
 			return expandWithLookup(input, lookupProcessEnv, opts.RecognizeEscapedDollar)
 		}
-		reads := maskedReadsFrom(ctx)
-		return expandWithLookup(input, func(key string) (string, bool) {
-			entry, ok := scope.GetEntry(key)
-			if ok {
-				reads.noteEntry(entry)
-			}
-			return entry.Value, ok
-		}, opts.RecognizeEscapedDollar)
+		return expandWithLookup(input, scopeLookup(ctx, scope), opts.RecognizeEscapedDollar)
 	}
 	scope := GetEnvScope(ctx)
 	if scope == nil {
 		return input
 	}
-	reads := maskedReadsFrom(ctx)
-	return expandWithLookup(input, func(key string) (string, bool) {
-		if entry, ok := scope.GetEntry(key); ok && entry.Source != EnvSourceOS {
-			reads.noteEntry(entry)
-			return entry.Value, true
-		}
-		return "", false
-	}, opts.RecognizeEscapedDollar)
+	return expandWithLookup(input, scopeNonOSLookup(ctx, scope), opts.RecognizeEscapedDollar)
 }
 
 // shellExpandPhase performs shell-style variable expansion.

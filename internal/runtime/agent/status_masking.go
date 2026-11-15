@@ -76,23 +76,28 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
 	node.StatusDetails = maskNodeStatusDetails(masker, node.StatusDetails)
-	masked := newMaskedOutputs(node.MaskedOutputs)
+	// A node is masked on every status write, and text masked earlier no
+	// longer changes, so the record starts from the earlier one.
+	masked := node.MaskedOutputs.Clone()
+	if masked == nil {
+		masked = &ir.MaskedOutputs{}
+	}
 	if node.OutputVariables != nil {
 		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, masked)
 	}
 	outputValue := maskStringPointer(masker, node.OutputValue)
 	outputsValue := maskOutputDocument(masker, node.OutputsValue)
 	if changed(node.OutputValue, outputValue) || changed(node.OutputsValue, outputsValue) {
-		masked.captured = true
+		masked.Captured = true
 	}
 	node.OutputValue = outputValue
 	node.OutputsValue = outputsValue
 	stepOutputsValue := maskStepOutputs(masker, node)
 	names, all := changedOutputNames(node.StepOutputsValue, stepOutputsValue)
-	masked.published = append(masked.published, names...)
-	masked.allPublished = masked.allPublished || all
+	masked.Published = append(masked.Published, names...)
+	masked.AllPublished = masked.AllPublished || all
 	node.StepOutputsValue = stepOutputsValue
-	node.MaskedOutputs = masked.record()
+	node.MaskedOutputs = maskedRecord(masked)
 	node.AgentSession = ir.MaskAgentSession(node.AgentSession, masker.MaskString)
 }
 
@@ -185,40 +190,15 @@ func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail
 	return masked
 }
 
-// maskedOutputs collects the outputs of one node that masking changed,
-// starting from what an earlier pass recorded.
-type maskedOutputs struct {
-	variables    []string
-	published    []string
-	allPublished bool
-	captured     bool
-}
-
-func newMaskedOutputs(prior *ir.MaskedOutputs) *maskedOutputs {
-	if prior == nil {
-		return &maskedOutputs{}
-	}
-	return &maskedOutputs{
-		variables:    slices.Clone(prior.Variables),
-		published:    slices.Clone(prior.Published),
-		allPublished: prior.AllPublished,
-		captured:     prior.Captured,
-	}
-}
-
-// record returns what to store on the node, or nil when masking changed no
-// output.
-func (m *maskedOutputs) record() *ir.MaskedOutputs {
-	record := &ir.MaskedOutputs{
-		Variables:    uniqueNames(m.variables),
-		Published:    uniqueNames(m.published),
-		AllPublished: m.allPublished,
-		Captured:     m.captured,
-	}
-	if len(record.Variables) == 0 && len(record.Published) == 0 && !record.AllPublished && !record.Captured {
+// maskedRecord returns masked with its names deduplicated, or nil when
+// masking changed no output.
+func maskedRecord(masked *ir.MaskedOutputs) *ir.MaskedOutputs {
+	masked.Variables = uniqueNames(masked.Variables)
+	masked.Published = uniqueNames(masked.Published)
+	if len(masked.Variables) == 0 && len(masked.Published) == 0 && !masked.AllPublished && !masked.Captured {
 		return nil
 	}
-	return record
+	return masked
 }
 
 func uniqueNames(names []string) []string {
@@ -231,7 +211,7 @@ func changed(before, after *string) bool {
 	return before != nil && after != nil && *before != *after
 }
 
-func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *maskedOutputs) *collections.SyncMap {
+func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *ir.MaskedOutputs) *collections.SyncMap {
 	if values == nil {
 		return nil
 	}
@@ -246,7 +226,7 @@ func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, ma
 		if maskedText != text {
 			// The stored text is NAME=value, so the key is the output name.
 			name, _ := key.(string)
-			masked.variables = append(masked.variables, name)
+			masked.Variables = append(masked.Variables, name)
 		}
 		result.Store(key, maskedText)
 		return true
