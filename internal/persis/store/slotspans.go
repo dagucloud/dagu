@@ -38,7 +38,8 @@ func NewSpanStore(col persis.Collection) *SpanStore {
 	return &SpanStore{col: col}
 }
 
-// Mark begins a span of reason unless one lasts, or ends the one that lasts.
+// Mark begins a span of reason unless one lasts, or ends the one that lasts
+// and moves it last, so a record keeps its spans in the order they ended.
 func (s *SpanStore) Mark(ctx context.Context, dag string, reason schedulerstate.SpanReason, held bool, at time.Time) error {
 	return s.update(ctx, dag, at, func(spans []schedulerstate.Span) []schedulerstate.Span {
 		i := slices.IndexFunc(spans, func(span schedulerstate.Span) bool {
@@ -48,7 +49,9 @@ func (s *SpanStore) Mark(ctx context.Context, dag string, reason schedulerstate.
 			return append(spans, schedulerstate.Span{From: at, Reason: reason})
 		}
 		if !held && i >= 0 {
-			spans[i].To = at
+			span := spans[i]
+			span.To = at
+			return append(slices.Delete(spans, i, i+1), span)
 		}
 		return spans
 	})
@@ -70,13 +73,17 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 		own, _, err = s.load(ctx, spansID(dag))
 		spans = append(spans, own...)
 	}
-	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool { return span.To.IsZero() })
+	cutoff := time.Now().Add(-spanRetention)
+	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool {
+		return span.To.IsZero() || span.To.Before(cutoff)
+	})
 	slices.SortStableFunc(spans, func(a, b schedulerstate.Span) int { return a.From.Compare(b.From) })
 	return spans, err
 }
 
-// update applies change to the spans of a name, then drops those that ended
-// more than spanRetention before now and those past the newest maxSpans.
+// update applies change to the spans of a name, then drops the ended spans
+// that ended more than spanRetention before now or come before the newest
+// maxSpans. Spans that last are kept.
 func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, change func([]schedulerstate.Span) []schedulerstate.Span) error {
 	id := spansID(dag)
 	return retryConflict(ctx, func(ctx context.Context) error {
@@ -84,13 +91,19 @@ func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, chang
 		if err != nil {
 			return err
 		}
-		spans = slices.DeleteFunc(change(spans), func(span schedulerstate.Span) bool {
-			return !span.To.IsZero() && now.Sub(span.To) > spanRetention
-		})
+		spans, ended := change(spans), 0
+		for i, span := range slices.Backward(spans) {
+			if span.To.IsZero() {
+				continue
+			}
+			if ended++; ended > maxSpans || now.Sub(span.To) > spanRetention {
+				spans = slices.Delete(spans, i, i+1)
+			}
+		}
 		if current == nil && len(spans) == 0 {
 			return nil
 		}
-		data, err := persis.Encode(&spanRecord{Spans: spans[max(0, len(spans)-maxSpans):]})
+		data, err := persis.Encode(&spanRecord{Spans: spans})
 		if err != nil {
 			return err
 		}
