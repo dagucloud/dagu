@@ -55,9 +55,10 @@ func ForeachItemPath(parent string, index int) string {
 }
 
 // ForeachNestedParent builds the parent path for the items of a foreach body
-// step running inside item itemPath.
-func ForeachNestedParent(itemPath, bodyStepName string) string {
-	return itemPath + foreachItemPathSeparator + fileutil.SafeName(bodyStepName)
+// step running inside item itemPath, whose directory is itemDir. The path
+// names the step's directory as it is stored.
+func ForeachNestedParent(itemDir, itemPath, bodyStepName string) string {
+	return itemPath + foreachItemPathSeparator + filepath.Base(ForeachStepDir(itemDir, bodyStepName))
 }
 
 // ForeachItemDir resolves an item path to its directory under stepDir. A path

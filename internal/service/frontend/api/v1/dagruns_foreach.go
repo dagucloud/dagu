@@ -468,7 +468,7 @@ func pageOfForeachItems(items []api.ForeachItemSummary, page, perPage int) []api
 }
 
 func (a *API) readForeachItem(node *ir.Node, item string) (api.ForeachItem, error) {
-	_, record, err := a.foreachItemRecord(node, item)
+	itemDir, record, err := a.foreachItemRecord(node, item)
 	if err != nil {
 		return api.ForeachItem{}, err
 	}
@@ -489,7 +489,7 @@ func (a *API) readForeachItem(node *ir.Node, item string) (api.ForeachItem, erro
 		entry.AgentSession = toAgentSession(step.AgentSession)
 		entry.ModelUsage = toStepModelUsage(step.ModelUsage)
 		if step.Foreach {
-			entry.ForeachParent = ptrOf(logpath.ForeachNestedParent(item, step.Name))
+			entry.ForeachParent = ptrOf(logpath.ForeachNestedParent(itemDir, item, step.Name))
 		}
 		steps = append(steps, entry)
 	}

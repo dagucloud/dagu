@@ -104,7 +104,7 @@ func TestForeachNestedParentKeepsRawDeviceName(t *testing.T) {
 	stepDir := t.TempDir()
 	raw := filepath.Join(stepDir, "0", ForeachLogDirName, "con")
 	require.NoError(t, os.MkdirAll(raw, 0o750))
-	dir, err := ForeachParentDir(stepDir, ForeachNestedParent("0", "con"))
+	dir, err := ForeachParentDir(stepDir, ForeachNestedParent(filepath.Join(stepDir, "0"), "0", "con"))
 	require.NoError(t, err)
 	assert.Equal(t, raw, dir)
 }
@@ -113,7 +113,7 @@ func TestForeachItemPathRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "4", ForeachItemPath("", 4))
-	parent := ForeachNestedParent("4", "inner step")
+	parent := ForeachNestedParent(filepath.Join("each", "4"), "4", "inner step")
 	assert.Equal(t, "4.inner_step", parent)
 	assert.Equal(t, "4.inner_step.1", ForeachItemPath(parent, 1))
 
