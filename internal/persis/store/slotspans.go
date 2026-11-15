@@ -38,8 +38,7 @@ func NewSpanStore(col persis.Collection) *SpanStore {
 	return &SpanStore{col: col}
 }
 
-// Mark begins a span of reason unless one lasts, or ends the one that lasts
-// and moves it last, so a record keeps its spans in the order they ended.
+// Mark begins a span of reason unless one lasts, or ends the one that lasts.
 func (s *SpanStore) Mark(ctx context.Context, dag string, reason schedulerstate.SpanReason, held bool, at time.Time) error {
 	return s.update(ctx, dag, at, func(spans []schedulerstate.Span) []schedulerstate.Span {
 		i := slices.IndexFunc(spans, func(span schedulerstate.Span) bool {
@@ -49,9 +48,7 @@ func (s *SpanStore) Mark(ctx context.Context, dag string, reason schedulerstate.
 			return append(spans, schedulerstate.Span{From: at, Reason: reason})
 		}
 		if !held && i >= 0 {
-			span := spans[i]
-			span.To = at
-			return append(slices.Delete(spans, i, i+1), span)
+			spans[i].To = at
 		}
 		return spans
 	})
@@ -81,9 +78,9 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 	return spans, err
 }
 
-// update applies change to the spans of a name, then drops the ended spans
-// that ended more than spanRetention before now or come before the newest
-// maxSpans. Spans that last are kept.
+// update applies change to the spans of a name, then keeps the spans that
+// last and the maxSpans that ended last, within spanRetention before now. A
+// record keeps its spans in the order they ended, those that last first.
 func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, change func([]schedulerstate.Span) []schedulerstate.Span) error {
 	id := spansID(dag)
 	return retryConflict(ctx, func(ctx context.Context) error {
@@ -92,6 +89,7 @@ func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, chang
 			return err
 		}
 		spans, ended := change(spans), 0
+		slices.SortStableFunc(spans, func(a, b schedulerstate.Span) int { return a.To.Compare(b.To) })
 		for i, span := range slices.Backward(spans) {
 			if span.To.IsZero() {
 				continue
