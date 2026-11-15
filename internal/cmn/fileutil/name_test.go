@@ -109,12 +109,39 @@ func TestSafeNameDeviceNames(t *testing.T) {
 	}
 }
 
+// EscapeName returns a name this host stores as written, keeps a name the
+// host already stores that way, and UnescapeName maps it back.
+func TestEscapeName(t *testing.T) {
+	names := []string{
+		"plain", "50%", "fetch/parse", `fetch\parse`, "db:query", "why?",
+		"tab\there", "nul", "nul.json", "con", "COM1.txt", "nightly.", "trailing ",
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			escaped := EscapeName(name)
+			require.NoError(t, storeUnder(t.TempDir(), escaped))
+			require.Equal(t, name, UnescapeName(escaped))
+			if storeUnder(t.TempDir(), name) == nil {
+				require.Equal(t, name, escaped)
+			}
+		})
+	}
+}
+
 // storeUnder creates a directory called name in parent, writes a file named
-// after it there, and reads the file back.
+// after it there, and reads the file back. It fails when the host stores the
+// directory under another name, as Windows does by dropping a trailing dot.
 func storeUnder(parent, name string) error {
 	dir := filepath.Join(parent, name)
 	if err := os.Mkdir(dir, 0o750); err != nil {
 		return err
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 1 || entries[0].Name() != name {
+		return fmt.Errorf("%s is not stored under its own name", dir)
 	}
 	// A device name can "create" a device rather than a directory, and
 	// reading a device such as CON may block.

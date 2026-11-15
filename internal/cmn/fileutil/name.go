@@ -4,6 +4,8 @@
 package fileutil
 
 import (
+	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -42,6 +44,40 @@ func SafeName(str string) string {
 	}
 
 	return safe
+}
+
+// EscapeName returns the name under which this host stores a file or
+// directory called name. A name the host stores as written is returned
+// unchanged, as are "." and "..". Otherwise each byte the host cannot store
+// in a name, including a path separator, and the first byte of a name the
+// host maps to a device are written as %XX.
+func EscapeName(name string) string {
+	if name == "." || name == ".." {
+		return name
+	}
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; unstorableByte(c, i == len(name)-1) {
+			fmt.Fprintf(&b, "%%%02X", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	escaped := b.String()
+	if escaped != "" && opensDevice(escaped) {
+		escaped = fmt.Sprintf("%%%02X", escaped[0]) + escaped[1:]
+	}
+	return escaped
+}
+
+// UnescapeName returns the name that EscapeName stores as escaped. A name
+// that EscapeName does not produce is returned as is.
+func UnescapeName(escaped string) string {
+	name, err := url.PathUnescape(escaped)
+	if err != nil || EscapeName(name) != escaped {
+		return escaped
+	}
+	return name
 }
 
 // NormalizeFilename replaces OS-reserved characters and Windows reserved

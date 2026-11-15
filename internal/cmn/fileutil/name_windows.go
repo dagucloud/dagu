@@ -15,3 +15,9 @@ func opensDevice(name string) bool {
 	path, err := syscall.FullPath(`C:\dir\` + name)
 	return err == nil && strings.HasPrefix(path, `\\.\`)
 }
+
+// unstorableByte reports whether Windows cannot store c in a name. A
+// trailing dot or space is dropped, so it counts as well.
+func unstorableByte(c byte, last bool) bool {
+	return c < 0x20 || strings.IndexByte(`<>:"/\|?*`, c) >= 0 || (last && (c == '.' || c == ' '))
+}
