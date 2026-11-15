@@ -245,6 +245,27 @@ jobs:
             if ((Get-Date) -gt $deadline) { throw "The restarted run did not succeed: $($status | ConvertTo-Json -Compress)" }
             Start-Sleep -Seconds 1
           } while ($true)
+
+          # An uninstall still ends the runs of the service.
+          $longDag = "$env:RUNNER_TEMP\uninstall-run.yaml"
+          Set-Content -Path $longDag -Encoding ascii -Value @"
+          steps:
+            - id: work
+              run: |
+                Set-Content -Path '$markerDir\long-started' -Value ok
+                Start-Sleep -Seconds 600
+              with:
+                shell: powershell
+          "@
+          & "$installDir\dagu.exe" enqueue $longDag
+          if ($LASTEXITCODE -ne 0) {
+            throw "Enqueueing the uninstall run failed with exit code $LASTEXITCODE."
+          }
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$markerDir\long-started")) {
+            if ((Get-Date) -gt $deadline) { throw "The uninstall run did not start." }
+            Start-Sleep -Seconds 1
+          }
           Remove-Item Env:\DAGU_HOME
 
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
@@ -254,6 +275,10 @@ jobs:
           }
           if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
             throw "The Dagu service survived a service-only uninstall."
+          }
+          $leftover = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq "$installDir\dagu.exe" })
+          if ($leftover.Count -gt 0) {
+            throw "A service-only uninstall left Dagu processes running: $($leftover.ProcessId -join ', ')"
           }
           if (-not (Test-Path "$installDir\dagu.exe")) {
             throw "Service-only uninstall removed the Dagu binary."

@@ -743,6 +743,36 @@ function Remove-UninstallFile {
     }
 }
 
+# Get-ServiceProcessTree returns the processes the Dagu service runs, runs
+# included, with their start times.
+function Get-ServiceProcessTree {
+    $service = Get-CimInstance Win32_Service -Filter "Name='$($Script:ServiceName)'" -ErrorAction SilentlyContinue
+    if (-not $service -or -not $service.ProcessId) {
+        return @()
+    }
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $tree = @()
+    $parents = @($service.ProcessId)
+    while ($parents.Count -gt 0) {
+        $children = @($all | Where-Object { $parents -contains $_.ParentProcessId })
+        $tree += $children
+        $parents = @($children | ForEach-Object { $_.ProcessId })
+    }
+    return $tree
+}
+
+# Stop-ProcessTree ends the processes of Get-ServiceProcessTree that still
+# run, skipping a later process that reuses an ID.
+function Stop-ProcessTree {
+    param([object[]]$Tree)
+    foreach ($process in $Tree) {
+        $current = Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ProcessId)" -ErrorAction SilentlyContinue
+        if ($current -and $current.CreationDate -eq $process.CreationDate) {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Invoke-Uninstall {
     if (-not (Test-UninstallHasAnything)) {
         Write-Section "Uninstall"
@@ -755,6 +785,9 @@ function Invoke-Uninstall {
     }
     if ($Script:UninstallServicePresent) {
         if (Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) {
+            # Stopping the service leaves runs running; an uninstall ends them
+            # with the rest of the service, as the wrapper's own stop did.
+            $serviceTree = Get-ServiceProcessTree
             if ($Script:ServiceWrapperExe -and (Test-Path $Script:ServiceWrapperExe)) {
                 try { Invoke-WinSW stop } catch {}
                 try { Invoke-WinSW uninstall } catch {}
@@ -774,10 +807,15 @@ function Invoke-Uninstall {
             if (Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) {
                 throw "The $($Script:ServiceName) Windows service is still registered, so its files were left in place. Stop whatever holds the service open, then run the uninstall again."
             }
+            Stop-ProcessTree -Tree $serviceTree
         }
     }
     foreach ($path in $Script:UninstallInstallPaths) {
         Remove-UninstallFile -Path $path
+        if (-not [string]::IsNullOrWhiteSpace($path) -and -not $DryRun) {
+            Get-ChildItem -Path "$path.*old" -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+        }
     }
     foreach ($path in @($Script:ServiceWrapperExe, $Script:ServiceConfigXml)) {
         Remove-UninstallFile -Path $path
@@ -1004,6 +1042,23 @@ function New-TempDir {
     return $path
 }
 
+# Move-AsideRunningBinary renames the installed binary out of the way. Runs in
+# progress keep running across a service stop and keep that file in use, and
+# Windows lets a file in use be renamed but not replaced. An earlier binary
+# set aside is removed once nothing runs it.
+function Move-AsideRunningBinary {
+    if (-not (Test-Path $DaguExe)) {
+        return
+    }
+    Get-ChildItem -Path "$DaguExe.*old" -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    $aside = "$DaguExe.old"
+    if (Test-Path $aside) {
+        $aside = "$DaguExe.$((Get-Date).ToString('yyyyMMddHHmmss')).old"
+    }
+    Move-Item -Path $DaguExe -Destination $aside -Force
+}
+
 function Install-DaguBinary {
     if ($ServiceOnly) {
         Write-Info "Using the existing Dagu binary at $DaguExe"
@@ -1029,6 +1084,7 @@ function Install-DaguBinary {
             return
         }
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+        Move-AsideRunningBinary
         Move-Item -Path $sourceExe -Destination $DaguExe -Force
         Write-Success "Installed Dagu to $DaguExe"
     }
