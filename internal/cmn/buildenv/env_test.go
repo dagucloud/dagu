@@ -83,13 +83,19 @@ func TestLoadLegacyMap(t *testing.T) {
 
 // The process a launcher started removes the file the launcher wrote for it as
 // it ends, while a process that only inherited the file leaves it in place.
+// A launcher may have the process regard a stand-in as its parent, which the
+// processes that one starts inherit the name of.
 func TestReleaseRemovesTheFileWrittenForThisProcess(t *testing.T) {
+	const standIn, other = 1 << 20, 1<<20 + 1
 	for name, tt := range map[string]struct {
 		parent  int
+		standIn int
 		removed bool
 	}{
-		"started by the writer":      {parent: os.Getpid(), removed: true},
-		"started by another process": {parent: os.Getpid() + 1, removed: false},
+		"started by the writer":           {parent: os.Getpid(), removed: true},
+		"started by another process":      {parent: os.Getpid() + 1, removed: false},
+		"started under a stand-in parent": {parent: standIn, standIn: standIn, removed: true},
+		"started by one under a stand-in": {parent: other, standIn: standIn, removed: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env, cleanup, err := Prepare(NewSnapshot([]string{"KEY=value"}, false))
@@ -97,6 +103,10 @@ func TestReleaseRemovesTheFileWrittenForThisProcess(t *testing.T) {
 			t.Cleanup(func() { _ = cleanup() })
 			path := strings.TrimPrefix(env[0], PresolvedEnvFileKey+"=")
 			t.Setenv(PresolvedEnvFileKey, path)
+			if tt.standIn != 0 {
+				key, value, _ := strings.Cut(StandInParentEnv(tt.standIn), "=")
+				t.Setenv(key, value)
+			}
 			parentPID = func() int { return tt.parent }
 			t.Cleanup(func() { parentPID = os.Getppid })
 

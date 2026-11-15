@@ -9,6 +9,7 @@ const ACRONYMS: Record<string, string> = {
   json: 'JSON',
   k8s: 'K8s',
   llm: 'LLM',
+  mcp: 'MCP',
   s3: 'S3',
   sftp: 'SFTP',
   sql: 'SQL',

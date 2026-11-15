@@ -73,7 +73,9 @@ func parseFilterSpec(cfg config, deferred bool) (filterSpec, error) {
 		if err != nil {
 			return filterSpec{}, fmt.Errorf("%w: where.%s: %v", errConfig, field, err)
 		}
-		spec.where[field] = c
+		if c.kind != "" {
+			spec.where[field] = c
+		}
 	}
 	keys, err := parseSort(cfg.Sort)
 	if err != nil {
@@ -100,6 +102,10 @@ func parseCondition(raw any, deferred bool) (condition, error) {
 				kinds[kind] = true
 				continue
 			}
+		}
+		// A bound left empty, as by a parameter not set yet, sets no limit.
+		if _, known := conditionKinds[name]; known && emptyBound(value) {
+			continue
 		}
 		switch name {
 		case "min", "max":
@@ -152,10 +158,13 @@ func parseCondition(raw any, deferred bool) (condition, error) {
 			return condition{}, fmt.Errorf("unknown condition %q; use min, max, from, to, within, is, any, or none", name)
 		}
 	}
-	switch len(kinds) {
-	case 0:
+	switch {
+	case len(fields) == 0:
 		return condition{}, fmt.Errorf("names no condition")
-	case 1:
+	case len(kinds) == 0:
+		// Every bound is empty, so the field has no condition.
+		return condition{}, nil
+	case len(kinds) == 1:
 		c.kind = slices.Collect(maps.Keys(kinds))[0]
 	default:
 		return condition{}, fmt.Errorf("mixes number, date, and text conditions; give a field one kind")
@@ -163,17 +172,36 @@ func parseCondition(raw any, deferred bool) (condition, error) {
 	return c, nil
 }
 
+// emptyBound reports a condition's value that sets no limit: none, blank
+// text, or an empty list.
+func emptyBound(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []any:
+		return len(v) == 0
+	default:
+		return false
+	}
+}
+
 func textList(value any) ([]string, error) {
 	switch v := value.(type) {
 	case string:
-		return []string{stringutil.NormalizeText(v)}, nil
+		// A text, as a parameter holds one, lists words separated by commas.
+		var out []string
+		for _, part := range strings.FieldsFunc(stringutil.NormalizeText(v), func(r rune) bool { return r == ',' || r == '、' }) {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+		return out, nil
 	case []any:
 		out := make([]string, 0, len(v))
 		for _, item := range v {
 			out = append(out, stringutil.NormalizeText(fmt.Sprint(item)))
-		}
-		if len(out) == 0 {
-			return nil, fmt.Errorf("must list at least one text")
 		}
 		return out, nil
 	default:

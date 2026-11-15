@@ -597,6 +597,7 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	}
 
 	cmdutil.SetupCommand(cmd)
+	launchOutsideService(cmd)
 	if spec.Params != "" {
 		cmd.Stdin = strings.NewReader(spec.Params)
 	}
@@ -610,10 +611,16 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 	}
 	if len(extraEnv) > 0 {
 		env = append(env, extraEnv...)
+		// The command claims the transport file from the process it regards
+		// as its parent.
+		if parent := serviceParentPID(); parent != 0 {
+			env = append(env, buildenv.StandInParentEnv(parent))
+		}
 	}
 	cmd.Env = env
-	cmd.Stdout = fileOrDefault(spec.Stdout, os.Stdout)
-	cmd.Stderr = fileOrDefault(spec.Stderr, os.Stderr)
+	stdout, stderr := defaultOutput()
+	cmd.Stdout = fileOrDefault(spec.Stdout, stdout)
+	cmd.Stderr = fileOrDefault(spec.Stderr, stderr)
 
 	return cmd, cleanup, nil
 }

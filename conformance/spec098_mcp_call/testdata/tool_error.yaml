@@ -1,0 +1,11 @@
+working_dir: .
+env:
+  - MCP_URL: ${MCP_URL}
+steps:
+  - action: mcp.call
+    with:
+      url: ${MCP_URL}
+      tool: explode
+      headers:
+        Authorization: Bearer conformance-token
+    stdout: error.out

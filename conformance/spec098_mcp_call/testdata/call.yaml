@@ -1,0 +1,20 @@
+working_dir: .
+env:
+  - MCP_URL: ${MCP_URL}
+steps:
+  - id: call
+    action: mcp.call
+    with:
+      url: ${MCP_URL}
+      tool: scrape
+      arguments:
+        page: home
+      headers:
+        Authorization: Bearer conformance-token
+        X-Region: us
+    stdout: call.out
+    output: PAGE
+  - id: consume
+    depends: call
+    run: echo "pages=${PAGE.structured_content.pages} err=${PAGE.is_error}"
+    stdout: result.out
