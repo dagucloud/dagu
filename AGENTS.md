@@ -32,6 +32,7 @@ embedded engine API.
 - `ui/`: React and TypeScript frontend.
 - `specs/`: normative behavior specifications.
 - `conformance/`: binary-level tests for those specifications.
+- `formal/`: TLA+ models of scheduler behavior, checked with TLC.
 - `internal/intg/`: Go integration tests.
 - `examples/`: example workflows and embedded API programs.
 
@@ -59,6 +60,7 @@ make build                       # build UI and binary
 make test                        # Go tests with race detection
 make test TEST_TARGET=./internal/runtime/...
 make conformance                 # binary-level specification tests
+make formal                      # TLA+ model checks; needs Java 11+
 make fmt                         # go fix, go fmt, and lint fixes
 make check                       # formatting and lint checks, including Windows
 ```
@@ -167,6 +169,9 @@ for a request, tick, or SSE path; most changes need no measurement.
 - Run `make fmt` and inspect its diff before committing Go changes.
 - Run `make check` for broad Go validation when practical.
 - Run `make conformance` when workflow semantics or CLI behavior changes.
+- When a change touches code a model in `formal/` covers, update the model in
+  the same change and run `make formal`. `formal/README.md` lists what each
+  model covers.
 - Run frontend tests, type checking, and build checks for UI changes.
 - Run `make test-e2e` for user-visible flows that need browser coverage.
 

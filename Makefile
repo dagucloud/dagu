@@ -178,6 +178,12 @@ conformance: bin
 	@GOBIN=${LOCAL_BIN_DIR} go install ${PKG_gotestsum}
 	@${GOTESTSUM_BIN} ${CONFORMANCE_GOTESTSUM_ARGS} -- ${CONFORMANCE_GO_TEST_FLAGS} -count=1 ${CONFORMANCE_TEST_TARGET}
 
+# formal checks the TLA+ models under formal/ with TLC. Requires Java 11+.
+.PHONY: formal
+formal:
+	@printf '%b\n' "${COLOR_GREEN}Checking formal models...${COLOR_RESET}"
+	@./formal/check.sh
+
 # test-coverage runs Go tests except conformance tests with coverage by default.
 .PHONY: test-coverage
 test-coverage:
