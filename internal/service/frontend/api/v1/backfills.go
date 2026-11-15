@@ -146,8 +146,10 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	if a.spanStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
 		return none, nil
 	}
+	// A dismissal hides the slots until a span that ended after it holds
+	// one, so while no span ended after it the slot history is not read.
 	spans, dismissal, err := a.spanStore.Ended(ctx, request.FileName)
-	if err != nil || len(spans) == 0 {
+	if err != nil || !slices.ContainsFunc(spans, func(span schedulerstate.Span) bool { return span.To.After(dismissal.Through) }) {
 		return none, err
 	}
 	var profile string
@@ -164,12 +166,8 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 		catchup = dag.CatchupWindow
 	}
 	missed, err := backfill.FindMissed(ctx, a.dagRunRepository, dag, sched, spans, catchup, time.Now())
-	if err != nil || missed.Slots == 0 {
+	if err != nil || missed.Slots == 0 || !missed.Until.After(dismissal.Through) {
 		return none, err
-	}
-	// A dismissal hides the slots until a span that ended after it holds one.
-	if !missed.Until.After(dismissal.Through) {
-		return none, nil
 	}
 	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
 	for _, reason := range missed.Reasons {

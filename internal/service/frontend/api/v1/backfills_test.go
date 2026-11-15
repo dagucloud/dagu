@@ -21,10 +21,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -309,10 +311,13 @@ func TestGetDAGMissedSlots(t *testing.T) {
 // from every user until a span that ended later holds a missed slot. Here
 // only the scheduler's spans hold them, so the DAG has no span record of its
 // own before the dismissal. Reading a dismissed DAG's missed slots reads each
-// span record once, since storage may be slow.
+// span record once and no slot history, since storage may be slow.
 func TestDismissDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
+	dir := t.TempDir()
+	history := &slotReadCounter{SlotIndex: slotindex.New(filepath.Join(dir, "slot-index"))}
+	helper.DAGRunRepository = testutil.NewFileDAGRunRepository(filepath.Join(dir, "dag-runs"), persis.DAGRunRepositoryOptions{SlotIndex: history})
 	records := &getCounter{Collection: helper.Backend.Collection(persis.CollectionSlotSpans)}
 	spans := store.NewSpanStore(records)
 	hour := time.Now().Truncate(time.Hour)
@@ -347,9 +352,10 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	requireAPIErrorStatus(t, dismiss(viewer("alice", "ops"), "missing"), http.StatusNotFound)
 	require.NoError(t, dismiss(viewer("alice", "ops"), "ops-report"))
 
-	gets := records.gets
+	gets, reads := records.gets, history.reads
 	assert.Nil(t, missedSlots("ops-report"), "dismissed for every user")
 	assert.Equal(t, 2, records.gets-gets, "the scheduler's span record and the DAG's are each read once")
+	assert.Equal(t, reads, history.reads, "no span ended after the dismissal, so the slot history is not read")
 	assert.NotNil(t, missedSlots("ops-load"), "dismissed for that DAG only")
 	_, dismissal, err := spans.Ended(ctx, "ops-report")
 	require.NoError(t, err)
@@ -371,4 +377,15 @@ type getCounter struct {
 func (c *getCounter) Get(ctx context.Context, id string) (*persis.Record, error) {
 	c.gets++
 	return c.Collection.Get(ctx, id)
+}
+
+// slotReadCounter counts the reads of a slot history.
+type slotReadCounter struct {
+	persis.SlotIndex
+	reads int
+}
+
+func (c *slotReadCounter) Events(ctx context.Context, dagName string, from, to time.Time) ([]persis.SlotEvent, error) {
+	c.reads++
+	return c.SlotIndex.Events(ctx, dagName, from, to)
 }
