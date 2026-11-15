@@ -1364,6 +1364,31 @@ remove_binary_path() {
     fi
 }
 
+# stop_linux_service_with_runs stops the Linux service of the given scope and
+# its runs. A stop leaves runs running under KillMode=process, but an
+# uninstall leaves nothing of Dagu running, as systemd's default did. A
+# runtime drop-in, named to apply last, restores that default for the stop.
+stop_linux_service_with_runs() {
+    local scope="$1" dropin_dir
+    if [[ "$scope" == "system" ]]; then
+        dropin_dir="/run/systemd/system/dagu.service.d"
+        sudo mkdir -p "${dropin_dir}"
+        printf '[Service]\nKillMode=control-group\n' | sudo tee "${dropin_dir}/zz-uninstall.conf" >/dev/null
+        sudo systemctl daemon-reload >/dev/null 2>&1 || true
+        sudo systemctl stop dagu >/dev/null 2>&1 || true
+        sudo rm -f "${dropin_dir}/zz-uninstall.conf"
+        sudo rmdir "${dropin_dir}" >/dev/null 2>&1 || true
+    else
+        dropin_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/dagu.service.d"
+        mkdir -p "${dropin_dir}"
+        printf '[Service]\nKillMode=control-group\n' >"${dropin_dir}/zz-uninstall.conf"
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+        systemctl --user stop dagu >/dev/null 2>&1 || true
+        rm -f "${dropin_dir}/zz-uninstall.conf"
+        rmdir "${dropin_dir}" >/dev/null 2>&1 || true
+    fi
+}
+
 remove_linux_service_scope() {
     local scope="$1"
     SERVICE_SCOPE="$scope"
@@ -1372,14 +1397,13 @@ remove_linux_service_scope() {
         ui_info "Would remove the Linux ${scope} service"
         return 0
     fi
+    stop_linux_service_with_runs "$scope"
     if [[ "$scope" == "system" ]]; then
-        sudo systemctl stop dagu >/dev/null 2>&1 || true
         sudo systemctl disable dagu >/dev/null 2>&1 || true
         sudo rm -f "${SERVICE_UNIT_FILE}" "${SERVICE_ENV_FILE}" "${SERVICE_BOOTSTRAP_FILE}"
         sudo rmdir "$(dirname "${SERVICE_ENV_FILE}")" >/dev/null 2>&1 || true
         sudo systemctl daemon-reload >/dev/null 2>&1 || true
     else
-        systemctl --user stop dagu >/dev/null 2>&1 || true
         systemctl --user disable dagu >/dev/null 2>&1 || true
         rm -f "${SERVICE_UNIT_FILE}" "${SERVICE_ENV_FILE}" "${SERVICE_BOOTSTRAP_FILE}"
         rmdir "$(dirname "${SERVICE_UNIT_FILE}")" >/dev/null 2>&1 || true
