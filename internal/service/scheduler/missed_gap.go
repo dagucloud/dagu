@@ -57,8 +57,9 @@ func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, to, t
 
 // settleRestoredHold ends at startup the hold of a DAG that is no longer
 // held. Its hold lasted at least to the last tick, and catch-up and the
-// outage's gap take the slots after it.
-func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, active activeDAGSchedules, lastTick time.Time) {
+// outage's gap take the slots after it. The first tick runs the slots of its
+// own minute, which is the last tick's after a restart within that minute.
+func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, active activeDAGSchedules, lastTick, firstTick time.Time) {
 	tp.mu.RLock()
 	held := tp.watermarkState.DAGs[entry.DAG.Name].HeldSince != nil
 	tp.mu.RUnlock()
@@ -69,7 +70,11 @@ func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, a
 	if err != nil || suspended {
 		return
 	}
-	tp.releaseDAG(entry.DAG.Name, active.start, lastTick, lastTick)
+	through := lastTick
+	if beforeFirst := firstTick.Add(-time.Second); beforeFirst.Before(through) {
+		through = beforeFirst
+	}
+	tp.releaseDAG(entry.DAG.Name, active.start, lastTick, through)
 }
 
 // recordDownGap records as the gap from to to the slots of a DAG that is

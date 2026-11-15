@@ -411,14 +411,15 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	}
 	// The first tick takes the current minute's slots, and recovery replays
 	// the slots inside its window.
-	missedBefore := tp.cfg.Clock().Truncate(time.Minute)
+	firstTick := tp.cfg.Clock().Truncate(time.Minute)
+	missedBefore := firstTick
 	if recovery > 0 {
 		missedBefore = tp.cfg.Clock().Add(-recovery)
 	}
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
-			tp.settleRestoredHold(ctx, entry, active, state.LastTick)
+			tp.settleRestoredHold(ctx, entry, active, state.LastTick, firstTick)
 			// With recovery, initBuffers records the gap, as it knows the
 			// slots recovery replays. Otherwise the first tick runs its own.
 			if recovery == 0 {
