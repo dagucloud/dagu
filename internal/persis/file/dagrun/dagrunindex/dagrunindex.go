@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -735,9 +736,7 @@ func parseTimeToUnix(s string) int64 {
 	return t.Unix()
 }
 
-// parseStatusFile reads the status file. This is a local wrapper to avoid
-// importing the parent dagrun package (which would create a circular dependency).
-// It finds the last valid JSON line, reading the file from its end.
+// parseStatusFile returns the newest status in the status file.
 func parseStatusFile(filePath string) (*ir.DAGRunStatus, error) {
 	f, err := fileutil.Open(filePath)
 	if err != nil {
@@ -751,28 +750,14 @@ func parseStatusFile(filePath string) (*ir.DAGRunStatus, error) {
 		return nil, err
 	}
 
-	var result *ir.DAGRunStatus
-	err = fileutil.ReadLinesBackward(context.Background(), f, info.Size(), func(line []byte, _ bool) (bool, error) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			return false, nil
-		}
-		// The decoded status keeps no reference to line, which is valid
-		// only until this callback returns.
-		var status ir.DAGRunStatus
-		if err := json.Unmarshal(line, &status); err != nil {
-			return false, nil
-		}
-		result = &status
-		return true, nil
-	})
+	latest, err := statusfile.ReadLatest(context.Background(), f, info.Size())
+	if errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("no valid status found in %s", filePath)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if result == nil {
-		return nil, fmt.Errorf("no valid status found in %s", filePath)
-	}
-	return result, nil
+	return latest.Status, nil
 }
 
 // encodeDates writes a run's dates for the index, or nothing when it has

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -584,44 +583,6 @@ func TestAttempt_WriteAfterPartialLine(t *testing.T) {
 			})
 		}
 	})
-}
-
-func TestReadLineFrom(t *testing.T) {
-	dir := createTempDir(t)
-	file := filepath.Join(dir, "lines.txt")
-
-	// Create a test file with multiple lines
-	content := "line1\nline2\nline3\n"
-	err := os.WriteFile(file, []byte(content), 0600)
-	require.NoError(t, err)
-
-	f, err := os.Open(file)
-	require.NoError(t, err)
-	defer func() {
-		_ = f.Close()
-	}()
-
-	// Read first line
-	line1, offset, err := readLineFrom(f, 0)
-	assert.NoError(t, err)
-	assert.Equal(t, "line1", string(line1))
-	assert.Equal(t, int64(6), offset) // "line1\n" = 6 bytes
-
-	// Read second line
-	line2, offset, err := readLineFrom(f, offset)
-	assert.NoError(t, err)
-	assert.Equal(t, "line2", string(line2))
-	assert.Equal(t, int64(12), offset) // offset 6 + "line2\n" = 12 bytes
-
-	// Read third line
-	line3, offset, err := readLineFrom(f, offset)
-	assert.NoError(t, err)
-	assert.Equal(t, "line3", string(line3))
-	assert.Equal(t, int64(18), offset) // offset 12 + "line3\n" = 18 bytes
-
-	// Try to read beyond EOF
-	_, _, err = readLineFrom(f, offset)
-	assert.ErrorIs(t, err, io.EOF)
 }
 
 func TestSafeRename(t *testing.T) {

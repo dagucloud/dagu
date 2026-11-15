@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"github.com/stretchr/testify/assert"
@@ -496,6 +497,31 @@ func TestParseStatusFile_MultiLine(t *testing.T) {
 	require.NoError(t, err)
 	// Should return the last valid line (succeeded status).
 	assert.Equal(t, ir.Succeeded, status.Status)
+}
+
+// A status file that ends in change records reads as its newest status.
+func TestParseStatusFile_ChangeRecords(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "status.jsonl")
+	status := ir.DAGRunStatus{Name: "etl", Status: ir.Running}
+	for i := range 10 {
+		status.Nodes = append(status.Nodes, ir.NewNodeFromStep(ir.Step{Name: fmt.Sprintf("step%d", i)}))
+	}
+	var enc statusfile.Encoder
+	var content []byte
+	for _, st := range []ir.Status{ir.Running, ir.Succeeded} {
+		status.Status = st
+		status.Nodes[0].Status = ir.NodeSucceeded
+		line, err := enc.Encode(status)
+		require.NoError(t, err)
+		content = append(append(content, line...), '\n')
+	}
+	require.Contains(t, string(content), "\n~")
+	require.NoError(t, os.WriteFile(statusPath, content, 0600))
+
+	got, err := parseStatusFile(statusPath)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, got.Status)
+	assert.Equal(t, ir.NodeSucceeded, got.Nodes[0].Status)
 }
 
 func TestParseStatusFile_EmptyFile(t *testing.T) {
