@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -94,36 +95,78 @@ func isAllowedCharsOnly(s string) bool {
 }
 
 // SafeName output names directories and files, with or without an
-// extension. A device name must change where the host would open the device
-// instead, and must stay where the host stores files under it, so the runs
-// and logs stored there before are still found.
+// extension. Windows versions differ in which device names they map to a
+// device, so on Windows every device name gets an underscore and a path
+// keeps its name across versions. Other systems keep the name, so the runs
+// and logs stored under it before still resolve.
 func TestSafeNameDeviceNames(t *testing.T) {
 	for _, name := range []string{"con", "PRN", "Aux", "nul", "COM1", "lpt9"} {
 		t.Run(name, func(t *testing.T) {
-			safe := SafeName(name)
-			require.NoError(t, storeUnder(t.TempDir(), safe))
-			if storeUnder(t.TempDir(), name) == nil {
-				require.Equal(t, name, safe)
+			want := name
+			if runtime.GOOS == "windows" {
+				want = name + "_"
 			}
+			safe := SafeName(name)
+			require.Equal(t, want, safe)
+			require.NoError(t, storeUnder(t.TempDir(), safe))
 		})
 	}
 }
 
-// EscapeName returns a name this host stores as written, keeps a name the
-// host already stores that way, and UnescapeName maps it back.
+// EscapeName returns a name this host stores as written, the same on every
+// version of the host, and UnescapeName maps it back. On Windows a device
+// name is escaped in any case and with any extension.
 func TestEscapeName(t *testing.T) {
-	names := []string{
-		"plain", "50%", "fetch/parse", `fetch\parse`, "db:query", "why?",
-		"tab\there", "nul\x00byte", "nul", "nul.json", "con", "COM1.txt", "nightly.", "trailing ",
+	tests := []struct{ name, windows, other string }{
+		{name: "plain", windows: "plain", other: "plain"},
+		{name: "50%", windows: "50%25", other: "50%25"},
+		{name: "fetch/parse", windows: "fetch%2Fparse", other: "fetch%2Fparse"},
+		{name: `fetch\parse`, windows: "fetch%5Cparse", other: `fetch\parse`},
+		{name: "db:query", windows: "db%3Aquery", other: "db:query"},
+		{name: "why?", windows: "why%3F", other: "why?"},
+		{name: "tab\there", windows: "tab%09here", other: "tab\there"},
+		{name: "nul\x00byte", windows: "nul%00byte", other: "nul%00byte"},
+		{name: "nul", windows: "%6Eul", other: "nul"},
+		{name: "nul.json", windows: "%6Eul.json", other: "nul.json"},
+		{name: "con", windows: "%63on", other: "con"},
+		{name: "COM1.txt", windows: "%43OM1.txt", other: "COM1.txt"},
+		{name: "lpt\u00b2", windows: "%6Cpt\u00b2", other: "lpt\u00b2"},
+		{name: "CONIN$", windows: "%43ONIN$", other: "CONIN$"},
+		{name: "aux .log", windows: "%61ux .log", other: "aux .log"},
+		{name: "COM0", windows: "COM0", other: "COM0"},
+		{name: "console", windows: "console", other: "console"},
+		{name: "nightly.", windows: "nightly%2E", other: "nightly."},
+		{name: "trailing ", windows: "trailing%20", other: "trailing "},
 	}
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
-			escaped := EscapeName(name)
-			require.NoError(t, storeUnder(t.TempDir(), escaped))
-			require.Equal(t, name, UnescapeName(escaped))
-			if storeUnder(t.TempDir(), name) == nil {
-				require.Equal(t, name, escaped)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := tt.other
+			if runtime.GOOS == "windows" {
+				want = tt.windows
 			}
+			escaped := EscapeName(tt.name)
+			require.Equal(t, want, escaped)
+			require.NoError(t, storeUnder(t.TempDir(), escaped))
+			require.Equal(t, tt.name, UnescapeName(escaped))
+		})
+	}
+}
+
+// Different names never share a file or directory, even on a file system
+// that ignores case, such as NTFS or APFS.
+func TestEscapeNameDistinct(t *testing.T) {
+	pairs := [][2]string{
+		{"a/b", "a%2Fb"}, {"a/b", "a%2fb"}, {"db:query", "db%3aquery"}, {"nul", "%6eul"}, {"50%", "50%25"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair[0]+" "+pair[1], func(t *testing.T) {
+			parent := t.TempDir()
+			for _, name := range pair {
+				require.NoError(t, os.Mkdir(filepath.Join(parent, EscapeName(name)), 0o750))
+			}
+			entries, err := os.ReadDir(parent)
+			require.NoError(t, err)
+			require.Len(t, entries, 2)
 		})
 	}
 }
