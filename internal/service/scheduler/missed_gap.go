@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
@@ -119,6 +120,101 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[entry.DAG.Name])
 	watermark.Missed = &schedulerstate.MissedGap{From: from, To: to, Reason: schedulerstate.GapDown, Slots: slots}
 	tp.watermarkState.DAGs[entry.DAG.Name] = watermark
+}
+
+// coverGap takes from a DAG's missed gap the slots a backfill of a range
+// runs. A backfill that runs the gap's first slots leaves the gap the slots
+// after them, or clears it when it runs them all. One that leaves an
+// earlier slot of the gap, or names its slots, leaves the gap as it is. It
+// reports whether the gap changed.
+func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
+	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 {
+		return false
+	}
+	tp.mu.RLock()
+	missed := tp.watermarkState.DAGs[record.DAGName].Missed
+	tp.mu.RUnlock()
+	if missed == nil {
+		return false
+	}
+	gap := *missed
+	start := gapStart(gap)
+	first, last := record.Slots[0].At, record.Slots[len(record.Slots)-1].At
+	if !last.After(start) || first.After(gap.To) {
+		return false
+	}
+	schedules, ok := tp.startSchedules(ctx, record.DAGName)
+	if !ok || slotBefore(schedules, start.In(tp.cfg.Location), first) {
+		return false
+	}
+	covered := 0
+	for _, slot := range record.Slots {
+		if slot.At.After(start) && !slot.At.After(gap.To) {
+			covered++
+		}
+	}
+
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[record.DAGName])
+	if watermark.Missed == nil || !sameGap(*watermark.Missed, gap) {
+		return false
+	}
+	if covered >= gap.Slots {
+		watermark.Missed = nil
+	} else {
+		gap.From, gap.Slots = last, gap.Slots-covered
+		if gap.Reason != schedulerstate.GapDown {
+			gap.From = last.Add(time.Second)
+		}
+		watermark.Missed = &gap
+	}
+	tp.watermarkState.DAGs[record.DAGName] = watermark
+	return true
+}
+
+// gapStart is the instant a gap's slots come after. A hold's gap holds the
+// slot of the tick that found the DAG held, while an outage's starts after
+// the last tick, whose slots ran.
+func gapStart(gap schedulerstate.MissedGap) time.Time {
+	if gap.Reason == schedulerstate.GapDown {
+		return gap.From
+	}
+	return gap.From.Add(-time.Second)
+}
+
+func sameGap(a, b schedulerstate.MissedGap) bool {
+	return a.From.Equal(b.From) && a.To.Equal(b.To) && a.Reason == b.Reason && a.Slots == b.Slots
+}
+
+// startSchedules returns the start schedules of a DAG the planner tracks.
+func (tp *TickPlanner) startSchedules(ctx context.Context, dagName string) ([]ir.Schedule, bool) {
+	tp.entryMu.Lock()
+	entry, ok := tp.entries[dagName]
+	var dagEntry DAGEntry
+	if ok {
+		dagEntry = entry.DAGEntry
+	}
+	tp.entryMu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	active, ok := tp.activeDAGSchedules(ctx, dagEntry)
+	return active.start, ok
+}
+
+// slotBefore reports whether a cron schedule fires after from and before
+// before.
+func slotBefore(schedules []ir.Schedule, from, before time.Time) bool {
+	for _, schedule := range schedules {
+		if schedule.Parsed == nil {
+			continue
+		}
+		if next := schedule.Parsed.Next(from); !next.IsZero() && next.Before(before) {
+			return true
+		}
+	}
+	return false
 }
 
 // countSlots counts the fire times of the cron schedules after from and by

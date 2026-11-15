@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/stretchr/testify/assert"
@@ -254,4 +255,95 @@ func TestTickPlanner_HoldGapLeavesOutQueuedCatchup(t *testing.T) {
 	gap := missedGap(tp, dag.Name)
 	require.NotNil(t, gap)
 	assert.Equal(t, 2, gap.Slots, "10:00 and 11:00 passed; catch-up runs %v", queued)
+}
+
+// heldGap returns a planner whose hourly DAG missed the slots of 12:00,
+// 13:00, and 14:00 while it was suspended.
+func heldGap(t *testing.T) (*TickPlanner, string) {
+	t.Helper()
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(11, 59))})
+	held := true
+	tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return held, nil }
+	dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	for _, now := range []time.Time{at(12, 0), at(13, 0), at(14, 0)} {
+		tp.Plan(t.Context(), now)
+	}
+	held = false
+	tp.Plan(t.Context(), at(15, 0))
+	require.Equal(t, 3, missedGap(tp, dag.Name).Slots)
+	return tp, dag.Name
+}
+
+// backfillOf returns a backfill of a DAG's range that runs the slots.
+func backfillOf(dagName string, slots ...time.Time) *backfill.Record {
+	record := &backfill.Record{DAGName: dagName}
+	for _, slot := range slots {
+		record.Slots = append(record.Slots, backfill.RecordSlot{At: slot})
+	}
+	return record
+}
+
+// A backfill that runs a gap's slots clears it. One that runs its first
+// slots leaves the gap the slots after them; one that leaves an earlier
+// slot of the gap, or names its slots, leaves the gap as it is.
+func TestTickPlanner_BackfillCoversGap(t *testing.T) {
+	t.Parallel()
+	held := schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 3}
+	named := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
+	named.Options.Slots = []time.Time{at(12, 0), at(13, 0), at(14, 0)}
+	for _, tc := range []struct {
+		name   string
+		record *backfill.Record
+		want   *schedulerstate.MissedGap
+	}{
+		{name: "every slot", record: backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))},
+		{name: "and the slot that ran", record: backfillOf("hourly", at(11, 0), at(12, 0), at(13, 0), at(14, 0), at(15, 0))},
+		{
+			name:   "first slots",
+			record: backfillOf("hourly", at(12, 0), at(13, 0)),
+			want:   &schedulerstate.MissedGap{From: at(13, 0).Add(time.Second), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 1},
+		},
+		{name: "later slots", record: backfillOf("hourly", at(13, 0), at(14, 0)), want: &held},
+		{name: "earlier slots", record: backfillOf("hourly", at(9, 0), at(10, 0)), want: &held},
+		{name: "named slots", record: named, want: &held},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, dagName := heldGap(t)
+			changed := tp.coverGap(t.Context(), tc.record)
+			assert.Equal(t, tc.want, missedGap(tp, dagName))
+			assert.Equal(t, tc.want == nil || tc.want.Slots != held.Slots, changed)
+		})
+	}
+}
+
+// Backfills of a gap one part after another clear it, whether its first
+// slot came due as the DAG was held or after the last tick before an
+// outage.
+func TestTickPlanner_BackfillsCoverGapInParts(t *testing.T) {
+	t.Parallel()
+	t.Run("held", func(t *testing.T) {
+		t.Parallel()
+		tp, dagName := heldGap(t)
+		require.True(t, tp.coverGap(t.Context(), backfillOf(dagName, at(12, 0))))
+		require.True(t, tp.coverGap(t.Context(), backfillOf(dagName, at(13, 0))))
+		require.Equal(t, 1, missedGap(tp, dagName).Slots)
+		require.True(t, tp.coverGap(t.Context(), backfillOf(dagName, at(14, 0))))
+		assert.Nil(t, missedGap(tp, dagName))
+	})
+	t.Run("down", func(t *testing.T) {
+		t.Parallel()
+		tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(9, 0))})
+		dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+		require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+		require.Equal(t, 2, missedGap(tp, dag.Name).Slots)
+
+		require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, at(9, 0), at(10, 0))))
+		assert.Equal(t, &schedulerstate.MissedGap{
+			From: at(10, 0), To: at(12, 0), Reason: schedulerstate.GapDown, Slots: 1,
+		}, missedGap(tp, dag.Name))
+		require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, at(11, 0))))
+		assert.Nil(t, missedGap(tp, dag.Name))
+	})
 }

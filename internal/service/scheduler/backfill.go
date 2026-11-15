@@ -110,10 +110,19 @@ func (s *Scheduler) newBackfillDispatcher(store backfill.Store) *backfill.Dispat
 			return attempt.ReadStatus(ctx)
 		},
 		Target:      s.backfillTarget,
+		Advancing:   s.coverMissedGap,
 		Enqueue:     s.enqueueBackfillRun,
 		DAGExists:   s.backfillDAGExists,
 		RetryWindow: s.config.Scheduler.RetryFailureWindow,
 		Now:         s.clock,
+	}
+}
+
+// coverMissedGap takes from its DAG's missed gap the slots a backfill runs,
+// and saves the gap at once, so the DAG's page stops offering them.
+func (s *Scheduler) coverMissedGap(ctx context.Context, record *backfill.Record) {
+	if s.planner.coverGap(ctx, record) {
+		s.planner.Flush(ctx)
 	}
 }
 

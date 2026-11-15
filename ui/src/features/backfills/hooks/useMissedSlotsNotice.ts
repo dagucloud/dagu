@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { MissedSlotsReason, type components } from '@/api/v1/schema';
 import type { WorkspaceNotice } from '@/features/dags/components/dag-editor/hostTypes';
 import { useI18n } from '@/i18n/I18nProvider';
+import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 
 type MissedSlots = components['schemas']['MissedSlots'];
 
@@ -20,10 +21,11 @@ export const GAP_TO_PARAM = 'gapTo';
 
 const MESSAGES: Record<MissedSlotsReason, string> = {
   [MissedSlotsReason.suspended]:
-    '{count} slots passed while this DAG was suspended',
+    '{count} slots passed from {from} to {to} while this DAG was suspended',
   [MissedSlotsReason.paused]:
-    '{count} slots passed while the scheduler was paused',
-  [MissedSlotsReason.down]: '{count} slots passed while the scheduler was down',
+    '{count} slots passed from {from} to {to} while the scheduler was paused',
+  [MissedSlotsReason.down]:
+    '{count} slots passed from {from} to {to} while the scheduler was down',
 };
 
 /** The most slots the scheduler counts in a gap. */
@@ -57,16 +59,20 @@ function writeDismissed(keys: string[]): void {
   }
 }
 
+const formatBound = (value: string) =>
+  formatAbsoluteTime(value, { seconds: false }) ?? value;
+
 /**
  * The notice of the slots a DAG missed while it was suspended, the
- * scheduler paused, or no scheduler ran. Its action opens the Backfills tab
- * with the start panel on that gap. Dismissed, it stays hidden until
- * another gap is missed.
+ * scheduler paused, or no scheduler ran. For a user who may backfill, its
+ * action opens the Backfills tab with the start panel on that gap.
+ * Dismissed, it stays hidden until another gap is missed.
  */
 export function useMissedSlotsNotice(
   gap: MissedSlots | undefined,
   dagName: string,
-  remoteNode: string
+  remoteNode: string,
+  canBackfill: boolean
 ): WorkspaceNotice | null {
   const { ts } = useI18n();
   const navigate = useNavigate();
@@ -90,24 +96,39 @@ export function useMissedSlotsNotice(
     // A gap at the cap may hold more slots than it counts.
     const count =
       gap.slots >= MAX_GAP_SLOTS ? `${MAX_GAP_SLOTS}+` : String(gap.slots);
+    const action = {
+      label: ts('Backfill'),
+      run: () => {
+        const search = new URLSearchParams(location.search);
+        search.set('panel', 'workflow');
+        search.set('wtab', 'backfills');
+        search.set(GAP_FROM_PARAM, gap.from);
+        search.set(GAP_TO_PARAM, gap.to);
+        navigate({ pathname: location.pathname, search: `?${search}` });
+      },
+    };
     return {
       id: 'missed-slots',
       tone: 'warning',
-      message: ts(MESSAGES[gap.reason], { count }),
-      action: {
-        label: ts('Backfill'),
-        run: () => {
-          const search = new URLSearchParams(location.search);
-          search.set('panel', 'workflow');
-          search.set('wtab', 'backfills');
-          search.set(GAP_FROM_PARAM, gap.from);
-          search.set(GAP_TO_PARAM, gap.to);
-          navigate({ pathname: location.pathname, search: `?${search}` });
-        },
-      },
+      message: ts(MESSAGES[gap.reason], {
+        count,
+        from: formatBound(gap.from),
+        to: formatBound(gap.to),
+      }),
+      action: canBackfill ? action : undefined,
       dismissible: true,
       dismiss,
       priority: MISSED_SLOTS_NOTICE_PRIORITY,
     };
-  }, [gap, dagName, remoteNode, dismissed, dismiss, navigate, location, ts]);
+  }, [
+    gap,
+    dagName,
+    remoteNode,
+    canBackfill,
+    dismissed,
+    dismiss,
+    navigate,
+    location,
+    ts,
+  ]);
 }

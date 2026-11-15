@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import { useMonitoringOfferState } from '@/components/MonitoringOffer';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useBackfillNotice } from '@/features/backfills/hooks/useBackfillNotice';
 import { useMissedSlotsNotice } from '@/features/backfills/hooks/useMissedSlotsNotice';
 import { useOpenSubRun } from '@/features/dags/components/common/SubRunStackModal';
@@ -46,7 +47,10 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const { ts } = useI18n();
   const navigate = useNavigate();
   const run = useWorkspaceRun();
-  const { dagData, remoteNode } = useWorkspaceData('useWorkspaceNotices');
+  const { dagData, remoteNode, workspaceName } = useWorkspaceData(
+    'useWorkspaceNotices'
+  );
+  const canBackfill = useCanExecuteForWorkspace(workspaceName);
   const dock = useDockCommands();
   const offer = useMonitoringOfferState();
 
@@ -78,7 +82,8 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const missedSlotsNotice = useMissedSlotsNotice(
     dagData.missedSlots,
     dagData.dag?.name ?? '',
-    remoteNode
+    remoteNode,
+    canBackfill
   );
 
   return useMemo(() => {

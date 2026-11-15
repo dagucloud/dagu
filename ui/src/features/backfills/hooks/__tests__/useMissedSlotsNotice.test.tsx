@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MissedSlotsReason } from '@/api/v1/schema';
+import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { useMissedSlotsNotice } from '../useMissedSlotsNotice';
 
 const gap = {
@@ -23,9 +24,16 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function useNoticeAndLocation(missed: typeof gap | undefined, dag = 'etl') {
+// The gap's bounds as the notice tells them, in the browser's zone.
+const span = `from ${formatAbsoluteTime(gap.from, { seconds: false })} to ${formatAbsoluteTime(gap.to, { seconds: false })}`;
+
+function useNoticeAndLocation(
+  missed: typeof gap | undefined,
+  dag = 'etl',
+  canBackfill = true
+) {
   return {
-    notice: useMissedSlotsNotice(missed, dag, 'local'),
+    notice: useMissedSlotsNotice(missed, dag, 'local', canBackfill),
     location: useLocation(),
   };
 }
@@ -35,14 +43,25 @@ describe('useMissedSlotsNotice', () => {
     localStorage.clear();
   });
 
-  it('says how many slots passed and why', () => {
+  it('says how many slots passed, when, and why', () => {
     const { result } = renderHook(() => useNoticeAndLocation(gap), {
       wrapper,
     });
 
     expect(result.current.notice?.message).toBe(
-      '12 slots passed while this DAG was suspended'
+      `12 slots passed ${span} while this DAG was suspended`
     );
+  });
+
+  // A user who may not run the DAG can read and dismiss the notice only.
+  it('offers no backfill to a user who may not run the DAG', () => {
+    const { result } = renderHook(
+      () => useNoticeAndLocation(gap, 'etl', false),
+      { wrapper }
+    );
+
+    expect(result.current.notice?.action).toBeUndefined();
+    expect(result.current.notice?.dismissible).toBe(true);
   });
 
   // The action opens the Backfills tab, whose start panel opens on the gap.
@@ -71,7 +90,7 @@ describe('useMissedSlotsNotice', () => {
     );
 
     expect(result.current.notice?.message).toBe(
-      '10000+ slots passed while this DAG was suspended'
+      `10000+ slots passed ${span} while this DAG was suspended`
     );
   });
 

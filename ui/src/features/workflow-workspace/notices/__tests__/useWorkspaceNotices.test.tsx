@@ -24,7 +24,10 @@ import {
 import type { DockController } from '../../dock/DockContext';
 import { useWorkspaceNotices } from '../useWorkspaceNotices';
 
-vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useIsAdmin: vi.fn(),
+  useCanExecuteForWorkspace: () => true,
+}));
 
 const ws = vi.hoisted(() => ({ dock: null as unknown }));
 vi.mock('../../dock/DockContext', () => ({
