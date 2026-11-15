@@ -1,11 +1,21 @@
+params:
+  - DIR: ""
 steps:
   - id: deploy
     action: dag.run
     with:
       dag: deploy-one
+      params:
+        DIR: ${params.DIR}
     nodes: db
 ---
 name: deploy-one
 node: required
+params:
+  - DIR: ""
 steps:
-  - action: noop
+  - action: file.write
+    with:
+      path: ${params.DIR}/child-ran
+      content: ran
+      overwrite: true

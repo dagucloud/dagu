@@ -149,6 +149,9 @@ A run fails before any step starts when:
 
 ## Examples
 
+This DAG validates. Until a child run reaches its node, both of its node
+steps fail on each node before any command runs, as [Status](#status) says.
+
 ```yaml
 steps:
   - id: rollout
