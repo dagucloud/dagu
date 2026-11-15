@@ -85,8 +85,18 @@ stdout is `{"error": {"kind": "...", "message": "..."}}`. Kinds:
 ### Credentials
 
 Header values come from the DAG through value resolution, so secrets use the
-existing `secrets` mechanism. Header values are masked in step logs and in
-error messages and are never placed in the URL.
+existing `secrets` mechanism. Credentials are never placed in the URL.
+
+The step masks these values with `***` in its output and error messages:
+
+- the value of a header whose name contains `auth`, `cookie`, `key`, `token`,
+  `secret`, or `password` (case-insensitive), and the part after the first
+  space, such as the token in `Bearer <token>`
+- URL query values of four or more characters, decoded and as written
+
+Other header values are not masked, so they never alter the tool result.
+Masking applies to string values in the output; object keys are not masked.
+Values declared under `secrets` are also masked in step logs by Dagu.
 
 ## Examples
 

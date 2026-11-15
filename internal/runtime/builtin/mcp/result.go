@@ -71,18 +71,30 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// redactor masks header values, and the credential part of scheme-prefixed
-// values such as "Bearer <token>", at any length. URL query values are masked
-// only above minQuerySecretLen to avoid hitting ubiquitous short substrings.
-// Secrets are applied longest first so a short secret cannot split a longer one.
+// redactor masks credential header values, and the credential part of
+// scheme-prefixed values such as "Bearer <token>", at any length. Other headers
+// are left alone so ordinary values never rewrite tool output. URL query
+// values, decoded and as written, are masked only above minQuerySecretLen to
+// avoid hitting ubiquitous short substrings. Secrets are applied longest first
+// so a short secret cannot split a longer one.
 type redactor []string
 
 const minQuerySecretLen = 4
 
+// credentialHeaderWords mark a header name as carrying a credential.
+var credentialHeaderWords = []string{"auth", "cookie", "key", "token", "secret", "password"}
+
+func isCredentialHeader(name string) bool {
+	name = strings.ToLower(name)
+	return slices.ContainsFunc(credentialHeaderWords, func(w string) bool {
+		return strings.Contains(name, w)
+	})
+}
+
 func newRedactor(headers map[string]string, rawURL string) redactor {
 	var r redactor
-	for _, v := range headers {
-		if v == "" {
+	for k, v := range headers {
+		if v == "" || !isCredentialHeader(k) {
 			continue
 		}
 		r = append(r, v)
@@ -91,8 +103,13 @@ func newRedactor(headers map[string]string, rawURL string) redactor {
 		}
 	}
 	if u, err := url.Parse(rawURL); err == nil {
-		for _, vals := range u.Query() {
-			for _, v := range vals {
+		for pair := range strings.SplitSeq(u.RawQuery, "&") {
+			_, raw, _ := strings.Cut(pair, "=")
+			forms := []string{raw}
+			if decoded, err := url.QueryUnescape(raw); err == nil && decoded != raw {
+				forms = append(forms, decoded)
+			}
+			for _, v := range forms {
 				if len(v) >= minQuerySecretLen {
 					r = append(r, v)
 				}
