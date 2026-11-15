@@ -21,16 +21,20 @@ import (
 var _ inventory.Store = (*InventoryStore)(nil)
 
 // InventoryStore implements [inventory.Store] over a [persis.Collection], one
-// record per inventory keyed by its ID. Every change holds one lock, so the
-// check across all inventories and the write that follows it never interleave
-// with another change.
+// record per inventory keyed by its ID. Every change and every read that spans
+// inventories holds one lock, so a check and the write that follows it never
+// interleave with another change, and no read sees an import partly applied.
 type InventoryStore struct {
 	col  persis.Collection
 	lock persis.Lock
 }
 
+// inventoryStoredRecord keeps its own timestamps, since a backend may derive a
+// record's from the time it was last written.
 type inventoryStoredRecord struct {
 	Version   int64               `json:"version"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
 	Inventory inventory.Inventory `json:"inventory"`
 }
 
@@ -68,7 +72,7 @@ func NewInventoryStore(col persis.Collection, lock persis.Lock) (*InventoryStore
 }
 
 func (s *InventoryStore) List(ctx context.Context) ([]inventory.Stored, error) {
-	all, err := s.load(ctx)
+	all, err := s.loadLocked(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -207,19 +211,11 @@ func (s *InventoryStore) Import(ctx context.Context, invs []inventory.Inventory,
 }
 
 func (s *InventoryStore) Nodes(ctx context.Context) ([]inventory.ResolvedNode, error) {
-	nodes, err := s.resolve(ctx)
-	if !errors.Is(err, inventory.ErrInvalid) {
-		return nodes, err
+	all, err := s.loadLocked(ctx)
+	if err != nil {
+		return nil, err
 	}
-	// A read without the lock can see one inventory before a change and
-	// another after it, such as a node moved between them appearing in both.
-	// Under the lock the stored set is consistent, so a rule it still breaks
-	// is real.
-	err = s.lock.Do(ctx, func(func() error) error {
-		nodes, err = s.resolve(ctx)
-		return err
-	})
-	return nodes, err
+	return inventory.Resolve(inventoriesOf(all))
 }
 
 func (s *InventoryStore) Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error) {
@@ -234,12 +230,18 @@ func (s *InventoryStore) Select(ctx context.Context, selector string) ([]invento
 	return inventory.Select(nodes, filters), nil
 }
 
-func (s *InventoryStore) resolve(ctx context.Context) ([]inventory.ResolvedNode, error) {
-	all, err := s.load(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return inventory.Resolve(inventoriesOf(all))
+// loadLocked reads every inventory under the lock. An import writes one
+// inventory at a time, so a read between two of its writes could miss a node
+// that moves between inventories, and a step would then run on part of the
+// fleet without an error.
+func (s *InventoryStore) loadLocked(ctx context.Context) ([]storedInventory, error) {
+	var all []storedInventory
+	err := s.lock.Do(ctx, func(func() error) error {
+		var err error
+		all, err = s.load(ctx)
+		return err
+	})
+	return all, err
 }
 
 // load reads every inventory. A record that cannot be read fails the load,
@@ -278,7 +280,7 @@ func (s *InventoryStore) create(ctx context.Context, inv inventory.Inventory) (i
 	now := time.Now().UTC()
 	for range createAttempts {
 		inv.ID = newInventoryID()
-		data, err := persis.Encode(&inventoryStoredRecord{Version: 1, Inventory: inv})
+		data, err := persis.Encode(&inventoryStoredRecord{Version: 1, CreatedAt: now, UpdatedAt: now, Inventory: inv})
 		if err != nil {
 			return inventory.Stored{}, fmt.Errorf("inventory store: encode %q: %w", inv.Name, err)
 		}
@@ -296,8 +298,13 @@ func (s *InventoryStore) create(ctx context.Context, inv inventory.Inventory) (i
 
 func (s *InventoryStore) replace(ctx context.Context, current storedInventory, inv inventory.Inventory) (inventory.Stored, error) {
 	inv.ID = current.stored.ID
-	version := current.stored.Version + 1
-	data, err := persis.Encode(&inventoryStoredRecord{Version: version, Inventory: inv})
+	next := inventoryStoredRecord{
+		Version:   current.stored.Version + 1,
+		CreatedAt: current.stored.CreatedAt,
+		UpdatedAt: time.Now().UTC(),
+		Inventory: inv,
+	}
+	data, err := persis.Encode(&next)
 	if err != nil {
 		return inventory.Stored{}, fmt.Errorf("inventory store: encode %q: %w", inv.Name, err)
 	}
@@ -310,12 +317,7 @@ func (s *InventoryStore) replace(ctx context.Context, current storedInventory, i
 	case err != nil:
 		return inventory.Stored{}, fmt.Errorf("inventory store: replace %q: %w", inv.ID, err)
 	}
-	return inventory.Stored{
-		Inventory: inv,
-		Version:   version,
-		CreatedAt: current.stored.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-	}, nil
+	return storedOf(next), nil
 }
 
 // importPlan is a checked import: the inventories to create, and those that
@@ -386,17 +388,17 @@ func decodeStoredInventory(rec *persis.Record) (storedInventory, error) {
 	if err := persis.Decode(rec, &payload); err != nil {
 		return storedInventory{}, fmt.Errorf("inventory store: decode %q: %w", rec.ID, err)
 	}
-	inv := payload.Inventory
-	inv.ID = rec.ID
-	return storedInventory{
-		rec: rec,
-		stored: inventory.Stored{
-			Inventory: inv,
-			Version:   payload.Version,
-			CreatedAt: rec.CreatedAt,
-			UpdatedAt: rec.UpdatedAt,
-		},
-	}, nil
+	payload.Inventory.ID = rec.ID
+	return storedInventory{rec: rec, stored: storedOf(payload)}, nil
+}
+
+func storedOf(r inventoryStoredRecord) inventory.Stored {
+	return inventory.Stored{
+		Inventory: r.Inventory,
+		Version:   r.Version,
+		CreatedAt: r.CreatedAt,
+		UpdatedAt: r.UpdatedAt,
+	}
 }
 
 func inventoriesOf(all []storedInventory) []inventory.Inventory {

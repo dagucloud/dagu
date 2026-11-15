@@ -20,8 +20,9 @@ var (
 )
 
 // Store keeps a project's inventories. Every change is checked against all of
-// the project's inventories before it is stored, so the stored set always
-// resolves, and concurrent changes are applied one at a time.
+// the project's inventories before it is stored, and concurrent changes are
+// applied one at a time. A read that spans inventories sees no change in
+// progress.
 type Store interface {
 	// List returns the inventories in name order.
 	List(ctx context.Context) ([]Stored, error)

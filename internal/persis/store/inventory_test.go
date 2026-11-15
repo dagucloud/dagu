@@ -7,6 +7,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,49 +120,63 @@ func TestInventoryStore_CreateRefusesBrokenRules(t *testing.T) {
 	assert.Equal(t, []string{"Tokyo"}, storedNames(list))
 }
 
+// The file backend stamps a record with the time of its last write, so the
+// test runs on it as well as in memory.
 func TestInventoryStore_Replace(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	s := newMemoryInventoryStore(t)
-	created, err := s.Create(ctx, testInventory("Tokyo", "web01"))
-	require.NoError(t, err)
-	_, err = s.Create(ctx, testInventory("Osaka", "osaka01"))
-	require.NoError(t, err)
+	backends := map[string]func(t *testing.T) persis.Backend{
+		"Memory": func(*testing.T) persis.Backend { return testutil.NewMemoryBackend() },
+		"File": func(t *testing.T) persis.Backend {
+			return file.NewBackend(config.PathsConfig{DataDir: t.TempDir()})
+		},
+	}
+	for name, newBackend := range backends {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := newInventoryStore(t, newBackend(t))
+			created, err := s.Create(ctx, testInventory("Tokyo", "web01"))
+			require.NoError(t, err)
+			_, err = s.Create(ctx, testInventory("Osaka", "osaka01"))
+			require.NoError(t, err)
 
-	change := testInventory("Tokyo production", "web01", "web02")
-	change.ID = created.ID
-	replaced, err := s.Replace(ctx, change, created.Version)
-	require.NoError(t, err)
-	assert.Equal(t, created.ID, replaced.ID)
-	assert.Equal(t, int64(2), replaced.Version)
-	assert.Equal(t, created.CreatedAt, replaced.CreatedAt)
+			change := testInventory("Tokyo production", "web01", "web02")
+			change.ID = created.ID
+			replaced, err := s.Replace(ctx, change, created.Version)
+			require.NoError(t, err)
+			assert.Equal(t, created.ID, replaced.ID)
+			assert.Equal(t, int64(2), replaced.Version)
+			assert.WithinDuration(t, created.CreatedAt, replaced.CreatedAt, 0)
 
-	got, err := s.Get(ctx, created.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "Tokyo production", got.Name)
-	assert.Equal(t, int64(2), got.Version)
-	assert.Len(t, got.Nodes, 2)
+			got, err := s.Get(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, replaced, got)
+			assert.Equal(t, "Tokyo production", got.Name)
+			assert.Len(t, got.Nodes, 2)
+			assert.WithinDuration(t, created.CreatedAt, got.CreatedAt, 0)
 
-	t.Run("OlderVersion", func(t *testing.T) {
-		_, err := s.Replace(ctx, change, created.Version)
-		require.ErrorIs(t, err, inventory.ErrStale)
-	})
-	t.Run("BrokenRule", func(t *testing.T) {
-		clash := testInventory("Tokyo production", "web01", "osaka01")
-		clash.ID = created.ID
-		_, err := s.Replace(ctx, clash, replaced.Version)
-		assert.ErrorContains(t, err, `node "osaka01": name: is also a node of inventory "Osaka"`)
-	})
-	t.Run("UnknownID", func(t *testing.T) {
-		missing := testInventory("Nagoya")
-		missing.ID = "inv_aaaaaaaaaa"
-		_, err := s.Replace(ctx, missing, 1)
-		require.ErrorIs(t, err, inventory.ErrNotFound)
-	})
+			t.Run("OlderVersion", func(t *testing.T) {
+				_, err := s.Replace(ctx, change, created.Version)
+				require.ErrorIs(t, err, inventory.ErrStale)
+			})
+			t.Run("BrokenRule", func(t *testing.T) {
+				clash := testInventory("Tokyo production", "web01", "osaka01")
+				clash.ID = created.ID
+				_, err := s.Replace(ctx, clash, replaced.Version)
+				assert.ErrorContains(t, err, `node "osaka01": name: is also a node of inventory "Osaka"`)
+			})
+			t.Run("UnknownID", func(t *testing.T) {
+				missing := testInventory("Nagoya")
+				missing.ID = "inv_aaaaaaaaaa"
+				_, err := s.Replace(ctx, missing, 1)
+				require.ErrorIs(t, err, inventory.ErrNotFound)
+			})
 
-	got, err = s.Get(ctx, created.ID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), got.Version, "refused changes store nothing")
+			got, err = s.Get(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, int64(2), got.Version, "refused changes store nothing")
+		})
+	}
 }
 
 func TestInventoryStore_Delete(t *testing.T) {
@@ -372,59 +387,65 @@ func TestInventoryStore_Select(t *testing.T) {
 	require.ErrorIs(t, err, inventory.ErrEmptySelector)
 }
 
-// staleReadCollection returns, once, the record a reader would have seen
-// just before a change, as a read that races the change can.
-type staleReadCollection struct {
+// swapHookCollection calls onSwap after its first compare-and-swap, while the
+// writer still holds the lock.
+type swapHookCollection struct {
 	persis.Collection
-	mu    sync.Mutex
-	stale map[string]*persis.Record
+	once   sync.Once
+	onSwap func()
 }
 
-func (c *staleReadCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
-	c.mu.Lock()
-	rec, ok := c.stale[id]
-	delete(c.stale, id)
-	c.mu.Unlock()
-	if ok {
-		return rec, nil
-	}
-	return c.Collection.Get(ctx, id)
+func (c *swapHookCollection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	err := c.Collection.CompareAndSwap(ctx, id, expected, next)
+	c.once.Do(c.onSwap)
+	return err
 }
 
-func (c *staleReadCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
+func (c *swapHookCollection) RecordIDs(ctx context.Context, prefix string) ([]string, error) {
 	return c.Collection.(interface {
 		RecordIDs(context.Context, string) ([]string, error)
 	}).RecordIDs(ctx, prefix)
 }
 
-// A node moved between inventories appears in both to a read that sees one
-// inventory before the move and the other after it. Such a read must not fail.
-func TestInventoryStore_NodesDuringChange(t *testing.T) {
+// An import that moves web01 from Tokyo to Osaka writes Tokyo first. A read
+// between the two writes would find web01 in neither and select no node
+// without an error, so it must wait for the import.
+func TestInventoryStore_ReadDuringImport(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := testutil.NewMemoryBackend()
-	col := &staleReadCollection{Collection: backend.Collection(persis.CollectionInventories)}
+	col := &swapHookCollection{Collection: backend.Collection(persis.CollectionInventories)}
 	s, err := store.NewInventoryStore(col, backend.Lock(persis.CollectionInventories))
 	require.NoError(t, err)
-
-	tokyo, err := s.Create(ctx, testInventory("Tokyo", "web01"))
+	_, err = s.Create(ctx, testInventory("Tokyo", "web01"))
 	require.NoError(t, err)
 	_, err = s.Create(ctx, testInventory("Osaka"))
 	require.NoError(t, err)
-	before, err := col.Collection.Get(ctx, tokyo.ID)
-	require.NoError(t, err)
+
+	var (
+		selected  []inventory.ResolvedNode
+		selectErr error
+		read      = make(chan struct{})
+	)
+	col.onSwap = func() {
+		go func() {
+			defer close(read)
+			selected, selectErr = s.Select(ctx, "web")
+		}()
+		// Give a read that skips the lock time to finish mid-import.
+		select {
+		case <-read:
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 	_, err = s.Import(ctx, []inventory.Inventory{
 		testInventory("Tokyo"),
 		testInventory("Osaka", "web01"),
 	}, inventory.ImportOptions{Replace: true})
 	require.NoError(t, err)
 
-	col.mu.Lock()
-	col.stale = map[string]*persis.Record{tokyo.ID: before}
-	col.mu.Unlock()
-
-	nodes, err := s.Nodes(ctx)
-	require.NoError(t, err)
-	require.Len(t, nodes, 1)
-	assert.Equal(t, "Osaka", nodes[0].InventoryName)
+	<-read
+	require.NoError(t, selectErr)
+	require.Len(t, selected, 1)
+	assert.Equal(t, "Osaka", selected[0].InventoryName)
 }
