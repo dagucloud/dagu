@@ -6,17 +6,24 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +80,7 @@ func (s *recordingAuditStore) Query(context.Context, audit.QueryFilter) (*audit.
 	return &audit.QueryResult{Entries: s.entries, Total: len(s.entries)}, nil
 }
 
-func newInventoryTestAPI(t *testing.T, opts ...apiv1.APIOption) *apiv1.API {
+func newInventoryTestStore(t *testing.T) inventory.Store {
 	t.Helper()
 	backend := testutil.NewMemoryBackend()
 	store, err := persiststore.NewInventoryStore(
@@ -81,7 +88,12 @@ func newInventoryTestAPI(t *testing.T, opts ...apiv1.APIOption) *apiv1.API {
 		backend.Lock(persis.CollectionInventories),
 	)
 	require.NoError(t, err)
-	allOpts := append([]apiv1.APIOption{apiv1.WithInventoryStore(store)}, opts...)
+	return store
+}
+
+func newInventoryTestAPI(t *testing.T, opts ...apiv1.APIOption) *apiv1.API {
+	t.Helper()
+	allOpts := append([]apiv1.APIOption{apiv1.WithInventoryStore(newInventoryTestStore(t))}, opts...)
 	return apiv1.New(nil, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil, allOpts...)
 }
 
@@ -369,6 +381,62 @@ func TestInventoryAPI_ImportPermissionsAndAudit(t *testing.T) {
 	resp, err := api.ListInventoryNodes(viewerCtx, apigen.ListInventoryNodesRequestObject{})
 	require.NoError(t, err)
 	assert.Len(t, resp.(apigen.ListInventoryNodes200JSONResponse).Nodes, 5)
+}
+
+// The import refuses a body that holds more than the array, though the
+// generated handler would decode the array alone. Strict validation stays off,
+// so no OpenAPI validator stands in front of the handler.
+func TestInventoryAPI_ImportOverHTTP(t *testing.T) {
+	cfg := &config.Config{Server: config.Server{
+		APIBasePath: "/api/v1",
+		Auth:        config.Auth{Mode: config.AuthModeNone},
+	}}
+	api := apiv1.New(nil, nil, nil, nil, runtime.Manager{}, cfg, nil, nil, prometheus.NewRegistry(), nil,
+		apiv1.WithInventoryStore(newInventoryTestStore(t)))
+	router := chi.NewRouter()
+	router.Route("/api/v1", func(r chi.Router) {
+		require.NoError(t, api.ConfigureRoutes(t.Context(), r, time.Second))
+	})
+	post := func(body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/inventory-imports", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	resp := post(testInventories + ` {}`)
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Contains(t, resp.Body.String(), "unexpected data after the value")
+	assert.Empty(t, listInventorySummaries(t, api))
+
+	resp = post(testInventories)
+	require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	assert.Len(t, listInventorySummaries(t, api), 2)
+}
+
+// failingImportStore stores the first inventory of an import and then fails,
+// as an import does when the disk fills up partway.
+type failingImportStore struct{ inventory.Store }
+
+var errDiskFull = errors.New("disk full")
+
+func (failingImportStore) Import(context.Context, []inventory.Inventory, inventory.ImportOptions) (inventory.ImportResult, error) {
+	return inventory.ImportResult{Created: []string{"Tokyo production"}}, errDiskFull
+}
+
+func TestInventoryAPI_ImportStoppedPartwayIsAudited(t *testing.T) {
+	auditStore := &recordingAuditStore{}
+	api := apiv1.New(nil, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil,
+		apiv1.WithInventoryStore(failingImportStore{newInventoryTestStore(t)}),
+		apiv1.WithAuditService(audit.New(auditStore)),
+	)
+	var items apigen.ImportInventoriesJSONRequestBody
+	require.NoError(t, json.Unmarshal([]byte(testInventories), &items))
+	_, err := api.ImportInventories(context.Background(), apigen.ImportInventoriesRequestObject{Body: &items})
+	require.ErrorIs(t, err, errDiskFull)
+	require.Len(t, auditStore.entries, 1)
+	assert.Contains(t, auditStore.entries[0].Details, "Tokyo production")
 }
 
 func TestInventoryAPI_StoreUnavailable(t *testing.T) {

@@ -613,6 +613,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(a.restAuditSubjectMiddleware())
 		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
+		r.Use(inventoryImportBodyMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
 		}
