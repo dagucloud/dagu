@@ -65,6 +65,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Config())
 	rootCmd.AddCommand(cmd.ContextCommand())
 	rootCmd.AddCommand(cmd.Profile())
+	rootCmd.AddCommand(cmd.Nodes())
 	rootCmd.AddCommand(cmd.HumanTask())
 	rootCmd.AddCommand(cmd.Secret())
 	rootCmd.AddCommand(cmd.Browser())
