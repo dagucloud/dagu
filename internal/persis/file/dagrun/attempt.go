@@ -6,6 +6,8 @@ package dagrun
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -51,6 +54,11 @@ const OutputsFile = "outputs.json"
 
 // MessagesDir is the directory where per-step LLM messages are stored.
 const MessagesDir = "messages"
+
+// maxStepMessagesNameBytes keeps a messages file name, plus the ".tmp.<n>"
+// suffix of the temporary file that an atomic write adds, within the 255
+// bytes that common file systems allow.
+const maxStepMessagesNameBytes = 240
 
 // CancelRequestedFlag is a special flag used to indicate that a cancel request has been made.
 const CancelRequestedFlag = "CANCEL_REQUESTED"
@@ -871,6 +879,18 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 }
 
 // stepMessagesName returns the name of the file that holds a step's messages.
+// A name that escaping makes too long for a file name is cut short and ends in
+// a hash of the step name.
 func stepMessagesName(stepName string) string {
-	return fileutil.EscapeName(stepName + ".json")
+	name := fileutil.EscapeName(stepName + ".json")
+	if len(name) <= maxStepMessagesNameBytes {
+		return name
+	}
+	sum := sha256.Sum256([]byte(stepName))
+	suffix := "-" + hex.EncodeToString(sum[:16]) + ".json"
+	cut := maxStepMessagesNameBytes - len(suffix)
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return name[:cut] + suffix
 }
