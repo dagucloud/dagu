@@ -16,6 +16,7 @@ export const ADD_STEP_ALIASES: AliasMap = {
   sleep: ['wait.duration'],
   delay: ['wait.duration'],
   email: ['mail.send'],
+  mcp: ['mcp.call'],
   sql: ['postgres.query', 'sqlite.query', 'clickhouse.query'],
   if: ['router.route', 'decision.evaluate'],
   switch: ['router.route'],

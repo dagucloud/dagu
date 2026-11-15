@@ -20,15 +20,46 @@ import (
 
 // MemoryBackend groups named in-memory collections for unit tests.
 type MemoryBackend struct {
-	mu   sync.Mutex
-	cols map[string]*MemoryCollection
+	mu    sync.Mutex
+	cols  map[string]*MemoryCollection
+	locks map[string]memoryLock
 }
 
 var _ persis.Backend = (*MemoryBackend)(nil)
 
 // NewMemoryBackend returns an empty in-memory backend.
 func NewMemoryBackend() *MemoryBackend {
-	return &MemoryBackend{cols: make(map[string]*MemoryCollection)}
+	return &MemoryBackend{
+		cols:  make(map[string]*MemoryCollection),
+		locks: make(map[string]memoryLock),
+	}
+}
+
+// Lock returns the named collection's lock, shared by every caller of this
+// backend.
+func (b *MemoryBackend) Lock(name string) persis.Lock {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.locks[name]; !ok {
+		b.locks[name] = make(memoryLock, 1)
+	}
+	return b.locks[name]
+}
+
+// memoryLock is an in-process [persis.Lock]. It is never lost, so held
+// always succeeds.
+type memoryLock chan struct{}
+
+var _ persis.Lock = memoryLock(nil)
+
+func (l memoryLock) Do(ctx context.Context, fn func(held func() error) error) error {
+	select {
+	case l <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-l }()
+	return fn(func() error { return nil })
 }
 
 func (b *MemoryBackend) Collection(name string) persis.Collection {

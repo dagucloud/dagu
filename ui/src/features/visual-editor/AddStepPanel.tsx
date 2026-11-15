@@ -133,6 +133,7 @@ const GROUP_BLURBS: ReadonlyMap<string, string> = new Map(
     'sftp.download': 'Download files over SFTP.',
     'sftp.upload': 'Upload files over SFTP.',
     'mail.send': 'Send an email.',
+    'mcp.call': 'Call a tool on a remote MCP server.',
     'human.task': 'Ask a person to review or fill in a form.',
     'outputs.write': 'Publish values as outputs of the run.',
   })

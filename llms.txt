@@ -780,6 +780,40 @@ Do not set the multipart `Content-Type` header manually. `body` cannot be combin
 
 `with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
 
+## mcp.call
+
+Call one tool on a remote MCP server over Streamable HTTP, without an LLM. Each run connects, sends one `tools/call`, and closes; only `retry_policy` re-runs it.
+
+```yaml
+secrets:
+  - name: MCP_TOKEN
+    provider: env
+    key: MCP_TOKEN
+
+steps:
+  - id: scrape
+    action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments:
+        url: https://example.com
+      headers:
+        Authorization: Bearer ${MCP_TOKEN}
+    timeout_sec: 60
+    output: PAGE
+
+  - id: use
+    depends: scrape
+    run: echo "${PAGE.structured_content.pages}"
+```
+
+stdout is `{"content": [...], "structured_content": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+
+Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
+
+`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`.
+
 ## data.filter
 
 Keep the rows of a list that meet conditions on their fields, read as a page or a sheet writes them, then order and cut them. Use it for rows a `browser.run` or `computer.run` extract read, such as listings or orders, instead of code that parses each value.
@@ -804,7 +838,7 @@ steps:
     output: KEPT
 ```
 
-Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it, else as the kind most of its values read as; values that do not read as it come last. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
+Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded; a text given to `any` or `none` lists the words its commas separate, as `${params.AREAS}` holding `北区,中央区` does. A bound left empty sets no limit, so a parameter defaulting to `""` filters nothing until it is set. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it, else as the kind most of its values read as; values that do not read as it come last. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
 
 ## jq.filter
 
@@ -1977,6 +2011,8 @@ Dequeue a DAG run from a queue (marks it as aborted): `dagu dequeue <queue-name>
 ### dagu stop
 
 Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
+
+With `--run-id`, a root run waiting for an approval or a human task ends as aborted without running its remaining steps.
 
 ### dagu restart
 

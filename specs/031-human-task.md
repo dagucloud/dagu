@@ -779,7 +779,12 @@ push-back.
 - A terminal or non-waiting run rejects a new completion or push-back.
 - Concurrent terminal-state, completion, and push-back operations cannot
   partially overwrite each other.
-- General run abort and deletion behavior is outside this spec.
+- `dagu stop --run-id=<id> <dag>` on a `waiting` root run ends it `aborted`
+  without starting an attempt. Every `waiting` task becomes `aborted`, and the
+  steps that have not started do not run.
+- Retrying a stopped run opens its aborted tasks again, with their prompt and
+  artifact paths resolved anew.
+- Other run abort and deletion behavior is outside this spec.
 
 ## Examples
 

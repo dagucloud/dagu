@@ -112,6 +112,12 @@ func runStartAll(ctx *Context, _ []string) error {
 		defer ctx.LicenseManager.Stop()
 	}
 
+	// The services read the executable they launch runs with when they are
+	// built, so this comes first.
+	if err := launchRunsOutsideService(ctx); err != nil {
+		logger.Warn(ctx, "Runs will stop with the Windows service", tag.Error(err))
+	}
+
 	// Create a context that will be cancelled on interrupt signal.
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
 	// SIGHUP and SIGQUIT end start-all as they end a standalone scheduler, so

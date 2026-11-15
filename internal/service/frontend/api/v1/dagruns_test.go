@@ -2938,6 +2938,78 @@ steps:
 	require.Equal(t, 3, persisted.AutoRetryCount)
 }
 
+// A stopped human-task run ends aborted without running its remaining steps,
+// and its task can no longer be completed.
+func TestTerminateDAGRunStopsWaitingRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dagSpec := `steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: "Confirm the release"
+  - id: publish
+    depends: review
+    run: echo publish`
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "stop_waiting_dag",
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/stop_waiting_dag/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+	waitForStoredDAGRunStatus(t, server, "stop_waiting_dag", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting && hasNodeWithStatus(status, "review", ir.NodeWaiting)
+	})
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/stop_waiting_dag/%s/stop", startBody.DagRunId), nil,
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	persisted := test.ReadRunStatus(server.Context, t, server.DAGRunRepository,
+		ir.NewDAGRunRef("stop_waiting_dag", startBody.DagRunId))
+	require.Equal(t, ir.Aborted, persisted.Status)
+	require.True(t, hasNodeWithStatus(persisted, "review", ir.NodeAborted))
+	require.True(t, hasNodeWithStatus(persisted, "publish", ir.NodeNotStarted))
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/stop_waiting_dag/%s/human-tasks/review/complete", startBody.DagRunId),
+		map[string]any{},
+	).ExpectStatus(http.StatusConflict).Send(t)
+}
+
+// Only the root run ends a waiting checkpoint; a stopped child would leave its
+// parent waiting on a run that never continues.
+func TestTerminateDAGRunRejectsWaitingSubRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dag := server.DAG(t, `
+name: stop_waiting_child_dag
+steps:
+  - name: approve
+    run: "echo approve"
+    approval:
+      prompt: "Approve"
+`)
+
+	ref := seedLatestDAGRunStatus(t, server, dag.DAG, "stop-waiting-child", ir.Waiting, seedDAGRunStatusOptions{
+		parentRef:    ir.NewDAGRunRef("parent_dag", "parent-run"),
+		nodeStatuses: map[string]ir.NodeStatus{"approve": ir.NodeWaiting},
+	})
+
+	resp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/stop", dag.Name, ref.ID),
+		nil,
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	var errBody api.Error
+	resp.Unmarshal(t, &errBody)
+	require.Contains(t, errBody.Message, "root dag-run")
+	require.Equal(t, ir.Waiting, test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref).Status)
+}
+
 func TestExecuteDAGSync(t *testing.T) {
 	server := test.SetupServer(t)
 

@@ -18,7 +18,7 @@ func Stop() *cobra.Command {
 	return NewCommand(
 		&cobra.Command{
 			Use:   "stop [flags] <DAG name>",
-			Short: "Stop active DAG-runs or cancel pending auto-retry by run ID",
+			Short: "Stop active or waiting DAG-runs, or cancel pending auto-retry by run ID",
 			Long: `Gracefully terminate an active DAG-run instance.
 
 This command sends termination signals to all running tasks of the specified DAG-run,
@@ -28,6 +28,9 @@ for tasks to complete their shutdown procedures before exiting.
 When --run-id is provided, the command can also cancel a failed root DAG-run that is
 still pending DAG-level auto-retry. In that case the latest failed attempt is marked
 as aborted so the scheduler will not enqueue another retry.
+
+When --run-id names a root DAG-run that is waiting for approval or a human task,
+the run ends as aborted without running its remaining steps.
 
 Flags:
   --run-id string   (optional) Unique identifier of the DAG-run to stop.

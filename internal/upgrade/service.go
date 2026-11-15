@@ -75,9 +75,10 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 		}
 	case "windows":
 		// The installer keeps the service wrapper next to the binary it runs.
-		// WinSW stops the whole process tree of the service, runs included.
+		// WinSW stops the whole process tree of the service, and the runs
+		// stay outside it, as launcher.LaunchOutsideService describes.
 		if execDir != "" && fileutil.IsFile(filepath.Join(execDir, winswServiceConfig)) {
-			return &Service{RestartCommand: "Restart-Service " + winswServiceName, StopsRuns: true}
+			return &Service{RestartCommand: "Restart-Service " + winswServiceName}
 		}
 	}
 	return nil
