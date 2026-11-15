@@ -637,6 +637,36 @@ func TestAttempt_ChangeRecordAfterOtherWriter(t *testing.T) {
 	assert.Equal(t, readBack(t, st), status)
 }
 
+// Another writer can leave a partial line while the runner holds the file
+// open, as its write cut off by a full disk does. The runner's next record
+// still starts a line of its own, so the run's later statuses and the status
+// that Close compacts are not lost.
+func TestAttempt_WriteAfterOtherWritersPartialLine(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
+	st.Nodes[0].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+
+	other, err := os.OpenFile(att.file, os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = other.WriteString(`{"partial`)
+	require.NoError(t, err)
+	require.NoError(t, other.Close())
+
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+
+	require.NoError(t, att.Close(ctx))
+	status, err = ParseStatusFile(att.file)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
+
 // Once another attempt replaces the file, as its compaction does, the line the
 // runner's next change record would build on is gone.
 func TestAttempt_WriteAfterReplacedFile(t *testing.T) {

@@ -283,7 +283,7 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 			return fmt.Errorf("%w: reopen status file: %w", ErrWriteFailed, err)
 		}
 	}
-	if err := att.writer.reopenIfReplaced(); err != nil {
+	if err := att.writer.prepareAppend(); err != nil {
 		return fmt.Errorf("%w: reopen status file: %w", ErrWriteFailed, err)
 	}
 
