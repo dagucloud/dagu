@@ -43,6 +43,9 @@ type Service struct {
 	// restart leaves runs in progress running. It is empty when StopsRuns is
 	// false or when the service manager offers no such setting.
 	KeepRunsCommand string
+	// RestartsOnExit reports that the service starts Dagu again after Dagu
+	// exits by itself to load an upgraded binary.
+	RestartsOnExit bool
 }
 
 // DetectService returns the background service the Dagu installer set up on
@@ -94,7 +97,10 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 		// launchd ends only the job's process group, and each run starts its
 		// own, so runs outlive a restart.
 		if homeDir != "" && fileutil.IsFile(filepath.Join(homeDir, "Library", "LaunchAgents", launchdServiceLabel+".plist")) {
-			return &Service{RestartCommand: "launchctl kickstart -k gui/$(id -u)/" + launchdServiceLabel}
+			return &Service{
+				RestartCommand: "launchctl kickstart -k gui/$(id -u)/" + launchdServiceLabel,
+				RestartsOnExit: true,
+			}
 		}
 	case "linux":
 		if unit := filepath.Join(systemUnitDir, systemdServiceUnit); fileutil.IsFile(unit) {
@@ -109,7 +115,11 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 		// The installer keeps the service wrapper next to the binary it runs.
 		// WinSW stops the whole process tree of the service, runs included.
 		if execDir != "" && fileutil.IsFile(filepath.Join(execDir, winswServiceConfig)) {
-			return &Service{RestartCommand: "Restart-Service " + winswServiceName, StopsRuns: true}
+			return &Service{
+				RestartCommand: "Restart-Service " + winswServiceName,
+				StopsRuns:      true,
+				RestartsOnExit: true,
+			}
 		}
 	}
 	return nil
@@ -118,17 +128,23 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 // systemdService describes the service of the systemd unit at unitPath.
 func systemdService(unitPath, restartCommand, keepRunsCommand string) *Service {
 	service := &Service{RestartCommand: restartCommand}
-	if systemdStopsRuns(unitPath) {
+	// The default KillMode ends every process of the unit, runs included.
+	if killMode := systemdSetting(unitPath, "KillMode"); killMode != "process" && killMode != "none" {
 		service.StopsRuns = true
 		service.KeepRunsCommand = keepRunsCommand
+	}
+	// Dagu exits cleanly to load an upgraded binary, and the default Restart
+	// starts nothing afterwards.
+	if restart := systemdSetting(unitPath, "Restart"); restart == "always" || restart == "on-success" {
+		service.RestartsOnExit = true
 	}
 	return service
 }
 
-// systemdStopsRuns reports whether stopping the unit at unitPath also ends the
-// runs it started. systemd applies the drop-ins next to the unit in file name
-// order, and its default KillMode ends every process of the unit.
-func systemdStopsRuns(unitPath string) bool {
+// systemdSetting returns the value of key in the [Service] section of the
+// unit at unitPath, or "" for its default. systemd applies the drop-ins next
+// to the unit in file name order.
+func systemdSetting(unitPath, key string) string {
 	files := []string{unitPath}
 	dropInDir := unitPath + ".d"
 	if entries, err := os.ReadDir(dropInDir); err == nil {
@@ -139,18 +155,18 @@ func systemdStopsRuns(unitPath string) bool {
 		}
 	}
 
-	var killMode string
+	var setting string
 	for _, file := range files {
-		if mode, ok := readKillMode(file); ok {
-			killMode = mode
+		if value, ok := readServiceSetting(file, key); ok {
+			setting = value
 		}
 	}
-	return killMode != "process" && killMode != "none"
+	return setting
 }
 
-// readKillMode returns the last KillMode assignment in the [Service] section
-// of a unit file. An empty value resets the setting to its default.
-func readKillMode(path string) (string, bool) {
+// readServiceSetting returns the last assignment of key in the [Service]
+// section of a unit file. An empty value resets the setting to its default.
+func readServiceSetting(path, key string) (string, bool) {
 	f, err := os.Open(path) //nolint:gosec // path names a systemd unit file of the Dagu service
 	if err != nil {
 		return "", false
@@ -158,7 +174,7 @@ func readKillMode(path string) (string, bool) {
 	defer func() { _ = f.Close() }()
 
 	var (
-		mode    string
+		setting string
 		found   bool
 		section string
 	)
@@ -170,13 +186,13 @@ func readKillMode(path string) (string, bool) {
 		case strings.HasPrefix(line, "["):
 			section = line
 		case section == "[Service]":
-			key, value, ok := strings.Cut(line, "=")
-			if ok && strings.TrimSpace(key) == "KillMode" {
-				mode, found = strings.TrimSpace(value), true
+			name, value, ok := strings.Cut(line, "=")
+			if ok && strings.TrimSpace(name) == key {
+				setting, found = strings.TrimSpace(value), true
 			}
 		}
 	}
-	return mode, found
+	return setting, found
 }
 
 // Restart restarts the service. The command shares the caller's terminal, so

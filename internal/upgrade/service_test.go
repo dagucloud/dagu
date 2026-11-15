@@ -39,7 +39,29 @@ func TestDetectService(t *testing.T) {
 			definition: func(_, homeDir, _ string) string {
 				return filepath.Join(homeDir, "Library", "LaunchAgents", "local.dagu.server.plist")
 			},
-			want: &Service{RestartCommand: "launchctl kickstart -k gui/$(id -u)/local.dagu.server"},
+			want: &Service{RestartCommand: "launchctl kickstart -k gui/$(id -u)/local.dagu.server", RestartsOnExit: true},
+		},
+		{
+			name:       "Linux system unit that restarts any exit",
+			goos:       "linux",
+			definition: systemUnit,
+			content:    "[Service]\nRestart=always\nKillMode=process\n",
+			want:       &Service{RestartCommand: systemRestart, RestartsOnExit: true},
+		},
+		{
+			name:       "Linux system unit that restarts only a failure",
+			goos:       "linux",
+			definition: systemUnit,
+			content:    "[Service]\nRestart=on-failure\nKillMode=process\n",
+			want:       keepsRunsSystem,
+		},
+		{
+			name:       "drop-in stops restarting",
+			goos:       "linux",
+			definition: systemUnit,
+			content:    "[Service]\nRestart=always\nKillMode=process\n",
+			dropIns:    map[string]string{"no-restart.conf": "[Service]\nRestart=no\n"},
+			want:       keepsRunsSystem,
 		},
 		{
 			name:       "Linux system unit with the default KillMode",
@@ -106,7 +128,7 @@ func TestDetectService(t *testing.T) {
 			definition: func(execDir, _, _ string) string {
 				return filepath.Join(execDir, "dagu-service.xml")
 			},
-			want: &Service{RestartCommand: "Restart-Service Dagu", StopsRuns: true},
+			want: &Service{RestartCommand: "Restart-Service Dagu", StopsRuns: true, RestartsOnExit: true},
 		},
 		{
 			name: "definition from another platform",

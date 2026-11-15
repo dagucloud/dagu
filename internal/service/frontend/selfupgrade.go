@@ -66,8 +66,10 @@ func canUpgradeFromWeb(ctx context.Context, cfg *config.Config) bool {
 	if ok, _ := upgrade.CanSelfUpgrade(); !ok {
 		return false
 	}
-	// Only the installer's service starts the new binary after the exit.
-	if upgrade.DetectService() == nil || !upgrade.RunsUnderService() {
+	// Only a service that restarts this process starts the new binary after
+	// the exit.
+	service := upgrade.DetectService()
+	if service == nil || !service.RestartsOnExit || !upgrade.RunsUnderService() {
 		return false
 	}
 	execPath, err := upgrade.GetExecutablePath()
