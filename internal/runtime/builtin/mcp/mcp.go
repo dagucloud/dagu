@@ -132,7 +132,7 @@ func classify(ctx context.Context, err error, obs *observingTransport, redact re
 	msg := redact.apply(err.Error())
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return &callError{kindTimeout, "step timed out"}
+		return &callError{kindTimeout, "call timed out"}
 	case errors.Is(ctx.Err(), context.Canceled):
 		return &callError{kindCanceled, "call canceled"}
 	}

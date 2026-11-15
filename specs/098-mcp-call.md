@@ -67,11 +67,17 @@ is the tool's structured result or `null`, and `is_error` is the MCP `isError`
 flag. With `output: PAGE`, later steps read `${PAGE.content}` and
 `${PAGE.structured_content}`.
 
+Numbers in `structured_content` and `raw` are decoded as 64-bit floating
+point, so integers beyond 2^53 lose precision. Tools that return such IDs
+should return them as strings.
+
 ### Errors
 
-The step fails when the call fails or `is_error` is true. The error message
-starts with `mcp.call: <kind> error:` and, when the call produced no result,
-stdout is `{"error": {"kind": "...", "message": "..."}}`. Kinds:
+The step fails when the call fails or `is_error` is true. When the call
+produced no result, stdout is `{"error": {"kind": "...", "message": "..."}}`.
+The step error message starts with `mcp.call: <kind> error:`, except when the
+step's own `timeout_sec` elapses: Dagu then reports its step timeout error, and
+stdout still carries the kind. Kinds:
 
 | Kind | Meaning |
 | --- | --- |
@@ -79,7 +85,7 @@ stdout is `{"error": {"kind": "...", "message": "..."}}`. Kinds:
 | `auth` | The server answered HTTP 401 or 403. |
 | `protocol` | A JSON-RPC error, a lost session, an invalid response, or an HTTP 3xx redirect. Redirects are not followed; configure the final URL. |
 | `transport` | A network failure, such as a refused connection or a connection lost mid-response. |
-| `timeout` | The step timeout elapsed. |
+| `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
 
 ### Credentials
