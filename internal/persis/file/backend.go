@@ -4,11 +4,13 @@
 package file
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -121,6 +123,9 @@ const lockStaleThreshold = 30 * time.Second
 type dirLockOn struct {
 	dir            string
 	staleThreshold time.Duration
+	// renewEvery is how often the holder renews the lock. Zero means a
+	// quarter of staleThreshold.
+	renewEvery time.Duration
 }
 
 func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) error {
@@ -131,20 +136,30 @@ func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) err
 	defer func() { _ = lock.Unlock() }()
 
 	// The holder renews the lock while fn runs, so a slow write does not let
-	// another client take it over. Only a process stalled past the stale
-	// threshold loses it, and held reports that before the next write.
+	// another client take it over. held refuses a write once the last
+	// renewal is three quarters of the stale threshold old, before any
+	// contender can judge the lock stale, so a failed renewal or a paused
+	// process stops the next write.
+	var renewedAt atomic.Pointer[time.Time]
+	markRenewed := func() {
+		now := time.Now()
+		renewedAt.Store(&now)
+	}
+	markRenewed()
 	renewCtx, stopRenewing := context.WithCancel(ctx)
 	renewed := make(chan struct{})
 	go func() {
 		defer close(renewed)
-		ticker := time.NewTicker(l.staleThreshold / 3)
+		ticker := time.NewTicker(cmp.Or(l.renewEvery, l.staleThreshold/4))
 		defer ticker.Stop()
 		for {
 			select {
 			case <-renewCtx.Done():
 				return
 			case <-ticker.C:
-				_ = lock.Heartbeat(renewCtx)
+				if lock.Heartbeat(renewCtx) == nil {
+					markRenewed()
+				}
 			}
 		}
 	}()
@@ -153,8 +168,9 @@ func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) err
 		<-renewed
 	}()
 
+	maxAge := l.staleThreshold * 3 / 4
 	return fn(func() error {
-		if !lock.IsHeldByMe() {
+		if time.Since(*renewedAt.Load()) > maxAge || !lock.IsHeldByMe() {
 			return fmt.Errorf("file backend: lock lost before the write: %w", dirlock.ErrLockNotHeld)
 		}
 		return nil

@@ -118,3 +118,18 @@ func TestDirLockOn_RenewsWhileHeld(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// Once renewals stop, held refuses a write before a contender could judge
+// the lock stale.
+func TestDirLockOn_HeldFailsWithoutRenewal(t *testing.T) {
+	t.Parallel()
+
+	const staleThreshold = 2 * time.Second
+	lock := dirLockOn{dir: t.TempDir(), staleThreshold: staleThreshold, renewEvery: time.Hour}
+	err := lock.Do(t.Context(), func(held func() error) error {
+		require.NoError(t, held())
+		time.Sleep(staleThreshold * 3 / 4)
+		return held()
+	})
+	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+}
