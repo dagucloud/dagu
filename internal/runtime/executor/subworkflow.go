@@ -71,6 +71,12 @@ type SubWorkflowRequest struct {
 	// the child inherits.
 	ScheduleTime   string
 	ScheduleWindow ir.ScheduleWindow
+	// Node names the inventory node the child run is bound to (RFC 013).
+	Node string
+	// NodeStep names the parent's command step that the child runs alone,
+	// for a command step with nodes. DAG then holds the parent's definition,
+	// which the runner narrows to that step (ir.DAG.NodeStepChild).
+	NodeStep string
 }
 
 // SubWorkflowRetryRequest describes a child workflow step retry.

@@ -180,6 +180,13 @@ func WithParallelItem(item string) StatusOption {
 	}
 }
 
+// WithBoundNode sets the inventory node a bound child run runs on.
+func WithBoundNode(node string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.BoundNode = node
+	}
+}
+
 // WithAutoRetryCount sets the current automatic retry count.
 func WithAutoRetryCount(autoRetryCount int) StatusOption {
 	return func(status *DAGRunStatus) {

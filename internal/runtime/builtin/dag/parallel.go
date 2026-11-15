@@ -52,6 +52,9 @@ type parallelExecutor struct {
 	isCanceled atomic.Bool
 	cancel     chan struct{}
 	cancelOnce sync.Once
+
+	// nodes is set for a step with nodes, which runs one child per node.
+	nodes *nodeDispatch
 }
 
 type scheduledAttempt struct {
@@ -106,6 +109,9 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	if e.cancelled() {
 		return errParallelCancelled
 	}
+	if err := e.checkNodeChild(ctx); err != nil {
+		return err
+	}
 
 	runCtx, runCancel := context.WithCancel(ctx)
 	e.lock.Lock()
@@ -125,10 +131,14 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 		e.lock.Unlock()
 	}()
 
+	childTag := tag.Step(e.step.Name)
+	if e.step.SubDAG != nil {
+		childTag = tag.SubDAG(e.step.SubDAG.Name)
+	}
 	logger.Info(ctx, "Starting parallel execution",
 		slog.Int("total", len(e.runParamsList)),
 		slog.Int("max-concurrent", e.maxConcurrent),
-		tag.SubDAG(e.step.SubDAG.Name),
+		childTag,
 	)
 
 	pending := make([]scheduledAttempt, 0, len(e.runParamsList))
@@ -171,6 +181,9 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 		if e.cancelled() {
 			return errParallelCancelled
 		}
+		if e.startsNoMoreNodes() {
+			pending = e.dropUnstartedNodes(pending)
+		}
 
 		now := time.Now()
 
@@ -189,6 +202,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			delete(pendingSet, pendingAttemptKey(attempt))
 			busyRuns[attempt.runParams.RunID] = struct{}{}
 			inFlight++
+			e.noteNodeStart(attempt.runParams.RunID)
 
 			go func(a scheduledAttempt) {
 				res, err := e.runAttempt(runCtx, &a)
@@ -233,6 +247,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			if e.cancelled() {
 				continue
 			}
+			e.noteNodeResult(res)
 
 			if res.result != nil && len(res.result.PendingStepRetries) > 0 {
 				scheduledAt := time.Now()
@@ -306,6 +321,9 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 	e.lock.Unlock()
 
 	if failedCount > 0 {
+		if e.nodes != nil {
+			return fmt.Errorf("%d of %d node(s) failed", failedCount, len(e.runParamsList))
+		}
 		return fmt.Errorf("parallel execution failed: %d sub dag(s) failed", failedCount)
 	}
 
@@ -348,6 +366,9 @@ func (e *parallelExecutor) GetOutputsValue() any {
 func (e *parallelExecutor) GetStatusDetails() []ir.NodeStatusDetail {
 	e.lock.Lock()
 	defer e.lock.Unlock()
+	if e.nodes != nil {
+		return e.nodeStatusDetails()
+	}
 
 	nameCounts := make(map[string]int, len(e.runParamsList))
 	for _, params := range e.runParamsList {
@@ -592,6 +613,9 @@ func nextPendingDelay(
 
 // outputResults aggregates and outputs all sub DAG results
 func (e *parallelExecutor) outputResults() error {
+	if e.nodes != nil {
+		return e.outputNodeResults()
+	}
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -697,7 +721,13 @@ func (e *parallelExecutor) newChildExecutor(
 		target = e.step.SubDAG.Name
 	}
 
-	child, err := executor.NewSubDAGExecutor(ctx, target)
+	var child *executor.SubDAGExecutor
+	var err error
+	if e.nodes != nil {
+		child, err = e.newNodeChildExecutor(ctx)
+	} else {
+		child, err = executor.NewSubDAGExecutor(ctx, target)
+	}
 	if err != nil {
 		return nil, runParams, err
 	}

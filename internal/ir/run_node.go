@@ -330,6 +330,8 @@ type SubDAGRun struct {
 	DAGRunID     string `json:"dagRunId,omitempty"`
 	Params       string `json:"params,omitempty"`
 	ParallelItem string `json:"parallelItem,omitempty"`
+	// Node names the inventory node the child run is bound to (RFC 013).
+	Node string `json:"node,omitempty"`
 	// DAGName is the name of the executed sub-DAG.
 	// For chat tool calls, this is the tool DAG name.
 	// This field enables UI drill-down when step.call is not set.
