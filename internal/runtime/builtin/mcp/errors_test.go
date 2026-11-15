@@ -81,6 +81,26 @@ func TestForbiddenIsAuth(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 }
 
+// An overloaded or unavailable server is a transport failure, not a protocol
+// mismatch, so it can be retried like a lost connection.
+func TestUnavailableIsTransport(t *testing.T) {
+	t.Parallel()
+	for name, code := range map[string]int{"503": http.StatusServiceUnavailable, "429": http.StatusTooManyRequests} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(code)
+			}))
+			t.Cleanup(srv.Close)
+
+			_, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "echo"})
+			require.Error(t, err)
+			assert.Equal(t, kindTransport, errKind(t, err))
+			assert.Contains(t, err.Error(), name)
+		})
+	}
+}
+
 func TestNoImplicitRetry(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

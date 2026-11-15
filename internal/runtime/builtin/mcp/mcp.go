@@ -142,6 +142,9 @@ func classify(ctx context.Context, err error, obs *observingTransport, redact re
 	if obs.redirectStatus() != 0 {
 		return &callError{kindProtocol, "server responded with HTTP " + strconv.Itoa(obs.redirectStatus()) + "; redirects are not followed, configure the final URL"}
 	}
+	if status := obs.unavailableStatus(); status != 0 {
+		return &callError{kindTransport, "server responded with HTTP " + strconv.Itoa(status) + " " + http.StatusText(status)}
+	}
 	// The SDK wraps network failures in a JSON-RPC error, so check them first.
 	if obs.networkError() != nil || errors.Is(err, sdk.ErrConnectionClosed) {
 		return &callError{kindTransport, msg}

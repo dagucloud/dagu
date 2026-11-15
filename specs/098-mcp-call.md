@@ -84,7 +84,7 @@ stdout still carries the kind. Kinds:
 | `tool` | The tool ran and reported `isError: true`. The normal output is still written. |
 | `auth` | The server answered HTTP 401 or 403. |
 | `protocol` | A JSON-RPC error, a lost session, an invalid response, or an HTTP 3xx redirect. Redirects are not followed; configure the final URL. |
-| `transport` | A network failure, such as a refused connection or a connection lost mid-response. |
+| `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 429, 500, 502, 503, or 504. |
 | `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
 

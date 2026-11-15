@@ -12,8 +12,8 @@ import (
 )
 
 // observingTransport injects static headers and remembers the first
-// authentication rejection or network failure, which the SDK does not expose
-// as typed errors.
+// authentication rejection, unavailable status, or network failure, which the
+// SDK does not expose as typed errors.
 type observingTransport struct {
 	base    http.RoundTripper
 	headers map[string]string
@@ -21,6 +21,7 @@ type observingTransport struct {
 	mu      sync.Mutex
 	authz   int
 	redir   int
+	unavail int
 	netFail error
 }
 
@@ -50,8 +51,21 @@ func (t *observingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	case err == nil && t.authz == 0 &&
 		(resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden):
 		t.authz = resp.StatusCode
+	case err == nil && t.unavail == 0 && isUnavailableStatus(resp.StatusCode):
+		t.unavail = resp.StatusCode
 	}
 	return resp, err
+}
+
+// isUnavailableStatus reports the statuses the SDK treats as transient server
+// failures.
+func isUnavailableStatus(code int) bool {
+	switch code {
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout, http.StatusTooManyRequests:
+		return true
+	}
+	return false
 }
 
 func (t *observingTransport) authStatus() int {
@@ -78,6 +92,12 @@ func (t *observingTransport) redirectStatus() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.redir
+}
+
+func (t *observingTransport) unavailableStatus() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.unavail
 }
 
 // cancelBody releases the per-request context when the body is closed and
