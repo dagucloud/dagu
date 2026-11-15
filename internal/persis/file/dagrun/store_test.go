@@ -178,6 +178,30 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
 }
 
+// A DAG named after a Windows device stores and finds its runs on every
+// system. Linux and macOS keep the directory that earlier versions wrote, so
+// the runs stored there are still found.
+func TestStoreDeviceNamedDAG(t *testing.T) {
+	for _, name := range []string{"con", "nul"} {
+		t.Run(name, func(t *testing.T) {
+			th := setupTestRepository(t)
+			dag := th.DAG(name)
+			ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
+			th.CreateAttemptWithDAG(t, ts, "device-run", ir.Succeeded, dag.DAG)
+
+			attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(name, "device-run"))
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			assert.Equal(t, ir.Succeeded, status.Status)
+
+			if runtime.GOOS != "windows" {
+				assert.DirExists(t, filepath.Join(th.TmpDir, name, "dag-runs", "2026", "05", "27", "dag-run_20260527_010203Z_device-run"))
+			}
+		})
+	}
+}
+
 func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
 	ctx := context.Background()
 	workRoot := t.TempDir()

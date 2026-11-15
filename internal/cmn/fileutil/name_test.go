@@ -4,6 +4,9 @@
 package fileutil
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -88,6 +91,52 @@ func isAllowedCharsOnly(s string) bool {
 		}
 	}
 	return true
+}
+
+// SafeName output names directories and files, with or without an
+// extension. A device name must change where the host would open the device
+// instead, and must stay where the host stores files under it, so the runs
+// and logs stored there before are still found.
+func TestSafeNameDeviceNames(t *testing.T) {
+	for _, name := range []string{"con", "PRN", "Aux", "nul", "COM1", "lpt9"} {
+		t.Run(name, func(t *testing.T) {
+			safe := SafeName(name)
+			require.NoError(t, storeUnder(t.TempDir(), safe))
+			if storeUnder(t.TempDir(), name) == nil {
+				require.Equal(t, name, safe)
+			}
+		})
+	}
+}
+
+// storeUnder creates a directory called name in parent, writes a file named
+// after it there, and reads the file back.
+func storeUnder(parent, name string) error {
+	dir := filepath.Join(parent, name)
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		return err
+	}
+	// A device name can "create" a device rather than a directory, and
+	// reading a device such as CON may block.
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	file := filepath.Join(dir, name+".log")
+	if err := os.WriteFile(file, []byte(name), 0o600); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	if string(data) != name {
+		return fmt.Errorf("read %q from %s", data, file)
+	}
+	return nil
 }
 
 // TestEdgeCases tests some additional edge cases
