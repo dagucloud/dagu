@@ -22,8 +22,11 @@ func newSpanStore() *store.SpanStore {
 	return store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans))
 }
 
+// spanAt is an hour of a day counted from 25 days ago, inside the 30 days
+// the store keeps.
 func spanAt(day, hour int) time.Time {
-	return time.Date(2026, 11, day, hour, 0, 0, 0, time.UTC)
+	start := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -25)
+	return start.AddDate(0, 0, day-1).Add(time.Duration(hour) * time.Hour)
 }
 
 // A suspension's span lasts from the suspend to the resume, and only an
@@ -91,6 +94,38 @@ func TestSpanStoreKeepsRecentSpans(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, start.Add(time.Hour), spans[0].From, "the oldest span over the bound is dropped")
+}
+
+// A span that ended more than 30 days ago is not given, even before a write
+// drops it.
+func TestSpanStoreGivesNoExpiredSpan(t *testing.T) {
+	t.Parallel()
+	s := newSpanStore()
+	ctx := t.Context()
+	ended := time.Now().Add(-31 * 24 * time.Hour)
+	require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: ended.Add(-time.Hour), To: ended, Reason: schedulerstate.SpanDown}))
+
+	spans, err := s.Ended(ctx, "")
+	require.NoError(t, err)
+	assert.Empty(t, spans)
+}
+
+// The bound on spans keeps a pause that lasts, so its resume still ends it.
+func TestSpanStoreKeepsALastingSpanPastTheBound(t *testing.T) {
+	t.Parallel()
+	s := newSpanStore()
+	ctx := t.Context()
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, true, spanAt(1, 0)))
+	for i := range 100 {
+		from := spanAt(2, 0).Add(time.Duration(i) * time.Hour)
+		require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: from, To: from.Add(time.Minute), Reason: schedulerstate.SpanDown}))
+	}
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, false, spanAt(7, 0)))
+
+	spans, err := s.Ended(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, spans, 100)
+	assert.Equal(t, schedulerstate.Span{From: spanAt(1, 0), To: spanAt(7, 0), Reason: schedulerstate.SpanPaused}, spans[0])
 }
 
 // The spans one process records are read by another, as the API records a

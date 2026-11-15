@@ -27,8 +27,8 @@ const (
 
 // SpanStore records the spans in which slots could not run, as they begin
 // and end: the scheduler's own, which hold for every DAG and are named by
-// the empty DAG, and each DAG's, named by its file name. It keeps only the
-// spans that ended in the last 30 days, at most 100 for each name.
+// the empty DAG, and each DAG's, named by its file name. For each name it
+// keeps the span that lasts, and the 100 that ended last within 30 days.
 // Implementations must be safe for concurrent use across processes.
 type SpanStore interface {
 	// Mark records that slots stopped running for reason at at, when held,
