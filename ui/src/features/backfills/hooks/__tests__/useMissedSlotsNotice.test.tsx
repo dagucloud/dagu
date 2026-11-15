@@ -4,7 +4,7 @@
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { MissedSlotsReason, type components } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -208,6 +208,22 @@ describe('useMissedSlotsNotice', () => {
     act(() => result.current.notice?.dismiss?.());
     rerender({ given: { ...missed, slots: 3, until: '2026-11-01T12:30:00Z' } });
     expect(result.current.notice).toBeNull();
+  });
+
+  // The DAG page renders again on each live update; the dismissal is read
+  // from the browser only when the missed slots or the DAG change.
+  it('reads the dismissal again only when the notice may change', () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem');
+    onTestFinished(() => getItem.mockRestore());
+    const { rerender } = renderHook(() => useNoticeAndLocation(missed), {
+      wrapper,
+    });
+    const reads = getItem.mock.calls.length;
+
+    rerender();
+    rerender();
+
+    expect(getItem).toHaveBeenCalledTimes(reads);
   });
 
   // One outage leaves every scheduled DAG missed slots, and each dismissal

@@ -76,10 +76,10 @@ export function useMissedSlotsNotice(
   // The last dismissal of this visit, which holds where the browser keeps
   // none.
   const [dismissed, setDismissed] = useState<{ key: string; until: string }>();
-  const dismissedUntil =
-    (dismissed?.key === key ? dismissed.until : null) ?? readDismissed(key);
 
   return useMemo(() => {
+    const dismissedUntil =
+      (dismissed?.key === key ? dismissed.until : null) ?? readDismissed(key);
     if (
       !missed ||
       missed.slots === 0 ||
@@ -135,5 +135,5 @@ export function useMissedSlotsNotice(
       },
       priority: MISSED_SLOTS_NOTICE_PRIORITY,
     };
-  }, [missed, key, dismissedUntil, canBackfill, navigate, location, ts]);
+  }, [missed, key, dismissed, canBackfill, navigate, location, ts]);
 }
