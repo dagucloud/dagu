@@ -293,6 +293,21 @@ func TestInventoryStore_Import(t *testing.T) {
 		assert.Equal(t, []string{"Tokyo"}, storedNames(list), "a refused import stores nothing")
 	})
 
+	// Importing an export again without Replace names each existing inventory
+	// once. The refused inventory is checked in place of its stored copy, so
+	// its own broken rules are listed and its nodes do not clash with it.
+	t.Run("RefusedExistingNameCheckedInPlaceOfStoredCopy", func(t *testing.T) {
+		t.Parallel()
+		s, _ := setup(t)
+		again := testInventory("Tokyo", "tokyo01")
+		again.Nodes = append(again.Nodes, inventory.Node{Name: "tokyo02", Host: "not a host"})
+		_, err := s.Import(ctx, []inventory.Inventory{again}, inventory.ImportOptions{})
+		require.ErrorIs(t, err, inventory.ErrInvalid)
+		assert.ErrorContains(t, err, `inventory "Tokyo": name: already exists`)
+		assert.ErrorContains(t, err, `inventory "Tokyo": node "tokyo02": host`)
+		assert.NotContains(t, err.Error(), "is also")
+	})
+
 	t.Run("ReplaceKeepsID", func(t *testing.T) {
 		t.Parallel()
 		s, tokyo := setup(t)
