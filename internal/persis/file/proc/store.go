@@ -533,7 +533,7 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcE
 // A name that cannot be parsed is a possible match, because attributing such a
 // file needs its contents.
 func procFileMayBelongTo(path string, dagRun ir.DAGRunRef) bool {
-	if filepath.Base(filepath.Dir(path)) != dagRun.Name {
+	if filepath.Base(filepath.Dir(path)) != fileutil.EscapeName(dagRun.Name) {
 		return false
 	}
 	parsed, err := parseProcFileName(filepath.Base(path))
