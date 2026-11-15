@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DAGBackfillsTab } from '../DAGBackfillsTab';
@@ -53,15 +53,36 @@ vi.mock('../StartBackfillDialog', () => ({
 
 function Location() {
   const location = useLocation();
-  return <output aria-label="Location">{location.pathname}</output>;
+  return (
+    <output aria-label="Location">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
 }
 
-function renderTab(canExecute: boolean, cache = new Map(), url = '/dags/etl') {
+function Back() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(-1)}>
+      Back
+    </button>
+  );
+}
+
+/** The link the notice of missed slots gives. */
+const GAP_URL =
+  '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z';
+
+/** Renders the tab at the last of urls, the earlier ones behind it. */
+function renderTab(canExecute: boolean, cache = new Map(), ...urls: string[]) {
+  const entries = urls.length > 0 ? urls : ['/dags/etl'];
   return render(
     <SWRConfig value={{ provider: () => cache }}>
-      <MemoryRouter initialEntries={[url]}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
         <DAGBackfillsTab dagName="etl" fileName="etl" canExecute={canExecute} />
         <Location />
+        <Back />
       </MemoryRouter>
     </SWRConfig>
   );
@@ -87,11 +108,7 @@ describe('DAGBackfillsTab', () => {
   // range stays editable, since a gap may hold more slots than one backfill
   // may run.
   it('opens the start panel on a gap the link names', () => {
-    renderTab(
-      true,
-      new Map(),
-      '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z'
-    );
+    renderTab(true, new Map(), GAP_URL);
 
     const dialog = screen.getByRole('dialog', { name: 'Backfill' });
     expect(dialog).toHaveTextContent(
@@ -102,11 +119,7 @@ describe('DAGBackfillsTab', () => {
 
   // Closing the panel after a start keeps the backfill's page open.
   it('opens the backfill a start from the gap started', () => {
-    renderTab(
-      true,
-      new Map(),
-      '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z'
-    );
+    renderTab(true, new Map(), GAP_URL);
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
@@ -114,12 +127,22 @@ describe('DAGBackfillsTab', () => {
     );
   });
 
-  it('opens no start panel for a user who may not run the workflow', () => {
-    renderTab(
-      false,
-      new Map(),
-      '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z'
+  // The backfill's page takes the place of the gap's link, so going back
+  // returns to the DAG's page rather than to the start panel on the gap.
+  it('goes back from a started backfill to the page before the gap', () => {
+    renderTab(true, new Map(), '/dags/etl', GAP_URL);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    expect(screen.getByRole('status', { name: 'Location' }).textContent).toBe(
+      '/dags/etl'
     );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens no start panel for a user who may not run the workflow', () => {
+    renderTab(false, new Map(), GAP_URL);
 
     expect(screen.queryByRole('dialog')).toBeNull();
   });

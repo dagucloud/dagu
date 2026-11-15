@@ -256,6 +256,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   scheduler was paused or down). For a user who may run the DAG, it has a
   Backfill action that opens the start panel on that span, with its bounds
   editable, since a span may hold more slots than one backfill may run. A
+  backfill started there opens its page in place of the panel's, so going
+  back leads to the page the action was taken on, not to the panel. A
   dismissed gap stays hidden in that browser until another is missed.
 - Once the scheduler picks up a backfill, it takes from the gap the slots
   the backfill runs and, for a backfill of a range, those in its range it
