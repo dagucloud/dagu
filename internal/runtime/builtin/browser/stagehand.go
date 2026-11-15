@@ -1054,7 +1054,11 @@ func (e *stagehandEngine) settleDocument(ctx context.Context, deadline, limit ti
 				if wait := time.Until(deadline); wait > 0 {
 					_ = page.WaitForLoadState(ctx, stagehand.LoadStateNetworkIdle, new(int(wait.Milliseconds())))
 				}
-				return
+				// Such a page may be a window the action opened before its
+				// opener began the load that holds it.
+				if !time.Now().Before(watched) && len(e.heldWindows()) == 0 {
+					return
+				}
 			}
 		}
 		pause(ctx, settlePoll, end)
