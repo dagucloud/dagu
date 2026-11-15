@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,47 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(root, "queue-a", "sidecar-dag", "proc_*.proc"))
 	require.NoError(t, err)
 	assert.Empty(t, matches)
+}
+
+// Queue and DAG names that Windows cannot store as a directory, such as nul,
+// db:writes, or nightly., still track their runs there. Linux and macOS keep
+// the directories that earlier versions wrote, so a run in progress during
+// an upgrade is still found.
+func TestStoreWindowsUnsafeNames(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ group, dag string }{
+		{group: "nul", dag: "nul"},
+		{group: "db:writes", dag: "etl"},
+		{group: "nightly.", dag: "nightly."},
+	} {
+		t.Run(tc.group, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			s := New(root, WithHeartbeatInterval(10*time.Millisecond))
+			ref := ir.NewDAGRunRef(tc.dag, "run-1")
+
+			handle, err := s.Acquire(ctx, tc.group, testProcMeta(ref))
+			require.NoError(t, err)
+			defer func() { _ = handle.Stop(ctx) }()
+
+			alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, tc.group, ref)
+			require.NoError(t, err)
+			assert.True(t, alive)
+
+			entries, err := s.ListAllEntries(ctx)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			assert.Equal(t, tc.group, entries[0].GroupName)
+			assert.Equal(t, ref, entries[0].Meta.DAGRun())
+
+			if runtime.GOOS != "windows" {
+				waitForProcFile(t, root, tc.group, tc.dag)
+			}
+		})
+	}
 }
 
 func TestStoreWithLockSerializesIndependentStores(t *testing.T) {

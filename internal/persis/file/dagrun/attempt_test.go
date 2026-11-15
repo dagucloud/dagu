@@ -1310,6 +1310,46 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		assert.Equal(t, "question 2", read2[0].Content)
 	})
 
+	// Step names are free text, so each step keeps its own messages even when
+	// its name holds a character that a file name cannot.
+	t.Run("StepNamesFileNamesCannotHold", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-unsafe-step-names")
+
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		names := []string{"fetch/parse", "fetch", `fetch\parse`, "db:query", "why?", "nul"}
+		for _, name := range names {
+			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
+		}
+		for _, name := range names {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1, name)
+			assert.Equal(t, name, msgs[0].Content)
+		}
+	})
+
+	// Earlier versions wrote a step's messages under its raw name. A "/" that
+	// still resolved inside the messages directory left them there.
+	t.Run("ReadsMessagesUnderRawStepName", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-raw-step-name")
+		att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+
+		data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+		require.NoError(t, err)
+		dir := filepath.Join(att.dagRunDir(), MessagesDir)
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "fetch.json"), data, 0o600))
+
+		msgs, err := att.ReadStepMessages(ctx, "./fetch")
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "stored before", msgs[0].Content)
+	})
+
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-retry-messages")

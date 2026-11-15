@@ -6,6 +6,7 @@ package runctx_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -196,6 +197,31 @@ func TestNewContext_DAGWikiDir(t *testing.T) {
 				assert.False(t, docsSet, "DAG_DOCS_DIR should not be set")
 			}
 		})
+	}
+}
+
+// The Wiki directory of a DAG named after a Windows device holds files on
+// every system. Linux and macOS keep the directory that earlier versions used.
+func TestNewContext_DAGWikiDirDeviceName(t *testing.T) {
+	t.Parallel()
+
+	wikiDir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.WikiDir = wikiDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	dag := &ir.DAG{Name: "nul", Labels: ir.NewLabels([]string{"workspace=nul"})}
+	ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
+	dir := runctx.GetContext(ctx).UserEnvsMap()[runenv.EnvKeyDAGWikiDir]
+
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	file := filepath.Join(dir, "notes.md")
+	require.NoError(t, os.WriteFile(file, []byte("notes"), 0o600))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, "notes", string(data))
+
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, filepath.Join(wikiDir, "nul", "nul"), dir)
 	}
 }
 
