@@ -26,6 +26,7 @@ const (
 	CollectionDAGState              = "dag_state"
 	CollectionDispatchTasks         = "dispatch_tasks"
 	CollectionIncidents             = "incidents"
+	CollectionInventories           = "inventories"
 	CollectionLicense               = "license"
 	CollectionNotifications         = "notifications"
 	CollectionProfiles              = "profiles"
@@ -126,4 +127,17 @@ type Collection interface {
 // may panic.
 type Backend interface {
 	Collection(name string) Collection
+
+	// Lock returns the lock that serializes changes spanning several records
+	// of the named collection, across every client of the backend.
+	Lock(name string) Lock
+}
+
+// Lock serializes a group of reads and writes that must not interleave with
+// another group's, such as a check across many records followed by a write.
+type Lock interface {
+	// Do runs fn while holding the lock. fn calls held right before each
+	// write: held fails once the lock has passed to another client, for
+	// example after this one stalled past the lock's stale threshold.
+	Do(ctx context.Context, fn func(held func() error) error) error
 }

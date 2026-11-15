@@ -66,6 +66,7 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 		{persis.CollectionDAGState, paths.DAGStateDir, false},
 		{persis.CollectionDispatchTasks, distributedDir, false},
 		{persis.CollectionIncidents, filepath.Join(dataDir, "incidents"), true},
+		{persis.CollectionInventories, filepath.Join(dataDir, "inventories"), true},
 		{persis.CollectionLicense, filepath.Join(dataDir, "license"), true},
 		{persis.CollectionNotifications, filepath.Join(dataDir, "notifications"), true},
 		{persis.CollectionProfiles, filepath.Join(dataDir, "profiles"), true},
@@ -142,6 +143,46 @@ func TestFileBackendRejectsInvalidCollectionNames(t *testing.T) {
 			assert.Panics(t, func() { backend.Collection(name) })
 		})
 	}
+}
+
+// Two backends on one data directory stand for two processes, such as the
+// server and a CLI command.
+func TestFileBackendLockSpansBackends(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	first := file.NewBackend(config.PathsConfig{DataDir: dataDir})
+	second := file.NewBackend(config.PathsConfig{DataDir: dataDir})
+	col := first.Collection(persis.CollectionInventories)
+	require.NoError(t, col.Put(t.Context(), &persis.Record{ID: "probe", Data: []byte(`{}`)}))
+
+	err := first.Lock(persis.CollectionInventories).Do(t.Context(), func(held func() error) error {
+		require.NoError(t, held())
+
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+		err := second.Lock(persis.CollectionInventories).Do(ctx, func(func() error) error {
+			t.Error("the second backend acquired a held lock")
+			return nil
+		})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+
+		// The lock lives in the collection's directory but is not a record.
+		page, err := col.List(t.Context(), persis.ListQuery{})
+		require.NoError(t, err)
+		require.Len(t, page.Records, 1)
+		assert.Equal(t, "probe", page.Records[0].ID)
+		return nil
+	})
+	require.NoError(t, err)
+
+	ran := false
+	err = second.Lock(persis.CollectionInventories).Do(t.Context(), func(held func() error) error {
+		ran = true
+		return held()
+	})
+	require.NoError(t, err)
+	assert.True(t, ran)
 }
 
 func TestFileCollectionRejectsEscapingListPrefix(t *testing.T) {

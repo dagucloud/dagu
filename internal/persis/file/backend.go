@@ -4,6 +4,7 @@
 package file
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,7 @@ func NewBackend(paths config.PathsConfig) *Backend {
 				idPrefixes: []string{"pending/", "claims/", "admissions/"},
 			},
 			persis.CollectionIncidents:        {dir: filepath.Join(paths.DataDir, "incidents"), indented: true},
+			persis.CollectionInventories:      {dir: filepath.Join(paths.DataDir, "inventories"), indented: true},
 			persis.CollectionLicense:          {dir: filepath.Join(paths.DataDir, "license"), indented: true},
 			persis.CollectionNotifications:    {dir: filepath.Join(paths.DataDir, "notifications"), indented: true},
 			persis.CollectionProfiles:         {dir: filepath.Join(paths.DataDir, "profiles"), indented: true},
@@ -75,17 +77,11 @@ func NewBackend(paths config.PathsConfig) *Backend {
 
 // Collection returns the collection identified by name.
 func (b *Backend) Collection(name string) persis.Collection {
-	if !validCollectionName(name) {
-		panic(fmt.Sprintf("file backend: invalid collection name %q", name))
-	}
 	if col, ok := b.cols.Load(name); ok {
 		return col.(*Collection)
 	}
 
-	spec, ok := b.specs[name]
-	if !ok {
-		spec.dir = filepath.Join(b.dataDir, name)
-	}
+	spec := b.spec(name)
 	var opts []CollectionOption
 	if spec.indented {
 		opts = append(opts, WithIndentedJSON())
@@ -95,6 +91,33 @@ func (b *Backend) Collection(name string) persis.Collection {
 	}
 	col, _ := b.cols.LoadOrStore(name, NewCollection(spec.dir, opts...))
 	return col.(*Collection)
+}
+
+// Lock returns a lock on the named collection's directory, which every
+// process that shares the directory honors.
+func (b *Backend) Lock(name string) persis.Lock {
+	return dirLockOn{dir: b.spec(name).dir}
+}
+
+func (b *Backend) spec(name string) collectionSpec {
+	if !validCollectionName(name) {
+		panic(fmt.Sprintf("file backend: invalid collection name %q", name))
+	}
+	spec, ok := b.specs[name]
+	if !ok {
+		spec.dir = filepath.Join(b.dataDir, name)
+	}
+	return spec
+}
+
+// dirLockOn locks a collection directory. Listing skips the lock's own
+// directory, so the lock lives beside the records it guards.
+type dirLockOn struct {
+	dir string
+}
+
+func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) error {
+	return withDirLock(ctx, l.dir, fn)
 }
 
 func validCollectionName(name string) bool {
