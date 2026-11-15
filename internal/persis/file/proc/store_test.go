@@ -173,30 +173,35 @@ func TestStoreFindsNestedQueueHeartbeat(t *testing.T) {
 	}
 }
 
-// A DAG name may start with a dot. Only the group lock keeps internal
-// directories in a group.
+// A DAG name may start with a dot, and may even match the name of the group
+// lock's directory. Its run stays alive and listed while the lock is held.
 func TestStoreDotPrefixedDAGName(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
-	ref := ir.NewDAGRunRef(".hidden", "run-1")
-	require.NoError(t, s.WithLock(ctx, "queue-a", func() error {
-		handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
-		if err == nil {
-			t.Cleanup(func() { _ = handle.Stop(ctx) })
-		}
-		return err
-	}))
+	for _, name := range []string{".hidden", ".dagu_lock_extra", ".dagu_lock"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, "queue-a", ref)
-	require.NoError(t, err)
-	assert.True(t, alive)
+			ctx := context.Background()
+			s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+			ref := ir.NewDAGRunRef(name, "run-1")
+			require.NoError(t, s.WithLock(ctx, "queue-a", func() error {
+				handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = handle.Stop(ctx) })
 
-	entries, err := s.ListAllEntries(ctx)
-	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	assert.Equal(t, ref, entries[0].Meta.DAGRun())
+				alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, "queue-a", ref)
+				require.NoError(t, err)
+				assert.True(t, alive)
+
+				entries, err := s.ListAllEntries(ctx)
+				require.NoError(t, err)
+				require.Len(t, entries, 1)
+				assert.Equal(t, ref, entries[0].Meta.DAGRun())
+				return nil
+			}))
+		})
+	}
 }
 
 func TestStoreWithLockSerializesIndependentStores(t *testing.T) {
