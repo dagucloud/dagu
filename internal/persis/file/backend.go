@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -96,7 +98,7 @@ func (b *Backend) Collection(name string) persis.Collection {
 // Lock returns a lock on the named collection's directory, which every
 // process that shares the directory honors.
 func (b *Backend) Lock(name string) persis.Lock {
-	return dirLockOn{dir: b.spec(name).dir}
+	return dirLockOn{dir: b.spec(name).dir, staleThreshold: lockStaleThreshold}
 }
 
 func (b *Backend) spec(name string) collectionSpec {
@@ -110,14 +112,53 @@ func (b *Backend) spec(name string) collectionSpec {
 	return spec
 }
 
+// lockStaleThreshold is how long a holder may go without renewing its lock
+// before another client takes the lock over.
+const lockStaleThreshold = 30 * time.Second
+
 // dirLockOn locks a collection directory. Listing skips the lock's own
 // directory, so the lock lives beside the records it guards.
 type dirLockOn struct {
-	dir string
+	dir            string
+	staleThreshold time.Duration
 }
 
 func (l dirLockOn) Do(ctx context.Context, fn func(held func() error) error) error {
-	return withDirLock(ctx, l.dir, fn)
+	lock := dirlock.New(l.dir, &dirlock.LockOptions{StaleThreshold: l.staleThreshold})
+	if err := lock.Lock(ctx); err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	// The holder renews the lock while fn runs, so a slow write does not let
+	// another client take it over. Only a process stalled past the stale
+	// threshold loses it, and held reports that before the next write.
+	renewCtx, stopRenewing := context.WithCancel(ctx)
+	renewed := make(chan struct{})
+	go func() {
+		defer close(renewed)
+		ticker := time.NewTicker(l.staleThreshold / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				_ = lock.Heartbeat(renewCtx)
+			}
+		}
+	}()
+	defer func() {
+		stopRenewing()
+		<-renewed
+	}()
+
+	return fn(func() error {
+		if !lock.IsHeldByMe() {
+			return fmt.Errorf("file backend: lock lost before the write: %w", dirlock.ErrLockNotHeld)
+		}
+		return nil
+	})
 }
 
 func validCollectionName(name string) bool {

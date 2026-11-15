@@ -95,3 +95,26 @@ func TestCollection_HeldLock(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"v":2}`, string(got.Data))
 }
+
+// A holder that runs past the stale threshold keeps renewing the lock, so a
+// contender waiting that long does not take it over.
+func TestDirLockOn_RenewsWhileHeld(t *testing.T) {
+	t.Parallel()
+
+	const staleThreshold = time.Second
+	dir := t.TempDir()
+	holder := dirLockOn{dir: dir, staleThreshold: staleThreshold}
+	contender := dirLockOn{dir: dir, staleThreshold: staleThreshold}
+
+	err := holder.Do(t.Context(), func(held func() error) error {
+		ctx, cancel := context.WithTimeout(t.Context(), 3*staleThreshold)
+		defer cancel()
+		err := contender.Do(ctx, func(func() error) error {
+			t.Error("the contender took over a lock that its holder renews")
+			return nil
+		})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		return held()
+	})
+	require.NoError(t, err)
+}
