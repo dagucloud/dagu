@@ -827,7 +827,7 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 		return fmt.Errorf("failed to create messages directory: %w", err)
 	}
 
-	file := filepath.Join(messagesDir, stepName+".json")
+	file := filepath.Join(messagesDir, stepMessagesName(stepName))
 	data, err := json.MarshalIndent(messages, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal messages: %w", err)
@@ -845,9 +845,15 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 // Returns nil if no messages exist for the step.
 func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	// Read from dag-run level (parent of attempt directory) for retry persistence
-	file := filepath.Join(att.dagRunDir(), MessagesDir, stepName+".json")
+	dir := filepath.Join(att.dagRunDir(), MessagesDir)
+	file := filepath.Join(dir, stepMessagesName(stepName))
 
 	data, err := fileutil.ReadFile(file)
+	if os.IsNotExist(err) {
+		if raw, ok := rawStepMessagesFile(dir, stepName); ok && raw != file {
+			data, err = fileutil.ReadFile(raw)
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -861,4 +867,23 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 	}
 
 	return messages, nil
+}
+
+// stepMessagesName returns the name of the file that holds a step's messages.
+func stepMessagesName(stepName string) string {
+	return fileutil.EscapeName(stepName + ".json")
+}
+
+// rawStepMessagesFile returns the file named after the raw step name, where
+// messages were kept before step names were escaped. A "/" in the name could
+// resolve it to another file in dir. ok is false when the file is outside dir
+// or has a name that this host cannot hold.
+func rawStepMessagesFile(dir, stepName string) (string, bool) {
+	raw := filepath.Join(dir, stepName+".json")
+	rel, err := filepath.Rel(dir, raw)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", false
+	}
+	base := filepath.Base(raw)
+	return raw, fileutil.EscapeName(base) == base
 }
