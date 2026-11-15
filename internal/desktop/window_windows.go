@@ -40,6 +40,7 @@ var (
 	procPrintWindow         = user32.NewProc("PrintWindow")
 	procIsHungAppWindow     = user32.NewProc("IsHungAppWindow")
 	procGetDpiForWindow     = user32.NewProc("GetDpiForWindow")
+	procFindWindowExW       = user32.NewProc("FindWindowExW")
 
 	dwmapi                    = windows.NewLazySystemDLL("dwmapi.dll")
 	procDwmGetWindowAttribute = dwmapi.NewProc("DwmGetWindowAttribute")
@@ -47,6 +48,11 @@ var (
 	shcore               = windows.NewLazySystemDLL("shcore.dll")
 	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
 )
+
+// frameClass is the class of the frame a Store app is shown in. The frame
+// belongs to ApplicationFrameHost, and the app's own window is a child of
+// it that the app's process owns.
+const frameClass = "ApplicationFrameWindow"
 
 const (
 	// gaRoot asks GetAncestor for the top-level window.
@@ -90,7 +96,7 @@ var (
 	enumOut *[]WindowID
 
 	enumWindowsCallback = syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
+		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 || cloaked(windows.HWND(hwnd)) {
 			return 1 // keep enumerating
 		}
 		*enumOut = append(*enumOut, windowID(windows.HWND(hwnd)))
@@ -106,7 +112,7 @@ func (windowsBackend) ReachableWindows() []WindowID {
 	return visibleWindows()
 }
 
-// visibleWindows lists the visible top-level windows, titled or not.
+// visibleWindows lists the top-level windows on the screen, titled or not.
 func visibleWindows() []WindowID {
 	// EnumWindows visits top-level windows front of the Z-order first, so
 	// the slice keeps that order.
@@ -215,12 +221,55 @@ func windowID(hwnd windows.HWND) WindowID {
 	if hwnd == 0 {
 		return WindowID{}
 	}
-	var pid uint32
-	_, _ = windows.GetWindowThreadProcessId(hwnd, &pid)
+	pid := windowProcess(hwnd)
 	title := make([]uint16, 256)
 	n, _, _ := procGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title))) //nolint:gosec // Win32 takes the buffer address as uintptr
 	iconic, _, _ := procIsIconic.Call(uintptr(hwnd))
-	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: appName(hwnd), Bounds: windowBounds(hwnd), Minimized: iconic != 0}
+	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: imageName(pid), Bounds: windowBounds(hwnd), Minimized: iconic != 0}
+}
+
+// windowProcess returns the process whose window hwnd shows: the one that
+// owns it, or for a Store app's frame, the app in it. A frame that holds no
+// window of another process is its owner's.
+func windowProcess(hwnd windows.HWND) uint32 {
+	var owner uint32
+	if _, err := windows.GetWindowThreadProcessId(hwnd, &owner); err != nil {
+		return 0
+	}
+	if className(hwnd) != frameClass {
+		return owner
+	}
+	var child uintptr
+	for {
+		// FindWindowExW answers the first child, or the one after the child
+		// it is given, and none past the last.
+		if child, _, _ = procFindWindowExW.Call(uintptr(hwnd), child, 0, 0); child == 0 {
+			return owner
+		}
+		var pid uint32
+		if _, err := windows.GetWindowThreadProcessId(windows.HWND(child), &pid); err == nil && pid != owner {
+			return pid
+		}
+	}
+}
+
+// className returns the class of a window, or "" when it cannot be read.
+func className(hwnd windows.HWND) string {
+	var buf [256]uint16
+	n, err := windows.GetClassName(hwnd, &buf[0], int32(len(buf)))
+	if err != nil {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:n])
+}
+
+// cloaked reports a window the window manager keeps off the screen while
+// Win32 still calls it visible, such as a closed Store app's frame or a
+// window on another virtual desktop.
+func cloaked(hwnd windows.HWND) bool {
+	var state uint32
+	err := windows.DwmGetWindowAttribute(hwnd, windows.DWMWA_CLOAKED, unsafe.Pointer(&state), uint32(unsafe.Sizeof(state))) //nolint:gosec // DWM writes the state into the address it is given
+	return err == nil && state != 0
 }
 
 // windowBounds is a window's visible frame in display pixels. The window
