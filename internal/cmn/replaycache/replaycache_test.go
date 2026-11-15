@@ -123,6 +123,21 @@ func TestReplayCacheClearRequiresDAGName(t *testing.T) {
 	assert.Equal(t, []string{"login"}, steps)
 }
 
+// Step keys con and con_ keep separate records on every system, although
+// Windows does not store con as written.
+func TestReplayCacheKeepsDeviceNamedStepApart(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	seedReplayCache(t, cache, "billing", "con", "con_")
+	assert.NotEqual(t, cache.Path("billing", "con"), cache.Path("billing", "con_"))
+
+	removed, err := cache.Clear("billing", "con")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"con"}, removed)
+	assert.FileExists(t, cache.Path("billing", "con_"))
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so the records under it are still read.
 func TestReplayCacheReadsRawDeviceName(t *testing.T) {

@@ -96,18 +96,19 @@ func isAllowedCharsOnly(s string) bool {
 
 // SafeName output names directories and files, with or without an
 // extension. Windows versions differ in which device names they map to a
-// device, so on Windows every device name gets an underscore and a path
-// keeps its name across versions. Other systems keep the name, so the runs
-// and logs stored under it before still resolve.
+// device, so on Windows every device name changes, on every version, to a
+// name that no other natural name shares, such as con_. Other systems keep
+// the name, so the runs and logs stored under it before still resolve.
 func TestSafeNameDeviceNames(t *testing.T) {
 	for _, name := range []string{"con", "PRN", "Aux", "nul", "COM1", "lpt9"} {
 		t.Run(name, func(t *testing.T) {
-			want := name
-			if runtime.GOOS == "windows" {
-				want = name + "_"
-			}
 			safe := SafeName(name)
-			require.Equal(t, want, safe)
+			if runtime.GOOS == "windows" {
+				require.NotEqual(t, name, safe)
+				require.NotEqual(t, SafeName(name+"_"), safe)
+			} else {
+				require.Equal(t, name, safe)
+			}
 			require.NoError(t, storeUnder(t.TempDir(), safe))
 		})
 	}

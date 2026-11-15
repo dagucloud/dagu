@@ -1357,6 +1357,46 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		}
 	})
 
+	// A step never reads the messages of another step whose escaped name
+	// matches its own raw name, such as fetch/parse for ./fetch%2Fparse.
+	t.Run("DoesNotReadAnotherStepsMessages", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-alias-step-name")
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		require.NoError(t, att.WriteStepMessages(ctx, "fetch/parse", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "parse"}}))
+		msgs, err := att.ReadStepMessages(ctx, "./fetch%2Fparse")
+		require.NoError(t, err)
+		assert.Nil(t, msgs)
+	})
+
+	// Escaping can make a step name longer than a file name may be, so such a
+	// step still keeps its messages, and messages that earlier versions stored
+	// under its raw name are still read.
+	t.Run("LongEscapedStepName", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-long-step-name")
+		att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+		written := strings.Repeat("%", 200)
+		stored := strings.Repeat("%", 100)
+
+		require.NoError(t, att.WriteStepMessages(ctx, written, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "written"}}))
+		msgs, err := att.ReadStepMessages(ctx, written)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "written", msgs[0].Content)
+
+		data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+		require.NoError(t, err)
+		dir := filepath.Join(att.dagRunDir(), MessagesDir)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, stored+".json"), data, 0o600))
+		msgs, err = att.ReadStepMessages(ctx, stored)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "stored before", msgs[0].Content)
+	})
+
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-retry-messages")

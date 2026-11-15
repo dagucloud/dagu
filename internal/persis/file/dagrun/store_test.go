@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -210,7 +211,7 @@ func TestStoreFindsRunsUnderRawDeviceName(t *testing.T) {
 	ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
 	th.CreateAttemptWithDAG(t, ts, "raw-run", ir.Succeeded, dag.DAG)
 	if dir := dagDirName(dag.Name); dir != dag.Name {
-		require.NoError(t, os.Rename(filepath.Join(th.TmpDir, dir), filepath.Join(th.TmpDir, dag.Name)))
+		require.NoError(t, fileutil.Rename(filepath.Join(th.TmpDir, dir), filepath.Join(th.TmpDir, dag.Name)))
 	}
 
 	attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, "raw-run"))

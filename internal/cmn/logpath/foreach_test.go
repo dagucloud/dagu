@@ -19,6 +19,15 @@ func TestForeachStepDir(t *testing.T) {
 	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each_step"), dir)
 }
 
+// Steps con and con_ keep their items apart on every system, although
+// Windows does not store con as written.
+func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
+	t.Parallel()
+
+	log := filepath.Join(t.TempDir(), "step.out")
+	assert.NotEqual(t, ForeachStepDir(log, "con"), ForeachStepDir(log, "con_"))
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so the items of a foreach step stored under it are
 // still found.

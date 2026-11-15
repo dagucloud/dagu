@@ -63,6 +63,18 @@ func mustLoad(t *testing.T, store *writegate.CommitStore, dag, step string) []wr
 	return points
 }
 
+// DAGs and steps named con and con_ keep separate commit points on every
+// system, although Windows does not store con as written.
+func TestCommitPointsKeepDeviceNamesApart(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	require.NoError(t, store.Note(t.Context(), "con", "con", writegate.CommitPoint{Key: "k1"}))
+	assert.Empty(t, mustLoad(t, store, "con_", "con"))
+	assert.Empty(t, mustLoad(t, store, "con", "con_"))
+	assert.Len(t, mustLoad(t, store, "con", "con"), 1)
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so the commit points under it are still read.
 func TestCommitPointsUnderRawDeviceName(t *testing.T) {
