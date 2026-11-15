@@ -3336,6 +3336,30 @@ func TestLoad_SignalHandling(t *testing.T) {
 	t.Run("DefaultDisabled", func(t *testing.T) {
 		cfg := testLoad(t)
 		assert.False(t, cfg.SignalHandling.EnablePropagation)
+		assert.Zero(t, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+signal_handling:
+  drain_timeout: 5m
+`)
+		assert.Equal(t, 5*time.Minute, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutEnvironment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_SIGNAL_DRAIN_TIMEOUT": "90s",
+		})
+		assert.Equal(t, 90*time.Second, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutInvalid", func(t *testing.T) {
+		for _, value := range []string{"soon", "-1m"} {
+			cfg := loadFromYAML(t, "signal_handling:\n  drain_timeout: "+value+"\n")
+			assert.Zero(t, cfg.SignalHandling.DrainTimeout, value)
+			assert.Contains(t, cfg.Warnings, "Invalid signal_handling.drain_timeout value: "+value)
+		}
 	})
 
 	t.Run("YAML", func(t *testing.T) {

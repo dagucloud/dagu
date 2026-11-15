@@ -10,6 +10,7 @@ import (
 	"io"
 	"slices"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/yamlutil"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
@@ -32,6 +33,7 @@ func newManifestDecoder() *manifestDecoder {
 
 // Unmarshal decodes raw YAML bytes into a generic manifest map.
 func (d *manifestDecoder) Unmarshal(data []byte) (map[string]any, error) {
+	data = yamlutil.TrimByteOrderMark(data)
 	if len(data) == 0 {
 		return nil, nil
 	}

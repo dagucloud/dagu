@@ -2029,12 +2029,22 @@ func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 // loadSignalHandlingConfig loads signal handling options. The legacy camelCase
 // spelling "signalHandling.enablePropagation" is still accepted when it comes
 // from admin.yaml, which bypasses the legacy key check for compatibility.
-func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, _ Definition) {
+func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, def Definition) {
 	if l.v.IsSet("signal_handling.enable_propagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signal_handling.enable_propagation")
+	} else {
+		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
+	}
+
+	if def.SignalHandling == nil || def.SignalHandling.DrainTimeout == "" {
 		return
 	}
-	cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
+	timeout, err := time.ParseDuration(def.SignalHandling.DrainTimeout)
+	if err != nil || timeout < 0 {
+		l.warnings = append(l.warnings, fmt.Sprintf("Invalid signal_handling.drain_timeout value: %s", def.SignalHandling.DrainTimeout))
+		return
+	}
+	cfg.SignalHandling.DrainTimeout = timeout
 }
 
 func (l *ConfigLoader) loadCacheConfig(cfg *Config, def Definition) {
@@ -2587,6 +2597,7 @@ var envBindings = []envBinding{
 
 	// Signal handling
 	{key: "signal_handling.enable_propagation", env: "SIGNAL_PROPAGATION"},
+	{key: "signal_handling.drain_timeout", env: "SIGNAL_DRAIN_TIMEOUT"},
 
 	// Queues
 	{key: "queues.enabled", env: "QUEUE_ENABLED"},

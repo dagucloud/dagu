@@ -45,6 +45,12 @@ spec:
       # Disable Kubernetes Service env var injection to avoid overriding
       # dagu config values (e.g., scheduler.port) with Service URLs
       enableServiceLinks: false
+      {{- $workerShutdown := $.Values.worker.shutdownTimeoutSeconds }}
+      {{- if or $.Values.shutdown.drainTimeoutSeconds $workerShutdown }}
+      # Room for the drain, then for worker.shutdown_timeout (60s unless set)
+      # and the worker's own cleanup.
+      terminationGracePeriodSeconds: {{ add (int $.Values.shutdown.drainTimeoutSeconds) (int (default 60 $workerShutdown)) 15 }}
+      {{- end }}
       serviceAccountName: {{ include "dagu.serviceAccountName" $ }}
       {{- with $.Values.podSecurityContext }}
       securityContext:
@@ -78,6 +84,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+{{- with $.Values.shutdown.drainTimeoutSeconds }}
+            - name: DAGU_SIGNAL_DRAIN_TIMEOUT
+              value: {{ printf "%ds" (int .) | quote }}
+{{- end }}
+{{- with $.Values.worker.shutdownTimeoutSeconds }}
+            - name: DAGU_WORKER_SHUTDOWN_TIMEOUT
+              value: {{ printf "%ds" (int .) | quote }}
+{{- end }}
 {{- with include "dagu.extraEnv" $ }}
 {{ . | nindent 12 }}
 {{- end }}

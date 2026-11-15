@@ -1,0 +1,13 @@
+# Copyright (C) 2026 Yota Hamada
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+type: graph
+steps:
+  - id: work
+    run: |
+      trap 'printf TERM > /data/signal' TERM
+      printf ready > /data/ready
+      while [ ! -f /data/release ]; do sleep 0.1; done
+      printf done > /data/finished
+    with:
+      shell: /bin/sh

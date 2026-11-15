@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +132,28 @@ func TestWriterErrorHandling(t *testing.T) {
 		require.NoError(t, json.Unmarshal(bytes.TrimRight(data, "\n"), &decoded))
 
 		assert.Equal(t, byte('\n'), data[len(data)-1])
+	})
+
+	// A file whose end cannot be read may end in a partial line, so the next
+	// status starts a line of its own.
+	t.Run("UnreadableFileEndsPartialLine", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("needs a file that its owner can write but not read")
+		}
+		writerPath := filepath.Join(th.TmpDir, "unreadable.dat")
+		require.NoError(t, os.WriteFile(writerPath, []byte(`{"partial`), 0200))
+		writer := NewWriter(writerPath)
+		require.NoError(t, writer.Open())
+
+		dag := th.DAG("test_unreadable_partial_line")
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		require.NoError(t, writer.write(ir.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())))
+		require.NoError(t, writer.close())
+
+		require.NoError(t, os.Chmod(writerPath, 0600))
+		read, err := ParseStatusFile(writerPath)
+		require.NoError(t, err)
+		assert.Equal(t, dagRunID, read.DAGRunID)
 	})
 
 	t.Run("StoresARepeatedOutputOnce", func(t *testing.T) {
