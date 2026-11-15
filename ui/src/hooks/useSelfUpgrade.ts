@@ -24,6 +24,13 @@ const RESUMED_STATES = new Set<SelfUpgradeState>([
   SelfUpgradeState.failed,
 ]);
 
+/** States of an upgrade that is still under way. */
+const ACTIVE_STATES = new Set<SelfUpgradeState>([
+  SelfUpgradeState.downloading,
+  SelfUpgradeState.installing,
+  SelfUpgradeState.restarting,
+]);
+
 export type SelfUpgradeStatus = components['schemas']['SelfUpgradeStatus'];
 
 function reloadPage() {
@@ -31,10 +38,27 @@ function reloadPage() {
 }
 
 /**
+ * Runs request on the shared clock every period ms, which pauses while the
+ * tab is hidden, and skips a tick while the previous request is in flight.
+ * Returns the function that stops it.
+ */
+function pollOnClock(period: number, request: () => Promise<void>) {
+  let inFlight = false;
+  return subscribeClock(period, () => {
+    if (inFlight) return;
+    inFlight = true;
+    void request().finally(() => {
+      inFlight = false;
+    });
+  });
+}
+
+/**
  * Starts an upgrade from the web UI and follows it: while the release
  * downloads and installs, then until the restarted server reports a version
  * other than currentVersion, when onRestarted runs; by default it reloads
- * the page. Only the tab that started the upgrade polls, and only until then.
+ * the page. Only a tab that asked to start the upgrade polls, and only until
+ * then.
  */
 export function useSelfUpgrade(
   currentVersion: string,
@@ -47,20 +71,33 @@ export function useSelfUpgrade(
 
   const start = React.useCallback(async () => {
     setRequestError(null);
+    let failure = 'Failed to start the update';
     try {
       const { data, error } = await client.POST('/system/upgrade', {
         params: { query: { remoteNode: 'local' } },
       });
-      if (error || !data) {
-        setRequestError(error?.message || 'Failed to start the update');
+      if (!error && data) {
+        setStatus(data);
         return;
       }
-      setStatus(data);
+      failure = error?.message || failure;
     } catch (err) {
-      setRequestError(
-        err instanceof Error ? err.message : 'Failed to start the update'
-      );
+      if (err instanceof Error) failure = err.message;
     }
+    // The server may already run an upgrade: one started before a reload, or
+    // this start when only its answer was lost. Follow it instead.
+    try {
+      const { data } = await client.GET('/system/upgrade', {
+        params: { query: { remoteNode: 'local' } },
+      });
+      if (data && ACTIVE_STATES.has(data.state)) {
+        setStatus(data);
+        return;
+      }
+    } catch {
+      // The start failure below says more than this one.
+    }
+    setRequestError(failure);
   }, [client]);
 
   const state = status?.state;
@@ -69,24 +106,24 @@ export function useSelfUpgrade(
       state === SelfUpgradeState.downloading ||
       state === SelfUpgradeState.installing
     ) {
-      const timer = window.setTimeout(async () => {
+      const restarting = (prev: SelfUpgradeStatus | null) =>
+        prev ? { ...prev, state: SelfUpgradeState.restarting } : prev;
+      return pollOnClock(UPGRADE_POLL_INTERVAL, async () => {
         try {
           const { data } = await client.GET('/system/upgrade', {
             params: { query: { remoteNode: 'local' } },
           });
-          // A server that stopped answering is restarting.
-          setStatus(
-            (prev) =>
-              data ??
-              (prev ? { ...prev, state: SelfUpgradeState.restarting } : prev)
+          // A server that stopped answering is restarting, and one that
+          // reports idle has already restarted.
+          setStatus((prev) =>
+            data && data.state !== SelfUpgradeState.idle
+              ? data
+              : restarting(prev)
           );
         } catch {
-          setStatus((prev) =>
-            prev ? { ...prev, state: SelfUpgradeState.restarting } : prev
-          );
+          setStatus(restarting);
         }
-      }, UPGRADE_POLL_INTERVAL);
-      return () => window.clearTimeout(timer);
+      });
     }
     if (state === SelfUpgradeState.restarting) {
       // probe asks whether the restarted server is back, and otherwise
@@ -109,14 +146,7 @@ export function useSelfUpgrade(
           // The server is still restarting.
         }
       };
-      let probing = false;
-      const stop = subscribeClock(RESTART_POLL_INTERVAL, () => {
-        if (probing) return;
-        probing = true;
-        void probe().finally(() => {
-          probing = false;
-        });
-      });
+      const stop = pollOnClock(RESTART_POLL_INTERVAL, probe);
       const slow = window.setTimeout(() => setSlowRestart(true), SLOW_RESTART);
       return () => {
         window.clearTimeout(slow);
@@ -124,8 +154,7 @@ export function useSelfUpgrade(
       };
     }
     return undefined;
-    // status re-arms the poll after each answer while the state stays the same.
-  }, [client, state, status, currentVersion, onRestarted]);
+  }, [client, state, currentVersion, onRestarted]);
 
   return { status, requestError, slowRestart, start };
 }

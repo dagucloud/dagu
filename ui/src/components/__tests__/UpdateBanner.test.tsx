@@ -305,22 +305,22 @@ describe('UpdateBanner', () => {
         await screen.findByText('Update failed: checksum mismatch')
       ).toBeInTheDocument();
 
-      client.POST.mockResolvedValue({
-        error: { message: 'an upgrade is already in progress' },
-      });
+      client.POST.mockRejectedValue(new TypeError('Failed to fetch'));
+      client.GET.mockRejectedValue(new TypeError('Failed to fetch'));
       await user.click(screen.getByRole('button', { name: 'Try again' }));
       expect(client.POST).toHaveBeenCalledTimes(2);
       expect(
-        await screen.findByText(
-          'The update did not start: an upgrade is already in progress'
-        )
+        await screen.findByText('The update did not start: Failed to fetch')
       ).toBeInTheDocument();
     });
 
     it('says why the update did not start', async () => {
       const user = userEvent.setup();
       client.POST.mockResolvedValue({
-        error: { message: 'an upgrade is already in progress' },
+        error: { message: 'this installation cannot upgrade from the web UI' },
+      });
+      client.GET.mockResolvedValue({
+        data: { available: false, state: 'idle' },
       });
       renderBanner({ webUpgradeAvailable: true });
 
@@ -328,7 +328,7 @@ describe('UpdateBanner', () => {
 
       expect(
         await screen.findByText(
-          'The update did not start: an upgrade is already in progress'
+          'The update did not start: this installation cannot upgrade from the web UI'
         )
       ).toBeInTheDocument();
     });
