@@ -50,9 +50,11 @@ const (
 // hostKeyPolicy is how one hop checks the key its server presents.
 type hostKeyPolicy struct {
 	callback ssh.HostKeyCallback
-	// algorithms, when set, are the only host key algorithms offered, so a
-	// server with keys of several types presents the one that is expected.
-	algorithms []string
+	// algorithmSets, when set, are offered one handshake each, in order. A
+	// server presents one key per handshake, of the first type the client
+	// offers that it holds, so a node whose expected keys differ in type is
+	// tried once per type.
+	algorithmSets [][]string
 }
 
 // policy reads the keys the node accepts. A server presents a key before
@@ -85,7 +87,7 @@ func (k *NodeHostKey) policy(ctx context.Context, hop string) (hostKeyPolicy, er
 			check.expected = append(check.expected, key)
 		}
 	}
-	return hostKeyPolicy{callback: check.verify, algorithms: check.algorithms()}, nil
+	return hostKeyPolicy{callback: check.verify, algorithmSets: check.algorithmSets()}, nil
 }
 
 // hostKeyCheck accepts the keys a node is expected to present.
@@ -108,28 +110,33 @@ func (c hostKeyCheck) verify(_ string, _ net.Addr, presented ssh.PublicKey) erro
 	return err
 }
 
-// algorithms lists the host key algorithms that prove the expected keys.
-// With no expected key, every algorithm is offered, so the error can name
-// whatever key the server presents.
-func (c hostKeyCheck) algorithms() []string {
-	var algos []string
+// algorithmSets lists, for each type of expected key, the host key
+// algorithms that prove a key of that type. With no expected key, a single
+// handshake offers every algorithm, so the error can name whatever key the
+// server presents.
+func (c hostKeyCheck) algorithmSets() [][]string {
+	var sets [][]string
 	for _, key := range c.expected {
-		for _, algo := range keyAlgorithms(key) {
-			if !slices.Contains(algos, algo) {
-				algos = append(algos, algo)
-			}
+		algorithms := keyAlgorithms(key)
+		if !slices.ContainsFunc(sets, func(set []string) bool { return slices.Equal(set, algorithms) }) {
+			sets = append(sets, algorithms)
 		}
 	}
-	return algos
+	return sets
 }
 
 // keyAlgorithms lists the signature algorithms for a key, as known_hosts
-// checking offers them. An RSA key signs with SHA-2 as well as SHA-1.
+// checking offers them. An RSA key, and an RSA certificate, sign with SHA-2
+// as well as SHA-1.
 func keyAlgorithms(key ssh.PublicKey) []string {
-	if key.Type() == ssh.KeyAlgoRSA {
+	switch key.Type() {
+	case ssh.KeyAlgoRSA:
 		return []string{ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSA}
+	case ssh.CertAlgoRSAv01:
+		return []string{ssh.CertAlgoRSASHA256v01, ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSAv01}
+	default:
+		return []string{key.Type()}
 	}
-	return []string{key.Type()}
 }
 
 // hostKeyError reports a host key that a node connection refused.

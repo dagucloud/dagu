@@ -22,17 +22,21 @@ import (
 )
 
 type Client struct {
-	hostPort   string
-	cfg        *ssh.ClientConfig
-	Shell      string   // Shell for remote command execution
-	ShellArgs  []string // Shell arguments for remote command execution
-	bastionCfg *bastionClientConfig
+	hostPort string
+	cfg      *ssh.ClientConfig
+	// hostKeyAlgorithms are the host key algorithm sets to try, one
+	// handshake each (see hostKeyPolicy).
+	hostKeyAlgorithms [][]string
+	Shell             string   // Shell for remote command execution
+	ShellArgs         []string // Shell arguments for remote command execution
+	bastionCfg        *bastionClientConfig
 }
 
 // bastionClientConfig holds bastion connection configuration
 type bastionClientConfig struct {
-	hostPort string
-	cfg      *ssh.ClientConfig
+	hostPort          string
+	cfg               *ssh.ClientConfig
+	hostKeyAlgorithms [][]string
 }
 
 // NewClient creates a client for cfg. Credentials given as secret refs are
@@ -66,15 +70,15 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 	return &Client{
 		hostPort: net.JoinHostPort(cfg.Host, port),
 		cfg: &ssh.ClientConfig{
-			User:              cfg.User,
-			Auth:              []ssh.AuthMethod{authMethod},
-			HostKeyCallback:   hostKey.callback,
-			HostKeyAlgorithms: hostKey.algorithms,
-			Timeout:           timeout,
+			User:            cfg.User,
+			Auth:            []ssh.AuthMethod{authMethod},
+			HostKeyCallback: hostKey.callback,
+			Timeout:         timeout,
 		},
-		Shell:      cfg.Shell,
-		ShellArgs:  slices.Clone(cfg.ShellArgs),
-		bastionCfg: bastionCfg,
+		hostKeyAlgorithms: hostKey.algorithmSets,
+		Shell:             cfg.Shell,
+		ShellArgs:         slices.Clone(cfg.ShellArgs),
+		bastionCfg:        bastionCfg,
 	}, nil
 }
 
@@ -122,35 +126,51 @@ func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 	if c.bastionCfg != nil {
 		return c.dialViaBastion(ctx)
 	}
-	return dialContext(ctx, c.hostPort, c.cfg)
+	return handshakeEach(c.cfg, c.hostKeyAlgorithms, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		return dialContext(ctx, c.hostPort, cfg)
+	})
 }
 
 // dialViaBastion establishes an SSH connection through a bastion/jump host.
 func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 	// Connect to bastion host first
-	bastionConn, err := dialContext(ctx, c.bastionCfg.hostPort, c.bastionCfg.cfg)
+	bastionConn, err := handshakeEach(c.bastionCfg.cfg, c.bastionCfg.hostKeyAlgorithms, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		return dialContext(ctx, c.bastionCfg.hostPort, cfg)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bastion host: %w", err)
 	}
 
-	// Create a tunnel through bastion to the target host
-	targetConn, err := bastionConn.Dial("tcp", c.hostPort)
+	client, err := handshakeEach(c.cfg, c.hostKeyAlgorithms, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		return c.dialThroughBastion(bastionConn, cfg)
+	})
 	if err != nil {
 		_ = bastionConn.Close()
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
+		return nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = client.Close()
+		return nil, ctxErr
+	}
+	return client, nil
+}
+
+// dialThroughBastion connects to the target through bastionConn, and leaves
+// bastionConn open when it fails.
+func (c *Client) dialThroughBastion(bastionConn *ssh.Client, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	// Create a tunnel through bastion to the target host
+	targetConn, err := bastionConn.Dial("tcp", c.hostPort)
+	if err != nil {
 		return nil, fmt.Errorf("failed to dial target through bastion: %w", err)
 	}
 
 	// Perform SSH handshake over the tunnel
-	ncc, chans, reqs, err := ssh.NewClientConn(targetConn, c.hostPort, c.cfg)
+	ncc, chans, reqs, err := ssh.NewClientConn(targetConn, c.hostPort, cfg)
 	if err != nil {
 		_ = targetConn.Close()
-		_ = bastionConn.Close()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
 		return nil, fmt.Errorf("failed to establish SSH connection through bastion: %w", err)
 	}
 
@@ -159,13 +179,30 @@ func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 		Conn:    ncc,
 		bastion: bastionConn,
 	}
+	return ssh.NewClient(wrappedConn, chans, reqs), nil
+}
 
-	client := ssh.NewClient(wrappedConn, chans, reqs)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		_ = client.Close()
-		return nil, ctxErr
+// handshakeEach runs handshake once per host key algorithm set, until one
+// succeeds or fails for a reason other than the host key. With no sets it
+// runs once with the default algorithms. A server refused for its host key
+// has received no credential, so the next set is safe to try.
+func handshakeEach(cfg *ssh.ClientConfig, algorithmSets [][]string, handshake func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
+	if len(algorithmSets) == 0 {
+		return handshake(cfg)
 	}
-	return client, nil
+	var err error
+	for _, algorithms := range algorithmSets {
+		attempt := *cfg
+		attempt.HostKeyAlgorithms = algorithms
+		var client *ssh.Client
+		if client, err = handshake(&attempt); err == nil {
+			return client, nil
+		}
+		if _, refused := errors.AsType[*hostKeyError](err); !refused {
+			return nil, err
+		}
+	}
+	return nil, err
 }
 
 func dialContext(ctx context.Context, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
@@ -271,12 +308,12 @@ func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout
 	return &bastionClientConfig{
 		hostPort: net.JoinHostPort(bastion.Host, defaultIfEmpty(bastion.Port, "22")),
 		cfg: &ssh.ClientConfig{
-			User:              bastion.User,
-			Auth:              []ssh.AuthMethod{authMethod},
-			HostKeyCallback:   hostKey.callback,
-			HostKeyAlgorithms: hostKey.algorithms,
-			Timeout:           timeout,
+			User:            bastion.User,
+			Auth:            []ssh.AuthMethod{authMethod},
+			HostKeyCallback: hostKey.callback,
+			Timeout:         timeout,
 		},
+		hostKeyAlgorithms: hostKey.algorithmSets,
 	}, nil
 }
 
