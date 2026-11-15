@@ -324,7 +324,7 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 		{
 			name:   "first slots",
 			record: backfillOf("hourly", at(12, 0), at(13, 0)),
-			want:   &schedulerstate.MissedGap{From: at(13, 0).Add(time.Second), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 1},
+			want:   &schedulerstate.MissedGap{From: at(14, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 1},
 		},
 		// 13:00 already ran, or another open backfill holds it.
 		{name: "slots it skips", record: backfillOf("hourly", at(12, 0), at(14, 0))},
@@ -332,7 +332,7 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 		{
 			name:   "slots another profile skips",
 			record: otherProfile,
-			want:   &schedulerstate.MissedGap{From: at(12, 0).Add(time.Second), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 2},
+			want:   &schedulerstate.MissedGap{From: at(13, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 2},
 		},
 		{name: "later slots", record: backfillOf("hourly", at(13, 0), at(14, 0)), want: &held},
 		{name: "earlier slots", record: backfillOf("hourly", at(9, 0), at(10, 0)), want: &held},
@@ -430,5 +430,5 @@ func TestTickPlanner_BackfillCoversGapAfterScheduleEdit(t *testing.T) {
 	require.True(t, tp.coverGap(t.Context(), backfillOf(dagName, at(12, 0), at(12, 30), at(13, 0))))
 	gap := missedGap(tp, dagName)
 	require.NotNil(t, gap, "14:00 is still missed")
-	assert.Equal(t, at(13, 0).Add(time.Second), gap.From)
+	assert.Equal(t, at(13, 30), gap.From)
 }

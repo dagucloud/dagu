@@ -124,10 +124,10 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 
 // coverGap takes from a DAG's missed gap the slots a backfill of a range
 // runs or, within its range, skips, from the gap's first slot up to the
-// first one it does neither for. The gap then starts after them, or is gone
-// when the backfill covers them all. A backfill that names its slots or
-// selects them by a date leaves the gap as it is, since it may skip slots
-// between. It reports whether the gap changed.
+// first one it does neither for. The gap then keeps the slots after them,
+// or is gone when the backfill covers them all. A backfill that names its
+// slots or selects them by a date leaves the gap as it is, since it may
+// skip slots between. It reports whether the gap changed.
 func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
 	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 || record.Options.By != "" {
 		return false
@@ -154,11 +154,16 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	}
 	gap.From = last
 	if gap.Reason != schedulerstate.GapDown {
-		gap.From = last.Add(time.Second)
+		// A hold's gap holds the slot at its start, so the start shown is
+		// the first slot left.
+		gap.From = nextFire(schedules, last)
 	}
 	// The slots left are counted under the schedules as they are now, which
 	// may differ from those the gap was counted under.
-	remaining := countSlots(schedules, gapStart(gap).In(tp.cfg.Location), end)
+	remaining := 0
+	if !gap.From.IsZero() {
+		remaining = countSlots(schedules, gapStart(gap).In(tp.cfg.Location), end)
+	}
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
