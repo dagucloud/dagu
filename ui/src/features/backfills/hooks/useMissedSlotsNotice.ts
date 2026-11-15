@@ -10,9 +10,8 @@ import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 
 type MissedSlots = components['schemas']['MissedSlots'];
 
-/** The gaps whose notice was dismissed, newest last. */
+/** The gap whose notice was dismissed, of each DAG on each node. */
 export const DISMISSED_GAPS_KEY = 'dagu.backfills.dismissedGaps';
-const DISMISSED_KEEP = 20;
 const MISSED_SLOTS_NOTICE_PRIORITY = 15;
 
 /** The query that opens the Backfills tab on a gap to backfill. */
@@ -31,33 +30,44 @@ const MESSAGES: Record<MissedSlotsReason, string> = {
 /** The most slots the scheduler counts in a gap. */
 const MAX_GAP_SLOTS = 10000;
 
-/**
- * A gap's dismissal holds for its DAG on its node only. A backfill of a
- * gap's first slots moves its start, so the key leaves the start out: the
- * end, when the hold or the outage was found to end, tells gaps apart.
- */
-const gapKey = (gap: MissedSlots, dagName: string, remoteNode: string) =>
-  `${remoteNode}/${dagName}/${gap.reason}/${gap.to}`;
+/** The gap key dismissed for each DAG, by `node/DAG`. */
+type Dismissed = Record<string, string>;
 
-function readDismissed(): string[] {
+/**
+ * A gap's dismissal holds for its DAG on its node only, and a DAG keeps the
+ * dismissal of its latest gap only, as the scheduler keeps that gap only.
+ */
+const dagKey = (dagName: string, remoteNode: string) =>
+  `${remoteNode}/${dagName}`;
+
+/**
+ * A backfill of a gap's first slots moves its start, so the key leaves the
+ * start out: the end, when the hold or the outage was found to end, tells
+ * gaps apart.
+ */
+const gapKey = (gap: MissedSlots) => `${gap.reason}/${gap.to}`;
+
+function readDismissed(): Dismissed {
   try {
     const parsed: unknown = JSON.parse(
-      localStorage.getItem(DISMISSED_GAPS_KEY) ?? '[]'
+      localStorage.getItem(DISMISSED_GAPS_KEY) ?? '{}'
     );
-    return Array.isArray(parsed)
-      ? parsed.filter((key): key is string => typeof key === 'string')
-      : [];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    );
   } catch {
-    return [];
+    return {};
   }
 }
 
-function writeDismissed(keys: string[]): void {
+function writeDismissed(dismissed: Dismissed): void {
   try {
-    localStorage.setItem(
-      DISMISSED_GAPS_KEY,
-      JSON.stringify(keys.slice(-DISMISSED_KEEP))
-    );
+    localStorage.setItem(DISMISSED_GAPS_KEY, JSON.stringify(dismissed));
   } catch {
     // The notice then shows again on the next visit.
   }
@@ -84,7 +94,10 @@ export function useMissedSlotsNotice(
   const [dismissed, setDismissed] = useState(readDismissed);
   const dismiss = useCallback(() => {
     if (!gap) return;
-    const next = [...readDismissed(), gapKey(gap, dagName, remoteNode)];
+    const next = {
+      ...readDismissed(),
+      [dagKey(dagName, remoteNode)]: gapKey(gap),
+    };
     writeDismissed(next);
     setDismissed(next);
   }, [gap, dagName, remoteNode]);
@@ -93,7 +106,7 @@ export function useMissedSlotsNotice(
     if (
       !gap ||
       gap.slots === 0 ||
-      dismissed.includes(gapKey(gap, dagName, remoteNode))
+      dismissed[dagKey(dagName, remoteNode)] === gapKey(gap)
     ) {
       return null;
     }

@@ -109,6 +109,25 @@ describe('useMissedSlotsNotice', () => {
     expect(result.current.notice).not.toBeNull();
   });
 
+  // One outage gives every scheduled DAG a gap, and each dismissal holds
+  // however many DAGs were dismissed after it.
+  it('keeps the dismissal of every DAG', () => {
+    const dismissing = renderHook(({ dag }) => useNoticeAndLocation(gap, dag), {
+      wrapper,
+      initialProps: { dag: 'dag-0' },
+    });
+    for (let i = 0; i < 30; i++) {
+      dismissing.rerender({ dag: `dag-${i}` });
+      act(() => dismissing.result.current.notice?.dismiss?.());
+    }
+    dismissing.unmount();
+
+    const { result } = renderHook(() => useNoticeAndLocation(gap, 'dag-0'), {
+      wrapper,
+    });
+    expect(result.current.notice).toBeNull();
+  });
+
   it('stays dismissed for that gap only', () => {
     const { result, rerender } = renderHook(
       ({ missed }) => useNoticeAndLocation(missed),
@@ -131,7 +150,7 @@ describe('useMissedSlotsNotice', () => {
 
     act(() => result.current.notice?.dismiss?.());
     rerender({
-      missed: { ...gap, from: '2026-11-01T15:00:01Z', slots: 6 },
+      missed: { ...gap, from: '2026-11-01T16:00:00Z', slots: 6 },
     });
     expect(result.current.notice).toBeNull();
   });
