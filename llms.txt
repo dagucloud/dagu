@@ -2281,6 +2281,24 @@ Show resolved configuration paths.
 dagu config
 ```
 
+### dagu nodes
+
+Work with node inventories: named lists of SSH hosts with labels, stored as JSON records (Spec 088). Local context only.
+
+```sh
+dagu nodes list [--labels <selector>] [--inventory <name|id>] [--format/-f table|json]
+dagu nodes show <name> [--format/-f table|json]
+dagu nodes import <file> [--replace] [--dry-run]
+dagu nodes export [--inventory <name|id>]
+```
+
+- `list` — Nodes the selector matches, in name order, with each inventory's defaults applied; every node without `--labels`. The selector takes the terms of `dagu history --labels`. Disabled nodes are listed with status `disabled`
+- `show` — One node with its inventory, labels, and connection settings. The name is compared without case
+- `import` — Reads a JSON array of inventories. A new name is created; an existing name is refused unless `--replace`, which replaces it and keeps its ID. When any inventory breaks a rule, nothing is stored and every broken rule is listed. `--dry-run` only checks. A record that sets `id` is refused
+- `export` — Prints inventories as a JSON array without IDs, which `import` reads back unchanged
+- `--inventory` — Names an inventory by ID, or by name compared without case
+- Credentials appear as `{"secret": <ref>}` or `{"file": <path>}`, never as values; `password` and `passphrase` take only secret refs
+
 ## Server & Scheduling
 
 To operate a running server (MCP, REST, remote contexts), see `server-operations.md`.
