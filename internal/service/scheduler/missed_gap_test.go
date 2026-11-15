@@ -296,19 +296,31 @@ func backfillOf(dagName string, slots ...time.Time) *backfill.Record {
 	return record
 }
 
+// namedOf returns a backfill that names the slots and runs them.
+func namedOf(dagName string, slots ...time.Time) *backfill.Record {
+	record := backfillOf(dagName, slots...)
+	record.Options = backfill.Options{Slots: slots}
+	return record
+}
+
+// byDateOf returns a backfill that selects the slots by a date and runs
+// them.
+func byDateOf(dagName string, slots ...time.Time) *backfill.Record {
+	record := backfillOf(dagName, slots...)
+	record.Options = backfill.Options{By: "target_day", FromDate: "2026-02-07"}
+	return record
+}
+
 // A backfill that runs a gap's slots, or skips some within its range, clears
 // it. One that runs its first slots leaves the gap the slots after its
-// range. One that skips the gap's first slot, names its slots, or selects
-// them by a date leaves the gap as it is. A backfill under another profile
-// skips no slot of the scheduler's, so the gap keeps the slots from its
-// first hole.
+// range. One that skips the gap's first slot leaves the gap as it is. A
+// backfill that names its slots or selects them by a date plans no range,
+// so the gap keeps the slots from the first it does not run, as it does
+// for a backfill under another profile, which skips no slot of the
+// scheduler's.
 func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 	t.Parallel()
 	held := schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 3}
-	named := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
-	named.Options.Slots = []time.Time{at(12, 0), at(13, 0), at(14, 0)}
-	byDate := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
-	byDate.Options.By = "target_day"
 	// 14:00 already ran, and the range defaulted to the submit at 14:30.
 	tail := backfillOf("hourly", at(12, 0), at(13, 0))
 	tail.Options.To, tail.CreatedAt = time.Time{}, at(14, 30)
@@ -336,8 +348,14 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 		},
 		{name: "later slots", record: backfillOf("hourly", at(13, 0), at(14, 0)), want: &held},
 		{name: "earlier slots", record: backfillOf("hourly", at(9, 0), at(10, 0)), want: &held},
-		{name: "named slots", record: named, want: &held},
-		{name: "slots by a date", record: byDate, want: &held},
+		{name: "named slots", record: namedOf("hourly", at(12, 0), at(13, 0), at(14, 0))},
+		{
+			name:   "named slots around a hole",
+			record: namedOf("hourly", at(12, 0), at(14, 0)),
+			want:   &schedulerstate.MissedGap{From: at(13, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 2},
+		},
+		{name: "slots by a date", record: byDateOf("hourly", at(12, 0), at(13, 0), at(14, 0))},
+		{name: "later slots by a date", record: byDateOf("hourly", at(13, 0), at(14, 0)), want: &held},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

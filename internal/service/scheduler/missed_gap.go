@@ -122,14 +122,13 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 	tp.watermarkState.DAGs[entry.DAG.Name] = watermark
 }
 
-// coverGap takes from a DAG's missed gap the slots a backfill of a range
-// runs or, within its range, skips, from the gap's first slot up to the
-// first one it does neither for. The gap then keeps the slots after them,
-// or is gone when the backfill covers them all. A backfill that names its
-// slots or selects them by a date leaves the gap as it is, since it may
-// skip slots between. It reports whether the gap changed.
+// coverGap takes from a DAG's missed gap the slots a backfill runs and,
+// within the range a backfill of a range planned, those it skips, from the
+// gap's first slot up to the first one it does neither for. The gap then
+// keeps the slots after them, or is gone when the backfill covers them all.
+// It reports whether the gap changed.
 func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
-	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 || record.Options.By != "" {
+	if len(record.Slots) == 0 {
 		return false
 	}
 	tp.mu.RLock()
@@ -211,9 +210,10 @@ func (s plannedSpan) holds(at time.Time) bool {
 	return !s.from.IsZero() && !at.Before(s.from) && !at.After(s.to)
 }
 
-// plannedSpanOf returns the range a backfill planned, or an empty span when
-// it planned another profile's schedules, whose fire times it left out are
-// not ones it skipped.
+// plannedSpanOf returns the range a backfill planned. The span is empty for
+// a backfill that names its slots or selects them by a date, which plans no
+// range, and for one that planned another profile's schedules, whose fire
+// times it left out are not ones it skipped.
 func plannedSpanOf(record *backfill.Record, profile string) plannedSpan {
 	opts := record.Options
 	if opts.Profile != "" && opts.Profile != profile {
