@@ -1,6 +1,6 @@
 # RFC 008: Backfill
 
-- **Status:** Proposed
+- **Status:** Implemented
 - **Date:** 2026-11-10
 - **Affected areas:** `service/scheduler`, `intake`, `queue`, `persis`
   (backfill store, slot index), `notification`, `service/frontend` (API, UI),
@@ -358,11 +358,14 @@ submit ─▶ plan ─▶ backfill record ─▶ scheduler ─▶ enqueue slot r
   remaining slots marked `cancelled`.
 - **Notifications.** `mail_on` and notification routes do not fire per backfill
   run, except for `wait`, where a person must act. The backfill sends one
-  summary through the same channels when it ends, with the totals and the
-  failed slots grouped by error. `handler_on` steps still run, because Dagu
-  cannot tell a cleanup handler from an alert, and a skipped cleanup corrupts
-  state. The plan names the handlers that will run once per slot. The docs show
-  the opt-out for an alert handler: a precondition on
+  summary through the DAG's notification routes when it ends, with the totals
+  and the failed slots grouped by error. It sends none through `mail_on`:
+  that would need a process per ended backfill to resolve the DAG's SMTP
+  settings and secrets. A DAG that mails only through `mail_on` gets the
+  summary once it routes to an email channel. `handler_on` steps still run,
+  because Dagu cannot tell a cleanup handler from an alert, and a skipped
+  cleanup corrupts state. The plan names the handlers that will run once per
+  slot. The docs show the opt-out for an alert handler: a precondition on
   `${context.trigger.type}` with `expected: backfill` and `negate: true`.
 
 A backfill ends as `succeeded` when every selected slot succeeded or was
