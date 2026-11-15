@@ -197,6 +197,19 @@ describe('useMissedSlotsNotice', () => {
     expect(result.current.notice).not.toBeNull();
   });
 
+  // A backfill of the newest span's slots leaves an older span's, whose end
+  // is earlier than the one dismissed.
+  it('stays dismissed when a backfill fills the newest span', () => {
+    const { result, rerender } = renderHook(
+      ({ given }) => useNoticeAndLocation(given),
+      { wrapper, initialProps: { given: missed } }
+    );
+
+    act(() => result.current.notice?.dismiss?.());
+    rerender({ given: { ...missed, slots: 3, until: '2026-11-01T12:30:00Z' } });
+    expect(result.current.notice).toBeNull();
+  });
+
   // One outage leaves every scheduled DAG missed slots, and each dismissal
   // holds however many DAGs were dismissed after it.
   it('keeps the dismissal of every DAG', () => {

@@ -55,7 +55,7 @@ const formatBound = (value: string) =>
  * action opens the Backfills tab with the start panel on those slots. The
  * slots are read as the page opens and again when a backfill starts, never
  * polled. Dismissed, the notice stays hidden until a newer span adds missed
- * slots, which changes their `until`.
+ * slots, which moves their `until` later.
  */
 export function useMissedSlotsNotice(
   fileName: string,
@@ -73,12 +73,19 @@ export function useMissedSlotsNotice(
   );
   const missed = data?.missedSlots;
   const key = dismissedKey(remoteNode, dagName);
-  // Dismissals of this visit, which hold where the browser keeps none.
-  const [dismissed, setDismissed] = useState<Record<string, string>>({});
-  const dismissedUntil = dismissed[key] ?? readDismissed(key);
+  // The last dismissal of this visit, which holds where the browser keeps
+  // none.
+  const [dismissed, setDismissed] = useState<{ key: string; until: string }>();
+  const dismissedUntil =
+    (dismissed?.key === key ? dismissed.until : null) ?? readDismissed(key);
 
   return useMemo(() => {
-    if (!missed || missed.slots === 0 || dismissedUntil === missed.until) {
+    if (
+      !missed ||
+      missed.slots === 0 ||
+      (dismissedUntil !== null &&
+        Date.parse(missed.until) <= Date.parse(dismissedUntil))
+    ) {
       return null;
     }
     const [reason] = missed.reasons;
@@ -124,7 +131,7 @@ export function useMissedSlotsNotice(
         } catch {
           // The notice then shows again on the next visit.
         }
-        setDismissed((current) => ({ ...current, [key]: missed.until }));
+        setDismissed({ key, until: missed.until });
       },
       priority: MISSED_SLOTS_NOTICE_PRIORITY,
     };
