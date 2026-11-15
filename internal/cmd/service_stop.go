@@ -33,7 +33,9 @@ this command ignores.`,
 		},
 		nil,
 		func(ctx *Context, _ []string) error {
-			if err := requestServiceStop(ctx.Config.Paths.DataDir, serviceStopTimeout); err != nil {
+			// Dagu first waits out the drain for the runs it started.
+			timeout := ctx.Config.SignalHandling.DrainTimeout + serviceStopTimeout
+			if err := requestServiceStop(ctx.Config.Paths.DataDir, timeout); err != nil {
 				return fmt.Errorf("failed to stop Dagu: %w", err)
 			}
 			return nil
@@ -41,10 +43,11 @@ this command ignores.`,
 	)
 }
 
-// serviceStopTimeout bounds how long service-stop waits for Dagu to shut
-// down before it ends Dagu, leaving runs in progress running. It matches the
-// stoptimeout the installer gives the service wrapper, which ends the whole
-// process tree once it passes when Dagu lacks service-stop.
+// serviceStopTimeout bounds how long service-stop waits, beyond the drain,
+// for Dagu to shut down before it ends Dagu, leaving runs in progress
+// running. It matches the stoptimeout the installer gives the service
+// wrapper, which ends the whole process tree once it passes when Dagu lacks
+// service-stop.
 const serviceStopTimeout = 30 * time.Second
 
 // serviceStopEventName names the Windows event through which service-stop
