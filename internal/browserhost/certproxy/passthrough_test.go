@@ -95,6 +95,7 @@ func newHelloSite(t *testing.T, ca *testCA, adjust func(*tls.ClientHelloInfo, *t
 	}}
 	// Handshakes the proxy abandons are what several tests expect.
 	site.Config.ErrorLog = log.New(io.Discard, "", 0)
+	closeGracefully(site.Server)
 	site.StartTLS()
 	t.Cleanup(site.Close)
 	return site
