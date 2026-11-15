@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -620,6 +621,28 @@ func TestServerAdvertisesSupportedCapabilities(t *testing.T) {
 	require.Equal(t, []any{mcpAppMIMEType}, apps["mimeTypes"])
 }
 
+// Agents follow the reference topics the instructions name, so each one
+// must resolve to a readable resource.
+func TestInstructionsNameReadableReferences(t *testing.T) {
+	ctx := context.Background()
+	session := connectTestClient(t, ctx, NewServer(nil))
+
+	matches := regexp.MustCompile(`target=reference name=([a-z-]+)`).
+		FindAllStringSubmatch(session.InitializeResult().Instructions, -1)
+	topics := make([]string, 0, len(matches))
+	for _, match := range matches {
+		topics = append(topics, match[1])
+	}
+	require.Equal(t, []string{"authoring", "feedback"}, topics)
+
+	for _, topic := range topics {
+		got, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: "dagu://reference/" + topic})
+		require.NoError(t, err)
+		require.Len(t, got.Contents, 1)
+		require.NotEmpty(t, got.Contents[0].Text)
+	}
+}
+
 func TestServerExposesMCPAppRunInspector(t *testing.T) {
 	ctx := context.Background()
 	session := connectTestClient(t, ctx, NewServer(nil))
@@ -874,6 +897,12 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Contains(t, authoring.Contents[0].Text, "schedule profile is an activation filter")
 	require.Contains(t, authoring.Contents[0].Text, "target=dag_profile")
 	require.Contains(t, authoring.Contents[0].Text, "output_schema answers through a forced respond tool")
+
+	feedback, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: "dagu://reference/feedback"})
+	require.NoError(t, err)
+	require.Len(t, feedback.Contents, 1)
+	require.Contains(t, feedback.Contents[0].Text, issuesURL+"/new?title=")
+	require.Contains(t, feedback.Contents[0].Text, "Dagu version "+config.Version)
 
 	prompts, err := session.ListPrompts(ctx, nil)
 	require.NoError(t, err)

@@ -1325,7 +1325,7 @@ export interface paths {
         put?: never;
         /**
          * Terminate or cancel a DAG-run
-         * @description Forcefully stops a running DAG-run, or cancels a failed root DAG-run that is still pending DAG-level automatic retry.
+         * @description Forcefully stops a running DAG-run, ends a waiting root DAG-run as aborted without running its remaining steps, or cancels a failed root DAG-run that is still pending DAG-level automatic retry.
          */
         post: operations["terminateDAGRun"];
         delete?: never;

@@ -1132,6 +1132,8 @@ const baseEnglish = {
   'Cancel auto-retry?': 'Cancel auto-retry?',
   'Stop all running instances?': 'Stop all running instances?',
   'Running steps are canceled.': 'Running steps are canceled.',
+  'Waiting steps are canceled and the remaining steps do not run.':
+    'Waiting steps are canceled and the remaining steps do not run.',
   'The failed run will not be retried automatically.':
     'The failed run will not be retried automatically.',
   'Running steps in every instance of this workflow are canceled.':
@@ -2657,6 +2659,7 @@ const baseEnglish = {
   'The DAG run may have already changed state. Refresh and try again.':
     'The DAG run may have already changed state. Refresh and try again.',
   'Stop signal sent': 'Stop signal sent',
+  'Run stopped': 'Run stopped',
   'Restore dialog': 'Restore dialog',
   'Maximize dialog': 'Maximize dialog',
   'Approved by': 'Approved by',
@@ -4396,6 +4399,8 @@ const baseChinese = {
   'Cancel auto-retry?': '取消自动重试？',
   'Stop all running instances?': '停止所有运行中的实例？',
   'Running steps are canceled.': '正在运行的步骤将被取消。',
+  'Waiting steps are canceled and the remaining steps do not run.':
+    '等待中的步骤将被取消，其余步骤不会运行。',
   'The failed run will not be retried automatically.':
     '失败的运行将不会自动重试。',
   'Running steps in every instance of this workflow are canceled.':
@@ -5885,6 +5890,7 @@ const baseChinese = {
   'The DAG run may have already changed state. Refresh and try again.':
     'DAG 运行状态可能已更改。请刷新后重试。',
   'Stop signal sent': '已发送停止信号',
+  'Run stopped': '运行已停止',
   'Restore dialog': '恢复对话框',
   'Maximize dialog': '最大化对话框',
   'Approved by': '审批人',
@@ -7635,6 +7641,8 @@ const baseJapanese = {
   'Cancel auto-retry?': '自動再試行をキャンセルしますか？',
   'Stop all running instances?': '実行中のすべてのインスタンスを停止しますか？',
   'Running steps are canceled.': '実行中のステップはキャンセルされます。',
+  'Waiting steps are canceled and the remaining steps do not run.':
+    '待機中のステップはキャンセルされ、残りのステップは実行されません。',
   'The failed run will not be retried automatically.':
     '失敗した実行は自動で再試行されません。',
   'Running steps in every instance of this workflow are canceled.':
@@ -9174,6 +9182,7 @@ const baseJapanese = {
   'The DAG run may have already changed state. Refresh and try again.':
     'DAG 実行の状態がすでに変更されている可能性があります。更新して再試行してください。',
   'Stop signal sent': '停止シグナルを送信しました',
+  'Run stopped': '実行を停止しました',
   'Restore dialog': 'ダイアログを元のサイズに戻す',
   'Maximize dialog': 'ダイアログを最大化',
   'Approved by': '承認者',

@@ -4,7 +4,9 @@
 package dagrun
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,7 +14,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -198,6 +202,77 @@ func TestAttempt_WriteFollowsCompactionByOtherAttempt(t *testing.T) {
 	require.NoError(t, runner.Write(ctx, big))
 	require.Equal(t, 0, runner.appended, "the runner compacts")
 	require.NoError(t, other.Write(ctx, createTestStatus(ir.Succeeded)))
+	status, err := ParseStatusFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, status.Status)
+}
+
+// A run that ends without closing its status file can leave it ending in change
+// records. Reading rebuilds the newest status, and compaction leaves it as the
+// one full record, which a second compaction does not replace.
+func TestAttempt_CompactsChangeRecords(t *testing.T) {
+	file := filepath.Join(createTempDir(t), JSONLStatusFile)
+	ctx := context.Background()
+
+	st := createTestStatus(ir.Running)
+	for i := range 10 {
+		st.Nodes = append(st.Nodes, ir.NewNodeFromStep(ir.Step{Name: fmt.Sprintf("extra%d", i)}))
+	}
+	var enc statusfile.Encoder
+	var data []byte
+	for i := range 3 {
+		st.Nodes[i].Status = ir.NodeSucceeded
+		line, err := enc.Encode(st)
+		require.NoError(t, err)
+		data = append(append(data, line...), '\n')
+	}
+	require.Equal(t, 2, bytes.Count(data, []byte("\n~")), "the file must end in change records")
+	require.NoError(t, os.WriteFile(file, data, 0600))
+
+	att, err := NewAttempt(file, nil)
+	require.NoError(t, err)
+	read, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	for i, node := range read.Nodes {
+		assert.Equal(t, i < 3, node.Status == ir.NodeSucceeded, node.Step.Name)
+	}
+
+	require.NoError(t, att.Compact(ctx))
+	compacted, err := fileutil.ReadFile(file)
+	require.NoError(t, err)
+	require.Equal(t, 1, bytes.Count(compacted, []byte("\n")))
+	require.Equal(t, byte('{'), compacted[0])
+	status, err := ParseStatusFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, read, status)
+
+	before, err := os.Stat(file)
+	require.NoError(t, err)
+	require.NoError(t, att.Compact(ctx))
+	after, err := os.Stat(file)
+	require.NoError(t, err)
+	assert.True(t, os.SameFile(before, after), "a compacted file is not replaced")
+}
+
+// Compaction drops a cut-off line that follows the only record.
+func TestAttempt_CompactDropsCutOffLine(t *testing.T) {
+	file := filepath.Join(createTempDir(t), JSONLStatusFile)
+	ctx := context.Background()
+
+	att, err := NewAttempt(file, nil)
+	require.NoError(t, err)
+	require.NoError(t, att.Open(ctx))
+	require.NoError(t, att.Write(ctx, createTestStatus(ir.Succeeded)))
+	require.NoError(t, att.Close(ctx))
+	record, err := fileutil.ReadFile(file)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(file, append(record, `{"partial`...), 0600))
+	require.NoError(t, att.Compact(ctx))
+	compacted, err := fileutil.ReadFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, 1, bytes.Count(compacted, []byte("\n")))
+	assert.NotContains(t, string(compacted), "partial")
 	status, err := ParseStatusFile(file)
 	require.NoError(t, err)
 	assert.Equal(t, ir.Succeeded, status.Status)

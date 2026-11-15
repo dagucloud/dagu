@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,6 +241,70 @@ func TestManager(t *testing.T) {
 		aborting, err := attempt.IsAborting(ctx)
 		require.NoError(t, err)
 		require.True(t, aborting)
+	})
+	t.Run("StopEndsWaitingRunAsAborted", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		attempt := createWaitingRootAttempt(t, th, dag.DAG, dagRunID)
+
+		require.NoError(t, th.DAGRunMgr.Stop(ctx, dag.DAG, dagRunID))
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Aborted, status.Status)
+		require.Equal(t, ir.NodeAborted, status.Nodes[0].Status)
+		// The cancel request marks the stop as an operator's.
+		aborting, err := attempt.IsAborting(ctx)
+		require.NoError(t, err)
+		require.True(t, aborting)
+	})
+	// The process that recorded the checkpoint may still be exiting; its last
+	// status write must land before the stop, or it would replace the stop.
+	t.Run("StopWaitsForWaitingCheckpointProcessToExit", func(t *testing.T) {
+		dag := th.DAG(t, `steps:
+  - name: "1"
+    run: "exit 0"
+`)
+		ctx := th.Context
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		attempt := createWaitingRootAttempt(t, th, dag.DAG, dagRunID)
+		procs := newCheckpointProcesses()
+		mgr := runtime.NewManager(th.DAGRunRepository, procs, th.Config)
+
+		// A stop that never checks liveness fails here instead of hanging.
+		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		statusWhileAlive := make(chan ir.Status, 1)
+		go func() {
+			select {
+			case <-procs.observedAlive:
+			case <-waitCtx.Done():
+				return
+			}
+			status, err := attempt.ReadStatus(ctx)
+			if err != nil {
+				statusWhileAlive <- ir.NotStarted
+			} else {
+				statusWhileAlive <- status.Status
+			}
+			close(procs.released)
+		}()
+
+		require.NoError(t, mgr.Stop(ctx, dag.DAG, dagRunID))
+		select {
+		case status := <-statusWhileAlive:
+			require.Equal(t, ir.Waiting, status)
+		case <-waitCtx.Done():
+			require.FailNow(t, "stop did not check whether the checkpoint process was alive")
+		}
+
+		status, err := attempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Aborted, status.Status)
 	})
 	t.Run("StopFallsBackToLegacyRootSocket", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
@@ -1178,6 +1243,57 @@ func createLiveRootAttempt(t *testing.T, th test.Helper, dag *ir.DAG, dagRunID s
 		_ = process.Stop(ctx)
 	})
 
+	return attempt
+}
+
+// checkpointProcesses reports every attempt alive until released, and signals
+// the first liveness check that saw an attempt alive.
+type checkpointProcesses struct {
+	observedAlive chan struct{}
+	released      chan struct{}
+	observe       sync.Once
+}
+
+func newCheckpointProcesses() *checkpointProcesses {
+	return &checkpointProcesses{observedAlive: make(chan struct{}), released: make(chan struct{})}
+}
+
+func (p *checkpointProcesses) IsAttemptAlive(context.Context, string, ir.DAGRunRef, string) (bool, error) {
+	select {
+	case <-p.released:
+		return false, nil
+	default:
+	}
+	p.observe.Do(func() { close(p.observedAlive) })
+	return true, nil
+}
+
+func (p *checkpointProcesses) IsRunAlive(context.Context, string, ir.DAGRunRef) (bool, error) {
+	return false, nil
+}
+
+func (p *checkpointProcesses) ListAlive(context.Context, string) ([]ir.DAGRunRef, error) {
+	return nil, nil
+}
+
+func (p *checkpointProcesses) FreshEntriesByDAGName(context.Context, string, string) ([]procctrl.ProcEntry, error) {
+	return nil, nil
+}
+
+// createWaitingRootAttempt records a root run whose process reached a waiting
+// checkpoint and exited.
+func createWaitingRootAttempt(t *testing.T, th test.Helper, dag *ir.DAG, dagRunID string) dagrun.Attempt {
+	t.Helper()
+
+	ctx := th.Context
+	attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag, time.Now(), dagRunID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	status := testNewStatus(dag, dagRunID, ir.Waiting, ir.NodeWaiting)
+	status.AttemptID = attempt.ID()
+	status.FinishedAt = stringutil.FormatTime(time.Now())
+	require.NoError(t, attempt.Write(ctx, status))
+	require.NoError(t, attempt.Close(ctx))
 	return attempt
 }
 

@@ -11,7 +11,7 @@ import {
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel } from '@/api/v1/schema';
+import { NodeStatus, Status, StatusLabel } from '@/api/v1/schema';
 import DAGActions from '../DAGActions';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
@@ -232,6 +232,40 @@ describe('DAGActions', () => {
     expect(
       within(view.container).getByRole('button', { name: 'Retry' })
     ).toBeDisabled();
+  });
+
+  // Reject decides the approval; Stop ends the run without deciding it.
+  it('offers Stop next to Reject for a run waiting on an approval', () => {
+    const view = render(
+      <DAGActions
+        status={
+          {
+            name: 'approval-dag',
+            dagRunId: 'run-1',
+            status: Status.Waiting,
+            statusLabel: StatusLabel.waiting,
+            artifactsAvailable: false,
+            autoRetryCount: 0,
+            startedAt: '',
+            finishedAt: '',
+            nodes: [
+              {
+                step: { name: 'approve', approval: {} },
+                status: NodeStatus.Waiting,
+              },
+            ],
+          } as unknown as React.ComponentProps<typeof DAGActions>['status']
+        }
+        fileName="approval-dag.yaml"
+        dag={{ name: 'approval-dag' }}
+        displayMode="full"
+      />,
+      { wrapper: MemoryRouter }
+    );
+
+    const queries = within(view.container);
+    expect(queries.getByRole('button', { name: 'Reject' })).toBeEnabled();
+    expect(queries.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
   it('disables retry when there is no DAG run id', () => {

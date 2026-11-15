@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 )
 
 // Error definitions for common issues
@@ -512,47 +513,11 @@ func (att *Attempt) compactStatusLocked(ctx context.Context, last *ir.DAGRunStat
 // statusForCompactionLocked reads the current file and reports whether a
 // replacement would change its compacted contents.
 func (att *Attempt) statusForCompactionLocked(ctx context.Context) (*ir.DAGRunStatus, bool, error) {
-	f, err := openStatusFileWithRetry(att.file)
+	latest, err := readLatestStatus(ctx, att.file)
 	if err != nil {
-		return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		return nil, false, err
 	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	var (
-		offset          int64
-		result          *ir.DAGRunStatus
-		validLineCount  int
-		invalidLineSeen bool
-	)
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
-		}
-		line, nextOffset, err := readLineFrom(f, offset)
-		if err == io.EOF {
-			if result == nil {
-				return nil, false, err
-			}
-			return result, invalidLineSeen || validLineCount > 1, nil
-		}
-		if err != nil {
-			return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
-		}
-
-		offset = nextOffset
-		if len(line) == 0 {
-			continue
-		}
-		var status ir.DAGRunStatus
-		if err := json.Unmarshal(line, &status); err != nil {
-			invalidLineSeen = true
-			continue
-		}
-		result = &status
-		validLineCount++
-	}
+	return latest.Status, !latest.OnlyRecord, nil
 }
 
 // safeRename safely replaces the target file with the source file,
@@ -615,43 +580,32 @@ func ParseStatusFile(file string) (*ir.DAGRunStatus, error) {
 }
 
 func parseStatusFileWithContext(ctx context.Context, file string) (*ir.DAGRunStatus, error) {
+	latest, err := readLatestStatus(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	return latest.Status, nil
+}
+
+// readLatestStatus reads the newest status in the file. It returns io.EOF when
+// the file holds none.
+func readLatestStatus(ctx context.Context, file string) (statusfile.Latest, error) {
 	f, err := openStatusFileWithRetry(file)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		return statusfile.Latest{}, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
 	defer func() {
 		_ = f.Close()
 	}()
 	info, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		return statusfile.Latest{}, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
-
-	// The file is append-only, so the latest status is its last valid line.
-	// Reading from the end decodes only that line, however many snapshots
-	// came before it.
-	var result *ir.DAGRunStatus
-	err = fileutil.ReadLinesBackward(ctx, f, info.Size(), func(line []byte, terminated bool) (bool, error) {
-		// A line without its newline is still being written.
-		if !terminated || len(line) == 0 {
-			return false, nil
-		}
-		// The decoded status keeps no reference to line, which is valid
-		// only until this callback returns.
-		var status ir.DAGRunStatus
-		if err := json.Unmarshal(line, &status); err != nil {
-			return false, nil
-		}
-		result = &status
-		return true, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+	latest, err := statusfile.ReadLatest(ctx, f, info.Size())
+	if err != nil && !errors.Is(err, io.EOF) {
+		return statusfile.Latest{}, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
-	if result == nil {
-		return nil, io.EOF
-	}
-	return result, nil
+	return latest, err
 }
 
 func openStatusFileWithRetry(path string) (*os.File, error) {
@@ -808,35 +762,6 @@ func (att *Attempt) Hide(ctx context.Context) error {
 // dagRunDir returns the directory shared by all attempts in the DAG run.
 func (att *Attempt) dagRunDir() string {
 	return filepath.Dir(filepath.Dir(att.file))
-}
-
-// readLineFrom reads a line from the file starting at the specified offset.
-// It returns the line, the new offset, and any error encountered.
-// The buffer is used to reduce allocations.
-func readLineFrom(f *os.File, offset int64) ([]byte, int64, error) {
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset, err
-	}
-
-	reader := bufio.NewReader(f)
-	var line []byte
-	var err error
-
-	// Read the line
-	line, err = reader.ReadBytes('\n')
-	if err != nil && err != io.EOF {
-		return nil, offset, err
-	}
-
-	// Calculate the new offset
-	newOffset := offset + int64(len(line))
-
-	// Trim the newline character if present
-	if len(line) > 0 && line[len(line)-1] == '\n' {
-		line = line[:len(line)-1]
-	}
-
-	return line, newOffset, err
 }
 
 // WriteOutputs writes the collected step outputs to outputs.json.
