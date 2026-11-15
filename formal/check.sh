@@ -17,8 +17,9 @@ jar="$cache/tla2tools-$TLA_VERSION.jar"
 
 # name | model | result: pass, or the invariant it breaks | constants
 CHECKS='
-missedgap                             | missedgap/MissedGap | pass            | Window=0 MaxToggles=4 MaxRestarts=2 Mutation="none"
-missedgap-catchup                     | missedgap/MissedGap | pass            | Window=2 MaxToggles=4 MaxBackfills=2 Mutation="none"
+missedgap                             | missedgap/MissedGap | pass            | Window=0 MaxRestarts=2 Mutation="none"
+missedgap-catchup                     | missedgap/MissedGap | pass            | Window=2 MaxBackfills=2 Mutation="none"
+missedgap-catchup-restarts            | missedgap/MissedGap | pass            | Window=2 MaxRestarts=2 Mutation="none"
 missedgap-restored-hold-at-first-tick | missedgap/MissedGap | GapHasNoRuns    | Window=2 Mutation="restored-hold-at-first-tick"
 missedgap-hold-ignores-queued-catchup | missedgap/MissedGap | GapHasNoRuns    | Window=2 Mutation="hold-ignores-queued-catchup"
 missedgap-recount-through-to          | missedgap/MissedGap | GapCountExact   | Window=0 Mutation="recount-through-to"
@@ -27,6 +28,9 @@ missedgap-settle-assumes-first-tick   | missedgap/MissedGap | HoldGapComplete | 
 missedgap-backfill-skips-hold         | missedgap/MissedGap | GapHasNoRuns    | Window=0 Mutation="backfill-skips-hold"
 missedgap-rehold-last-tick-minute     | missedgap/MissedGap | GapHasNoRuns    | Window=0 Mutation="rehold-last-tick-minute"
 missedgap-rehold-skips-planned        | missedgap/MissedGap | HoldGapComplete | Window=0 Mutation="rehold-skips-planned"
+missedgap-catchup-lost-on-stop        | missedgap/MissedGap | CatchupKept     | Window=2 MaxRestarts=2 Mutation="catchup-lost-on-stop"
+missedgap-late-first-tick-skips       | missedgap/MissedGap | LateTickKept    | Window=0 Mutation="late-first-tick-skips"
+missedgap-late-tick-gap-over-queue    | missedgap/MissedGap | GapHasNoRuns    | Window=2 Mutation="late-tick-gap-over-queue"
 '
 
 # The values of the constants a check does not set.

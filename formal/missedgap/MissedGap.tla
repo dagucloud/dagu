@@ -8,8 +8,9 @@
 (*   missed_gap.go    releaseDAG, settleRestoredHold, recordDownGap,      *)
 (*                    recordClampedGap, recordGap, coverGap, coverMissed,  *)
 (*                    coverHold, lastCovered, gapStart, gapEnd, countSlots *)
-(*   tick_planner.go  Init, initBuffers, Plan, dropSuspendedCatchupState,  *)
-(*                    Advance                                              *)
+(*   tick_planner.go  Init, initBuffers, Plan, resume,                     *)
+(*                    dropSuspendedCatchupState, Advance                   *)
+(*   catchup.go       ComputeReplayFrom, pendingCatchup                    *)
 (*   scheduler.go     runTick: a tick plans, advances, and flushes the     *)
 (*                    watermarks before the next one                       *)
 (*                                                                         *)
@@ -19,6 +20,11 @@
 (*                  the cap.                                               *)
 (*   HoldGapComplete a hold that ends counts every slot of its span that  *)
 (*                  no tick decided, no run took, and no catch-up holds.   *)
+(* And from specs/085-scheduler-ha.md:                                     *)
+(*   CatchupKept    catch-up a scheduler queued stays queued until it runs, *)
+(*                  across a restart, unless a suspension drops it.        *)
+(*   LateTickKept   a first tick later than the minute Init read keeps the *)
+(*                  slots between: run, queued, or counted.                *)
 (*                                                                         *)
 (* Each Mutation other than "none" puts back one bug that was fixed, so a  *)
 (* check of it shows the rules catch that bug.                             *)
@@ -57,7 +63,15 @@ Mutations == {
     "rehold-last-tick-minute",
     \* the same tick taking a slot the last tick only planned as settled,
     \* though no run of it started.
-    "rehold-skips-planned"
+    "rehold-skips-planned",
+    \* #3955: startup replayed from the last tick, which the ticks of a
+    \* catch-up under way had run past.
+    "catchup-lost-on-stop",
+    \* #3956: a late first tick planned its own minute only.
+    "late-first-tick-skips",
+    \* #3955: a late tick counted as missed the catch-up it had queued
+    \* before its window.
+    "late-tick-gap-over-queue"
 }
 ASSUME Mutation \in Mutations
 
@@ -101,29 +115,38 @@ GapStart(g) == IF g.reason = "down" THEN g.from ELSE g.from - Sec
 Counted(g) == IF g.valid THEN FiresIn(GapStart(g), g.through) ELSE {}
 
 VARIABLES
-    clock,       \* the wall clock
-    phase,       \* "down", "initA", "initB", or "up"
-    nextTick,    \* the tick time the scheduler runs next
-    susp,        \* the DAG is suspended
-    heldSince,   \* DAGWatermark.HeldSince
-    holdStart,   \* the tick that started the hold under way
-    released,    \* the latest hold that ended
-    missed,      \* DAGWatermark.Missed
-    buf,         \* the catch-up buffer, kept in memory only
-    lastTick,    \* State.LastTick
-    lastSched,   \* DAGWatermark.LastScheduledTime
-    lastSlot,    \* DAGWatermark.LastSlot.At
-    lastPlanned, \* DAGWatermark.LastSlot.Outcome is planned
-    starting,    \* 1 before the startup's first tick, 2 when it runs late
-    handled,     \* slots that ran, or that a backfill took
-    decided,     \* slots of the latest tick of their minute, which found
-                 \* the DAG not held
-    abandoned,   \* catch-up slots a suspension or a crash dropped
+    clock,          \* the wall clock
+    phase,          \* "down", "initA", "initB", or "up"
+    nextTick,       \* the tick time the scheduler runs next
+    starting,       \* 1 before the startup's first tick, 2 when it runs late
+    susp,           \* the DAG is suspended
+    heldSince,      \* DAGWatermark.HeldSince
+    missed,         \* DAGWatermark.Missed
+    lastTick,       \* State.LastTick
+    lastSched,      \* DAGWatermark.LastScheduledTime
+    lastSlot,       \* DAGWatermark.LastSlot.At
+    lastPlanned,    \* DAGWatermark.LastSlot.Outcome is planned
+    catchupThrough, \* DAGWatermark.CatchupThrough
+    buf,            \* the catch-up buffer, kept in memory only
+    holdStart,      \* ghost: the tick that started the hold under way
+    released,       \* ghost: the latest hold that ended
+    handled,        \* ghost: slots that ran, or that a backfill took
+    decided,        \* ghost: slots of the latest tick of their minute, which
+                    \* found the DAG not held
+    abandoned,      \* ghost: catch-up a suspension dropped, or that was before
+                    \* the window when the next scheduler started
+    owed,           \* ghost: catch-up slots queued and not run
+    superseded,     \* ghost: slots a gap counted before a newer one replaced it
+    initClock,      \* ghost: the clock Init read
+    lateLost,       \* ghost: slots a late first tick left out
     toggles, restarts, backfills
 
-vars == <<clock, phase, nextTick, susp, heldSince, holdStart, released, missed, buf, lastTick,
-          lastSched, lastSlot, lastPlanned, starting, handled, decided,
-          abandoned, toggles, restarts, backfills>>
+scheduler == <<clock, phase, nextTick, starting>>
+watermark == <<heldSince, missed, lastTick, lastSched, lastSlot, lastPlanned, catchupThrough>>
+ghosts    == <<holdStart, released, handled, decided, abandoned, owed, superseded,
+              initClock, lateLost>>
+bounds    == <<toggles, restarts, backfills>>
+vars      == <<scheduler, susp, watermark, buf, ghosts, bounds>>
 
 (* The slots a hold under way has held, before the current minute. *)
 HeldSlots == IF heldSince = Zero THEN {} ELSE FiresIn(heldSince - Sec, MinuteOf(clock) - Sec)
@@ -196,26 +219,37 @@ CoverHold(hs, S) ==
 (* by design (spec 086), so the model leaves such ranges out.             *)
 StartsInside(a, S) == S /= {} /\ a > MinOf(S) /\ a <= MaxOf(S)
 
+(* A gap keeps the slots it no longer counts, which a newer gap replaced. *)
+Supersede == superseded' = superseded \cup (Counted(missed) \ Counted(missed'))
+
+(* The latest slot a buffer holds, or Zero. *)
+LastOf(b) == IF Len(b) = 0 THEN Zero ELSE b[Len(b)]
+
 -----------------------------------------------------------------------------
 
 Init ==
     /\ clock = 0
     /\ phase = "up"
     /\ nextTick = 0
+    /\ starting = 0
     /\ susp = FALSE
     /\ heldSince = Zero
-    /\ holdStart = Zero
-    /\ released = NoRelease
     /\ missed = NoGap
-    /\ buf = <<>>
     /\ lastTick = Zero
     /\ lastSched = Zero
     /\ lastSlot = Zero
     /\ lastPlanned = FALSE
-    /\ starting = 0
+    /\ catchupThrough = Zero
+    /\ buf = <<>>
+    /\ holdStart = Zero
+    /\ released = NoRelease
     /\ handled = {}
     /\ decided = {}
     /\ abandoned = {}
+    /\ owed = {}
+    /\ superseded = {}
+    /\ initClock = 0
+    /\ lateLost = {}
     /\ toggles = 0 /\ restarts = 0 /\ backfills = 0
 
 (* TickPlanner.Init up to initBuffers, with no failover recovery window. *)
@@ -235,36 +269,73 @@ StartupSettle ==
           /\ holdStart' = IF settled.held = Zero THEN Zero ELSE holdStart
           /\ released' = settled.released
           /\ missed' = gap
+    /\ Supersede
     /\ phase' = "initB"
-    /\ UNCHANGED <<clock, nextTick, susp, buf, lastTick, lastSched, lastSlot, lastPlanned,
-                   starting, handled, decided, abandoned, toggles, restarts,
-                   backfills>>
+    /\ UNCHANGED <<clock, nextTick, starting, susp, lastTick, lastSched, lastSlot,
+                   lastPlanned, catchupThrough, buf, handled, decided, abandoned,
+                   owed, initClock, lateLost, bounds>>
 
-(* initBuffers, then the first tick for the current minute. *)
+(* initBuffers: replay the window, and the catch-up the last scheduler    *)
+(* queued and did not run (pendingCatchup).                               *)
 StartupBuffers ==
     /\ phase = "initB"
     /\ IF Window > 0
-       THEN LET rf   == Max2(clock - 4 * Window, Max2(lastTick, lastSched)) \* ComputeReplayFrom
-                from == Max2(lastTick, lastSched)                          \* recordClampedGap
+       THEN LET earliest == clock - 4 * Window
+                rf       == Max2(earliest, Max2(lastTick, lastSched))      \* ComputeReplayFrom
+                from     == Max2(lastTick, lastSched)                      \* recordClampedGap
+                pending  == IF Mutation = "catchup-lost-on-stop" THEN {}
+                            ELSE FiresIn(Max2(lastSched, earliest), Min2(catchupThrough, rf))
+                queued   == pending \cup FiresIn(rf, clock)
+                \* Pending catch-up before the window is dropped uncounted.
+                lapsed   == {s \in owed : s <= earliest}
             IN /\ missed' = IF rf > from THEN RecordGap(missed, susp, from, rf, rf) ELSE missed
-               /\ buf' = SortSet(FiresIn(rf, clock))
-       ELSE UNCHANGED <<missed, buf>>
+               /\ buf' = SortSet(queued)
+               /\ catchupThrough' = IF queued = {} THEN catchupThrough
+                                    ELSE Max2(catchupThrough, MaxOf(queued))
+               /\ owed' = (owed \ lapsed) \cup queued
+               /\ abandoned' = abandoned \cup lapsed
+       ELSE UNCHANGED <<missed, buf, catchupThrough, owed, abandoned>>
     /\ phase' = "up"
     /\ nextTick' = MinuteOf(clock)
     /\ starting' = 1
-    /\ UNCHANGED <<clock, susp, heldSince, holdStart, released, lastTick, lastSched, lastSlot, lastPlanned,
-                   handled, decided, abandoned, toggles, restarts, backfills>>
+    /\ initClock' = clock
+    /\ Supersede
+    /\ UNCHANGED <<clock, susp, heldSince, lastTick, lastSched, lastSlot, lastPlanned,
+                   holdStart, released, handled, decided, lateLost, bounds>>
+
+(* Startup runs past the minute Init read before cronLoop, which starts    *)
+(* after Init returns, reads the clock for its first tick.                *)
+StartLate ==
+    /\ phase = "up"
+    /\ starting > 0
+    /\ MinuteOf(clock) + 4 <= MaxClock
+    /\ clock' = MinuteOf(clock) + 4
+    /\ nextTick' = MinuteOf(clock) + 4
+    /\ starting' = 2
+    /\ UNCHANGED <<phase, susp, watermark, buf, ghosts, bounds>>
+
+(* resume(T): what a late tick missed. A DAG without catch-up counts it in *)
+(* its gap; one with catch-up queues it after what it has queued.          *)
+Resume(T) ==
+    IF Window = 0
+    THEN [gap |-> RecordGap(missed, susp, lastTick, T, T - Sec), buf |-> buf]
+    ELSE LET rf   == Max2(T - 4 * Window, Max2(lastTick, lastSched))
+             from == IF Mutation = "late-tick-gap-over-queue" THEN Max2(lastTick, lastSched)
+                     ELSE Max2(Max2(lastTick, lastSched), LastOf(buf))
+             gap  == IF rf > from THEN RecordGap(missed, susp, from, rf, rf) ELSE missed
+             new  == FiresIn(Max2(rf, LastOf(buf)), T)
+         IN [gap |-> gap, buf |-> buf \o SortSet(new)]
 
 (* The first tick after a restart within the last tick's minute. *)
 Repeated(T) == lastTick /= Zero /\ T <= lastTick
 
 (* Plan(T) for a DAG not held: releaseDAG, then endGapBeforeTick. *)
-PlanGap(T) ==
+PlanGap(T, b, m) ==
     LET through0 == MinuteOf(T) - Sec
         clamp    == Mutation \notin {"restored-hold-at-first-tick", "hold-ignores-queued-catchup"}
-        through  == IF clamp /\ Len(buf) > 0 /\ Head(buf) - Sec < through0
-                    THEN Head(buf) - Sec ELSE through0
-        rel      == Release(heldSince, missed, T, through)
+        through  == IF clamp /\ Len(b) > 0 /\ Head(b) - Sec < through0
+                    THEN Head(b) - Sec ELSE through0
+        rel      == Release(heldSince, m, T, through)
         trim     == Repeated(T) /\ Mutation \notin {"repeated-tick-keeps-gap", "settle-assumes-first-tick"}
     IN [held     |-> rel.held,
         released |-> rel.released,
@@ -283,88 +354,107 @@ RecordSlot(at, planned) ==
     THEN lastSlot' = at /\ lastPlanned' = planned
     ELSE UNCHANGED <<lastSlot, lastPlanned>>
 
-(* Plan(T), then Advance(T) and Flush. Catch-up runs before live slots.   *)
-(* Runs finish before the next tick, so no overlap policy applies.        *)
+(* Plan(T), then Advance(T) and Flush. A late first tick first recovers   *)
+(* what it missed. Catch-up runs before live slots, and runs finish       *)
+(* before the next tick, so no overlap policy applies.                    *)
 Tick ==
     /\ phase = "up"
     /\ nextTick <= clock
-    /\ LET T == nextTick IN
+    /\ LET T    == nextTick
+           late == starting = 2 /\ Mutation /= "late-first-tick-skips"
+           r    == IF late THEN Resume(T) ELSE [gap |-> missed, buf |-> buf]
+           b    == r.buf
+           new  == Range(b) \ Range(buf)
+       IN
+       /\ catchupThrough' = IF new = {} THEN catchupThrough ELSE Max2(catchupThrough, MaxOf(new))
        /\ IF susp
           THEN \* holdDAG and dropSuspendedCatchupState. A tick that finds
                \* the DAG held takes its minute's slot into the hold, also
                \* when it repeats a minute an earlier tick decided.
                /\ heldSince' = HoldFrom(T)
                /\ holdStart' = IF heldSince = Zero THEN T ELSE holdStart
-               /\ UNCHANGED released
+               /\ missed' = r.gap
                /\ decided' = decided \ {T}
                /\ buf' = <<>>
-               /\ abandoned' = abandoned \cup Range(buf)
-               /\ lastSched' = IF Len(buf) > 0 \/ Window > 0 THEN T ELSE lastSched
-               /\ UNCHANGED <<missed, handled, lastSlot, lastPlanned>>
-          ELSE /\ heldSince' = PlanGap(T).held
+               /\ abandoned' = abandoned \cup Range(b)
+               /\ owed' = (owed \cup new) \ Range(b)
+               /\ lastSched' = IF Len(b) > 0 \/ Window > 0 THEN T ELSE lastSched
+               /\ UNCHANGED <<released, handled, lastSlot, lastPlanned>>
+          ELSE LET plan == PlanGap(T, b, r.gap) IN
+               /\ heldSince' = plan.held
                /\ holdStart' = Zero
-               /\ released' = PlanGap(T).released
-               /\ missed' = PlanGap(T).gap
+               /\ released' = plan.released
+               /\ missed' = plan.gap
                /\ decided' = IF T \in SlotTimes THEN decided \cup {T} ELSE decided
                /\ UNCHANGED abandoned
-               /\ IF Len(buf) > 0
-                  THEN /\ handled' = handled \cup {Head(buf)}
-                       /\ lastSched' = Head(buf)
-                       /\ RecordSlot(Head(buf), FALSE)
-                       /\ buf' = Tail(buf)
+               /\ IF Len(b) > 0
+                  THEN /\ handled' = handled \cup {Head(b)}
+                       /\ owed' = (owed \cup new) \ {Head(b)}
+                       /\ lastSched' = Head(b)
+                       /\ RecordSlot(Head(b), FALSE)
+                       /\ buf' = Tail(b)
                   ELSE /\ handled' = IF T \in SlotTimes THEN handled \cup {T} ELSE handled
+                       /\ owed' = owed \cup new
                        /\ lastSched' = IF T \in SlotTimes THEN T ELSE lastSched
                        /\ IF T \in SlotTimes THEN RecordSlot(T, FALSE)
                           ELSE UNCHANGED <<lastSlot, lastPlanned>>
-                       /\ UNCHANGED buf
+                       /\ buf' = b
+       \* resume may record a gap that the hold's release then replaces.
+       /\ superseded' = superseded \cup ((Counted(missed) \cup Counted(r.gap)) \ Counted(missed'))
+       \* A suspended DAG records no outage, and a first scheduler, which
+       \* follows no last tick, records none either.
+       /\ lateLost' = IF starting = 2 /\ ~susp /\ lastTick /= Zero
+                      THEN FiresIn(initClock, MinuteOf(T) - Sec)
+                           \ (Counted(missed') \cup superseded' \cup Range(buf') \cup handled' \cup owed')
+                      ELSE lateLost
        /\ lastTick' = T
        /\ nextTick' = T + 4
        /\ starting' = 0
-    /\ UNCHANGED <<clock, phase, susp, toggles, restarts, backfills>>
+    /\ UNCHANGED <<clock, phase, susp, initClock, bounds>>
 
 (* A tick plans a live slot, and runTick flushes the slot as planned. The *)
 (* scheduler dies before the run starts.                                  *)
 TickThenCrash ==
     /\ phase = "up"
     /\ nextTick <= clock
+    /\ starting < 2
     /\ restarts < MaxRestarts
     /\ ~susp
     /\ Len(buf) = 0
     /\ nextTick \in SlotTimes
-    /\ LET T == nextTick IN
-       /\ heldSince' = PlanGap(T).held
-       /\ holdStart' = Zero
-       /\ released' = PlanGap(T).released
-       /\ missed' = PlanGap(T).gap
-       /\ decided' = decided \cup {T}
-       /\ lastSched' = T
-       /\ RecordSlot(T, TRUE)
-       /\ lastTick' = T
-       /\ nextTick' = T + 4
+    /\ LET T    == nextTick
+           plan == PlanGap(T, buf, missed)
+       IN /\ heldSince' = plan.held
+          /\ holdStart' = Zero
+          /\ released' = plan.released
+          /\ missed' = plan.gap
+          /\ decided' = decided \cup {T}
+          /\ lastSched' = T
+          /\ RecordSlot(T, TRUE)
+          /\ lastTick' = T
+          /\ nextTick' = T + 4
     /\ phase' = "down"
     /\ starting' = 0
     /\ restarts' = restarts + 1
-    /\ UNCHANGED <<clock, susp, buf, handled, abandoned, toggles, backfills>>
+    /\ Supersede
+    /\ UNCHANGED <<clock, susp, catchupThrough, buf, handled, abandoned, owed,
+                   initClock, lateLost, toggles, backfills>>
 
 (* The scheduler dies. The watermarks were flushed, and the catch-up      *)
-(* buffer is lost. The next startup replays only slots after the last     *)
-(* tick, so a queued slot a tick passed is dropped, as catch-up does.      *)
+(* buffer, kept in memory, is lost.                                       *)
 Crash ==
     /\ phase = "up"
     /\ restarts < MaxRestarts
     /\ phase' = "down"
     /\ buf' = <<>>
-    /\ abandoned' = abandoned \cup Range(buf)
+    /\ starting' = 0
     /\ restarts' = restarts + 1
-    /\ UNCHANGED <<clock, nextTick, susp, heldSince, holdStart, released, missed, lastTick, lastSched,
-                   lastSlot, lastPlanned, starting, handled, decided, toggles, backfills>>
+    /\ UNCHANGED <<clock, nextTick, susp, watermark, ghosts, toggles, backfills>>
 
 Restart ==
     /\ phase = "down"
     /\ phase' = "initA"
-    /\ UNCHANGED <<clock, nextTick, susp, heldSince, holdStart, released, missed, buf, lastTick,
-                   lastSched, lastSlot, lastPlanned, starting, handled, decided, abandoned,
-                   toggles, restarts, backfills>>
+    /\ UNCHANGED <<clock, nextTick, starting, susp, watermark, buf, ghosts, bounds>>
 
 (* A running scheduler ticks before the clock leaves the tick's minute. *)
 Clock ==
@@ -372,32 +462,14 @@ Clock ==
     /\ phase \in {"down", "up"}
     /\ ~(phase = "up" /\ nextTick <= clock)
     /\ clock' = clock + 2
-    /\ UNCHANGED <<phase, nextTick, susp, heldSince, holdStart, released, missed, buf, lastTick,
-                   lastSched, lastSlot, lastPlanned, starting, handled, decided, abandoned,
-                   toggles, restarts, backfills>>
-
-(* Startup runs into the next minute before cronLoop, which starts after  *)
-(* Init returns, reads the clock for its first tick. A startup is taken   *)
-(* to finish within a minute.                                             *)
-StartLate ==
-    /\ phase = "up"
-    /\ starting = 1
-    /\ MinuteOf(clock) + 4 <= MaxClock
-    /\ clock' = MinuteOf(clock) + 4
-    /\ nextTick' = MinuteOf(clock) + 4
-    /\ starting' = 2
-    /\ UNCHANGED <<phase, susp, heldSince, holdStart, released, missed, buf, lastTick, lastSched,
-                   lastSlot, lastPlanned, handled, decided, abandoned, toggles, restarts,
-                   backfills>>
+    /\ UNCHANGED <<phase, nextTick, starting, susp, watermark, buf, ghosts, bounds>>
 
 (* An operator suspends or resumes the DAG at any moment, also mid-startup. *)
 Toggle ==
     /\ toggles < MaxToggles
     /\ susp' = ~susp
     /\ toggles' = toggles + 1
-    /\ UNCHANGED <<clock, phase, nextTick, heldSince, holdStart, released, missed, buf, lastTick,
-                   lastSched, lastSlot, lastPlanned, starting, handled, decided, abandoned,
-                   restarts, backfills>>
+    /\ UNCHANGED <<scheduler, watermark, buf, ghosts, restarts, backfills>>
 
 (* The scheduler picks up a backfill of the range [a, b]: the backfill    *)
 (* takes its slots, then coverGap. --rerun all runs every slot; otherwise *)
@@ -420,17 +492,19 @@ Backfill ==
                /\ missed' = CoverMissed(missed, slots)
                /\ heldSince' = CoverHold(heldSince, slots)
     /\ backfills' = backfills + 1
-    /\ UNCHANGED <<clock, phase, nextTick, susp, holdStart, released, buf, lastTick, lastSched,
-                   lastSlot, lastPlanned, starting, decided, abandoned, toggles, restarts>>
+    /\ Supersede
+    /\ UNCHANGED <<scheduler, susp, lastTick, lastSched, lastSlot, lastPlanned,
+                   catchupThrough, buf, holdStart, released, decided, abandoned,
+                   owed, initClock, lateLost, toggles, restarts>>
 
-Next == Tick \/ TickThenCrash \/ Crash \/ Restart \/ StartupSettle \/ StartupBuffers \/ Clock
-        \/ StartLate \/ Toggle \/ Backfill
+Next == Tick \/ TickThenCrash \/ Crash \/ Restart \/ StartupSettle \/ StartupBuffers
+        \/ StartLate \/ Clock \/ Toggle \/ Backfill
 
 Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
 
-GapHasNoRuns == Counted(missed) \cap (handled \cup Range(buf)) = {}
+GapHasNoRuns == Counted(missed) \cap (handled \cup owed \cup Range(buf)) = {}
 
 GapCountExact == missed.valid => missed.slots = Min2(Cap, Cardinality(Counted(missed)))
 
@@ -440,12 +514,17 @@ OpenHold == IF holdStart = Zero THEN {} ELSE {s \in SlotTimes : s >= holdStart}
 (* A hold's span runs from the tick that started it to the tick that ended *)
 (* it, whose own slots that tick decided, or to the last tick for a hold  *)
 (* settled at startup. Its release counts every slot of the span that no  *)
-(* tick decided, no run took, and no catch-up holds, whether or not that  *)
-(* makes a gap.                                                           *)
+(* tick decided, no run took, no catch-up holds, and no other gap counts  *)
+(* or counted, whether or not that makes a gap.                           *)
 HoldGapComplete ==
     released.valid =>
         {s \in SlotTimes : s >= released.start /\ s <= released.to}
-            \ (handled \cup decided \cup abandoned \cup Range(buf) \cup OpenHold)
+            \ (handled \cup decided \cup abandoned \cup owed \cup superseded
+               \cup Counted(missed) \cup Range(buf) \cup OpenHold)
             \subseteq released.counted
+
+CatchupKept == phase = "up" => owed \subseteq Range(buf)
+
+LateTickKept == lateLost = {}
 
 =============================================================================

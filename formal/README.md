@@ -8,7 +8,7 @@ write a test for.
 ## Run
 
 ```sh
-make formal                     # every check, about 30 seconds
+make formal                     # every check, about two minutes
 formal/check.sh missedgap       # one check
 ```
 
@@ -36,11 +36,12 @@ It covers these functions in `internal/service/scheduler`:
 - `missed_gap.go`: `holdDAG`, `releaseDAG`, `settleRestoredHold`,
   `endGapBeforeTick`, `recordDownGap`, `recordClampedGap`, `recordGap`,
   `coverGap`, `coverMissed`, `coverHold`, `lastCovered`
-- `tick_planner.go`: `Init`, `initBuffers`, `Plan`,
-  `dropSuspendedCatchupState`, `Advance`
+- `tick_planner.go`: `Init`, `initBuffers`, `Plan`, `resume`,
+  `dropSuspendedCatchupState`, `noteCatchupThrough`, `Advance`
+- `catchup.go`: `ComputeReplayFrom`, `pendingCatchup`
 - `scheduler.go`: `cronLoop`, `runTick`
 
-The model follows that code as of #3952.
+The model follows that code as of #3952, #3955, and #3956.
 
 Its invariants, from `specs/086-backfill.md`:
 
@@ -48,13 +49,21 @@ Its invariants, from `specs/086-backfill.md`:
 - `GapCountExact`: the gap's count is the number of slots it spans, up to the
   cap.
 - `HoldGapComplete`: when a hold ends, it counts every slot of its span that no
-  tick decided, no run took, and no catch-up holds, also when it counts none
-  and so makes no gap.
+  tick decided, no run took, no catch-up holds, and no other gap counts or
+  counted, also when it counts none and so makes no gap.
+
+And from `specs/085-scheduler-ha.md`:
+
+- `CatchupKept`: catch-up a scheduler queued stays queued until it runs,
+  across a restart, unless a suspension drops it.
+- `LateTickKept`: a first tick later than the minute `Init` read keeps the
+  slots between: run, queued, or counted.
 
 It leaves out the failover recovery window, overlap policies, schedule edits,
-and backfills whose range starts inside a gap or a hold, which leave the gap as
-it is by design. It caps a gap at 2 slots in place of 10,000, and takes a
-startup to finish within a minute.
+late ticks other than the first, and backfills whose range starts inside a gap
+or a hold, which leave the gap as it is by design. It caps a gap at 2 slots in
+place of 10,000. Catch-up a stopped scheduler queued that is before the window
+when the next one starts is dropped uncounted, which `CatchupKept` allows.
 
 ## Change covered code
 
