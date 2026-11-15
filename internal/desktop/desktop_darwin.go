@@ -43,6 +43,12 @@ const (
 	eventMouseMoved        = 5
 	eventLeftMouseDragged  = 6
 	eventRightMouseDragged = 7
+	eventKeyDown           = 10
+	eventKeyUp             = 11
+	eventFlagsChanged      = 12
+	eventScrollWheel       = 22
+	eventTabletPointer     = 23
+	eventTabletProximity   = 24
 	eventOtherMouseDown    = 25
 	eventOtherMouseUp      = 26
 	eventOtherMouseDragged = 27
@@ -67,10 +73,9 @@ const (
 	// axTrustedCheckOptionPrompt is kAXTrustedCheckOptionPrompt.
 	axTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
 
-	// Arguments that make CGEventSourceSecondsSinceLastEventType report
-	// any input the window server received.
+	// eventSourceStateHIDSystem makes CGEventSourceSecondsSinceLastEventType
+	// report the input the window server received.
 	eventSourceStateHIDSystem = 1
-	anyInputEventType         = 0xFFFFFFFF
 
 	mouseEventClickState = 1
 	scrollUnitPixel      = 0
@@ -589,8 +594,23 @@ func (b *darwinBackend) Type(text string) error {
 	return nil
 }
 
+// personInputEventTypes are the event types a pointer, keyboard, scroll
+// wheel, or tablet produces. The window server's count of any input also
+// takes in the null events system processes post, such as the Dock when it
+// starts, which no person made.
+var personInputEventTypes = [...]uint32{
+	eventLeftMouseDown, eventLeftMouseUp, eventRightMouseDown, eventRightMouseUp,
+	eventMouseMoved, eventLeftMouseDragged, eventRightMouseDragged,
+	eventKeyDown, eventKeyUp, eventFlagsChanged,
+	eventScrollWheel, eventTabletPointer, eventTabletProximity,
+	eventOtherMouseDown, eventOtherMouseUp, eventOtherMouseDragged,
+}
+
 func (b *darwinBackend) LastInput() time.Time {
-	seconds := cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, anyInputEventType)
+	seconds := math.MaxFloat64
+	for _, eventType := range personInputEventTypes {
+		seconds = min(seconds, cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, eventType))
+	}
 	return time.Now().Add(-time.Duration(seconds * float64(time.Second)))
 }
 
