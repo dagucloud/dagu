@@ -9,9 +9,11 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -274,75 +276,188 @@ func TestNodeHostKeyBastionNamesNoNode(t *testing.T) {
 	assert.ErrorContains(t, err, `the bastion of node "web01" names no node`)
 }
 
-// A server with host keys of several types presents the type of the key that
-// is trusted, rather than the type the client prefers by default.
+// A server presents one host key per handshake, of the first type the client
+// offers that it holds. A node whose expected keys differ in type is tried
+// once per type, so the expected key the server still holds is accepted, and
+// the refused handshake sends no credential.
 func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 	t.Parallel()
 
-	addr, ed25519Key := startServerWithSeveralHostKeys(t)
-	host, port, err := net.SplitHostPort(addr)
+	ed25519Host := newEd25519Signer(t)
+	ecdsaHost := newECDSASigner(t)
+	outdatedECDSA := newECDSASigner(t).PublicKey()
+	tests := []struct {
+		name    string
+		hostKey *NodeHostKey
+	}{
+		{
+			// Go prefers ECDSA host keys, so the server would present its
+			// ECDSA key unless the client asks for the trusted type.
+			name:    "Trusted",
+			hostKey: &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": ed25519Host.PublicKey()}},
+		},
+		{
+			name: "OutdatedPinBesideTrusted",
+			hostKey: &NodeHostKey{
+				Node: "web01", Strict: true, Pinned: authorizedKey(outdatedECDSA),
+				Trusted: trustedKeys{"web01": ed25519Host.PublicKey()},
+			},
+		},
+		{
+			name: "OutdatedTrustBesidePin",
+			hostKey: &NodeHostKey{
+				Node: "web01", Strict: true, Pinned: authorizedKey(ed25519Host.PublicKey()),
+				Trusted: trustedKeys{"web01": outdatedECDSA},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := startHandshakeServer(t, ecdsaHost, ed25519Host)
+
+			err := connect(t, &Config{Host: server.host, Port: server.port, NodeHostKey: tt.hostKey})
+
+			require.NoError(t, err)
+			assert.EqualValues(t, 1, server.authAttempts.Load(), "only the accepted handshake sends a credential")
+		})
+	}
+}
+
+// Through a bastion, the target is tried once per type of its expected keys
+// over the same bastion connection.
+func TestNodeHostKeyServerWithSeveralKeysThroughBastion(t *testing.T) {
+	t.Parallel()
+
+	ed25519Host := newEd25519Signer(t)
+	target := startHandshakeServer(t, newECDSASigner(t), ed25519Host)
+	bastion := startTestServer(t)
+	trusted := trustedKeys{"jump": bastion.HostKey, "web01": ed25519Host.PublicKey()}
+
+	err := connect(t, &Config{
+		Host: target.host,
+		Port: target.port,
+		NodeHostKey: &NodeHostKey{
+			Node: "web01", Strict: true, Pinned: authorizedKey(newECDSASigner(t).PublicKey()), Trusted: trusted,
+		},
+		Bastion: &BastionConfig{
+			Host:        "127.0.0.1",
+			Port:        bastion.Port,
+			NodeHostKey: &NodeHostKey{Node: "jump", Strict: true, Trusted: trusted},
+		},
+	})
+
 	require.NoError(t, err)
+	assert.Equal(t, 1, bastion.AuthAttempts())
+	assert.EqualValues(t, 1, target.authAttempts.Load(), "only the accepted handshake sends a credential")
+}
+
+// A pinned RSA host certificate is accepted from a server that signs with
+// SHA-2 only, as servers with SHA-1 disabled do.
+func TestNodeHostKeyRSACertificateWithoutSHA1(t *testing.T) {
+	t.Parallel()
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	rsaSigner, err := gossh.NewSignerFromKey(rsaKey)
+	require.NoError(t, err)
+	sha2Only, err := gossh.NewSignerWithAlgorithms(rsaSigner.(gossh.AlgorithmSigner), []string{gossh.KeyAlgoRSASHA256, gossh.KeyAlgoRSASHA512})
+	require.NoError(t, err)
+	cert := &gossh.Certificate{
+		Key:             rsaSigner.PublicKey(),
+		CertType:        gossh.HostCert,
+		ValidPrincipals: []string{"web01"},
+		ValidBefore:     gossh.CertTimeInfinity,
+	}
+	require.NoError(t, cert.SignCert(rand.Reader, newEd25519Signer(t)))
+	certSigner, err := gossh.NewCertSigner(cert, sha2Only)
+	require.NoError(t, err)
+	server := startHandshakeServer(t, certSigner)
 
 	err = connect(t, &Config{
-		Host: host, Port: port,
-		NodeHostKey: &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": ed25519Key}},
+		Host: server.host, Port: server.port,
+		NodeHostKey: &NodeHostKey{Node: "web01", Strict: true, Pinned: authorizedKey(cert)},
 	})
 
 	require.NoError(t, err)
 }
 
-// startServerWithSeveralHostKeys starts a server that holds an ECDSA and an
-// Ed25519 host key, as OpenSSH servers commonly do, and accepts the test
-// password. It returns its address and the Ed25519 key.
-func startServerWithSeveralHostKeys(t *testing.T) (string, gossh.PublicKey) {
+func newEd25519Signer(t *testing.T) gossh.Signer {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := gossh.NewSignerFromKey(key)
+	require.NoError(t, err)
+	return signer
+}
+
+func newECDSASigner(t *testing.T) gossh.Signer {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	signer, err := gossh.NewSignerFromKey(key)
+	require.NoError(t, err)
+	return signer
+}
+
+// handshakeServer holds the given host keys, accepts the test password, and
+// counts the credentials it receives. The harness server holds one key of
+// one type, which these tests need more of.
+type handshakeServer struct {
+	host, port   string
+	authAttempts atomic.Int32
+}
+
+func startHandshakeServer(t *testing.T, hostKeys ...gossh.Signer) *handshakeServer {
 	t.Helper()
 
+	server := &handshakeServer{}
 	config := &gossh.ServerConfig{
 		PasswordCallback: func(meta gossh.ConnMetadata, password []byte) (*gossh.Permissions, error) {
+			server.authAttempts.Add(1)
 			if meta.User() == testUser && string(password) == testPassword {
 				return nil, nil
 			}
 			return nil, errors.New("password rejected")
 		},
 	}
-	ecdsaPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	ecdsaSigner, err := gossh.NewSignerFromKey(ecdsaPriv)
-	require.NoError(t, err)
-	config.AddHostKey(ecdsaSigner)
-	_, edPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	edSigner, err := gossh.NewSignerFromKey(edPriv)
-	require.NoError(t, err)
-	config.AddHostKey(edSigner)
-
+	for _, key := range hostKeys {
+		config.AddHostKey(key)
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
+	server.host, server.port, err = net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+
 	go func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			go func() {
-				defer func() { _ = conn.Close() }()
-				server, channels, requests, err := gossh.NewServerConn(conn, config)
-				if err != nil {
-					return
-				}
-				defer func() { _ = server.Close() }()
-				go gossh.DiscardRequests(requests)
-				for ch := range channels {
-					channel, requests, err := ch.Accept()
-					if err != nil {
-						continue
-					}
-					go gossh.DiscardRequests(requests)
-					_ = channel.Close()
-				}
-			}()
+			go serveHandshake(conn, config)
 		}
 	}()
-	return listener.Addr().String(), edSigner.PublicKey()
+	return server
+}
+
+// serveHandshake completes the handshake and accepts session channels, so a
+// client can open a session, and runs nothing.
+func serveHandshake(conn net.Conn, config *gossh.ServerConfig) {
+	defer func() { _ = conn.Close() }()
+	server, channels, requests, err := gossh.NewServerConn(conn, config)
+	if err != nil {
+		return
+	}
+	defer func() { _ = server.Close() }()
+	go gossh.DiscardRequests(requests)
+	for newChannel := range channels {
+		channel, channelRequests, err := newChannel.Accept()
+		if err != nil {
+			continue
+		}
+		go gossh.DiscardRequests(channelRequests)
+		_ = channel.Close()
+	}
 }
