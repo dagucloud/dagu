@@ -127,29 +127,39 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 	tp.watermarkState.DAGs[entry.DAG.Name] = watermark
 }
 
-// coverGap takes from a DAG's missed gap the slots a backfill of a range
-// runs, from the gap's first slot up to the first one it does not run. The
-// gap then starts after them, or is gone when the backfill runs them all. A
-// backfill that names its slots or selects them by a date leaves the gap as
-// it is, since it may skip slots between. It reports whether the gap
-// changed.
+// coverGap takes from a DAG's missed gap, and from its hold still under way,
+// the slots a backfill of a range runs, from the first slot of each up to the
+// first one the backfill does not run. Each then starts after them, and the
+// gap is gone when the backfill runs them all. A backfill that names its
+// slots or selects them by a date leaves both as they are, since it may skip
+// slots between. It reports whether either changed.
 func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
 	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 || record.Options.By != "" {
 		return false
 	}
 	tp.mu.RLock()
-	missed := tp.watermarkState.DAGs[record.DAGName].Missed
+	watermark := tp.watermarkState.DAGs[record.DAGName]
 	tp.mu.RUnlock()
-	if missed == nil {
-		return false
-	}
-	gap := *missed
-	start, end := gapStart(gap), gapEnd(gap)
-	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(end) {
+	missed, heldSince := watermark.Missed, watermark.HeldSince
+	if missed == nil && heldSince == nil {
 		return false
 	}
 	schedules, ok := tp.startSchedules(ctx, record.DAGName)
 	if !ok {
+		return false
+	}
+	changed := missed != nil && tp.coverMissed(record, schedules, *missed)
+	if heldSince != nil && tp.coverHold(record, schedules, *heldSince) {
+		changed = true
+	}
+	return changed
+}
+
+// coverMissed takes from the missed gap the leading slots the backfill runs.
+func (tp *TickPlanner) coverMissed(record *backfill.Record, schedules []ir.Schedule, missed schedulerstate.MissedGap) bool {
+	gap := missed
+	start, end := gapStart(gap), gapEnd(gap)
+	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(end) {
 		return false
 	}
 	last := lastCovered(schedules, start.In(tp.cfg.Location), end, record.Slots)
@@ -167,7 +177,7 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[record.DAGName])
-	if watermark.Missed == nil || !sameGap(*watermark.Missed, *missed) {
+	if watermark.Missed == nil || !sameGap(*watermark.Missed, missed) {
 		return false
 	}
 	watermark.Missed = nil
@@ -175,6 +185,27 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 		gap.Slots = remaining
 		watermark.Missed = &gap
 	}
+	tp.watermarkState.DAGs[record.DAGName] = watermark
+	return true
+}
+
+// coverHold moves the start of the hold past its leading slots the backfill
+// runs, so the gap the hold makes when it ends leaves them out.
+func (tp *TickPlanner) coverHold(record *backfill.Record, schedules []ir.Schedule, heldSince time.Time) bool {
+	last := lastCovered(schedules, heldSince.Add(-time.Second).In(tp.cfg.Location), record.Slots[len(record.Slots)-1].At, record.Slots)
+	if last.IsZero() {
+		return false
+	}
+
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[record.DAGName])
+	if watermark.HeldSince == nil || !watermark.HeldSince.Equal(heldSince) {
+		return false
+	}
+	// A hold's gap holds the slots after the second before its start.
+	start := last.Add(time.Second)
+	watermark.HeldSince = &start
 	tp.watermarkState.DAGs[record.DAGName] = watermark
 	return true
 }

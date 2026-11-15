@@ -367,6 +367,49 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 	}
 }
 
+// A backfill picked up while its DAG is held takes the held slots it runs,
+// from the hold's first, so the gap the hold makes leaves them out. One that
+// skips the hold's first slot leaves the hold as it is.
+func TestTickPlanner_BackfillCoversHold(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		slots  []time.Time
+		change bool
+		want   *schedulerstate.MissedGap
+	}{
+		{name: "every slot", slots: []time.Time{at(12, 0), at(13, 0), at(14, 0)}, change: true},
+		{
+			name:   "first slots",
+			slots:  []time.Time{at(12, 0), at(13, 0)},
+			change: true,
+			want:   &schedulerstate.MissedGap{From: at(13, 0).Add(time.Second), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 1},
+		},
+		{
+			name:  "later slots",
+			slots: []time.Time{at(13, 0), at(14, 0)},
+			want:  &schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 3},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(11, 59))})
+			held := true
+			tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return held, nil }
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+			for _, now := range []time.Time{at(12, 0), at(13, 0), at(14, 0)} {
+				tp.Plan(t.Context(), now)
+			}
+
+			assert.Equal(t, tc.change, tp.coverGap(t.Context(), backfillOf(dag.Name, tc.slots...)))
+			held = false
+			tp.Plan(t.Context(), at(15, 0))
+			assert.Equal(t, tc.want, missedGap(tp, dag.Name))
+		})
+	}
+}
+
 // Backfills of a gap one part after another clear it, whether its first
 // slot came due as the DAG was held or after the last tick before an
 // outage.

@@ -118,8 +118,9 @@ func (s *Scheduler) newBackfillDispatcher(store backfill.Store) *backfill.Dispat
 	}
 }
 
-// coverMissedGap takes from its DAG's missed gap the slots a backfill runs,
-// and saves the gap at once, so the DAG's page stops offering them.
+// coverMissedGap takes from its DAG's missed gap, and from its hold under
+// way, the slots a backfill runs, and saves the change at once, so the DAG's
+// page stops offering them.
 func (s *Scheduler) coverMissedGap(ctx context.Context, record *backfill.Record) {
 	if s.planner.coverGap(ctx, record) {
 		s.planner.Flush(ctx)

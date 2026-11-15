@@ -27,7 +27,8 @@ type DAGWatermark struct {
 	// scheduler did with it; nil before any slot came due.
 	LastSlot *ScheduleSlot `json:"lastSlot,omitempty"`
 	// HeldSince is when the scheduler first found the DAG suspended, or
-	// itself paused, while that lasts, and HeldBy says which.
+	// itself paused, while that lasts, and HeldBy says which. A backfill
+	// that runs the hold's first slots moves it to the second after them.
 	HeldSince *time.Time `json:"heldSince,omitempty"`
 	HeldBy    GapReason  `json:"heldBy,omitempty"`
 	// Missed is the latest span whose start-schedule slots passed without a
