@@ -411,15 +411,14 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	}
 	// The first tick takes the current minute's slots, and recovery replays
 	// the slots inside its window.
-	firstTick := tp.cfg.Clock().Truncate(time.Minute)
-	missedBefore := firstTick
+	missedBefore := tp.cfg.Clock().Truncate(time.Minute)
 	if recovery > 0 {
 		missedBefore = tp.cfg.Clock().Add(-recovery)
 	}
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
-			tp.settleRestoredHold(ctx, entry, active, state.LastTick, firstTick)
+			tp.settleRestoredHold(ctx, entry, active, state.LastTick)
 			// With recovery, initBuffers records the gap, as it knows the
 			// slots recovery replays. Otherwise the first tick runs its own.
 			if recovery == 0 {
@@ -689,6 +688,11 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 	var candidates []PlannedRun
 	// holdReason is read once, when the first held DAG needs it.
 	var holdReason schedulerstate.GapReason
+	// The first tick after a restart within the last tick's minute ticks
+	// that minute again.
+	tp.mu.RLock()
+	repeated := !now.After(tp.watermarkState.LastTick)
+	tp.mu.RUnlock()
 
 	for _, snapshot := range snapshots {
 		dagName := snapshot.dagName
@@ -725,6 +729,9 @@ func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 			}
 		}
 		tp.releaseDAG(dagName, active.start, now, through)
+		if repeated {
+			tp.endGapBeforeTick(dagName, active.start, now)
+		}
 		tp.reconcileNextRun(dagName, active.start, now.In(tp.cfg.Location), false)
 
 		// Check catchup buffer first (catchup has priority over live)

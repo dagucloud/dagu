@@ -63,9 +63,8 @@ func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, to, t
 
 // settleRestoredHold ends at startup the hold of a DAG that is no longer
 // held. Its hold lasted at least to the last tick, and catch-up and the
-// outage's gap take the slots after it. The first tick runs the slots of its
-// own minute, which is the last tick's after a restart within that minute.
-func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, active activeDAGSchedules, lastTick, firstTick time.Time) {
+// outage's gap take the slots after it.
+func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, active activeDAGSchedules, lastTick time.Time) {
 	tp.mu.RLock()
 	held := tp.watermarkState.DAGs[entry.DAG.Name].HeldSince != nil
 	tp.mu.RUnlock()
@@ -76,11 +75,30 @@ func (tp *TickPlanner) settleRestoredHold(ctx context.Context, entry DAGEntry, a
 	if err != nil || suspended {
 		return
 	}
-	through := lastTick
-	if beforeFirst := firstTick.Add(-time.Second); beforeFirst.Before(through) {
-		through = beforeFirst
+	tp.releaseDAG(entry.DAG.Name, active.start, lastTick, lastTick)
+}
+
+// endGapBeforeTick ends a DAG's gap before the minute of the tick at now,
+// which decides that minute's slots. A hold settled at startup ends at the
+// last tick, so its gap reaches the minute that a restart within it ticks
+// again.
+func (tp *TickPlanner) endGapBeforeTick(dagName string, schedules []ir.Schedule, now time.Time) {
+	limit := now.Truncate(time.Minute).Add(-time.Second)
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	missed := tp.watermarkState.DAGs[dagName].Missed
+	if missed == nil || !gapEnd(*missed).After(limit) {
+		return
 	}
-	tp.releaseDAG(entry.DAG.Name, active.start, lastTick, through)
+	gap := *missed
+	gap.Through = limit
+	gap.Slots = countSlots(schedules, gapStart(gap).In(tp.cfg.Location), limit)
+	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[dagName])
+	watermark.Missed = nil
+	if gap.Slots > 0 {
+		watermark.Missed = &gap
+	}
+	tp.watermarkState.DAGs[dagName] = watermark
 }
 
 // recordDownGap records as the gap from to to the slots of a DAG that is

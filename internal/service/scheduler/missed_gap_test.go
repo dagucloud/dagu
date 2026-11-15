@@ -263,17 +263,25 @@ func TestTickPlanner_HoldGapLeavesOutQueuedCatchup(t *testing.T) {
 	assert.Equal(t, 2, gap.Slots, "10:00 and 11:00 passed; catch-up runs %v", queued)
 }
 
-// A scheduler restarted in the minute of the last tick runs that minute's
-// slots again, so a hold that ended while no scheduler ran leaves them out of
-// its gap.
+// A scheduler restarted in the minute of the last tick ticks that minute
+// again, so a hold that ended while no scheduler ran leaves its slots out of
+// its gap. When startup runs into the next minute, the first tick is for that
+// one, and the gap keeps the slot.
 func TestTickPlanner_RestoredHoldLeavesOutFirstTick(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name   string
-		window time.Duration
+		name      string
+		window    time.Duration
+		firstTick time.Time
+		want      *schedulerstate.MissedGap
 	}{
-		{name: "without catch-up"},
-		{name: "with catch-up", window: 6 * time.Hour},
+		{name: "without catch-up", firstTick: at(10, 0)},
+		{name: "with catch-up", window: 6 * time.Hour, firstTick: at(10, 0)},
+		{
+			name:      "first tick in the next minute",
+			firstTick: at(10, 1),
+			want:      &schedulerstate.MissedGap{From: at(10, 0), To: at(10, 0), Through: at(10, 0), Reason: schedulerstate.GapSuspended, Slots: 1},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -283,15 +291,13 @@ func TestTickPlanner_RestoredHoldLeavesOutFirstTick(t *testing.T) {
 				LastScheduledTime: at(10, 0), HeldSince: &heldSince, HeldBy: schedulerstate.GapSuspended,
 			}
 			tp, _ := newTestTickPlanner(&mockStateStore{state: state})
-			tp.cfg.Clock = func() time.Time { return at(10, 0).Add(30 * time.Second) }
+			tp.cfg.Clock = func() time.Time { return at(10, 0).Add(59 * time.Second) }
 			tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
 			dag := &ir.DAG{Name: "hourly", CatchupWindow: tc.window, Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
-			runs := tp.Plan(t.Context(), at(10, 0))
-			require.Len(t, runs, 1)
-			assert.Equal(t, at(10, 0), runs[0].ScheduledTime)
-			assert.Nil(t, missedGap(tp, dag.Name), "10:00 runs, so no slot passed while held")
+			tp.Plan(t.Context(), tc.firstTick)
+			assert.Equal(t, tc.want, missedGap(tp, dag.Name))
 		})
 	}
 }
