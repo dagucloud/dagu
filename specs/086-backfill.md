@@ -225,7 +225,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   10,000:
   - `suspended` or `paused`: from the first tick that found the DAG
     suspended or the scheduler paused to the tick that found it running
-    again, whose own slots run;
+    again, whose own slots run. Such a gap kept without `through`, the last
+    instant whose slots it counts, counts them through the second before
+    that tick;
   - `down`: the slots no scheduler ran, for a DAG without catch-up, or
     before its catch-up window starts.
   A newer gap replaces it. A gap without a slot is not kept.

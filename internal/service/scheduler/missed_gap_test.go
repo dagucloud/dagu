@@ -432,3 +432,17 @@ func TestTickPlanner_BackfillCoversGapAfterScheduleEdit(t *testing.T) {
 	require.NotNil(t, gap, "14:00 is still missed")
 	assert.Equal(t, at(13, 30), gap.From)
 }
+
+// A hold's gap saved without the last instant it counts ended at the tick
+// that ran its own slots, so a backfill of the slots before that tick
+// clears it.
+func TestTickPlanner_BackfillCoversHoldGapWithoutThrough(t *testing.T) {
+	t.Parallel()
+	tp, dagName := heldGap(t)
+	tp.mu.Lock()
+	tp.watermarkState.DAGs[dagName].Missed.Through = time.Time{}
+	tp.mu.Unlock()
+
+	require.True(t, tp.coverGap(t.Context(), backfillOf(dagName, at(12, 0), at(13, 0), at(14, 0))))
+	assert.Nil(t, missedGap(tp, dagName))
+}

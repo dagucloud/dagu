@@ -255,10 +255,16 @@ func gapStart(gap schedulerstate.MissedGap) time.Time {
 
 // gapEnd is the last instant whose slots a gap counts.
 func gapEnd(gap schedulerstate.MissedGap) time.Time {
-	if gap.Through.IsZero() {
+	switch {
+	case !gap.Through.IsZero():
+		return gap.Through
+	case gap.Reason != schedulerstate.GapDown:
+		// A hold's gap saved without Through ended at the tick that ran its
+		// own slots.
+		return gap.To.Add(-time.Second)
+	default:
 		return gap.To
 	}
-	return gap.Through
 }
 
 func sameGap(a, b schedulerstate.MissedGap) bool {

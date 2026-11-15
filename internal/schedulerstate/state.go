@@ -42,7 +42,8 @@ type MissedGap struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
 	// Through is the last instant whose slots the gap counts. It comes
-	// before To when the tick at To ran its own slots; zero means To.
+	// before To when the tick at To ran its own slots. Zero means To for an
+	// outage's gap, and the second before To for a hold's.
 	Through time.Time `json:"through,omitzero"`
 	Reason  GapReason `json:"reason"`
 	// Slots counts the slots that passed, up to MaxGapSlots.
