@@ -7,4 +7,6 @@ package fileutil
 
 func opensDevice(string) bool { return false }
 
+func reservesDeviceName(string) bool { return false }
+
 func unstorableByte(c byte, _ bool) bool { return c == '/' || c == 0 }
