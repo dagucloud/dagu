@@ -23,7 +23,8 @@ var (
 )
 
 // SafeName converts a string to a safe filename containing only alphanumeric characters,
-// underscores, and hyphens
+// underscores, and hyphens. A name that the host maps to a device, such as
+// NUL on Windows, gets a trailing underscore.
 func SafeName(str string) string {
 	// Replace any character not in [a-zA-Z0-9_\-] with underscore
 	safe := allowedCharRegex.ReplaceAllString(str, "_")
@@ -32,6 +33,12 @@ func SafeName(str string) string {
 	runes := []rune(safe)
 	if len(runes) > MaxSafeNameLength {
 		safe = string(runes[:MaxSafeNameLength])
+	}
+
+	// A device name the host stores as a file keeps its name, so the paths
+	// stored under it before still resolve.
+	if filenameReservedWindowsNamesRegex.MatchString(safe) && opensDevice(safe) {
+		safe += "_"
 	}
 
 	return safe
