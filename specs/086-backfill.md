@@ -256,10 +256,13 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   editable, since a span may hold more slots than one backfill may run. A
   dismissed gap stays hidden in that browser until another is missed.
 - Once the scheduler picks up a backfill of a range, it takes from the gap
-  the slots the backfill runs, from the gap's first slot up to the first one
-  the backfill skips. The gap then starts after them, and is gone when the
-  backfill runs all its slots; a dismissed gap stays dismissed. A backfill
-  that names its slots or selects them by a date leaves the gap as it is.
+  the slots the backfill runs, and those in its range it skips because they
+  already have a run or another open backfill holds them, from the gap's
+  first slot up to the first outside both. The gap then starts after them,
+  and is gone when the backfill covers all its slots; a dismissed gap stays
+  dismissed. The slots that a backfill under another profile than the
+  scheduler's skips stay in the gap. A backfill that names its slots or
+  selects them by a date leaves the gap as it is.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and
   its explicit params or the first matching recurring schedule's overrides.

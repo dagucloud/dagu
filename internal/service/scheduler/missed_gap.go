@@ -123,11 +123,11 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 }
 
 // coverGap takes from a DAG's missed gap the slots a backfill of a range
-// runs, from the gap's first slot up to the first one it does not run. The
-// gap then starts after them, or is gone when the backfill runs them all. A
-// backfill that names its slots or selects them by a date leaves the gap as
-// it is, since it may skip slots between. It reports whether the gap
-// changed.
+// runs or, within its range, skips, from the gap's first slot up to the
+// first one it does neither for. The gap then starts after them, or is gone
+// when the backfill covers them all. A backfill that names its slots or
+// selects them by a date leaves the gap as it is, since it may skip slots
+// between. It reports whether the gap changed.
 func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
 	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 || record.Options.By != "" {
 		return false
@@ -143,11 +143,12 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(end) {
 		return false
 	}
-	schedules, ok := tp.startSchedules(ctx, record.DAGName)
+	active, ok := tp.activeSchedules(ctx, record.DAGName)
 	if !ok {
 		return false
 	}
-	last := lastCovered(schedules, start.In(tp.cfg.Location), end, record.Slots)
+	schedules := active.start
+	last := lastCovered(schedules, start.In(tp.cfg.Location), end, record.Slots, plannedSpanOf(record, active.profile))
 	if last.IsZero() {
 		return false
 	}
@@ -175,21 +176,51 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 }
 
 // lastCovered walks the fire times of the schedules after from and by to
-// while the backfill's slots, oldest first, hold each, and returns the last
-// they hold, or zero when they skip the first.
-func lastCovered(schedules []ir.Schedule, from, to time.Time, slots []backfill.RecordSlot) time.Time {
+// while the backfill's slots, oldest first, hold each or the span it planned
+// holds it, and returns the last of them, or zero when neither holds the
+// first.
+func lastCovered(schedules []ir.Schedule, from, to time.Time, slots []backfill.RecordSlot, planned plannedSpan) time.Time {
 	var last time.Time
 	i := 0
 	for at := nextFire(schedules, from); !at.IsZero() && !at.After(to); at = nextFire(schedules, at) {
 		for i < len(slots) && slots[i].At.Before(at) {
 			i++
 		}
-		if i == len(slots) || !slots[i].At.Equal(at) {
+		runs := i < len(slots) && slots[i].At.Equal(at)
+		if !runs && !planned.holds(at) {
 			break
 		}
 		last = at
 	}
 	return last
+}
+
+// plannedSpan is a range whose every fire time a backfill planned. A fire
+// time in it that the backfill does not run was skipped: it already had a
+// run, or another open backfill held it.
+type plannedSpan struct {
+	from, to time.Time
+}
+
+func (s plannedSpan) holds(at time.Time) bool {
+	return !s.from.IsZero() && !at.Before(s.from) && !at.After(s.to)
+}
+
+// plannedSpanOf returns the range a backfill planned, or an empty span when
+// it planned another profile's schedules, whose fire times it left out are
+// not ones it skipped.
+func plannedSpanOf(record *backfill.Record, profile string) plannedSpan {
+	opts := record.Options
+	if opts.Profile != "" && opts.Profile != profile {
+		return plannedSpan{}
+	}
+	// The plan left the minute of the submit and later to the live schedule.
+	live := record.CreatedAt.Truncate(time.Minute)
+	to := live.Add(-time.Nanosecond)
+	if !opts.To.IsZero() && opts.To.Before(live) {
+		to = opts.To
+	}
+	return plannedSpan{from: opts.From, to: to}
 }
 
 // nextFire returns the earliest fire time of the cron schedules after from,
@@ -230,8 +261,9 @@ func sameGap(a, b schedulerstate.MissedGap) bool {
 		a.Reason == b.Reason && a.Slots == b.Slots
 }
 
-// startSchedules returns the start schedules of a DAG the planner tracks.
-func (tp *TickPlanner) startSchedules(ctx context.Context, dagName string) ([]ir.Schedule, bool) {
+// activeSchedules returns the schedules of a DAG the planner tracks, and the
+// profile they fire for.
+func (tp *TickPlanner) activeSchedules(ctx context.Context, dagName string) (activeDAGSchedules, bool) {
 	tp.entryMu.Lock()
 	entry, ok := tp.entries[dagName]
 	var dagEntry DAGEntry
@@ -240,10 +272,9 @@ func (tp *TickPlanner) startSchedules(ctx context.Context, dagName string) ([]ir
 	}
 	tp.entryMu.Unlock()
 	if !ok {
-		return nil, false
+		return activeDAGSchedules{}, false
 	}
-	active, ok := tp.activeDAGSchedules(ctx, dagEntry)
-	return active.start, ok
+	return tp.activeDAGSchedules(ctx, dagEntry)
 }
 
 // countSlots counts the fire times of the cron schedules after from and by
