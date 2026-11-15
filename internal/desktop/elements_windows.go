@@ -562,8 +562,7 @@ func (w *uiaWorker) top(scope *WindowID) (*topWindow, error) {
 	hwnd := windows.GetForegroundWindow()
 	if scope != nil {
 		hwnd = windows.HWND(scope.Handle) //nolint:gosec // a window handle round-trips through uintptr for Win32
-		var pid uint32
-		if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid != scope.PID {
+		if pid := windowProcess(hwnd); pid == 0 || pid != scope.PID {
 			hwnd = 0
 		}
 	}

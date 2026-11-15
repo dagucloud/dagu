@@ -23,13 +23,8 @@ import (
 )
 
 var (
-	procRegisterClassExW = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW  = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW   = user32.NewProc("DefWindowProcW")
-	procDestroyWindow    = user32.NewProc("DestroyWindow")
-	procSetParent        = user32.NewProc("SetParent")
-	procGetMessageW      = user32.NewProc("GetMessageW")
-	procDispatchMessageW = user32.NewProc("DispatchMessageW")
+	procSetParent    = user32.NewProc("SetParent")
+	procPeekMessageW = user32.NewProc("PeekMessageW")
 )
 
 const (
@@ -39,33 +34,16 @@ const (
 	wsOverlappedWindow = 0x00CF0000
 	// swShowNoActivate shows a window without taking the foreground.
 	swShowNoActivate = 4
-	// errorClassAlreadyExists is what registering a class a second time,
-	// as a repeated test run does, answers.
-	errorClassAlreadyExists = windows.Errno(1410)
 	// gaParent asks GetAncestor for a window's parent.
 	gaParent = 1
+	// pmRemove has PeekMessage take the message it answers off the queue.
+	pmRemove = 1
 	// framedAppEnv makes a run of the test binary the second process of
 	// TestWindowsDesktopNamesTheAppInAFrame, and framedAppImage is the name
 	// that copy of the binary runs under.
 	framedAppEnv   = "DAGU_DESKTOP_FRAMED_APP"
 	framedAppImage = "dagu-framed-app"
 )
-
-// wndClassEx is WNDCLASSEXW.
-type wndClassEx struct {
-	Size       uint32
-	Style      uint32
-	WndProc    uintptr
-	ClsExtra   int32
-	WndExtra   int32
-	Instance   windows.Handle
-	Icon       windows.Handle
-	Cursor     windows.Handle
-	Background windows.Handle
-	MenuName   *uint16
-	ClassName  *uint16
-	IconSm     windows.Handle
-}
 
 // showTestWindow shows a window of a class without taking the foreground.
 // The window answers every message the default way, so it needs no message
@@ -79,7 +57,8 @@ func showTestWindow(t *testing.T, class, title string) windows.HWND {
 	require.NoError(t, err)
 	wc := wndClassEx{WndProc: procDefWindowProcW.Addr(), Instance: instance, ClassName: className}
 	wc.Size = uint32(unsafe.Sizeof(wc))
-	if atom, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); atom == 0 && !errors.Is(err, errorClassAlreadyExists) {
+	// Registering a class a second time, as a repeated test run does, fails.
+	if atom, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); atom == 0 && !errors.Is(err, windows.Errno(errorClassAlreadyExists)) {
 		require.NoError(t, err, "RegisterClassExW")
 	}
 	text, err := windows.UTF16PtrFromString(title)
@@ -128,6 +107,7 @@ func TestWindowsDesktopLeavesOutCloakedWindows(t *testing.T) {
 // as a frame holds the app's window.
 func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 	driver := e2eDesktop(t)
+	els := e2eElements(t)
 	runtime.LockOSThread()
 	// The class ApplicationFrameHost gives the frames it shows.
 	frame := showTestWindow(t, "ApplicationFrameWindow", "Dagu frame test")
@@ -176,6 +156,30 @@ func TestWindowsDesktopNamesTheAppInAFrame(t *testing.T) {
 	require.True(t, ok, "the frame is listed")
 	assert.Equal(t, uint32(app.Process.Pid), framed.PID, "the frame is the window of the app inside it")
 	assert.Equal(t, framedAppImage, framed.App)
+
+	// A reader of the frame takes it for the window of the app inside it,
+	// not for a handle that passed to another process. The read asks the
+	// frame for its elements, so this thread, the frame's, answers messages
+	// until the read ends.
+	read := make(chan error, 1)
+	go func() {
+		_, err := els.InWindow(framed).FrontWindow()
+		read <- err
+	}()
+	for done := false; !done; {
+		select {
+		case err = <-read:
+			done = true
+		default:
+			var message winMsg
+			if got, _, _ := procPeekMessageW.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0, pmRemove); got != 0 {
+				_, _, _ = procDispatchMessageW.Call(uintptr(unsafe.Pointer(&message)))
+			} else {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	assert.NoError(t, err, "the frame is still the window listed")
 }
 
 // TestFramedAppHelper is not a test of its own: run by
@@ -191,11 +195,11 @@ func TestFramedAppHelper(t *testing.T) {
 	makeDPIAware()
 	hwnd := showTestWindow(t, testWindowClass, "Dagu framed app")
 	fmt.Println(uintptr(hwnd))
-	var message [48]byte // MSG on 64-bit Windows
+	var message winMsg
 	for {
-		if got, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&message[0])), 0, 0, 0); int32(got) <= 0 {
+		if got, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0); int32(got) <= 0 {
 			return
 		}
-		_, _, _ = procDispatchMessageW.Call(uintptr(unsafe.Pointer(&message[0])))
+		_, _, _ = procDispatchMessageW.Call(uintptr(unsafe.Pointer(&message)))
 	}
 }
