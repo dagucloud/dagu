@@ -260,7 +260,7 @@ describe('RunActionsCluster', () => {
   it.each<[RunCase, string[]]>([
     ['running', ['Stop']],
     ['queued', ['Dequeue']],
-    ['waiting-approval', ['Action required', 'Reject']],
+    ['waiting-approval', ['Action required', 'Reject', 'Stop']],
     ['waiting-human-task', ['Action required', 'Stop']],
     ['failed-auto-retry', ['Cancel', 'Retry']],
     ['failed', ['Retry']],

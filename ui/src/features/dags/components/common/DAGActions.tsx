@@ -368,54 +368,56 @@ function DAGActions({
           </Tooltip>
         )}
 
-        {/* Stop / Reject Button */}
-        {shows('stop') &&
-          (buttonState.reject ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ActionButton
-                  label={displayMode !== 'compact'}
-                  icon={<Ban className="h-4 w-4" />}
-                  onClick={() => setIsRejectModal(true)}
-                  className="cursor-pointer"
-                >
-                  <I18nText text={'Reject'} />
-                </ActionButton>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>
-                  <I18nText text={'Reject this run'} />
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ActionButton
-                  label={displayMode !== 'compact'}
-                  icon={
-                    terminateAction === 'cancel' ? (
-                      <X className="h-4 w-4" />
-                    ) : (
-                      <CircleStop className="h-4 w-4" />
-                    )
-                  }
-                  disabled={!buttonState['terminate']}
-                  data-ww-action={mark('stop')}
-                  onClick={() => {
-                    setStopAllRunning(false);
-                    setIsStopModal(true);
-                  }}
-                  className="cursor-pointer"
-                >
-                  {terminateDetails.buttonText}
-                </ActionButton>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{terminateDetails.tooltipText}</p>
-              </TooltipContent>
-            </Tooltip>
-          ))}
+        {/* Reject Button */}
+        {shows('stop') && buttonState.reject && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ActionButton
+                label={displayMode !== 'compact'}
+                icon={<Ban className="h-4 w-4" />}
+                onClick={() => setIsRejectModal(true)}
+                className="cursor-pointer"
+              >
+                <I18nText text={'Reject'} />
+              </ActionButton>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>
+                <I18nText text={'Reject this run'} />
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Stop Button */}
+        {shows('stop') && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ActionButton
+                label={displayMode !== 'compact'}
+                icon={
+                  terminateAction === 'cancel' ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <CircleStop className="h-4 w-4" />
+                  )
+                }
+                disabled={!buttonState['terminate']}
+                data-ww-action={mark('stop')}
+                onClick={() => {
+                  setStopAllRunning(false);
+                  setIsStopModal(true);
+                }}
+                className="cursor-pointer"
+              >
+                {terminateDetails.buttonText}
+              </ActionButton>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{terminateDetails.tooltipText}</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Retry Button */}
         {shows('retry') && !isSubDAGRun && (

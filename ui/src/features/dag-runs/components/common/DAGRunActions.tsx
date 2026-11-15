@@ -245,31 +245,34 @@ function DAGRunActions({
       <div
         className={`flex items-center ${displayMode === 'full' ? 'space-x-2' : 'space-x-1'}`}
       >
-        {/* Stop / Reject Button */}
-        {hideUnavailable &&
-        !buttonState.terminate &&
-        !buttonState.reject ? null : isWaiting && hasWaitingApprovals ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <ActionButton
-                  label={buttonLabel}
-                  icon={<Ban className="h-4 w-4" />}
-                  disabled={!buttonState['reject']}
-                  onClick={() => setIsRejectModal(true)}
-                  className={dangerClass}
-                >
-                  <I18nText text={'Reject'} />
-                </ActionButton>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                <I18nText text={'Reject this run'} />
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        ) : (
+        {/* Reject Button */}
+        {isWaiting &&
+          hasWaitingApprovals &&
+          !(hideUnavailable && !buttonState.reject) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <ActionButton
+                    label={buttonLabel}
+                    icon={<Ban className="h-4 w-4" />}
+                    disabled={!buttonState['reject']}
+                    onClick={() => setIsRejectModal(true)}
+                    className={dangerClass}
+                  >
+                    <I18nText text={'Reject'} />
+                  </ActionButton>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  <I18nText text={'Reject this run'} />
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+        {/* Stop Button */}
+        {!(hideUnavailable && !buttonState.terminate) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span>

@@ -8,8 +8,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status, StatusLabel } from '@/api/v1/schema';
+import { NodeStatus, Status, StatusLabel } from '@/api/v1/schema';
 import DAGRunActions from '../DAGRunActions';
 import {
   getDAGRunTerminateAction,
@@ -282,6 +283,30 @@ describe('DAGRunActions', () => {
         },
       }
     );
+  });
+
+  // Reject decides the approval; Stop ends the run without deciding it.
+  it('offers Stop next to Reject for a run waiting on an approval', () => {
+    render(
+      <DAGRunActions
+        dagRun={
+          {
+            ...waitingRun,
+            nodes: [
+              {
+                step: { name: 'approve', approval: {} },
+                status: NodeStatus.Waiting,
+              },
+            ],
+          } as unknown as ComponentProps<typeof DAGRunActions>['dagRun']
+        }
+        name="etl"
+        displayMode="full"
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
   it('hides actions that do not apply when asked', () => {
