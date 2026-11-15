@@ -51,6 +51,13 @@ func SafeName(str string) string {
 	return safe
 }
 
+// SafeNameEscapesDevice reports whether SafeName changes str only because
+// this host reserves it for a device, which only Windows does. Earlier
+// versions kept such a name as written.
+func SafeNameEscapesDevice(str string) bool {
+	return !allowedCharRegex.MatchString(str) && reservesDeviceName(str)
+}
+
 // EscapeName returns the name under which this host stores a file or
 // directory called name. Each "%", each byte the host cannot store in a
 // name, including a path separator, and on Windows the first byte of a
@@ -104,28 +111,38 @@ func ExistingName(dir, name, legacy string) string {
 
 // LegacyEntry reports whether dir holds a regular file or directory called
 // legacy, a name stored as written before names were escaped, and returns
-// its path relative to dir. It never looks outside dir or opens a device, and
-// it skips a name that, ignoring case, is the escaped form of another name,
-// since that entry may hold the other name's data.
+// its path relative to dir. Only a name that names that entry exactly is
+// looked up, so the entry never belongs to another name. Each "/"-separated
+// segment must be non-empty, not "." or "..", stored by this host as written
+// (on Windows, without a trailing dot or space, a reserved character, or a
+// device name), and not, ignoring case, the escaped form of another name.
 func LegacyEntry(dir, legacy string) (string, bool) {
-	path := filepath.Join(dir, legacy)
-	rel, err := filepath.Rel(dir, path)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	if opensDevice(filepath.Base(path)) {
-		return "", false
-	}
-	for segment := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
-		if other, err := url.PathUnescape(segment); err == nil && other != segment && strings.EqualFold(EscapeName(other), segment) {
+	for segment := range strings.SplitSeq(filepath.ToSlash(legacy), "/") {
+		if !exactSegment(segment) {
 			return "", false
 		}
 	}
-	info, err := os.Lstat(path)
+	rel := filepath.Clean(legacy)
+	info, err := os.Lstat(filepath.Join(dir, rel))
 	if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
 		return "", false
 	}
 	return rel, true
+}
+
+// exactSegment reports whether this host stores a path segment under exactly
+// its own name, and no escaped name may share it.
+func exactSegment(segment string) bool {
+	if segment == "" || segment == "." || segment == ".." || opensDevice(segment) {
+		return false
+	}
+	for i := 0; i < len(segment); i++ {
+		if unstorableByte(segment[i], i == len(segment)-1) {
+			return false
+		}
+	}
+	other, err := url.PathUnescape(segment)
+	return err != nil || other == segment || !strings.EqualFold(EscapeName(other), segment)
 }
 
 // NormalizeFilename replaces OS-reserved characters and Windows reserved
