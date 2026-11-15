@@ -61,9 +61,6 @@ type Dispatcher struct {
 	// RetryWindow is how long after a run's creation the scheduler retries
 	// it under its DAG's retry policy. Zero retries no run.
 	RetryWindow time.Duration
-	// Advancing, when set, is called in each tick with every open backfill,
-	// before the tick advances it.
-	Advancing func(ctx context.Context, record *Record)
 	// Ended, when set, is called with each backfill that ended in a tick,
 	// once its DAG's lock is released. It runs on the dispatch loop, so it
 	// returns without waiting on slow work.
@@ -86,9 +83,6 @@ func (d *Dispatcher) Tick(ctx context.Context) error {
 	}
 	var errs []error
 	for _, record := range records {
-		if d.Advancing != nil {
-			d.Advancing(ctx, record)
-		}
 		ended, err := d.advanceLocked(ctx, record.ID, record.DAGName)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("backfill %s: %w", record.ID, err))
