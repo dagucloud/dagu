@@ -176,26 +176,23 @@ func TestComputeMissedIntervals_CappedAtMax(t *testing.T) {
 }
 
 // Queued catch-up runs every slot it holds, also those a late tick's window
-// has moved past, so the gap that tick records starts after the queue.
+// has moved past.
 func TestTickPlanner_LateTickLeavesOutQueuedCatchup(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		late   time.Time
 		queued []time.Time
-		gap    *schedulerstate.MissedGap
 	}{
 		{
 			name:   "queue reaches the window",
 			late:   at(14, 0),
 			queued: []time.Time{at(11, 0), at(12, 0), at(13, 0), at(14, 0)},
-			gap:    &schedulerstate.MissedGap{From: at(9, 0), To: at(10, 0), Through: at(10, 0), Reason: schedulerstate.GapDown, Slots: 1},
 		},
 		{
 			name:   "queue before the window",
 			late:   at(15, 0),
 			queued: []time.Time{at(11, 0), at(12, 0), at(14, 0), at(15, 0)},
-			gap:    &schedulerstate.MissedGap{From: at(12, 0), To: at(13, 0), Through: at(13, 0), Reason: schedulerstate.GapDown, Slots: 1},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -208,9 +205,22 @@ func TestTickPlanner_LateTickLeavesOutQueuedCatchup(t *testing.T) {
 
 			tp.resume(t.Context(), tc.late)
 			assert.Equal(t, tc.queued, bufferedSlots(tp, dag.Name))
-			assert.Equal(t, tc.gap, missedGap(tp, dag.Name))
 		})
 	}
+}
+
+func at(hour, minute int) time.Time {
+	return time.Date(2026, 2, 7, hour, minute, 0, 0, time.UTC)
+}
+
+func bufferedSlots(tp *TickPlanner, dagName string) []time.Time {
+	var slots []time.Time
+	if buffer := tp.buffers[dagName]; buffer != nil {
+		for _, item := range buffer.items {
+			slots = append(slots, item.ScheduledTime)
+		}
+	}
+	return slots
 }
 
 // enqueueOK accepts every catch-up enqueue.

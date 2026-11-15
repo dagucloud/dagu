@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"os"
@@ -3529,4 +3531,43 @@ func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
 	assert.Equal(t, []schedulerstate.Span{
 		{From: lastTick, To: lastTick.Add(45 * time.Minute), Reason: schedulerstate.SpanDown},
 	}, recorded)
+}
+
+// A state file written by a build that kept a tally of missed slots, with a
+// DAG held and a missed gap, loads without them; the scheduler runs the next
+// slot and writes the file back without them.
+func TestTickPlanner_LoadsStateWithMissedGap(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{
+  "version": 4,
+  "dags": {
+    "hourly": {
+      "lastScheduledTime": "2026-02-07T11:00:00Z",
+      "skipSuccessResetAt": "0001-01-01T00:00:00Z",
+      "lastSlot": {"at": "2026-02-07T11:00:00Z", "outcome": "dispatched"},
+      "heldSince": "2026-02-07T09:00:00Z",
+      "heldBy": "paused",
+      "missed": {"from": "2026-02-07T06:00:00Z", "to": "2026-02-07T08:00:00Z", "through": "2026-02-07T07:59:59Z", "reason": "down", "slots": 2}
+    }
+  }
+}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "checkpoint.json"), []byte(`{"lastTick": "2026-02-07T11:59:00Z"}`), 0o600))
+	tp, _ := newTestTickPlanner(store.NewSchedulerStateStore(file.NewCollection(dir, file.WithIndentedJSON())))
+	dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	noon := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	runs := tp.Plan(t.Context(), noon)
+	require.Len(t, runs, 1)
+	assert.Equal(t, noon, runs[0].ScheduledTime)
+	tp.Advance(noon)
+	tp.Flush(t.Context())
+
+	saved, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(saved), `"lastScheduledTime": "2026-02-07T12:00:00Z"`)
+	for _, field := range []string{"heldSince", "heldBy", "missed"} {
+		assert.NotContains(t, string(saved), field)
+	}
 }

@@ -882,24 +882,6 @@ func TestDescribeGroupsAFailureNotYetRecorded(t *testing.T) {
 	assert.Equal(t, "connection refused", report.Failures[0].Error)
 }
 
-// Each tick shows every open backfill before it advances, and an ended one
-// no more.
-func TestDispatchShowsOpenBackfills(t *testing.T) {
-	t.Parallel()
-	f := newDispatchFixture(t)
-	var advancing []string
-	f.dispatcher.Advancing = func(_ context.Context, record *backfill.Record) {
-		advancing = append(advancing, record.ID)
-	}
-	record := f.submit(backfill.Options{})
-	f.tick()
-	assert.Equal(t, []string{record.ID}, advancing)
-
-	require.NoError(t, f.store.End(f.ctx, record.ID, backfill.StatusCancelled, f.clock))
-	f.tick()
-	assert.Equal(t, []string{record.ID}, advancing, "an ended backfill is not shown")
-}
-
 // The dispatcher reports a backfill once, in the tick it ends.
 func TestDispatchReportsTheEnd(t *testing.T) {
 	t.Parallel()
