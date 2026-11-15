@@ -106,6 +106,9 @@ func supervisedProcesses(access uint32) ([]windows.Handle, bool, error) {
 			children = append(children, entry.ProcessID)
 		}
 	}
+	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+		return nil, byWrapper, fmt.Errorf("list processes: %w", err)
+	}
 	if !byWrapper {
 		return nil, false, nil
 	}
@@ -127,7 +130,13 @@ func supervisedProcesses(access uint32) ([]windows.Handle, bool, error) {
 			errs = append(errs, fmt.Errorf("open process %d: %w", pid, err))
 			continue
 		}
-		if started, err := startTime(process); err != nil || started < wrapperStarted {
+		// The ID may have passed to another process since the snapshot, so
+		// the opened process itself must be the wrapper's child.
+		supervised, err := startedBy(process, wrapper, wrapperStarted)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("inspect process %d: %w", pid, err))
+		}
+		if !supervised {
 			_ = windows.CloseHandle(process)
 			continue
 		}
@@ -145,6 +154,23 @@ func processStartTime(pid uint32) (int64, error) {
 	}
 	defer func() { _ = windows.CloseHandle(process) }()
 	return startTime(process)
+}
+
+// startedBy reports whether process is a child of the process with
+// parentPID that started at parentStarted.
+func startedBy(process windows.Handle, parentPID uint32, parentStarted int64) (bool, error) {
+	var info windows.PROCESS_BASIC_INFORMATION
+	if err := windows.NtQueryInformationProcess(process, windows.ProcessBasicInformation, unsafe.Pointer(&info), uint32(unsafe.Sizeof(info)), nil); err != nil { //nolint:gosec // info is the buffer ProcessBasicInformation fills
+		return false, err
+	}
+	if info.InheritedFromUniqueProcessId != uintptr(parentPID) {
+		return false, nil
+	}
+	started, err := startTime(process)
+	if err != nil {
+		return false, err
+	}
+	return started >= parentStarted, nil
 }
 
 // startTime returns when process started, in nanoseconds since 1601.

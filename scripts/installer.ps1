@@ -744,9 +744,10 @@ function Remove-UninstallFile {
 }
 
 # Get-ProcessDescendants returns what the Roots processes started, at any
-# depth, among the processes in All. Windows keeps a process's parent ID
-# after the parent exits and may reuse it, so a process counts as a child
-# only when it started after the parent did.
+# depth, among the processes in All; a root may have exited. Windows keeps a
+# process's parent ID after the parent exits and may give that ID to a new
+# process, so a child counts only when it started after its parent and
+# before any later process with the parent's ID.
 function Get-ProcessDescendants {
     param([object[]]$Roots, [object[]]$All)
     $found = @()
@@ -755,8 +756,11 @@ function Get-ProcessDescendants {
     while ($parents.Count -gt 0) {
         $children = @()
         foreach ($parent in $parents) {
+            $reuse = $All | Where-Object { $_.ProcessId -eq $parent.ProcessId -and $_.CreationDate -gt $parent.CreationDate } |
+                Select-Object -First 1
             $children += @($All | Where-Object {
                     $_.ParentProcessId -eq $parent.ProcessId -and $_.CreationDate -ge $parent.CreationDate -and
+                    (-not $reuse -or $_.CreationDate -lt $reuse.CreationDate) -and
                     -not $seen.ContainsKey("$($_.ProcessId)@$($_.CreationDate)")
                 })
         }
@@ -769,10 +773,14 @@ function Get-ProcessDescendants {
     return $found
 }
 
+# RunCommandPattern matches the command line of a run the scheduler starts.
+$Script:RunCommandPattern = '^\s*("[^"]*"|\S+)\s+(start|restart|retry)(\s|$)'
+
 # Get-ServiceProcessTree returns the processes of the Dagu service, runs
 # included, with their start times: what the service wrapper runs, and the
-# runs an earlier service stop left running, which run the service's binary
-# or one set aside by an upgrade and outlived the process that started them.
+# runs an earlier service stop left running. Those run the service's binary,
+# or one an upgrade set aside, as a run command, and outlived the process
+# that started them.
 function Get-ServiceProcessTree {
     $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
     $roots = @()
@@ -784,21 +792,23 @@ function Get-ServiceProcessTree {
     $leftRuns = @($all | Where-Object {
             $process = $_
             $process.ExecutablePath -and ($process.ExecutablePath -like $binary -or $process.ExecutablePath -like "$binary.*old") -and
+            $process.CommandLine -match $Script:RunCommandPattern -and
             -not ($all | Where-Object { $_.ProcessId -eq $process.ParentProcessId -and $_.CreationDate -le $process.CreationDate })
         })
     return @($leftRuns) + @(Get-ProcessDescendants -Roots (@($roots) + @($leftRuns)) -All $all)
 }
 
 # Stop-ProcessTree ends the processes of Get-ServiceProcessTree that still
-# run, skipping a later process that reuses an ID, and then what they
-# started since the tree was read, until nothing more is found.
+# run, skipping a later process that reuses an ID, and then what any of them
+# started since the tree was read, those that exited meanwhile included,
+# until nothing more is found.
 function Stop-ProcessTree {
     param([object[]]$Tree)
     $ended = @()
     $endedKeys = @{}
     for ($pass = 0; $pass -lt 10; $pass++) {
         $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-        $live = @(@($Tree) + @(Get-ProcessDescendants -Roots $ended -All $all) | Where-Object {
+        $live = @(@($Tree) + @(Get-ProcessDescendants -Roots (@($Tree) + @($ended)) -All $all) | Where-Object {
                 $candidate = $_
                 -not $endedKeys.ContainsKey("$($candidate.ProcessId)@$($candidate.CreationDate)") -and
                 ($all | Where-Object { $_.ProcessId -eq $candidate.ProcessId -and $_.CreationDate -eq $candidate.CreationDate })
