@@ -185,3 +185,20 @@ func TestAgent_NodeTargetingDryRunReportsRefusal(t *testing.T) {
 		Message: `step "restart" runs commands, and running commands on inventory node "web01" is not available yet`,
 	})
 }
+
+// A retry keeps the node its run was bound to, so a node: required run can be
+// retried.
+func TestAgent_RetryKeepsBoundNode(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: check\n    action: noop\n")
+	first := dag.Agent(test.WithAgentOptions(agent.Options{BoundNode: "web01"}))
+	first.RunSuccess(t)
+	status := first.Status(th.Context)
+	require.Equal(t, "web01", status.BoundNode)
+
+	retry := dag.Agent(test.WithAgentOptions(agent.Options{RetryTarget: &status}))
+	retry.RunSuccess(t)
+	require.Equal(t, "web01", retry.Status(th.Context).BoundNode)
+}

@@ -181,7 +181,9 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 		if e.cancelled() {
 			return errParallelCancelled
 		}
-		if e.startsNoMoreNodes() {
+		// A targeted retry starts no new node: it reuses the other nodes'
+		// results and reruns the one it names, whatever the reused ones were.
+		if !targeted && e.startsNoMoreNodes() {
 			pending = e.dropUnstartedNodes(pending)
 		}
 

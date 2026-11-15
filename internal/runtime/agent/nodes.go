@@ -12,6 +12,15 @@ import (
 // localWorkerID is the worker ID of a run on the Dagu host itself.
 const localWorkerID = "local"
 
+// boundNodeOf returns the node a run is bound to. A retry keeps the binding of
+// the run it retries.
+func boundNodeOf(opts Options) string {
+	if opts.BoundNode == "" && opts.RetryTarget != nil {
+		return opts.RetryTarget.BoundNode
+	}
+	return opts.BoundNode
+}
+
 // nodeTargetingError fails, before any step starts, a run that uses node
 // targeting (RFC 013) in a way that is not built yet:
 //
