@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,4 +102,35 @@ func TestDataStepInfoUsesStructuredOutputValue(t *testing.T) {
 	info := data.StepInfo()
 	require.NotNil(t, info.Output)
 	assert.Equal(t, value, *info.Output)
+}
+
+// A restored step's record of what masking changed marks the stored outputs
+// that a reference resolves from.
+func TestDataStepInfoMarksMaskedOutputs(t *testing.T) {
+	t.Parallel()
+
+	captured := `{"token":"*******","region":"us"}`
+	published := `{"key":"*******"}`
+	masked := newSafeData(NodeData{
+		Step: ir.Step{ID: "fetch", Name: "fetch"},
+		State: NodeState{
+			OutputValue:      &captured,
+			StepOutputsValue: &published,
+			MaskedOutputs:    &ir.MaskedOutputs{Captured: true, Published: []string{"key"}},
+		},
+	})
+	assert.Equal(t, cmnvalue.StepMasks{Output: true, Outputs: true, Declared: []string{"key"}}, masked.StepInfo().Masked)
+
+	// Masking changed an output name, so every published output is masked.
+	renamed := newSafeData(NodeData{
+		Step: ir.Step{ID: "fetch", Name: "fetch"},
+		State: NodeState{
+			StepOutputsValue: &published,
+			MaskedOutputs:    &ir.MaskedOutputs{AllPublished: true},
+		},
+	})
+	assert.Equal(t, cmnvalue.StepMasks{Outputs: true, AllDeclared: true}, renamed.StepInfo().Masked)
+
+	clean := newSafeData(NodeData{Step: ir.Step{ID: "fetch", Name: "fetch"}, State: NodeState{OutputValue: &captured}})
+	assert.Equal(t, cmnvalue.StepMasks{}, clean.StepInfo().Masked)
 }

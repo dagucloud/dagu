@@ -220,6 +220,7 @@ message WorkerInfo {
   repeated RunningTask running_tasks = 7;
   int64 last_heartbeat_at = 8; // Unix timestamp of last heartbeat
   WorkerHealthStatus health_status = 9; // Health status based on heartbeat recency
+  string version = 10; // Dagu version the worker runs; empty when it reports none
 }
 
 // Request message for heartbeat.
@@ -229,6 +230,7 @@ message HeartbeatRequest {
   WorkerStats stats = 3;
   string host = 4;            // Name of the machine the worker runs on
   MachineSample machine = 5;  // Unset until the worker samples its machine
+  string version = 6;         // Dagu version the worker runs
 }
 
 // A reading of the resources of the machine a worker runs on, or of its

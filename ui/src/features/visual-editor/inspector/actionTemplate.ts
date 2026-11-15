@@ -88,7 +88,11 @@ const STARTER: Record<string, Record<string, unknown>> = {
   'dag.enqueue': { dag: 'child-workflow' },
   'dag.run': { dag: 'child-workflow' },
   'data.convert': { from: 'json', to: 'yaml', input: '{}' },
-  'data.filter': { from: 'json', data: [], where: { price: { min: 0 } } },
+  'data.filter': {
+    from: 'json',
+    input: 'rows.json',
+    where: { status: { is: 'TODO' } },
+  },
   'data.pick': { from: 'json', select: '$.a', input: '{}' },
   'decision.evaluate': {
     provider: 'openrouter',
@@ -116,9 +120,9 @@ const STARTER: Record<string, Record<string, unknown>> = {
   'kubernetes.run': { image: 'alpine' },
   'log.write': { message: 'TODO' },
   'mail.send': { message: 'TODO' },
-  'mcp.call': { url: 'https://example.com/mcp', tool: 'TODO' },
   'mail.organize': { mailbox: 'INBOX', emails: ['1'], mark: 'read' },
   'mail.search': { mailbox: 'INBOX' },
+  'mcp.call': { url: 'https://example.com/mcp', tool: 'TODO' },
   'outputs.write': { values: { result: 'TODO' } },
   'postgres.import': {
     dsn: 'postgres://localhost/db',

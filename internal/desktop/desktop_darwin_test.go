@@ -88,6 +88,36 @@ func TestLastInput(t *testing.T) {
 	assert.False(t, last.After(time.Now()))
 }
 
+// A null event, which system processes such as the Dock post, counts as
+// input to the window server but is no person's. The test posts one, so it
+// runs only when asked to with DAGU_DESKTOP_E2E=1 on a desktop no one is
+// using.
+func TestLastInputIgnoresNullEvents(t *testing.T) {
+	if os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 to run on an interactive desktop")
+	}
+	const eventNull = 0
+	require.NoError(t, load())
+	backend := &darwinBackend{}
+	before := backend.LastInput()
+	sinceNull := cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, eventNull)
+
+	event := cgEventCreate(0)
+	require.NotZero(t, event)
+	t.Cleanup(func() { cfRelease(event) })
+	cgEventPost(hidEventTap, event)
+	// The window server counts a posted event a moment after it is posted,
+	// when the time since the last null event drops instead of growing.
+	require.Eventually(t, func() bool {
+		now := cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, eventNull)
+		counted := now < sinceNull
+		sinceNull = now
+		return counted
+	}, 3*time.Second, 50*time.Millisecond, "the window server never counted the null event")
+
+	assert.WithinDuration(t, before, backend.LastInput(), 50*time.Millisecond)
+}
+
 // While held, the power assertions are listed by pmset under the reason
 // Dagu gives; releasing them removes them.
 func TestKeepAwake(t *testing.T) {

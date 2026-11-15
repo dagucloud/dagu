@@ -477,7 +477,7 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		}
 		return bindingMapValue("params", segments[1], scope.Params, requireValue)
 	case "env":
-		return bindingEnvValue(segments[1], scope.Env, requireValue)
+		return bindingEnvValue(ctx, segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	case "foreach":
@@ -699,12 +699,13 @@ func formatForeachItemValue(value any) any {
 	}
 }
 
-func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, error) {
+func bindingEnvValue(ctx context.Context, name string, scope *EnvScope, requireValue bool) (any, error) {
 	if scope == nil && !requireValue {
 		return nil, nil
 	}
-	if value, ok := scope.Get(name); ok {
-		return value, nil
+	if entry, ok := scope.GetEntry(name); ok {
+		maskedReadsFrom(ctx).noteEntry(entry)
+		return entry.Value, nil
 	}
 	if !requireValue {
 		return nil, nil

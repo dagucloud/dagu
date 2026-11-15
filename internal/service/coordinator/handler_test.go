@@ -1842,6 +1842,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 				TotalPollers: 10,
 				BusyPollers:  3,
 			},
+			Version: "2.27.0",
 		}
 
 		_, err := h.Heartbeat(ctx, req)
@@ -1858,6 +1859,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		require.Equal(t, int32(10), worker.TotalPollers)
 		require.Equal(t, int32(3), worker.BusyPollers)
 		require.Greater(t, worker.LastHeartbeatAt, int64(0))
+		require.Equal(t, "2.27.0", worker.Version)
 	})
 
 	t.Run("HeartbeatStoresHostAndMachine", func(t *testing.T) {
@@ -1877,12 +1879,18 @@ func TestHandler_Heartbeat(t *testing.T) {
 				CpuPercent: &cpu,
 				Memory:     &coordinatorv1.MachineUsage{UsedPercent: 60, UsedBytes: 6, TotalBytes: 10},
 			},
+			Version: "2.27.0",
 		})
 		require.NoError(t, err)
 
 		record, err := heartbeats.Get(ctx, "worker1")
 		require.NoError(t, err)
 		assert.Equal(t, "gpu-1", record.Host)
+		assert.Equal(t, "2.27.0", record.Version)
+		workers, err := h.GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{})
+		require.NoError(t, err)
+		require.Len(t, workers.Workers, 1)
+		assert.Equal(t, "2.27.0", workers.Workers[0].Version)
 		assert.Equal(t, &dispatch.MachineSample{
 			CPUs:       4,
 			CPUPercent: &cpu,

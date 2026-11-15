@@ -1421,77 +1421,77 @@ export function NotificationChannelsSection({
                 void save();
               }}
             >
-              <fieldset
-                disabled={saving}
-                className="min-h-0 space-y-5 overflow-y-auto p-6"
-              >
-                {error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
-                  <div className="space-y-2">
-                    <Label htmlFor={`${fieldId}-name`}>
-                      <I18nText text={'Channel name'} />
-                    </Label>
-                    <Input
-                      id={`${fieldId}-name`}
-                      required
-                      value={editor.name}
-                      onChange={(event) =>
-                        setEditor({ ...editor, name: event.target.value })
+              {/* Chromium never scrolls a fieldset shrunk by a flex parent. */}
+              <div className="min-h-0 overflow-y-auto p-6">
+                <fieldset disabled={saving} className="space-y-5">
+                  {error && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {error}
+                    </p>
+                  )}
+                  <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
+                    <div className="space-y-2">
+                      <Label htmlFor={`${fieldId}-name`}>
+                        <I18nText text={'Channel name'} />
+                      </Label>
+                      <Input
+                        id={`${fieldId}-name`}
+                        required
+                        value={editor.name}
+                        onChange={(event) =>
+                          setEditor({ ...editor, name: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`${fieldId}-provider`}>
+                        <I18nText text={'Provider'} />
+                      </Label>
+                      <Select
+                        value={editor.type}
+                        disabled={saving}
+                        onValueChange={(value) =>
+                          setEditor({
+                            ...replaceDeliveryProvider(
+                              editor,
+                              value as NotificationProviderType
+                            ),
+                            id: editor.id,
+                          })
+                        }
+                      >
+                        <SelectTrigger id={`${fieldId}-provider`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {providerOptions.map((provider) => (
+                            <SelectItem
+                              key={provider.value}
+                              value={provider.value}
+                            >
+                              <I18nText text={provider.label} />
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <ProviderFields
+                    draft={editor}
+                    onChange={(next) => setEditor({ ...next, id: editor.id })}
+                  />
+                  <label className="flex min-h-9 items-center gap-3 text-sm">
+                    <Switch
+                      checked={editor.enabled}
+                      disabled={saving}
+                      onCheckedChange={(enabled) =>
+                        setEditor({ ...editor, enabled })
                       }
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`${fieldId}-provider`}>
-                      <I18nText text={'Provider'} />
-                    </Label>
-                    <Select
-                      value={editor.type}
-                      disabled={saving}
-                      onValueChange={(value) =>
-                        setEditor({
-                          ...replaceDeliveryProvider(
-                            editor,
-                            value as NotificationProviderType
-                          ),
-                          id: editor.id,
-                        })
-                      }
-                    >
-                      <SelectTrigger id={`${fieldId}-provider`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providerOptions.map((provider) => (
-                          <SelectItem
-                            key={provider.value}
-                            value={provider.value}
-                          >
-                            <I18nText text={provider.label} />
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <ProviderFields
-                  draft={editor}
-                  onChange={(next) => setEditor({ ...next, id: editor.id })}
-                />
-                <label className="flex min-h-9 items-center gap-3 text-sm">
-                  <Switch
-                    checked={editor.enabled}
-                    disabled={saving}
-                    onCheckedChange={(enabled) =>
-                      setEditor({ ...editor, enabled })
-                    }
-                  />
-                  <I18nText text={'Enabled'} />
-                </label>
-              </fieldset>
+                    <I18nText text={'Enabled'} />
+                  </label>
+                </fieldset>
+              </div>
               <DialogFooter className="gap-2 border-t border-border px-6 py-4">
                 <Button
                   type="button"

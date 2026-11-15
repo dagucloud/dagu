@@ -4,6 +4,7 @@ import type { components } from '../../../api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from '../../workers/components/WorkerHealth';
+import { countWorkersBehind } from '../../workers/components/WorkerVersion';
 import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
 import { useOpenPage } from '../../dag-runs/lib/useOpenPage';
@@ -69,6 +70,7 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
       busyPollers,
       totalTasks,
       utilization,
+      behind: countWorkersBehind(workers),
     };
   }, [workers]);
 
@@ -109,6 +111,11 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
               <I18nText text={'util'} />
             </span>
           </div>
+          {metrics.behind > 0 && (
+            <span className="text-warning">
+              {ts('{count} on an older version', { count: metrics.behind })}
+            </span>
+          )}
         </div>
       </div>
 

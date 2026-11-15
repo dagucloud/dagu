@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"maps"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -74,10 +76,28 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.Step = maskStepSecrets(masker, node.Step)
 	node.Error = masker.MaskString(node.Error)
 	node.StatusDetails = maskNodeStatusDetails(masker, node.StatusDetails)
-	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
-	node.OutputValue = maskStringPointer(masker, node.OutputValue)
-	node.OutputsValue = maskOutputDocument(masker, node.OutputsValue)
-	node.StepOutputsValue = maskStepOutputs(masker, node)
+	// A node is masked on every status write, and text masked earlier no
+	// longer changes, so the record starts from the earlier one.
+	masked := node.MaskedOutputs.Clone()
+	if masked == nil {
+		masked = &ir.MaskedOutputs{}
+	}
+	if node.OutputVariables != nil {
+		node.OutputVariables = maskOutputVariables(masker, node.OutputVariables, masked)
+	}
+	outputValue := maskStringPointer(masker, node.OutputValue)
+	outputsValue := maskOutputDocument(masker, node.OutputsValue)
+	if changed(node.OutputValue, outputValue) || changed(node.OutputsValue, outputsValue) {
+		masked.Captured = true
+	}
+	node.OutputValue = outputValue
+	node.OutputsValue = outputsValue
+	stepOutputsValue := maskStepOutputs(masker, node)
+	names, all := changedOutputNames(node.StepOutputsValue, stepOutputsValue)
+	masked.Published = append(masked.Published, names...)
+	masked.AllPublished = masked.AllPublished || all
+	node.StepOutputsValue = stepOutputsValue
+	node.MaskedOutputs = maskedRecord(masked)
 	node.AgentSession = ir.MaskAgentSession(node.AgentSession, masker.MaskString)
 }
 
@@ -170,21 +190,93 @@ func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail
 	return masked
 }
 
-func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap) *collections.SyncMap {
+// maskedRecord returns masked with its names deduplicated, or nil when
+// masking changed no output.
+func maskedRecord(masked *ir.MaskedOutputs) *ir.MaskedOutputs {
+	masked.Variables = uniqueNames(masked.Variables)
+	masked.Published = uniqueNames(masked.Published)
+	if len(masked.Variables) == 0 && len(masked.Published) == 0 && !masked.AllPublished && !masked.Captured {
+		return nil
+	}
+	return masked
+}
+
+func uniqueNames(names []string) []string {
+	names = slices.DeleteFunc(names, func(name string) bool { return name == "" })
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+func changed(before, after *string) bool {
+	return before != nil && after != nil && *before != *after
+}
+
+func maskOutputVariables(masker *masking.Masker, values *collections.SyncMap, masked *ir.MaskedOutputs) *collections.SyncMap {
 	if values == nil {
 		return nil
 	}
-	masked := &collections.SyncMap{}
+	result := &collections.SyncMap{}
 	values.Range(func(key, value any) bool {
 		text, ok := value.(string)
 		if !ok {
-			masked.Store(key, value)
+			result.Store(key, value)
 			return true
 		}
-		masked.Store(key, masker.MaskString(text))
+		maskedText := masker.MaskString(text)
+		// The stored text is NAME=value, and a restore reads the value after
+		// the first "=", so only a changed value counts.
+		_, original, _ := strings.Cut(text, "=")
+		if _, restored, ok := strings.Cut(maskedText, "="); !ok || restored != original {
+			name, _ := key.(string)
+			masked.Variables = append(masked.Variables, name)
+		}
+		result.Store(key, maskedText)
 		return true
 	})
-	return masked
+	return result
+}
+
+// changedOutputNames returns the top-level names of the published outputs whose
+// text masking changed, and whether the names cannot be trusted: the document
+// is not an object, or masking changed a key or the number of keys.
+func changedOutputNames(before, after *string) ([]string, bool) {
+	if before == nil || after == nil || *before == *after {
+		return nil, false
+	}
+	var old, now map[string]json.RawMessage
+	if json.Unmarshal([]byte(*before), &old) != nil || json.Unmarshal([]byte(*after), &now) != nil || len(old) != len(now) {
+		return nil, true
+	}
+	var names []string
+	for name, raw := range old {
+		current, ok := now[name]
+		if !ok {
+			return nil, true
+		}
+		if !sameJSON(raw, current) {
+			names = append(names, name)
+		}
+	}
+	return names, false
+}
+
+// sameJSON reports whether two encoded values decode to the same value. The
+// masking fallback re-encodes a whole document, which reorders and respaces
+// values it did not mask.
+func sameJSON(a, b json.RawMessage) bool {
+	if bytes.Equal(a, b) {
+		return true
+	}
+	decode := func(raw json.RawMessage) (any, bool) {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		err := decoder.Decode(&value)
+		return value, err == nil
+	}
+	left, okLeft := decode(a)
+	right, okRight := decode(b)
+	return okLeft && okRight && reflect.DeepEqual(left, right)
 }
 
 func maskStepSecrets(masker *masking.Masker, step ir.Step) ir.Step {

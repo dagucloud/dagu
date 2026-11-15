@@ -7,17 +7,22 @@ import (
 	"context"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const instructions = `Dagu exposes a compact MCP surface for DAG workflow operations.
 
 Use dagu_read for current state, Wiki pages, and trusted reference resources.
+Before writing or editing DAG YAML, read dagu_read target=reference name=authoring.
 Use dagu_change with mode=preview before mode=apply when editing DAG YAML, DAG default profiles, or Wiki pages.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 When a run waits for a person, dagu_execute action=approve, reject, or push_back decides the waiting step that dagu_read target=run lists.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
-To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.`
+To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.
+When Dagu misbehaves or its errors or references mislead, read dagu_read target=reference name=feedback before drafting an issue.`
+
+const issuesURL = "https://github.com/dagucloud/dagu/issues"
 
 type referenceResource struct {
 	topic       string
@@ -336,6 +341,37 @@ dagu_execute returns resource links for the DAG-run and logs when a run can be i
 Clients that support MCP resource subscriptions can subscribe to the dagu://runs/{name}/{dagRunId} resource. Dagu sends a resource update notification when the run reaches a terminal state: success, failed, aborted, partial success, or rejected. Dagu also notifies when the run stops at a waiting checkpoint, and keeps watching so the later terminal state is notified too.
 
 Clients without resource subscription support have two options: pass wait=true to dagu_execute to wait for the result inside the tool call, or poll dagu_read target=run with the same name and dagRunId.`,
+		},
+		{
+			topic:       "feedback",
+			uri:         "dagu://reference/feedback",
+			name:        "dagu_feedback_reference",
+			title:       "Reporting Dagu issues",
+			description: "How to draft a Dagu bug, UX gap, or reference gap report for the user to submit.",
+			text: `# Reporting Dagu issues
+
+Report an issue when Dagu itself misbehaves, a tool result or error message misleads, or a reference topic lacks a rule needed to finish the task. A DAG that fails because of its own commands or configuration is not a Dagu issue.
+
+This server runs Dagu version ` + config.Version + `.
+
+Before drafting:
+
+1. Rule out misuse. Reread the relevant reference topic and confirm the behavior with dagu_change mode=preview or dagu_read.
+2. Search existing issues at ` + issuesURL + `?q=is%3Aissue+<keywords>. When one matches, give the user that link instead of a new draft.
+
+Draft:
+
+- Title: one line naming the behavior, prefixed with bug:, feat:, or docs:.
+- Body sections: What happened, Expected, Reproduction (a minimal DAG and the exact tool call), Error (the exact text), and Environment (the Dagu version above and the MCP client).
+- End the body with the line: Drafted by an AI agent through Dagu MCP.
+- The repository is public. Replace secrets, tokens, hostnames, IP addresses, file paths, user names, DAG names, and log data with placeholders.
+
+Submit:
+
+- Show the user the full title and body and ask whether to report it. Do not report without the user's approval.
+- When the user approves, give them ` + issuesURL + `/new?title=<title>&body=<body> with both values URL-encoded. The user reviews and submits it on GitHub.
+- Keep the link under 8000 characters. Shorten the body before dropping the reproduction.
+- File the issue through another GitHub tool only when the user asks for that.`,
 		},
 	}
 }
