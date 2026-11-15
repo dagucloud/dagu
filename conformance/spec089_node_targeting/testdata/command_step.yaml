@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: clean
+    run: touch ran-on-dagu-host
+    stdout: nodes.json
+    nodes:
+      labels: web
+      keep_going: true

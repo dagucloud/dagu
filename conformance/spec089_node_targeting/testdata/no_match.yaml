@@ -1,0 +1,11 @@
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+---
+name: deploy-one
+node: required
+steps:
+  - action: noop

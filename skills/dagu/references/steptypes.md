@@ -478,6 +478,35 @@ defaults:
 
 A completed `parallel` step publishes a JSON array of each successful child run's outputs on its step outputs channel, so a later step in the same DAG can read `${fan_out.outputs}` or `${fan_out.outputs[0].NAME}`. Entries follow `parallel.items` order with failed children removed, so index `N` is the Nth successful child rather than the Nth item, and a successful child that published nothing contributes an empty object. An entry merges the child's output variables with its declared outputs, so values published through `outputs:`, `stdout.outputs` or `outputs.write` are included. The array does not merge into the run's collected outputs or into a parent run's `${step.outputs}`.
 
+## nodes: Run On Inventory Nodes
+
+`nodes:` runs a step once per inventory node a selector matches. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
+
+```yaml
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes:
+      labels: web,env=${params.env}
+      max_concurrent: 1     # nodes at once, 1 to 1000; default 1
+      keep_going: false     # start the other nodes after one fails; default false
+---
+name: deploy-one
+node: required              # runs only bound to one node
+steps:
+  - action: noop
+```
+
+- `nodes` works on `dag.run` and on command steps (`run`, `command`, `script` without an action, `ssh.run`, `sftp.*`), and not with `parallel`, `foreach`, `worker_selector`, `container`, or `repeat_policy`.
+- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, with `timeout_sec` and `retry_policy` per node.
+- A reference in the selector must resolve to one label key or value, so `env=${params.env}` cannot be widened by a value such as `prod,!canary`.
+- The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run.
+- With `keep_going: false`, no node starts after one fails. The step writes `parallel`'s aggregate with `node` on each entry, including `not_started` and `disabled` ones.
+- A DAG with a `workspace` label cannot use `nodes` or `node: required`.
+- Not available yet: a child bound to a node fails before any step when it has a step that runs commands (no action, `ssh.run`, `sftp.*`), so commands never run on the Dagu host; `${node.*}` references; steps with `nodes` in runs on workers. Use local actions such as `http.request` or `js.run` in bound children until then.
+
 ## ssh.run / sftp.upload / sftp.download
 
 Remote command execution and file transfer over SSH.

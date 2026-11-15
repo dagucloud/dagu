@@ -1,0 +1,10 @@
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+---
+name: deploy-one
+steps:
+  - action: noop

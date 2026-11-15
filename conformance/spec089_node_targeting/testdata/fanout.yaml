@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - id: deploy
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+    nodes: web
+---
+name: deploy-one
+node: required
+steps:
+  - action: noop
