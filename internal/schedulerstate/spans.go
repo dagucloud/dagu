@@ -20,12 +20,9 @@ type Span struct {
 type SpanReason string
 
 const (
-	// SpanSuspended: the DAG was suspended.
-	SpanSuspended SpanReason = "suspended"
-	// SpanPaused: an operator paused the scheduler.
-	SpanPaused SpanReason = "paused"
-	// SpanDown: no scheduler ran.
-	SpanDown SpanReason = "down"
+	SpanSuspended SpanReason = "suspended" // the DAG was suspended
+	SpanPaused    SpanReason = "paused"    // an operator paused the scheduler
+	SpanDown      SpanReason = "down"      // no scheduler ran
 )
 
 // SpanStore records the spans in which slots could not run, as they begin
