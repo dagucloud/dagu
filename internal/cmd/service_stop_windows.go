@@ -68,24 +68,23 @@ func requestServiceStop(dataDir string, timeout time.Duration) error {
 
 	// Opened before the request, so the ID of a process that exits at once
 	// cannot name another process by the time it is waited on.
-	supervised := openSupervised()
-	defer func() {
-		for _, process := range supervised {
-			_ = windows.CloseHandle(process)
-		}
-	}()
+	supervised, _, openErr := supervisedProcesses(windows.SYNCHRONIZE | windows.PROCESS_TERMINATE)
+	defer closeHandles(supervised)
 	if err := windows.SetEvent(event); err != nil {
 		return fmt.Errorf("request service stop: %w", err)
 	}
-	return awaitExit(supervised, timeout)
+	return errors.Join(openErr, awaitExit(supervised, timeout))
 }
 
 // serviceWrapperExe is the service wrapper the installer sets up.
 const serviceWrapperExe = "dagu-service.exe"
 
-// supervisedProcesses returns the IDs of the other processes this process's
-// parent started, and whether that parent is the service wrapper.
-func supervisedProcesses() ([]uint32, bool, error) {
+// supervisedProcesses opens, with access, the other processes this
+// process's parent started when that parent is the service wrapper, and
+// reports whether it is. Windows keeps the parent ID of a process whose
+// parent exited, and may give it to the wrapper, so a process older than
+// the wrapper is not one it started. The caller closes what is returned.
+func supervisedProcesses(access uint32) ([]windows.Handle, bool, error) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil, false, fmt.Errorf("list processes: %w", err)
@@ -94,9 +93,9 @@ func supervisedProcesses() ([]uint32, bool, error) {
 
 	wrapper, self := uint32(os.Getppid()), uint32(os.Getpid()) //nolint:gosec // process IDs fit in uint32
 	var (
-		entry      windows.ProcessEntry32
-		supervised []uint32
-		byWrapper  bool
+		entry     windows.ProcessEntry32
+		children  []uint32
+		byWrapper bool
 	)
 	entry.Size = uint32(unsafe.Sizeof(entry))
 	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
@@ -104,26 +103,64 @@ func supervisedProcesses() ([]uint32, bool, error) {
 		case entry.ProcessID == wrapper:
 			byWrapper = strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), serviceWrapperExe)
 		case entry.ParentProcessID == wrapper && entry.ProcessID != self:
-			supervised = append(supervised, entry.ProcessID)
+			children = append(children, entry.ProcessID)
 		}
 	}
-	return supervised, byWrapper, nil
+	if !byWrapper {
+		return nil, false, nil
+	}
+
+	wrapperStarted, err := processStartTime(wrapper)
+	if err != nil {
+		return nil, true, fmt.Errorf("read the service wrapper's start time: %w", err)
+	}
+	var (
+		processes []windows.Handle
+		errs      []error
+	)
+	for _, pid := range children {
+		process, err := windows.OpenProcess(access|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			continue // exited since the snapshot
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("open process %d: %w", pid, err))
+			continue
+		}
+		if started, err := startTime(process); err != nil || started < wrapperStarted {
+			_ = windows.CloseHandle(process)
+			continue
+		}
+		processes = append(processes, process)
+	}
+	return processes, true, errors.Join(errs...)
 }
 
-// openSupervised opens the processes the service wrapper supervises, when
-// the wrapper runs this process, to wait for and end them.
-func openSupervised() []windows.Handle {
-	pids, byWrapper, err := supervisedProcesses()
-	if err != nil || !byWrapper {
-		return nil
+// processStartTime returns when the process with pid started, in
+// nanoseconds since 1601.
+func processStartTime(pid uint32) (int64, error) {
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return 0, err
 	}
-	var processes []windows.Handle
-	for _, pid := range pids {
-		if process, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_TERMINATE, false, pid); err == nil {
-			processes = append(processes, process)
-		}
+	defer func() { _ = windows.CloseHandle(process) }()
+	return startTime(process)
+}
+
+// startTime returns when process started, in nanoseconds since 1601.
+func startTime(process windows.Handle) (int64, error) {
+	var created, exited, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(process, &created, &exited, &kernel, &user); err != nil {
+		return 0, err
 	}
-	return processes
+	return created.Nanoseconds(), nil
+}
+
+// closeHandles closes each of handles.
+func closeHandles(handles []windows.Handle) {
+	for _, handle := range handles {
+		_ = windows.CloseHandle(handle)
+	}
 }
 
 // awaitExit waits up to timeout for the processes to exit and ends each one
@@ -153,16 +190,22 @@ func awaitExit(processes []windows.Handle, timeout time.Duration) error {
 // endSupervisedTrees ends the process trees of the other processes the
 // service wrapper started, when the wrapper is this process's parent.
 func endSupervisedTrees() error {
-	supervised, byWrapper, err := supervisedProcesses()
-	if err != nil {
-		return err
-	}
+	supervised, byWrapper, err := supervisedProcesses(0)
+	defer closeHandles(supervised)
 	if !byWrapper {
+		if err != nil {
+			return err
+		}
 		return errors.New("no Dagu process serving this data directory listens for a stop request")
 	}
 
-	var errs []error
-	for _, pid := range supervised {
+	errs := []error{err}
+	for _, process := range supervised {
+		pid, idErr := windows.GetProcessId(process)
+		if idErr != nil {
+			errs = append(errs, fmt.Errorf("read process ID: %w", idErr))
+			continue
+		}
 		kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.FormatUint(uint64(pid), 10)) //nolint:gosec // fixed command and a process ID
 		if output, killErr := kill.CombinedOutput(); killErr != nil {
 			errs = append(errs, fmt.Errorf("end process %d: %w: %s", pid, killErr, output))

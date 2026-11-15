@@ -743,43 +743,73 @@ function Remove-UninstallFile {
     }
 }
 
-# Get-ServiceProcessTree returns the processes the Dagu service runs, runs
-# included, with their start times. Windows keeps a process's parent ID after
-# the parent exits and may reuse it, so a process counts as a child only when
-# it started after the parent did.
-function Get-ServiceProcessTree {
-    $service = Get-CimInstance Win32_Service -Filter "Name='$($Script:ServiceName)'" -ErrorAction SilentlyContinue
-    if (-not $service -or -not $service.ProcessId) {
-        return @()
-    }
-    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-    $root = $all | Where-Object { $_.ProcessId -eq $service.ProcessId } | Select-Object -First 1
-    if (-not $root) {
-        return @()
-    }
-    $tree = @()
-    $parents = @($root)
+# Get-ProcessDescendants returns what the Roots processes started, at any
+# depth, among the processes in All. Windows keeps a process's parent ID
+# after the parent exits and may reuse it, so a process counts as a child
+# only when it started after the parent did.
+function Get-ProcessDescendants {
+    param([object[]]$Roots, [object[]]$All)
+    $found = @()
+    $seen = @{}
+    $parents = @($Roots)
     while ($parents.Count -gt 0) {
         $children = @()
         foreach ($parent in $parents) {
-            $children += @($all | Where-Object {
-                    $_.ParentProcessId -eq $parent.ProcessId -and $_.CreationDate -ge $parent.CreationDate
+            $children += @($All | Where-Object {
+                    $_.ParentProcessId -eq $parent.ProcessId -and $_.CreationDate -ge $parent.CreationDate -and
+                    -not $seen.ContainsKey("$($_.ProcessId)@$($_.CreationDate)")
                 })
         }
-        $tree += $children
+        foreach ($child in $children) {
+            $seen["$($child.ProcessId)@$($child.CreationDate)"] = $true
+        }
+        $found += $children
         $parents = $children
     }
-    return $tree
+    return $found
+}
+
+# Get-ServiceProcessTree returns the processes of the Dagu service, runs
+# included, with their start times: what the service wrapper runs, and the
+# runs an earlier service stop left running, which run the service's binary
+# or one set aside by an upgrade and outlived the process that started them.
+function Get-ServiceProcessTree {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $roots = @()
+    $service = Get-CimInstance Win32_Service -Filter "Name='$($Script:ServiceName)'" -ErrorAction SilentlyContinue
+    if ($service -and $service.ProcessId) {
+        $roots += @($all | Where-Object { $_.ProcessId -eq $service.ProcessId })
+    }
+    $binary = [WildcardPattern]::Escape($Script:DaguExe)
+    $leftRuns = @($all | Where-Object {
+            $process = $_
+            $process.ExecutablePath -and ($process.ExecutablePath -like $binary -or $process.ExecutablePath -like "$binary.*old") -and
+            -not ($all | Where-Object { $_.ProcessId -eq $process.ParentProcessId -and $_.CreationDate -le $process.CreationDate })
+        })
+    return @($leftRuns) + @(Get-ProcessDescendants -Roots (@($roots) + @($leftRuns)) -All $all)
 }
 
 # Stop-ProcessTree ends the processes of Get-ServiceProcessTree that still
-# run, skipping a later process that reuses an ID.
+# run, skipping a later process that reuses an ID, and then what they
+# started since the tree was read, until nothing more is found.
 function Stop-ProcessTree {
     param([object[]]$Tree)
-    foreach ($process in $Tree) {
-        $current = Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ProcessId)" -ErrorAction SilentlyContinue
-        if ($current -and $current.CreationDate -eq $process.CreationDate) {
+    $ended = @()
+    $endedKeys = @{}
+    for ($pass = 0; $pass -lt 10; $pass++) {
+        $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+        $live = @(@($Tree) + @(Get-ProcessDescendants -Roots $ended -All $all) | Where-Object {
+                $candidate = $_
+                -not $endedKeys.ContainsKey("$($candidate.ProcessId)@$($candidate.CreationDate)") -and
+                ($all | Where-Object { $_.ProcessId -eq $candidate.ProcessId -and $_.CreationDate -eq $candidate.CreationDate })
+            })
+        if ($live.Count -eq 0) {
+            return
+        }
+        foreach ($process in $live) {
             Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+            $endedKeys["$($process.ProcessId)@$($process.CreationDate)"] = $true
+            $ended += $process
         }
     }
 }
