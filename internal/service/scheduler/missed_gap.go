@@ -125,10 +125,11 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 // coverGap takes from a DAG's missed gap the slots a backfill of a range
 // runs. A backfill that runs the gap's first slots leaves the gap the slots
 // after them, or clears it when it runs them all. One that leaves an
-// earlier slot of the gap, or names its slots, leaves the gap as it is. It
-// reports whether the gap changed.
+// earlier slot of the gap, names its slots, or selects them by a date
+// leaves the gap as it is, since it may skip slots between. It reports
+// whether the gap changed.
 func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
-	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 {
+	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 || record.Options.By != "" {
 		return false
 	}
 	tp.mu.RLock()

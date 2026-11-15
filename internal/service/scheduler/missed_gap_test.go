@@ -286,12 +286,15 @@ func backfillOf(dagName string, slots ...time.Time) *backfill.Record {
 
 // A backfill that runs a gap's slots clears it. One that runs its first
 // slots leaves the gap the slots after them; one that leaves an earlier
-// slot of the gap, or names its slots, leaves the gap as it is.
+// slot of the gap, names its slots, or selects them by a date leaves the
+// gap as it is.
 func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 	t.Parallel()
 	held := schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 3}
 	named := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
 	named.Options.Slots = []time.Time{at(12, 0), at(13, 0), at(14, 0)}
+	byDate := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
+	byDate.Options.By = "target_day"
 	for _, tc := range []struct {
 		name   string
 		record *backfill.Record
@@ -307,6 +310,7 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 		{name: "later slots", record: backfillOf("hourly", at(13, 0), at(14, 0)), want: &held},
 		{name: "earlier slots", record: backfillOf("hourly", at(9, 0), at(10, 0)), want: &held},
 		{name: "named slots", record: named, want: &held},
+		{name: "slots by a date", record: byDate, want: &held},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
