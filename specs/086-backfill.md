@@ -249,11 +249,11 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   Backfill action that opens the start panel on that span, with its bounds
   editable, since a span may hold more slots than one backfill may run. A
   dismissed gap stays hidden in that browser until another is missed.
-- A backfill of a range that runs a gap's first slots takes them from the
-  gap once the scheduler picks it up: the gap then starts after them, and
-  is gone when the backfill runs all its slots. A backfill that leaves an
-  earlier slot of the gap, names its slots, or selects them by a date
-  leaves the gap as it is.
+- Once the scheduler picks up a backfill of a range, it takes from the gap
+  the slots the backfill runs, from the gap's first slot up to the first one
+  the backfill skips. The gap then starts after them, and is gone when the
+  backfill runs all its slots; a dismissed gap stays dismissed. A backfill
+  that names its slots or selects them by a date leaves the gap as it is.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and
   its explicit params or the first matching recurring schedule's overrides.

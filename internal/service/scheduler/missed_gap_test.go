@@ -285,9 +285,9 @@ func backfillOf(dagName string, slots ...time.Time) *backfill.Record {
 }
 
 // A backfill that runs a gap's slots clears it. One that runs its first
-// slots leaves the gap the slots after them; one that leaves an earlier
-// slot of the gap, names its slots, or selects them by a date leaves the
-// gap as it is.
+// slots leaves the gap the slots from the first it skips; one that skips
+// the gap's first slot, names its slots, or selects them by a date leaves
+// the gap as it is.
 func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 	t.Parallel()
 	held := schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 3}
@@ -306,6 +306,12 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 			name:   "first slots",
 			record: backfillOf("hourly", at(12, 0), at(13, 0)),
 			want:   &schedulerstate.MissedGap{From: at(13, 0).Add(time.Second), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 1},
+		},
+		{
+			// Another open backfill holds 13:00, so this one skips it.
+			name:   "first slots around a held one",
+			record: backfillOf("hourly", at(12, 0), at(14, 0)),
+			want:   &schedulerstate.MissedGap{From: at(12, 0).Add(time.Second), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 2},
 		},
 		{name: "later slots", record: backfillOf("hourly", at(13, 0), at(14, 0)), want: &held},
 		{name: "earlier slots", record: backfillOf("hourly", at(9, 0), at(10, 0)), want: &held},
@@ -350,4 +356,27 @@ func TestTickPlanner_BackfillsCoverGapInParts(t *testing.T) {
 		require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, at(11, 0))))
 		assert.Nil(t, missedGap(tp, dag.Name))
 	})
+}
+
+// A gap counted to the cap holds more slots than it counts, so a backfill
+// of its first part leaves it counting the slots after them again.
+func TestTickPlanner_BackfillRecountsCappedGap(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(11, 59))})
+	held := true
+	tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return held, nil }
+	dag := &ir.DAG{Name: "minutely", Schedule: []ir.Schedule{mustParseSchedule(t, "* * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	tp.Plan(t.Context(), at(12, 0))
+	held = false
+	// Eight days hold 11,520 slots.
+	tp.Plan(t.Context(), at(12, 0).AddDate(0, 0, 8))
+	require.Equal(t, schedulerstate.MaxGapSlots, missedGap(tp, dag.Name).Slots)
+
+	var slots []time.Time
+	for i := range 100 {
+		slots = append(slots, at(12, i))
+	}
+	require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, slots...)))
+	assert.Equal(t, schedulerstate.MaxGapSlots, missedGap(tp, dag.Name).Slots)
 }

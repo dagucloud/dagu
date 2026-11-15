@@ -31,9 +31,13 @@ const MESSAGES: Record<MissedSlotsReason, string> = {
 /** The most slots the scheduler counts in a gap. */
 const MAX_GAP_SLOTS = 10000;
 
-/** A gap's dismissal holds for its DAG on its node only. */
+/**
+ * A gap's dismissal holds for its DAG on its node only. A backfill of a
+ * gap's first slots moves its start, so the key leaves the start out: the
+ * end, when the hold or the outage was found to end, tells gaps apart.
+ */
 const gapKey = (gap: MissedSlots, dagName: string, remoteNode: string) =>
-  `${remoteNode}/${dagName}/${gap.from}/${gap.to}`;
+  `${remoteNode}/${dagName}/${gap.reason}/${gap.to}`;
 
 function readDismissed(): string[] {
   try {

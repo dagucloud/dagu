@@ -123,11 +123,11 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 }
 
 // coverGap takes from a DAG's missed gap the slots a backfill of a range
-// runs. A backfill that runs the gap's first slots leaves the gap the slots
-// after them, or clears it when it runs them all. One that leaves an
-// earlier slot of the gap, names its slots, or selects them by a date
-// leaves the gap as it is, since it may skip slots between. It reports
-// whether the gap changed.
+// runs, from the gap's first slot up to the first one it does not run. The
+// gap then starts after them, or is gone when the backfill runs them all. A
+// backfill that names its slots or selects them by a date leaves the gap as
+// it is, since it may skip slots between. It reports whether the gap
+// changed.
 func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bool {
 	if len(record.Slots) == 0 || len(record.Options.Slots) > 0 || record.Options.By != "" {
 		return false
@@ -140,38 +140,72 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	}
 	gap := *missed
 	start := gapStart(gap)
-	first, last := record.Slots[0].At, record.Slots[len(record.Slots)-1].At
-	if !last.After(start) || first.After(gap.To) {
+	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(gap.To) {
 		return false
 	}
 	schedules, ok := tp.startSchedules(ctx, record.DAGName)
-	if !ok || slotBefore(schedules, start.In(tp.cfg.Location), first) {
+	if !ok {
 		return false
 	}
-	covered := 0
-	for _, slot := range record.Slots {
-		if slot.At.After(start) && !slot.At.After(gap.To) {
-			covered++
-		}
+	covered, last := coveredSlots(schedules, start.In(tp.cfg.Location), gap.To, record.Slots)
+	if covered == 0 {
+		return false
+	}
+	remaining := gap.Slots - covered
+	gap.From = last
+	if gap.Reason != schedulerstate.GapDown {
+		gap.From = last.Add(time.Second)
+	}
+	// A count at the cap is short of the slots, so it is counted again.
+	if gap.Slots >= schedulerstate.MaxGapSlots {
+		remaining = countSlots(schedules, gapStart(gap).In(tp.cfg.Location), gap.To)
 	}
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[record.DAGName])
-	if watermark.Missed == nil || !sameGap(*watermark.Missed, gap) {
+	if watermark.Missed == nil || !sameGap(*watermark.Missed, *missed) {
 		return false
 	}
-	if covered >= gap.Slots {
-		watermark.Missed = nil
-	} else {
-		gap.From, gap.Slots = last, gap.Slots-covered
-		if gap.Reason != schedulerstate.GapDown {
-			gap.From = last.Add(time.Second)
-		}
+	watermark.Missed = nil
+	if remaining > 0 {
+		gap.Slots = remaining
 		watermark.Missed = &gap
 	}
 	tp.watermarkState.DAGs[record.DAGName] = watermark
 	return true
+}
+
+// coveredSlots walks the fire times of the schedules after from and by to
+// while the backfill's slots, oldest first, hold each. It returns how many
+// they hold and the last of them.
+func coveredSlots(schedules []ir.Schedule, from, to time.Time, slots []backfill.RecordSlot) (int, time.Time) {
+	covered, last, i := 0, time.Time{}, 0
+	for at := nextFire(schedules, from); !at.IsZero() && !at.After(to); at = nextFire(schedules, at) {
+		for i < len(slots) && slots[i].At.Before(at) {
+			i++
+		}
+		if i == len(slots) || !slots[i].At.Equal(at) {
+			break
+		}
+		covered, last = covered+1, at
+	}
+	return covered, last
+}
+
+// nextFire returns the earliest fire time of the cron schedules after from,
+// or zero when none fires again.
+func nextFire(schedules []ir.Schedule, from time.Time) time.Time {
+	var next time.Time
+	for _, schedule := range schedules {
+		if schedule.Parsed == nil {
+			continue
+		}
+		if at := schedule.Parsed.Next(from).Round(0); !at.IsZero() && (next.IsZero() || at.Before(next)) {
+			next = at
+		}
+	}
+	return next
 }
 
 // gapStart is the instant a gap's slots come after. A hold's gap holds the
@@ -202,20 +236,6 @@ func (tp *TickPlanner) startSchedules(ctx context.Context, dagName string) ([]ir
 	}
 	active, ok := tp.activeDAGSchedules(ctx, dagEntry)
 	return active.start, ok
-}
-
-// slotBefore reports whether a cron schedule fires after from and before
-// before.
-func slotBefore(schedules []ir.Schedule, from, before time.Time) bool {
-	for _, schedule := range schedules {
-		if schedule.Parsed == nil {
-			continue
-		}
-		if next := schedule.Parsed.Next(from); !next.IsZero() && next.Before(before) {
-			return true
-		}
-	}
-	return false
 }
 
 // countSlots counts the fire times of the cron schedules after from and by

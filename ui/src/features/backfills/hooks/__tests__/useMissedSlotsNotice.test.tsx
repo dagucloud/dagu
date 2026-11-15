@@ -121,4 +121,18 @@ describe('useMissedSlotsNotice', () => {
     rerender({ missed: { ...gap, to: '2026-11-02T09:00:00Z' } });
     expect(result.current.notice).not.toBeNull();
   });
+
+  // A backfill of the gap's first slots moves its start only.
+  it('stays dismissed when a backfill shortens the gap', () => {
+    const { result, rerender } = renderHook(
+      ({ missed }) => useNoticeAndLocation(missed),
+      { wrapper, initialProps: { missed: gap } }
+    );
+
+    act(() => result.current.notice?.dismiss?.());
+    rerender({
+      missed: { ...gap, from: '2026-11-01T15:00:01Z', slots: 6 },
+    });
+    expect(result.current.notice).toBeNull();
+  });
 });
