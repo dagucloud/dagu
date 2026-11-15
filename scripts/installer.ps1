@@ -744,19 +744,30 @@ function Remove-UninstallFile {
 }
 
 # Get-ServiceProcessTree returns the processes the Dagu service runs, runs
-# included, with their start times.
+# included, with their start times. Windows keeps a process's parent ID after
+# the parent exits and may reuse it, so a process counts as a child only when
+# it started after the parent did.
 function Get-ServiceProcessTree {
     $service = Get-CimInstance Win32_Service -Filter "Name='$($Script:ServiceName)'" -ErrorAction SilentlyContinue
     if (-not $service -or -not $service.ProcessId) {
         return @()
     }
     $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $root = $all | Where-Object { $_.ProcessId -eq $service.ProcessId } | Select-Object -First 1
+    if (-not $root) {
+        return @()
+    }
     $tree = @()
-    $parents = @($service.ProcessId)
+    $parents = @($root)
     while ($parents.Count -gt 0) {
-        $children = @($all | Where-Object { $parents -contains $_.ParentProcessId })
+        $children = @()
+        foreach ($parent in $parents) {
+            $children += @($all | Where-Object {
+                    $_.ParentProcessId -eq $parent.ProcessId -and $_.CreationDate -ge $parent.CreationDate
+                })
+        }
         $tree += $children
-        $parents = @($children | ForEach-Object { $_.ProcessId })
+        $parents = $children
     }
     return $tree
 }
