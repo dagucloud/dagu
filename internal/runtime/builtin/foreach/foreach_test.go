@@ -83,6 +83,14 @@ func TestSummarizeKeepsOnlyAMaskedRead(t *testing.T) {
 	masked := summarize([]itemResult{{Status: ir.NodeFailed.String(), Error: read.Error(), err: read}}, nil)
 	assert.ErrorIs(t, masked.err, read)
 
+	// The masked read is kept whichever body failed first.
+	maskedLater := summarize([]itemResult{
+		{Status: ir.NodeFailed.String(), Error: "exit status 1"},
+		{Status: ir.NodeFailed.String(), Error: read.Error(), err: read},
+	}, nil)
+	assert.ErrorIs(t, maskedLater.err, read)
+	assert.EqualError(t, maskedLater.err, "all 2 item bodies failed; first error: exit status 1")
+
 	timedOut := summarize([]itemResult{{Status: ir.NodeFailed.String(), Error: "deadline", err: context.DeadlineExceeded}}, nil)
 	require.Error(t, timedOut.err)
 	assert.NotErrorIs(t, timedOut.err, context.DeadlineExceeded)

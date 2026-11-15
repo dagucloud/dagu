@@ -144,7 +144,7 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 func summarize(results []itemResult, dispatchErr error) runOutcome {
 	outcome := runOutcome{total: len(results)}
 	var first string
-	var firstErr error
+	var read error
 	for _, result := range results {
 		// An item a cancellation kept from starting neither succeeded nor
 		// failed; the cancellation itself decides the outcome.
@@ -152,8 +152,11 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 			continue
 		}
 		outcome.failed++
+		if found, ok := errors.AsType[*cmnvalue.MaskedReadError](result.err); ok && read == nil {
+			read = found
+		}
 		if first == "" {
-			first, firstErr = result.Error, result.err
+			first = result.Error
 			if first == "" {
 				first = result.Status
 			}
@@ -165,18 +168,17 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		outcome.cancelled = errors.Is(dispatchErr, context.Canceled)
 		outcome.err = dispatchErr
 	case outcome.total > 0 && outcome.failed == outcome.total:
-		err := &bodiesError{msg: fmt.Sprintf("all %d item bodies failed; first error: %s", outcome.total, first)}
-		if read, ok := errors.AsType[*cmnvalue.MaskedReadError](firstErr); ok {
-			err.read = read
+		outcome.err = &bodiesError{
+			msg:  fmt.Sprintf("all %d item bodies failed; first error: %s", outcome.total, first),
+			read: read,
 		}
-		outcome.err = err
 	}
 	return outcome
 }
 
 // bodiesError reports that every item body failed. It wraps a masked read
-// in the first body, which fails the step the same way on every attempt, but
-// no other body error: a body's timeout or cancellation is not the step's.
+// in any body, which fails the step the same way on every attempt, but no
+// other body error: a body's timeout or cancellation is not the step's.
 type bodiesError struct {
 	msg  string
 	read error
