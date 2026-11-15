@@ -266,7 +266,18 @@ func procRecordName(meta proc.ProcMeta, t time.Time) string {
 }
 
 func (s *Store) filePath(groupName string, meta proc.ProcMeta, t time.Time) string {
-	return filepath.Join(s.groupDir(groupName), fileutil.EscapeName(meta.Name), procRecordName(meta, t)+procFileExt)
+	return filepath.Join(s.groupDir(groupName), dagDirName(meta.Name), procRecordName(meta, t)+procFileExt)
+}
+
+// dagDirName returns the name of a DAG's directory in a group. A DAG named
+// like the group lock's directory gets its leading dot escaped, so the two
+// never share a directory.
+func dagDirName(dagName string) string {
+	name := fileutil.EscapeName(dagName)
+	if dirlock.IsLockDirectoryName(name) {
+		return "%2E" + name[1:]
+	}
+	return name
 }
 
 // groupDir returns the directory of a process group.
@@ -515,7 +526,7 @@ func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 		return nil, nil, err
 	}
 	for _, dagEntry := range dagEntries {
-		if !dagEntry.IsDir() || isGroupLockDir(dagEntry.Name()) {
+		if !dagEntry.IsDir() || dirlock.IsLockDirectoryName(dagEntry.Name()) {
 			continue
 		}
 		dagDir := filepath.Join(groupDir, dagEntry.Name())
@@ -529,7 +540,7 @@ func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 		holdsGroups := false
 		for _, procEntry := range procEntries {
 			if procEntry.IsDir() {
-				holdsGroups = holdsGroups || !isGroupLockDir(procEntry.Name())
+				holdsGroups = holdsGroups || !dirlock.IsLockDirectoryName(procEntry.Name())
 				continue
 			}
 			if filepath.Ext(procEntry.Name()) == procFileExt {
@@ -542,12 +553,6 @@ func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 	}
 	sort.Strings(files)
 	return files, nested, nil
-}
-
-// isGroupLockDir reports whether name is a directory that a group lock keeps
-// in its group directory. Any other name may be a DAG or a queue segment.
-func isGroupLockDir(name string) bool {
-	return strings.HasPrefix(name, dirlock.LockDirectoryName)
 }
 
 func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcEntry, error) {
@@ -574,7 +579,7 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcE
 // A name that cannot be parsed is a possible match, because attributing such a
 // file needs its contents.
 func procFileMayBelongTo(path string, dagRun ir.DAGRunRef) bool {
-	if filepath.Base(filepath.Dir(path)) != fileutil.EscapeName(dagRun.Name) {
+	if filepath.Base(filepath.Dir(path)) != dagDirName(dagRun.Name) {
 		return false
 	}
 	parsed, err := parseProcFileName(filepath.Base(path))
@@ -706,7 +711,7 @@ func procMetaFromData(path string, parsedName procFileName, payload []byte, hear
 		if parsedName.dagRunID != meta.DAGRunID || parsedName.attemptID != meta.AttemptID {
 			return proc.ProcMeta{}, fmt.Errorf("%w: proc filename/body mismatch for %s", errInvalidProcFile, path)
 		}
-		if filepath.Base(filepath.Dir(path)) != fileutil.EscapeName(meta.Name) {
+		if filepath.Base(filepath.Dir(path)) != dagDirName(meta.Name) {
 			return proc.ProcMeta{}, fmt.Errorf("%w: proc path/body DAG name mismatch for %s", errInvalidProcFile, path)
 		}
 		return meta, nil
