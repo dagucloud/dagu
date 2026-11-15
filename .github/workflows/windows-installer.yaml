@@ -172,6 +172,9 @@ jobs:
       # Mirrors how the Inno Setup installer drives the script: the binary is
       # already in place and only the Windows service should be configured.
       - name: Test installer service-only mode
+        # A step that times out keeps its log; a job that does is cancelled
+        # without one.
+        timeout-minutes: 8
         shell: powershell
         run: |
           $installerPath = (Resolve-Path "scripts/installer.ps1").Path
@@ -348,6 +351,7 @@ jobs:
       # /PORT and /COORDINATORPORT) to installer.ps1, which must leave a
       # running service behind; the uninstaller must take it away again.
       - name: Test Inno Setup installer service mode
+        timeout-minutes: 8
         shell: powershell
         run: |
           $installDir = "$env:ProgramFiles\Dagu"

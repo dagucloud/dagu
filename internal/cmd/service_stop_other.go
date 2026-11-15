@@ -8,6 +8,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"time"
 )
 
 // serviceStopRequests delivers service-stop requests, which only the Windows
@@ -16,6 +17,6 @@ func serviceStopRequests(string) (<-chan os.Signal, error) {
 	return nil, nil
 }
 
-func requestServiceStop(string) error {
+func requestServiceStop(string, time.Duration) error {
 	return errors.New("service-stop is only used by the Windows service; send SIGTERM instead")
 }

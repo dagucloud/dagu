@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -32,13 +33,19 @@ this command ignores.`,
 		},
 		nil,
 		func(ctx *Context, _ []string) error {
-			if err := requestServiceStop(ctx.Config.Paths.DataDir); err != nil {
+			if err := requestServiceStop(ctx.Config.Paths.DataDir, serviceStopTimeout); err != nil {
 				return fmt.Errorf("failed to stop Dagu: %w", err)
 			}
 			return nil
 		},
 	)
 }
+
+// serviceStopTimeout bounds how long service-stop waits for Dagu to shut
+// down before it ends Dagu, leaving runs in progress running. It matches the
+// stoptimeout the installer gives the service wrapper, which ends the whole
+// process tree once it passes when Dagu lacks service-stop.
+const serviceStopTimeout = 30 * time.Second
 
 // serviceStopEventName names the Windows event through which service-stop
 // asks the start-all process serving dataDir to shut down. Windows paths are
