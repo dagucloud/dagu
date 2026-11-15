@@ -117,6 +117,56 @@ func TestStoreWindowsUnsafeNames(t *testing.T) {
 	}
 }
 
+// A queue name with a "/" still lists its runs among all entries, under the
+// queue's own name.
+func TestStoreListsQueueWithSlash(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+	ref := ir.NewDAGRunRef("etl", "run-1")
+
+	handle, err := s.Acquire(ctx, "team/etl", testProcMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = handle.Stop(ctx) }()
+
+	entries, err := s.ListAllEntries(ctx)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "team/etl", entries[0].GroupName)
+	assert.Equal(t, ref, entries[0].Meta.DAGRun())
+}
+
+// Released versions nested the directories of a queue name with a "/". A run
+// they started before an upgrade still heartbeats there, so it must stay
+// alive and listed.
+func TestStoreFindsNestedQueueHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	s := New(root)
+	ref := ir.NewDAGRunRef("etl", "run-1")
+	meta := testProcMeta(ref)
+	now := time.Now().UTC()
+	path := filepath.Join(root, "team", "etl", ref.Name, procRecordName(meta, now)+procFileExt)
+	require.NoError(t, writeProcFile(path, now.Unix(), meta))
+
+	alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, "team/etl", ref)
+	require.NoError(t, err)
+	assert.True(t, alive)
+
+	heartbeat, err := s.LatestHeartbeat(ctx, "team/etl", ref)
+	require.NoError(t, err)
+	require.NotNil(t, heartbeat)
+	assert.Equal(t, ref, heartbeat.DAGRun)
+
+	entries, err := s.ListAllEntries(ctx)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "team/etl", entries[0].GroupName)
+}
+
 func TestStoreWithLockSerializesIndependentStores(t *testing.T) {
 	t.Parallel()
 
