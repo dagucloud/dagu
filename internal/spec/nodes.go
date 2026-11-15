@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 const (
@@ -211,6 +212,30 @@ func validateNodeRequired(dag *ir.DAG) ir.ErrorList {
 		if step.Nodes != nil {
 			errs = append(errs, ir.NewValidationError(path+".nodes", nil,
 				errors.New("a node: required DAG runs on one node and cannot target more nodes")))
+		}
+	})
+	return errs
+}
+
+// errWorkspaceNodes refuses node targeting in a DAG of a workspace. Until RFC
+// 003 ships, inventories belong to the installation's one project, and its
+// migration moves a workspace's DAGs into a project without them (RFC 012
+// §Inventories).
+var errWorkspaceNodes = errors.New("a DAG in a workspace cannot target nodes")
+
+// validateWorkspaceNodes checks that a DAG with a workspace label targets no
+// nodes.
+func validateWorkspaceNodes(dag *ir.DAG) ir.ErrorList {
+	if _, state := workspace.WorkspaceLabelFromLabels(dag.Labels); state == workspace.WorkspaceLabelMissing {
+		return nil
+	}
+	var errs ir.ErrorList
+	if dag.NodeRequired {
+		errs = append(errs, ir.NewValidationError("node", nodeRequiredValue, errWorkspaceNodes))
+	}
+	walkSteps(dag, func(step ir.Step, path string) {
+		if step.Nodes != nil {
+			errs = append(errs, ir.NewValidationError(path+".nodes", nil, errWorkspaceNodes))
 		}
 	})
 	return errs
