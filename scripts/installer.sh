@@ -1410,10 +1410,12 @@ write_uninstall_dropin() {
 }
 
 # unit_process_count prints how many processes are left in the dagu unit of
-# the systemctl command given as arguments: its task count, or else the
-# processes listed in its cgroup. It prints nothing when neither can be read.
+# the given scope, read through the systemctl command given after it: its
+# task count, or else the processes listed in its cgroup. It prints nothing
+# when neither can be read.
 unit_process_count() {
-    local tasks cgroup procs
+    local scope="$1" tasks cgroup uid hierarchy procs dropped=0 cgroups=()
+    shift
     tasks="$("$@" show -p TasksCurrent --value dagu 2>/dev/null || true)"
     if [[ "$tasks" =~ ^[0-9]{1,9}$ ]]; then
         printf '%s' "$tasks"
@@ -1422,23 +1424,44 @@ unit_process_count() {
     if ! cgroup="$("$@" show -p ControlGroup --value dagu 2>/dev/null)"; then
         return 0
     fi
-    # systemd keeps no cgroup for a unit with no processes.
-    if [[ -z "$cgroup" ]]; then
-        printf '0'
-        return 0
-    fi
-    # cgroup v2, then the systemd hierarchy of cgroup v1.
-    for procs in "/sys/fs/cgroup${cgroup}/cgroup.procs" "/sys/fs/cgroup/systemd${cgroup}/cgroup.procs"; do
-        if [[ -r "$procs" ]]; then
-            wc -l <"$procs" | tr -d ' '
-            return 0
+    if [[ -n "$cgroup" ]]; then
+        cgroups=("$cgroup")
+    else
+        # Some systemd releases drop the path of an inactive unit even while
+        # processes are left in it, so the unit's default path is read.
+        dropped=1
+        if [[ "$scope" == "system" ]]; then
+            cgroups=(/system.slice/dagu.service)
+        else
+            uid="$(id -u)"
+            cgroups=(
+                "/user.slice/user-${uid}.slice/user@${uid}.service/app.slice/dagu.service"
+                "/user.slice/user-${uid}.slice/user@${uid}.service/dagu.service"
+            )
         fi
+    fi
+    # cgroup v2, the v2 hierarchy of a hybrid setup, then the systemd
+    # hierarchy of cgroup v1.
+    for cgroup in "${cgroups[@]}"; do
+        for hierarchy in /sys/fs/cgroup /sys/fs/cgroup/unified /sys/fs/cgroup/systemd; do
+            procs="${hierarchy}${cgroup}/cgroup.procs"
+            if [[ -r "$procs" ]]; then
+                wc -l <"$procs" | tr -d ' '
+                return 0
+            fi
+        done
     done
+    # A cgroup cannot be removed while processes are in it, so a unit with
+    # neither a path nor its default cgroup has none left.
+    if ((dropped)); then
+        printf '0'
+    fi
 }
 
 # wait_unit_empty waits up to the given seconds for the dagu unit of the
-# systemctl command given after them to have no processes left. It returns 0
-# once it has none, 1 when some are left, and 2 when the count is unknown.
+# scope and systemctl command given after them to have no processes left. It
+# returns 0 once it has none, 1 when some are left, and 2 when the count is
+# unknown.
 wait_unit_empty() {
     local seconds="$1" attempt count
     shift
@@ -1480,17 +1503,17 @@ stop_linux_service_with_runs() {
     # runs it left in its cgroup. They get SIGTERM, then SIGKILL once their
     # handlers had time.
     status=0
-    wait_unit_empty 0 "${systemctl_cmd[@]}" || status=$?
+    wait_unit_empty 0 "$scope" "${systemctl_cmd[@]}" || status=$?
     if ((status == 0)); then
         return 0
     fi
     "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGTERM dagu >/dev/null 2>&1 || true
     status=0
-    wait_unit_empty 30 "${systemctl_cmd[@]}" || status=$?
+    wait_unit_empty 30 "$scope" "${systemctl_cmd[@]}" || status=$?
     if ((status == 1)); then
         "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGKILL dagu >/dev/null 2>&1 || true
         status=0
-        wait_unit_empty 10 "${systemctl_cmd[@]}" || status=$?
+        wait_unit_empty 10 "$scope" "${systemctl_cmd[@]}" || status=$?
     fi
     if ((status != 0)); then
         ui_warn "Could not confirm that every run of the dagu service ended. Check with: ${systemctl_cmd[*]} status dagu"
