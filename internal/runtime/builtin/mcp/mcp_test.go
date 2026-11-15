@@ -124,6 +124,7 @@ func TestCallSuccess(t *testing.T) {
 	require.NoError(t, err)
 	res := decode(t, out)
 	assert.Equal(t, false, res["is_error"])
+	require.Contains(t, res, "structured_content")
 	assert.Nil(t, res["structured_content"])
 	content := res["content"].([]any)[0].(map[string]any)
 	assert.Equal(t, "text", content["type"])

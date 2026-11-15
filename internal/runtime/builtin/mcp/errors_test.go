@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +68,19 @@ func TestAuthFailure(t *testing.T) {
 	assert.NotContains(t, err.Error()+out, "wrong-token")
 }
 
+func TestForbiddenIsAuth(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "echo"})
+	require.Error(t, err)
+	assert.Equal(t, kindAuth, errKind(t, err))
+	assert.Contains(t, err.Error(), "403")
+}
+
 func TestNoImplicitRetry(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -97,6 +112,39 @@ func TestCancellation(t *testing.T) {
 	_, err := run(ctx, t, f.cfg("slow", nil))
 	require.Error(t, err)
 	assert.Equal(t, kindCanceled, errKind(t, err))
+}
+
+// A graceful dagu stop reaches a running step through Kill, which may also
+// arrive before Run starts.
+func TestKillStopsCall(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	start := func(t *testing.T) (executor.Executor, *bytes.Buffer) {
+		exec, err := newCaller(t.Context(), ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "mcp", Config: f.cfg("slow", nil)}})
+		require.NoError(t, err)
+		var out bytes.Buffer
+		exec.SetStdout(&out)
+		return exec, &out
+	}
+
+	t.Run("during call", func(t *testing.T) {
+		t.Parallel()
+		exec, out := start(t)
+		time.AfterFunc(300*time.Millisecond, func() { _ = exec.Kill(os.Interrupt) })
+		begin := time.Now()
+		err := exec.Run(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, kindCanceled, errKind(t, err), out.String())
+		assert.Less(t, time.Since(begin), 8*time.Second)
+	})
+	t.Run("before run", func(t *testing.T) {
+		t.Parallel()
+		exec, out := start(t)
+		require.NoError(t, exec.Kill(os.Interrupt))
+		err := exec.Run(t.Context())
+		require.Error(t, err)
+		assert.Equal(t, kindCanceled, errKind(t, err), out.String())
+	})
 }
 
 func TestRedactor(t *testing.T) {
