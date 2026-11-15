@@ -11,12 +11,13 @@ TLA_VERSION=1.7.4
 TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-cache=${FORMAL_CACHE:-"$root/.local/formal"}
+# Absolute, since each check runs TLC from its own scratch directory.
+cache=$(mkdir -p "${FORMAL_CACHE:-$root/.local/formal}" && cd "${FORMAL_CACHE:-$root/.local/formal}" && pwd)
 jar="$cache/tla2tools-$TLA_VERSION.jar"
 
 # name | model | result: pass, or the invariant it breaks | constants
 CHECKS='
-missedgap                             | missedgap/MissedGap | pass            | Window=0 MaxToggles=4 MaxRestarts=2 MaxBackfills=2 Mutation="none"
+missedgap                             | missedgap/MissedGap | pass            | Window=0 MaxToggles=4 MaxRestarts=2 Mutation="none"
 missedgap-catchup                     | missedgap/MissedGap | pass            | Window=2 MaxToggles=4 MaxBackfills=2 Mutation="none"
 missedgap-restored-hold-at-first-tick | missedgap/MissedGap | GapHasNoRuns    | Window=2 Mutation="restored-hold-at-first-tick"
 missedgap-hold-ignores-queued-catchup | missedgap/MissedGap | GapHasNoRuns    | Window=2 Mutation="hold-ignores-queued-catchup"
@@ -25,6 +26,7 @@ missedgap-repeated-tick-keeps-gap     | missedgap/MissedGap | GapHasNoRuns    | 
 missedgap-settle-assumes-first-tick   | missedgap/MissedGap | HoldGapComplete | Window=0 Mutation="settle-assumes-first-tick"
 missedgap-backfill-skips-hold         | missedgap/MissedGap | GapHasNoRuns    | Window=0 Mutation="backfill-skips-hold"
 missedgap-rehold-last-tick-minute     | missedgap/MissedGap | GapHasNoRuns    | Window=0 Mutation="rehold-last-tick-minute"
+missedgap-rehold-skips-planned        | missedgap/MissedGap | HoldGapComplete | Window=0 Mutation="rehold-skips-planned"
 '
 
 # The values of the constants a check does not set.
@@ -40,7 +42,6 @@ sha256() {
 
 fetch_tlc() {
 	[ -f "$jar" ] && return 0
-	mkdir -p "$cache"
 	curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/v$TLA_VERSION/tla2tools.jar"
 	if [ "$(sha256 "$jar.part")" != "$TLA_SHA256" ]; then
 		rm -f "$jar.part"
@@ -86,6 +87,14 @@ run_check() {
 	rm -rf "$work"
 	return 1
 }
+
+names=$(echo "$CHECKS" | cut -d'|' -f1 | tr -d ' ')
+for name in "$@"; do
+	echo "$names" | grep -qx "$name" || {
+		echo "formal/check.sh: no check named $name" >&2
+		exit 2
+	}
+done
 
 command -v java >/dev/null 2>&1 || {
 	echo "formal/check.sh needs Java 11 or later on PATH" >&2

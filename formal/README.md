@@ -26,7 +26,10 @@ nothing, so a mutation that stops failing is itself a failure.
 ## missedgap
 
 `missedgap/MissedGap.tla` models a DAG's missed gap (`DAGWatermark.Missed`) and
-hold (`HeldSince`) for one DAG with a `* * * * *` schedule.
+hold (`HeldSince`) for one DAG with a `* * * * *` schedule, through ticks,
+crashes, including one between planning a slot and starting its run, restarts,
+startups that run into the next minute, suspend and resume at any moment,
+catch-up, and backfills.
 
 It covers these functions in `internal/service/scheduler`:
 
