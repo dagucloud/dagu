@@ -490,6 +490,8 @@ func (r *Local) newAgent(
 	opts.RootDAGRun = req.RootDAGRun
 	opts.TriggerActor = req.TriggerActor
 	opts.ParallelItem = req.ParallelItem
+	opts.BoundNode = req.Node
+	opts.NodeSelector = rCtx.Nodes
 	opts.ScheduleTime = req.ScheduleTime
 	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath
@@ -630,6 +632,9 @@ func loadInProcessDAG(
 		dag, err = spec.LoadYAML(ctx, req.DAG.YamlData, loadOpts...)
 	default:
 		err = errMissingDAGPath
+	}
+	if err == nil && req.NodeStep != "" {
+		dag, err = dag.NodeStepChild(req.NodeStep)
 	}
 	if err != nil {
 		cleanup()

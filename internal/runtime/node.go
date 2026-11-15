@@ -202,7 +202,7 @@ func (n *Node) setupContextWithTimeout(ctx context.Context) (context.Context, co
 	step := n.Step()
 	var stepTimeout time.Duration
 
-	if step.Timeout > 0 {
+	if step.Timeout > 0 && !runsOnEachNode(step) {
 		stepTimeout = step.Timeout
 		ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 		n.setExecCancel(cancel)
@@ -882,6 +882,9 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	if err != nil {
 		return ctx, nil, err
 	}
+	if n.Step().Nodes != nil {
+		return n.setupNodesExecutor(ctx)
+	}
 
 	// Evaluate the command and args if not already evaluated
 	if err := n.evaluateCommandArgs(ctx); err != nil {
@@ -1134,6 +1137,7 @@ func subRunsFromParams(params []executor.RunParams) []SubDAGRun {
 			DAGRunID:     run.RunID,
 			Params:       run.Params,
 			ParallelItem: run.ParallelItem,
+			Node:         run.Node,
 			DAGName:      run.DAGName,
 		}
 	}
@@ -1825,6 +1829,9 @@ func (n *Node) setupRetryPolicy(ctx context.Context) error {
 	var exitCodes []int
 
 	step := n.Step()
+	if runsOnEachNode(step) {
+		return nil
+	}
 	if step.RetryPolicy.Limit > 0 {
 		limit = step.RetryPolicy.Limit
 	}
