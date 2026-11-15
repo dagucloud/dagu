@@ -266,7 +266,11 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 					pendingSet[key] = struct{}{}
 				}
 			} else if res.err != nil && !errors.Is(res.err, errParallelCancelled) && !errors.Is(res.err, context.Canceled) {
-				e.errors = append(e.errors, fmt.Errorf("sub DAG %s failed: %w", res.attempt.runParams.RunID, res.err))
+				if e.nodes != nil {
+					e.errors = append(e.errors, fmt.Errorf("node %s failed: %w", res.attempt.runParams.Node, res.err))
+				} else {
+					e.errors = append(e.errors, fmt.Errorf("sub DAG %s failed: %w", res.attempt.runParams.RunID, res.err))
+				}
 			}
 
 		case <-e.cancel:
@@ -305,6 +309,9 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return fmt.Errorf("parallel execution cancelled")
 			}
+		}
+		if e.nodes != nil {
+			return fmt.Errorf("%d of %d node(s) failed; first: %v", len(e.errors), len(e.runParamsList), e.errors[0])
 		}
 		return fmt.Errorf("parallel execution failed with %d errors: %v", len(e.errors), e.errors[0])
 	}

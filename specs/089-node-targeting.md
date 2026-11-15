@@ -75,7 +75,8 @@ Each enabled node gets its own child run, bound to that node:
 - On a `dag.run` step, the child runs the named DAG, which must declare
   `node: required`. The step fails before any child starts when it does not.
 - On a command step, the child runs that step alone, in a `node: required`
-  DAG with the parent DAG's settings. `timeout_sec` and `retry_policy` apply
+  DAG with the parent DAG's settings and the parent run's params.
+  `timeout_sec` and `retry_policy` apply
   to each node's run of the step. `depends`, `preconditions`, `continue_on`,
   and `output` apply to the step with `nodes`.
 

@@ -727,7 +727,7 @@ steps:
 ```
 
 - `nodes` works on `dag.run` and on command steps (`run`, `command`, `script` without an action, `ssh.run`, `sftp.*`), and not with `parallel`, `foreach`, `worker_selector`, `container`, or `repeat_policy`.
-- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, with `timeout_sec` and `retry_policy` per node.
+- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, with the run's params, and `timeout_sec` and `retry_policy` per node.
 - A reference in the selector must resolve to one label key or value, so `env=${params.env}` cannot be widened by a value such as `prod,!canary`.
 - The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run.
 - With `keep_going: false`, no node starts after one fails. The step writes `parallel`'s aggregate with `node` on each entry, including `not_started` and `disabled` ones.

@@ -9,10 +9,15 @@ import (
 	"os"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -241,4 +246,48 @@ steps:
 	require.Zero(t, status.Nodes[0].RetryCount, "the retry policy applies to each node, not the step")
 	require.Equal(t, map[string]string{"web01": "failed", "web02": "failed"}, nodeStatuses(aggregate))
 	require.NoFileExists(t, marker)
+}
+
+// dagu start reads the inventory from its data directory, and a command
+// step's child, the parent's definition narrowed to the step, takes the parent
+// run's params, so it loads even when a param has no default.
+func TestNodeSteps_StartReadsInventory(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	backend := file.NewBackend(th.Config.Paths)
+	inventories, err := store.NewInventoryStore(
+		backend.Collection(persis.CollectionInventories),
+		backend.Lock(persis.CollectionInventories),
+	)
+	require.NoError(t, err)
+	_, err = inventories.Create(th.Context, inventory.Inventory{
+		Name:  "fleet",
+		Nodes: []inventory.Node{{Name: "web01", Host: "10.0.1.11", Labels: []string{"web"}}},
+	})
+	require.NoError(t, err)
+
+	dagFile := th.CreateDAGFile(t, "clean-web.yaml", `
+name: clean-web
+params:
+  - name: version
+    required: true
+steps:
+  - id: clean
+    run: echo ${params.version}
+    nodes: web
+`)
+	runID := uuid.Must(uuid.NewV7()).String()
+	err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+		Args: []string{"start", "--run-id", runID, "--params", "version=2.1", dagFile},
+	})
+	require.ErrorContains(t, err, `node web01 failed: step "clean" runs commands, and running commands on inventory node "web01" is not available yet`)
+
+	status, _ := readAttemptStatusAndOutputs(t, th, "clean-web", runID)
+	require.Len(t, status.Nodes[0].SubRuns, 1)
+	child, _ := readSubAttemptStatusAndOutputs(t, th, ir.NewDAGRunRef("clean-web", runID), status.Nodes[0].SubRuns[0].DAGRunID)
+	require.Equal(t, "web01", child.BoundNode)
+	require.Equal(t, []string{"version=2.1"}, child.ParamsList)
+	require.Equal(t, ir.Failed, child.Status)
+	require.Equal(t, ir.NodeNotStarted, child.Nodes[0].Status)
 }

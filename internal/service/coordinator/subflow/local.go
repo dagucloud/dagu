@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -673,8 +674,13 @@ func inProcessLoadOptions(
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
 	}
 	// Params are always applied so that a child started without params still
-	// enforces its required params.
-	loadOpts = append(loadOpts, spec.WithParams(req.Params))
+	// enforces its required params. A command step's child is the parent's
+	// definition, so it takes the parent run's param values.
+	params := req.Params
+	if req.NodeStep != "" && req.ParentDAG != nil {
+		params = strings.Join(spec.QuoteRuntimeParams(req.ParentDAG.Params, req.ParentDAG.ParamDefs), " ")
+	}
+	loadOpts = append(loadOpts, spec.WithParams(params))
 	if req.Workspace != nil && workDir != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(workDir))
 	}
