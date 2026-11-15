@@ -15,7 +15,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -373,20 +372,24 @@ func (c *Collection) writePath(id string) (string, error) {
 }
 
 // rawPath returns where the record id was written before IDs were escaped,
-// when that is not path. It is empty on Windows, which never held a usable
-// file there (see idToRelPath).
+// when that is not path. It is empty when a listing would report a file
+// there as another record, so one record never reads or removes another's
+// file, and when this OS cannot hold the raw name (see idToRelPath).
 func (c *Collection) rawPath(id, path string) string {
-	if runtime.GOOS == "windows" {
+	rel := rawRelPath(id)
+	if relPathToID(rel) != id || !rawNameUsable(id, false) {
 		return ""
 	}
-	raw, err := pathUnderRoot(c.dir, rawRelPath(id), id, "record ID")
+	raw, err := pathUnderRoot(c.dir, rel, id, "record ID")
 	if err != nil || raw == path {
 		return ""
 	}
 	return raw
 }
 
-// existingPath returns path, or the record's raw path when only that exists.
+// existingPath returns path, or the record's raw path unless that is known
+// to be missing while path is too. A raw path that cannot be inspected is
+// returned, so the caller reports why.
 func (c *Collection) existingPath(id, path string) string {
 	raw := c.rawPath(id, path)
 	if raw == "" {
@@ -395,7 +398,7 @@ func (c *Collection) existingPath(id, path string) string {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		return path
 	}
-	if _, err := os.Stat(raw); err != nil {
+	if _, err := os.Stat(raw); errors.Is(err, os.ErrNotExist) {
 		return path
 	}
 	return raw
@@ -544,12 +547,8 @@ func (c *Collection) writeFile(path string, rec *persis.Record, exclusive bool) 
 
 func (c *Collection) collectIDs(prefix string) ([]string, error) {
 	var ids []string
-	seen := make(map[string]bool)
 	err := c.walkRecords(prefix, func(_, _, id string) error {
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
+		ids = append(ids, id)
 		return nil
 	})
 	if err != nil {
@@ -562,14 +561,7 @@ func (c *Collection) collectIDs(prefix string) ([]string, error) {
 // given prefix and time bounds. Corrupt or missing files are silently skipped.
 func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.Record, error) {
 	var recs []*persis.Record
-	index := make(map[string]int)
-	err := c.walkRecords(prefix, func(path, rel, id string) error {
-		// A record written before IDs were escaped and since rewritten may
-		// briefly have both files. The escaped one is current.
-		prev, dup := index[id]
-		if dup && rel != idToRelPath(id) {
-			return nil
-		}
+	err := c.walkRecords(prefix, func(path, _, id string) error {
 		r, err := c.readFile(path, id)
 		if err != nil {
 			return nil // skip corrupt records
@@ -580,11 +572,6 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 		if until != nil && !r.CreatedAt.Before(*until) {
 			return nil
 		}
-		if dup {
-			recs[prev] = r
-			return nil
-		}
-		index[id] = len(recs)
 		recs = append(recs, r)
 		return nil
 	})
@@ -595,7 +582,10 @@ func (c *Collection) collect(prefix string, since, until *time.Time) ([]*persis.
 }
 
 // walkRecords calls fn with the path, the path relative to the collection,
-// and the ID of each record file matching prefix.
+// and the ID of each record file matching prefix. It skips a file that reads
+// of its record do not use: a raw file whose record also has its escaped
+// file, as a rewrite that stops between writing one and removing the other
+// leaves, and a file at neither path of its record.
 func (c *Collection) walkRecords(prefix string, fn func(path, rel, id string) error) error {
 	return c.walk(prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -617,6 +607,14 @@ func (c *Collection) walkRecords(prefix string, fn func(path, rel, id string) er
 		}
 		if prefix != "" && !strings.HasPrefix(id, prefix) {
 			return nil
+		}
+		if escaped := idToRelPath(id); rel != escaped {
+			if rel != rawRelPath(id) {
+				return nil
+			}
+			if _, err := os.Stat(filepath.Join(c.dir, escaped)); !errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
 		}
 		return fn(path, rel, id)
 	})
@@ -662,8 +660,8 @@ func (c *Collection) walkRoots(prefix string) ([]string, error) {
 }
 
 // prefixWalkRoots returns the deepest directory shared by IDs matching
-// prefix, and on Linux and macOS also the directory that held them before
-// IDs were escaped, when that differs.
+// prefix, and also the directory that held them before IDs were escaped,
+// when that differs and this OS can hold it.
 func (c *Collection) prefixWalkRoots(prefix string) ([]string, error) {
 	// Use everything up to the last "/" as the subdirectory to walk.
 	lastSlash := strings.LastIndex(prefix, "/")
@@ -680,7 +678,7 @@ func (c *Collection) prefixWalkRoots(prefix string) ([]string, error) {
 		return nil, err
 	}
 	roots := []string{root}
-	if runtime.GOOS != "windows" {
+	if rawNameUsable(dirID, true) {
 		raw, err := c.walkRootUnder(filepath.FromSlash(dirID), prefix)
 		if err != nil {
 			return nil, err

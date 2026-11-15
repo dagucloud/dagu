@@ -4,12 +4,14 @@
 package file_test
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,7 +90,7 @@ func TestFileCollectionReadsRecordsUnderRawNames(t *testing.T) {
 	raw := map[string]string{
 		"nul":          "nul.json",
 		"a:b":          "a:b.json",
-		"50%41":        "50%41.json",
+		"trail /x":     filepath.Join("trail ", "x.json"),
 		"trail./child": filepath.Join("trail.", "child.json"),
 	}
 	for _, rel := range raw {
@@ -100,7 +102,7 @@ func TestFileCollectionReadsRecordsUnderRawNames(t *testing.T) {
 
 	ids, err := col.RecordIDs(ctx, "")
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"nul", "a:b", "50%41", "trail./child"}, ids)
+	assert.ElementsMatch(t, []string{"nul", "a:b", "trail /x", "trail./child"}, ids)
 	page, err := col.List(ctx, persis.ListQuery{Prefix: "trail./"})
 	require.NoError(t, err)
 	require.Len(t, page.Records, 1)
@@ -114,7 +116,7 @@ func TestFileCollectionReadsRecordsUnderRawNames(t *testing.T) {
 
 	require.NoError(t, col.CompareAndSwap(ctx, "nul", []byte(`{"v":1}`), []byte(`{"v":2}`)))
 	require.NoError(t, col.Put(ctx, &persis.Record{ID: "a:b", Data: []byte(`{"v":2}`)}))
-	require.NoError(t, col.Delete(ctx, "50%41"))
+	require.NoError(t, col.Delete(ctx, "trail /x"))
 	rec, err := col.Get(ctx, "trail./child")
 	require.NoError(t, err)
 	require.NoError(t, col.CompareAndDelete(ctx, rec))
@@ -126,6 +128,71 @@ func TestFileCollectionReadsRecordsUnderRawNames(t *testing.T) {
 		assert.JSONEq(t, `{"v":2}`, string(rec.Data), rec.ID)
 	}
 	assertPortableNames(t, dir)
+}
+
+// A record written before IDs were escaped whose ID holds "%" is found under
+// its raw name on every OS, Windows included, which can hold that name.
+func TestFileCollectionReadsRawNamesWithPercent(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "collection")
+	for _, rel := range []string{"50%off.json", "50%41.json", filepath.Join("q%", "item.json")} {
+		path := filepath.Join(dir, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte(`{"v":1}`), 0o600))
+	}
+	col := file.NewCollection(dir)
+
+	ids, err := col.RecordIDs(ctx, "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"50%off", "50%41", "q%/item"}, ids)
+	page, err := col.List(ctx, persis.ListQuery{Prefix: "q%/"})
+	require.NoError(t, err)
+	require.Len(t, page.Records, 1)
+	for _, id := range ids {
+		got, err := col.Get(ctx, id)
+		require.NoError(t, err, id)
+		assert.Equal(t, id, got.ID)
+		require.NoError(t, col.CompareAndSwap(ctx, id, got.Data, []byte(`{"v":2}`)), id)
+	}
+
+	page, err = col.List(ctx, persis.ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, page.Records, 3)
+	for _, rec := range page.Records {
+		assert.JSONEq(t, `{"v":2}`, string(rec.Data), rec.ID)
+	}
+}
+
+// An ID that spells another ID's escaped name, such as "%6Eul" for "nul",
+// keeps a record of its own.
+func TestFileCollectionKeepsEscapedLookalikesApart(t *testing.T) {
+	t.Parallel()
+
+	for _, pair := range [][2]string{{"nul", "%6Eul"}, {"nul/child", "%6Eul/child"}, {"a:b", "a%3Ab"}} {
+		t.Run(pair[1], func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			col := file.NewCollection(filepath.Join(t.TempDir(), "collection"))
+			for i, id := range pair {
+				require.NoError(t, col.Put(ctx, &persis.Record{ID: id, Data: []byte(fmt.Sprintf(`{"v":%d}`, i))}))
+			}
+
+			for i, id := range pair {
+				got, err := col.Get(ctx, id)
+				require.NoError(t, err)
+				assert.JSONEq(t, fmt.Sprintf(`{"v":%d}`, i), string(got.Data), id)
+				page, err := col.List(ctx, persis.ListQuery{Prefix: id})
+				require.NoError(t, err)
+				require.Len(t, page.Records, 1, id)
+				assert.Equal(t, id, page.Records[0].ID)
+			}
+			require.NoError(t, col.Delete(ctx, pair[1]))
+			ids, err := col.RecordIDs(ctx, "")
+			require.NoError(t, err)
+			assert.Equal(t, []string{pair[0]}, ids)
+		})
+	}
 }
 
 // A rewrite that stops between writing the escaped file and removing the
@@ -155,6 +222,47 @@ func TestFileCollectionPrefersEscapedOverRawName(t *testing.T) {
 	require.NoError(t, col.Delete(ctx, "nul"))
 	_, err = col.Get(ctx, "nul")
 	assert.ErrorIs(t, err, persis.ErrNotFound)
+}
+
+// The raw copy of a record is never listed in place of its escaped copy,
+// even when the escaped copy falls outside a listing's time bounds.
+func TestFileCollectionTimeBoundsKeepRawCopyHidden(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows never held these records under their raw names")
+	}
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "collection")
+	col := file.NewCollection(dir)
+	old := time.Now().Add(-48 * time.Hour)
+	require.NoError(t, col.Put(ctx, &persis.Record{ID: "nul", Data: []byte(`{"v":2}`), CreatedAt: old, UpdatedAt: old}))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "nul.json"), []byte(`{"v":1}`), 0o600))
+
+	since := time.Now().Add(-time.Hour)
+	page, err := col.List(ctx, persis.ListQuery{Since: &since})
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+}
+
+// A raw path that cannot be inspected is reported, not taken for a missing
+// record.
+func TestFileCollectionReportsUnreadableRawPath(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory this user cannot search")
+	}
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "collection")
+	locked := filepath.Join(dir, "trail.")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "child.json"), []byte(`{}`), 0o600))
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) })
+	col := file.NewCollection(dir)
+
+	_, err := col.Get(ctx, "trail./child")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, persis.ErrNotFound)
 }
 
 func TestRecordIDFromPath(t *testing.T) {
