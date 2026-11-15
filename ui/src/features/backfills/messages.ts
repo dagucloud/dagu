@@ -97,22 +97,13 @@ export const backfillMessages = defineMessages({
     'About {duration}': 'About {duration}',
     'Backfill running: {done} of {total} slots done':
       'Backfill running: {done} of {total} slots done',
-    '{count} slots passed from {from} to {to} while this DAG was suspended':
-      '{count} slots passed from {from} to {to} while this DAG was suspended',
-    '{count} slots passed from {from} to {to} while the scheduler was paused':
-      '{count} slots passed from {from} to {to} while the scheduler was paused',
-    '{count} slots passed from {from} to {to} while the scheduler was down':
-      '{count} slots passed from {from} to {to} while the scheduler was down',
-    '{count} slots passed from {from} to {to} while this DAG could not run':
-      '{count} slots passed from {from} to {to} while this DAG could not run',
-    '1 slot passed at {at} while this DAG was suspended':
-      '1 slot passed at {at} while this DAG was suspended',
-    '1 slot passed at {at} while the scheduler was paused':
-      '1 slot passed at {at} while the scheduler was paused',
-    '1 slot passed at {at} while the scheduler was down':
-      '1 slot passed at {at} while the scheduler was down',
-    '1 slot passed at {at} while this DAG could not run':
-      '1 slot passed at {at} while this DAG could not run',
+    '{count} slots passed from {from} to {to} while {why}':
+      '{count} slots passed from {from} to {to} while {why}',
+    '1 slot passed at {at} while {why}': '1 slot passed at {at} while {why}',
+    'this DAG was suspended': 'this DAG was suspended',
+    'the scheduler was paused': 'the scheduler was paused',
+    'the scheduler was down': 'the scheduler was down',
+    'this DAG could not run': 'this DAG could not run',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'Backfill running: {done} of {total} slots done, {failed} failed',
     'Backfill failed: {failed} slots did not succeed':
@@ -257,22 +248,13 @@ export const backfillMessages = defineMessages({
     'About {duration}': '约 {duration}',
     'Backfill running: {done} of {total} slots done':
       '回填运行中：{total} 个时段中已完成 {done} 个',
-    '{count} slots passed from {from} to {to} while this DAG was suspended':
-      'DAG 暂停期间（{from} 至 {to}）错过了 {count} 个时段',
-    '{count} slots passed from {from} to {to} while the scheduler was paused':
-      '调度器暂停期间（{from} 至 {to}）错过了 {count} 个时段',
-    '{count} slots passed from {from} to {to} while the scheduler was down':
-      '调度器停止期间（{from} 至 {to}）错过了 {count} 个时段',
-    '{count} slots passed from {from} to {to} while this DAG could not run':
-      'DAG 无法运行期间（{from} 至 {to}）错过了 {count} 个时段',
-    '1 slot passed at {at} while this DAG was suspended':
-      'DAG 暂停期间错过了 {at} 的 1 个时段',
-    '1 slot passed at {at} while the scheduler was paused':
-      '调度器暂停期间错过了 {at} 的 1 个时段',
-    '1 slot passed at {at} while the scheduler was down':
-      '调度器停止期间错过了 {at} 的 1 个时段',
-    '1 slot passed at {at} while this DAG could not run':
-      'DAG 无法运行期间错过了 {at} 的 1 个时段',
+    '{count} slots passed from {from} to {to} while {why}':
+      '{why}期间（{from} 至 {to}）错过了 {count} 个时段',
+    '1 slot passed at {at} while {why}': '{why}期间错过了 {at} 的 1 个时段',
+    'this DAG was suspended': 'DAG 暂停',
+    'the scheduler was paused': '调度器暂停',
+    'the scheduler was down': '调度器停止',
+    'this DAG could not run': 'DAG 无法运行',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       '回填运行中：{total} 个时段中已完成 {done} 个，{failed} 个失败',
     'Backfill failed: {failed} slots did not succeed':
@@ -415,22 +397,14 @@ export const backfillMessages = defineMessages({
     'About {duration}': '約 {duration}',
     'Backfill running: {done} of {total} slots done':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了',
-    '{count} slots passed from {from} to {to} while this DAG was suspended':
-      'DAG の一時停止中（{from}〜{to}）に {count} スロットが過ぎました',
-    '{count} slots passed from {from} to {to} while the scheduler was paused':
-      'スケジューラーの一時停止中（{from}〜{to}）に {count} スロットが過ぎました',
-    '{count} slots passed from {from} to {to} while the scheduler was down':
-      'スケジューラーの停止中（{from}〜{to}）に {count} スロットが過ぎました',
-    '{count} slots passed from {from} to {to} while this DAG could not run':
-      'DAG が実行できない間（{from}〜{to}）に {count} スロットが過ぎました',
-    '1 slot passed at {at} while this DAG was suspended':
-      'DAG の一時停止中に {at} の 1 スロットが過ぎました',
-    '1 slot passed at {at} while the scheduler was paused':
-      'スケジューラーの一時停止中に {at} の 1 スロットが過ぎました',
-    '1 slot passed at {at} while the scheduler was down':
-      'スケジューラーの停止中に {at} の 1 スロットが過ぎました',
-    '1 slot passed at {at} while this DAG could not run':
-      'DAG が実行できない間に {at} の 1 スロットが過ぎました',
+    '{count} slots passed from {from} to {to} while {why}':
+      '{why}（{from}〜{to}）に {count} スロットが過ぎました',
+    '1 slot passed at {at} while {why}':
+      '{why}に {at} の 1 スロットが過ぎました',
+    'this DAG was suspended': 'DAG の一時停止中',
+    'the scheduler was paused': 'スケジューラーの一時停止中',
+    'the scheduler was down': 'スケジューラーの停止中',
+    'this DAG could not run': 'DAG が実行できない間',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了、{failed} 件が失敗',
     'Backfill failed: {failed} slots did not succeed':

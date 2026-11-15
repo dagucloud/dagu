@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MissedSlotsReason } from '@/api/v1/schema';
 import type { WorkspaceNotice } from '@/features/dags/components/dag-editor/hostTypes';
@@ -9,8 +9,6 @@ import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 
-/** The dismissed missed slots of each DAG on each node. */
-export const DISMISSED_GAPS_KEY = 'dagu.backfills.dismissedGaps';
 const MISSED_SLOTS_NOTICE_PRIORITY = 15;
 const MISSED_SLOTS_PATH = '/dags/{fileName}/missed-slots';
 
@@ -25,60 +23,26 @@ export const isMissedSlotsKey = (key: unknown): boolean =>
 export const GAP_FROM_PARAM = 'gapFrom';
 export const GAP_TO_PARAM = 'gapTo';
 
-const MESSAGES: Record<MissedSlotsReason, string> = {
-  [MissedSlotsReason.suspended]:
-    '{count} slots passed from {from} to {to} while this DAG was suspended',
-  [MissedSlotsReason.paused]:
-    '{count} slots passed from {from} to {to} while the scheduler was paused',
-  [MissedSlotsReason.down]:
-    '{count} slots passed from {from} to {to} while the scheduler was down',
+/** Why the slots did not run; slots missed for several reasons name none. */
+const WHY: Record<MissedSlotsReason | 'several', string> = {
+  [MissedSlotsReason.suspended]: 'this DAG was suspended',
+  [MissedSlotsReason.paused]: 'the scheduler was paused',
+  [MissedSlotsReason.down]: 'the scheduler was down',
+  several: 'this DAG could not run',
 };
-const MIXED_MESSAGE =
-  '{count} slots passed from {from} to {to} while this DAG could not run';
-
-const SINGLE_SLOT_MESSAGES: Record<MissedSlotsReason, string> = {
-  [MissedSlotsReason.suspended]:
-    '1 slot passed at {at} while this DAG was suspended',
-  [MissedSlotsReason.paused]:
-    '1 slot passed at {at} while the scheduler was paused',
-  [MissedSlotsReason.down]:
-    '1 slot passed at {at} while the scheduler was down',
-};
-const SINGLE_SLOT_MIXED_MESSAGE =
-  '1 slot passed at {at} while this DAG could not run';
 
 /** The most slots the server looks at. */
 const MAX_MISSED_SLOTS = 10000;
 
-/** The dismissed `until` of each DAG, by `node/DAG`. */
-type Dismissed = Record<string, string>;
+/** Where the browser keeps the dismissed missed slots of a DAG on a node. */
+const dismissedKey = (remoteNode: string, dagName: string) =>
+  `dagu.backfills.dismissedMissedSlots/${remoteNode}/${dagName}`;
 
-const dagKey = (dagName: string, remoteNode: string) =>
-  `${remoteNode}/${dagName}`;
-
-function readDismissed(): Dismissed {
+function readDismissed(key: string): string | null {
   try {
-    const parsed: unknown = JSON.parse(
-      localStorage.getItem(DISMISSED_GAPS_KEY) ?? '{}'
-    );
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
-    }
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string'
-      )
-    );
+    return localStorage.getItem(key);
   } catch {
-    return {};
-  }
-}
-
-function writeDismissed(dismissed: Dismissed): void {
-  try {
-    localStorage.setItem(DISMISSED_GAPS_KEY, JSON.stringify(dismissed));
-  } catch {
-    // The notice then shows again on the next visit.
+    return null;
   }
 }
 
@@ -91,7 +55,7 @@ const formatBound = (value: string) =>
  * action opens the Backfills tab with the start panel on those slots. The
  * slots are read as the page opens and again when a backfill starts, never
  * polled. Dismissed, the notice stays hidden until a newer span adds missed
- * slots.
+ * slots, which changes their `until`.
  */
 export function useMissedSlotsNotice(
   fileName: string,
@@ -108,35 +72,26 @@ export function useMissedSlotsNotice(
     { revalidateOnFocus: false, revalidateOnReconnect: false }
   );
   const missed = data?.missedSlots;
-  const [dismissed, setDismissed] = useState(readDismissed);
-  const dismiss = useCallback(() => {
-    if (!missed) return;
-    const next = {
-      ...readDismissed(),
-      [dagKey(dagName, remoteNode)]: missed.until,
-    };
-    writeDismissed(next);
-    setDismissed(next);
-  }, [missed, dagName, remoteNode]);
+  const key = dismissedKey(remoteNode, dagName);
+  // Dismissals of this visit, which hold where the browser keeps none.
+  const [dismissed, setDismissed] = useState<Record<string, string>>({});
+  const dismissedUntil = dismissed[key] ?? readDismissed(key);
 
   return useMemo(() => {
-    if (
-      !missed ||
-      missed.slots === 0 ||
-      dismissed[dagKey(dagName, remoteNode)] === missed.until
-    ) {
+    if (!missed || missed.slots === 0 || dismissedUntil === missed.until) {
       return null;
     }
-    const reason = missed.reasons.length === 1 ? missed.reasons[0] : undefined;
+    const [reason] = missed.reasons;
+    const why = ts(
+      WHY[missed.reasons.length === 1 && reason ? reason : 'several']
+    );
     const message =
       missed.slots === 1
-        ? ts(
-            reason ? SINGLE_SLOT_MESSAGES[reason] : SINGLE_SLOT_MIXED_MESSAGE,
-            {
-              at: formatBound(missed.first),
-            }
-          )
-        : ts(reason ? MESSAGES[reason] : MIXED_MESSAGE, {
+        ? ts('1 slot passed at {at} while {why}', {
+            at: formatBound(missed.first),
+            why,
+          })
+        : ts('{count} slots passed from {from} to {to} while {why}', {
             // At the cap, more slots may have been missed.
             count:
               missed.slots >= MAX_MISSED_SLOTS
@@ -144,6 +99,7 @@ export function useMissedSlotsNotice(
                 : String(missed.slots),
             from: formatBound(missed.first),
             to: formatBound(missed.last),
+            why,
           });
     const action = {
       label: ts('Backfill'),
@@ -162,18 +118,15 @@ export function useMissedSlotsNotice(
       message,
       action: canBackfill ? action : undefined,
       dismissible: true,
-      dismiss,
+      dismiss: () => {
+        try {
+          localStorage.setItem(key, missed.until);
+        } catch {
+          // The notice then shows again on the next visit.
+        }
+        setDismissed((current) => ({ ...current, [key]: missed.until }));
+      },
       priority: MISSED_SLOTS_NOTICE_PRIORITY,
     };
-  }, [
-    missed,
-    dagName,
-    remoteNode,
-    canBackfill,
-    dismissed,
-    dismiss,
-    navigate,
-    location,
-    ts,
-  ]);
+  }, [missed, key, dismissedUntil, canBackfill, navigate, location, ts]);
 }

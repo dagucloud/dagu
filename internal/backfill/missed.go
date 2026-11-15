@@ -16,16 +16,14 @@ import (
 // MaxMissedSlots bounds the slots FindMissed looks at.
 const MaxMissedSlots = 10000
 
-// Missed is what a DAG missed in the spans in which its slots could not run:
-// the slots that no run counts for and that the scheduler did not skip.
+// Missed is the slots of a DAG that no run counts for and the scheduler did
+// not skip, with why the spans that hold them happened, in the order of the
+// slots, and when the newest of those spans ended.
 type Missed struct {
 	Slots       int
 	First, Last time.Time
-	// Reasons say why the spans that hold those slots happened, in the order
-	// of the slots.
-	Reasons []schedulerstate.SpanReason
-	// Until is the end of the newest span that holds one of them.
-	Until time.Time
+	Reasons     []schedulerstate.SpanReason
+	Until       time.Time
 }
 
 // spanBounds are the first and last instants whose slots a span holds.
@@ -34,21 +32,17 @@ type spanBounds struct {
 	span   schedulerstate.Span
 }
 
-// FindMissed finds the slots of dag that came due inside spans, among the
-// oldest MaxMissedSlots, and that neither ran by any path nor were skipped
-// by the scheduler. A span holds the slots strictly between its ends: the
-// tick at its end runs its own. Slots older than the DAG's slot retention
-// are left out, as their history is gone, and so are slots up to the DAG's
-// first recorded slot, as it was not on its schedule yet; a DAG counts as
-// on its schedule where its retained history starts. After an outage the
-// scheduler replays the slots of the DAG's catch-up window, catchup, which
-// are left to it.
+// FindMissed finds the missed slots of dag among the oldest MaxMissedSlots
+// that came due strictly inside spans; the tick at a span's end runs its
+// own. It leaves out slots older than the DAG's slot retention, slots up to
+// its first recorded slot, before which it was not on its schedule, and
+// after an outage the slots its catch-up window, catchup, replays.
 func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched SlotSchedule, spans []schedulerstate.Span, catchup time.Duration, now time.Time) (Missed, error) {
 	var cutoff time.Time
 	if dag.SlotRetentionDays > 0 {
 		cutoff = now.AddDate(0, 0, -dag.SlotRetentionDays)
 	}
-	bounds := make([]spanBounds, 0, len(spans))
+	var bounds []spanBounds
 	for _, span := range spans {
 		b := spanBounds{lo: span.From.Add(time.Nanosecond), hi: span.To.Add(-time.Nanosecond), span: span}
 		if b.lo.Before(cutoff) {
@@ -65,8 +59,8 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 	if len(fires) == 0 {
 		return Missed{}, nil
 	}
-	// The history starts at the fire before the first slot, which shows
-	// whether the DAG was on its schedule then.
+	// The fire before the first slot shows whether the DAG was on its
+	// schedule; one older than its retained history is taken to be.
 	from := ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, fires[0].Add(-time.Nanosecond)).Start
 	if from.IsZero() {
 		from = fires[0]
@@ -117,8 +111,7 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 // firesIn returns the fire times inside the bounds, oldest first, up to
 // MaxMissedSlots.
 func firesIn(sched SlotSchedule, bounds []spanBounds) []time.Time {
-	merged := slices.Clone(bounds)
-	slices.SortFunc(merged, func(a, b spanBounds) int { return a.lo.Compare(b.lo) })
+	merged := slices.SortedFunc(slices.Values(bounds), func(a, b spanBounds) int { return a.lo.Compare(b.lo) })
 	var fires []time.Time
 	for i := 0; i < len(merged) && len(fires) < MaxMissedSlots; i++ {
 		lo, hi := merged[i].lo, merged[i].hi
