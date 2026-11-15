@@ -4,6 +4,8 @@
 package fileutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -29,7 +31,8 @@ var (
 
 // SafeName converts a string to a safe filename containing only alphanumeric characters,
 // underscores, and hyphens. On Windows, a reserved device name such as CON or
-// LPT1 gets a trailing underscore.
+// LPT1 gets a hyphen and a short hash of itself appended, so it does not share
+// a result with a name such as CON_.
 func SafeName(str string) string {
 	// Replace any character not in [a-zA-Z0-9_\-] with underscore
 	safe := allowedCharRegex.ReplaceAllString(str, "_")
@@ -41,7 +44,8 @@ func SafeName(str string) string {
 	}
 
 	if reservesDeviceName(safe) {
-		safe += "_"
+		sum := sha256.Sum256([]byte(safe))
+		safe += "-" + hex.EncodeToString(sum[:4])
 	}
 
 	return safe
@@ -112,8 +116,10 @@ func LegacyEntry(dir, legacy string) (string, bool) {
 	if opensDevice(filepath.Base(path)) {
 		return "", false
 	}
-	if other, err := url.PathUnescape(legacy); err == nil && other != legacy && strings.EqualFold(EscapeName(other), legacy) {
-		return "", false
+	for segment := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
+		if other, err := url.PathUnescape(segment); err == nil && other != segment && strings.EqualFold(EscapeName(other), segment) {
+			return "", false
+		}
 	}
 	info, err := os.Lstat(path)
 	if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
