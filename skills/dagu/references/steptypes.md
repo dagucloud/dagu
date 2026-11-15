@@ -553,6 +553,40 @@ Do not set the multipart `Content-Type` header manually. `body` cannot be combin
 
 `with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
 
+## mcp.call
+
+Call one tool on a remote MCP server over Streamable HTTP, without an LLM. Each run connects, sends one `tools/call`, and closes; only `retry_policy` re-runs it.
+
+```yaml
+secrets:
+  - name: MCP_TOKEN
+    provider: env
+    key: MCP_TOKEN
+
+steps:
+  - id: scrape
+    action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments:
+        url: https://example.com
+      headers:
+        Authorization: Bearer ${MCP_TOKEN}
+    timeout_sec: 60
+    output: PAGE
+
+  - id: use
+    depends: scrape
+    run: echo "${PAGE.structured_content.pages}"
+```
+
+stdout is `{"content": [...], "structured_content": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+
+Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
+
+`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`.
+
 ## data.filter
 
 Keep the rows of a list that meet conditions on their fields, read as a page or a sheet writes them, then order and cut them. Use it for rows a `browser.run` or `computer.run` extract read, such as listings or orders, instead of code that parses each value.

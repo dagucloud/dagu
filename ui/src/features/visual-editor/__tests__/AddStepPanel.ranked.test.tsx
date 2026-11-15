@@ -62,6 +62,7 @@ describe('the aliases of the add-step search', () => {
     expect(first('curl')).toBe('http.request');
     expect(first('sleep')).toBe('wait.duration');
     expect(first('email')).toBe('mail.send');
+    expect(first('mcp')).toBe('mcp.call');
     expect(first('subworkflow')).toBe('dag.run');
     expect(first('if')).toBe('router.route');
   });

@@ -30,6 +30,7 @@ describe('actionTitle', () => {
     ['xlsx.list_sheets', 'XLSX list sheets'],
     ['k8s.run', 'K8s run'],
     ['ssh.run', 'SSH run'],
+    ['mcp.call', 'MCP call'],
     ['s3.upload', 'S3 upload'],
     ['jq.filter', 'Jq filter'],
     ['send-slack', 'Send slack'],

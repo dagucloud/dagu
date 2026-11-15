@@ -1,0 +1,6 @@
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      transport: stdio

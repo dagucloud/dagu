@@ -1,0 +1,5 @@
+steps:
+  - action: mcp.call
+    with:
+      url: https://user:pass@mcp.example.com/mcp
+      tool: scrape

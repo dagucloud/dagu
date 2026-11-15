@@ -122,6 +122,7 @@ const STARTER: Record<string, Record<string, unknown>> = {
   'mail.send': { message: 'TODO' },
   'mail.organize': { mailbox: 'INBOX', emails: ['1'], mark: 'read' },
   'mail.search': { mailbox: 'INBOX' },
+  'mcp.call': { url: 'https://example.com/mcp', tool: 'TODO' },
   'outputs.write': { values: { result: 'TODO' } },
   'postgres.import': {
     dsn: 'postgres://localhost/db',
