@@ -147,19 +147,17 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	if !ok {
 		return false
 	}
-	covered, last := coveredSlots(schedules, start.In(tp.cfg.Location), end, record.Slots)
-	if covered == 0 {
+	last := lastCovered(schedules, start.In(tp.cfg.Location), end, record.Slots)
+	if last.IsZero() {
 		return false
 	}
-	remaining := gap.Slots - covered
 	gap.From = last
 	if gap.Reason != schedulerstate.GapDown {
 		gap.From = last.Add(time.Second)
 	}
-	// A count at the cap is short of the slots, so it is counted again.
-	if gap.Slots >= schedulerstate.MaxGapSlots {
-		remaining = countSlots(schedules, gapStart(gap).In(tp.cfg.Location), end)
-	}
+	// The slots left are counted under the schedules as they are now, which
+	// may differ from those the gap was counted under.
+	remaining := countSlots(schedules, gapStart(gap).In(tp.cfg.Location), end)
 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -176,11 +174,12 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	return true
 }
 
-// coveredSlots walks the fire times of the schedules after from and by to
-// while the backfill's slots, oldest first, hold each. It returns how many
-// they hold and the last of them.
-func coveredSlots(schedules []ir.Schedule, from, to time.Time, slots []backfill.RecordSlot) (int, time.Time) {
-	covered, last, i := 0, time.Time{}, 0
+// lastCovered walks the fire times of the schedules after from and by to
+// while the backfill's slots, oldest first, hold each, and returns the last
+// they hold, or zero when they skip the first.
+func lastCovered(schedules []ir.Schedule, from, to time.Time, slots []backfill.RecordSlot) time.Time {
+	var last time.Time
+	i := 0
 	for at := nextFire(schedules, from); !at.IsZero() && !at.After(to); at = nextFire(schedules, at) {
 		for i < len(slots) && slots[i].At.Before(at) {
 			i++
@@ -188,9 +187,9 @@ func coveredSlots(schedules []ir.Schedule, from, to time.Time, slots []backfill.
 		if i == len(slots) || !slots[i].At.Equal(at) {
 			break
 		}
-		covered, last = covered+1, at
+		last = at
 	}
-	return covered, last
+	return last
 }
 
 // nextFire returns the earliest fire time of the cron schedules after from,

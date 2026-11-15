@@ -401,3 +401,19 @@ func TestTickPlanner_BackfillRecountsCappedGap(t *testing.T) {
 	require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, slots...)))
 	assert.Nil(t, missedGap(tp, dag.Name))
 }
+
+// A gap shortened after its DAG's schedule changed counts the slots left
+// under the schedule as it is, so a backfill of slots the gap never held
+// does not clear the ones it still holds.
+func TestTickPlanner_BackfillCoversGapAfterScheduleEdit(t *testing.T) {
+	t.Parallel()
+	tp, dagName := heldGap(t)
+	tp.entryMu.Lock()
+	tp.entries[dagName].DAG = &ir.DAG{Name: dagName, Schedule: []ir.Schedule{mustParseSchedule(t, "*/30 * * * *")}}
+	tp.entryMu.Unlock()
+
+	require.True(t, tp.coverGap(t.Context(), backfillOf(dagName, at(12, 0), at(12, 30), at(13, 0))))
+	gap := missedGap(tp, dagName)
+	require.NotNil(t, gap, "14:00 is still missed")
+	assert.Equal(t, at(13, 0).Add(time.Second), gap.From)
+}
