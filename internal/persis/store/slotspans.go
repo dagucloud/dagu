@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -80,7 +81,8 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 
 // update applies change to the spans of a name, then keeps the spans that
 // last and the maxSpans that ended last, within spanRetention before now. A
-// record keeps its spans in the order they ended, those that last first.
+// record keeps its spans in the order they ended, those that last first. A
+// record left as it was is not written.
 func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, change func([]schedulerstate.Span) []schedulerstate.Span) error {
 	id := spansID(dag)
 	return retryConflict(ctx, func(ctx context.Context) error {
@@ -104,6 +106,9 @@ func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, chang
 		data, err := persis.Encode(&spanRecord{Spans: spans})
 		if err != nil {
 			return err
+		}
+		if current != nil && bytes.Equal(data, current.Data) {
+			return nil
 		}
 		stamp := time.Now().UTC()
 		return createOrSwap(ctx, s.col, current, &persis.Record{ID: id, Data: data, CreatedAt: stamp, UpdatedAt: stamp})

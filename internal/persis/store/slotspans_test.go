@@ -4,6 +4,7 @@
 package store_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -145,6 +146,33 @@ func TestSpanStoreKeepsTheSpansThatEndedLast(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, schedulerstate.SpanDown, spans[0].Reason, "the pause ended first and is dropped")
+}
+
+// swapCounter counts the records a collection replaces.
+type swapCounter struct {
+	persis.Collection
+	swaps int
+}
+
+func (c *swapCounter) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	c.swaps++
+	return c.Collection.CompareAndSwap(ctx, id, expected, next)
+}
+
+// A pause or resume that changes nothing, as a second pause in a row, does
+// not write the record again.
+func TestSpanStoreSkipsUnchangedRecord(t *testing.T) {
+	t.Parallel()
+	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans)}
+	s := store.NewSpanStore(col)
+	ctx := t.Context()
+
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, true, spanAt(1, 9)))
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, true, spanAt(1, 10)))
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, false, spanAt(1, 11)))
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, false, spanAt(1, 12)))
+
+	assert.Equal(t, 1, col.swaps, "only the resume changes the record")
 }
 
 // The spans one process records are read by another, as the API records a
