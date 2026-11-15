@@ -23,8 +23,8 @@ site=tokyo,web,!canary
 ```
 
 A form or one command adds a host. [RFC 013](013-node-targeting.md) runs
-workflows and steps on the nodes a selector matches. A server can also keep
-its inventories in Dagu Cloud, which is off by default.
+workflows and steps on the nodes a selector matches. A project bound to a
+Dagu Cloud project also keeps its inventories there.
 
 ```text
 inventories ──┬──▶ project's nodes ──▶ selector ──▶ matched nodes ──▶ RFC 013
@@ -346,19 +346,13 @@ the report lists for creation. The tool's own RFC defines the mapping.
 
 ### Dagu Cloud sync
 
-A server connected to Dagu Cloud ([RFC 002](002-dagu-cloud-connector.md)) can
-keep each project's inventories there. It is off by default, and an admin of
-the server turns it on, in the UI or in configuration:
-
-```yaml
-cloud:
-  inventory_sync: false          # omit to choose in the UI
-```
-
-In Dagu Cloud, an inventory belongs to the workspace the server is connected
-to, and to the project. Every server of that workspace that syncs the project
-shares the project's inventories. RFC 018 of the Dagu Cloud repository
-defines that side.
+Sync is on for a project bound to a Dagu Cloud project
+([RFC 002](002-dagu-cloud-connector.md#binding)), and the project's
+inventories are kept there too. Servers bound to the same Dagu Cloud project
+share its inventories. A project that is not bound sends nothing, so a
+staging server shares production's hosts only when an admin binds both to
+one Dagu Cloud project. RFC 018 of the Dagu Cloud repository defines that
+side.
 
 - **What travels:** each inventory record, by its ID, up to 4 MiB. Secret
   values, trusted host keys, and workers stay on each server.
@@ -370,9 +364,11 @@ defines that side.
   validates each before it replaces the local record.
 - **The last change wins**, per inventory. Changes are not merged. Earlier
   versions are kept, and **History** restores one as a new version.
-- **Turning it on.** A server with no inventories takes Dagu Cloud's, which
-  is how a rebuilt server gets them back. When both hold inventories and they
-  differ, nothing is copied until an admin chooses which side to keep.
+- **Binding.** A bound project with no inventories takes the Dagu Cloud
+  project's, which is how a rebuilt server gets them back. When both hold
+  inventories and they differ, nothing is copied until an admin chooses
+  which side to keep. Unbinding stops sync and leaves the local inventories
+  as they are.
 
 ### Surfaces
 
@@ -465,7 +461,7 @@ the host key.
 | List nodes and inventories, preview a selector, export | `viewer` |
 | Test connection | `operator` |
 | Create, change, or delete inventories and nodes, import, trust a host key, restore a version | The role that edits the project's base config |
-| Forget a worker, turn Dagu Cloud sync on or off | `admin` |
+| Forget a worker | `admin` |
 
 Editing an inventory decides which hosts receive the project's SSH
 credentials, so it takes the same role as editing base config. Workers are
@@ -516,8 +512,7 @@ it on part of the fleet.
 
 - Additive. An install without inventories behaves as before.
 - `inventories/`, `host-keys/`, and `worker-nodes/` are new collections, as
-  [Storage](#storage) lists. `cloud.inventory_sync` is a new setting in RFC
-  002's `cloud` section.
+  [Storage](#storage) lists.
 - DAG list filters change as [Selecting nodes](#selecting-nodes) lists:
   `!key=value` excludes, and an invalid term is an error.
 - Worker labels change as [Workers](#workers) lists. `worker_selector` and
@@ -537,7 +532,8 @@ Rollout:
    `dagu nodes add|remove`, and the MCP targets.
 5. **Workers**: worker nodes, the worker label changes, `ResolveNodes`, and
    the `node` field on `ResolveSecretReference`, with RFC 013.
-6. **Dagu Cloud sync**, once Dagu Cloud accepts inventories.
+6. **Dagu Cloud sync**, once projects can be bound (RFC 002) and Dagu Cloud
+   accepts inventories.
 
 ## Verification and acceptance criteria
 
@@ -561,8 +557,9 @@ checked with RFC 013's first rollout phase.
    an edit.
 8. Each role can do what [Permissions](#permissions) lists and nothing more.
 9. With Dagu Cloud sync on, a rebuilt server gets its inventories back, two
-   servers of one workspace share a project's inventories, and runs keep
-   working while Dagu Cloud is unreachable.
+   servers bound to one Dagu Cloud project share its inventories, a project
+   that is not bound sends none, and runs keep working while Dagu Cloud is
+   unreachable.
 10. A worker with a set ID is listed with its labels, stays listed while
     offline, and matches a selector as an SSH node with the same labels does.
 
