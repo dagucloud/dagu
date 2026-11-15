@@ -282,6 +282,49 @@ func TestAttempt_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestAttempt_WriteReopensUnusableFile checks that a write still persists
+// when the open file can no longer be used, as an NFS handle goes stale when
+// another host replaces the file. Closing the file under the writer stands
+// in for that.
+func TestAttempt_WriteReopensUnusableFile(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("WritePersists", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		require.NoError(t, att.Write(ctx, statusWithPID(1)))
+		require.NoError(t, att.writer.file.Close())
+
+		require.NoError(t, att.Write(ctx, statusWithPID(2)))
+
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.PID(2), status.PID)
+	})
+
+	t.Run("FailedReopenRetries", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		require.NoError(t, att.Write(ctx, statusWithPID(1)))
+		require.NoError(t, att.writer.file.Close())
+		blockStatusFile(t, att.file)
+		require.ErrorIs(t, att.Write(ctx, statusWithPID(2)), ErrWriteFailed)
+
+		require.NoError(t, os.Remove(att.file))
+		require.NoError(t, att.Write(ctx, statusWithPID(3)))
+
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.PID(3), status.PID)
+	})
+}
+
+// blockStatusFile replaces the status file with a directory, so that opening
+// it for writing fails until the directory is removed.
+func blockStatusFile(t *testing.T, file string) {
+	t.Helper()
+	require.NoError(t, os.Remove(file))
+	require.NoError(t, os.Mkdir(file, 0750))
+}
+
 func TestAttempt_HandleNonExistentFile(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "invalid.dat")
@@ -598,6 +641,24 @@ func createTestDAG() *ir.DAG {
 		},
 		Params: []string{"--param1=value1", "--param2=value2"},
 	}
+}
+
+// openAttemptForTest opens an attempt on a new status file and closes it when
+// the test ends.
+func openAttemptForTest(t *testing.T) *Attempt {
+	t.Helper()
+	att, err := NewAttempt(filepath.Join(createTempDir(t), "status.jsonl"), nil)
+	require.NoError(t, err)
+	require.NoError(t, att.Open(context.Background()))
+	t.Cleanup(func() { _ = att.Close(context.Background()) })
+	return att
+}
+
+// statusWithPID returns a running status that the PID tells apart.
+func statusWithPID(pid int) ir.DAGRunStatus {
+	status := createTestStatus(ir.Running)
+	status.PID = ir.PID(pid)
+	return status
 }
 
 // createTestStatus creates a sample status for testing using StatusFactory
