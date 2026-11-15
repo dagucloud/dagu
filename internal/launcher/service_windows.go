@@ -111,4 +111,8 @@ func launchOutsideService(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.ParentProcess = syscall.Handle(parent)
+	// A command takes its console from this process and its handles from its
+	// parent, which has no handle to that console, so it gets a console of
+	// its own to start with.
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
 }

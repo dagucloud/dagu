@@ -13,6 +13,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -26,6 +27,8 @@ import (
 // that must keep this process as their parent.
 func TestLaunchOutsideServiceParent(t *testing.T) {
 	stand := exec.Command("ping", "-n", "60", "127.0.0.1")
+	// The service wrapper has no console to share with the process it runs.
+	stand.SysProcAttr = cmdutil.DetachAttr(false)
 	require.NoError(t, stand.Start())
 	t.Cleanup(func() {
 		_ = stand.Process.Kill()
