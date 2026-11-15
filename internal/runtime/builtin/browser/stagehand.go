@@ -1025,6 +1025,11 @@ func (e *stagehandEngine) settleDocument(ctx context.Context, deadline, limit ti
 	defer cancel()
 	watched := time.Now().Add(settleQuiet)
 	for {
+		// A busy page and browser answer late, possibly before running what
+		// fell due meanwhile, such as a post that loads a frame. So only a
+		// check begun after the watch settles the page, and only when no
+		// load has begun by its end.
+		checked := time.Now()
 		held := len(e.heldWindows()) > 0
 		end := deadline
 		if held {
@@ -1042,7 +1047,7 @@ func (e *stagehandEngine) settleDocument(ctx context.Context, deadline, limit ti
 			quiet, err := page.Evaluate(ctx, quietExpression)
 			switch {
 			case err == nil && string(quiet) == "true":
-				if !time.Now().Before(watched) {
+				if !checked.Before(watched) && !e.loads.Loading() {
 					return
 				}
 			case err == nil && string(quiet) == "false":

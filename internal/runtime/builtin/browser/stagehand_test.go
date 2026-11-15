@@ -661,9 +661,11 @@ func TestStagehandWaitsForThePageAPressOpens(t *testing.T) {
 
 // serveFramedSearch serves a page built of frames, as older sites are,
 // whose menu frame posts a search into the content frame: Search at once,
-// Search later a moment after it is pressed, and Search with notice while
-// a window it opens says to wait, which the results close. The results are
-// answered a moment after the search is posted.
+// Search later a moment after it is pressed, Search with notice while a
+// window it opens says to wait, which the results close, and Search when
+// free a moment after it is pressed too, though the page is busy for a
+// second first. The results are answered a moment after the search is
+// posted.
 func serveFramedSearch(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -675,7 +677,8 @@ func serveFramedSearch(t *testing.T) string {
 			_, _ = io.WriteString(w, `<form id="search" method="post" action="/results" target="main"></form>
 <button onclick="document.getElementById('search').submit()">Search</button>
 <button onclick="setTimeout(() => document.getElementById('search').submit(), 200)">Search later</button>
-<button onclick="top.notice = window.open('/wait', 'notice', 'width=300,height=100'); document.getElementById('search').submit()">Search with notice</button>`)
+<button onclick="top.notice = window.open('/wait', 'notice', 'width=300,height=100'); document.getElementById('search').submit()">Search with notice</button>
+<button onclick="setTimeout(() => document.getElementById('search').submit(), 200); setTimeout(() => { for (const end = Date.now() + 1000; Date.now() < end;); }, 100)">Search when free</button>`)
 		case "/home":
 			_, _ = io.WriteString(w, "<p>Home</p>")
 		case "/wait":
@@ -692,8 +695,9 @@ func serveFramedSearch(t *testing.T) string {
 // A press that posts a form into another frame waits for the frame to load
 // the answer, so the next operation reads the results rather than the
 // frame as it was: a press replayed, one an act performs after its model
-// took a while to answer, which posts a moment after the act returns, and
-// one that opens a window, which the browser then shows in front.
+// took a while to answer, which posts a moment after the act returns, one
+// that opens a window, which the browser then shows in front, and one whose
+// post waits out a page busy for longer than the page is watched.
 func TestStagehandWaitsForTheFrameAPressLoads(t *testing.T) {
 	t.Parallel()
 
@@ -728,6 +732,10 @@ func TestStagehandWaitsForTheFrameAPressLoads(t *testing.T) {
 		"window": {
 			generate: (&shopModel{}).generate,
 			press:    replayPress("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[3]"),
+		},
+		"busy": {
+			generate: (&shopModel{}).generate,
+			press:    replayPress("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[4]"),
 		},
 		"act": {
 			generate: slowModel(treeModel(where(buttonNamed("Search later")), "click")),
