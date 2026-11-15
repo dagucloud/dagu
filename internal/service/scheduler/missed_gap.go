@@ -139,7 +139,10 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	}
 	gap := *missed
 	start, end := gapStart(gap), gapEnd(gap)
-	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(end) {
+	// A backfill whose slots all lie outside the gap may still have skipped
+	// the gap's first slots within the range it planned.
+	runs := record.Slots[len(record.Slots)-1].At.After(start) && !record.Slots[0].At.After(end)
+	if !runs && !plannedRange(record).reaches(start, end) {
 		return false
 	}
 	active, ok := tp.activeSchedules(ctx, record.DAGName)
@@ -210,15 +213,26 @@ func (s plannedSpan) holds(at time.Time) bool {
 	return !s.from.IsZero() && !at.Before(s.from) && !at.After(s.to)
 }
 
+// reaches reports whether the span holds an instant after from and by to.
+func (s plannedSpan) reaches(from, to time.Time) bool {
+	return !s.from.IsZero() && s.to.After(from) && !s.from.After(to)
+}
+
 // plannedSpanOf returns the range a backfill planned. The span is empty for
 // a backfill that names its slots or selects them by a date, which plans no
 // range, and for one that planned another profile's schedules, whose fire
 // times it left out are not ones it skipped.
 func plannedSpanOf(record *backfill.Record, profile string) plannedSpan {
-	opts := record.Options
-	if opts.Profile != "" && opts.Profile != profile {
+	if p := record.Options.Profile; p != "" && p != profile {
 		return plannedSpan{}
 	}
+	return plannedRange(record)
+}
+
+// plannedRange returns the range a backfill planned, whichever profile's
+// schedules it planned. It is empty for a backfill that plans no range.
+func plannedRange(record *backfill.Record) plannedSpan {
+	opts := record.Options
 	// The plan left the minute of the submit and later to the live schedule.
 	live := record.CreatedAt.Truncate(time.Minute)
 	to := live.Add(-time.Nanosecond)

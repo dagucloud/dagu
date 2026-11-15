@@ -326,6 +326,12 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 	tail.Options.To, tail.CreatedAt = time.Time{}, at(14, 30)
 	otherProfile := backfillOf("hourly", at(12, 0), at(14, 0))
 	otherProfile.Options.Profile = "staging"
+	// Each runs only slots outside the gap, and its range holds the gap's
+	// first slots, which it skips.
+	lead := backfillOf("hourly", at(11, 0))
+	lead.Options.To, lead.CreatedAt = at(12, 0), at(15, 30)
+	trail := backfillOf("hourly", at(15, 0))
+	trail.Options.From = at(12, 0)
 	for _, tc := range []struct {
 		name   string
 		record *backfill.Record
@@ -341,6 +347,12 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 		// 13:00 already ran, or another open backfill holds it.
 		{name: "slots it skips", record: backfillOf("hourly", at(12, 0), at(14, 0))},
 		{name: "last slot it skips", record: tail},
+		{
+			name:   "first slot it skips",
+			record: lead,
+			want:   &schedulerstate.MissedGap{From: at(13, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 2},
+		},
+		{name: "every slot it skips", record: trail},
 		{
 			name:   "slots another profile skips",
 			record: otherProfile,
