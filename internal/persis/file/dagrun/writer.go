@@ -73,7 +73,41 @@ func (w *Writer) Open() error {
 	w.buffer = bufio.NewWriterSize(file, w.bufferSize)
 	w.encoder = json.NewEncoder(w.buffer)
 	w.encoder.SetEscapeHTML(false)
+	w.endPartialLineLocked()
 	return nil
+}
+
+// endPartialLineLocked starts the next record on a line of its own when the
+// file ends in a partial line, as a write cut off by a crash or a full disk
+// leaves it. A record appended to that line would join it, and neither could
+// be read. The newline goes out with the next record.
+func (w *Writer) endPartialLineLocked() {
+	if endsMidLine(w.target) {
+		_ = w.buffer.WriteByte('\n')
+	}
+}
+
+// endsMidLine reports whether the file ends in a partial line. A file that
+// cannot be read is taken to, since an extra newline only adds an empty line,
+// which readers skip.
+func endsMidLine(path string) bool {
+	file, err := fileutil.Open(path)
+	if err != nil {
+		return true
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return true
+	}
+	if info.Size() == 0 {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, info.Size()-1); err != nil {
+		return true
+	}
+	return last[0] != '\n'
 }
 
 // reopenIfReplaced opens the target again when the path names another file
@@ -101,6 +135,7 @@ func (w *Writer) reopenIfReplaced() error {
 	_ = w.file.Close()
 	w.file = file
 	w.buffer.Reset(file)
+	w.endPartialLineLocked()
 	return nil
 }
 
