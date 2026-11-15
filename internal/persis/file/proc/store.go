@@ -515,7 +515,7 @@ func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 		return nil, nil, err
 	}
 	for _, dagEntry := range dagEntries {
-		if !dagEntry.IsDir() || dagEntry.Name() == "" || dagEntry.Name()[0] == '.' {
+		if !dagEntry.IsDir() || isGroupLockDir(dagEntry.Name()) {
 			continue
 		}
 		dagDir := filepath.Join(groupDir, dagEntry.Name())
@@ -529,7 +529,7 @@ func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 		holdsGroups := false
 		for _, procEntry := range procEntries {
 			if procEntry.IsDir() {
-				holdsGroups = holdsGroups || !strings.HasPrefix(procEntry.Name(), ".")
+				holdsGroups = holdsGroups || !isGroupLockDir(procEntry.Name())
 				continue
 			}
 			if filepath.Ext(procEntry.Name()) == procFileExt {
@@ -542,6 +542,12 @@ func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 	}
 	sort.Strings(files)
 	return files, nested, nil
+}
+
+// isGroupLockDir reports whether name is a directory that a group lock keeps
+// in its group directory. Any other name may be a DAG or a queue segment.
+func isGroupLockDir(name string) bool {
+	return strings.HasPrefix(name, dirlock.LockDirectoryName)
 }
 
 func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcEntry, error) {
