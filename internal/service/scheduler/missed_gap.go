@@ -50,7 +50,7 @@ func (tp *TickPlanner) releaseDAG(dagName string, schedules []ir.Schedule, to, t
 	watermark.HeldSince, watermark.HeldBy = nil, ""
 	slots := countSlots(schedules, since.Add(-time.Second).In(tp.cfg.Location), through)
 	if slots > 0 {
-		watermark.Missed = &schedulerstate.MissedGap{From: since, To: to, Reason: reason, Slots: slots}
+		watermark.Missed = &schedulerstate.MissedGap{From: since, To: to, Through: through, Reason: reason, Slots: slots}
 	}
 	tp.watermarkState.DAGs[dagName] = watermark
 }
@@ -118,7 +118,7 @@ func (tp *TickPlanner) recordGap(ctx context.Context, entry DAGEntry, schedules 
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 	watermark := schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[entry.DAG.Name])
-	watermark.Missed = &schedulerstate.MissedGap{From: from, To: to, Reason: schedulerstate.GapDown, Slots: slots}
+	watermark.Missed = &schedulerstate.MissedGap{From: from, To: to, Through: through, Reason: schedulerstate.GapDown, Slots: slots}
 	tp.watermarkState.DAGs[entry.DAG.Name] = watermark
 }
 
@@ -139,15 +139,15 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 		return false
 	}
 	gap := *missed
-	start := gapStart(gap)
-	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(gap.To) {
+	start, end := gapStart(gap), gapEnd(gap)
+	if !record.Slots[len(record.Slots)-1].At.After(start) || record.Slots[0].At.After(end) {
 		return false
 	}
 	schedules, ok := tp.startSchedules(ctx, record.DAGName)
 	if !ok {
 		return false
 	}
-	covered, last := coveredSlots(schedules, start.In(tp.cfg.Location), gap.To, record.Slots)
+	covered, last := coveredSlots(schedules, start.In(tp.cfg.Location), end, record.Slots)
 	if covered == 0 {
 		return false
 	}
@@ -158,7 +158,7 @@ func (tp *TickPlanner) coverGap(ctx context.Context, record *backfill.Record) bo
 	}
 	// A count at the cap is short of the slots, so it is counted again.
 	if gap.Slots >= schedulerstate.MaxGapSlots {
-		remaining = countSlots(schedules, gapStart(gap).In(tp.cfg.Location), gap.To)
+		remaining = countSlots(schedules, gapStart(gap).In(tp.cfg.Location), end)
 	}
 
 	tp.mu.Lock()
@@ -218,8 +218,17 @@ func gapStart(gap schedulerstate.MissedGap) time.Time {
 	return gap.From.Add(-time.Second)
 }
 
+// gapEnd is the last instant whose slots a gap counts.
+func gapEnd(gap schedulerstate.MissedGap) time.Time {
+	if gap.Through.IsZero() {
+		return gap.To
+	}
+	return gap.Through
+}
+
 func sameGap(a, b schedulerstate.MissedGap) bool {
-	return a.From.Equal(b.From) && a.To.Equal(b.To) && a.Reason == b.Reason && a.Slots == b.Slots
+	return a.From.Equal(b.From) && a.To.Equal(b.To) && a.Through.Equal(b.Through) &&
+		a.Reason == b.Reason && a.Slots == b.Slots
 }
 
 // startSchedules returns the start schedules of a DAG the planner tracks.

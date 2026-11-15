@@ -27,6 +27,12 @@ func at(hour, minute int) time.Time {
 	return time.Date(2026, 2, 7, hour, minute, 0, 0, time.UTC)
 }
 
+// before is the second before t: the last whose slots a gap ending at the
+// tick at t counts, when that tick ran its own.
+func before(t time.Time) time.Time {
+	return t.Add(-time.Second)
+}
+
 // The slots that came due while a DAG was held make its gap once the hold
 // ends, from the tick that found it held; the slots of that tick run.
 func TestTickPlanner_HoldRecordsGap(t *testing.T) {
@@ -57,7 +63,7 @@ func TestTickPlanner_HoldRecordsGap(t *testing.T) {
 			runs := tp.Plan(t.Context(), at(15, 0))
 			require.Len(t, runs, 1, "the slot of the tick that ends the hold runs")
 			assert.Equal(t, &schedulerstate.MissedGap{
-				From: at(12, 0), To: at(15, 0), Reason: tc.reason, Slots: 3,
+				From: at(12, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: tc.reason, Slots: 3,
 			}, missedGap(tp, dag.Name))
 		})
 	}
@@ -87,7 +93,7 @@ func TestTickPlanner_InitRecordsDownGap(t *testing.T) {
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
 	assert.Equal(t, &schedulerstate.MissedGap{
-		From: at(9, 0), To: at(12, 0), Reason: schedulerstate.GapDown, Slots: 2,
+		From: at(9, 0), To: at(12, 0), Through: before(at(12, 0)), Reason: schedulerstate.GapDown, Slots: 2,
 	}, missedGap(tp, dag.Name))
 }
 
@@ -101,7 +107,7 @@ func TestTickPlanner_InitRecordsGapBeforeCatchupWindow(t *testing.T) {
 
 	// The window of six hours replays the slots after 06:00.
 	assert.Equal(t, &schedulerstate.MissedGap{
-		From: at(3, 0), To: at(6, 0), Reason: schedulerstate.GapDown, Slots: 3,
+		From: at(3, 0), To: at(6, 0), Through: at(6, 0), Reason: schedulerstate.GapDown, Slots: 3,
 	}, missedGap(tp, dag.Name))
 }
 
@@ -129,7 +135,7 @@ func TestTickPlanner_ResumeRecordsDownGap(t *testing.T) {
 	tp.resume(t.Context(), at(12, 45))
 
 	assert.Equal(t, &schedulerstate.MissedGap{
-		From: at(12, 0), To: at(12, 45), Reason: schedulerstate.GapDown, Slots: 2,
+		From: at(12, 0), To: at(12, 45), Through: before(at(12, 45)), Reason: schedulerstate.GapDown, Slots: 2,
 	}, missedGap(tp, dag.Name))
 }
 
@@ -155,7 +161,7 @@ func TestTickPlanner_HoldOutlastsUnresolvedSchedules(t *testing.T) {
 	resolver.err = nil
 	tp.Plan(t.Context(), at(15, 0))
 	assert.Equal(t, &schedulerstate.MissedGap{
-		From: at(12, 0), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 3,
+		From: at(12, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 3,
 	}, missedGap(tp, dag.Name))
 }
 
@@ -170,7 +176,7 @@ func TestTickPlanner_InitRecordsGapThroughRecoveryBoundary(t *testing.T) {
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
 	assert.Equal(t, &schedulerstate.MissedGap{
-		From: at(9, 0), To: at(11, 0), Reason: schedulerstate.GapDown, Slots: 2,
+		From: at(9, 0), To: at(11, 0), Through: at(11, 0), Reason: schedulerstate.GapDown, Slots: 2,
 	}, missedGap(tp, dag.Name))
 }
 
@@ -201,7 +207,7 @@ func TestTickPlanner_InitSettlesRestoredHold(t *testing.T) {
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
 	assert.Equal(t, &schedulerstate.MissedGap{
-		From: at(10, 0), To: at(11, 0), Reason: schedulerstate.GapSuspended, Slots: 2,
+		From: at(10, 0), To: at(11, 0), Through: at(11, 0), Reason: schedulerstate.GapSuspended, Slots: 2,
 	}, missedGap(tp, dag.Name))
 	for _, slot := range bufferedSlots(tp, dag.Name) {
 		assert.True(t, slot.After(at(11, 0)), "catch-up replays %s, which the gap counts", slot)
@@ -290,7 +296,7 @@ func backfillOf(dagName string, slots ...time.Time) *backfill.Record {
 // the gap as it is.
 func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 	t.Parallel()
-	held := schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 3}
+	held := schedulerstate.MissedGap{From: at(12, 0), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 3}
 	named := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
 	named.Options.Slots = []time.Time{at(12, 0), at(13, 0), at(14, 0)}
 	byDate := backfillOf("hourly", at(12, 0), at(13, 0), at(14, 0))
@@ -305,13 +311,13 @@ func TestTickPlanner_BackfillCoversGap(t *testing.T) {
 		{
 			name:   "first slots",
 			record: backfillOf("hourly", at(12, 0), at(13, 0)),
-			want:   &schedulerstate.MissedGap{From: at(13, 0).Add(time.Second), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 1},
+			want:   &schedulerstate.MissedGap{From: at(13, 0).Add(time.Second), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 1},
 		},
 		{
 			// Another open backfill holds 13:00, so this one skips it.
 			name:   "first slots around a held one",
 			record: backfillOf("hourly", at(12, 0), at(14, 0)),
-			want:   &schedulerstate.MissedGap{From: at(12, 0).Add(time.Second), To: at(15, 0), Reason: schedulerstate.GapSuspended, Slots: 2},
+			want:   &schedulerstate.MissedGap{From: at(12, 0).Add(time.Second), To: at(15, 0), Through: before(at(15, 0)), Reason: schedulerstate.GapSuspended, Slots: 2},
 		},
 		{name: "later slots", record: backfillOf("hourly", at(13, 0), at(14, 0)), want: &held},
 		{name: "earlier slots", record: backfillOf("hourly", at(9, 0), at(10, 0)), want: &held},
@@ -351,7 +357,7 @@ func TestTickPlanner_BackfillsCoverGapInParts(t *testing.T) {
 
 		require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, at(9, 0), at(10, 0))))
 		assert.Equal(t, &schedulerstate.MissedGap{
-			From: at(10, 0), To: at(12, 0), Reason: schedulerstate.GapDown, Slots: 1,
+			From: at(10, 0), To: at(12, 0), Through: before(at(12, 0)), Reason: schedulerstate.GapDown, Slots: 1,
 		}, missedGap(tp, dag.Name))
 		require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, at(11, 0))))
 		assert.Nil(t, missedGap(tp, dag.Name))
@@ -379,4 +385,19 @@ func TestTickPlanner_BackfillRecountsCappedGap(t *testing.T) {
 	}
 	require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, slots...)))
 	assert.Equal(t, schedulerstate.MaxGapSlots, missedGap(tp, dag.Name).Slots)
+
+	// 2,000 more leave 9,420, which the gap then counts exactly, without
+	// the slot of the tick that ended the hold, which ran.
+	slots = slots[:0]
+	for i := 100; i < 2100; i++ {
+		slots = append(slots, at(12, i))
+	}
+	require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, slots...)))
+	require.Equal(t, 9420, missedGap(tp, dag.Name).Slots)
+	slots = slots[:0]
+	for i := 2100; i < 11520; i++ {
+		slots = append(slots, at(12, i))
+	}
+	require.True(t, tp.coverGap(t.Context(), backfillOf(dag.Name, slots...)))
+	assert.Nil(t, missedGap(tp, dag.Name))
 }

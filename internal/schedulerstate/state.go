@@ -39,9 +39,12 @@ type DAGWatermark struct {
 // DAG was suspended, the scheduler paused, or no scheduler ran for longer
 // than the DAG catches up.
 type MissedGap struct {
-	From   time.Time `json:"from"`
-	To     time.Time `json:"to"`
-	Reason GapReason `json:"reason"`
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+	// Through is the last instant whose slots the gap counts. It comes
+	// before To when the tick at To ran its own slots; zero means To.
+	Through time.Time `json:"through,omitzero"`
+	Reason  GapReason `json:"reason"`
 	// Slots counts the slots that passed, up to MaxGapSlots.
 	Slots int `json:"slots"`
 }
