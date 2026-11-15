@@ -126,8 +126,9 @@ DAG files, and git sync never reads or writes them.
 A project's nodes are the nodes of all its inventories, plus the workers. A
 project without inventories has only its worker nodes.
 
-Until RFC 003 ships, the installation has one project, and its secret refs
-resolve in the global scope. A DAG in a workspace cannot target nodes:
+Until RFC 003 ships, the installation has one project. Its secret refs
+resolve in the global scope, and roles on its nodes are server-wide, so a
+role in a workspace grants none. A DAG in a workspace cannot target nodes:
 `dagu validate` and admission reject it. So RFC 003's migration moves no DAG
 that targets nodes, and needs no inventory step.
 
