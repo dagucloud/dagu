@@ -118,8 +118,8 @@ An inventory is a JSON record in a collection-backed store
 An inventory belongs to a project, as defined in
 [RFC 003](003-projects.md). It belongs to the server, not to the
 DAG files. A DAG is the same in every environment and names a role, such as
-`web`. Staging and production are separate projects, each with its own
-inventories, so the same DAG reaches different hosts in each. Inventories are
+`web`. Users keep staging and production as separate projects, each with its
+own inventories, so the same DAG reaches different hosts in each. Inventories are
 project state, kept where RFC 003 keeps a project's state and never among its
 DAG files, and git sync never reads or writes them.
 
