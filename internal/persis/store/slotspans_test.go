@@ -128,6 +128,25 @@ func TestSpanStoreKeepsALastingSpanPastTheBound(t *testing.T) {
 	assert.Equal(t, schedulerstate.Span{From: spanAt(1, 0), To: spanAt(7, 0), Reason: schedulerstate.SpanPaused}, spans[0])
 }
 
+// The bound keeps the spans that ended last, whatever order they were
+// recorded in, as when the hosts that record them disagree on the time.
+func TestSpanStoreKeepsTheSpansThatEndedLast(t *testing.T) {
+	t.Parallel()
+	s := newSpanStore()
+	ctx := t.Context()
+	for i := range 100 {
+		from := spanAt(3, 0).Add(time.Duration(i) * time.Hour)
+		require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: from, To: from.Add(time.Minute), Reason: schedulerstate.SpanDown}))
+	}
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, true, spanAt(2, 0)))
+	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, false, spanAt(2, 1)))
+
+	spans, err := s.Ended(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, spans, 100)
+	assert.Equal(t, schedulerstate.SpanDown, spans[0].Reason, "the pause ended first and is dropped")
+}
+
 // The spans one process records are read by another, as the API records a
 // suspension and the scheduler an outage.
 func TestSpanStoreSharesSpansThroughFiles(t *testing.T) {
