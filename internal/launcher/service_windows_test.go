@@ -49,6 +49,10 @@ func TestLaunchOutsideServiceParent(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { cleanupTransport(cleanup) })
 	assert.Contains(t, withEnv.Env, buildenv.StandInParentEnv(stand.Process.Pid))
+	// It does not hold the output of this process, which the wrapper reads
+	// until every process holding it has ended.
+	assert.Nil(t, withEnv.Stdout)
+	assert.Nil(t, withEnv.Stderr)
 
 	output, err := os.Create(filepath.Join(t.TempDir(), "output"))
 	require.NoError(t, err)

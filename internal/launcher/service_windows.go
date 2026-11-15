@@ -7,6 +7,7 @@ package launcher
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,4 +130,16 @@ func serviceParentPID() int {
 		return 0
 	}
 	return int(pid)
+}
+
+// defaultOutput returns where a launched command writes when its spec names
+// no output: the output of this process, or nowhere for a command launched
+// outside the service. The service wrapper reads the output of this process
+// until every process holding it has ended, so a run holding it would keep a
+// stopped wrapper from ending, and its binary from being replaced.
+func defaultOutput() (stdout, stderr io.Writer) {
+	if serviceParent.Load() != 0 {
+		return nil, nil
+	}
+	return os.Stdout, os.Stderr
 }

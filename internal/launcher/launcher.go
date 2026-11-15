@@ -618,8 +618,9 @@ func newCommand(ctx context.Context, spec CmdSpec, withContext bool) (*exec.Cmd,
 		}
 	}
 	cmd.Env = env
-	cmd.Stdout = fileOrDefault(spec.Stdout, os.Stdout)
-	cmd.Stderr = fileOrDefault(spec.Stderr, os.Stderr)
+	stdout, stderr := defaultOutput()
+	cmd.Stdout = fileOrDefault(spec.Stdout, stdout)
+	cmd.Stderr = fileOrDefault(spec.Stderr, stderr)
 
 	return cmd, cleanup, nil
 }
