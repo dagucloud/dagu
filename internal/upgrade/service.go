@@ -6,6 +6,7 @@ package upgrade
 import (
 	"bufio"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 )
 
 // Background service definitions written by scripts/installer.sh and
@@ -72,6 +74,11 @@ func RunsUnderService() bool {
 }
 
 func runsUnderService(goos string, getenv func(string) string, cgroup, execDir string) bool {
+	// A Dagu that a workflow step starts inherits the service's cgroup and
+	// environment, but the service restarts only its own process.
+	if getenv(runenv.EnvKeyDAGRunID) != "" {
+		return false
+	}
 	switch goos {
 	case "darwin":
 		// launchd names the job of each process it starts.
@@ -96,10 +103,12 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 	case "darwin":
 		// launchd ends only the job's process group, and each run starts its
 		// own, so runs outlive a restart.
-		if homeDir != "" && fileutil.IsFile(filepath.Join(homeDir, "Library", "LaunchAgents", launchdServiceLabel+".plist")) {
-			return &Service{
-				RestartCommand: "launchctl kickstart -k gui/$(id -u)/" + launchdServiceLabel,
-				RestartsOnExit: true,
+		if homeDir != "" {
+			if plist, err := fileutil.ReadFile(filepath.Join(homeDir, "Library", "LaunchAgents", launchdServiceLabel+".plist")); err == nil {
+				return &Service{
+					RestartCommand: "launchctl kickstart -k gui/$(id -u)/" + launchdServiceLabel,
+					RestartsOnExit: launchdKeepsAlive(plist),
+				}
 			}
 		}
 	case "linux":
@@ -115,10 +124,12 @@ func detectService(goos, execDir, homeDir, systemUnitDir string) *Service {
 		// The installer keeps the service wrapper next to the binary it runs.
 		// WinSW stops the whole process tree of the service, and the runs
 		// stay outside it, as launcher.LaunchOutsideService describes.
-		if execDir != "" && fileutil.IsFile(filepath.Join(execDir, winswServiceConfig)) {
-			return &Service{
-				RestartCommand: "Restart-Service " + winswServiceName,
-				RestartsOnExit: true,
+		if execDir != "" {
+			if config, err := fileutil.ReadFile(filepath.Join(execDir, winswServiceConfig)); err == nil {
+				return &Service{
+					RestartCommand: "Restart-Service " + winswServiceName,
+					RestartsOnExit: winswRestartsOnFailure(config),
+				}
 			}
 		}
 	}
@@ -140,6 +151,51 @@ func systemdService(unitPath, restartCommand, keepRunsCommand string) *Service {
 		service.RestartsOnExit = true
 	}
 	return service
+}
+
+// launchdKeepsAlive reports whether the launch agent property list in data
+// starts the job again however it exits. A KeepAlive dictionary restarts it
+// only under its conditions, such as a failed exit.
+func launchdKeepsAlive(data []byte) bool {
+	var plist struct {
+		Dict struct {
+			Entries []struct {
+				XMLName xml.Name
+				Text    string `xml:",chardata"`
+			} `xml:",any"`
+		} `xml:"dict"`
+	}
+	if xml.Unmarshal(data, &plist) != nil {
+		return false
+	}
+	// The top-level dictionary lists each key followed by its value.
+	entries := plist.Dict.Entries
+	for i := 0; i+1 < len(entries); i++ {
+		if entries[i].XMLName.Local == "key" && strings.TrimSpace(entries[i].Text) == "KeepAlive" {
+			return entries[i+1].XMLName.Local == "true"
+		}
+	}
+	return false
+}
+
+// winswRestartsOnFailure reports whether the WinSW config in data starts the
+// service again after each failure. Dagu exits with a failure on Windows to
+// load an upgraded binary.
+func winswRestartsOnFailure(data []byte) bool {
+	var config struct {
+		OnFailure []struct {
+			Action string `xml:"action,attr"`
+		} `xml:"onfailure"`
+	}
+	if xml.Unmarshal(data, &config) != nil || len(config.OnFailure) == 0 {
+		return false
+	}
+	for _, failure := range config.OnFailure {
+		if failure.Action != "restart" {
+			return false
+		}
+	}
+	return true
 }
 
 // systemdSettings returns the settings in the [Service] section of the unit
