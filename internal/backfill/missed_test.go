@@ -153,6 +153,28 @@ func TestFindMissedLeavesOutReplayedAndExpiredSlots(t *testing.T) {
 	assert.Equal(t, at(15, 2), missed.First)
 }
 
+// Catch-up replays only the newest 1,000 slots of its window, and under the
+// overlap policy latest at most one, which may come after the outage; the
+// slots it drops are missed.
+func TestFindMissedCountsSlotsCatchupDrops(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	require.NoError(t, f.write("before", at(2, 0), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	outage := spanOf(schedulerstate.SpanDown, at(2, 0), at(4, 0))
+
+	// A day's window holds 1,439 slots of a per-minute schedule; the oldest
+	// 439 of them are dropped.
+	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, dailyAt(t, "* * * * *"),
+		[]schedulerstate.Span{outage}, 24*time.Hour, f.clock)
+	require.NoError(t, err)
+	assert.Equal(t, 2879-1000, missed.Slots)
+	assert.Equal(t, at(4, 0).Add(-1001*time.Minute), missed.Last)
+
+	f.dag.OverlapPolicy = ir.OverlapPolicyLatest
+	missed = f.missed(72*time.Hour, spanOf(schedulerstate.SpanDown, at(3, 0), at(10, 0)))
+	assert.Equal(t, 7, missed.Slots)
+}
+
 // FindMissed reads the status of a run only near the slots it looks at, yet
 // leaves missing the same slots as the whole run history does: a run that
 // never started, or that a dequeue or an operator removed, counts for none,

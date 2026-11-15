@@ -255,7 +255,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   out: slots older than `slot_retention_days`; slots up to the DAG's first
   recorded slot, so a DAG created after an outage did not miss it; and,
   after an outage, the slots catchup replays for a DAG with
-  `catchup_window` while queues are enabled.
+  `catchup_window` while queues are enabled: the newest 1,000 within the
+  window. Under `overlap_policy: latest` none is left out, as catchup
+  replays at most one slot, which may come after the outage; the slots it
+  drops are missed.
 - `GET /api/v1/dags/{fileName}/missed-slots` returns the missed slots of a
   DAG that reads its slot as `missedSlots`: their count, the `first` and
   `last`, the `reasons` of the spans that hold them, and `until`, when the
