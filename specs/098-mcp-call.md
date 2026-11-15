@@ -71,7 +71,9 @@ flag. With `output: PAGE`, later steps read `${PAGE.content}` and
 `json` serves tools that return JSON as text instead of structured content.
 When `structured_content` is `null` and `content` has exactly one text item
 whose text is one JSON object or array, `json` is that value, so later steps
-read `${PAGE.json.title}`. Otherwise `json` is `null`.
+read `${PAGE.json.title}`. Otherwise `json` is `null`. Because `json` repeats
+the data of that text, such a result counts about twice toward the DAG's
+`max_output_size` (1MB by default) when the step sets `output`.
 
 Numbers in `structured_content` and `raw` are decoded as 64-bit floating
 point, so integers beyond 2^53 lose precision. Tools that return such IDs
@@ -113,6 +115,10 @@ stdout still carries the kind. Kinds:
 | `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 429, 500, 502, 503, or 504. |
 | `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
+
+When the call succeeds but the step cannot write its output or a saved file,
+the step fails with `mcp.call: writing output:` or
+`mcp.call: saving binary content:` and no kind.
 
 On a stop or timeout, the client notifies the server that the request is
 canceled and then closes the session. Against a server that does not answer,

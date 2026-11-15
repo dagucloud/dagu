@@ -251,6 +251,18 @@ func TestCallSaveBinaryKeepsCallsApart(t *testing.T) {
 	}
 }
 
+func TestCallSaveBinaryFailure(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	// A regular file where the artifacts directory should be makes every
+	// write fail.
+	blocked := filepath.Join(t.TempDir(), "artifacts")
+	require.NoError(t, os.WriteFile(blocked, nil, 0o600))
+
+	_, err := run(withArtifacts(t, blocked), t, f.cfg("media", map[string]any{"save_binary": true}))
+	require.ErrorContains(t, err, "mcp.call: saving binary content:")
+}
+
 func assertArtifact(t *testing.T, dir string, path any, want []byte) {
 	t.Helper()
 	rel, ok := path.(string)

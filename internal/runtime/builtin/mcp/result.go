@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/url"
 	"slices"
@@ -61,13 +62,16 @@ func newOutput(res *sdk.CallToolResult, includeRaw bool, files *agentstep.Artifa
 		JSON:              textJSON(res),
 		IsError:           res.IsError,
 	}
-	writer := &binaryWriter{files: files}
+	var writer *binaryWriter
+	if files != nil {
+		writer = &binaryWriter{files: files}
+	}
 	for i, content := range res.Content {
 		item := any(content)
-		if files != nil {
+		if writer != nil {
 			saved, err := writer.save(i, content)
 			if err != nil {
-				return output{}, err
+				return output{}, fmt.Errorf("mcp.call: saving binary content: %w", err)
 			}
 			item = saved
 		}

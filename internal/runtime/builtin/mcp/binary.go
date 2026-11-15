@@ -65,23 +65,23 @@ func (w *binaryWriter) save(index int, content sdk.Content) (any, error) {
 	}
 	if w.callDir == "" {
 		if err := os.MkdirAll(w.files.Dir(), binaryDirMode); err != nil {
-			return nil, fmt.Errorf("mcp.call: saving binary content: %w", err)
+			return nil, err
 		}
 		dir, err := os.MkdirTemp(w.files.Dir(), "")
 		if err != nil {
-			return nil, fmt.Errorf("mcp.call: saving binary content: %w", err)
+			return nil, err
 		}
 		// MkdirTemp creates the directory private to the owner; artifacts are
 		// readable like other run files.
 		if err := os.Chmod(dir, binaryDirMode); err != nil {
-			return nil, fmt.Errorf("mcp.call: saving binary content: %w", err)
+			return nil, err
 		}
 		w.callDir = filepath.Base(dir)
 	}
 	name := fmt.Sprintf("content-%d%s", index, binaryExt(mimeType))
 	//nolint:gosec // name is built from the item index and a fixed extension
 	if err := os.WriteFile(filepath.Join(w.files.Dir(), w.callDir, name), data, binaryFileMode); err != nil {
-		return nil, fmt.Errorf("mcp.call: saving binary content: %w", err)
+		return nil, err
 	}
 
 	encoded, err := json.Marshal(content)
@@ -94,9 +94,12 @@ func (w *binaryWriter) save(index int, content sdk.Content) (any, error) {
 	if err := dec.Decode(&item); err != nil {
 		return nil, err
 	}
-	if resource, ok := item["resource"].(map[string]any); ok {
-		delete(resource, "blob")
-	} else {
+	switch content.(type) {
+	case *sdk.EmbeddedResource:
+		if resource, ok := item["resource"].(map[string]any); ok {
+			delete(resource, "blob")
+		}
+	default:
 		delete(item, "data")
 	}
 	item["path"] = w.files.RelPath(w.callDir, name)
