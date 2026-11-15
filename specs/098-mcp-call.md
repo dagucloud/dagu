@@ -50,7 +50,7 @@ stored and does not send `tools/call` again.
 | `tool` | yes | Tool name. |
 | `arguments` | no | JSON object passed as the tool arguments. Dagu references resolve as in other `with` values. |
 | `headers` | no | Map of request headers. Use `${SECRET}` references for credentials. |
-| `include_raw` | no | When true, adds the unmodified MCP result as `raw`. |
+| `include_raw` | no | When true, adds the full MCP result as `raw`, masked like the rest of the output. |
 
 Unknown fields fail validation.
 
@@ -87,6 +87,10 @@ stdout still carries the kind. Kinds:
 | `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 429, 500, 502, 503, or 504. |
 | `timeout` | The step or DAG timeout elapsed. |
 | `canceled` | The run was stopped. |
+
+On a stop or timeout, the client notifies the server that the request is
+canceled and then closes the session. Against a server that does not answer,
+the step can take up to 10 seconds longer to return.
 
 ### Credentials
 
