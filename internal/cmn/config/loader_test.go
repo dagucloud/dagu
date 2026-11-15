@@ -3313,38 +3313,11 @@ default_execution_mode: invalid
 	})
 }
 
-// seeContainer makes the loader see a container, or no container, for the
-// rest of the test.
-func seeContainer(t *testing.T, detected bool) {
-	t.Helper()
-	saved := runningInContainer
-	runningInContainer = func() bool { return detected }
-	t.Cleanup(func() { runningInContainer = saved })
-}
-
 func TestLoad_SignalHandling(t *testing.T) {
 	t.Run("DefaultDisabled", func(t *testing.T) {
-		seeContainer(t, false)
 		cfg := testLoad(t)
 		assert.False(t, cfg.SignalHandling.EnablePropagation)
 		assert.Zero(t, cfg.SignalHandling.DrainTimeout)
-	})
-
-	// Stopping a container ends its runs either way; propagation lets them
-	// run their handlers and record that they stopped.
-	t.Run("DefaultEnabledInContainer", func(t *testing.T) {
-		seeContainer(t, true)
-		cfg := testLoad(t)
-		assert.True(t, cfg.SignalHandling.EnablePropagation)
-	})
-
-	t.Run("DisabledInContainer", func(t *testing.T) {
-		seeContainer(t, true)
-		cfg := loadFromYAML(t, `
-signal_handling:
-  enable_propagation: false
-`)
-		assert.False(t, cfg.SignalHandling.EnablePropagation)
 	})
 
 	t.Run("DrainTimeoutYAML", func(t *testing.T) {

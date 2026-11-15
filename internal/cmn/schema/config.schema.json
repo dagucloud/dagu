@@ -1465,7 +1465,8 @@
       "properties": {
         "enable_propagation": {
           "type": "boolean",
-          "description": "Forward shutdown signals (SIGINT, SIGTERM) received by a supervising process to the process groups of running DAG-run subprocesses it launched. Default: true in a container, false otherwise."
+          "description": "Forward shutdown signals (SIGINT, SIGTERM) received by a supervising process to the process groups of running DAG-run subprocesses it launched. Default: false.",
+          "default": false
         },
         "drain_timeout": {
           "type": "string",

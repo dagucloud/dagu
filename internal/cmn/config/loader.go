@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/adrg/xdg"
-	"github.com/dagucloud/dagu/v2/internal/cmn/container"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -2026,22 +2025,14 @@ func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 	cfg.DefaultExecMode = mode
 }
 
-// runningInContainer reports whether Dagu runs in a container; tests replace it.
-var runningInContainer = container.Detected
-
 // loadSignalHandlingConfig loads signal handling options. The legacy camelCase
 // spelling "signalHandling.enablePropagation" is still accepted when it comes
 // from admin.yaml, which bypasses the legacy key check for compatibility.
 func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, def Definition) {
-	switch {
-	case l.v.IsSet("signal_handling.enable_propagation"):
+	if l.v.IsSet("signal_handling.enable_propagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signal_handling.enable_propagation")
-	case l.v.IsSet("signalhandling.enablepropagation"):
+	} else {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
-	default:
-		// Stopping a container ends every process in it, so its runs stop
-		// either way; told first, they run their handlers and record it.
-		cfg.SignalHandling.EnablePropagation = runningInContainer()
 	}
 
 	if def.SignalHandling == nil || def.SignalHandling.DrainTimeout == "" {
