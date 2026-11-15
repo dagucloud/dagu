@@ -533,7 +533,7 @@ func TestAttempt_WriteAfterPartialLine(t *testing.T) {
 				require.NoError(t, att.writer.Open())
 				write(t, att, 3)
 
-				written, err := os.ReadFile(att.file)
+				written, err := fileutil.ReadFile(att.file)
 				require.NoError(t, err)
 				assert.False(t, bytes.HasPrefix(written, []byte("\n")))
 				assert.NotContains(t, string(written), "\n\n")
