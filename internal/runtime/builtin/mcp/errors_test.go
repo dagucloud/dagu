@@ -142,6 +142,34 @@ func TestNoRetryWhenResponseDropped(t *testing.T) {
 	assert.EqualValues(t, 1, calls.Load())
 }
 
+// A server may close a call's SSE stream and expect the client to resume it
+// with Last-Event-ID. Resuming replays stored events, so the tool runs once.
+func TestStreamResumesAfterServerClose(t *testing.T) {
+	t.Parallel()
+	var invoked, resumed atomic.Int32
+	server := sdk.NewServer(&sdk.Implementation{Name: "resume", Version: "1"}, nil)
+	server.AddTool(tool("poll", func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		invoked.Add(1)
+		req.Extra.CloseSSEStream(sdk.CloseSSEStreamArgs{RetryAfter: 10 * time.Millisecond})
+		return &sdk.CallToolResult{Content: text("done")}, nil
+	}))
+	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server },
+		&sdk.StreamableHTTPOptions{EventStore: sdk.NewMemoryEventStore(nil)})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.Header.Get("Last-Event-ID") != "" {
+			resumed.Add(1)
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := run(t.Context(), t, map[string]any{"url": srv.URL, "tool": "poll"})
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "done")
+	assert.EqualValues(t, 1, invoked.Load())
+	assert.Positive(t, resumed.Load())
+}
+
 func TestCloseDoesNotHang(t *testing.T) {
 	old := closeTimeout
 	closeTimeout = 300 * time.Millisecond

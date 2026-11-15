@@ -96,7 +96,6 @@ func (c *caller) call(ctx context.Context, redact redactor) (*sdk.CallToolResult
 				return http.ErrUseLastResponse
 			},
 		},
-		MaxRetries:           -1,
 		DisableStandaloneSSE: true,
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: "dagu", Version: cmnconfig.Version}, nil)

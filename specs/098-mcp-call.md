@@ -38,6 +38,10 @@ one `tools/call`, closes the session, and exits. Each run makes exactly one
 call; the action never retries. Only an explicit step `retry_policy` re-runs
 it.
 
+When the server ends the call's SSE stream after an event ID, the client
+resumes the stream with `Last-Event-ID`. Resumption replays events the server
+stored and does not send `tools/call` again.
+
 ### with fields
 
 | Field | Required | Meaning |
