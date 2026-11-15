@@ -142,6 +142,33 @@ func TestNoRetryWhenResponseDropped(t *testing.T) {
 	assert.EqualValues(t, 1, calls.Load())
 }
 
+// A connection that breaks after the response headers is a network failure,
+// not an invalid response.
+func TestDroppedStreamIsTransport(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	inner := f.srv.Config.Handler
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !bytes.Contains(body, []byte("tools/call")) {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			inner.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	})
+
+	out, err := run(t.Context(), t, f.cfg("echo", nil))
+	require.Error(t, err)
+	assert.Equal(t, kindTransport, errKind(t, err), out)
+}
+
 // A server may close a call's SSE stream and expect the client to resume it
 // with Last-Event-ID. Resuming replays stored events, so the tool runs once.
 func TestStreamResumesAfterServerClose(t *testing.T) {

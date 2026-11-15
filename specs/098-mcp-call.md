@@ -78,7 +78,7 @@ stdout is `{"error": {"kind": "...", "message": "..."}}`. Kinds:
 | `tool` | The tool ran and reported `isError: true`. The normal output is still written. |
 | `auth` | The server answered HTTP 401 or 403. |
 | `protocol` | A JSON-RPC error, a lost session, an invalid response, or an HTTP 3xx redirect. Redirects are not followed; configure the final URL. |
-| `transport` | A network failure such as a refused connection. |
+| `transport` | A network failure, such as a refused connection or a connection lost mid-response. |
 | `timeout` | The step timeout elapsed. |
 | `canceled` | The run was stopped. |
 

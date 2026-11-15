@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"sync"
@@ -37,7 +38,7 @@ func (t *observingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	if err != nil {
 		cancel()
 	} else {
-		resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel}
+		resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel, obs: t}
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -59,6 +60,14 @@ func (t *observingTransport) authStatus() int {
 	return t.authz
 }
 
+func (t *observingTransport) recordNetworkError(err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.netFail == nil {
+		t.netFail = err
+	}
+}
+
 func (t *observingTransport) networkError() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -71,10 +80,20 @@ func (t *observingTransport) redirectStatus() int {
 	return t.redir
 }
 
-// cancelBody releases the per-request context when the body is closed.
+// cancelBody releases the per-request context when the body is closed and
+// reports a read failure after the response headers as a network error.
 type cancelBody struct {
 	io.ReadCloser
 	cancel context.CancelFunc
+	obs    *observingTransport
+}
+
+func (b *cancelBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		b.obs.recordNetworkError(err)
+	}
+	return n, err
 }
 
 func (b *cancelBody) Close() error {
