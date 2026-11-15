@@ -20,6 +20,10 @@ MUTED='\033[38;2;120;128;142m'
 NC='\033[0m'
 
 TMPFILE_REGISTRY="$(mktemp)"
+# UNINSTALL_DROPIN is the runtime drop-in an uninstall stop is using, and
+# UNINSTALL_DROPIN_SCOPE its service scope; empty when there is none.
+UNINSTALL_DROPIN=""
+UNINSTALL_DROPIN_SCOPE=""
 cleanup_tmpfiles() {
     local f
     if [[ -f "$TMPFILE_REGISTRY" ]]; then
@@ -27,6 +31,10 @@ cleanup_tmpfiles() {
             rm -rf "$f" 2>/dev/null || true
         done <"$TMPFILE_REGISTRY"
         rm -f "$TMPFILE_REGISTRY" 2>/dev/null || true
+    fi
+    # A drop-in left behind would make later restarts end runs again.
+    if [[ -n "$UNINSTALL_DROPIN" ]]; then
+        remove_uninstall_dropin
     fi
 }
 trap cleanup_tmpfiles EXIT
@@ -1364,29 +1372,83 @@ remove_binary_path() {
     fi
 }
 
-# stop_linux_service_with_runs stops the Linux service of the given scope and
-# its runs. A stop leaves runs running under KillMode=process, but an
-# uninstall leaves nothing of Dagu running, as systemd's default did. A
-# runtime drop-in, named to apply last, restores that default for the stop.
-stop_linux_service_with_runs() {
+# remove_uninstall_dropin removes the drop-in of stop_linux_service_with_runs
+# and reloads its service manager, ignoring failures.
+remove_uninstall_dropin() {
+    if [[ "$UNINSTALL_DROPIN_SCOPE" == "system" ]]; then
+        sudo rm -f "${UNINSTALL_DROPIN}" >/dev/null 2>&1 || true
+        sudo rmdir "$(dirname "${UNINSTALL_DROPIN}")" >/dev/null 2>&1 || true
+        sudo systemctl daemon-reload >/dev/null 2>&1 || true
+    else
+        rm -f "${UNINSTALL_DROPIN}" >/dev/null 2>&1 || true
+        rmdir "$(dirname "${UNINSTALL_DROPIN}")" >/dev/null 2>&1 || true
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+    fi
+    UNINSTALL_DROPIN=""
+    UNINSTALL_DROPIN_SCOPE=""
+}
+
+# write_uninstall_dropin writes a runtime drop-in, named to apply last, that
+# restores systemd's default KillMode=control-group for the service of the
+# given scope. It returns non-zero when the drop-in cannot be written, as for
+# a user without a runtime directory.
+write_uninstall_dropin() {
     local scope="$1" dropin_dir
     if [[ "$scope" == "system" ]]; then
         dropin_dir="/run/systemd/system/dagu.service.d"
-        sudo mkdir -p "${dropin_dir}"
-        printf '[Service]\nKillMode=control-group\n' | sudo tee "${dropin_dir}/zz-uninstall.conf" >/dev/null
-        sudo systemctl daemon-reload >/dev/null 2>&1 || true
-        sudo systemctl stop dagu >/dev/null 2>&1 || true
-        sudo rm -f "${dropin_dir}/zz-uninstall.conf"
-        sudo rmdir "${dropin_dir}" >/dev/null 2>&1 || true
+        UNINSTALL_DROPIN="${dropin_dir}/zz-uninstall.conf"
+        UNINSTALL_DROPIN_SCOPE="system"
+        sudo mkdir -p "${dropin_dir}" >/dev/null 2>&1 &&
+            printf '[Service]\nKillMode=control-group\n' | sudo tee "${UNINSTALL_DROPIN}" >/dev/null 2>&1
     else
         dropin_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/dagu.service.d"
-        mkdir -p "${dropin_dir}"
-        printf '[Service]\nKillMode=control-group\n' >"${dropin_dir}/zz-uninstall.conf"
-        systemctl --user daemon-reload >/dev/null 2>&1 || true
-        systemctl --user stop dagu >/dev/null 2>&1 || true
-        rm -f "${dropin_dir}/zz-uninstall.conf"
-        rmdir "${dropin_dir}" >/dev/null 2>&1 || true
+        UNINSTALL_DROPIN="${dropin_dir}/zz-uninstall.conf"
+        UNINSTALL_DROPIN_SCOPE="user"
+        mkdir -p "${dropin_dir}" >/dev/null 2>&1 &&
+            printf '[Service]\nKillMode=control-group\n' >"${UNINSTALL_DROPIN}" 2>/dev/null
     fi
+}
+
+# stop_linux_service_with_runs stops the Linux service of the given scope and
+# its runs. A stop leaves runs running under KillMode=process, but an
+# uninstall leaves nothing of Dagu running, as systemd's default did. The
+# stop restores that default for itself through a runtime drop-in, then the
+# runs a stop already left behind in the unit are ended directly.
+stop_linux_service_with_runs() {
+    local scope="$1" systemctl_cmd=(systemctl) attempt tasks
+    if [[ "$scope" == "system" ]]; then
+        systemctl_cmd=(sudo systemctl)
+    else
+        systemctl_cmd=(systemctl --user)
+    fi
+    if write_uninstall_dropin "$scope"; then
+        "${systemctl_cmd[@]}" daemon-reload >/dev/null 2>&1 || true
+    fi
+    "${systemctl_cmd[@]}" stop dagu >/dev/null 2>&1 || true
+    if [[ -n "$UNINSTALL_DROPIN" ]]; then
+        remove_uninstall_dropin
+    fi
+    # A unit stopped earlier is inactive, so the stop above did not reach the
+    # runs it left in its cgroup. They get SIGTERM, then SIGKILL once their
+    # handlers had time. Without task accounting the count is unknown, and
+    # SIGTERM alone ends them.
+    tasks="$("${systemctl_cmd[@]}" show -p TasksCurrent --value dagu 2>/dev/null || true)"
+    if [[ ! "$tasks" =~ ^[0-9]{1,9}$ ]]; then
+        "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGTERM dagu >/dev/null 2>&1 || true
+        return 0
+    fi
+    if ((tasks == 0)); then
+        return 0
+    fi
+    "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGTERM dagu >/dev/null 2>&1 || true
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        tasks="$("${systemctl_cmd[@]}" show -p TasksCurrent --value dagu 2>/dev/null || true)"
+        if [[ ! "$tasks" =~ ^[0-9]{1,9}$ ]] || ((tasks == 0)); then
+            return 0
+        fi
+        sleep 1
+    done
+    "${systemctl_cmd[@]}" kill --kill-who=all --signal=SIGKILL dagu >/dev/null 2>&1 || true
 }
 
 remove_linux_service_scope() {
