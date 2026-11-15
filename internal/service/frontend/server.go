@@ -1909,7 +1909,7 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 			logger.Info(ctx, "Context done, shutting down server")
 		case failure = <-serveErr:
 		case <-srv.restartRequested:
-			failure = errRestartRequested
+			failure = ErrRestartRequested
 		}
 	} else {
 		quit := make(chan os.Signal, 1)
@@ -1923,7 +1923,7 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 			logger.Info(ctx, "Received shutdown signal", slog.String("signal", sig.String()))
 		case failure = <-serveErr:
 		case <-srv.restartRequested:
-			failure = errRestartRequested
+			failure = ErrRestartRequested
 		}
 		signal.Stop(quit)
 	}

@@ -42,7 +42,7 @@
     "allow_web_upgrade": {
       "type": "boolean",
       "description": "Let administrators upgrade Dagu to the latest release from the web UI. Offered only for a binary install run by the service the installer set up, which restarts Dagu after the upgrade.",
-      "default": true
+      "default": false
     },
     "tls": {
       "$ref": "#/definitions/TLSDef"

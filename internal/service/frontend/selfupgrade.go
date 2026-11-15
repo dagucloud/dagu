@@ -18,9 +18,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 )
 
-// errRestartRequested ends serving once the binary is upgraded, so the
-// service that runs Dagu restarts it with the new binary.
-var errRestartRequested = errors.New("exiting so the service restarts Dagu with the upgraded binary")
+// ErrRestartRequested ends serving once the binary is upgraded from the web
+// UI, so the service that runs Dagu restarts it with the new binary.
+var ErrRestartRequested = errors.New("exiting so the service restarts Dagu with the upgraded binary")
 
 // selfUpgrader upgrades the running binary to the latest release from the web
 // UI, then has restart end the server, so the service the installer set up

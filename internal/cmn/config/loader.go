@@ -2329,7 +2329,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("base_path", "")
 	l.v.SetDefault("api_base_path", "/api/v1")
 	l.v.SetDefault("check_updates", true)
-	l.v.SetDefault("allow_web_upgrade", true)
+	l.v.SetDefault("allow_web_upgrade", false)
 	l.v.SetDefault("latest_status_today", false)
 	l.v.SetDefault("metrics", "private")
 	l.v.SetDefault("cache", "normal")

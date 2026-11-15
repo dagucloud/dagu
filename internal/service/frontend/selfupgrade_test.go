@@ -140,5 +140,5 @@ func TestServeEndsOnRestartRequest(t *testing.T) {
 	close(requested)
 	srv := &Server{config: &config.Config{}, restartRequested: requested}
 	err := srv.setupGracefulShutdown(signalctx.WithOSSignalsDisabled(t.Context()), make(chan error))
-	assert.ErrorIs(t, err, errRestartRequested)
+	assert.ErrorIs(t, err, ErrRestartRequested)
 }

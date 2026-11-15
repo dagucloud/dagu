@@ -254,14 +254,13 @@ func TestLoad_Env(t *testing.T) {
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Server: Server{
-			Host:            "test.example.com",
-			Port:            9876,
-			BasePath:        "/test/base",
-			APIBasePath:     "/test/api",
-			Headless:        true,
-			CheckUpdates:    false,
-			AllowWebUpgrade: true,
-			AccessLog:       AccessLogNone,
+			Host:         "test.example.com",
+			Port:         9876,
+			BasePath:     "/test/base",
+			APIBasePath:  "/test/api",
+			Headless:     true,
+			CheckUpdates: false,
+			AccessLog:    AccessLogNone,
 			Auth: Auth{
 				Mode:  AuthModeBasic, // Explicit basic mode from env
 				Basic: AuthBasic{Username: "testuser", Password: "testpass"},
@@ -1060,7 +1059,6 @@ scheduler:
 			APIBasePath:       "/api/v1",
 			Headless:          true,
 			CheckUpdates:      false,
-			AllowWebUpgrade:   true,
 			AccessLog:         AccessLogNone,
 			LatestStatusToday: true,
 			Auth: Auth{
@@ -3087,19 +3085,19 @@ check_updates: true
 func TestLoad_AllowWebUpgrade(t *testing.T) {
 	t.Run("Default", func(t *testing.T) {
 		cfg := loadFromYAML(t, "# empty")
+		assert.False(t, cfg.Server.AllowWebUpgrade)
+	})
+
+	t.Run("Enabled", func(t *testing.T) {
+		cfg := loadFromYAML(t, "allow_web_upgrade: true\n")
 		assert.True(t, cfg.Server.AllowWebUpgrade)
 	})
 
-	t.Run("Disabled", func(t *testing.T) {
-		cfg := loadFromYAML(t, "allow_web_upgrade: false\n")
-		assert.False(t, cfg.Server.AllowWebUpgrade)
-	})
-
-	t.Run("DisabledFromEnv", func(t *testing.T) {
+	t.Run("EnabledFromEnv", func(t *testing.T) {
 		cfg := loadWithEnv(t, "# empty", map[string]string{
-			"DAGU_ALLOW_WEB_UPGRADE": "false",
+			"DAGU_ALLOW_WEB_UPGRADE": "true",
 		})
-		assert.False(t, cfg.Server.AllowWebUpgrade)
+		assert.True(t, cfg.Server.AllowWebUpgrade)
 	})
 }
 
