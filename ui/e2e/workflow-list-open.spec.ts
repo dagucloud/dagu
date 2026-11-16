@@ -44,10 +44,9 @@ steps:
   const row = page.getByRole('row').filter({ hasText: dagName }).first();
   await expect(row).toBeVisible({ timeout: 30_000 });
   const pageHref = new RegExp(`^/dags/${dagName}\\?remoteNode=local`);
-  await expect(row.getByRole('link', { name: dagName })).toHaveAttribute(
-    'href',
-    pageHref
-  );
+  await expect(
+    row.getByRole('link', { name: dagName, exact: true })
+  ).toHaveAttribute('href', pageHref);
 
   const [popup] = await Promise.all([
     page.context().waitForEvent('page'),

@@ -93,9 +93,8 @@ function renderTable(
     isAllWorkflowsView?: boolean;
     panelWidth?: number | null;
     canDeleteDAGs?: boolean;
-    canRenameDAGs?: boolean;
     onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
-    onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
+    canEditDAG?: React.ComponentProps<typeof DAGTable>['canEditDAG'];
     canPinDAG?: React.ComponentProps<typeof DAGTable>['canPinDAG'];
     /** A peek host above the table. */
     peek?: PeekController;
@@ -112,8 +111,6 @@ function renderTable(
       .mockImplementation(async (fileNames: string[]) =>
         fileNames.map((fileName) => ({ fileName }))
       );
-  const onRenameDAG =
-    options.onRenameDAG ?? vi.fn().mockResolvedValue(undefined);
   const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
   const result = render(
     <MemoryRouter initialEntries={['/dags']}>
@@ -162,7 +159,6 @@ function renderTable(
               isWorkflowViewEdited={false}
               canManageWorkflowViews={true}
               canDeleteDAGs={options.canDeleteDAGs ?? true}
-              canRenameDAGs={options.canRenameDAGs ?? true}
               onSelectWorkflowView={vi.fn()}
               onShowAllWorkflows={onShowAllWorkflows}
               onResetWorkflowView={vi.fn()}
@@ -172,7 +168,7 @@ function renderTable(
               onSetPinnedWorkflowView={vi.fn()}
               onDeleteWorkflowView={vi.fn()}
               onDeleteDAGs={onDeleteDAGs}
-              onRenameDAG={onRenameDAG}
+              canEditDAG={options.canEditDAG ?? (() => true)}
               canPinDAG={options.canPinDAG ?? (() => true)}
               onSetDAGPinned={onSetDAGPinned}
               resultCount={options.resultCount}
@@ -195,7 +191,6 @@ function renderTable(
     ...result,
     handleActiveOnlyChange,
     onDeleteDAGs,
-    onRenameDAG,
     onSetDAGPinned,
     onShowAllWorkflows,
     onSortChange,
@@ -304,7 +299,7 @@ describe('DAGTable', () => {
   });
 
   it('hides workflow mutation controls without write permission', () => {
-    renderTable('', { canDeleteDAGs: false, canRenameDAGs: false });
+    renderTable('', { canDeleteDAGs: false, canEditDAG: () => false });
 
     const table = screen.getByRole('table');
     expect(
@@ -313,7 +308,7 @@ describe('DAGTable', () => {
       })
     ).not.toBeInTheDocument();
     expect(
-      within(table).queryByRole('button', { name: 'Rename workflow example' })
+      within(table).queryByRole('link', { name: 'Edit workflow example' })
     ).not.toBeInTheDocument();
     expect(
       within(table).queryByRole('button', { name: 'Delete workflow example' })
@@ -468,30 +463,6 @@ describe('DAGTable', () => {
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })
     );
     expect(screen.getByRole('button', { name: 'Delete (1)' })).toBeEnabled();
-  });
-
-  it('renames a workflow from the actions column', async () => {
-    const { onRenameDAG } = renderTable();
-
-    fireEvent.click(
-      within(screen.getByRole('table')).getByRole('button', {
-        name: 'Rename workflow example',
-      })
-    );
-
-    const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveTextContent('Rename workflow');
-    const nameInput = within(dialog).getByLabelText('Workflow name');
-    expect(nameInput).toHaveValue('example.yaml');
-    fireEvent.change(nameInput, { target: { value: 'renamed.yaml' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }));
-
-    await waitFor(() => {
-      expect(onRenameDAG).toHaveBeenCalledWith('example.yaml', 'renamed.yaml');
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
   });
 
   it('deletes a workflow from the actions column after confirmation', async () => {
@@ -830,6 +801,36 @@ describe('DAGTable', () => {
       expect(peek.open).toHaveBeenCalledWith({ dag: 'reports.yaml' });
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
     });
+
+    // The edit link opens the YAML editor on the workflow page, not the peek
+    // of its row.
+    it.each([
+      ['row', null, 'table'],
+      ['card', 600, 'workflow-card-view'],
+    ] as const)(
+      'opens the YAML editor from the edit link of a %s',
+      (_, panelWidth, container) => {
+        const peek = peekHost();
+        renderTable('', {
+          peek,
+          panelWidth,
+          dags: [workflow({ name: 'alpha' })],
+        });
+        const list =
+          container === 'table'
+            ? screen.getByRole('table')
+            : screen.getByTestId(container);
+
+        fireEvent.click(
+          within(list).getByRole('link', { name: 'Edit workflow alpha' })
+        );
+
+        expect(peek.open).not.toHaveBeenCalled();
+        expect(screen.getByTestId('location')).toHaveTextContent(
+          '/dags/alpha.yaml?remoteNode=local&ndv=docked'
+        );
+      }
+    );
 
     it('shows the peek of a workflow when its card is clicked', () => {
       const peek = peekHost();

@@ -291,8 +291,9 @@ function DAGsContent() {
     workflowViewScope.workspace
   );
   const canWriteWorkspace = useWorkspaceWriteCheck();
-  // The server authorizes a pin against the workflow's own workspace.
-  const canPinDAG = React.useCallback(
+  // The server authorizes a pin or an edit against the workflow's own
+  // workspace.
+  const canWriteDAG = React.useCallback(
     (dag: components['schemas']['DAGFile']) =>
       canWriteWorkspace(dag.dag.workspace),
     [canWriteWorkspace]
@@ -757,25 +758,6 @@ function DAGsContent() {
     [client, mutate, remoteNode, resetLoadedPages]
   );
 
-  const handleRenameDAG = React.useCallback(
-    async (fileName: string, newFileName: string): Promise<void> => {
-      const { error } = await client.POST('/dags/{fileName}/rename', {
-        params: {
-          path: { fileName },
-          query: { remoteNode },
-        },
-        body: { newFileName },
-      });
-      if (error) {
-        throw new Error(error.message || 'Failed to rename workflow');
-      }
-
-      resetLoadedPages();
-      await mutate();
-    },
-    [client, mutate, remoteNode, resetLoadedPages]
-  );
-
   // Pinning moves a workflow across pages, so the list reloads from page one.
   const reloadDAGList = React.useCallback(async () => {
     resetLoadedPages();
@@ -1217,7 +1199,6 @@ function DAGsContent() {
             isWorkflowViewEdited={isWorkflowViewEdited}
             canManageWorkflowViews={canManageWorkflowViews}
             canDeleteDAGs={canManageWorkflowViews}
-            canRenameDAGs={canManageWorkflowViews}
             workflowViewError={workflowViewError}
             onSelectWorkflowView={handleSelectWorkflowView}
             onShowAllWorkflows={handleShowAllWorkflows}
@@ -1228,8 +1209,8 @@ function DAGsContent() {
             onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
-            onRenameDAG={handleRenameDAG}
-            canPinDAG={canPinDAG}
+            canEditDAG={canWriteDAG}
+            canPinDAG={canWriteDAG}
             onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
           />

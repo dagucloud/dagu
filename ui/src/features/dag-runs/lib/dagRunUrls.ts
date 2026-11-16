@@ -33,6 +33,7 @@ type LegacyDAGPageURLInput = {
   run?: never;
   runName?: never;
   dock?: never;
+  yaml?: never;
   mode?: never;
 };
 
@@ -53,6 +54,8 @@ type WorkspaceDAGPageURLInput = {
   step?: string;
   /** Dock tab, for example 'log'. */
   dock?: string;
+  /** Opens the YAML editor of the workflow file (?ndv=docked). */
+  yaml?: boolean;
   tab?: never;
   rootDAGRunName?: never;
   rootDAGRunId?: never;
@@ -101,7 +104,7 @@ export function buildDAGRunPageURL({
 }
 
 export function buildDAGPageURL(input: DAGPageURLInput): string {
-  if (input.run || input.dock) {
+  if (input.run || input.dock || input.yaml) {
     return buildWorkspaceDAGPageURL(input as WorkspaceDAGPageURLInput);
   }
   const {
@@ -151,6 +154,7 @@ function buildWorkspaceDAGPageURL({
   subRun,
   step,
   dock,
+  yaml,
 }: WorkspaceDAGPageURLInput): string {
   const params = new URLSearchParams();
   params.set('remoteNode', remoteNode);
@@ -171,6 +175,9 @@ function buildWorkspaceDAGPageURL({
   }
   if (dock) {
     params.set('dock', dock);
+  }
+  if (yaml) {
+    params.set('ndv', 'docked');
   }
   const path = `/dags/${encodeURIComponent(fileName)}`;
   return appendQuery(path, params);
