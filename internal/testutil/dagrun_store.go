@@ -37,6 +37,10 @@ func (DAGRunStoreStub) QueryStatuses(context.Context, persis.DAGRunStatusQuery) 
 	panic("unexpected DAG-run store call: QueryStatuses")
 }
 
+func (DAGRunStoreStub) WalkRuns(context.Context, string, persis.TimeInUTC, func(persis.ListedDAGRun) error) error {
+	panic("unexpected DAG-run store call: WalkRuns")
+}
+
 func (DAGRunStoreStub) CompareAndSwapLatestAttemptStatus(
 	context.Context,
 	persis.DAGRunCompareAndSwapStatusRequest,

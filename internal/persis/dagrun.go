@@ -28,6 +28,10 @@ type DAGRunStore interface {
 	// run was created at or after NotBefore and matches the query's filters.
 	LatestStatuses(ctx context.Context, query DAGRunLatestStatusesQuery) ([]*ir.DAGRunStatus, error)
 	QueryStatuses(ctx context.Context, query DAGRunStatusQuery) (DAGRunStatusPage, error)
+	// WalkRuns calls fn with each run of a DAG created at or after from, in
+	// the order QueryStatuses lists them, and stops at the first error fn
+	// returns.
+	WalkRuns(ctx context.Context, name string, from TimeInUTC, fn func(ListedDAGRun) error) error
 	CompareAndSwapLatestAttemptStatus(ctx context.Context, req DAGRunCompareAndSwapStatusRequest) (*ir.DAGRunStatus, bool, error)
 	FindAttempt(ctx context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error)
 	FindSubAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error)
@@ -69,6 +73,14 @@ type DAGRunStatusQuery struct {
 type DAGRunStatusPage struct {
 	Items      []*ir.DAGRunStatus
 	NextCursor string
+}
+
+// ListedDAGRun is a run that a listing found.
+type ListedDAGRun struct {
+	Status *ir.DAGRunStatus
+	// OpenAttempt opens the newest attempt of the run, the one FindAttempt
+	// finds, without looking the run up again.
+	OpenAttempt func(ctx context.Context) (dagrun.Attempt, error)
 }
 
 // DAGRunCreateAttemptRequest identifies the run and attempt to create.

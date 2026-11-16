@@ -5,6 +5,7 @@ package dagrun
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io/fs"
 	"math"
@@ -254,6 +255,40 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A walk of a DAG's runs lists what an unbounded query of the DAG lists, in
+// the same order, and opens the newest attempt of each run, whether its day
+// index or its status file listed it.
+func TestWalkRunsMatchesQueryStatuses(t *testing.T) {
+	seed := seedOracleRuns(t)
+	store := seed.th.Backend
+	from := persis.NewUTC(time.Date(2026, 3, 2, 0, 30, 0, 0, time.UTC))
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		for _, from := range []persis.TimeInUTC{{}, from} {
+			want := listAll(t, store, persis.DAGRunStatusQuery{ExactName: name, From: from})
+			var got []string
+			err := store.WalkRuns(t.Context(), name, from, func(run persis.ListedDAGRun) error {
+				status := run.Status
+				got = append(got, listKey(status.Name, status.DAGRunID, status.Status, status.AttemptID, status.Labels))
+				attempt, err := run.OpenAttempt(t.Context())
+				require.NoError(t, err)
+				require.Equal(t, status.AttemptID, attempt.ID(), status.DAGRunID)
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, want, got, "%s from %v", name, from)
+		}
+	}
+
+	stop := errors.New("stop")
+	walked := 0
+	err := store.WalkRuns(t.Context(), "alpha", persis.TimeInUTC{}, func(persis.ListedDAGRun) error {
+		walked++
+		return stop
+	})
+	require.ErrorIs(t, err, stop)
+	require.Equal(t, 1, walked)
 }
 
 // A list that leaves DAGs out skips their directories, including one whose

@@ -71,32 +71,32 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
 		return err
 	}
 	scanned := r.now()
-	options := DAGRunListOptions{ExactName: dag.Name, AllHistory: true, Unbounded: true}
+	var from TimeInUTC
 	if !through.IsZero() {
-		options.From = NewUTC(through.Add(-slotImportMargin))
-	}
-	statuses, err := r.ListStatuses(ctx, options)
-	if err != nil {
-		return err
+		from = NewUTC(through.Add(-slotImportMargin))
 	}
 	var cutoff time.Time
 	if dag.SlotRetentionDays > 0 {
 		cutoff = r.slotCutoff(dag.SlotRetentionDays)
 	}
-	var candidates []*ir.DAGRunStatus
+	var candidates []ListedDAGRun
 	var first, last time.Time
-	for _, status := range statuses {
-		slot, ok := slotOfStatus(status)
+	err = r.store.WalkRuns(ctx, dag.Name, from, func(run ListedDAGRun) error {
+		slot, ok := slotOfStatus(run.Status)
 		if !ok || slot.Before(cutoff) {
-			continue
+			return nil
 		}
-		candidates = append(candidates, status)
+		candidates = append(candidates, run)
 		if first.IsZero() || slot.Before(first) {
 			first = slot
 		}
 		if slot.After(last) {
 			last = slot
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	var events []SlotEvent
 	if len(candidates) > 0 {
@@ -110,11 +110,11 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
 		for _, event := range recorded {
 			known[event.RunID] = true
 		}
-		for _, status := range candidates {
-			if known[status.DAGRunID] {
+		for _, run := range candidates {
+			if known[run.Status.DAGRunID] {
 				continue
 			}
-			event, _ := slotRunEvent(r.runDAG(ctx, status), r.location, r.calendars, status)
+			event, _ := slotRunEvent(runDAG(ctx, run), r.location, r.calendars, run.Status)
 			events = append(events, event)
 		}
 	}
@@ -124,8 +124,8 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
 // runDAG returns the DAG snapshot a run was created with, or nil when it
 // cannot be read. The snapshot names the schedule that fired the run, which
 // the current definition may no longer have.
-func (r *DAGRunRepository) runDAG(ctx context.Context, status *ir.DAGRunStatus) *ir.DAG {
-	attempt, err := r.FindAttempt(ctx, ir.NewDAGRunRef(status.Name, status.DAGRunID))
+func runDAG(ctx context.Context, run ListedDAGRun) *ir.DAG {
+	attempt, err := run.OpenAttempt(ctx)
 	if err != nil {
 		return nil
 	}

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
@@ -30,6 +31,7 @@ type dagRunListKey struct {
 type dagRunListItem struct {
 	Key    dagRunListKey
 	Status *ir.DAGRunStatus
+	run    *DAGRun
 }
 
 // compareDagRunListKeys orders runs newest first. The timestamp of a run
@@ -65,6 +67,50 @@ func (store *Store) QueryStatuses(ctx context.Context, query persis.DAGRunStatus
 		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
+}
+
+// WalkRuns calls fn with each run of a DAG created at or after from, newest
+// first, reading each day of runs once.
+func (store *Store) WalkRuns(ctx context.Context, name string, from persis.TimeInUTC, fn func(persis.ListedDAGRun) error) error {
+	query := persis.DAGRunStatusQuery{ExactName: name, From: from}
+	iterator, err := newDAGRunStatusIterator(store, store.dataRoot(name), query, statusIterOptions{keepRuns: true}, nil)
+	if err != nil {
+		return err
+	}
+	for {
+		item, err := iterator.Next(ctx)
+		if err != nil || item == nil {
+			return err
+		}
+		run := item.run
+		err = fn(persis.ListedDAGRun{
+			Status: item.Status,
+			OpenAttempt: func(ctx context.Context) (dagrun.Attempt, error) {
+				return store.newestAttempt(ctx, run)
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// newestAttempt opens the newest attempt of a listed run. The day index that
+// listed a run names that attempt, as checked against the disk.
+func (store *Store) newestAttempt(ctx context.Context, run *DAGRun) (dagrun.Attempt, error) {
+	var (
+		attempt *Attempt
+		err     error
+	)
+	if run.summary != nil {
+		attempt, err = run.AttemptByDir(run.summary.LatestAttemptDir, store.cache)
+	} else {
+		attempt, err = run.LatestAttempt(ctx, store.cache)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return attempt, nil
 }
 
 func (store *Store) listStatusesOrdered(
@@ -150,6 +196,8 @@ type statusIterOptions struct {
 	// so they are skipped without being read.
 	seek    time.Time
 	hasSeek bool
+	// keepRuns keeps the run of each item, for a walk that opens attempts.
+	keepRuns bool
 }
 
 func (store *Store) newStatusIterators(ctx context.Context, opts persis.DAGRunStatusQuery, iterOpts statusIterOptions) ([]*dagRunStatusIterator, error) {
@@ -496,14 +544,18 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 	if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {
 		return dagRunListItem{}, false
 	}
-	return dagRunListItem{
+	item := dagRunListItem{
 		Key: dagRunListKey{
 			Timestamp: run.timestamp.UTC(),
 			Name:      status.Name,
 			DAGRunID:  status.DAGRunID,
 		},
 		Status: status,
-	}, true
+	}
+	if it.iterOpts.keepRuns {
+		item.run = run
+	}
+	return item, true
 }
 
 func containsFold(value, query string) bool {
