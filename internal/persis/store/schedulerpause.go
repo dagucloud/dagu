@@ -131,7 +131,6 @@ func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reaso
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var next schedulerPauseRecord
 	err := retryConflict(ctx, func(ctx context.Context) error {
 		current, err := s.col.Get(ctx, schedulerPauseID)
 		if err != nil && !errors.Is(err, persis.ErrNotFound) {
@@ -144,7 +143,7 @@ func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reaso
 		}
 		now := time.Now().UTC()
 		operator := record.Paused && !record.Hold && !record.PausedAt.IsZero()
-		next = schedulerPauseRecord{Paused: paused, History: record.History}
+		next := schedulerPauseRecord{Paused: paused, History: record.History}
 		switch {
 		case paused:
 			next.PausedAt, next.PausedBy, next.Reason = now, actor, reason
@@ -160,11 +159,12 @@ func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reaso
 		}
 		return createOrSwap(ctx, s.col, current, &persis.Record{ID: schedulerPauseID, Data: data, CreatedAt: now, UpdatedAt: now})
 	})
+	// Another process may write right after this write, so the next read
+	// loads the record, reading its version first.
+	s.clearCacheLocked()
 	if err != nil {
-		s.clearCacheLocked()
 		return fmt.Errorf("scheduler pause store: save: %w", err)
 	}
-	s.cacheLocked(ctx, next)
 	return nil
 }
 
@@ -217,7 +217,6 @@ func (s *SchedulerPauseStore) SetHold(ctx context.Context, hold bool, reason str
 	if err != nil {
 		return false, fmt.Errorf("scheduler pause store: hold: %w", err)
 	}
-	s.cacheLocked(ctx, next)
 	return true, nil
 }
 
@@ -233,17 +232,6 @@ func (s *SchedulerPauseStore) cachedLocked(ctx context.Context) (schedulerPauseR
 		return schedulerPauseRecord{}, false
 	}
 	return s.cached, true
-}
-
-func (s *SchedulerPauseStore) cacheLocked(ctx context.Context, record schedulerPauseRecord) {
-	token, ok, err := s.recordToken(ctx)
-	if !ok || err != nil {
-		s.clearCacheLocked()
-		return
-	}
-	s.cached = record
-	s.cachedValid = true
-	s.cachedToken = token
 }
 
 // recordToken returns the backing record's version token. An absent record

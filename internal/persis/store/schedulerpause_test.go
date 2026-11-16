@@ -291,10 +291,10 @@ func TestSchedulerPauseHoldRecordsNoPeriod(t *testing.T) {
 }
 
 // racingCollection lets another writer change a record right after the
-// first read of it returns.
+// first read of it returns, or, with raceWrite, right after the first write.
 type racingCollection struct {
 	*testutil.MemoryCollection
-	race func()
+	race, raceWrite func()
 }
 
 func (c *racingCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
@@ -304,6 +304,25 @@ func (c *racingCollection) Get(ctx context.Context, id string) (*persis.Record, 
 		race()
 	}
 	return rec, err
+}
+
+func (c *racingCollection) Create(ctx context.Context, rec *persis.Record) error {
+	err := c.MemoryCollection.Create(ctx, rec)
+	c.wrote()
+	return err
+}
+
+func (c *racingCollection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	err := c.MemoryCollection.CompareAndSwap(ctx, id, expected, next)
+	c.wrote()
+	return err
+}
+
+func (c *racingCollection) wrote() {
+	if race := c.raceWrite; race != nil {
+		c.raceWrite = nil
+		race()
+	}
 }
 
 // A pause written by another process while the store reads the record is
@@ -320,4 +339,29 @@ func TestSchedulerPauseSeesAWriteDuringARead(t *testing.T) {
 	paused, err := reader.IsPaused(ctx)
 	require.NoError(t, err)
 	assert.True(t, paused)
+}
+
+// A resume by another process right after the store's own pause or wake hold
+// is seen on the next read, not hidden behind the record the store wrote.
+func TestSchedulerPauseSeesAWriteAfterItsOwn(t *testing.T) {
+	for name, pause := range map[string]func(context.Context, *store.SchedulerPauseStore) error{
+		"pause": func(ctx context.Context, s *store.SchedulerPauseStore) error { return s.Set(ctx, true, "alice", "") },
+		"hold": func(ctx context.Context, s *store.SchedulerPauseStore) error {
+			_, err := s.SetHold(ctx, true, "waking")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			inner := testutil.NewMemoryBackend().Collection("scheduler").(*testutil.MemoryCollection)
+			col := &racingCollection{MemoryCollection: inner}
+			writer := store.NewSchedulerPauseStore(col)
+			col.raceWrite = func() { require.NoError(t, store.NewSchedulerPauseStore(inner).Set(ctx, false, "", "")) }
+
+			require.NoError(t, pause(ctx, writer))
+			paused, err := writer.IsPaused(ctx)
+			require.NoError(t, err)
+			assert.False(t, paused, "another process resumed")
+		})
+	}
 }
