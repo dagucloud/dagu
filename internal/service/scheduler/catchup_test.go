@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -836,4 +837,29 @@ func TestTickPlanner_RetriesFailedCatchupWrite(t *testing.T) {
 	store.catchupErr = nil
 	tp.Flush(t.Context())
 	assert.Equal(t, map[string][]time.Time{dag.Name: {at(11, 0), at(12, 0)}}, store.savedCatchup())
+}
+
+// A queue that changes while Flush writes the catch-up slots is saved by
+// the next flush.
+func TestTickPlanner_SavesCatchupChangedDuringWrite(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(9, 0))}
+	tp, _ := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+	etl, report, billing := newHourlyCatchupDAG(t, "etl"), newHourlyCatchupDAG(t, "report"), newHourlyCatchupDAG(t, "billing")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(etl, report, billing)))
+	deleteDAG := func(dag *ir.DAG) {
+		tp.entryMu.Lock()
+		defer tp.entryMu.Unlock()
+		tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeDeleted, DAGEntry: testDAGEntries(dag)[0]})
+	}
+
+	deleteDAG(etl)
+	store.onSaveCatchup = func() {
+		store.onSaveCatchup = nil
+		deleteDAG(report)
+	}
+	tp.Flush(t.Context())
+	tp.Flush(t.Context())
+	assert.Equal(t, []string{billing.Name}, slices.Sorted(maps.Keys(store.savedCatchup())))
 }

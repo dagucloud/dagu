@@ -155,9 +155,11 @@ type TickPlanner struct {
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
 	// catchup holds the catch-up slots saved for a restart to replay, by
-	// DAG, and catchupDirty whether Flush has yet to write them.
+	// DAG, catchupDirty whether Flush has yet to write them, and catchupGen
+	// counts the changes to them.
 	catchup      map[string][]time.Time
 	catchupDirty bool
+	catchupGen   uint64
 	// firstTick is the minute Init counted the first tick to run, until a
 	// tick is planned, resumed, or advanced (protected by mu).
 	firstTick time.Time
@@ -1389,20 +1391,24 @@ func (tp *TickPlanner) saveQueue(dagName string) {
 	if buffer := tp.buffers[dagName]; buffer != nil {
 		queued = buffer.items
 	}
-	replayed := replaysQueue(tp.catchup[dagName], queued, tp.watermarkState.DAGs[dagName].LastScheduledTime)
+	saved, ok := tp.catchup[dagName]
+	replayed := replaysQueue(saved, queued, tp.watermarkState.DAGs[dagName].LastScheduledTime)
+	if replayed && (len(queued) > 0 || !ok) {
+		return
+	}
+	tp.catchupGen++
 	if !replayed {
 		tp.catchupDirty = true
 	}
-	switch {
-	case len(queued) == 0:
+	if len(queued) == 0 {
 		delete(tp.catchup, dagName)
-	case !replayed:
-		slots := make([]time.Time, len(queued))
-		for i, item := range queued {
-			slots[i] = item.ScheduledTime.UTC()
-		}
-		tp.catchup[dagName] = slots
+		return
 	}
+	slots := make([]time.Time, len(queued))
+	for i, item := range queued {
+		slots[i] = item.ScheduledTime.UTC()
+	}
+	tp.catchup[dagName] = slots
 }
 
 // replaysQueue reports whether a restart from the saved slots replays the
@@ -1509,10 +1515,10 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 	tp.flushMu.Lock()
 	defer tp.flushMu.Unlock()
 
-	// Snapshot under the lock to avoid holding it during I/O.
-	tp.mu.Lock()
+	// Snapshot under read lock to avoid holding the lock during I/O.
+	tp.mu.RLock()
 	if tp.watermarkState == nil {
-		tp.mu.Unlock()
+		tp.mu.RUnlock()
 		return
 	}
 	snapshot := &schedulerstate.State{
@@ -1522,13 +1528,12 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 	for dagName, dagState := range tp.watermarkState.DAGs {
 		snapshot.DAGs[dagName] = schedulerstate.CloneDAGWatermark(dagState)
 	}
-	saveCatchup := tp.catchupDirty
+	saveCatchup, catchupGen := tp.catchupDirty, tp.catchupGen
 	var catchup map[string][]time.Time
 	if saveCatchup {
 		catchup = maps.Clone(tp.catchup)
-		tp.catchupDirty = false
 	}
-	tp.mu.Unlock()
+	tp.mu.RUnlock()
 
 	// The catch-up slots are saved first, so a saved LastTick never passes
 	// slots they lack. When they fail to save, the state is saved anyway:
@@ -1536,8 +1541,12 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 	if saveCatchup {
 		if err := tp.cfg.StateStore.SaveCatchup(ctx, catchup); err != nil {
 			logger.Warn(ctx, "Failed to save catch-up slots; retrying on the next flush", tag.Error(err))
+		} else {
+			// Slots changed since the snapshot are saved by the next flush.
 			tp.mu.Lock()
-			tp.catchupDirty = true
+			if tp.catchupGen == catchupGen {
+				tp.catchupDirty = false
+			}
 			tp.mu.Unlock()
 		}
 	}

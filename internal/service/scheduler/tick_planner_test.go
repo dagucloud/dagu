@@ -40,6 +40,8 @@ type mockStateStore struct {
 	saved         []*schedulerstate.State
 	catchupWrites int
 	onSave        func(*schedulerstate.State)
+	// onSaveCatchup runs during each SaveCatchup, after the slots are kept.
+	onSaveCatchup func()
 }
 
 func (m *mockStateStore) Load(_ context.Context) (*schedulerstate.State, error) {
@@ -83,13 +85,17 @@ func (m *mockStateStore) LoadCatchup(context.Context) (map[string][]time.Time, e
 
 func (m *mockStateStore) SaveCatchup(_ context.Context, slots map[string][]time.Time) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.catchupWrites++
-	if m.catchupErr != nil {
-		return m.catchupErr
+	err := m.catchupErr
+	if err == nil {
+		m.catchup = maps.Clone(slots)
 	}
-	m.catchup = maps.Clone(slots)
-	return nil
+	onSaveCatchup := m.onSaveCatchup
+	m.mu.Unlock()
+	if onSaveCatchup != nil {
+		onSaveCatchup()
+	}
+	return err
 }
 
 func (m *mockStateStore) savedCatchup() map[string][]time.Time {
