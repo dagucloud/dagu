@@ -38,6 +38,12 @@ func (s fakeSchedulerState) LoadDAG(_ context.Context, dag string) (schedulersta
 
 func (fakeSchedulerState) Save(context.Context, *schedulerstate.State) error { return nil }
 
+func (fakeSchedulerState) LoadCatchup(context.Context) (map[string][]time.Time, error) {
+	return nil, nil
+}
+
+func (fakeSchedulerState) SaveCatchup(context.Context, map[string][]time.Time) error { return nil }
+
 type fakePause struct{ paused bool }
 
 func (p fakePause) IsPaused(context.Context) (bool, error) { return p.paused, nil }

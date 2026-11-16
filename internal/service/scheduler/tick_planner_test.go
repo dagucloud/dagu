@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,11 +31,17 @@ import (
 
 type mockStateStore struct {
 	state   *schedulerstate.State
+	catchup map[string][]time.Time
 	loadErr error
 	saveErr error
-	mu      sync.Mutex
-	saved   []*schedulerstate.State
-	onSave  func(*schedulerstate.State)
+	// catchupErr fails each SaveCatchup, which catchupWrites counts.
+	catchupErr    error
+	mu            sync.Mutex
+	saved         []*schedulerstate.State
+	catchupWrites int
+	onSave        func(*schedulerstate.State)
+	// onSaveCatchup runs during each SaveCatchup, after the slots are kept.
+	onSaveCatchup func()
 }
 
 func (m *mockStateStore) Load(_ context.Context) (*schedulerstate.State, error) {
@@ -70,6 +77,37 @@ func (m *mockStateStore) Save(_ context.Context, state *schedulerstate.State) er
 		m.onSave(state)
 	}
 	return nil
+}
+
+func (m *mockStateStore) LoadCatchup(context.Context) (map[string][]time.Time, error) {
+	return m.savedCatchup(), nil
+}
+
+func (m *mockStateStore) SaveCatchup(_ context.Context, slots map[string][]time.Time) error {
+	m.mu.Lock()
+	m.catchupWrites++
+	err := m.catchupErr
+	if err == nil {
+		m.catchup = maps.Clone(slots)
+	}
+	onSaveCatchup := m.onSaveCatchup
+	m.mu.Unlock()
+	if onSaveCatchup != nil {
+		onSaveCatchup()
+	}
+	return err
+}
+
+func (m *mockStateStore) savedCatchup() map[string][]time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return maps.Clone(m.catchup)
+}
+
+func (m *mockStateStore) catchupWriteCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.catchupWrites
 }
 
 func (m *mockStateStore) lastSaved() *schedulerstate.State {

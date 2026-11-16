@@ -136,7 +136,8 @@ type TickPlannerConfig struct {
 //   - entries, buffers, deletedGrace, pendingOutages, and outageWarnedAt are
 //     protected by entryMu (accessed from drainEvents goroutine and cronLoop's
 //     Plan).
-//   - watermarkState is shared with the flusher goroutine and protected by mu.
+//   - watermarkState and the saved catch-up slots are shared with the flusher
+//     goroutine and protected by mu.
 //   - flushMu spans a flush's snapshot and save, so a later snapshot is never
 //     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
 //   - Plan() holds entryMu during I/O calls (IsSuspended, IsRunning,
@@ -153,6 +154,14 @@ type TickPlanner struct {
 	// watermark state (protected by mu)
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
+	// catchup holds the catch-up slots saved for a restart to replay, by
+	// DAG, catchupDirty whether Flush has yet to write them, catchupGen
+	// counts the changes to them, and catchupStored whether the record last
+	// written holds any.
+	catchup       map[string][]time.Time
+	catchupDirty  bool
+	catchupGen    uint64
+	catchupStored bool
 	// firstTick is the minute Init counted the first tick to run, until a
 	// tick is planned, resumed, or advanced (protected by mu).
 	firstTick time.Time
@@ -262,6 +271,7 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 		entries:      make(map[string]*plannerEntry),
 		buffers:      make(map[string]*ScheduleBuffer),
 		deletedGrace: make(map[string]time.Time),
+		catchup:      make(map[string][]time.Time),
 	}
 }
 
@@ -368,6 +378,15 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	if state.DAGs == nil {
 		state.DAGs = make(map[string]schedulerstate.DAGWatermark)
 	}
+	catchup, err := tp.cfg.StateStore.LoadCatchup(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to load saved catch-up slots", tag.Error(err))
+	}
+	if catchup == nil {
+		catchup = make(map[string][]time.Time)
+	}
+	catchupStored := len(catchup) > 0
+	catchupDirty := false
 
 	// Prune stale DAG entries that no longer exist on disk.
 	activeDags := make(map[string]struct{}, len(entries))
@@ -396,6 +415,11 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 		next, _ = reconcileStartScheduleState(next, active.start, dag.SkipIfSuccessful, observedAt)
 		next = reconcileNextRunState(next, active.start, observedAt, false)
 		state.DAGs[dag.Name] = next
+		// Slots queued under other schedules may not be fires of these.
+		if _, ok := catchup[dag.Name]; ok && next.StartScheduleFingerprint != current.StartScheduleFingerprint {
+			delete(catchup, dag.Name)
+			catchupDirty = true
+		}
 	}
 
 	for _, entry := range entries {
@@ -410,6 +434,9 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 
 	tp.mu.Lock()
 	tp.watermarkState = state
+	tp.catchup = catchup
+	tp.catchupDirty = catchupDirty
+	tp.catchupStored = catchupStored
 	tp.mu.Unlock()
 
 	logger.Info(ctx, "Loaded scheduler watermark",
@@ -647,6 +674,7 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 	lastTick := tp.watermarkState.LastTick
 	dagWatermarks := make(map[string]schedulerstate.DAGWatermark, len(tp.watermarkState.DAGs))
 	maps.Copy(dagWatermarks, tp.watermarkState.DAGs)
+	savedSlots := maps.Clone(tp.catchup)
 	tp.mu.RUnlock()
 
 	var totalMissed int
@@ -683,7 +711,7 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 		if wm.LastScheduledTime.After(savedAfter) {
 			savedAfter = wm.LastScheduledTime
 		}
-		saved := savedCatchupIntervals(active.start, wm.Catchup, savedAfter, replayTo, tp.cfg.Location)
+		saved := savedCatchupIntervals(active.start, savedSlots[dag.Name], savedAfter, replayTo, tp.cfg.Location)
 		missed = mergeIntervals(saved, missed)
 
 		if len(missed) == 0 {
@@ -1344,12 +1372,12 @@ func (tp *TickPlanner) Advance(now time.Time) {
 	tp.lastPlanResult = nil
 }
 
-// saveQueues copies the slots each DAG's catch-up queue holds into its
-// watermark, so a restart replays them though LastTick has passed them.
-// Caller must hold entryMu and mu.
+// saveQueues updates the saved catch-up slots wherever a restart would not
+// replay a DAG's queue from them, so a restart replays the queued slots
+// though LastTick has passed them. Caller must hold entryMu and mu.
 func (tp *TickPlanner) saveQueues() {
-	for dagName, watermark := range tp.watermarkState.DAGs {
-		if _, ok := tp.buffers[dagName]; !ok && len(watermark.Catchup) > 0 {
+	for dagName := range tp.catchup {
+		if _, ok := tp.buffers[dagName]; !ok {
 			tp.saveQueue(dagName)
 		}
 	}
@@ -1358,22 +1386,56 @@ func (tp *TickPlanner) saveQueues() {
 	}
 }
 
-// saveQueue copies the slots a DAG's catch-up queue holds into its
-// watermark. Caller must hold entryMu and mu.
+// saveQueue updates a DAG's saved catch-up slots when a restart would not
+// replay its queue from them. The saved slots of a queue that ran out are
+// dropped without a write, as a restart replays none of them, until the
+// last queue runs out: the record is then written once, empty. Caller must
+// hold entryMu and mu.
 func (tp *TickPlanner) saveQueue(dagName string) {
-	var slots []time.Time
+	var queued []QueueItem
 	if buffer := tp.buffers[dagName]; buffer != nil {
-		for _, item := range buffer.items {
-			slots = append(slots, item.ScheduledTime.UTC())
-		}
+		queued = buffer.items
 	}
-	watermark := tp.watermarkState.DAGs[dagName]
-	if slices.EqualFunc(watermark.Catchup, slots, time.Time.Equal) {
+	saved, ok := tp.catchup[dagName]
+	replayed := replaysQueue(saved, queued, tp.watermarkState.DAGs[dagName].LastScheduledTime)
+	if replayed && (len(queued) > 0 || !ok) {
 		return
 	}
-	watermark = schedulerstate.CloneDAGWatermark(watermark)
-	watermark.Catchup = slots
-	tp.watermarkState.DAGs[dagName] = watermark
+	tp.catchupGen++
+	if !replayed {
+		tp.catchupDirty = true
+	}
+	if len(queued) == 0 {
+		delete(tp.catchup, dagName)
+		if len(tp.catchup) == 0 && tp.catchupStored {
+			tp.catchupDirty = true
+		}
+		return
+	}
+	slots := make([]time.Time, len(queued))
+	for i, item := range queued {
+		slots[i] = item.ScheduledTime.UTC()
+	}
+	tp.catchup[dagName] = slots
+}
+
+// replaysQueue reports whether a restart from the saved slots replays the
+// queued ones, also after catch-up moves lastScheduled back to a queued
+// slot: the saved slots end with the queued ones, and any before them are
+// at or before lastScheduled.
+func replaysQueue(saved []time.Time, queued []QueueItem, lastScheduled time.Time) bool {
+	extra := len(saved) - len(queued)
+	if extra < 0 {
+		return false
+	}
+	for i, item := range queued {
+		if !saved[extra+i].Equal(item.ScheduledTime) {
+			return false
+		}
+	}
+	// saved is ascending, as every change to a queue keeps it sorted, so the
+	// newest extra slot bounds them all.
+	return extra == 0 || !saved[extra-1].After(lastScheduled)
 }
 
 func (tp *TickPlanner) dropSuspendedCatchupState(dagName string, dag *ir.DAG, now time.Time) {
@@ -1474,8 +1536,29 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 	for dagName, dagState := range tp.watermarkState.DAGs {
 		snapshot.DAGs[dagName] = schedulerstate.CloneDAGWatermark(dagState)
 	}
+	saveCatchup, catchupGen := tp.catchupDirty, tp.catchupGen
+	var catchup map[string][]time.Time
+	if saveCatchup {
+		catchup = maps.Clone(tp.catchup)
+	}
 	tp.mu.RUnlock()
 
+	// The catch-up slots are saved first, so a saved LastTick never passes
+	// slots they lack. When they fail to save, the state is saved anyway:
+	// an older saved LastTick would replay slots that already ran.
+	if saveCatchup {
+		if err := tp.cfg.StateStore.SaveCatchup(ctx, catchup); err != nil {
+			logger.Warn(ctx, "Failed to save catch-up slots; retrying on the next flush", tag.Error(err))
+		} else {
+			// Slots changed since the snapshot are saved by the next flush.
+			tp.mu.Lock()
+			tp.catchupStored = len(catchup) > 0
+			if tp.catchupGen == catchupGen {
+				tp.catchupDirty = false
+			}
+			tp.mu.Unlock()
+		}
+	}
 	if err := tp.cfg.StateStore.Save(ctx, snapshot); err != nil {
 		logger.Error(ctx, "Failed to flush watermark state", tag.Error(err))
 		return
