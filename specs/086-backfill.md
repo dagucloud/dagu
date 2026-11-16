@@ -225,13 +225,15 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   most 100 for the scheduler and 100 for each DAG:
   - `suspended`: from a DAG's suspension to its resume, for that DAG;
   - `paused`: from an operator's pause of the scheduler to its resume, for
-    every DAG. A wake hold records none, as the ticks it held run after it;
+    every DAG, kept with the pause state and recorded in the same write as
+    the resume. Pausing again while paused keeps the time the pause began.
+    A wake hold records none, as the ticks it held run after it;
   - `down`: when a scheduler starts, takes over, or ticks, more than a
     minute after the last tick, from that tick to its own, or to where a
     takeover's recovery window starts, for every DAG.
-  A suspension, resume, pause, or unpause through the API records its span
-  first and fails, changing nothing, when it cannot. A retry after a later
-  failure keeps the span as recorded.
+  A suspension or resume through the API records its span first and fails,
+  changing nothing, when it cannot. A retry after a later failure keeps the
+  span as recorded.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs

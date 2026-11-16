@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
 )
@@ -121,9 +120,6 @@ func (a *API) UpdateSchedulerPauseState(ctx context.Context, request api.UpdateS
 		actor = user.Username
 	}
 
-	if err := a.markSpan(ctx, "", schedulerstate.SpanPaused, request.Body.Paused); err != nil {
-		return nil, err
-	}
 	if err := a.schedulerPauseStore.Set(ctx, request.Body.Paused, actor, reason); err != nil {
 		return nil, fmt.Errorf("error updating scheduler pause state: %w", err)
 	}

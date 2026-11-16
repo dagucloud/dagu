@@ -2077,7 +2077,7 @@ steps:
 		}).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), dag.FileName())
+	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans), nil).Ended(t.Context(), dag.FileName())
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanSuspended, spans[0].Reason)
@@ -2137,7 +2137,7 @@ func requireNoSpanLasts(t *testing.T, spans schedulerstate.SpanStore, dag string
 func TestUpdateDAGSuspensionState_MarksSpanFirst(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	spans := &flakySpans{SpanStore: store.NewSpanStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans))}
+	spans := &flakySpans{SpanStore: store.NewSpanStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans), nil)}
 	flags := &suspendFlags{suspended: map[string]bool{}}
 	apiImpl := localapi.New(
 		persis.NewDAGRepository(flags, persis.DAGRepositoryOptions{}), helper.DAGRunRepository, helper.QueueStore,

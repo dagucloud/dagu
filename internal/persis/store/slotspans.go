@@ -27,16 +27,19 @@ type spanRecord struct {
 }
 
 // SpanStore keeps the spans in which slots could not run in a collection,
-// one record for the scheduler and one for each DAG that has spans.
+// one record for the scheduler and one for each DAG that has spans, and
+// gives with them the operator's pauses the pause record keeps.
 type SpanStore struct {
-	col persis.Collection
+	col    persis.Collection
+	pauses *SchedulerPauseStore
 }
 
 var _ schedulerstate.SpanStore = (*SpanStore)(nil)
 
-// NewSpanStore creates a span store backed by col.
-func NewSpanStore(col persis.Collection) *SpanStore {
-	return &SpanStore{col: col}
+// NewSpanStore creates a span store backed by col that gives the ended
+// pauses of pauses, when it is not nil.
+func NewSpanStore(col persis.Collection, pauses *SchedulerPauseStore) *SpanStore {
+	return &SpanStore{col: col, pauses: pauses}
 }
 
 // Mark begins a span of reason unless one lasts, or ends the one that lasts.
@@ -62,14 +65,19 @@ func (s *SpanStore) Add(ctx context.Context, dag string, span schedulerstate.Spa
 	})
 }
 
-// Ended returns the ended spans of the scheduler and of the DAG, oldest
-// first.
+// Ended returns the ended spans of the scheduler, the operator's pauses, and
+// the spans of the DAG, oldest first.
 func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, error) {
 	spans, _, err := s.load(ctx, schedulerSpansID)
 	if err == nil && dag != "" {
 		var own []schedulerstate.Span
 		own, _, err = s.load(ctx, spansID(dag))
 		spans = append(spans, own...)
+	}
+	if err == nil && s.pauses != nil {
+		var pauses []schedulerstate.Span
+		pauses, err = s.pauses.endedPauses(ctx)
+		spans = append(spans, pauses...)
 	}
 	cutoff := time.Now().Add(-spanRetention)
 	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool {
@@ -113,6 +121,14 @@ func (s *SpanStore) update(ctx context.Context, dag string, now time.Time, chang
 		stamp := time.Now().UTC()
 		return createOrSwap(ctx, s.col, current, &persis.Record{ID: id, Data: data, CreatedAt: stamp, UpdatedAt: stamp})
 	})
+}
+
+// recentSpans keeps the maxSpans spans that ended last, within spanRetention
+// before now, in the order they ended.
+func recentSpans(spans []schedulerstate.Span, now time.Time) []schedulerstate.Span {
+	slices.SortStableFunc(spans, func(a, b schedulerstate.Span) int { return a.To.Compare(b.To) })
+	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool { return now.Sub(span.To) > spanRetention })
+	return spans[max(0, len(spans)-maxSpans):]
 }
 
 // load returns the spans of a record and the record. A record that cannot be

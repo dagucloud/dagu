@@ -4,8 +4,6 @@
 package api_test
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,9 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	persistestutil "github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
-	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -162,65 +158,10 @@ func TestSchedulerPause_RecordsSpan(t *testing.T) {
 		}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans)).Ended(t.Context(), "")
+	pauses := store.NewSchedulerPauseStore(server.Backend.Collection(persis.CollectionSchedulerState))
+	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans), pauses).Ended(t.Context(), "")
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanPaused, spans[0].Reason)
 	assert.False(t, spans[0].To.Before(spans[0].From))
-}
-
-// flakyPause is a pause store whose Set fails while fail is set.
-type flakyPause struct {
-	schedulerstate.PauseStore
-	fail bool
-}
-
-func (s *flakyPause) Set(ctx context.Context, paused bool, actor, reason string) error {
-	if s.fail {
-		return errors.New("pause store unavailable")
-	}
-	return s.PauseStore.Set(ctx, paused, actor, reason)
-}
-
-// A pause or resume is made only once its span is marked, so neither holds
-// without its span, and a retry after a failure leaves the span as one.
-func TestSchedulerPause_MarksSpanFirst(t *testing.T) {
-	t.Parallel()
-	helper := test.Setup(t)
-	backend := persistestutil.NewMemoryBackend()
-	spans := &flakySpans{SpanStore: store.NewSpanStore(backend.Collection(persis.CollectionSlotSpans))}
-	pause := &flakyPause{PauseStore: store.NewSchedulerPauseStore(backend.Collection(persis.CollectionSchedulerState))}
-	apiImpl := localapi.New(
-		helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore,
-		helper.ProcRepository, helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil,
-		localapi.WithSpanStore(spans), localapi.WithSchedulerPauseStore(pause),
-	)
-	toggle := func(paused bool) error {
-		_, err := apiImpl.UpdateSchedulerPauseState(t.Context(), api.UpdateSchedulerPauseStateRequestObject{
-			Body: &api.UpdateSchedulerPauseStateJSONRequestBody{Paused: paused},
-		})
-		return err
-	}
-	isPaused := func() bool {
-		paused, err := pause.IsPaused(t.Context())
-		require.NoError(t, err)
-		return paused
-	}
-
-	for _, paused := range []bool{true, false} {
-		spans.fail = true
-		require.Error(t, toggle(paused), "a span that cannot be marked")
-		assert.Equal(t, !paused, isPaused(), "the pause stays as it was")
-
-		spans.fail, pause.fail = false, true
-		require.Error(t, toggle(paused), "a pause that cannot be written")
-		pause.fail = false
-		require.NoError(t, toggle(paused), "the retry")
-		assert.Equal(t, paused, isPaused())
-	}
-
-	ended, err := spans.Ended(t.Context(), "")
-	require.NoError(t, err)
-	require.Len(t, ended, 1)
-	requireNoSpanLasts(t, spans, "", schedulerstate.SpanPaused)
 }

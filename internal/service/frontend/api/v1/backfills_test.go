@@ -269,7 +269,7 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	helper := test.Setup(t)
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-sync", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
-	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans))
+	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans), nil)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
 	require.NoError(t, spans.Add(ctx, "", schedulerstate.Span{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute), Reason: schedulerstate.SpanPaused}))

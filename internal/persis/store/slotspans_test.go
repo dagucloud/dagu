@@ -20,7 +20,7 @@ import (
 )
 
 func newSpanStore() *store.SpanStore {
-	return store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans))
+	return store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans), nil)
 }
 
 // spanAt is an hour of a day counted from 25 days ago, inside the 30 days
@@ -164,7 +164,7 @@ func (c *swapCounter) CompareAndSwap(ctx context.Context, id string, expected, n
 func TestSpanStoreSkipsUnchangedRecord(t *testing.T) {
 	t.Parallel()
 	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans)}
-	s := store.NewSpanStore(col)
+	s := store.NewSpanStore(col, nil)
 	ctx := t.Context()
 
 	require.NoError(t, s.Mark(ctx, "", schedulerstate.SpanPaused, true, spanAt(1, 9)))
@@ -180,8 +180,8 @@ func TestSpanStoreSkipsUnchangedRecord(t *testing.T) {
 func TestSpanStoreSharesSpansThroughFiles(t *testing.T) {
 	t.Parallel()
 	paths := config.PathsConfig{DataDir: t.TempDir()}
-	writer := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSlotSpans))
-	reader := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSlotSpans))
+	writer := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSlotSpans), nil)
+	reader := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSlotSpans), nil)
 	ctx := t.Context()
 
 	require.NoError(t, writer.Mark(ctx, "nested/etl", schedulerstate.SpanSuspended, true, spanAt(1, 9)))
