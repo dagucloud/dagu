@@ -59,6 +59,26 @@ func TestPeriodStoreGivesThePeriodsOfADAG(t *testing.T) {
 	assert.Equal(t, schedulerstate.PeriodPaused, periods[2].Reason)
 }
 
+// Periods with the same bounds come in one order on every read: outages,
+// then pauses, then suspensions.
+func TestPeriodStoreGivesPeriodsInOneOrder(t *testing.T) {
+	t.Parallel()
+	s := newPeriodStore()
+	ctx := t.Context()
+	period := schedulerstate.Period{From: periodAt(1, 9), To: periodAt(1, 10)}
+	require.NoError(t, s.AddSuspended(ctx, "etl", period))
+	require.NoError(t, s.AddDown(ctx, period))
+
+	for range 20 {
+		periods, _, err := s.Ended(ctx, "etl")
+		require.NoError(t, err)
+		require.Equal(t, []schedulerstate.Period{
+			{From: period.From, To: period.To, Reason: schedulerstate.PeriodDown},
+			{From: period.From, To: period.To, Reason: schedulerstate.PeriodSuspended},
+		}, periods)
+	}
+}
+
 // A period is recorded once by when it began: recording it again with a later
 // end, as a resume retried after the DAG stayed suspended does, extends it,
 // and with no later end writes nothing.

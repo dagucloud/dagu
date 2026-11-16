@@ -82,7 +82,8 @@ func (s *PeriodStore) Dismiss(ctx context.Context, dag string, dismissal schedul
 
 // Ended returns the periods of the scheduler's outages, the operator's pauses,
 // and the DAG's suspensions that ended within periodRetention, oldest first,
-// and the DAG's latest dismissal. It reads each record once.
+// in that order of reasons where bounds are equal, and the DAG's latest
+// dismissal. It reads each record once.
 func (s *PeriodStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Period, schedulerstate.Dismissal, error) {
 	var none schedulerstate.Dismissal
 	var down downRecord
@@ -102,18 +103,21 @@ func (s *PeriodStore) Ended(ctx context.Context, dag string) ([]schedulerstate.P
 	}
 	var ended []schedulerstate.Period
 	cutoff := time.Now().Add(-periodRetention)
-	for reason, periods := range map[schedulerstate.PeriodReason][]schedulerstate.Period{
-		schedulerstate.PeriodDown:      down.Down,
-		schedulerstate.PeriodPaused:    pauses,
-		schedulerstate.PeriodSuspended: own.Suspended,
+	for _, list := range []struct {
+		reason  schedulerstate.PeriodReason
+		periods []schedulerstate.Period
+	}{
+		{schedulerstate.PeriodDown, down.Down},
+		{schedulerstate.PeriodPaused, pauses},
+		{schedulerstate.PeriodSuspended, own.Suspended},
 	} {
-		for _, period := range periods {
+		for _, period := range list.periods {
 			if !period.To.Before(cutoff) {
-				ended = append(ended, schedulerstate.Period{From: period.From, To: period.To, Reason: reason})
+				ended = append(ended, schedulerstate.Period{From: period.From, To: period.To, Reason: list.reason})
 			}
 		}
 	}
-	slices.SortFunc(ended, func(a, b schedulerstate.Period) int {
+	slices.SortStableFunc(ended, func(a, b schedulerstate.Period) int {
 		if c := a.From.Compare(b.From); c != 0 {
 			return c
 		}
