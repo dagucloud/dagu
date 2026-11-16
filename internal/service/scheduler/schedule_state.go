@@ -19,7 +19,8 @@ func isZeroDAGWatermark(w schedulerstate.DAGWatermark) bool {
 		w.SkipSuccessResetAt.IsZero() &&
 		len(w.OneOffs) == 0 &&
 		w.NextRun == nil &&
-		w.LastSlot == nil
+		w.LastSlot == nil &&
+		w.FirstSeen.IsZero()
 }
 
 func sameTimePtr(a, b *time.Time) bool {
@@ -140,6 +141,8 @@ func reconcileStartScheduleState(current schedulerstate.DAGWatermark, schedules 
 	if next.StartScheduleFingerprint == fingerprint {
 		return next, false
 	}
+	// Slots queued under other schedules may not be fires of these.
+	next.Catchup = nil
 	if fingerprint == "" {
 		if next.StartScheduleFingerprint == "" && next.SkipSuccessResetAt.IsZero() {
 			return next, false

@@ -95,6 +95,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetAllDAGTags":                   remoteNodeAccessRead,
 	"ValidateDAGSpec":                 remoteNodeAccessRead,
 	"GetDAGDetails":                   remoteNodeAccessRead,
+	"GetDAGMissedSlots":               remoteNodeAccessRead,
 	"GetDAGDAGRunHistory":             remoteNodeAccessRead,
 	"GetDAGDAGRunDetails":             remoteNodeAccessRead,
 	"GetDAGSettings":                  remoteNodeAccessRead,
@@ -154,6 +155,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ExecuteDAGSync":                       remoteNodeAccessExecute,
 	"StopAllDAGRuns":                       remoteNodeAccessExecute,
 	"UpdateDAGSuspensionState":             remoteNodeAccessExecute,
+	"DismissDAGMissedSlots":                remoteNodeAccessExecute,
 
 	// Changes to DAGs, calendars, Wiki pages, and Git sync, which need write
 	// permission.

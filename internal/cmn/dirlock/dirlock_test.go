@@ -1565,3 +1565,96 @@ func TestOnStaleTakeover(t *testing.T) {
 	require.NoError(t, third.TryLock())
 	require.EqualValues(t, 1, takeovers.Load())
 }
+
+// A contender decides a lock is stale once its holder has not renewed it
+// for the stale threshold, and claims it right after. A holder that renews
+// later than that keeps the lock unless the contender's claim came first, so
+// exactly one of them holds it.
+func TestHeartbeatAfterLapse(t *testing.T) {
+	t.Parallel()
+	for _, observe := range []bool{false, true} {
+		t.Run(map[bool]string{false: "directory time", true: "observed heartbeat"}[observe], func(t *testing.T) {
+			t.Parallel()
+			// lapsed returns a holder that has not renewed its lock for twice
+			// the stale threshold, and a contender that watched it meanwhile.
+			lapsed := func(t *testing.T) (holder, contender *dirLock) {
+				dir := t.TempDir()
+				newLock := func() *dirLock {
+					return New(dir, &LockOptions{
+						StaleThreshold:   observerStale,
+						RetryInterval:    10 * time.Millisecond,
+						ObserveHeartbeat: observe,
+					}).(*dirLock)
+				}
+				holder = newLock()
+				require.NoError(t, holder.TryLock())
+				contender = newLock()
+				require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+				time.Sleep(2 * observerStale)
+				return holder, contender
+			}
+
+			t.Run("renewal first", func(t *testing.T) {
+				t.Parallel()
+				holder, contender := lapsed(t)
+
+				require.NoError(t, holder.Heartbeat(context.Background()))
+				require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+				require.True(t, holder.IsHeldByMe())
+				requireRelease(t, holder)
+			})
+
+			t.Run("claim pending", func(t *testing.T) {
+				t.Parallel()
+				holder, contender := lapsed(t)
+				var renewErr error
+				contender.beforeStaleClaim = func() { renewErr = holder.Heartbeat(context.Background()) }
+
+				require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+				require.NoError(t, renewErr)
+				require.True(t, holder.IsHeldByMe())
+				requireRelease(t, holder)
+			})
+
+			t.Run("claim first", func(t *testing.T) {
+				t.Parallel()
+				holder, contender := lapsed(t)
+				judged, proceed, claimed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+				contender.beforeStaleClaim = func() {
+					close(judged)
+					<-proceed
+				}
+				var claimErr error
+				go func() {
+					defer close(claimed)
+					claimErr = contender.TryLock()
+				}()
+				<-judged
+				// The claim lands after the holder's late renewal and before
+				// its reclaim.
+				letClaim := sync.OnceFunc(func() { close(proceed) })
+				holder.beforeReclaim = func() {
+					letClaim()
+					<-claimed
+				}
+
+				renewErr := holder.Heartbeat(context.Background())
+				letClaim()
+				<-claimed
+				require.ErrorIs(t, renewErr, ErrLockNotHeld)
+				require.NoError(t, claimErr)
+				require.False(t, holder.IsHeldByMe())
+				requireRelease(t, contender)
+			})
+		})
+	}
+}
+
+// requireRelease renews and releases lock, which fails unless lock holds a
+// sound lock instance, and checks that no lock is left behind.
+func requireRelease(t *testing.T, lock *dirLock) {
+	t.Helper()
+	require.NoError(t, lock.Heartbeat(context.Background()))
+	require.NoError(t, lock.Unlock())
+	require.NoDirExists(t, lock.lockPath)
+}

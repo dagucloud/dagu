@@ -220,15 +220,23 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
-- The scheduler keeps, per DAG, the latest gap whose start-schedule slots
-  passed without a run, with its span, its reason, and its slot count up to
-  10,000:
-  - `suspended` or `paused`: from the first tick that found the DAG
-    suspended or the scheduler paused to the tick that found it running
-    again, whose own slots run;
-  - `down`: the slots no scheduler ran, for a DAG without catch-up, or
-    before its catch-up window starts.
-  A newer gap replaces it. A gap without a slot is not kept.
+- Dagu records each period in which start-schedule slots cannot run once it
+  ends, and keeps the periods that ended in the last 30 days, at most 100
+  each for the scheduler's outages, the operator's pauses, and each DAG:
+  - `suspended`: from a DAG's suspension to its resume, for that DAG. The
+    suspend flag holds when the suspension began, and suspending again
+    keeps it. A resume through the API records the period before it clears
+    the flag, and fails, leaving the DAG suspended, when it cannot; a
+    retried resume records the period once;
+  - `paused`: from an operator's pause of the scheduler to its resume, for
+    every DAG, kept with the pause state and recorded in the same write as
+    the resume. Pausing again while paused keeps the time the pause began.
+    A wake hold records none, as the ticks it held run after it;
+  - `down`: when a scheduler starts, takes over, or ticks, more than a
+    minute after the last tick, from that tick to its own, or to where a
+    takeover's recovery window starts, for every DAG.
+  A DAG's own periods follow it when Dagu renames it and are removed when Dagu
+  deletes it.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
@@ -247,19 +255,52 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   or base config to `${context.run.scheduled_at}`, `interval_start`,
   `interval_end`, `next_scheduled_at`, or `${dates.*}`, or calls a sub-DAG,
   which inherits the slot. A run reaches its slot only through these.
-- `GET /api/v1/dags/{fileName}` returns the latest missed gap of a DAG that
-  reads its slot as `missedSlots`; the runs of any other DAG all do the same
-  work, so it has none. The DAG's page then says `12 slots passed from 2026-11-01
-  09:00 to 2026-11-01 21:00 while this DAG was suspended` (or while the
-  scheduler was paused or down). For a user who may run the DAG, it has a
-  Backfill action that opens the start panel on that span, with its bounds
-  editable, since a span may hold more slots than one backfill may run. A
-  dismissed gap stays hidden in that browser until another is missed.
-- Once the scheduler picks up a backfill of a range, it takes from the gap
-  the slots the backfill runs, from the gap's first slot up to the first one
-  the backfill skips. The gap then starts after them, and is gone when the
-  backfill runs all its slots; a dismissed gap stays dismissed. A backfill
-  that names its slots or selects them by a date leaves the gap as it is.
+- A DAG's missed slots are the fire times of its start schedules for its
+  active profile that came due strictly inside those periods, the newest
+  10,000 at most, whether or not a run filled them later. They are read from
+  the periods and the scheduler state only, never from the DAG's slot or run
+  history; the backfill planner decides which of them still need a run.
+  Left out: slots older than `slot_retention_days`; the slots of an outage
+  that the DAG's catch-up queues when a scheduler starts again or ticks
+  late, which with queues enabled are the newest slots within its
+  `catchup_window` before then, at most 1,000, or only the newest under
+  `overlap_policy: latest`; and the slots of the scheduler's outages and
+  pauses up to when the scheduler first tracked the DAG, which its
+  watermark keeps once as `firstSeen`, so a DAG created after an outage did
+  not miss it. A DAG the scheduler never tracked counts only its
+  suspensions. A queued slot that catch-up never runs is not counted
+  either: a restart queues again only the saved slots within the
+  `catchup_window` before it, and a pause or a suspension drops the queue.
+- `GET /api/v1/dags/{fileName}/missed-slots` returns the missed slots of a
+  DAG that reads its slot as `missedSlots`: their count, the `first` and
+  `last`, the `reasons` of the periods that hold them, and `until`, when the
+  newest such period ended. The runs of any other DAG all do the same work,
+  so it has none. The DAG's details and their live feed do not carry them.
+- The DAG's page reads them as it opens only, as no backfill changes them,
+  and then says `12 slots passed from 2026-11-01 09:00 to 2026-11-01 20:00
+  while this DAG was suspended` (or while the scheduler was paused or down,
+  or while this DAG could not run, for more than one reason), or `1 slot
+  passed at 2026-11-01 09:00 ...`. For a user who may run the DAG, it has a
+  Backfill action that opens the start panel on the first and last slot,
+  with its bounds editable, since the range may hold more slots than one
+  backfill may run. A backfill started there opens its page in place of
+  the panel's, so going back leads to the page the action was taken on.
+  Once it starts, the page dismisses the notice as Dismiss does; a
+  dismissal that fails then is logged in the browser and leaves the
+  backfill started. A backfill started anywhere else dismisses nothing.
+- A user who may suspend the DAG may dismiss the notice: the server allows
+  running DAGs, and the user has an operator role or above in the DAG's
+  workspace. Others see the notice without a Dismiss button, and the server
+  refuses their dismissal as it refuses their suspension; a user who cannot
+  see the DAG gets not found.
+  `POST /api/v1/dags/{fileName}/missed-slots/dismissal` records the server's
+  time and the user with the DAG's periods, and writes an audit entry. A
+  dismissal covers every period that ended by then, so the notice is hidden
+  for every user until a period that ends after the dismissal adds missed
+  slots; that notice counts only the periods that ended after the
+  dismissal. A suspension still running when the notice was dismissed ends
+  later, so it counts in full. A later dismissal replaces an earlier one. A
+  dismissal that fails leaves the notice and shows the error.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and
   its explicit params or the first matching recurring schedule's overrides.

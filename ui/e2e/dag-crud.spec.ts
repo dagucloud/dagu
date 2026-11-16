@@ -188,6 +188,43 @@ steps:
 
   // Rename and delete from the workflow bar: e2e/workspace/shell.spec.ts.
 
+  test('opens the YAML editor from the workflow list', async ({
+    page,
+    request,
+  }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const dagName = uniqueName('e2e-edit');
+    const fileName = await writeLocalDAG(
+      dagName,
+      `
+name: ${dagName}
+steps:
+  - name: echo
+    run: echo "edit test"
+`
+    );
+    await waitForDAGAvailable(request, token, fileName);
+
+    await page.goto('/dags/');
+    const dagEntry = dagDefinitionsEntry(page, dagName);
+    await expect(dagEntry).toBeVisible();
+    await dagEntry
+      .getByRole('link', { name: `Edit workflow ${dagName}` })
+      .click();
+
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe(`/dags/${dagName}`);
+    await expect(page.getByTestId('yaml-file-body')).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
   // Pins are shared by every user of the server, so the test always unpins.
   test('pins and unpins a workflow', async ({ page, request }) => {
     const stack = await loadStack();

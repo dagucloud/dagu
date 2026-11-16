@@ -64,6 +64,7 @@ type DirLock interface {
 
 	// Heartbeat updates the lock timestamp to prevent staleness
 	// Must be called periodically while holding the lock
+	// Returns ErrLockNotHeld once another process has taken the lock over
 	Heartbeat(ctx context.Context) error
 }
 
@@ -111,8 +112,9 @@ type dirLock struct {
 	ownerFile  string // name of the owner file holding fenceToken
 	mu         sync.Mutex
 
-	heartbeatFile string // name of the heartbeat file this holder renews
-	beats         uint64 // renewals written by this holder
+	heartbeatFile string    // name of the heartbeat file this holder renews
+	beats         uint64    // renewals written by this holder
+	renewedAt     time.Time // when the call that last renewed the lock started
 
 	observedBeat string    // last heartbeat value seen as a contender
 	observedAt   time.Time // when observedBeat was first seen
@@ -132,6 +134,9 @@ type dirLock struct {
 	// beforeSweep, when set by tests, runs when a takeover starts sweeping
 	// released lock directories.
 	beforeSweep func()
+	// beforeReclaim, when set by tests, runs after a late renewal and before
+	// the holder reclaims its lock.
+	beforeReclaim func()
 }
 
 var _ DirLock = (*dirLock)(nil)
@@ -181,7 +186,9 @@ func New(directory string, opts *LockOptions) DirLock {
 
 // Heartbeat updates the lock's modification time to prevent it from being
 // considered stale. This is an atomic operation that should be called
-// periodically while the lock is held to keep it alive.
+// periodically while the lock is held to keep it alive. A late renewal, one
+// that ends more than StaleThreshold after the previous one started, keeps
+// the lock unless a contender that judged it stale claims it first.
 func (l *dirLock) Heartbeat(_ context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -189,7 +196,49 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 	if !l.isHeld {
 		return ErrNotLocked
 	}
+	start := time.Now()
+	if err := l.renew(); err != nil {
+		return err
+	}
+	if time.Since(l.renewedAt) > l.opts.StaleThreshold {
+		if err := l.reclaim(); err != nil {
+			return err
+		}
+	}
+	l.renewedAt = start
+	return nil
+}
 
+// reclaim moves this instance's owner file to a new name. A contender claims
+// a stale lock by renaming the owner file it listed before judging the lock
+// stale, so of this rename and such a claim only the first succeeds.
+func (l *dirLock) reclaim() error {
+	if l.beforeReclaim != nil {
+		l.beforeReclaim()
+	}
+	ownerFile := ownerFilePrefix + newUniqueID()
+	err := fileutil.Rename(filepath.Join(l.lockPath, l.ownerFile), filepath.Join(l.lockPath, ownerFile))
+	if err != nil {
+		if isLostClaimError(err) {
+			l.isHeld = false
+			return fmt.Errorf("%w: lock was taken over: %v", ErrLockNotHeld, err)
+		}
+		return fmt.Errorf("failed to reclaim lock: %w", err)
+	}
+	l.ownerFile = ownerFile
+	if l.heartbeatFile != "" {
+		former := l.heartbeatFile
+		l.heartbeatFile = heartbeatFileOf(ownerFile)
+		// A failure leaves contenders watching the directory timestamp until
+		// the next renewal creates the file.
+		_ = l.writeHeartbeat()
+		_ = fileutil.Remove(filepath.Join(l.lockPath, former))
+	}
+	return nil
+}
+
+// renew checks that this instance still owns the lock and renews it.
+func (l *dirLock) renew() error {
 	// Verify we still own the lock by checking the fence token
 	tokenPath := filepath.Join(l.lockPath, l.ownerFile)
 	data, err := fileutil.ReadFile(tokenPath)
@@ -246,6 +295,12 @@ func (l *dirLock) writeHeartbeat() error {
 	return errors.Join(err, f.Close())
 }
 
+// heartbeatFileOf names the heartbeat file of the lock instance whose owner
+// file is ownerFile.
+func heartbeatFileOf(ownerFile string) string {
+	return heartbeatFilePrefix + strings.TrimPrefix(ownerFile, ownerFilePrefix)
+}
+
 // holderIsStale reports whether the holder of the lock described by info has
 // stopped renewing it.
 func (l *dirLock) holderIsStale(info os.FileInfo) bool {
@@ -280,7 +335,7 @@ func (l *dirLock) readHolderBeat(info os.FileInfo) (string, error) {
 		}
 		// A holder that lost the lock can still write its heartbeat here, so
 		// only the current owner's file counts.
-		name := heartbeatFilePrefix + strings.TrimPrefix(e.Name(), ownerFilePrefix)
+		name := heartbeatFileOf(e.Name())
 		data, err := fileutil.ReadFile(filepath.Join(l.lockPath, name))
 		if err == nil {
 			return string(data), nil
@@ -301,6 +356,7 @@ func (l *dirLock) TryLock() error {
 	if l.isHeld {
 		return nil // Already held by us
 	}
+	start := time.Now()
 
 	// Check if lock exists
 	info, err := os.Stat(l.lockPath)
@@ -315,7 +371,7 @@ func (l *dirLock) TryLock() error {
 		// also have left released lock directories behind. Sweep them before
 		// creating the new lock, so the sweep does not eat into its lease.
 		l.removeAbandonedTempDirs()
-		if err := l.createLock(); err != nil {
+		if err := l.createLock(start); err != nil {
 			return err
 		}
 		if l.opts.OnStaleTakeover != nil {
@@ -329,7 +385,7 @@ func (l *dirLock) TryLock() error {
 		return fmt.Errorf("failed to check lock status: %w", err)
 	}
 
-	return l.createLock()
+	return l.createLock(start)
 }
 
 // removeAbandonedTempDirs removes released lock directories older than the
@@ -556,8 +612,8 @@ func containsEntry(entries []os.DirEntry, name string) bool {
 
 // createLock creates the lock directory and writes this instance's owner file
 // into it. Creating the directory is exclusive, as in older releases, so a new
-// lock never replaces another one.
-func (l *dirLock) createLock() error {
+// lock never replaces another one. start is when the acquisition began.
+func (l *dirLock) createLock(start time.Time) error {
 	if err := fileutil.MkdirAll(l.targetDir, 0750); err != nil {
 		return fmt.Errorf("failed to create target directory: %w", err)
 	}
@@ -613,8 +669,9 @@ func (l *dirLock) createLock() error {
 	l.fenceToken = token
 	l.ownerFile = ownerFile
 	l.isHeld = true
+	l.renewedAt = start
 	if l.opts.ObserveHeartbeat {
-		l.heartbeatFile = heartbeatFilePrefix + strings.TrimPrefix(ownerFile, ownerFilePrefix)
+		l.heartbeatFile = heartbeatFileOf(ownerFile)
 		// A failure leaves contenders watching the directory timestamp until
 		// the next renewal creates the file.
 		_ = l.writeHeartbeat()
@@ -683,7 +740,11 @@ func (l *dirLock) Lock(ctx context.Context) error {
 func (l *dirLock) Unlock() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return l.release()
+}
 
+// release releases the lock this instance holds. The caller holds l.mu.
+func (l *dirLock) release() error {
 	if !l.isHeld {
 		return nil
 	}

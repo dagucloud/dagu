@@ -1039,8 +1039,6 @@ paths:
                     $ref: "#/components/schemas/DAGRunDetails"
                   latestBackfill:
                     $ref: "#/components/schemas/LatestBackfill"
-                  missedSlots:
-                    $ref: "#/components/schemas/MissedSlots"
                   suspended:
                     type: boolean
                     description: "Whether the DAG is suspended"
@@ -1500,6 +1498,71 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BackfillSubmitResponse"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/missed-slots:
+    get:
+      summary: "Get the slots a DAG missed"
+      description: "Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, whether or not a run filled them later. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work. Once dismissed, it returns none until a period that ends after the dismissal adds missed slots."
+      operationId: "getDAGMissedSlots"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "200":
+          description: "The slots the DAG missed, if any"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  missedSlots:
+                    $ref: "#/components/schemas/MissedSlots"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/missed-slots/dismissal:
+    post:
+      summary: "Dismiss the slots a DAG missed"
+      description: "Hides the DAG's missed slots from every user until a period that ends after the dismissal adds missed slots. A user who may suspend the DAG may dismiss them: the server allows running DAGs, and the user has an operator role or above in the DAG's workspace."
+      operationId: "dismissDAGMissedSlots"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "The missed slots were dismissed"
+        "403":
+          description: "The user may not suspend the DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           description: "Generic error response"
           content:
@@ -14119,29 +14182,42 @@ components:
 
     MissedSlots:
       type: object
-      description: "The latest span whose start-schedule slots passed without a run, as the scheduler recorded it. A backfill that runs the span's first slots takes them from it. Set only for a DAG whose runs read their slot: one that declares dates, refers to its run's slot, window, or dates, or calls a sub-DAG."
+      description: "The start-schedule slots a DAG missed, among the newest 10,000 slots of the periods in which its slots could not run in the last 30 days and its slot retention."
       properties:
-        from:
-          type: string
-          format: date-time
-        to:
-          type: string
-          format: date-time
-        reason:
-          type: string
-          description: "Why the slots did not run: the DAG was suspended, the scheduler paused, or no scheduler ran"
-          enum:
-            - "suspended"
-            - "paused"
-            - "down"
         slots:
           type: integer
-          description: "Slots that passed, up to 10,000"
+          description: "How many slots were missed"
+        first:
+          type: string
+          format: date-time
+          description: "The first slot missed"
+        last:
+          type: string
+          format: date-time
+          description: "The last slot missed"
+        reasons:
+          type: array
+          description: "Why the slots did not run, in the order of the slots"
+          items:
+            $ref: "#/components/schemas/MissedSlotsReason"
+        until:
+          type: string
+          format: date-time
+          description: "When the newest period that holds a missed slot ended. It changes only when a newer period adds missed slots, so it identifies them for a dismissal."
       required:
-        - from
-        - to
-        - reason
         - slots
+        - first
+        - last
+        - reasons
+        - until
+
+    MissedSlotsReason:
+      type: string
+      description: "The DAG was suspended, the scheduler paused, or no scheduler ran"
+      enum:
+        - "suspended"
+        - "paused"
+        - "down"
 
     BackfillStatus:
       type: string

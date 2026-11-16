@@ -134,6 +134,8 @@ type Dependencies struct {
 	SchedulerStateStore schedulerstate.Store
 	SchedulerPauseStore schedulerstate.PauseStore
 	RestartBackoffStore schedulerstate.RestartBackoffStore
+	// PeriodStore records the time no scheduler ran. Nil records none.
+	PeriodStore schedulerstate.PeriodStore
 	// BackfillStore holds the backfills the scheduler runs. Nil runs none.
 	BackfillStore        backfill.Store
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
@@ -200,6 +202,7 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	}
 	scheduler.eventCollector = deps.EventCollector
 	scheduler.restartScanner.cfg.BackoffStore = deps.RestartBackoffStore
+	scheduler.planner.cfg.Periods = deps.PeriodStore
 	scheduler.backfills = scheduler.newBackfillDispatcher(deps.BackfillStore)
 	if scheduler.backfills != nil {
 		scheduler.planner.cfg.BackfillGuard = scheduler.guardCatchupSlot
@@ -357,7 +360,6 @@ func newScheduler(
 	planner := NewTickPlanner(TickPlannerConfig{
 		StateStore:      stateStore,
 		IsSuspended:     isSuspended,
-		IsPaused:        newPauseChecker(pauseStore),
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning:       isRunning,
 		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {

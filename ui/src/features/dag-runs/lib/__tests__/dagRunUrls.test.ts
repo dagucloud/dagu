@@ -184,6 +184,12 @@ describe('dagRunUrls', () => {
     ).toBe('/dags/my%20flow?remoteNode=local&run=r1');
   });
 
+  it('opens the YAML editor of the file', () => {
+    expect(
+      buildDAGPageURL({ fileName: 'my flow', remoteNode: 'edge', yaml: true })
+    ).toBe('/dags/my%20flow?remoteNode=edge&ndv=docked');
+  });
+
   it('never writes dagRunId in the workspace form', () => {
     const url = buildDAGPageURL({
       fileName: 'flow.yaml',

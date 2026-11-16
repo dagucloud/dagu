@@ -29,6 +29,13 @@ func (s fakeSchedulerState) Load(context.Context) (*schedulerstate.State, error)
 	return schedulerstate.Clone(s.state), s.err
 }
 
+func (s fakeSchedulerState) LoadDAG(_ context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	if s.state == nil {
+		return schedulerstate.DAGWatermark{}, s.err
+	}
+	return schedulerstate.CloneDAGWatermark(s.state.DAGs[dag]), s.err
+}
+
 func (fakeSchedulerState) Save(context.Context, *schedulerstate.State) error { return nil }
 
 type fakePause struct{ paused bool }

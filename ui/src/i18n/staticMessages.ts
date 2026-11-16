@@ -676,6 +676,7 @@ const baseEnglish = {
   'Edit secret ref': 'Edit secret ref',
   'Edit user': 'Edit user',
   'Edit view': 'Edit view',
+  'Edit workflow': 'Edit workflow',
   Edited: 'Edited',
   'Effective Inherited Routes': 'Effective Inherited Routes',
   'Effective order is workflow, workspace, then Global.':
@@ -3960,6 +3961,7 @@ const baseChinese = {
   'Edit secret ref': '编辑密钥引用',
   'Edit user': '编辑用户',
   'Edit view': '编辑视图',
+  'Edit workflow': '编辑工作流',
   Edited: '已编辑',
   'Effective Inherited Routes': '生效的继承路由',
   'Effective order is workflow, workspace, then Global.':
@@ -7176,6 +7178,7 @@ const baseJapanese = {
   'Edit secret ref': 'シークレット参照を編集',
   'Edit user': 'ユーザーを編集',
   'Edit view': 'ビューを編集',
+  'Edit workflow': 'ワークフローを編集',
   Edited: '編集済み',
   'Effective Inherited Routes': '有効な継承ルート',
   'Effective order is workflow, workspace, then Global.':

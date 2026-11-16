@@ -83,6 +83,12 @@ reading logs, which instance is active and how long a failover takes.
   disabled.
 - A scheduler that acquires a released lock replays only what the DAG's own
   `catchup_window` asks for.
+- Catch-up that a scheduler queued and had not run when it stopped is
+  replayed by the next one, within the window its startup replays, though the
+  stopped scheduler's ticks ran past those slots. That window is the DAG's
+  `catchup_window`, or `scheduler.failover_recovery_window` when a takeover's
+  is longer. Only queued slots are replayed, and none when the DAG's start
+  schedules changed while no scheduler ran.
 
 ### Observability
 

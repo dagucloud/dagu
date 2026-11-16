@@ -66,26 +66,55 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return schedulerstate.Clone(state), nil
+}
+
+// LoadDAG returns a copy of one DAG's watermark, zero when the state holds
+// none.
+func (s *SchedulerStateStore) LoadDAG(ctx context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return schedulerstate.DAGWatermark{}, err
+	}
+	return schedulerstate.CloneDAGWatermark(state.DAGs[dag]), nil
+}
+
+// loadLocked returns the cached state, read again when it changed. Callers
+// must not modify or retain it.
+func (s *SchedulerStateStore) loadLocked(ctx context.Context) (*schedulerstate.State, error) {
 	if cached, ok, err := s.cachedStateLocked(ctx); ok || err != nil {
 		return cached, err
 	}
 
+	// The version is read before the record, so a write between the two
+	// leaves the cache behind the record and the next read reloads it.
+	token, versioned, err := collectionRecordVersion(ctx, s.col, schedulerStateID)
+	if !versioned || err != nil {
+		token = ""
+	}
 	var rawState schedulerStateCompatRecord
 	found, err := NewSingleRecord[schedulerStateCompatRecord](s.col, schedulerStateID).Load(ctx, &rawState)
 	if err != nil {
 		if errors.Is(err, ErrCorrupt) {
 			logger.Warn(ctx, "scheduler state: corrupt state, starting fresh", tag.Error(err))
 			state := newSchedulerState()
-			s.cacheStateLocked(ctx, state)
+			s.cacheStateLocked(state, token)
 			s.cachedStatePayload = nil
-			return schedulerstate.Clone(state), nil
+			return s.cachedState, nil
 		}
 		return nil, fmt.Errorf("scheduler state store: get: %w", err)
 	}
 	if !found {
 		state := newSchedulerState()
-		s.cacheStateLocked(ctx, state)
-		return schedulerstate.Clone(state), nil
+		s.cacheStateLocked(state, token)
+		return s.cachedState, nil
 	}
 
 	originalVersion := rawState.SchemaVersion
@@ -98,8 +127,8 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 	default:
 		logger.Warn(ctx, "scheduler state: unknown version, starting fresh", tag.Version(fmt.Sprint(originalVersion)))
 		state = newSchedulerState()
-		s.cacheStateLocked(ctx, state)
-		return schedulerstate.Clone(state), nil
+		s.cacheStateLocked(state, token)
+		return s.cachedState, nil
 	}
 
 	if state.DAGs == nil {
@@ -110,11 +139,11 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 	} else if ok {
 		state.LastTick = checkpoint.LastTick
 	}
-	s.cacheStateLocked(ctx, state)
+	s.cacheStateLocked(state, token)
 	if originalVersion != schedulerStateVersion || !rawState.LastTick.IsZero() {
 		s.cachedStatePayload = nil
 	}
-	return schedulerstate.Clone(state), nil
+	return s.cachedState, nil
 }
 
 // Save writes scheduler state when its durable records have changed.
@@ -203,20 +232,18 @@ func (s *SchedulerStateStore) cachedStateLocked(ctx context.Context) (*scheduler
 	if ok {
 		s.cachedState.LastTick = checkpoint.LastTick
 	}
-	return schedulerstate.Clone(s.cachedState), true, nil
+	return s.cachedState, true, nil
 }
 
-func (s *SchedulerStateStore) cacheStateLocked(ctx context.Context, state *schedulerstate.State) {
+// cacheStateLocked caches state as read from the record at version token;
+// an empty token caches nothing that a later read trusts.
+func (s *SchedulerStateStore) cacheStateLocked(state *schedulerstate.State, token string) {
 	s.cachedState = schedulerstate.Clone(state)
 	stateRecord := newSchedulerStateRecord(state)
 	if data, err := persis.Encode(&stateRecord); err == nil {
 		s.cachedStatePayload = data
 	}
-	if token, ok, err := collectionRecordVersion(ctx, s.col, schedulerStateID); ok && err == nil {
-		s.cachedStateRecordToken = token
-	} else {
-		s.cachedStateRecordToken = ""
-	}
+	s.cachedStateRecordToken = token
 }
 
 func (s *SchedulerStateStore) clearCacheLocked() {

@@ -10,7 +10,11 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useLiveBackfill } from '../hooks/useBackfill';
-import { GAP_FROM_PARAM, GAP_TO_PARAM } from '../hooks/useMissedSlotsNotice';
+import {
+  GAP_FROM_PARAM,
+  GAP_TO_PARAM,
+  useDismissMissedSlotsOnStart,
+} from '../hooks/useMissedSlotsNotice';
 import { backfillPath } from '../lib/backfillLinks';
 import { type Backfill, slotsDone } from '../lib/backfillState';
 import { BackfillProgress } from './BackfillProgress';
@@ -32,7 +36,8 @@ const READ_ON_OPEN = {
  * A DAG's slots, to backfill from, and its backfills, newest first. The list
  * is read when the tab opens and on refresh; an open backfill in it follows
  * its own live feed. A link with a gap, as the notice of missed slots gives,
- * opens the start panel on that gap.
+ * opens the start panel on that gap, and a backfill started there dismisses
+ * the notice.
  */
 export function DAGBackfillsTab({
   dagName,
@@ -58,6 +63,7 @@ export function DAGBackfillsTab({
   const search = new URLSearchParams(location.search);
   const gapFrom = search.get(GAP_FROM_PARAM);
   const gapTo = search.get(GAP_TO_PARAM);
+  const dismissMissedSlots = useDismissMissedSlotsOnStart(fileName, remoteNode);
   // A start opens the backfill's page, which closing the panel must keep.
   const started = useRef(false);
   const closeGap = () => {
@@ -85,7 +91,9 @@ export function DAGBackfillsTab({
           }}
           onStarted={(backfill) => {
             started.current = true;
-            navigate(backfillPath(backfill.id, remoteNode));
+            void dismissMissedSlots();
+            // Back from the backfill skips the link that opened the panel.
+            navigate(backfillPath(backfill.id, remoteNode), { replace: true });
           }}
         />
       )}
