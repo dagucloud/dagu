@@ -327,8 +327,6 @@ export function WorkspaceCanvas({
   // A maximized column covers the graph zone and takes the room of
   // Activity. A collapse ends it: the column opens beside the graph again.
   const [columnMaximized, setColumnMaximized] = useState(false);
-  if (columnMaximized && columnTab === null) setColumnMaximized(false);
-  const columnFills = columnMode && columnMaximized && !snapshot;
   const [workflowRoot, setWorkflowRoot] = useState<HTMLDivElement | null>(null);
   const [yamlRoot, setYamlRoot] = useState<HTMLDivElement | null>(null);
   const [launcherRoot, setLauncherRoot] = useState<HTMLDivElement | null>(null);
@@ -532,6 +530,14 @@ export function WorkspaceCanvas({
     active: paneActive,
   });
   const panelStep = stepPanel.shown ? url.step : null;
+  // The column is open on a tab of its own or on a temporary one: the
+  // details of a step or the panel of a trigger.
+  const columnOpen =
+    columnTab !== null ||
+    panelStep !== null ||
+    (editorState?.launcher ?? null) !== null;
+  if (columnMaximized && !columnOpen) setColumnMaximized(false);
+  const columnFills = columnMode && columnMaximized && !snapshot;
   const openStepDetails = useOpenStepDetails();
 
   // The step panel is a right panel too, without a claim of its own. Each

@@ -990,6 +990,30 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenLastCalledWith(false);
     });
 
+    // A step clicked on the collapsed rail opens a temporary tab only: the
+    // column stays maximized until that tab ends, here under the step view.
+    it('maximizes a temporary tab of the collapsed column', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'none');
+      renderCanvas();
+      const graph = screen.getByTestId('ww-canvas-graph');
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', AT);
+      });
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Maximize panel' })
+      );
+      expect(column()).toHaveAttribute('data-tab', 'step');
+      expect(column()).toHaveAttribute('data-maximized', 'true');
+      expect(graph).toHaveAttribute('inert');
+
+      act(() => props().ndv?.onStateChange('expanded'));
+      act(() => props().ndv?.onStateChange(null));
+      expect(column()).toHaveAttribute('data-tab', 'collapsed');
+      expect(column()).not.toHaveAttribute('data-maximized');
+      expect(graph).not.toHaveAttribute('inert');
+    });
+
     it('opens beside the graph again after a collapse', () => {
       localStorage.setItem(RIGHT_COLUMN_KEY, 'yaml');
       renderCanvas();
