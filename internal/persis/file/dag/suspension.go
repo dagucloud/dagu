@@ -39,14 +39,21 @@ func (store *Store) SetSuspended(ctx context.Context, id string, suspended bool)
 		defer store.invalidateIndex()
 		flag := fileName(id)
 		target := filepath.Join(store.flagsBaseDir, flag)
-		if suspended {
-			if err := writeSuspendFlag(target); err != nil {
-				return err
-			}
-		}
 		legacyDir, err := store.legacySuspendFlagsDir()
 		if err != nil {
 			return err
+		}
+		if suspended {
+			// A legacy flag about to be removed began the suspension.
+			since := time.Now()
+			if legacyDir != "" {
+				if info, err := fileutil.Stat(filepath.Join(legacyDir, flag)); err == nil {
+					since = info.ModTime()
+				}
+			}
+			if err := writeSuspendFlag(target, since); err != nil {
+				return err
+			}
 		}
 		if legacyDir != "" {
 			if err := removeSuspendFlag(filepath.Join(legacyDir, flag)); err != nil {
@@ -101,17 +108,20 @@ func (store *Store) SuspendedSince(_ context.Context, id string) (time.Time, boo
 	return time.Time{}, false, nil
 }
 
-// writeSuspendFlag writes a flag that holds the time it is written, in one
-// atomic write, unless a flag is in place, whose time stays.
-func writeSuspendFlag(path string) error {
+// writeSuspendFlag writes a flag that holds since, in one atomic write,
+// unless a flag is in place, whose time stays.
+func writeSuspendFlag(path string, since time.Time) error {
 	if _, err := fileutil.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	data, err := json.Marshal(suspendFlag{Since: time.Now().UTC()})
-	if err != nil {
-		return err
-	}
-	return fileutil.WriteFileAtomic(path, data, flagPermission)
+	return fileutil.WriteFileAtomic(path, suspendFlagData(since), flagPermission)
+}
+
+// suspendFlagData is the content of a flag of a suspension that began at
+// since.
+func suspendFlagData(since time.Time) []byte {
+	data, _ := json.Marshal(suspendFlag{Since: since.UTC()})
+	return data
 }
 
 // MigrateSuspensionState copies legacy suspension state into primary storage
@@ -159,7 +169,12 @@ func (store *Store) copyLegacySuspendFlags(ctx context.Context, legacyDir string
 		if !isSuspendFlagEntry(entry) {
 			continue
 		}
-		err := fileutil.WriteFileAtomicExclusive(filepath.Join(store.flagsBaseDir, entry.Name()), nil, flagPermission)
+		// The copy keeps when the legacy flag began the suspension.
+		since := time.Now()
+		if info, err := entry.Info(); err == nil {
+			since = info.ModTime()
+		}
+		err := fileutil.WriteFileAtomicExclusive(filepath.Join(store.flagsBaseDir, entry.Name()), suspendFlagData(since), flagPermission)
 		if err != nil && !errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("copy suspend flag %s: %w", entry.Name(), err)
 		}
