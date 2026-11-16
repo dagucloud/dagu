@@ -573,6 +573,24 @@ func TestTickPlanner_ReplayLeavesOutSlotLostToPanic(t *testing.T) {
 	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(restarted, dag.Name))
 }
 
+// A late first tick queues the slots that came due while startup ran, and
+// a restart replays them, though the late tick's LastTick passed them.
+func TestTickPlanner_ReplaysSlotsQueuedByLateFirstTick(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(9, 0))}
+	tp, _ := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return at(11, 59).Add(30 * time.Second) }
+	tp.cfg.Enqueue = enqueueOK
+	dag := newHourlyCatchupDAG(t, "hourly")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	require.Equal(t, []time.Time{at(10, 0), at(11, 0)}, bufferedSlots(tp, dag.Name))
+	runTick(t, tp, at(12, 1))
+	require.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(tp, dag.Name), "the late first tick queued 12:00")
+
+	restarted, _ := restartPlanner(t, store, at(12, 1).Add(30*time.Second), 0, dag)
+	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(restarted, dag.Name))
+}
+
 // A startup leaves the slots before its catch-up window out of the queue.
 // A takeover whose recovery window reaches back over them does not replay
 // them while the queue waits for a run of the DAG to finish.
