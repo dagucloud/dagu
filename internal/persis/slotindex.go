@@ -28,8 +28,8 @@ type SlotIndex interface {
 	ImportedThrough(ctx context.Context, dagName string) (time.Time, error)
 	// Import appends the events whose runs have no event yet and records
 	// that the DAG's history has been added through the given time,
-	// atomically with respect to Record. A run removed while its history was
-	// being read keeps its removal.
+	// atomically with respect to Record. A zero time leaves that record as it
+	// is. A run removed while its history was being read keeps its removal.
 	Import(ctx context.Context, dagName string, events []SlotEvent, through time.Time) error
 }
 

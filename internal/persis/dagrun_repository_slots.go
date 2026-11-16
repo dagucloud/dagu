@@ -23,6 +23,10 @@ import (
 // with a scheduled time yet.
 const slotImportMargin = time.Hour
 
+// slotImportBatch is how many runs an import adds to the slot index at a
+// time, so a read that ends midway keeps the runs it added.
+const slotImportBatch = 1000
+
 // SlotEvents returns the slot events of a DAG whose slots fall in [from, to].
 // It first adds the runs created since the last read that the index lacks,
 // the whole history on the first read, so a run whose recording failed is
@@ -116,9 +120,25 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
 			}
 			event, _ := slotRunEvent(runDAG(ctx, run), r.location, r.calendars, run.Status)
 			events = append(events, event)
+			if len(events) == slotImportBatch {
+				if err := r.importSlotEvents(ctx, dag.Name, events, time.Time{}); err != nil {
+					return err
+				}
+				events = nil
+			}
 		}
 	}
-	return r.slotIndex.Import(ctx, dag.Name, events, scanned)
+	return r.importSlotEvents(ctx, dag.Name, events, scanned)
+}
+
+// importSlotEvents adds events to the slot index unless ctx has ended. A
+// snapshot read that the end of ctx cut short reads as no snapshot, which
+// would record its run without its schedule.
+func (r *DAGRunRepository) importSlotEvents(ctx context.Context, dagName string, events []SlotEvent, through time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.slotIndex.Import(ctx, dagName, events, through)
 }
 
 // runDAG returns the DAG snapshot a run was created with, or nil when it

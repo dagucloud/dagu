@@ -123,6 +123,11 @@ func TestStoreImport(t *testing.T) {
 		{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(1, 2), RunID: "deleted"},
 		{Kind: persis.SlotEventRun, DAGName: "etl", Slot: slotAt(2, 2), RunID: "kept"},
 	}
+	require.NoError(t, store.Import(ctx, "etl", history[1:], time.Time{}))
+	through, err = store.ImportedThrough(ctx, "etl")
+	require.NoError(t, err)
+	assert.True(t, through.IsZero(), "a zero time leaves the history unmarked")
+
 	require.NoError(t, store.Import(ctx, "etl", history, slotAt(20, 0)))
 	require.NoError(t, store.Import(ctx, "etl", history, slotAt(19, 0)))
 

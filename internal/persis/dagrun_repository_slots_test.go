@@ -439,11 +439,129 @@ func TestSlotImportMatchesLookupImport(t *testing.T) {
 	assert.True(t, slices.ContainsFunc(importBoth(), func(event persis.SlotEvent) bool { return event.RunID == "late" }))
 }
 
+// An import that adds the runs in batches, one of which splits a day, adds
+// the events in the same order as one that adds them at once.
+func TestSlotImportInBatchesMatchesLookupImport(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	runsDir := filepath.Join(dir, "dag-runs")
+	dag, err := spec.LoadYAML(ctx, []byte(minutelyDAGYAML))
+	require.NoError(t, err)
+	start := slotOct1.Truncate(24 * time.Hour).Add(12 * time.Hour)
+	end := start.Add((persis.SlotImportBatch + 60) * time.Minute)
+	seedMinutelyRuns(t, runsDir, dag, start, end)
+
+	lookupIndex := slotindex.New(filepath.Join(dir, "by-lookup"))
+	lookup := testutil.NewFileDAGRunRepository(runsDir, persis.DAGRunRepositoryOptions{SlotIndex: lookupIndex, Location: time.UTC})
+	require.NoError(t, lookup.ImportSlotsByLookup(ctx, dag))
+	want, err := lookupIndex.Events(ctx, dag.Name, start, end)
+	require.NoError(t, err)
+
+	listing := testutil.NewFileDAGRunRepository(runsDir, persis.DAGRunRepositoryOptions{
+		SlotIndex: slotindex.New(filepath.Join(dir, "by-listing")),
+		Location:  time.UTC,
+	})
+	got, err := listing.SlotEvents(ctx, dag, start, end)
+	require.NoError(t, err)
+	assert.Equal(t, withoutRecordedAt(want), withoutRecordedAt(got))
+}
+
 func withoutRecordedAt(events []persis.SlotEvent) []persis.SlotEvent {
 	for i := range events {
 		events[i].RecordedAt = time.Time{}
 	}
 	return events
+}
+
+// A read whose context ends while it reads the snapshots of the runs it adds
+// records none of them, rather than record them without their schedules, so
+// the next read adds them whole.
+func TestSlotEventsCancelledImportRecordsNothingItCouldNotRead(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runsDir := filepath.Join(dir, "dag-runs")
+	dag, err := spec.LoadYAML(context.Background(), []byte(slotDAGYAML))
+	require.NoError(t, err)
+	old := slotFixture{repository: testutil.NewFileDAGRunRepository(runsDir, persis.DAGRunRepositoryOptions{}), dag: dag}
+	old.writeRun(t, "run-1", persis.DAGRunCreateAttemptOptions{}, scheduledStatus(ir.Succeeded, slotOct1, ir.TriggerTypeScheduler))
+	old.writeRun(t, "run-2", persis.DAGRunCreateAttemptOptions{}, scheduledStatus(ir.Succeeded, slotOct2, ir.TriggerTypeScheduler))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	index := &cancellingSlotIndex{SlotIndex: slotindex.New(filepath.Join(dir, "slot-index")), cancel: cancel}
+	repository := testutil.NewFileDAGRunRepository(runsDir, persis.DAGRunRepositoryOptions{SlotIndex: index, Location: time.UTC})
+	_, err = repository.SlotEvents(ctx, dag, slotOct1, slotOct2)
+	require.ErrorIs(t, err, context.Canceled)
+
+	events, err := repository.SlotEvents(context.Background(), dag, slotOct1, slotOct2)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	for _, event := range events {
+		assert.Equal(t, "0 2 * * *", event.Schedule, event.RunID)
+	}
+}
+
+// A read whose context ends after it added some runs keeps them, and the
+// next read adds the rest.
+func TestSlotEventsKeepsRunsACancelledImportAdded(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runsDir := filepath.Join(dir, "dag-runs")
+	dag, err := spec.LoadYAML(context.Background(), []byte(minutelyDAGYAML))
+	require.NoError(t, err)
+	// More runs than an import adds at a time.
+	start := slotOct1.Truncate(24 * time.Hour)
+	end := start.Add((persis.SlotImportBatch + 60) * time.Minute)
+	runs := seedMinutelyRuns(t, runsDir, dag, start, end)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	store := slotindex.New(filepath.Join(dir, "slot-index"))
+	index := &cancellingSlotIndex{SlotIndex: store, cancel: cancel, onImport: true}
+	repository := testutil.NewFileDAGRunRepository(runsDir, persis.DAGRunRepositoryOptions{SlotIndex: index, Location: time.UTC})
+	_, err = repository.SlotEvents(ctx, dag, start, end)
+	require.ErrorIs(t, err, context.Canceled)
+
+	kept, err := store.Events(context.Background(), dag.Name, start, end)
+	require.NoError(t, err)
+	assert.NotEmpty(t, kept)
+	assert.Less(t, len(kept), runs)
+	through, err := store.ImportedThrough(context.Background(), dag.Name)
+	require.NoError(t, err)
+	assert.True(t, through.IsZero(), "the history is not added through any time yet")
+
+	events, err := repository.SlotEvents(context.Background(), dag, start, end)
+	require.NoError(t, err)
+	require.Len(t, events, runs)
+	seen := make(map[string]bool, runs)
+	for _, event := range events {
+		assert.False(t, seen[event.RunID], "%s is recorded once", event.RunID)
+		seen[event.RunID] = true
+		assert.Equal(t, "* * * * *", event.Schedule)
+	}
+}
+
+// cancellingSlotIndex ends a read's context once the read has looked up the
+// runs the index holds, before it reads their snapshots, or, with onImport,
+// once it has added runs to the index.
+type cancellingSlotIndex struct {
+	persis.SlotIndex
+	cancel   context.CancelFunc
+	onImport bool
+}
+
+func (c *cancellingSlotIndex) Events(ctx context.Context, dagName string, from, to time.Time) ([]persis.SlotEvent, error) {
+	if !c.onImport {
+		c.cancel()
+	}
+	return c.SlotIndex.Events(ctx, dagName, from, to)
+}
+
+func (c *cancellingSlotIndex) Import(ctx context.Context, dagName string, events []persis.SlotEvent, through time.Time) error {
+	err := c.SlotIndex.Import(ctx, dagName, events, through)
+	if c.onImport {
+		c.cancel()
+	}
+	return err
 }
 
 const minutelyDAGYAML = "name: minutely\nschedule: \"* * * * *\"\nsteps:\n  - run: echo hi\n"

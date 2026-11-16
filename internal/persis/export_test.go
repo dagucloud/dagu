@@ -10,6 +10,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
+// SlotImportBatch is how many runs an import adds to the slot index at a
+// time.
+const SlotImportBatch = slotImportBatch
+
 // ImportSlotsByLookup adds a DAG's run history to the slot index by looking
 // each run up by its ID to read its snapshot. It is the reference that the
 // import reading the listing is compared against.
