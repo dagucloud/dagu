@@ -7,7 +7,6 @@ package schedulerstate
 import (
 	"context"
 	"maps"
-	"slices"
 	"time"
 )
 
@@ -27,9 +26,6 @@ type DAGWatermark struct {
 	// LastSlot is the latest start-schedule slot that came due, and what the
 	// scheduler did with it; nil before any slot came due.
 	LastSlot *ScheduleSlot `json:"lastSlot,omitempty"`
-	// Catchup holds the slots the DAG's catch-up has queued and not yet run,
-	// oldest first.
-	Catchup []time.Time `json:"catchup,omitempty"`
 	// FirstSeen is when the scheduler first tracked the DAG. It is set once
 	// and never changes.
 	FirstSeen time.Time `json:"firstSeen,omitzero"`
@@ -145,6 +141,5 @@ func CloneDAGWatermark(watermark DAGWatermark) DAGWatermark {
 		cloned.OneOffs = make(map[string]OneOffScheduleState, len(watermark.OneOffs))
 		maps.Copy(cloned.OneOffs, watermark.OneOffs)
 	}
-	cloned.Catchup = slices.Clone(watermark.Catchup)
 	return cloned
 }
