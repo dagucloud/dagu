@@ -1541,7 +1541,7 @@ paths:
   /dags/{fileName}/missed-slots/dismissal:
     post:
       summary: "Dismiss the slots a DAG missed"
-      description: "Hides the DAG's missed slots from every user until a period that ends after the dismissal adds missed slots. Any user who can see the DAG may dismiss them."
+      description: "Hides the DAG's missed slots from every user until a period that ends after the dismissal adds missed slots. A user who may suspend the DAG may dismiss them: the server allows running DAGs, and the user has an operator role or above in the DAG's workspace."
       operationId: "dismissDAGMissedSlots"
       tags:
         - "backfills"
@@ -1551,6 +1551,12 @@ paths:
       responses:
         "204":
           description: "The missed slots were dismissed"
+        "403":
+          description: "The user may not suspend the DAG"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "DAG not found"
           content:

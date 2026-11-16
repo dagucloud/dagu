@@ -279,7 +279,11 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   with its bounds editable, since the range may hold more slots than one
   backfill may run. A backfill started there opens its page in place of
   the panel's, so going back leads to the page the action was taken on.
-- Any user who can see the DAG may dismiss the notice:
+- A user who may suspend the DAG may dismiss the notice: the server allows
+  running DAGs, and the user has an operator role or above in the DAG's
+  workspace. Others see the notice without a Dismiss button, and the server
+  refuses their dismissal as it refuses their suspension; a user who cannot
+  see the DAG gets not found.
   `POST /api/v1/dags/{fileName}/missed-slots/dismissal` records the server's
   time and the user with the DAG's periods, and writes an audit entry. The
   notice is then hidden for every user until a period that ends after the

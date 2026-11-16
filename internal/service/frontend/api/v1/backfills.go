@@ -175,8 +175,8 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 }
 
 // DismissDAGMissedSlots hides a DAG's missed slots from every user until a
-// period that ends after the dismissal adds missed slots. Any user who can see
-// the DAG may dismiss them.
+// period that ends after the dismissal adds missed slots. A user who may
+// suspend the DAG may dismiss them; one who cannot see it gets not found.
 func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGMissedSlotsRequestObject) (api.DismissDAGMissedSlotsResponseObject, error) {
 	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
 	if err != nil {
@@ -187,6 +187,12 @@ func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGM
 		}
 	}
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
+		return nil, err
+	}
+	if err := a.requireExecuteForWorkspace(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err
 	}
 	if a.periodStore == nil {

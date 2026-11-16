@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -332,8 +333,9 @@ func TestGetDAGMissedSlots(t *testing.T) {
 
 // A dismissal hides a DAG's missed slots from every user who can see the
 // DAG, from the first dismissal on with no record of the DAG yet, until a
-// period that ends after it adds missed slots. A user who cannot see the
-// DAG, or a DAG that does not exist, gets 404.
+// period that ends after it adds missed slots. Only a user who may suspend
+// the DAG may dismiss them. A user who cannot see the DAG, or a DAG that
+// does not exist, gets 404.
 func TestDismissDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
@@ -346,10 +348,10 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 		"ops-load": {FirstSeen: hour.Add(-6 * time.Hour)},
 	}}}
 	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
-	user := func(name, workspace string) context.Context {
+	user := func(name, workspace string, role auth.Role) context.Context {
 		return auth.WithUser(ctx, &auth.User{
 			Username: name, Role: auth.RoleViewer,
-			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: workspace, Role: auth.RoleViewer}}},
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: workspace, Role: role}}},
 		})
 	}
 	missedSlots := func(ctx context.Context) *api.MissedSlots {
@@ -362,17 +364,34 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 		_, err := apiImpl.DismissDAGMissedSlots(ctx, api.DismissDAGMissedSlotsRequestObject{FileName: fileName})
 		return err
 	}
-	require.NotNil(t, missedSlots(user("bob", "ops")))
+	// A dismissal needs what a suspension needs, and is refused as one is.
+	suspend := func(ctx context.Context) error {
+		_, err := apiImpl.UpdateDAGSuspensionState(ctx, api.UpdateDAGSuspensionStateRequestObject{
+			FileName: "ops-load", Body: &api.UpdateDAGSuspensionStateJSONRequestBody{Suspend: true},
+		})
+		return err
+	}
+	viewer, operator := user("bob", "ops", auth.RoleViewer), user("alice", "ops", auth.RoleOperator)
+	require.NotNil(t, missedSlots(viewer))
 
-	requireAPIErrorStatus(t, dismiss(user("eve", "other"), "ops-load"), http.StatusNotFound)
-	requireAPIErrorStatus(t, dismiss(user("alice", "ops"), "missing"), http.StatusNotFound)
-	require.NotNil(t, missedSlots(user("bob", "ops")), "a refused dismissal hides nothing")
+	requireAPIErrorStatus(t, dismiss(user("eve", "other", auth.RoleOperator), "ops-load"), http.StatusNotFound)
+	requireAPIErrorStatus(t, dismiss(operator, "missing"), http.StatusNotFound)
+	refused := dismiss(viewer, "ops-load")
+	requireAPIErrorStatus(t, refused, http.StatusForbidden)
+	assert.Equal(t, suspend(viewer), refused, "a viewer is refused as a suspension refuses one")
+	require.NotNil(t, missedSlots(viewer), "a refused dismissal hides nothing")
 
-	require.NoError(t, dismiss(user("alice", "ops"), "ops-load"))
-	assert.Nil(t, missedSlots(user("bob", "ops")), "hidden from another user")
+	require.NoError(t, dismiss(operator, "ops-load"))
+	assert.Nil(t, missedSlots(viewer), "hidden from another user")
 
 	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
-	assert.NotNil(t, missedSlots(user("bob", "ops")), "a newer period adds missed slots")
+	assert.NotNil(t, missedSlots(viewer), "a newer period adds missed slots")
+
+	helper.Config.Server.Permissions[config.PermissionRunDAGs] = false
+	refused = dismiss(operator, "ops-load")
+	requireAPIErrorStatus(t, refused, http.StatusForbidden)
+	assert.Equal(t, suspend(operator), refused, "a server that runs no DAGs refuses it as a suspension")
+	assert.NotNil(t, missedSlots(viewer), "a refused dismissal hides nothing")
 }
 
 // A server without a period store answers a dismissal as done.

@@ -40,12 +40,12 @@ const formatBound = (value: string) =>
 
 /**
  * The notice of the slots a DAG missed while it was suspended, the
- * scheduler paused, or no scheduler ran. For a user who may backfill, its
- * action opens the Backfills tab with the start panel on those slots. The
- * slots are read as the page opens and again when a backfill starts, never
- * polled or retried. Dismissed, the notice is hidden from every user until a
- * newer period adds missed slots; a dismissal the server did not keep leaves
- * the notice and shows the error.
+ * scheduler paused, or no scheduler ran. For a user who may run the DAG, its
+ * action opens the Backfills tab with the start panel on those slots, and it
+ * can be dismissed. The slots are read as the page opens and again when a
+ * backfill starts, never polled or retried. Dismissed, the notice is hidden
+ * from every user until a newer period adds missed slots; a dismissal the
+ * server did not keep leaves the notice and shows the error.
  */
 export function useMissedSlotsNotice(
   fileName: string,
@@ -109,7 +109,7 @@ export function useMissedSlotsNotice(
       tone: 'warning',
       message,
       action: canBackfill ? action : undefined,
-      dismissible: true,
+      dismissible: canBackfill,
       dismiss: async () => {
         const failed = (message: string) =>
           showError(

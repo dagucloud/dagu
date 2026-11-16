@@ -460,7 +460,7 @@ export interface paths {
         put?: never;
         /**
          * Dismiss the slots a DAG missed
-         * @description Hides the DAG's missed slots from every user until a period that ends after the dismissal adds missed slots. Any user who can see the DAG may dismiss them.
+         * @description Hides the DAG's missed slots from every user until a period that ends after the dismissal adds missed slots. A user who may suspend the DAG may dismiss them: the server allows running DAGs, and the user has an operator role or above in the DAG's workspace.
          */
         post: operations["dismissDAGMissedSlots"];
         delete?: never;
@@ -11111,6 +11111,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The user may not suspend the DAG */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description DAG not found */
             404: {

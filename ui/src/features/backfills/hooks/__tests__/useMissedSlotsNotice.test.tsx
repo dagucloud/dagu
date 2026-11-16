@@ -71,6 +71,12 @@ function useNoticeAndLocation(
   };
 }
 
+// The notice as the notice line over the canvas shows it.
+function MissedSlotsLine({ canBackfill = true }: { canBackfill?: boolean }) {
+  const { notice } = useNoticeAndLocation(missed, 'etl', canBackfill);
+  return <NoticeLine notices={notice ? [notice] : []} />;
+}
+
 describe('useMissedSlotsNotice', () => {
   beforeEach(() => {
     useQueryMock.mockReset();
@@ -164,15 +170,16 @@ describe('useMissedSlotsNotice', () => {
     expect(result.current.notice).toBeNull();
   });
 
-  // A user who may not run the DAG can read and dismiss the notice only.
-  it('offers no backfill to a user who may not run the DAG', () => {
-    const { result } = renderHook(
-      () => useNoticeAndLocation(missed, 'etl', false),
-      { wrapper }
-    );
+  // A user who may not run the DAG reads the notice only: the server refuses
+  // a backfill and a dismissal from such a user, as it refuses a suspension.
+  it('offers no backfill or dismissal to a user who may not run the DAG', () => {
+    render(<MissedSlotsLine canBackfill={false} />, { wrapper });
 
-    expect(result.current.notice?.action).toBeUndefined();
-    expect(result.current.notice?.dismissible).toBe(true);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      `12 slots passed ${span} while this DAG was suspended`
+    );
+    expect(screen.queryByRole('button', { name: 'Backfill' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
   });
 
   // The action opens the Backfills tab, whose start panel opens on the
@@ -244,11 +251,7 @@ describe('useMissedSlotsNotice', () => {
   // its dismissal, so a refused one stays in view beside the error.
   it('stays in the notice line when the dismissal is refused', async () => {
     post.mockResolvedValue({ error: { message: 'no' } });
-    function Line() {
-      const { notice } = useNoticeAndLocation(missed);
-      return <NoticeLine notices={notice ? [notice] : []} />;
-    }
-    render(<Line />, { wrapper });
+    render(<MissedSlotsLine />, { wrapper });
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
 
