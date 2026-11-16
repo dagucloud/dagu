@@ -5,6 +5,7 @@ package dag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,13 +27,20 @@ const (
 	suspendLockRetry                 = 25 * time.Millisecond
 )
 
+// suspendFlag is what a suspend flag holds: when the suspension began. A
+// flag written before flags held it is empty. A DAG is suspended while its
+// flag exists, whatever the flag holds.
+type suspendFlag struct {
+	Since time.Time `json:"since"`
+}
+
 func (store *Store) SetSuspended(ctx context.Context, id string, suspended bool) error {
 	return store.withSuspendFlagsLock(ctx, func() error {
 		defer store.invalidateIndex()
 		flag := fileName(id)
 		target := filepath.Join(store.flagsBaseDir, flag)
 		if suspended {
-			if err := fileutil.WriteFileAtomic(target, nil, flagPermission); err != nil {
+			if err := writeSuspendFlag(target); err != nil {
 				return err
 			}
 		}
@@ -66,6 +74,44 @@ func (store *Store) IsSuspended(_ context.Context, id string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// SuspendedSince reports when the suspension of a DAG began, as its flag
+// holds it, or when an empty flag was written.
+func (store *Store) SuspendedSince(_ context.Context, id string) (time.Time, bool, error) {
+	for _, dir := range store.suspendFlagsDirs() {
+		path := filepath.Join(dir, fileName(id))
+		data, err := fileutil.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		var flag suspendFlag
+		if json.Unmarshal(data, &flag) == nil && !flag.Since.IsZero() {
+			return flag.Since, true, nil
+		}
+		info, err := fileutil.Stat(path)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		return info.ModTime(), true, nil
+	}
+	return time.Time{}, false, nil
+}
+
+// writeSuspendFlag writes a flag that holds the time it is written, in one
+// atomic write, unless a flag is in place, whose time stays.
+func writeSuspendFlag(path string) error {
+	if _, err := fileutil.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	data, err := json.Marshal(suspendFlag{Since: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(path, data, flagPermission)
 }
 
 // MigrateSuspensionState copies legacy suspension state into primary storage

@@ -58,9 +58,13 @@ func (s *SpanStore) Mark(ctx context.Context, dag string, reason schedulerstate.
 	})
 }
 
-// Add records a span that has ended.
+// Add records a span that has ended, unless one that began at the same
+// time is recorded.
 func (s *SpanStore) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
 	return s.update(ctx, dag, span.To, func(spans []schedulerstate.Span) []schedulerstate.Span {
+		if slices.ContainsFunc(spans, func(recorded schedulerstate.Span) bool { return recorded.From.Equal(span.From) }) {
+			return spans
+		}
 		return append(spans, span)
 	})
 }

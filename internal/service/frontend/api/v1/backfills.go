@@ -170,17 +170,24 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	}}, nil
 }
 
-// markSpan records that the slots of a DAG, or of every DAG for the empty
-// name, stop or resume running. It runs before the change it marks, so the
-// change never holds without its span. A change that then fails leaves a
-// span begun, which counts no slot until it ends, or one ended, which a
-// retry of the change leaves as it is.
-func (a *API) markSpan(ctx context.Context, dag string, reason schedulerstate.SpanReason, held bool) error {
+// recordSuspension records the suspension of a DAG that is to resume as a
+// span in which its slots did not run. It runs before the resume clears the
+// suspension, so a resume never holds without its span; a resume retried
+// after the clear failed records the same span, which is kept once.
+func (a *API) recordSuspension(ctx context.Context, fileName string) error {
 	if a.spanStore == nil {
 		return nil
 	}
-	if err := a.spanStore.Mark(ctx, dag, reason, held, time.Now()); err != nil {
-		return fmt.Errorf("error recording the span in which slots could not run: %w", err)
+	since, suspended, err := a.dagRepository.SuspendedSince(ctx, fileName)
+	if err != nil {
+		return fmt.Errorf("error reading the suspension of %s: %w", fileName, err)
+	}
+	if !suspended {
+		return nil
+	}
+	span := schedulerstate.Span{From: since, To: time.Now(), Reason: schedulerstate.SpanSuspended}
+	if err := a.spanStore.Add(ctx, fileName, span); err != nil {
+		return fmt.Errorf("error recording the suspension of %s: %w", fileName, err)
 	}
 	return nil
 }

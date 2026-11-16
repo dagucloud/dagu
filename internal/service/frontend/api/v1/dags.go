@@ -2209,8 +2209,10 @@ func (a *API) UpdateDAGSuspensionState(ctx context.Context, request api.UpdateDA
 		return nil, err
 	}
 
-	if err := a.markSpan(ctx, request.FileName, schedulerstate.SpanSuspended, request.Body.Suspend); err != nil {
-		return nil, err
+	if !request.Body.Suspend {
+		if err := a.recordSuspension(ctx, request.FileName); err != nil {
+			return nil, err
+		}
 	}
 	if err := a.dagRepository.SetSuspended(ctx, request.FileName, request.Body.Suspend); err != nil {
 		return nil, fmt.Errorf("error toggling suspend: %w", err)

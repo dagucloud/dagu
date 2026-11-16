@@ -2084,25 +2084,25 @@ steps:
 	assert.False(t, spans[0].To.Before(spans[0].From))
 }
 
-// flakySpans is a span store whose Mark fails while fail is set.
+// flakySpans is a span store whose Add fails while fail is set.
 type flakySpans struct {
 	schedulerstate.SpanStore
 	fail bool
 }
 
-func (s *flakySpans) Mark(ctx context.Context, dag string, reason schedulerstate.SpanReason, held bool, at time.Time) error {
+func (s *flakySpans) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
 	if s.fail {
 		return errors.New("span store unavailable")
 	}
-	return s.SpanStore.Mark(ctx, dag, reason, held, at)
+	return s.SpanStore.Add(ctx, dag, span)
 }
 
-// suspendFlags keeps the suspension flags of DAGs, and fails to write one
-// while fail is set.
+// suspendFlags keeps when the suspension of each suspended DAG began, and
+// fails to change a flag while fail is set.
 type suspendFlags struct {
 	persis.DAGDefinitionStore
-	suspended map[string]bool
-	fail      bool
+	since map[string]time.Time
+	fail  bool
 }
 
 func (s *suspendFlags) GetMetadata(_ context.Context, id string) (*ir.DAG, error) {
@@ -2110,35 +2110,30 @@ func (s *suspendFlags) GetMetadata(_ context.Context, id string) (*ir.DAG, error
 }
 
 func (s *suspendFlags) SetSuspended(_ context.Context, id string, suspended bool) error {
-	if s.fail {
+	switch _, ok := s.since[id]; {
+	case s.fail:
 		return errors.New("flag store unavailable")
+	case suspended && !ok:
+		s.since[id] = time.Now()
+	case !suspended:
+		delete(s.since, id)
 	}
-	s.suspended[id] = suspended
 	return nil
 }
 
-// requireNoSpanLasts checks that no span of reason lasts for dag: a span
-// marked now is then the newest once it ends.
-func requireNoSpanLasts(t *testing.T, spans schedulerstate.SpanStore, dag string, reason schedulerstate.SpanReason) {
-	t.Helper()
-	begin := time.Now().UTC().Truncate(time.Second).Add(time.Hour)
-	require.NoError(t, spans.Mark(t.Context(), dag, reason, true, begin))
-	require.NoError(t, spans.Mark(t.Context(), dag, reason, false, begin.Add(time.Minute)))
-	ended, err := spans.Ended(t.Context(), dag)
-	require.NoError(t, err)
-	require.NotEmpty(t, ended)
-	assert.True(t, begin.Equal(ended[len(ended)-1].From), "a span lasted from %s", ended[len(ended)-1].From)
+func (s *suspendFlags) SuspendedSince(_ context.Context, id string) (time.Time, bool, error) {
+	since, ok := s.since[id]
+	return since, ok, nil
 }
 
-// A suspension or resume is made only once its span is marked, so neither
-// holds without its span. A failure leaves the span to a retry: a flag that
-// cannot be set leaves the span begun, which the retry keeps, and a flag
-// that cannot be cleared leaves it ended, which the retry leaves as it is.
-func TestUpdateDAGSuspensionState_MarksSpanFirst(t *testing.T) {
+// A resume records the suspension it ends before it clears the flag: one
+// whose span cannot be recorded fails and leaves the DAG suspended, and one
+// retried after the flag failed to clear records the span once.
+func TestUpdateDAGSuspensionState_RecordsSpanBeforeResume(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
 	spans := &flakySpans{SpanStore: store.NewSpanStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans), nil)}
-	flags := &suspendFlags{suspended: map[string]bool{}}
+	flags := &suspendFlags{since: map[string]time.Time{}}
 	apiImpl := localapi.New(
 		persis.NewDAGRepository(flags, persis.DAGRepositoryOptions{}), helper.DAGRunRepository, helper.QueueStore,
 		helper.ProcRepository, helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil,
@@ -2151,23 +2146,23 @@ func TestUpdateDAGSuspensionState_MarksSpanFirst(t *testing.T) {
 		})
 		return err
 	}
+	require.NoError(t, toggle(true))
+	since := flags.since["etl.yaml"]
 
-	for _, suspend := range []bool{true, false} {
-		spans.fail = true
-		require.Error(t, toggle(suspend), "a span that cannot be marked")
-		assert.Equal(t, !suspend, flags.suspended["etl.yaml"], "the flag stays as it was")
+	spans.fail = true
+	require.Error(t, toggle(false), "a span that cannot be recorded")
+	assert.Contains(t, flags.since, "etl.yaml", "the DAG stays suspended")
 
-		spans.fail, flags.fail = false, true
-		require.Error(t, toggle(suspend), "a flag that cannot be written")
-		flags.fail = false
-		require.NoError(t, toggle(suspend), "the retry")
-		assert.Equal(t, suspend, flags.suspended["etl.yaml"])
-	}
+	spans.fail, flags.fail = false, true
+	require.Error(t, toggle(false), "a flag that cannot be cleared")
+	flags.fail = false
+	require.NoError(t, toggle(false), "the retry")
+	assert.NotContains(t, flags.since, "etl.yaml")
 
 	ended, err := spans.Ended(t.Context(), "etl.yaml")
 	require.NoError(t, err)
-	require.Len(t, ended, 1)
-	requireNoSpanLasts(t, spans, "etl.yaml", schedulerstate.SpanSuspended)
+	require.Len(t, ended, 1, "the retry records no second span")
+	assert.True(t, since.Equal(ended[0].From), "from %s", ended[0].From)
 }
 
 func TestLegacySuspensionViaAPI(t *testing.T) {
