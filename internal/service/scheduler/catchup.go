@@ -4,6 +4,7 @@
 package scheduler
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -36,6 +37,41 @@ const MaxMissedRuns = 1000
 type missedScheduleInterval struct {
 	Schedule      ir.Schedule
 	ScheduledTime time.Time
+}
+
+// savedCatchupIntervals returns the saved catch-up slots after earliest and by
+// latest that a cron schedule still fires, each with the first such schedule.
+func savedCatchupIntervals(schedules []ir.Schedule, slots []time.Time, earliest, latest time.Time, loc *time.Location) []missedScheduleInterval {
+	var intervals []missedScheduleInterval
+	for _, slot := range slots {
+		if !slot.After(earliest) || slot.After(latest) {
+			continue
+		}
+		slot = slot.In(loc)
+		for _, schedule := range schedules {
+			if schedule.IsCron() && scheduleMatchesFireTime(schedule, slot) {
+				intervals = append(intervals, missedScheduleInterval{Schedule: schedule, ScheduledTime: slot})
+				break
+			}
+		}
+	}
+	return intervals
+}
+
+// mergeIntervals returns the slots of a and b once each, oldest first, keeping
+// the latest MaxMissedRuns.
+func mergeIntervals(a, b []missedScheduleInterval) []missedScheduleInterval {
+	merged := slices.Concat(a, b)
+	slices.SortStableFunc(merged, func(x, y missedScheduleInterval) int {
+		return x.ScheduledTime.Compare(y.ScheduledTime)
+	})
+	merged = slices.CompactFunc(merged, func(x, y missedScheduleInterval) bool {
+		return x.ScheduledTime.Equal(y.ScheduledTime)
+	})
+	if len(merged) > MaxMissedRuns {
+		merged = merged[len(merged)-MaxMissedRuns:]
+	}
+	return merged
 }
 
 // ComputeMissedIntervals iterates each schedule's cron expression from
