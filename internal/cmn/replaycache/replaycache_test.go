@@ -138,6 +138,21 @@ func TestReplayCacheKeepsDeviceNamedStepApart(t *testing.T) {
 	assert.FileExists(t, cache.Path("billing", "con_"))
 }
 
+// Step keys that differ only in characters a file name cannot hold, such as
+// a.b and a_b, keep separate records.
+func TestReplayCacheKeepsSimilarStepKeysApart(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	seedReplayCache(t, cache, "billing", "a.b", "a_b")
+	assert.NotEqual(t, cache.Path("billing", "a.b"), cache.Path("billing", "a_b"))
+
+	removed, err := cache.Clear("billing", "a.b")
+	require.NoError(t, err)
+	assert.Len(t, removed, 1)
+	assert.FileExists(t, cache.Path("billing", "a_b"))
+}
+
 // A step key whose raw name cleans to another key, such as ./b for b, keeps
 // its own records.
 func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {

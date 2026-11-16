@@ -75,6 +75,18 @@ func TestCommitPointsKeepDeviceNamesApart(t *testing.T) {
 	assert.Len(t, mustLoad(t, store, "con", "con"), 1)
 }
 
+// DAGs and steps whose names differ only in characters a file name cannot
+// hold, such as etl.daily and etl_daily, keep separate commit points.
+func TestCommitPointsKeepSimilarNamesApart(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	require.NoError(t, store.Note(t.Context(), "etl.daily", "a.b", writegate.CommitPoint{Key: "k1"}))
+	assert.Empty(t, mustLoad(t, store, "etl_daily", "a.b"))
+	assert.Empty(t, mustLoad(t, store, "etl.daily", "a_b"))
+	assert.Len(t, mustLoad(t, store, "etl.daily", "a.b"), 1)
+}
+
 // A step whose raw name cleans to another step's name, such as ./b for b,
 // keeps its own commit points.
 func TestCommitPointsKeepCleanedNamesApart(t *testing.T) {

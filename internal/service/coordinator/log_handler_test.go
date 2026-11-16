@@ -160,6 +160,24 @@ func TestLogHandler_LogFilePath(t *testing.T) {
 		require.Equal(t, expected, path)
 	})
 
+	// Steps and DAGs whose names differ only in characters a file name cannot
+	// hold, such as a.b and a_b, keep their logs apart.
+	t.Run("SimilarNamesApart", func(t *testing.T) {
+		t.Parallel()
+
+		path := func(dag, step string) string {
+			return h.logFilePath(&coordinatorv1.LogChunk{
+				DagName:    dag,
+				DagRunId:   "run-123",
+				AttemptId:  "attempt-1",
+				StepName:   step,
+				StreamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+			})
+		}
+		require.NotEqual(t, path("dag", "a.b"), path("dag", "a_b"))
+		require.NotEqual(t, path("etl.daily", "step"), path("etl_daily", "step"))
+	})
+
 	t.Run("SafeNameSanitization", func(t *testing.T) {
 		t.Parallel()
 

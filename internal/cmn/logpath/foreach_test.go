@@ -53,6 +53,16 @@ func TestForeachStepDirKeepsRawDeviceName(t *testing.T) {
 	assert.Equal(t, raw, ForeachStepDir(runDir, "con"))
 }
 
+// Foreach steps whose names differ only in characters a file name cannot hold,
+// such as a.b and a_b, keep their items apart.
+func TestForeachStepDirKeepsSimilarNamesApart(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	assert.NotEqual(t, ForeachStepDir(logDir, "a.b"), ForeachStepDir(logDir, "a_b"))
+	assert.NotEqual(t, ForeachStepDir(logDir, "fetch data"), ForeachStepDir(logDir, "fetch_data"))
+}
+
 func TestForeachItemDir(t *testing.T) {
 	t.Parallel()
 

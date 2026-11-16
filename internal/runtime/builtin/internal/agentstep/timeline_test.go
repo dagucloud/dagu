@@ -67,6 +67,17 @@ func TestArtifactStoreScreenshots(t *testing.T) {
 	require.ErrorIs(t, err, agentstep.ErrNoArtifactStorage)
 }
 
+// Steps whose keys differ only in characters a file name cannot hold, such as
+// a.b and a_b, keep their artifacts in separate directories of a run.
+func TestArtifactStoreKeepsSimilarStepsApart(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	assert.NotEqual(t,
+		agentstep.NewArtifactStore(root, "computer", "a.b").Dir(),
+		agentstep.NewArtifactStore(root, "computer", "a_b").Dir())
+}
+
 func TestScreenshotNames(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ label, name string }{

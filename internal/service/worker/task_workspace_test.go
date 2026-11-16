@@ -32,6 +32,16 @@ func (c stubWorkspaceBundleClient) GetWorkspaceBundle(context.Context, string) (
 	return c.data, nil
 }
 
+// Targets whose names differ only in characters a file name cannot hold, such
+// as etl.daily and etl_daily, get separate work directories for one run ID.
+func TestRemoteWorkspaceWorkDirKeepsSimilarTargetsApart(t *testing.T) {
+	t.Parallel()
+
+	dotted := remoteWorkspaceWorkDir(&coordinatorv1.Task{Target: "etl.daily", DagRunId: "run-1"})
+	underscored := remoteWorkspaceWorkDir(&coordinatorv1.Task{Target: "etl_daily", DagRunId: "run-1"})
+	assert.NotEqual(t, dotted, underscored)
+}
+
 func TestMaterializeTaskWorkspaceCleansWorkDirOnExtractFailure(t *testing.T) {
 	t.Parallel()
 
