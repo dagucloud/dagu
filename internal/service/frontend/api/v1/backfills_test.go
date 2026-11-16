@@ -282,13 +282,16 @@ func (s *countingStates) LoadDAG(ctx context.Context, dag string) (schedulerstat
 // A DAG's missed slots are the slots that came due in its own periods and,
 // from when the scheduler first saw it, in the scheduler's, in the DAG's
 // workspace, read from the scheduler state store. A DAG whose runs do not
-// read their slot has none: its runs all do the same work.
+// read their slot has none: its runs all do the same work. Neither has a DAG
+// whose catch-up replayed the outage's slots.
 func TestGetDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
+	// Neither catches up, which the base config would have them do for 6h.
 	for _, name := range []string{"ops-load", "ops-new"} {
-		helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, name, []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+		helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, name, []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: \"\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
 	}
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-caught", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: 3h\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-sync", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
 	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
 	hour := time.Now().Truncate(time.Hour)
@@ -297,9 +300,10 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-90 * time.Minute), To: hour.Add(-30 * time.Minute)}))
 	// ops-new was first seen after the outage, so it missed none of its slots.
 	states := &countingStates{stubSchedulerStateStore: stubSchedulerStateStore{state: &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
-		"ops-load": {FirstSeen: hour.Add(-6 * time.Hour)},
-		"ops-sync": {FirstSeen: hour.Add(-6 * time.Hour)},
-		"ops-new":  {FirstSeen: hour.Add(-2 * time.Hour)},
+		"ops-load":   {FirstSeen: hour.Add(-6 * time.Hour)},
+		"ops-sync":   {FirstSeen: hour.Add(-6 * time.Hour)},
+		"ops-caught": {FirstSeen: hour.Add(-6 * time.Hour)},
+		"ops-new":    {FirstSeen: hour.Add(-2 * time.Hour)},
 	}}}}
 	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
 	user := func(workspace string) context.Context {
@@ -327,6 +331,7 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	assert.Zero(t, states.loads, "no read copies every DAG's watermark")
 	assert.Nil(t, missedSlots(user("ops"), "ops-new"), "a DAG first seen after the outage")
 	assert.Nil(t, missedSlots(user("ops"), "ops-sync"), "a DAG that does not read its slot")
+	assert.Nil(t, missedSlots(user("ops"), "ops-caught"), "a DAG whose catch-up replayed the outage")
 	_, err := apiImpl.GetDAGMissedSlots(user("other"), api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})
 	requireAPIErrorStatus(t, err, http.StatusNotFound)
 }
@@ -339,7 +344,7 @@ func TestGetDAGMissedSlots(t *testing.T) {
 func TestDismissDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: \"\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
 	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()

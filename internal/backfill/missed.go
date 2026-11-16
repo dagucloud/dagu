@@ -30,12 +30,21 @@ type periodBounds struct {
 	period schedulerstate.Period
 }
 
+// Catchup is what the scheduler's catch-up runs of a DAG's slots that came
+// due while no scheduler ran: the newest Max of those within Window before
+// it ran again. A zero Catchup runs none.
+type Catchup struct {
+	Window time.Duration
+	Max    int
+}
+
 // FindMissed counts the newest MaxMissedSlots fire times of sched that came
 // due strictly inside periods; the tick at a period's end runs its own. It leaves
-// out slots older than the DAG's slot retention, and the slots of the
-// scheduler's outages and pauses up to firstSeen, when the scheduler first
-// saw the DAG; without firstSeen, those periods count none.
-func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period, firstSeen, now time.Time) Missed {
+// out slots older than the DAG's slot retention, the slots of an outage that
+// catchup replays, and the slots of the scheduler's outages and pauses up to
+// firstSeen, when the scheduler first saw the DAG; without firstSeen, those
+// periods count none.
+func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period, catchup Catchup, firstSeen, now time.Time) Missed {
 	var cutoff time.Time
 	if dag.SlotRetentionDays > 0 {
 		cutoff = now.AddDate(0, 0, -dag.SlotRetentionDays)
@@ -52,6 +61,11 @@ func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period
 			}
 			if seen := firstSeen.Add(time.Nanosecond); b.lo.Before(seen) {
 				b.lo = seen
+			}
+		}
+		if period.Reason == schedulerstate.PeriodDown && !b.hi.Before(b.lo) {
+			if replayed, ok := catchup.firstReplayed(sched, period); ok && !replayed.After(b.hi) {
+				b.hi = replayed.Add(-time.Nanosecond)
 			}
 		}
 		if !b.hi.Before(b.lo) {
@@ -79,6 +93,20 @@ func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period
 		}
 	}
 	return missed
+}
+
+// firstReplayed returns the oldest slot catch-up replays when the scheduler
+// runs again at the end of down, or false when it replays none: the newest
+// Max fires after the window before that end, through the end itself.
+func (c Catchup) firstReplayed(sched SlotSchedule, down schedulerstate.Period) (time.Time, bool) {
+	if c.Window <= 0 || c.Max <= 0 {
+		return time.Time{}, false
+	}
+	fires := newestFires(sched, down.To.Add(-c.Window).Add(time.Nanosecond), down.To, c.Max)
+	if len(fires) == 0 {
+		return time.Time{}, false
+	}
+	return fires[0], true
 }
 
 // firesIn returns the newest MaxMissedSlots fire times inside the bounds,

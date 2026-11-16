@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -161,7 +162,8 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	schedules := slices.Clone(dag.Schedule)
 	spec.BindScheduleCalendars(schedules, a.calendarSource())
 	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
-	missed := backfill.FindMissed(dag, sched, periods, a.dagFirstSeen(ctx, dag.Name), time.Now())
+	catchup := scheduler.CatchupAfterOutage(dag, a.config.Queues.Enabled)
+	missed := backfill.FindMissed(dag, sched, periods, catchup, a.dagFirstSeen(ctx, dag.Name), time.Now())
 	if missed.Slots == 0 || !missed.Until.After(dismissal.At) {
 		return none, nil
 	}

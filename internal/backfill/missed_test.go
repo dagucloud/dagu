@@ -27,7 +27,7 @@ var longAgo = at(1, 0)
 // missed counts the slots of a daily DAG at 02:00 in periods, as on the 20th.
 func missed(t *testing.T, dag *ir.DAG, firstSeen time.Time, periods ...schedulerstate.Period) backfill.Missed {
 	t.Helper()
-	return backfill.FindMissed(dag, dailyAt(t, "0 2 * * *"), periods, firstSeen, at(20, 0))
+	return backfill.FindMissed(dag, dailyAt(t, "0 2 * * *"), periods, backfill.Catchup{}, firstSeen, at(20, 0))
 }
 
 // The slots that came due while the DAG was suspended, the scheduler paused,
@@ -93,11 +93,50 @@ func TestFindMissedCapsSlotsAtTheNewest(t *testing.T) {
 	missed := backfill.FindMissed(&ir.DAG{}, dailyAt(t, "* * * * *"), []schedulerstate.Period{
 		periodOf(schedulerstate.PeriodDown, at(2, 0), at(10, 0)),
 		periodOf(schedulerstate.PeriodPaused, at(12, 0), resumed),
-	}, longAgo, at(20, 0))
+	}, backfill.Catchup{}, longAgo, at(20, 0))
 
 	// The pause's 9 slots and the newest 9,991 of the outage's 11,519.
 	assert.Equal(t, backfill.Missed{
 		Slots: backfill.MaxMissedSlots, First: at(10, 0).Add(-9991 * time.Minute), Last: at(12, 0).Add(9 * time.Minute),
 		Reasons: reasons(schedulerstate.PeriodDown, schedulerstate.PeriodPaused), Until: resumed,
 	}, missed)
+}
+
+// When the scheduler runs again after an outage, catch-up replays the newest
+// slots within the DAG's catchup_window, at most Max of them, so only the
+// others are missed. Without a window, every slot of the outage is.
+func TestFindMissedLeavesOutReplayedSlots(t *testing.T) {
+	t.Parallel()
+	down := func(sched backfill.SlotSchedule, catchup backfill.Catchup, from, to time.Time) backfill.Missed {
+		outage := []schedulerstate.Period{periodOf(schedulerstate.PeriodDown, from, to)}
+		return backfill.FindMissed(&ir.DAG{}, sched, outage, catchup, longAgo, at(20, 0))
+	}
+	minutely, hourly := dailyAt(t, "* * * * *"), dailyAt(t, "0 * * * *")
+	restart := at(12, 0)
+	hour := backfill.Catchup{Window: time.Hour, Max: 1000}
+
+	assert.Equal(t, backfill.Missed{}, down(minutely, hour, restart.Add(-3*time.Minute), restart), "a restart within the window")
+
+	outage := down(minutely, hour, restart.Add(-2*time.Hour), restart)
+	assert.Equal(t, 60, outage.Slots, "the slots before the window")
+	assert.Equal(t, restart.Add(-2*time.Hour+time.Minute), outage.First)
+	assert.Equal(t, restart.Add(-time.Hour), outage.Last)
+	assert.Equal(t, 119, down(minutely, backfill.Catchup{}, restart.Add(-2*time.Hour), restart).Slots, "without a window")
+
+	// A day's window holds 1,440 slots, the restart's own among them, and
+	// catch-up replays the newest 1,000.
+	day := backfill.Catchup{Window: 24 * time.Hour, Max: 1000}
+	assert.Equal(t, 1439-999, down(minutely, day, restart.Add(-24*time.Hour), restart).Slots, "the slots past the cap")
+
+	// From 08:30 to 12:30, the window replays 10:00 to 12:00, or, with
+	// overlap_policy latest, 12:00 only.
+	from, to := restart.Add(-210*time.Minute), restart.Add(30*time.Minute)
+	assert.Equal(t, 1, down(hourly, backfill.Catchup{Window: 3 * time.Hour, Max: 1000}, from, to).Slots)
+	assert.Equal(t, 3, down(hourly, backfill.Catchup{Window: 3 * time.Hour, Max: 1}, from, to).Slots, "the slots latest drops")
+
+	// Catch-up replays no suspension's slots.
+	suspended := backfill.FindMissed(&ir.DAG{}, minutely, []schedulerstate.Period{
+		periodOf(schedulerstate.PeriodSuspended, restart.Add(-3*time.Minute), restart),
+	}, hour, longAgo, at(20, 0))
+	assert.Equal(t, 2, suspended.Slots)
 }

@@ -5,9 +5,12 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/robfig/cron/v3"
@@ -452,4 +455,73 @@ func TestTickPlanner_TakeoverLeavesOutSlotsBeforeWindow(t *testing.T) {
 
 	takeover, _ := restartPlanner(t, store, at(12, 2).Add(30*time.Second), 4*time.Hour, dag)
 	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(takeover, dag.Name))
+}
+
+// The missed-slots notice counts the slots of an outage that catch-up does
+// not queue when a scheduler starts again or ticks late: the older slots of
+// a window, those past its cap, those overlap_policy latest drops, and all
+// of them without a window or queues.
+func TestCatchupAfterOutageIsWhatCatchupQueues(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		expr     string
+		window   time.Duration
+		latest   bool
+		noQueues bool
+	}{
+		{name: "window", expr: "* * * * *", window: time.Hour},
+		{name: "window past the cap", expr: "* * * * *", window: 24 * time.Hour},
+		{name: "latest", expr: "30 * * * *", window: 3 * time.Hour, latest: true},
+		{name: "no window", expr: "* * * * *"},
+		{name: "queues disabled", expr: "* * * * *", window: time.Hour, noQueues: true},
+	} {
+		for _, late := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, late tick %t", tc.name, late), func(t *testing.T) {
+				t.Parallel()
+				dag := &ir.DAG{Name: "dag", CatchupWindow: tc.window, Schedule: []ir.Schedule{mustParseSchedule(t, tc.expr)}}
+				if tc.latest {
+					dag.OverlapPolicy = ir.OverlapPolicyLatest
+				}
+				stopped := at(12, 0).Add(-26 * time.Hour)
+				periods := &periodRecorder{}
+				var tp *TickPlanner
+				if late {
+					tp, _ = newTestTickPlanner(&mockStateStore{})
+					tp.cfg.Clock = func() time.Time { return stopped }
+					tp.cfg.QueuesEnabled = !tc.noQueues
+					require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+					tp.Advance(stopped)
+					tp.cfg.Periods = periods
+					tp.resume(t.Context(), at(12, 0))
+				} else {
+					tp, _ = newTestTickPlanner(&mockStateStore{state: newMockState(stopped)})
+					tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+					tp.cfg.QueuesEnabled = !tc.noQueues
+					tp.cfg.Periods = periods
+					require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+				}
+				down, _, err := periods.Ended(t.Context(), "")
+				require.NoError(t, err)
+				require.Equal(t, []schedulerstate.Period{{From: stopped, To: at(12, 0), Reason: schedulerstate.PeriodDown}}, down)
+
+				// The outage's slots that catch-up did not queue.
+				inside, more := ir.ScheduleFiresBetween(dag.Schedule, "", time.UTC, stopped.Add(time.Second), at(12, 0).Add(-time.Second), 10000)
+				require.False(t, more)
+				var counted []time.Time
+				for _, slot := range inside {
+					if !slices.ContainsFunc(bufferedSlots(tp, dag.Name), slot.Equal) {
+						counted = append(counted, slot)
+					}
+				}
+				require.NotEmpty(t, counted)
+
+				sched := backfill.SlotSchedule{Schedules: dag.Schedule, Location: time.UTC}
+				missed := backfill.FindMissed(dag, sched, down, CatchupAfterOutage(dag, !tc.noQueues), stopped, at(13, 0))
+				assert.Equal(t, len(counted), missed.Slots)
+				assert.Equal(t, counted[0], missed.First)
+				assert.Equal(t, counted[len(counted)-1], missed.Last)
+			})
+		}
+	}
 }
