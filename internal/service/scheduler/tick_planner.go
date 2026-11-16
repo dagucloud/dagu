@@ -153,7 +153,10 @@ type TickPlanner struct {
 	// watermark state (protected by mu)
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
-	flushMu        sync.Mutex
+	// firstTick is the minute Init counted the first tick to run, until a
+	// tick is planned, resumed, or advanced (protected by mu).
+	firstTick time.Time
+	flushMu   sync.Mutex
 	// saved is the snapshot Flush last wrote. It is never modified.
 	saved atomic.Pointer[schedulerstate.State]
 
@@ -421,7 +424,11 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	}
 	// The first tick takes the current minute's slots, and recovery replays
 	// the slots inside its window.
-	missedBefore := tp.cfg.Clock().Truncate(time.Minute)
+	firstTick := tp.cfg.Clock().Truncate(time.Minute)
+	tp.mu.Lock()
+	tp.firstTick = firstTick
+	tp.mu.Unlock()
+	missedBefore := firstTick
 	if recovery > 0 {
 		missedBefore = tp.cfg.Clock().Add(-recovery)
 	}
@@ -732,6 +739,19 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 // all guards (not running, not suspended, not finished, not skipped).
 // The caller just dispatches.
 func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
+	// A startup that ran past the minute Init counted on makes the first
+	// tick late, and the slots between came due while no tick ran. Resuming
+	// ends startup as this tick does.
+	tp.mu.Lock()
+	late := !tp.firstTick.IsZero() && now.Truncate(time.Minute).After(tp.firstTick)
+	if !late {
+		tp.firstTick = time.Time{}
+	}
+	tp.mu.Unlock()
+	if late {
+		tp.resume(ctx, now)
+	}
+
 	tp.entryMu.Lock()
 	tp.recordPendingOutages(ctx)
 	flushState := tp.pruneExpiredDeletedWatermarks(now)
@@ -1302,6 +1322,7 @@ func (tp *TickPlanner) Advance(now time.Time) {
 	defer tp.mu.Unlock()
 
 	tp.watermarkState.LastTick = now
+	tp.firstTick = time.Time{}
 	// Saved with LastTick, so a restart replays the queued slots it passed.
 	tp.saveQueues()
 
@@ -1854,9 +1875,15 @@ func (tp *TickPlanner) reinsertCatchupItem(ctx context.Context, run PlannedRun) 
 func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 	tp.entryMu.Lock()
 	defer tp.entryMu.Unlock()
-	tp.mu.RLock()
+	tp.mu.Lock()
 	lastTick := tp.watermarkState.LastTick
-	tp.mu.RUnlock()
+	// Before the first tick, Init has settled the slots up to the minute
+	// before the one it counted that tick on, by outage or replay.
+	if settled := tp.firstTick.Add(-time.Minute); !tp.firstTick.IsZero() && settled.After(lastTick) {
+		lastTick = settled
+	}
+	tp.firstTick = time.Time{}
+	tp.mu.Unlock()
 	tp.recordOutage(ctx, lastTick, now)
 	for name, entry := range tp.entries {
 		dag := entry.DAG
@@ -1869,7 +1896,7 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 			continue
 		}
 		tp.mu.RLock()
-		from := ComputeReplayFrom(dag.CatchupWindow, tp.watermarkState.LastTick,
+		from := ComputeReplayFrom(dag.CatchupWindow, lastTick,
 			tp.watermarkState.DAGs[name].LastScheduledTime, now)
 		tp.mu.RUnlock()
 		buffer := tp.buffers[name]

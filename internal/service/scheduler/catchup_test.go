@@ -457,6 +457,62 @@ func TestTickPlanner_TakeoverLeavesOutSlotsBeforeWindow(t *testing.T) {
 	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(takeover, dag.Name))
 }
 
+// A startup that runs past the minute Init read makes the first tick late,
+// and the slots between come due while no tick runs. The first tick records
+// them as a time no scheduler ran, from the minute before the one Init
+// counted on, which leaves out the 11:00 a takeover's recovery replays.
+// Catch-up queues them.
+func TestTickPlanner_LateFirstTickKeepsSkippedSlots(t *testing.T) {
+	t.Parallel()
+	skipped := schedulerstate.Period{From: at(11, 58), To: at(12, 1), Reason: schedulerstate.PeriodDown}
+	for _, tc := range []struct {
+		name     string
+		lastTick time.Time
+		recovery time.Duration
+		window   time.Duration
+		queued   []time.Time
+		down     []schedulerstate.Period
+	}{
+		{
+			name:     "restart",
+			lastTick: at(9, 0),
+			down:     []schedulerstate.Period{{From: at(9, 0), To: at(11, 59), Reason: schedulerstate.PeriodDown}, skipped},
+		},
+		{
+			name: "first scheduler",
+			down: []schedulerstate.Period{skipped},
+		},
+		{
+			name:     "takeover",
+			lastTick: at(9, 0),
+			recovery: time.Hour,
+			down:     []schedulerstate.Period{{From: at(9, 0), To: at(10, 59).Add(30 * time.Second), Reason: schedulerstate.PeriodDown}, skipped},
+		},
+		{
+			name:     "with catch-up",
+			lastTick: at(9, 0),
+			window:   6 * time.Hour,
+			queued:   []time.Time{at(11, 0), at(12, 0)},
+			down:     []schedulerstate.Period{{From: at(9, 0), To: at(11, 59), Reason: schedulerstate.PeriodDown}, skipped},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(tc.lastTick)})
+			tp.cfg.Clock = func() time.Time { return at(11, 59).Add(30 * time.Second) }
+			tp.cfg.RecoveryWindow = func() time.Duration { return tc.recovery }
+			tp.cfg.Enqueue = enqueueOK
+			tp.cfg.Periods = &periodRecorder{}
+			dag := &ir.DAG{Name: "hourly", CatchupWindow: tc.window, Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			runTick(t, tp, at(12, 1))
+			assert.Equal(t, tc.queued, bufferedSlots(tp, dag.Name))
+			assert.Equal(t, tc.down, recordedPeriods(t, tp))
+		})
+	}
+}
+
 // The missed-slots notice counts the slots of an outage that catch-up does
 // not queue when a scheduler starts again or ticks late: the older slots of
 // a window, those past its cap, those overlap_policy latest drops, and all

@@ -234,7 +234,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
     A wake hold records none, as the ticks it held run after it;
   - `down`: when a scheduler starts, takes over, or ticks, more than a
     minute after the last tick, from that tick to its own, or to where a
-    takeover's recovery window starts, for every DAG.
+    takeover's recovery window starts, for every DAG. A first tick that
+    comes after the minute the scheduler started in counts from the minute
+    before that one.
   A DAG's own periods follow it when Dagu renames it and are removed when Dagu
   deletes it.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
