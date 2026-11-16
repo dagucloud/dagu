@@ -276,7 +276,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   `last`, the `reasons` of the periods that hold them, and `until`, when the
   newest such period ended. The runs of any other DAG all do the same work,
   so it has none. The DAG's details and their live feed do not carry them.
-- The DAG's page reads them as it opens and when a backfill starts there,
+- The DAG's page reads them as it opens only, as no backfill changes them,
   and then says `12 slots passed from 2026-11-01 09:00 to 2026-11-01 20:00
   while this DAG was suspended` (or while the scheduler was paused or down,
   or while this DAG could not run, for more than one reason), or `1 slot
