@@ -2077,7 +2077,7 @@ steps:
 		}).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSchedulerState), nil).Ended(t.Context(), dag.FileName())
+	spans, _, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSchedulerState), nil).Ended(t.Context(), dag.FileName())
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanSuspended, spans[0].Reason)
@@ -2159,7 +2159,7 @@ func TestUpdateDAGSuspensionState_RecordsSpanBeforeResume(t *testing.T) {
 	require.NoError(t, toggle(false), "the retry")
 	assert.NotContains(t, flags.since, "etl.yaml")
 
-	ended, err := spans.Ended(t.Context(), "etl.yaml")
+	ended, _, err := spans.Ended(t.Context(), "etl.yaml")
 	require.NoError(t, err)
 	require.Len(t, ended, 1, "the retry records no second span")
 	assert.True(t, since.Equal(ended[0].From), "from %s", ended[0].From)

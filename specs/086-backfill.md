@@ -278,9 +278,13 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   Backfill action that opens the start panel on the first and last slot,
   with its bounds editable, since the range may hold more slots than one
   backfill may run. A backfill started there opens its page in place of
-  the panel's, so going back leads to the page the action was taken on. A
-  dismissed notice stays hidden in that browser until a newer span adds
-  missed slots.
+  the panel's, so going back leads to the page the action was taken on.
+- Any user who can see the DAG may dismiss the notice:
+  `POST /api/v1/dags/{fileName}/missed-slots/dismissal` records the server's
+  time and the user with the DAG's spans, and writes an audit entry. The
+  notice is then hidden for every user until a span that ends after the
+  dismissal adds missed slots. A later dismissal replaces an earlier one. A
+  dismissal that fails leaves the notice and shows the error.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and
   its explicit params or the first matching recurring schedule's overrides.

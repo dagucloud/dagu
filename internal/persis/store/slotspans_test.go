@@ -49,7 +49,7 @@ func TestSpanStoreGivesTheSpansOfADAG(t *testing.T) {
 	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 12), To: spanAt(1, 13)}))
 	require.NoError(t, s.AddSuspended(ctx, "other", schedulerstate.Period{From: spanAt(1, 0), To: spanAt(1, 1)}))
 
-	spans, err := s.Ended(ctx, "etl")
+	spans, _, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	require.Len(t, spans, 3)
 	assert.Equal(t, []schedulerstate.Span{
@@ -70,7 +70,7 @@ func TestSpanStoreRecordsASpanOnce(t *testing.T) {
 	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 10)}))
 	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 11)}))
 
-	spans, err := s.Ended(ctx, "etl")
+	spans, _, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
 	assert.Equal(t, []schedulerstate.Span{{From: spanAt(1, 9), To: spanAt(1, 10), Reason: schedulerstate.SpanSuspended}}, spans)
 	assert.Zero(t, col.swaps, "the second record writes nothing")
@@ -90,7 +90,7 @@ func TestSpanStoreKeepsRecentSpans(t *testing.T) {
 		require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: from, To: from.Add(time.Minute)}))
 	}
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, start.Add(time.Hour), spans[0].From, "the span that ended first is dropped")
@@ -105,7 +105,7 @@ func TestSpanStoreGivesNoExpiredSpan(t *testing.T) {
 	ended := time.Now().Add(-31 * 24 * time.Hour)
 	require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: ended.Add(-time.Hour), To: ended}))
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	assert.Empty(t, spans)
 }
@@ -122,7 +122,7 @@ func TestSpanStoreKeepsTheSpansThatEndedLast(t *testing.T) {
 	}
 	require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: spanAt(2, 0), To: spanAt(2, 1)}))
 
-	spans, err := s.Ended(ctx, "")
+	spans, _, err := s.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, spans, 100)
 	assert.Equal(t, spanAt(3, 0), spans[0].From, "the span that ended first is dropped")
@@ -157,7 +157,7 @@ func TestSpanStoreSharesPeriodsThroughFiles(t *testing.T) {
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
-	spans, err := reader.Ended(ctx, "nested/etl")
+	spans, _, err := reader.Ended(ctx, "nested/etl")
 	require.NoError(t, err)
 	require.Len(t, spans, 3)
 	assert.Equal(t, []schedulerstate.Span{
@@ -177,4 +177,31 @@ func TestSpanStoreSharesPeriodsThroughFiles(t *testing.T) {
 		require.Len(t, periods, 1, name)
 		assert.ElementsMatch(t, []string{"from", "to"}, slices.Collect(maps.Keys(periods[0])), name)
 	}
+}
+
+// A dismissal of a DAG's missed slots is kept in the DAG's record, made if
+// it has none yet. A later dismissal replaces it, and an earlier one, as
+// from a host whose clock is behind, writes nothing.
+func TestSpanStoreKeepsTheLaterDismissal(t *testing.T) {
+	t.Parallel()
+	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)}
+	s := store.NewSpanStore(col, nil)
+	ctx := t.Context()
+	dismissed := func() schedulerstate.Dismissal {
+		t.Helper()
+		_, dismissal, err := s.Ended(ctx, "etl")
+		require.NoError(t, err)
+		return dismissal
+	}
+
+	require.NoError(t, s.Dismiss(ctx, "etl", schedulerstate.Dismissal{At: spanAt(2, 0), By: "alice"}))
+	assert.Equal(t, schedulerstate.Dismissal{At: spanAt(2, 0), By: "alice"}, dismissed())
+
+	require.NoError(t, s.Dismiss(ctx, "etl", schedulerstate.Dismissal{At: spanAt(1, 0), By: "bob"}))
+	assert.Zero(t, col.swaps, "an earlier dismissal writes nothing")
+	require.NoError(t, s.Dismiss(ctx, "etl", schedulerstate.Dismissal{At: spanAt(3, 0), By: "carol"}))
+	assert.Equal(t, schedulerstate.Dismissal{At: spanAt(3, 0), By: "carol"}, dismissed())
+
+	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(4, 0), To: spanAt(4, 1)}))
+	assert.Equal(t, schedulerstate.Dismissal{At: spanAt(3, 0), By: "carol"}, dismissed(), "a suspension keeps it")
 }

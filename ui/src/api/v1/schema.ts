@@ -438,11 +438,31 @@ export interface paths {
         };
         /**
          * Get the slots a DAG missed
-         * @description Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, and that have had neither a run nor a recorded skip since. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work.
+         * @description Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, whether or not a run filled them later. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work. Once dismissed, it returns none until a span that ends after the dismissal adds missed slots.
          */
         get: operations["getDAGMissedSlots"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/missed-slots/dismissal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss the slots a DAG missed
+         * @description Hides the DAG's missed slots from every user until a span that ends after the dismissal adds missed slots. Any user who can see the DAG may dismiss them.
+         */
+        post: operations["dismissDAGMissedSlots"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11049,6 +11069,48 @@ export interface operations {
                         missedSlots?: components["schemas"]["MissedSlots"];
                     };
                 };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    dismissDAGMissedSlots: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The missed slots were dismissed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description DAG not found */
             404: {

@@ -1,17 +1,28 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissedSlotsReason, type components } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { useMissedSlotsNotice } from '../useMissedSlotsNotice';
 
-vi.mock('@/hooks/api', () => ({ useQuery: vi.fn() }));
+const { post, showError } = vi.hoisted(() => ({
+  post: vi.fn(),
+  showError: vi.fn(),
+}));
+vi.mock('@/hooks/api', () => ({
+  useQuery: vi.fn(),
+  useClient: () => ({ POST: post }),
+}));
+vi.mock('@/components/ui/error-modal', () => ({
+  useErrorModal: () => ({ showError }),
+}));
 const useQueryMock = useQuery as unknown as ReturnType<typeof vi.fn>;
+const mutate = vi.fn();
 
 type MissedSlots = components['schemas']['MissedSlots'];
 
@@ -44,17 +55,20 @@ function useNoticeAndLocation(
 ) {
   useQueryMock.mockReturnValue({
     data: given ? { missedSlots: given } : {},
+    mutate,
   });
   return {
-    notice: useMissedSlotsNotice(`${dag}.yaml`, dag, 'local', canBackfill),
+    notice: useMissedSlotsNotice(`${dag}.yaml`, 'local', canBackfill),
     location: useLocation(),
   };
 }
 
 describe('useMissedSlotsNotice', () => {
   beforeEach(() => {
-    localStorage.clear();
     useQueryMock.mockReset();
+    mutate.mockReset();
+    post.mockReset();
+    showError.mockReset();
   });
 
   // The page reads the missed slots as it opens and after a backfill
@@ -172,82 +186,50 @@ describe('useMissedSlotsNotice', () => {
     expect(search.get('gapTo')).toBe(missed.last);
   });
 
-  // An outage leaves every DAG missed slots; dismissing them for one DAG
-  // leaves the others.
-  it('stays dismissed for that DAG only', () => {
-    const { result, rerender } = renderHook(
-      ({ dag }) => useNoticeAndLocation(missed, dag),
-      { wrapper, initialProps: { dag: 'etl' } }
-    );
-
-    act(() => result.current.notice?.dismiss?.());
-    expect(result.current.notice).toBeNull();
-
-    rerender({ dag: 'report' });
-    expect(result.current.notice).not.toBeNull();
-  });
-
-  // A backfill of some of the slots leaves the newest span as it was; a
-  // newer span that adds missed slots shows the notice again.
-  it('stays dismissed until a newer span adds missed slots', () => {
-    const { result, rerender } = renderHook(
-      ({ given }) => useNoticeAndLocation(given),
-      { wrapper, initialProps: { given: missed } }
-    );
-
-    act(() => result.current.notice?.dismiss?.());
-    rerender({ given: { ...missed, first: '2026-11-01T15:00:00Z', slots: 6 } });
-    expect(result.current.notice).toBeNull();
-
-    rerender({ given: { ...missed, until: '2026-11-02T09:30:00Z' } });
-    expect(result.current.notice).not.toBeNull();
-  });
-
-  // A backfill of the newest span's slots leaves an older span's, whose end
-  // is earlier than the one dismissed.
-  it('stays dismissed when a backfill fills the newest span', () => {
-    const { result, rerender } = renderHook(
-      ({ given }) => useNoticeAndLocation(given),
-      { wrapper, initialProps: { given: missed } }
-    );
-
-    act(() => result.current.notice?.dismiss?.());
-    rerender({ given: { ...missed, slots: 3, until: '2026-11-01T12:30:00Z' } });
-    expect(result.current.notice).toBeNull();
-  });
-
-  // The DAG page renders again on each live update; the dismissal is read
-  // from the browser only when the missed slots or the DAG change.
-  it('reads the dismissal again only when the notice may change', () => {
-    const getItem = vi.spyOn(Storage.prototype, 'getItem');
-    onTestFinished(() => getItem.mockRestore());
-    const { rerender } = renderHook(() => useNoticeAndLocation(missed), {
+  // The server keeps the dismissal for every user and answers no missed
+  // slots until a newer span adds some, so the page drops the slots it read
+  // instead of reading them again.
+  it('dismisses the missed slots for every user', async () => {
+    post.mockResolvedValue({});
+    const { result } = renderHook(() => useNoticeAndLocation(missed), {
       wrapper,
     });
-    const reads = getItem.mock.calls.length;
 
-    rerender();
-    rerender();
+    await act(async () => result.current.notice?.dismiss?.());
 
-    expect(getItem).toHaveBeenCalledTimes(reads);
+    expect(post).toHaveBeenCalledWith(
+      '/dags/{fileName}/missed-slots/dismissal',
+      {
+        params: {
+          path: { fileName: 'etl.yaml' },
+          query: { remoteNode: 'local' },
+        },
+      }
+    );
+    await waitFor(() =>
+      expect(mutate).toHaveBeenCalledWith({}, { revalidate: false })
+    );
+    expect(showError).not.toHaveBeenCalled();
   });
 
-  // One outage leaves every scheduled DAG missed slots, and each dismissal
-  // holds however many DAGs were dismissed after it.
-  it('keeps the dismissal of every DAG', () => {
-    const dismissing = renderHook(
-      ({ dag }) => useNoticeAndLocation(missed, dag),
-      { wrapper, initialProps: { dag: 'dag-0' } }
-    );
-    for (let i = 0; i < 30; i++) {
-      dismissing.rerender({ dag: `dag-${i}` });
-      act(() => dismissing.result.current.notice?.dismiss?.());
+  // A dismissal the server did not keep leaves the notice and says so,
+  // whether the server refused it or could not be reached.
+  it.each([
+    ['refused', () => post.mockResolvedValue({ error: { message: 'no' } })],
+    ['unreachable', () => post.mockRejectedValue(new Error('offline'))],
+  ])(
+    'keeps the notice and shows an error when the dismissal is %s',
+    async (_, fail) => {
+      fail();
+      const { result } = renderHook(() => useNoticeAndLocation(missed), {
+        wrapper,
+      });
+
+      await act(async () => result.current.notice?.dismiss?.());
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(result.current.notice).not.toBeNull();
+      expect(showError).toHaveBeenCalledOnce();
     }
-    dismissing.unmount();
-
-    const { result } = renderHook(() => useNoticeAndLocation(missed, 'dag-0'), {
-      wrapper,
-    });
-    expect(result.current.notice).toBeNull();
-  });
+  );
 });

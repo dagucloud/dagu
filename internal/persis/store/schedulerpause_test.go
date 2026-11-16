@@ -238,7 +238,7 @@ func TestSchedulerPauseResumeRecordsTheEndedPause(t *testing.T) {
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
 	assert.Equal(t, 1, col.writes-before, "the resume and its span are one write")
-	ended, err := spans.Ended(ctx, "")
+	ended, _, err := spans.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, ended, 1)
 	assert.True(t, pause.PausedAt.Equal(ended[0].From), "from %s", ended[0].From)
@@ -261,7 +261,7 @@ func TestSchedulerPauseFailedResumeRecordsNothing(t *testing.T) {
 	paused, err := pauses.IsPaused(ctx)
 	require.NoError(t, err)
 	assert.True(t, paused)
-	ended, err := spans.Ended(ctx, "")
+	ended, _, err := spans.Ended(ctx, "")
 	require.NoError(t, err)
 	assert.Empty(t, ended)
 }
@@ -285,7 +285,7 @@ func TestSchedulerPauseHoldRecordsNoSpan(t *testing.T) {
 		require.NoError(t, end())
 	}
 
-	ended, err := spans.Ended(ctx, "")
+	ended, _, err := spans.Ended(ctx, "")
 	require.NoError(t, err)
 	assert.Len(t, ended, 1, "the operator's pause only")
 }

@@ -319,7 +319,7 @@ func TestDAGSpansFollowRenameAndDelete(t *testing.T) {
 	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans))
 	ended := func(dag string) []schedulerstate.Span {
 		t.Helper()
-		got, err := spans.Ended(ctx, dag)
+		got, _, err := spans.Ended(ctx, dag)
 		require.NoError(t, err)
 		return got
 	}

@@ -147,8 +147,9 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	if a.spanStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
 		return none, nil
 	}
-	spans, err := a.spanStore.Ended(ctx, request.FileName)
-	if err != nil || len(spans) == 0 {
+	// A dismissal hides the slots until a span that ended after it holds one.
+	spans, dismissal, err := a.spanStore.Ended(ctx, request.FileName)
+	if err != nil || !slices.ContainsFunc(spans, func(span schedulerstate.Span) bool { return span.To.After(dismissal.At) }) {
 		return none, err
 	}
 	var profile string
@@ -161,7 +162,7 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	spec.BindScheduleCalendars(schedules, a.calendarSource())
 	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
 	missed := backfill.FindMissed(dag, sched, spans, a.dagFirstSeen(ctx, dag.Name), time.Now())
-	if missed.Slots == 0 {
+	if missed.Slots == 0 || !missed.Until.After(dismissal.At) {
 		return none, nil
 	}
 	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
@@ -171,6 +172,32 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	return api.GetDAGMissedSlots200JSONResponse{MissedSlots: &api.MissedSlots{
 		Slots: missed.Slots, First: missed.First, Last: missed.Last, Reasons: reasons, Until: missed.Until,
 	}}, nil
+}
+
+// DismissDAGMissedSlots hides a DAG's missed slots from every user until a
+// span that ends after the dismissal adds missed slots. Any user who can see
+// the DAG may dismiss them.
+func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGMissedSlotsRequestObject) (api.DismissDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	if a.spanStore == nil {
+		return api.DismissDAGMissedSlots204Response{}, nil
+	}
+	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: triggerActorFromContext(ctx)}
+	if err := a.spanStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
+		return nil, fmt.Errorf("error dismissing the missed slots of %s: %w", request.FileName, err)
+	}
+	a.logAudit(ctx, audit.CategoryDAG, "dag_missed_slots_dismiss", map[string]any{"dag_name": request.FileName})
+	return api.DismissDAGMissedSlots204Response{}, nil
 }
 
 // dagFirstSeen returns when the scheduler first tracked a DAG, from its

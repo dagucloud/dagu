@@ -25,9 +25,11 @@ type downRecord struct {
 	Down []schedulerstate.Period `json:"down,omitempty"`
 }
 
-// dagRecord is a DAG's suspensions, in the order they ended.
+// dagRecord is a DAG's suspensions, in the order they ended, and the latest
+// dismissal of its missed slots.
 type dagRecord struct {
-	Suspended []schedulerstate.Period `json:"suspended,omitempty"`
+	Suspended []schedulerstate.Period   `json:"suspended,omitempty"`
+	Dismissed *schedulerstate.Dismissal `json:"dismissed,omitempty"`
 }
 
 // SpanStore keeps the ended periods in which slots could not run as records
@@ -66,22 +68,36 @@ func (s *SpanStore) AddSuspended(ctx context.Context, dag string, suspended sche
 	})
 }
 
+// Dismiss records that the DAG's missed slots were dismissed, unless a
+// later dismissal is recorded.
+func (s *SpanStore) Dismiss(ctx context.Context, dag string, dismissal schedulerstate.Dismissal) error {
+	return changeRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), func(record *dagRecord) bool {
+		if record.Dismissed != nil && !dismissal.At.After(record.Dismissed.At) {
+			return false
+		}
+		record.Dismissed = &dismissal
+		return true
+	})
+}
+
 // Ended returns the spans of the scheduler's outages, the operator's pauses,
-// and the DAG's suspensions that ended within periodRetention, oldest first.
-func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, error) {
+// and the DAG's suspensions that ended within periodRetention, oldest first,
+// and the DAG's latest dismissal. It reads each record once.
+func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, schedulerstate.Dismissal, error) {
+	var none schedulerstate.Dismissal
 	var down downRecord
 	if _, err := loadRecord(ctx, s.col, downRecordID, &down); err != nil {
-		return nil, err
+		return nil, none, err
 	}
 	var own dagRecord
 	if _, err := loadRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), &own); err != nil {
-		return nil, err
+		return nil, none, err
 	}
 	var pauses []schedulerstate.Period
 	if s.pauses != nil {
 		var err error
 		if pauses, err = s.pauses.endedPauses(ctx); err != nil {
-			return nil, err
+			return nil, none, err
 		}
 	}
 	var spans []schedulerstate.Span
@@ -103,7 +119,10 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 		}
 		return a.To.Compare(b.To)
 	})
-	return spans, nil
+	if own.Dismissed != nil {
+		return spans, *own.Dismissed, nil
+	}
+	return spans, none, nil
 }
 
 // appendPeriod appends period to periods unless one that began at the same

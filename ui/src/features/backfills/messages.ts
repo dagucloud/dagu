@@ -104,6 +104,10 @@ export const backfillMessages = defineMessages({
     'the scheduler was paused': 'the scheduler was paused',
     'the scheduler was down': 'the scheduler was down',
     'this DAG could not run': 'this DAG could not run',
+    'The missed slots were not dismissed.':
+      'The missed slots were not dismissed.',
+    'Please try again or check the server connection.':
+      'Please try again or check the server connection.',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'Backfill running: {done} of {total} slots done, {failed} failed',
     'Backfill failed: {failed} slots did not succeed':
@@ -255,6 +259,9 @@ export const backfillMessages = defineMessages({
     'the scheduler was paused': '调度器暂停',
     'the scheduler was down': '调度器停止',
     'this DAG could not run': 'DAG 无法运行',
+    'The missed slots were not dismissed.': '未能忽略错过的时间槽。',
+    'Please try again or check the server connection.':
+      '请重试，或检查与服务器的连接。',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       '回填运行中：{total} 个时段中已完成 {done} 个，{failed} 个失败',
     'Backfill failed: {failed} slots did not succeed':
@@ -405,6 +412,10 @@ export const backfillMessages = defineMessages({
     'the scheduler was paused': 'スケジューラーの一時停止中',
     'the scheduler was down': 'スケジューラーの停止中',
     'this DAG could not run': 'DAG が実行できない間',
+    'The missed slots were not dismissed.':
+      '見逃したスロットを非表示にできませんでした。',
+    'Please try again or check the server connection.':
+      'もう一度試すか、サーバーとの接続を確認してください。',
     'Backfill running: {done} of {total} slots done, {failed} failed':
       'バックフィル実行中: {total} 件のスロットのうち {done} 件が完了、{failed} 件が失敗',
     'Backfill failed: {failed} slots did not succeed':

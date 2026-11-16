@@ -1508,7 +1508,7 @@ paths:
   /dags/{fileName}/missed-slots:
     get:
       summary: "Get the slots a DAG missed"
-      description: "Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, and that have had neither a run nor a recorded skip since. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work."
+      description: "Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, whether or not a run filled them later. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work. Once dismissed, it returns none until a span that ends after the dismissal adds missed slots."
       operationId: "getDAGMissedSlots"
       tags:
         - "backfills"
@@ -1525,6 +1525,32 @@ paths:
                 properties:
                   missedSlots:
                     $ref: "#/components/schemas/MissedSlots"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/missed-slots/dismissal:
+    post:
+      summary: "Dismiss the slots a DAG missed"
+      description: "Hides the DAG's missed slots from every user until a span that ends after the dismissal adds missed slots. Any user who can see the DAG may dismiss them."
+      operationId: "dismissDAGMissedSlots"
+      tags:
+        - "backfills"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "The missed slots were dismissed"
         "404":
           description: "DAG not found"
           content:

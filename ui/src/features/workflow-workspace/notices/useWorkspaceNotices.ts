@@ -81,7 +81,6 @@ export function useWorkspaceNotices(): WorkspaceNotice[] {
   const backfillNotice = useBackfillNotice(dagData.latestBackfill, remoteNode);
   const missedSlotsNotice = useMissedSlotsNotice(
     fileName,
-    dagData.dag?.name ?? '',
     remoteNode,
     canBackfill
   );

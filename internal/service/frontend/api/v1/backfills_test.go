@@ -322,3 +322,60 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	_, err := apiImpl.GetDAGMissedSlots(user("other"), api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})
 	requireAPIErrorStatus(t, err, http.StatusNotFound)
 }
+
+// A dismissal hides a DAG's missed slots from every user who can see the
+// DAG, from the first dismissal on with no record of the DAG yet, until a
+// period that ends after it adds missed slots. A user who cannot see the
+// DAG, or a DAG that does not exist, gets 404.
+func TestDismissDAGMissedSlots(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	hour := time.Now().Truncate(time.Hour)
+	ctx := context.Background()
+	require.NoError(t, spans.AddDown(ctx, schedulerstate.Period{From: hour.Add(-3*time.Hour + 30*time.Minute), To: hour.Add(-90 * time.Minute)}))
+	states := stubSchedulerStateStore{state: &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
+		"ops-load": {FirstSeen: hour.Add(-6 * time.Hour)},
+	}}}
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
+	user := func(name, workspace string) context.Context {
+		return auth.WithUser(ctx, &auth.User{
+			Username: name, Role: auth.RoleViewer,
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: workspace, Role: auth.RoleViewer}}},
+		})
+	}
+	missedSlots := func(ctx context.Context) *api.MissedSlots {
+		t.Helper()
+		resp, err := apiImpl.GetDAGMissedSlots(ctx, api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})
+		require.NoError(t, err)
+		return resp.(api.GetDAGMissedSlots200JSONResponse).MissedSlots
+	}
+	dismiss := func(ctx context.Context, fileName string) error {
+		_, err := apiImpl.DismissDAGMissedSlots(ctx, api.DismissDAGMissedSlotsRequestObject{FileName: fileName})
+		return err
+	}
+	require.NotNil(t, missedSlots(user("bob", "ops")))
+
+	requireAPIErrorStatus(t, dismiss(user("eve", "other"), "ops-load"), http.StatusNotFound)
+	requireAPIErrorStatus(t, dismiss(user("alice", "ops"), "missing"), http.StatusNotFound)
+	require.NotNil(t, missedSlots(user("bob", "ops")), "a refused dismissal hides nothing")
+
+	require.NoError(t, dismiss(user("alice", "ops"), "ops-load"))
+	assert.Nil(t, missedSlots(user("bob", "ops")), "hidden from another user")
+
+	require.NoError(t, spans.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
+	assert.NotNil(t, missedSlots(user("bob", "ops")), "a newer period adds missed slots")
+}
+
+// A server without a span store answers a dismissal as done.
+func TestDismissDAGMissedSlotsWithoutSpanStore(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "etl", []byte("steps:\n  - run: echo hi\n"))
+	apiImpl := newDAGPinAPIWithStore(helper, nil)
+
+	resp, err := apiImpl.DismissDAGMissedSlots(context.Background(), api.DismissDAGMissedSlotsRequestObject{FileName: "etl"})
+	require.NoError(t, err)
+	assert.IsType(t, api.DismissDAGMissedSlots204Response{}, resp)
+}
