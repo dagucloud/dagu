@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -364,4 +366,53 @@ func TestSchedulerPauseSeesAWriteAfterItsOwn(t *testing.T) {
 			assert.False(t, paused, "another process resumed")
 		})
 	}
+}
+
+// contendedCollection fails each swap with a conflict until released, as
+// when another process keeps writing the record.
+type contendedCollection struct {
+	*testutil.MemoryCollection
+	conflicted chan struct{}
+	once       sync.Once
+	released   atomic.Bool
+}
+
+func (c *contendedCollection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	if !c.released.Load() {
+		c.once.Do(func() { close(c.conflicted) })
+		return persis.ErrConflict
+	}
+	return c.MemoryCollection.CompareAndSwap(ctx, id, expected, next)
+}
+
+// A write that retries on conflicts keeps no read waiting, as the scheduler
+// checks the pause on every dispatch decision.
+func TestSchedulerPauseReadsDuringAContendedWrite(t *testing.T) {
+	ctx := t.Context()
+	inner := testutil.NewMemoryBackend().Collection("scheduler").(*testutil.MemoryCollection)
+	require.NoError(t, store.NewSchedulerPauseStore(inner).Set(ctx, true, "alice", ""))
+	col := &contendedCollection{MemoryCollection: inner, conflicted: make(chan struct{})}
+	s := store.NewSchedulerPauseStore(col)
+	resumed := make(chan error, 1)
+	go func() { resumed <- s.Set(ctx, false, "", "") }()
+	<-col.conflicted
+
+	read := make(chan bool, 1)
+	go func() {
+		paused, err := s.IsPaused(ctx)
+		assert.NoError(t, err)
+		read <- paused
+	}()
+	select {
+	case paused := <-read:
+		assert.True(t, paused, "the resume has not been written")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read waited for the contended write")
+	}
+
+	col.released.Store(true)
+	require.NoError(t, <-resumed)
+	paused, err := s.IsPaused(ctx)
+	require.NoError(t, err)
+	assert.False(t, paused)
 }

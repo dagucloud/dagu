@@ -128,9 +128,8 @@ func (s *SchedulerPauseStore) recordLocked(ctx context.Context) (schedulerPauseR
 // the operator's pause it ends to the history; a wake hold it ends adds
 // nothing.
 func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reason string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// The write retries on conflicts without the lock reads take, so no
+	// pause check waits for it.
 	err := retryConflict(ctx, func(ctx context.Context) error {
 		current, err := s.col.Get(ctx, schedulerPauseID)
 		if err != nil && !errors.Is(err, persis.ErrNotFound) {
@@ -161,7 +160,9 @@ func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reaso
 	})
 	// Another process may write right after this write, so the next read
 	// loads the record, reading its version first.
+	s.mu.Lock()
 	s.clearCacheLocked()
+	s.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("scheduler pause store: save: %w", err)
 	}
