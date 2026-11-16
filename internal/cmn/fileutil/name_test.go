@@ -4,6 +4,10 @@
 package fileutil
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -88,6 +92,122 @@ func isAllowedCharsOnly(s string) bool {
 		}
 	}
 	return true
+}
+
+// SafeName output names directories and files, with or without an
+// extension. Windows versions differ in which device names they map to a
+// device, so on Windows every device name changes, on every version, to a
+// name that no other natural name shares, such as con_. Other systems keep
+// the name, so the runs and logs stored under it before still resolve.
+func TestSafeNameDeviceNames(t *testing.T) {
+	for _, name := range []string{"con", "PRN", "Aux", "nul", "COM1", "lpt9"} {
+		t.Run(name, func(t *testing.T) {
+			safe := SafeName(name)
+			if runtime.GOOS == "windows" {
+				require.NotEqual(t, name, safe)
+				require.NotEqual(t, SafeName(name+"_"), safe)
+			} else {
+				require.Equal(t, name, safe)
+			}
+			require.NoError(t, storeUnder(t.TempDir(), safe))
+		})
+	}
+}
+
+// EscapeName returns a name this host stores as written, the same on every
+// version of the host, and UnescapeName maps it back. On Windows a device
+// name is escaped in any case and with any extension.
+func TestEscapeName(t *testing.T) {
+	tests := []struct{ name, windows, other string }{
+		{name: "plain", windows: "plain", other: "plain"},
+		{name: "50%", windows: "50%25", other: "50%25"},
+		{name: "fetch/parse", windows: "fetch%2Fparse", other: "fetch%2Fparse"},
+		{name: `fetch\parse`, windows: "fetch%5Cparse", other: `fetch\parse`},
+		{name: "db:query", windows: "db%3Aquery", other: "db:query"},
+		{name: "why?", windows: "why%3F", other: "why?"},
+		{name: "tab\there", windows: "tab%09here", other: "tab\there"},
+		{name: "nul\x00byte", windows: "nul%00byte", other: "nul%00byte"},
+		{name: "nul", windows: "%6Eul", other: "nul"},
+		{name: "nul.json", windows: "%6Eul.json", other: "nul.json"},
+		{name: "con", windows: "%63on", other: "con"},
+		{name: "COM1.txt", windows: "%43OM1.txt", other: "COM1.txt"},
+		{name: "lpt\u00b2", windows: "%6Cpt\u00b2", other: "lpt\u00b2"},
+		{name: "CONIN$", windows: "%43ONIN$", other: "CONIN$"},
+		{name: "aux .log", windows: "%61ux .log", other: "aux .log"},
+		{name: "COM0", windows: "COM0", other: "COM0"},
+		{name: "console", windows: "console", other: "console"},
+		{name: "nightly.", windows: "nightly%2E", other: "nightly."},
+		{name: "trailing ", windows: "trailing%20", other: "trailing "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := tt.other
+			if runtime.GOOS == "windows" {
+				want = tt.windows
+			}
+			escaped := EscapeName(tt.name)
+			require.Equal(t, want, escaped)
+			require.NoError(t, storeUnder(t.TempDir(), escaped))
+			require.Equal(t, tt.name, UnescapeName(escaped))
+		})
+	}
+}
+
+// Different names never share a file or directory, even on a file system
+// that ignores case, such as NTFS or APFS.
+func TestEscapeNameDistinct(t *testing.T) {
+	pairs := [][2]string{
+		{"a/b", "a%2Fb"}, {"a/b", "a%2fb"}, {"db:query", "db%3aquery"}, {"nul", "%6eul"}, {"50%", "50%25"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair[0]+" "+pair[1], func(t *testing.T) {
+			parent := t.TempDir()
+			for _, name := range pair {
+				require.NoError(t, os.Mkdir(filepath.Join(parent, EscapeName(name)), 0o750))
+			}
+			entries, err := os.ReadDir(parent)
+			require.NoError(t, err)
+			require.Len(t, entries, 2)
+		})
+	}
+}
+
+// storeUnder creates a directory called name in parent, writes a file named
+// after it there, and reads the file back. It fails when the host stores the
+// directory under another name, as Windows does by dropping a trailing dot.
+func storeUnder(parent, name string) error {
+	dir := filepath.Join(parent, name)
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 1 || entries[0].Name() != name {
+		return fmt.Errorf("%s is not stored under its own name", dir)
+	}
+	// A device name can "create" a device rather than a directory, and
+	// reading a device such as CON may block.
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	file := filepath.Join(dir, name+".log")
+	if err := os.WriteFile(file, []byte(name), 0o600); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	if string(data) != name {
+		return fmt.Errorf("read %q from %s", data, file)
+	}
+	return nil
 }
 
 // TestEdgeCases tests some additional edge cases

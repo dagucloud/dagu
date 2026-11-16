@@ -619,12 +619,12 @@ func (e *foreachExecutor) resolveStepDir(ctx context.Context) (string, func(), e
 	env := runtime.GetEnv(ctx)
 	if env.Scope != nil {
 		if stdout, ok := env.Scope.Get(runenv.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
-			return logpath.ForeachStepDir(stdout, e.step.Name), keep, nil
+			return logpath.ForeachStepDir(filepath.Dir(stdout), e.step.Name), keep, nil
 		}
 	}
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.DAGRunLogDir != "" {
-		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, fileutil.SafeName(e.step.Name)), keep, nil
+		return logpath.ForeachStepDir(rCtx.DAGRunLogDir, e.step.Name), keep, nil
 	}
 	dir, err := os.MkdirTemp("", scratchLogDirPrefix)
 	if err != nil {

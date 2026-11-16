@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,175 @@ func TestStoreWritesReleasedProcFileLayoutOnly(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(root, "queue-a", "sidecar-dag", "proc_*.proc"))
 	require.NoError(t, err)
 	assert.Empty(t, matches)
+}
+
+// Queue and DAG names that Windows cannot store as a directory, such as nul,
+// db:writes, or nightly., still track their runs there. Linux and macOS keep
+// the directories that earlier versions wrote, so a run in progress during
+// an upgrade is still found.
+func TestStoreWindowsUnsafeNames(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ group, dag string }{
+		{group: "nul", dag: "nul"},
+		{group: "db:writes", dag: "etl"},
+		{group: "nightly.", dag: "nightly."},
+	} {
+		t.Run(tc.group, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			s := New(root, WithHeartbeatInterval(10*time.Millisecond))
+			ref := ir.NewDAGRunRef(tc.dag, "run-1")
+
+			handle, err := s.Acquire(ctx, tc.group, testProcMeta(ref))
+			require.NoError(t, err)
+			defer func() { _ = handle.Stop(ctx) }()
+
+			alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, tc.group, ref)
+			require.NoError(t, err)
+			assert.True(t, alive)
+
+			heartbeat, err := s.LatestHeartbeat(ctx, tc.group, ref)
+			require.NoError(t, err)
+			require.NotNil(t, heartbeat)
+			assert.Equal(t, ref, heartbeat.DAGRun)
+
+			entries, err := s.ListAllEntries(ctx)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			assert.Equal(t, tc.group, entries[0].GroupName)
+			assert.Equal(t, ref, entries[0].Meta.DAGRun())
+
+			if runtime.GOOS != "windows" {
+				waitForProcFile(t, root, tc.group, tc.dag)
+			}
+		})
+	}
+}
+
+// A queue name with a "/" still lists its runs among all entries, under the
+// queue's own name.
+func TestStoreListsQueueWithSlash(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+	ref := ir.NewDAGRunRef("etl", "run-1")
+
+	handle, err := s.Acquire(ctx, "team/etl", testProcMeta(ref))
+	require.NoError(t, err)
+	defer func() { _ = handle.Stop(ctx) }()
+
+	entries, err := s.ListAllEntries(ctx)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "team/etl", entries[0].GroupName)
+	assert.Equal(t, ref, entries[0].Meta.DAGRun())
+}
+
+// A queue whose raw name resolves to another queue's directory, such as ./b
+// for b, or nightly. for nightly on Windows, which drops a trailing dot,
+// does not see that queue's runs.
+func TestStoreKeepsResolvedQueueNamesApart(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ group, other string }{
+		{group: "b", other: "./b"},
+		{group: "b", other: "x/../b"},
+		{group: "b", other: "b/."},
+		{group: "nightly", other: "nightly."},
+	} {
+		t.Run(tc.other, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+			ref := ir.NewDAGRunRef("etl", "run-1")
+			handle, err := s.Acquire(ctx, tc.group, testProcMeta(ref))
+			require.NoError(t, err)
+			defer func() { _ = handle.Stop(ctx) }()
+
+			entries, err := s.ListEntries(ctx, tc.other)
+			require.NoError(t, err)
+			assert.Empty(t, entries)
+		})
+	}
+}
+
+// Released versions named a group's directory after the raw queue name,
+// nested at each "/", and a DAG's directory after the raw DAG name, which
+// Windows 11 accepts even for a device name such as con. A run they started
+// before an upgrade still heartbeats there, so it must stay alive and listed.
+func TestStoreFindsRawNameHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ group, dag string }{
+		{group: "team/etl", dag: "etl"},
+		{group: "team/.hidden", dag: "etl"},
+		{group: "50%", dag: "etl"},
+		{group: "con", dag: "con"},
+	} {
+		group := tc.group
+		t.Run(group, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			root := t.TempDir()
+			s := New(root)
+			ref := ir.NewDAGRunRef(tc.dag, "run-1")
+			meta := testProcMeta(ref)
+			now := time.Now().UTC()
+			path := filepath.Join(root, filepath.FromSlash(group), ref.Name, procRecordName(meta, now)+procFileExt)
+			require.NoError(t, writeProcFile(path, now.Unix(), meta))
+
+			alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, group, ref)
+			require.NoError(t, err)
+			assert.True(t, alive)
+
+			heartbeat, err := s.LatestHeartbeat(ctx, group, ref)
+			require.NoError(t, err)
+			require.NotNil(t, heartbeat)
+			assert.Equal(t, ref, heartbeat.DAGRun)
+
+			entries, err := s.ListAllEntries(ctx)
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			assert.Equal(t, group, entries[0].GroupName)
+		})
+	}
+}
+
+// A DAG name may start with a dot, and may even match the name of the group
+// lock's directory. Its run stays alive and listed while the lock is held.
+func TestStoreDotPrefixedDAGName(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{".hidden", ".dagu_lock_extra", ".dagu_lock"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			s := New(t.TempDir(), WithHeartbeatInterval(10*time.Millisecond))
+			ref := ir.NewDAGRunRef(name, "run-1")
+			require.NoError(t, s.WithLock(ctx, "queue-a", func() error {
+				handle, err := s.Acquire(ctx, "queue-a", testProcMeta(ref))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = handle.Stop(ctx) })
+
+				alive, err := persis.NewProcRepository(s).IsRunAlive(ctx, "queue-a", ref)
+				require.NoError(t, err)
+				assert.True(t, alive)
+
+				entries, err := s.ListAllEntries(ctx)
+				require.NoError(t, err)
+				require.Len(t, entries, 1)
+				assert.Equal(t, ref, entries[0].Meta.DAGRun())
+				return nil
+			}))
+		})
+	}
 }
 
 func TestStoreWithLockSerializesIndependentStores(t *testing.T) {

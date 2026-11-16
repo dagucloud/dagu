@@ -6,6 +6,8 @@ package dagrun
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,11 +15,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -51,6 +56,15 @@ const OutputsFile = "outputs.json"
 
 // MessagesDir is the directory where per-step LLM messages are stored.
 const MessagesDir = "messages"
+
+// shortenedMessagesName matches the file name that stepMessagesName gives a
+// step name too long for a file name.
+var shortenedMessagesName = regexp.MustCompile(`(?i)%-[0-9a-f]{32}\.json$`)
+
+// maxStepMessagesNameBytes keeps a messages file name, plus the ".tmp.<n>"
+// suffix of the temporary file that an atomic write adds, within the 255
+// bytes that common file systems allow.
+const maxStepMessagesNameBytes = 240
 
 // CancelRequestedFlag is a special flag used to indicate that a cancel request has been made.
 const CancelRequestedFlag = "CANCEL_REQUESTED"
@@ -827,7 +841,7 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 		return fmt.Errorf("failed to create messages directory: %w", err)
 	}
 
-	file := filepath.Join(messagesDir, stepName+".json")
+	file := filepath.Join(messagesDir, stepMessagesName(stepName))
 	data, err := json.MarshalIndent(messages, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal messages: %w", err)
@@ -845,9 +859,22 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 // Returns nil if no messages exist for the step.
 func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	// Read from dag-run level (parent of attempt directory) for retry persistence
-	file := filepath.Join(att.dagRunDir(), MessagesDir, stepName+".json")
+	dir := filepath.Join(att.dagRunDir(), MessagesDir)
+	file := filepath.Join(dir, stepMessagesName(stepName))
 
 	data, err := fileutil.ReadFile(file)
+	if os.IsNotExist(err) {
+		// Earlier versions joined the raw step name to dir, which cleaned it,
+		// so a step such as ./fetch kept its messages in fetch.json. A raw
+		// name with a ".." segment or in the shortened form names another
+		// step's file.
+		rel, relErr := filepath.Rel(dir, filepath.Join(dir, stepName+".json"))
+		if relErr == nil && !slices.Contains(strings.Split(filepath.ToSlash(stepName), "/"), "..") && !shortenedMessagesName.MatchString(rel) {
+			if raw, ok := fileutil.LegacyEntry(dir, rel); ok {
+				data, err = fileutil.ReadFile(filepath.Join(dir, raw))
+			}
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -861,4 +888,22 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 	}
 
 	return messages, nil
+}
+
+// stepMessagesName returns the name of the file that holds a step's messages.
+// A name that escaping makes too long for a file name is cut short and ends in
+// "%-" and a hash of the step name. EscapeName writes every "%" as %XX, so no
+// other step's file name holds "%-".
+func stepMessagesName(stepName string) string {
+	name := fileutil.EscapeName(stepName + ".json")
+	if len(name) <= maxStepMessagesNameBytes {
+		return name
+	}
+	sum := sha256.Sum256([]byte(stepName))
+	suffix := "%-" + hex.EncodeToString(sum[:16]) + ".json"
+	cut := maxStepMessagesNameBytes - len(suffix)
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return name[:cut] + suffix
 }

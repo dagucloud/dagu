@@ -1310,6 +1310,126 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		assert.Equal(t, "question 2", read2[0].Content)
 	})
 
+	// Step names are free text, so each step keeps its own messages even when
+	// its name holds a character that a file name cannot.
+	t.Run("StepNamesFileNamesCannotHold", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-unsafe-step-names")
+
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		names := []string{"fetch/parse", "fetch", `fetch\parse`, "db:query", "why?", "nul"}
+		for _, name := range names {
+			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
+		}
+		for _, name := range names {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1, name)
+			assert.Equal(t, name, msgs[0].Content)
+		}
+	})
+
+	// Earlier versions wrote a step's messages under its raw name: one with
+	// "%", a device name that Windows 11 accepts, or a "/" that still resolved
+	// inside the messages directory.
+	t.Run("ReadsMessagesUnderRawStepName", func(t *testing.T) {
+		for _, tc := range []struct{ step, file string }{
+			{step: "./fetch", file: "fetch.json"},
+			{step: "50%", file: "50%.json"},
+			{step: "con", file: "con.json"},
+		} {
+			th := setupTestRepository(t)
+			dag := th.DAG("test-raw-step-name")
+			att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+
+			data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+			require.NoError(t, err)
+			dir := filepath.Join(att.dagRunDir(), MessagesDir)
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.file), data, 0o600))
+
+			msgs, err := att.ReadStepMessages(ctx, tc.step)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1, tc.step)
+			assert.Equal(t, "stored before", msgs[0].Content)
+		}
+	})
+
+	// A step never reads the messages of another step whose file its raw
+	// name resolves to, such as fetch/parse for ./fetch%2Fparse, or b for
+	// x/../b.
+	t.Run("DoesNotReadAnotherStepsMessages", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-alias-step-name")
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		require.NoError(t, att.WriteStepMessages(ctx, "fetch/parse", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "parse"}}))
+		require.NoError(t, att.WriteStepMessages(ctx, "b", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "b"}}))
+		for _, name := range []string{"./fetch%2Fparse", "x/../b"} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			assert.Nil(t, msgs, name)
+		}
+	})
+
+	// Escaping can make a step name longer than a file name may be, so such a
+	// step still keeps its messages, and messages that earlier versions stored
+	// under its raw name are still read.
+	t.Run("LongEscapedStepName", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-long-step-name")
+		att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+		written := strings.Repeat("%", 200)
+		stored := strings.Repeat("%", 100)
+
+		require.NoError(t, att.WriteStepMessages(ctx, written, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "written"}}))
+		msgs, err := att.ReadStepMessages(ctx, written)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "written", msgs[0].Content)
+
+		data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+		require.NoError(t, err)
+		dir := filepath.Join(att.dagRunDir(), MessagesDir)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, stored+".json"), data, 0o600))
+		msgs, err = att.ReadStepMessages(ctx, stored)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "stored before", msgs[0].Content)
+	})
+
+	// A step whose name is the shortened file name of another, longer step
+	// keeps its own messages.
+	t.Run("ShortenedNameKeepsStepsApart", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-shortened-step-name")
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		long := strings.Repeat("a", 241)
+		short := strings.TrimSuffix(stepMessagesName(long), ".json")
+		require.NoError(t, att.WriteStepMessages(ctx, long, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: long}}))
+		// A file system that ignores case finds the file under either case.
+		for _, name := range []string{short, strings.ToUpper(short)} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			assert.Nil(t, msgs, "a step without messages reads none")
+		}
+
+		for _, name := range []string{long, short} {
+			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
+		}
+		for _, name := range []string{long, short} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, name, msgs[0].Content)
+		}
+	})
+
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {
 		th := setupTestRepository(t)
 		dag := th.DAG("test-retry-messages")

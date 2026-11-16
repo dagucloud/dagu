@@ -4,6 +4,7 @@
 package logpath
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,8 +15,42 @@ import (
 func TestForeachStepDir(t *testing.T) {
 	t.Parallel()
 
-	dir := ForeachStepDir(filepath.Join("logs", "run", "each step.out"), "each step")
+	dir := ForeachStepDir(filepath.Join("logs", "run"), "each step")
 	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each_step"), dir)
+}
+
+// Steps con and con_ keep their items apart on every system, although
+// Windows does not store con as written.
+func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	assert.NotEqual(t, ForeachStepDir(logDir, "con"), ForeachStepDir(logDir, "con_"))
+}
+
+// A step whose raw name cleans to another step's name, such as ./b for b,
+// keeps its own directory.
+func TestForeachStepDirKeepsCleanedNamesApart(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	dir := ForeachStepDir(logDir, "b")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	for _, name := range []string{"./b", "x/../b", "b/."} {
+		assert.NotEqual(t, dir, ForeachStepDir(logDir, name), name)
+	}
+}
+
+// Earlier versions kept a device name such as con as written, which
+// Windows 11 stores, so the items of a foreach step stored under it are
+// still found.
+func TestForeachStepDirKeepsRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	raw := filepath.Join(runDir, ForeachLogDirName, "con")
+	require.NoError(t, os.MkdirAll(raw, 0o750))
+	assert.Equal(t, raw, ForeachStepDir(runDir, "con"))
 }
 
 func TestForeachItemDir(t *testing.T) {
@@ -61,11 +96,24 @@ func TestForeachParentDir(t *testing.T) {
 	}
 }
 
+// A nested foreach step named after a Windows device, whose items earlier
+// versions stored under its raw name, is listed under that directory.
+func TestForeachNestedParentKeepsRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	stepDir := t.TempDir()
+	raw := filepath.Join(stepDir, "0", ForeachLogDirName, "con")
+	require.NoError(t, os.MkdirAll(raw, 0o750))
+	dir, err := ForeachParentDir(stepDir, ForeachNestedParent(filepath.Join(stepDir, "0"), "0", "con"))
+	require.NoError(t, err)
+	assert.Equal(t, raw, dir)
+}
+
 func TestForeachItemPathRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "4", ForeachItemPath("", 4))
-	parent := ForeachNestedParent("4", "inner step")
+	parent := ForeachNestedParent(filepath.Join("each", "4"), "4", "inner step")
 	assert.Equal(t, "4.inner_step", parent)
 	assert.Equal(t, "4.inner_step.1", ForeachItemPath(parent, 1))
 

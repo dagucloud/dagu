@@ -34,9 +34,15 @@ const (
 var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ForeachStepDir returns the directory holding the item bodies of a foreach
-// step whose own log file is stepLogFile.
-func ForeachStepDir(stepLogFile, stepName string) string {
-	return filepath.Join(filepath.Dir(stepLogFile), ForeachLogDirName, fileutil.SafeName(stepName))
+// step whose log files are in logDir.
+func ForeachStepDir(logDir, stepName string) string {
+	dir := filepath.Join(logDir, ForeachLogDirName)
+	name := fileutil.SafeName(stepName)
+	// Earlier versions kept a Windows device name such as con as written.
+	if fileutil.SafeNameEscapesDevice(stepName) {
+		name = fileutil.ExistingName(dir, name, stepName)
+	}
+	return filepath.Join(dir, name)
 }
 
 // ForeachItemPath builds the item path of an item nested under parent. An
@@ -49,9 +55,10 @@ func ForeachItemPath(parent string, index int) string {
 }
 
 // ForeachNestedParent builds the parent path for the items of a foreach body
-// step running inside item itemPath.
-func ForeachNestedParent(itemPath, bodyStepName string) string {
-	return itemPath + foreachItemPathSeparator + fileutil.SafeName(bodyStepName)
+// step running inside item itemPath, whose directory is itemDir. The path
+// names the step's directory as it is stored.
+func ForeachNestedParent(itemDir, itemPath, bodyStepName string) string {
+	return itemPath + foreachItemPathSeparator + filepath.Base(ForeachStepDir(itemDir, bodyStepName))
 }
 
 // ForeachItemDir resolves an item path to its directory under stepDir. A path

@@ -122,3 +122,47 @@ func TestReplayCacheClearRequiresDAGName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"login"}, steps)
 }
+
+// Step keys con and con_ keep separate records on every system, although
+// Windows does not store con as written.
+func TestReplayCacheKeepsDeviceNamedStepApart(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	seedReplayCache(t, cache, "billing", "con", "con_")
+	assert.NotEqual(t, cache.Path("billing", "con"), cache.Path("billing", "con_"))
+
+	removed, err := cache.Clear("billing", "con")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"con"}, removed)
+	assert.FileExists(t, cache.Path("billing", "con_"))
+}
+
+// A step key whose raw name cleans to another key, such as ./b for b, keeps
+// its own records.
+func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	seedReplayCache(t, cache, "billing", "b")
+	for _, key := range []string{"./b", "x/../b", "b/."} {
+		assert.NotEqual(t, cache.Path("billing", "b"), cache.Path("billing", key), key)
+	}
+}
+
+// Earlier versions kept a device name such as con as written, which
+// Windows 11 stores, so the records under it are still read.
+func TestReplayCacheReadsRawDeviceName(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	raw := filepath.Join(dataDir, "cache", "con", "con.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
+	require.NoError(t, os.WriteFile(raw, []byte("{}"), 0o600))
+
+	cache := replaycache.New(dataDir)
+	assert.Equal(t, raw, cache.Path("con", "con"))
+	steps, err := cache.Steps("con")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"con"}, steps)
+}

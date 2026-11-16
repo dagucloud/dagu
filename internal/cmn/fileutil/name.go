@@ -4,6 +4,13 @@
 package fileutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -23,7 +30,9 @@ var (
 )
 
 // SafeName converts a string to a safe filename containing only alphanumeric characters,
-// underscores, and hyphens
+// underscores, and hyphens. On Windows, a reserved device name such as CON or
+// LPT1 gets a hyphen and a short hash of itself appended, so it does not share
+// a result with a name such as CON_.
 func SafeName(str string) string {
 	// Replace any character not in [a-zA-Z0-9_\-] with underscore
 	safe := allowedCharRegex.ReplaceAllString(str, "_")
@@ -34,7 +43,106 @@ func SafeName(str string) string {
 		safe = string(runes[:MaxSafeNameLength])
 	}
 
+	if reservesDeviceName(safe) {
+		sum := sha256.Sum256([]byte(safe))
+		safe += "-" + hex.EncodeToString(sum[:4])
+	}
+
 	return safe
+}
+
+// SafeNameEscapesDevice reports whether SafeName changes str only because
+// this host reserves it for a device, which only Windows does. Earlier
+// versions kept such a name as written.
+func SafeNameEscapesDevice(str string) bool {
+	return !allowedCharRegex.MatchString(str) && reservesDeviceName(str)
+}
+
+// EscapeName returns the name under which this host stores a file or
+// directory called name. Each "%", each byte the host cannot store in a
+// name, including a path separator, and on Windows the first byte of a
+// reserved device name are written as %XX. Any other byte is kept, and "."
+// and ".." are returned unchanged. Two different names never share an entry,
+// even on a file system that ignores case.
+func EscapeName(name string) string {
+	if name == "." || name == ".." {
+		return name
+	}
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; c == '%' || unstorableByte(c, i == len(name)-1) {
+			fmt.Fprintf(&b, "%%%02X", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	escaped := b.String()
+	if reservesDeviceName(escaped) {
+		escaped = fmt.Sprintf("%%%02X", escaped[0]) + escaped[1:]
+	}
+	return escaped
+}
+
+// UnescapeName returns the name that EscapeName stores as escaped. A name
+// that EscapeName does not produce is returned as is.
+func UnescapeName(escaped string) string {
+	name, err := url.PathUnescape(escaped)
+	if err != nil || EscapeName(name) != escaped {
+		return escaped
+	}
+	return name
+}
+
+// ExistingName returns the name of the entry in dir that holds name. It is
+// name, unless dir holds no entry called name but holds the entry that
+// LegacyEntry finds for legacy, the name that earlier versions used.
+func ExistingName(dir, name, legacy string) string {
+	if name == legacy {
+		return name
+	}
+	if _, err := os.Lstat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+		return name
+	}
+	if rel, ok := LegacyEntry(dir, legacy); ok {
+		return rel
+	}
+	return name
+}
+
+// LegacyEntry reports whether dir holds a regular file or directory called
+// legacy, a name stored as written before names were escaped, and returns
+// its path relative to dir. Only a name that names that entry exactly is
+// looked up, so the entry never belongs to another name. Each "/"-separated
+// segment must be non-empty, not "." or "..", stored by this host as written
+// (on Windows, without a trailing dot or space, a reserved character, or a
+// device name), and not, ignoring case, the escaped form of another name.
+func LegacyEntry(dir, legacy string) (string, bool) {
+	for segment := range strings.SplitSeq(filepath.ToSlash(legacy), "/") {
+		if !exactSegment(segment) {
+			return "", false
+		}
+	}
+	rel := filepath.Clean(legacy)
+	info, err := os.Lstat(filepath.Join(dir, rel))
+	if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return "", false
+	}
+	return rel, true
+}
+
+// exactSegment reports whether this host stores a path segment under exactly
+// its own name, and no escaped name may share it.
+func exactSegment(segment string) bool {
+	if segment == "" || segment == "." || segment == ".." || opensDevice(segment) {
+		return false
+	}
+	for i := 0; i < len(segment); i++ {
+		if unstorableByte(segment[i], i == len(segment)-1) {
+			return false
+		}
+	}
+	other, err := url.PathUnescape(segment)
+	return err != nil || other == segment || !strings.EqualFold(EscapeName(other), segment)
 }
 
 // NormalizeFilename replaces OS-reserved characters and Windows reserved

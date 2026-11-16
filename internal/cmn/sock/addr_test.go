@@ -4,6 +4,8 @@
 package sock
 
 import (
+	"crypto/md5" //nolint:gosec
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,6 +23,15 @@ func TestAddr(t *testing.T) {
 		require.NotEqual(t, addr, Addr("mydag", "run456"))
 		require.True(t, strings.HasPrefix(addr, filepath.Join(socketDir(), "@dagu_")))
 		require.True(t, strings.HasSuffix(addr, ".sock"))
+	})
+
+	// The socket name embeds the identity, so even a Windows device name
+	// such as con is no device there. It keeps the name earlier versions
+	// used, so a run they started stays reachable.
+	t.Run("DeviceNameUnchanged", func(t *testing.T) {
+		t.Parallel()
+		hash := fmt.Sprintf("%x", md5.Sum([]byte("con"+"run123")))[:6] //nolint:gosec
+		require.Equal(t, "@dagu_con_"+hash+".sock", filepath.Base(Addr("con", "run123")))
 	})
 
 	t.Run("SafeAndPortableLength", func(t *testing.T) {
