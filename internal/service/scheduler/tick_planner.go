@@ -1419,6 +1419,8 @@ func replaysQueue(saved []time.Time, queued []QueueItem, lastScheduled time.Time
 			return false
 		}
 	}
+	// saved is ascending, as every change to a queue keeps it sorted, so the
+	// newest extra slot bounds them all.
 	return extra == 0 || !saved[extra-1].After(lastScheduled)
 }
 
