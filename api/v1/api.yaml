@@ -12815,7 +12815,7 @@ components:
       required: true
       schema:
         type: string
-        pattern: "^[0-9]+(\\.[a-zA-Z0-9_-]+\\.[0-9]+)*$"
+        pattern: "^[0-9]+(\\.[a-zA-Z0-9_~-]+\\.[0-9]+)*$"
 
     BodyStepName:
       name: bodyStepName
@@ -12834,7 +12834,7 @@ components:
       required: false
       schema:
         type: string
-        pattern: "^[0-9]+\\.[a-zA-Z0-9_-]+(\\.[0-9]+\\.[a-zA-Z0-9_-]+)*$"
+        pattern: "^[0-9]+\\.[a-zA-Z0-9_~-]+(\\.[0-9]+\\.[a-zA-Z0-9_~-]+)*$"
 
     ForeachItemStatusFilter:
       name: status

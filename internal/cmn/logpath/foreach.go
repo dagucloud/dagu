@@ -34,9 +34,14 @@ const (
 	// foreachItemPathSeparator joins the segments of an item path. SafeKey
 	// never produces it, so a path splits unambiguously.
 	foreachItemPathSeparator = "."
+
+	// foreachPathEscape stands for "%" in the body step segments of an item
+	// path. Item paths travel in URLs, where "%" starts an escape; neither
+	// SafeKey nor SafeName writes "~".
+	foreachPathEscape = "~"
 )
 
-var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_%-]+$`)
+var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_~-]+$`)
 
 // ForeachStepDir returns the directory holding the item bodies of a foreach
 // step whose log files are in logDir. With siblings empty, it returns the
@@ -74,19 +79,21 @@ func ForeachItemPath(parent string, index int) string {
 // ForeachNestedParent builds the parent path for the items of a foreach body
 // step running inside item itemPath, whose directory is itemDir. siblings are
 // the item's body steps. The path names the step's directory as it is
-// stored, and is empty when ForeachStepDir finds no directory to read.
+// stored, with "~" for each "%", and is empty when ForeachStepDir finds no
+// directory to read.
 func ForeachNestedParent(itemDir, itemPath, bodyStepName string, siblings []string) string {
 	dir := ForeachStepDir(itemDir, bodyStepName, siblings)
 	if dir == "" {
 		return ""
 	}
-	return itemPath + foreachItemPathSeparator + filepath.Base(dir)
+	return itemPath + foreachItemPathSeparator + strings.ReplaceAll(filepath.Base(dir), "%", foreachPathEscape)
 }
 
 // ForeachItemDir resolves an item path to its directory under stepDir. A path
 // is "<index>" for a top-level item and "<index>.<bodyStep>.<index>" for an
-// item of a nested foreach, where <bodyStep> is the safe name of the body
-// step. Every segment is validated so the result stays inside stepDir.
+// item of a nested foreach, where <bodyStep> names the body step's directory
+// as ForeachNestedParent writes it. Every segment is validated so the result
+// stays inside stepDir.
 func ForeachItemDir(stepDir, itemPath string) (string, error) {
 	segments, endsWithIndex, err := splitForeachItemPath(itemPath)
 	if err != nil {
@@ -115,8 +122,8 @@ func ForeachParentDir(stepDir, parent string) (string, error) {
 }
 
 // splitForeachItemPath validates a path and returns its directory segments,
-// each index as is and each body step as "foreach/<safe name>", along with
-// whether the path ends with an index.
+// each index as is and each body step as "foreach/<directory name>", along
+// with whether the path ends with an index.
 func splitForeachItemPath(path string) ([]string, bool, error) {
 	if path == "" {
 		return nil, false, fmt.Errorf("foreach item path is empty")
@@ -135,7 +142,7 @@ func splitForeachItemPath(path string) ([]string, bool, error) {
 		if !foreachSafeNamePattern.MatchString(part) {
 			return nil, false, fmt.Errorf("invalid foreach item path %q: %q is not a body step name", path, part)
 		}
-		segments = append(segments, ForeachLogDirName, part)
+		segments = append(segments, ForeachLogDirName, strings.ReplaceAll(part, foreachPathEscape, "%"))
 	}
 	return segments, len(parts)%2 == 1, nil
 }

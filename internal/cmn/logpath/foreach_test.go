@@ -6,6 +6,7 @@ package logpath
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -150,16 +151,20 @@ func TestForeachNestedParentKeepsRawDeviceName(t *testing.T) {
 	assert.Equal(t, raw, dir)
 }
 
+// An item path holds no "%", so it passes through a URL unchanged, and it
+// still resolves to the directory the body step writes, cut keys included.
 func TestForeachItemPathRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "4", ForeachItemPath("", 4))
-	parent := ForeachNestedParent(filepath.Join("each", "4"), "4", "inner step", nil)
-	assert.Equal(t, "4.inner%20step", parent)
-	assert.Equal(t, "4.inner%20step.1", ForeachItemPath(parent, 1))
+	itemDir := filepath.Join("each", "4")
+	for _, name := range []string{"inner step", "a.b", strings.Repeat("日", 40)} {
+		parent := ForeachNestedParent(itemDir, "4", name, nil)
+		path := ForeachItemPath(parent, 1)
+		assert.NotContains(t, path, "%", name)
 
-	stepDir := "each"
-	dir, err := ForeachItemDir(stepDir, ForeachItemPath(parent, 1))
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("each", "4", "foreach", "inner%20step", "1"), dir)
+		dir, err := ForeachItemDir("each", path)
+		require.NoError(t, err, name)
+		assert.Equal(t, filepath.Join(ForeachStepDir(itemDir, name, nil), "1"), dir, name)
+	}
 }
