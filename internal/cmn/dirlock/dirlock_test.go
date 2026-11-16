@@ -1565,3 +1565,40 @@ func TestOnStaleTakeover(t *testing.T) {
 	require.NoError(t, third.TryLock())
 	require.EqualValues(t, 1, takeovers.Load())
 }
+
+// A contender decides a lock is stale once its holder has not renewed it
+// for the stale threshold, and claims it right after. A holder that renews
+// in between must not be told that it still holds the lock: both would act
+// as the holder.
+func TestHeartbeatAfterLapse(t *testing.T) {
+	t.Parallel()
+	for _, observe := range []bool{false, true} {
+		t.Run(map[bool]string{false: "directory time", true: "observed heartbeat"}[observe], func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			newLock := func() *dirLock {
+				return New(dir, &LockOptions{
+					StaleThreshold:   observerStale,
+					RetryInterval:    10 * time.Millisecond,
+					ObserveHeartbeat: observe,
+				}).(*dirLock)
+			}
+			holder := newLock()
+			require.NoError(t, holder.TryLock())
+			contender := newLock()
+			require.ErrorIs(t, contender.TryLock(), ErrLockConflict)
+			time.Sleep(2 * observerStale)
+
+			var renewErr error
+			var renewed sync.Once
+			contender.beforeStaleClaim = func() {
+				renewed.Do(func() { renewErr = holder.Heartbeat(context.Background()) })
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, contender.Lock(ctx))
+			assert.ErrorIs(t, renewErr, ErrLockNotHeld, "the holder renewed a lock a contender was taking over")
+			assert.False(t, holder.IsHeldByMe())
+		})
+	}
+}
