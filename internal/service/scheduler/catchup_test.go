@@ -755,8 +755,9 @@ func TestCatchupAfterOutageIsWhatCatchupQueues(t *testing.T) {
 }
 
 // The saved catch-up slots are written again only when a restart from them
-// would replay other slots than the queue holds: not as catch-up runs the
-// queue, nor when a suspension settles it.
+// would replay other slots than the queues hold: not as catch-up runs a
+// queue, nor when a suspension settles it, while another queue holds
+// slots. Once the last queue runs out, they are written once, empty.
 func TestTickPlanner_CatchupWrites(t *testing.T) {
 	t.Parallel()
 	apply := func(t *testing.T, tp *TickPlanner, change DAGChangeType, dag *ir.DAG) {
@@ -768,39 +769,46 @@ func TestTickPlanner_CatchupWrites(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name   string
-		act    func(t *testing.T, tp *TickPlanner, dag *ir.DAG)
+		act    func(t *testing.T, tp *TickPlanner, store *mockStateStore, dag *ir.DAG)
 		writes int
 	}{
-		{name: "drain", act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+		{name: "drain one queue", act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, dag *ir.DAG) {
+			runTick(t, tp, at(12, 1))
+			runTick(t, tp, at(12, 2))
+			require.Empty(t, bufferedSlots(tp, "batch"))
+			require.NotEmpty(t, bufferedSlots(tp, dag.Name))
+		}},
+		{name: "drain the last queue", writes: 1, act: func(t *testing.T, tp *TickPlanner, store *mockStateStore, dag *ir.DAG) {
 			for minute := range 6 {
 				runTick(t, tp, at(12, minute+1))
 			}
 			require.Empty(t, bufferedSlots(tp, dag.Name))
+			assert.Empty(t, store.savedCatchup(), "a restart reads no slots")
 		}},
-		{name: "late tick", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *ir.DAG) {
+		{name: "late tick", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, _ *ir.DAG) {
 			tp.resume(t.Context(), at(14, 0))
 			runTick(t, tp, at(14, 0))
 		}},
-		{name: "edit dropping queued slots", writes: 1, act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+		{name: "edit dropping queued slots", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, dag *ir.DAG) {
 			edited := *dag
 			edited.Schedule = []ir.Schedule{mustParseSchedule(t, "0 */2 * * *")}
 			apply(t, tp, DAGChangeUpdated, &edited)
 			require.Equal(t, []time.Time{at(8, 0), at(10, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
 		}},
-		{name: "delete", writes: 1, act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+		{name: "delete", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, dag *ir.DAG) {
 			apply(t, tp, DAGChangeDeleted, dag)
 		}},
-		{name: "catch-up disabled", writes: 1, act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+		{name: "catch-up disabled", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, dag *ir.DAG) {
 			edited := *dag
 			edited.CatchupWindow = 0
 			apply(t, tp, DAGChangeUpdated, &edited)
 		}},
-		{name: "enqueue unset", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *ir.DAG) {
+		{name: "enqueue unset", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, _ *ir.DAG) {
 			tp.cfg.Enqueue = nil
 			runTick(t, tp, at(12, 1))
 		}},
-		{name: "suspension", act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
-			tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return true, nil }
+		{name: "suspension", act: func(t *testing.T, tp *TickPlanner, _ *mockStateStore, dag *ir.DAG) {
+			tp.cfg.IsSuspended = func(_ context.Context, id string) (bool, error) { return id == dag.SuspendFlagName(), nil }
 			runTick(t, tp, at(12, 1))
 			require.Empty(t, bufferedSlots(tp, dag.Name))
 		}},
@@ -812,11 +820,13 @@ func TestTickPlanner_CatchupWrites(t *testing.T) {
 			tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
 			tp.cfg.Enqueue = enqueueOK
 			dag := newHourlyCatchupDAG(t, "hourly")
-			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+			batch := &ir.DAG{Name: "batch", CatchupWindow: 6 * time.Hour, Schedule: []ir.Schedule{mustParseSchedule(t, "0 */3 * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag, batch)))
 			require.Len(t, bufferedSlots(tp, dag.Name), 6)
+			require.Len(t, bufferedSlots(tp, batch.Name), 2)
 			startup := store.catchupWriteCount()
 
-			tc.act(t, tp, dag)
+			tc.act(t, tp, store, dag)
 			assert.Equal(t, tc.writes, store.catchupWriteCount()-startup)
 		})
 	}

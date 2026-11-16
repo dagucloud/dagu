@@ -155,11 +155,13 @@ type TickPlanner struct {
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
 	// catchup holds the catch-up slots saved for a restart to replay, by
-	// DAG, catchupDirty whether Flush has yet to write them, and catchupGen
-	// counts the changes to them.
-	catchup      map[string][]time.Time
-	catchupDirty bool
-	catchupGen   uint64
+	// DAG, catchupDirty whether Flush has yet to write them, catchupGen
+	// counts the changes to them, and catchupStored whether the record last
+	// written holds any.
+	catchup       map[string][]time.Time
+	catchupDirty  bool
+	catchupGen    uint64
+	catchupStored bool
 	// firstTick is the minute Init counted the first tick to run, until a
 	// tick is planned, resumed, or advanced (protected by mu).
 	firstTick time.Time
@@ -383,6 +385,7 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	if catchup == nil {
 		catchup = make(map[string][]time.Time)
 	}
+	catchupStored := len(catchup) > 0
 	catchupDirty := false
 
 	// Prune stale DAG entries that no longer exist on disk.
@@ -433,6 +436,7 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	tp.watermarkState = state
 	tp.catchup = catchup
 	tp.catchupDirty = catchupDirty
+	tp.catchupStored = catchupStored
 	tp.mu.Unlock()
 
 	logger.Info(ctx, "Loaded scheduler watermark",
@@ -1384,7 +1388,8 @@ func (tp *TickPlanner) saveQueues() {
 
 // saveQueue updates a DAG's saved catch-up slots when a restart would not
 // replay its queue from them. The saved slots of a queue that ran out are
-// dropped without a write, as a restart replays none of them. Caller must
+// dropped without a write, as a restart replays none of them, until the
+// last queue runs out: the record is then written once, empty. Caller must
 // hold entryMu and mu.
 func (tp *TickPlanner) saveQueue(dagName string) {
 	var queued []QueueItem
@@ -1402,6 +1407,9 @@ func (tp *TickPlanner) saveQueue(dagName string) {
 	}
 	if len(queued) == 0 {
 		delete(tp.catchup, dagName)
+		if len(tp.catchup) == 0 && tp.catchupStored {
+			tp.catchupDirty = true
+		}
 		return
 	}
 	slots := make([]time.Time, len(queued))
@@ -1544,6 +1552,7 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 		} else {
 			// Slots changed since the snapshot are saved by the next flush.
 			tp.mu.Lock()
+			tp.catchupStored = len(catchup) > 0
 			if tp.catchupGen == catchupGen {
 				tp.catchupDirty = false
 			}
