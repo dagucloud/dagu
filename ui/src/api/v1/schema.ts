@@ -5194,7 +5194,7 @@ export interface components {
             /** @description Slots whose run failed */
             failed: number;
         };
-        /** @description The start-schedule slots a DAG missed, among the oldest 10,000 slots of the spans in which its slots could not run in the last 30 days and its slot retention. */
+        /** @description The start-schedule slots a DAG missed, among the newest 10,000 slots of the spans in which its slots could not run in the last 30 days and its slot retention. */
         MissedSlots: {
             /** @description How many slots were missed */
             slots: number;

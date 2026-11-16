@@ -284,18 +284,41 @@ func TestFindMissedReadsOnlyRunsNearItsSlots(t *testing.T) {
 	assert.Equal(t, 1, history.listed, "of %d runs", len(history.statuses))
 }
 
-// At most 10,000 slots are looked at, the oldest first.
-func TestFindMissedCapsSlots(t *testing.T) {
+// At most 10,000 slots are looked at, the newest, so the slots of a newer
+// span count however many an older span holds.
+func TestFindMissedCapsSlotsAtTheNewest(t *testing.T) {
 	t.Parallel()
 	f := newDispatchFixture(t)
-	minutely := dailyAt(t, "* * * * *")
 	require.NoError(t, f.write("before", at(2, 0), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	resumed := at(12, 0).Add(10 * time.Minute)
 
-	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, minutely,
-		[]schedulerstate.Span{spanOf(schedulerstate.SpanDown, at(2, 0), at(10, 0))}, f.clock)
+	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, dailyAt(t, "* * * * *"), []schedulerstate.Span{
+		spanOf(schedulerstate.SpanDown, at(2, 0), at(10, 0)),
+		spanOf(schedulerstate.SpanPaused, at(12, 0), resumed),
+	}, f.clock)
 	require.NoError(t, err)
 
-	assert.Equal(t, backfill.MaxMissedSlots, missed.Slots)
-	assert.Equal(t, at(2, 0).Add(time.Minute), missed.First)
-	assert.Equal(t, at(2, 0).Add(backfill.MaxMissedSlots*time.Minute), missed.Last)
+	// The pause's 9 slots and the newest 9,991 of the outage's 11,519.
+	assert.Equal(t, backfill.Missed{
+		Slots: backfill.MaxMissedSlots, First: at(10, 0).Add(-9991 * time.Minute), Last: at(12, 0).Add(9 * time.Minute),
+		Reasons: reasons(schedulerstate.SpanDown, schedulerstate.SpanPaused), Until: resumed,
+	}, missed)
+}
+
+// Of a span that holds more slots than are looked at, the DAG misses those
+// looked at when its first recorded slot is among those left out.
+func TestFindMissedFindsTheFirstRecordedSlotPastTheCap(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	outage := []schedulerstate.Span{spanOf(schedulerstate.SpanDown, at(2, 0), at(10, 0))}
+	slots := func() int {
+		t.Helper()
+		missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, dailyAt(t, "* * * * *"), outage, f.clock)
+		require.NoError(t, err)
+		return missed.Slots
+	}
+	assert.Zero(t, slots(), "a DAG without history")
+
+	require.NoError(t, f.write("manual", at(3, 0), ir.Succeeded, ir.TriggerTypeManual, ""))
+	assert.Equal(t, backfill.MaxMissedSlots, slots())
 }

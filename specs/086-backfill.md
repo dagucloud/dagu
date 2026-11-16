@@ -248,7 +248,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   `interval_end`, `next_scheduled_at`, or `${dates.*}`, or calls a sub-DAG,
   which inherits the slot. A run reaches its slot only through these.
 - A DAG's missed slots are the fire times of its start schedules for its
-  active profile strictly inside those spans, the oldest 10,000 at most,
+  active profile strictly inside those spans, the newest 10,000 at most,
   that no run counts for and that the scheduler did not record as skipped.
   A slot that ran by any path, as from the run dialog, `dagu start
   --scheduled-time`, catchup, or a backfill, is not missed. A slot that

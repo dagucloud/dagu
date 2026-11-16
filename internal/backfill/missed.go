@@ -13,7 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
 
-// MaxMissedSlots bounds the slots FindMissed looks at.
+// MaxMissedSlots bounds the slots FindMissed looks at, the newest.
 const MaxMissedSlots = 10000
 
 // Missed is the slots of a DAG that no run counts for and the scheduler did
@@ -32,7 +32,7 @@ type spanBounds struct {
 	span   schedulerstate.Span
 }
 
-// FindMissed finds the missed slots of dag among the oldest MaxMissedSlots
+// FindMissed finds the missed slots of dag among the newest MaxMissedSlots
 // that came due strictly inside spans; the tick at a span's end runs its
 // own. It leaves out slots older than the DAG's slot retention and slots up
 // to its first recorded slot, before which it was not on its schedule.
@@ -51,16 +51,15 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 			bounds = append(bounds, b)
 		}
 	}
-	fires, near := firesIn(sched, bounds)
+	fires, near, since := firesIn(sched, bounds)
 	if len(fires) == 0 {
 		return Missed{}, nil
 	}
-	// The fire before the first slot shows whether the DAG was on its
-	// schedule; one older than its retained history is taken to be.
-	from := ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, fires[0].Add(-time.Nanosecond)).Start
-	if from.IsZero() {
-		from = fires[0]
-	}
+	// The fire before the slots of the span that holds the oldest one looked
+	// at shows whether the DAG was on its schedule; one older than its
+	// retained history is taken to be.
+	before := fireBefore(sched, since)
+	from := fireBefore(sched, fires[0])
 	start, end := HistoryRange(sched, from, fires[len(fires)-1])
 	events, err := reader.SlotEvents(ctx, dag, start, end)
 	if err != nil {
@@ -72,8 +71,19 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 	}
 	history := History{Events: events, Runs: runs}
 	var first time.Time
-	if from.Before(cutoff) {
-		first = from
+	if before.Before(cutoff) {
+		first = before
+	} else if since.Before(fires[0]) {
+		// The cap left out the span's oldest slots. The DAG was on its
+		// schedule if it ran the fire before the span, or else from its
+		// first slot recorded among those left out.
+		lead, _ := HistoryRange(sched, before, before)
+		if first, err = firstSlot(ctx, reader, dag, lead, since); err == nil && first.IsZero() {
+			first, err = firstSlot(ctx, reader, dag, since, start)
+		}
+		if err != nil {
+			return Missed{}, err
+		}
 	}
 	skipped := make(map[time.Time]bool)
 	for _, event := range history.Events {
@@ -110,32 +120,97 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 	return missed, nil
 }
 
-// firesIn returns the fire times inside the bounds, oldest first, up to
-// MaxMissedSlots, and for each run of consecutive ones the fires around it,
-// oldest first.
-func firesIn(sched SlotSchedule, bounds []spanBounds) ([]time.Time, []ir.ScheduleWindow) {
-	merged := slices.SortedFunc(slices.Values(bounds), func(a, b spanBounds) int { return a.lo.Compare(b.lo) })
-	var fires []time.Time
-	var near []ir.ScheduleWindow
-	for i := 0; i < len(merged) && len(fires) < MaxMissedSlots; i++ {
-		lo, hi := merged[i].lo, merged[i].hi
-		for i+1 < len(merged) && !merged[i+1].lo.After(hi) {
-			i++
-			if merged[i].hi.After(hi) {
-				hi = merged[i].hi
-			}
+// fireBefore returns the fire before t, or t when none is.
+func fireBefore(sched SlotSchedule, t time.Time) time.Time {
+	if prev := ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, t.Add(-time.Nanosecond)).Start; !prev.IsZero() {
+		return prev
+	}
+	return t
+}
+
+// firstSlot returns the oldest slot of the DAG's events in [from, to], or
+// zero when it has none.
+func firstSlot(ctx context.Context, reader HistoryReader, dag *ir.DAG, from, to time.Time) (time.Time, error) {
+	events, err := reader.SlotEvents(ctx, dag, from, to)
+	var first time.Time
+	for _, event := range events {
+		if first.IsZero() || event.Slot.Before(first) {
+			first = event.Slot
 		}
-		more, _ := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, lo, hi, MaxMissedSlots-len(fires))
-		if len(more) == 0 {
+	}
+	return first, err
+}
+
+// firesIn returns the newest MaxMissedSlots fire times inside the bounds,
+// oldest first, for each run of consecutive ones the fires around it,
+// oldest first, and the first fire of the bounds that hold the oldest one.
+func firesIn(sched SlotSchedule, bounds []spanBounds) ([]time.Time, []ir.ScheduleWindow, time.Time) {
+	// The bounds joined where they overlap, oldest first.
+	var merged []spanBounds
+	for _, b := range slices.SortedFunc(slices.Values(bounds), func(a, b spanBounds) int { return a.lo.Compare(b.lo) }) {
+		if last := len(merged) - 1; last >= 0 && !b.lo.After(merged[last].hi) {
+			if b.hi.After(merged[last].hi) {
+				merged[last].hi = b.hi
+			}
 			continue
 		}
-		fires = append(fires, more...)
-		near = append(near, ir.ScheduleWindow{
-			Start: ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, more[0]).Start,
-			Next:  ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, more[len(more)-1]).Next,
-		})
+		merged = append(merged, b)
 	}
-	return fires, near
+	var runs [][]time.Time
+	var near []ir.ScheduleWindow
+	var since time.Time
+	n := 0
+	for i := len(merged) - 1; i >= 0 && n < MaxMissedSlots; i-- {
+		fires := newestFires(sched, merged[i].lo, merged[i].hi, MaxMissedSlots-n)
+		if len(fires) == 0 {
+			continue
+		}
+		runs = append(runs, fires)
+		n += len(fires)
+		near = append(near, ir.ScheduleWindow{
+			Start: ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, fires[0]).Start,
+			Next:  ir.ScheduleWindowAt(sched.Schedules, sched.Profile, sched.Location, fires[len(fires)-1]).Next,
+		})
+		since = fires[0]
+		if n == MaxMissedSlots {
+			oldest, _ := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, merged[i].lo, merged[i].hi, 1)
+			since = oldest[0]
+		}
+	}
+	slices.Reverse(runs)
+	slices.Reverse(near)
+	return slices.Concat(runs...), near, since
+}
+
+// newestFires returns the newest fires in [lo, hi], up to limit, oldest
+// first. It reads back from hi in windows sized to hold most of the fires
+// it still needs at the density of the last one, at most twice as long,
+// and halves a window that holds more, so it reads few more fires than it
+// returns however many the range holds.
+func newestFires(sched SlotSchedule, lo, hi time.Time, limit int) []time.Time {
+	var windows [][]time.Time
+	n := 0
+	for step, end := time.Minute, hi; n < limit && !end.Before(lo); {
+		from := lo
+		if end.Sub(lo) > step {
+			from = end.Add(-step)
+		}
+		fires, more := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location, from, end, limit-n)
+		if more {
+			step /= 2
+			continue
+		}
+		windows = append(windows, fires)
+		n += len(fires)
+		end = from.Add(-time.Nanosecond)
+		grow := 2.0
+		if len(fires) > 0 {
+			grow = min(grow, 0.75*float64(limit-n)/float64(len(fires)))
+		}
+		step = time.Duration(float64(step) * grow)
+	}
+	slices.Reverse(windows)
+	return slices.Concat(windows...)
 }
 
 // recordLag bounds how long before the slot index first records a run the
