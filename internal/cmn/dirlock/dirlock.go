@@ -64,6 +64,7 @@ type DirLock interface {
 
 	// Heartbeat updates the lock timestamp to prevent staleness
 	// Must be called periodically while holding the lock
+	// Returns ErrLockNotHeld once another process has taken the lock over
 	Heartbeat(ctx context.Context) error
 }
 
@@ -133,6 +134,9 @@ type dirLock struct {
 	// beforeSweep, when set by tests, runs when a takeover starts sweeping
 	// released lock directories.
 	beforeSweep func()
+	// beforeReclaim, when set by tests, runs after a late renewal and before
+	// the holder reclaims its lock.
+	beforeReclaim func()
 }
 
 var _ DirLock = (*dirLock)(nil)
@@ -182,10 +186,9 @@ func New(directory string, opts *LockOptions) DirLock {
 
 // Heartbeat updates the lock's modification time to prevent it from being
 // considered stale. This is an atomic operation that should be called
-// periodically while the lock is held to keep it alive. A renewal that ends
-// more than StaleThreshold after the previous one started fails with
-// ErrLockNotHeld and releases the lock: a contender may have judged the lock
-// stale before it, and take it over after.
+// periodically while the lock is held to keep it alive. A late renewal, one
+// that ends more than StaleThreshold after the previous one started, keeps
+// the lock unless a contender that judged it stale claims it first.
 func (l *dirLock) Heartbeat(_ context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -198,10 +201,39 @@ func (l *dirLock) Heartbeat(_ context.Context) error {
 		return err
 	}
 	if time.Since(l.renewedAt) > l.opts.StaleThreshold {
-		_ = l.release()
-		return fmt.Errorf("%w: not renewed within %s", ErrLockNotHeld, l.opts.StaleThreshold)
+		if err := l.reclaim(); err != nil {
+			return err
+		}
 	}
 	l.renewedAt = start
+	return nil
+}
+
+// reclaim moves this instance's owner file to a new name. A contender claims
+// a stale lock by renaming the owner file it listed before judging the lock
+// stale, so of this rename and such a claim only the first succeeds.
+func (l *dirLock) reclaim() error {
+	if l.beforeReclaim != nil {
+		l.beforeReclaim()
+	}
+	ownerFile := ownerFilePrefix + newUniqueID()
+	err := fileutil.Rename(filepath.Join(l.lockPath, l.ownerFile), filepath.Join(l.lockPath, ownerFile))
+	if err != nil {
+		if isLostClaimError(err) {
+			l.isHeld = false
+			return fmt.Errorf("%w: lock was taken over: %v", ErrLockNotHeld, err)
+		}
+		return fmt.Errorf("failed to reclaim lock: %w", err)
+	}
+	l.ownerFile = ownerFile
+	if l.heartbeatFile != "" {
+		former := l.heartbeatFile
+		l.heartbeatFile = heartbeatFileOf(ownerFile)
+		// A failure leaves contenders watching the directory timestamp until
+		// the next renewal creates the file.
+		_ = l.writeHeartbeat()
+		_ = fileutil.Remove(filepath.Join(l.lockPath, former))
+	}
 	return nil
 }
 
@@ -263,6 +295,12 @@ func (l *dirLock) writeHeartbeat() error {
 	return errors.Join(err, f.Close())
 }
 
+// heartbeatFileOf names the heartbeat file of the lock instance whose owner
+// file is ownerFile.
+func heartbeatFileOf(ownerFile string) string {
+	return heartbeatFilePrefix + strings.TrimPrefix(ownerFile, ownerFilePrefix)
+}
+
 // holderIsStale reports whether the holder of the lock described by info has
 // stopped renewing it.
 func (l *dirLock) holderIsStale(info os.FileInfo) bool {
@@ -297,7 +335,7 @@ func (l *dirLock) readHolderBeat(info os.FileInfo) (string, error) {
 		}
 		// A holder that lost the lock can still write its heartbeat here, so
 		// only the current owner's file counts.
-		name := heartbeatFilePrefix + strings.TrimPrefix(e.Name(), ownerFilePrefix)
+		name := heartbeatFileOf(e.Name())
 		data, err := fileutil.ReadFile(filepath.Join(l.lockPath, name))
 		if err == nil {
 			return string(data), nil
@@ -633,7 +671,7 @@ func (l *dirLock) createLock(start time.Time) error {
 	l.isHeld = true
 	l.renewedAt = start
 	if l.opts.ObserveHeartbeat {
-		l.heartbeatFile = heartbeatFilePrefix + strings.TrimPrefix(ownerFile, ownerFilePrefix)
+		l.heartbeatFile = heartbeatFileOf(ownerFile)
 		// A failure leaves contenders watching the directory timestamp until
 		// the next renewal creates the file.
 		_ = l.writeHeartbeat()
