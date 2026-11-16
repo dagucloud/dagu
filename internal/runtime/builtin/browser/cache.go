@@ -21,7 +21,7 @@ import (
 type replayCache = replaycache.Recordings[recording]
 
 func openReplayCache(browserDir, dagName, stepKey string) *replayCache {
-	return replaycache.Open[recording](replaycache.New(browserDir).Path(dagName, stepKey))
+	return replaycache.OpenStep[recording](replaycache.New(browserDir), dagName, stepKey)
 }
 
 // recording is what an act or an upload did on a page.

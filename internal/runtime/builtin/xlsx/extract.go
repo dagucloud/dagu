@@ -13,14 +13,12 @@ import (
 	"io"
 	"maps"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
-	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -234,9 +232,9 @@ func (e *extractExecutor) Run(ctx context.Context) error {
 // them, and returns the outputs, the stdout line, and the warnings.
 func (e *extractExecutor) run(ctx context.Context) (map[string]any, string, []string, error) {
 	if e.cfg.Cache {
-		stepKey := agentstep.StepKey(e.step)
-		if err := agentstep.ClaimRecords(ctx, replaycache.New(filepath.Join(e.dataDir, workbook.DataDirName)), runtime.GetDAGContext(ctx).DAG, stepKey); err != nil {
-			return nil, "", nil, err
+		stepKey := e.step.ID
+		if stepKey == "" {
+			stepKey = e.step.Name
 		}
 		e.cache = openExtractCache(e.dataDir, e.dagName, stepKey)
 	}

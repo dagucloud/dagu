@@ -5932,9 +5932,8 @@ func (b0 GetDAGRequest_builder) Build() *GetDAGRequest {
 
 type GetDAGResponse struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Spec          string                 `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`                          // Raw YAML content of the DAG definition (empty if not found)
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`                        // Error description when the DAG cannot be retrieved
-	NotFound      bool                   `protobuf:"varint,3,opt,name=not_found,json=notFound,proto3" json:"not_found,omitempty"` // True when the error is that no DAG has the name
+	Spec          string                 `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`   // Raw YAML content of the DAG definition (empty if not found)
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"` // Error description when the DAG cannot be retrieved
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5978,13 +5977,6 @@ func (x *GetDAGResponse) GetError() string {
 	return ""
 }
 
-func (x *GetDAGResponse) GetNotFound() bool {
-	if x != nil {
-		return x.NotFound
-	}
-	return false
-}
-
 func (x *GetDAGResponse) SetSpec(v string) {
 	x.Spec = v
 }
@@ -5993,16 +5985,11 @@ func (x *GetDAGResponse) SetError(v string) {
 	x.Error = v
 }
 
-func (x *GetDAGResponse) SetNotFound(v bool) {
-	x.NotFound = v
-}
-
 type GetDAGResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Spec     string
-	Error    string
-	NotFound bool
+	Spec  string
+	Error string
 }
 
 func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
@@ -6011,7 +5998,6 @@ func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
 	_, _ = b, x
 	x.Spec = b.Spec
 	x.Error = b.Error
-	x.NotFound = b.NotFound
 	return m0
 }
 
@@ -6946,11 +6932,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11ListStateResponse\x124\n" +
 	"\aentries\x18\x01 \x03(\v2\x1a.coordinator.v1.StateEntryR\aentries\"#\n" +
 	"\rGetDAGRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"W\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\x12\x1b\n" +
-	"\tnot_found\x18\x03 \x01(\bR\bnotFound\"\xfa\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xfa\x01\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +

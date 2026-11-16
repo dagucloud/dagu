@@ -5935,12 +5935,11 @@ func (b0 GetDAGRequest_builder) Build() *GetDAGRequest {
 }
 
 type GetDAGResponse struct {
-	state               protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Spec     string                 `protobuf:"bytes,1,opt,name=spec,proto3"`
-	xxx_hidden_Error    string                 `protobuf:"bytes,2,opt,name=error,proto3"`
-	xxx_hidden_NotFound bool                   `protobuf:"varint,3,opt,name=not_found,json=notFound,proto3"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Spec  string                 `protobuf:"bytes,1,opt,name=spec,proto3"`
+	xxx_hidden_Error string                 `protobuf:"bytes,2,opt,name=error,proto3"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GetDAGResponse) Reset() {
@@ -5982,13 +5981,6 @@ func (x *GetDAGResponse) GetError() string {
 	return ""
 }
 
-func (x *GetDAGResponse) GetNotFound() bool {
-	if x != nil {
-		return x.xxx_hidden_NotFound
-	}
-	return false
-}
-
 func (x *GetDAGResponse) SetSpec(v string) {
 	x.xxx_hidden_Spec = v
 }
@@ -5997,16 +5989,11 @@ func (x *GetDAGResponse) SetError(v string) {
 	x.xxx_hidden_Error = v
 }
 
-func (x *GetDAGResponse) SetNotFound(v bool) {
-	x.xxx_hidden_NotFound = v
-}
-
 type GetDAGResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Spec     string
-	Error    string
-	NotFound bool
+	Spec  string
+	Error string
 }
 
 func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
@@ -6015,7 +6002,6 @@ func (b0 GetDAGResponse_builder) Build() *GetDAGResponse {
 	_, _ = b, x
 	x.xxx_hidden_Spec = b.Spec
 	x.xxx_hidden_Error = b.Error
-	x.xxx_hidden_NotFound = b.NotFound
 	return m0
 }
 
@@ -6952,11 +6938,10 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x11ListStateResponse\x124\n" +
 	"\aentries\x18\x01 \x03(\v2\x1a.coordinator.v1.StateEntryR\aentries\"#\n" +
 	"\rGetDAGRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"W\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x0eGetDAGResponse\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\x12\x1b\n" +
-	"\tnot_found\x18\x03 \x01(\bR\bnotFound\"\xfa\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xfa\x01\n" +
 	"\x1dResolveSecretReferenceRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x1c\n" +

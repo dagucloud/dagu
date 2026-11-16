@@ -28,7 +28,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -91,8 +90,6 @@ type Client interface {
 
 	// GetDAG retrieves a DAG definition (raw YAML) from the coordinator's DAG store.
 	// Used as a fallback when a worker's local DAG store misses a definition.
-	// The error wraps persis.ErrDAGNotFound when the coordinator has no DAG
-	// of that name.
 	GetDAG(ctx context.Context, name string) (string, error)
 
 	// Metrics returns the metrics for the coordinator client
@@ -1490,9 +1487,6 @@ func (cli *clientImpl) GetDAG(ctx context.Context, name string) (string, error) 
 		}
 		if resp == nil {
 			return fmt.Errorf("coordinator %s returned empty DAG definition response", member.ID)
-		}
-		if resp.NotFound {
-			return fmt.Errorf("coordinator %s get DAG %s: %w", member.ID, name, persis.ErrDAGNotFound)
 		}
 		if resp.Error != "" {
 			return fmt.Errorf("coordinator %s get DAG failed: %s", member.ID, resp.Error)

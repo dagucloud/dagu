@@ -28,7 +28,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test"
-	runtestutil "github.com/dagucloud/dagu/v2/internal/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2237,31 +2236,6 @@ func TestClientGetDAGRunStatusReturnsResponseError(t *testing.T) {
 
 	_, err := client.GetDAGRunStatus(context.Background(), "test-dag", "run-123", nil)
 	require.ErrorContains(t, err, "failed to read status: storage unavailable")
-}
-
-// A worker without a DAG store of its own asks the coordinator whether a DAG
-// exists, so a missing DAG must be told apart from a failed lookup.
-func TestClientGetDAGReportsMissingDAG(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dags := runtestutil.NewFileDAGRepository(filepath.Join(t.TempDir(), "dags"))
-	require.NoError(t, dags.Create(ctx, "present", []byte("steps:\n  - name: noop\n    run: \"true\"\n")))
-	server, addr := startMockServer(t, coordinator.NewHandler(coordinator.HandlerConfig{DAGRepository: dags}))
-	defer server.Stop()
-
-	host, port := parseHostPort(addr)
-	monitor := &mockServiceMonitor{
-		members: []serviceregistry.HostInfo{{Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}},
-	}
-	client := coordinator.New(monitor, coordinator.DefaultConfig())
-
-	spec, err := client.GetDAG(ctx, "present")
-	require.NoError(t, err)
-	assert.Contains(t, spec, "noop")
-
-	_, err = client.GetDAG(ctx, "missing")
-	require.ErrorIs(t, err, persis.ErrDAGNotFound)
 }
 
 func TestClientMetrics(t *testing.T) {

@@ -146,29 +146,6 @@ func SafeKeyName(dir, key string) string {
 	return key
 }
 
-// ClaimLegacySafeName moves the entry that released versions stored in
-// fromDir for name, under its SafeName followed by suffix, to path, so name
-// keeps its data under its own key. It moves nothing when another name in
-// siblings may own that entry (see LegacySafeName), or when path exists.
-// path must not be in fromDir, where an entry may be another name's.
-func ClaimLegacySafeName(fromDir, name, suffix string, siblings []string, path string) error {
-	legacy, ok := LegacySafeName(name, siblings)
-	if !ok {
-		return nil
-	}
-	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	rel, ok := LegacyEntry(fromDir, legacy+suffix)
-	if !ok {
-		return nil
-	}
-	if err := Rename(filepath.Join(fromDir, rel), path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
 // SafeNameEscapesDevice reports whether SafeName changes str only because
 // this host reserves it for a device, which only Windows does. Earlier
 // versions kept such a name as written.
