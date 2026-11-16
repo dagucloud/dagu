@@ -1884,11 +1884,8 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, acti
 			if schedule, ok := schedules[item.Schedule.Fingerprint()]; ok && scheduleMatchesFireTime(schedule, item.ScheduledTime) {
 				item.DAGEntry = entry
 				// Re-select the first active entry in case the order or overlap changed.
-				for _, candidate := range active.start {
-					if candidate.IsCron() && scheduleMatchesFireTime(candidate, item.ScheduledTime) {
-						item.Schedule = candidate
-						break
-					}
+				if candidate, ok := firstCronFiring(active.start, item.ScheduledTime); ok {
+					item.Schedule = candidate
 				}
 				q.items = append(q.items, item)
 				seen[item.ScheduledTime.UTC()] = true

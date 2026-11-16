@@ -48,14 +48,21 @@ func savedCatchupIntervals(schedules []ir.Schedule, slots []time.Time, earliest,
 			continue
 		}
 		slot = slot.In(loc)
-		for _, schedule := range schedules {
-			if schedule.IsCron() && scheduleMatchesFireTime(schedule, slot) {
-				intervals = append(intervals, missedScheduleInterval{Schedule: schedule, ScheduledTime: slot})
-				break
-			}
+		if schedule, ok := firstCronFiring(schedules, slot); ok {
+			intervals = append(intervals, missedScheduleInterval{Schedule: schedule, ScheduledTime: slot})
 		}
 	}
 	return intervals
+}
+
+// firstCronFiring returns the first cron schedule that fires at slot.
+func firstCronFiring(schedules []ir.Schedule, slot time.Time) (ir.Schedule, bool) {
+	for _, schedule := range schedules {
+		if schedule.IsCron() && scheduleMatchesFireTime(schedule, slot) {
+			return schedule, true
+		}
+	}
+	return ir.Schedule{}, false
 }
 
 // mergeIntervals returns the slots of a and b once each, oldest first, keeping
