@@ -320,11 +320,15 @@ function CanvasView({
   // The columns of the tool grid follow the width of the canvas.
   const canvasWidth = useFlowStore().size.width;
   // A panel over the canvas covers its right: the free part is what shows.
-  const { right: overlayRight, top: overlayTop = 0 } = useCanvasOverlayInset();
+  const {
+    right: overlayRight,
+    top: overlayTop = 0,
+    covered: hostCovers = false,
+  } = useCanvasOverlayInset();
   const freeWidth = canvasWidth - overlayRight;
   // A panel that covers the whole canvas, such as a maximized one, leaves
   // nothing for the canvas controls to act on.
-  const canvasCovered = canvasWidth > 0 && freeWidth <= 0;
+  const canvasCovered = hostCovers || (canvasWidth > 0 && freeWidth <= 0);
   // Cards without text: only their icon, so that a graph is denser.
   const [showDetails, setShowDetails] = useCanvasDetails();
   const compact = !showDetails;

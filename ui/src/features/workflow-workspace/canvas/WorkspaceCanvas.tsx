@@ -324,6 +324,11 @@ export function WorkspaceCanvas({
   const [columnTab, setColumnTab] = useRightColumn();
   const columnTabRef = useRef(columnTab);
   columnTabRef.current = columnTab;
+  // A maximized column covers the graph zone and takes the room of
+  // Activity. A collapse ends it: the column opens beside the graph again.
+  const [columnMaximized, setColumnMaximized] = useState(false);
+  if (columnMaximized && columnTab === null) setColumnMaximized(false);
+  const columnFills = columnMode && columnMaximized && !snapshot;
   const [workflowRoot, setWorkflowRoot] = useState<HTMLDivElement | null>(null);
   const [yamlRoot, setYamlRoot] = useState<HTMLDivElement | null>(null);
   const [launcherRoot, setLauncherRoot] = useState<HTMLDivElement | null>(null);
@@ -537,8 +542,8 @@ export function WorkspaceCanvas({
       (stepPanel.shown && !columnMode ? (stepPanel.openedAt ?? 'step') : null)
   );
   const inset = useMemo(
-    () => ({ right: clearance.overlap }),
-    [clearance.overlap]
+    () => ({ right: clearance.overlap, covered: columnFills }),
+    [clearance.overlap, columnFills]
   );
 
   const ndvOpen = stepViewOpen || activePanel === 'ndv';
@@ -571,10 +576,10 @@ export function WorkspaceCanvas({
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
-  // The expanded step view fills the zone and holds the room of the Run
-  // panel; Activity comes back when it closes. A right panel (a launcher, the
-  // Workflow, the YAML) sits in the zone above Activity: both stay open.
-  useDockYield(paneActive && shownNdv === 'expanded');
+  // The expanded step view and a maximized column hold the room of the Run
+  // panel; Activity comes back when they close. A right panel (a launcher,
+  // the Workflow, the YAML) sits in the zone above Activity: both stay open.
+  useDockYield(paneActive && (shownNdv === 'expanded' || columnFills));
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({
     active: paneActive,
@@ -666,8 +671,11 @@ export function WorkspaceCanvas({
                 <div
                   data-testid="ww-canvas-graph"
                   hidden={snapshot}
-                  inert={snapshot}
-                  className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
+                  inert={snapshot || columnFills}
+                  className={cn(
+                    'flex min-h-0 w-full min-w-0 flex-1 flex-col',
+                    columnFills && 'invisible'
+                  )}
                 >
                   <PaneActiveContext.Provider value={paneActive}>
                     {!standaloneRun && (
@@ -744,6 +752,8 @@ export function WorkspaceCanvas({
             handle?.closeLauncher?.();
             setColumnTab(null);
           }}
+          maximized={columnFills}
+          onMaximizedChange={setColumnMaximized}
           workflowRef={setWorkflowRoot}
           yamlRef={setYamlRoot}
           step={panelStep}
