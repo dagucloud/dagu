@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
+	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -139,4 +140,74 @@ func TestFindMissedLeavesOutReplayedSlots(t *testing.T) {
 		periodOf(schedulerstate.PeriodSuspended, restart.Add(-3*time.Minute), restart),
 	}, hour, longAgo, at(20, 0))
 	assert.Equal(t, 2, suspended.Slots)
+}
+
+// countingSchedule counts the evaluations of a cron schedule.
+type countingSchedule struct {
+	cron.Schedule
+	calls *int
+}
+
+func (s countingSchedule) Next(t time.Time) time.Time {
+	*s.calls++
+	return s.Schedule.Next(t)
+}
+
+// An outage is clamped to the slots catch-up does not queue only when its
+// slots are looked at, so older outages cost nothing once the newest fill
+// the cap.
+func TestFindMissedClampsOnlyTheOutagesLookedAt(t *testing.T) {
+	t.Parallel()
+	sched := dailyAt(t, "* * * * *")
+	var calls int
+	sched.Schedules[0].Parsed = countingSchedule{Schedule: sched.Schedules[0].Parsed, calls: &calls}
+	catchup := backfill.Catchup{Window: 24 * time.Hour, Max: 1000}
+
+	// A week-long outage, whose slots past catch-up's 1,000 fill the cap,
+	// after 99 day-long outages, each with 1,000 slots catch-up queues.
+	restart := at(20, 0)
+	newest := restart.Add(-8 * 24 * time.Hour)
+	outages := []schedulerstate.Period{periodOf(schedulerstate.PeriodDown, newest, restart)}
+	for i := 1; i < 100; i++ {
+		from := newest.Add(-time.Duration(2*i) * 24 * time.Hour)
+		outages = append(outages, periodOf(schedulerstate.PeriodDown, from, from.Add(24*time.Hour)))
+	}
+
+	missed := backfill.FindMissed(&ir.DAG{}, sched, outages, catchup, restart.AddDate(-1, 0, 0), restart)
+
+	assert.Equal(t, backfill.Missed{
+		Slots: backfill.MaxMissedSlots, First: restart.Add(-(999 + backfill.MaxMissedSlots) * time.Minute), Last: restart.Add(-1000 * time.Minute),
+		Reasons: reasons(schedulerstate.PeriodDown), Until: restart,
+	}, missed)
+	// A few evaluations per fire time read: the slots counted and the newest
+	// outage's replay.
+	assert.Less(t, calls, 4*(backfill.MaxMissedSlots+catchup.Max), "evaluations")
+}
+
+// The reasons are those of the periods that hold a counted slot, in the order
+// of the slots, or of the periods for a slot several hold, and until when the
+// newest of them lasted. An outage whose slots catch-up queues holds none,
+// whether inside a suspension or past its end.
+func TestFindMissedNamesThePeriodsHoldingSlots(t *testing.T) {
+	t.Parallel()
+	hourly := dailyAt(t, "0 * * * *")
+	find := func(catchup backfill.Catchup, periods ...schedulerstate.Period) backfill.Missed {
+		return backfill.FindMissed(&ir.DAG{}, hourly, periods, catchup, longAgo, at(20, 0))
+	}
+	suspension := periodOf(schedulerstate.PeriodSuspended, at(10, 0), at(11, 6))
+	inside := periodOf(schedulerstate.PeriodDown, at(11, 0), at(11, 3))
+	past := periodOf(schedulerstate.PeriodDown, at(11, 4).Add(30*time.Minute), at(11, 8))
+
+	assert.Equal(t, backfill.Missed{
+		Slots: 29, First: at(10, 1), Last: at(11, 5),
+		Reasons: reasons(schedulerstate.PeriodSuspended), Until: suspension.To,
+	}, find(backfill.Catchup{Window: 6 * time.Hour, Max: 1000}, suspension, inside, past), "the outages' slots replayed")
+	assert.Equal(t, backfill.Missed{
+		Slots: 31, First: at(10, 1), Last: at(11, 7),
+		Reasons: reasons(schedulerstate.PeriodSuspended, schedulerstate.PeriodDown), Until: past.To,
+	}, find(backfill.Catchup{}, past, inside, suspension), "without catch-up")
+
+	pause := periodOf(schedulerstate.PeriodPaused, at(11, 0), at(11, 2))
+	assert.Equal(t, reasons(schedulerstate.PeriodDown, schedulerstate.PeriodPaused), find(backfill.Catchup{}, inside, pause).Reasons)
+	assert.Equal(t, reasons(schedulerstate.PeriodPaused, schedulerstate.PeriodDown), find(backfill.Catchup{}, pause, inside).Reasons)
 }

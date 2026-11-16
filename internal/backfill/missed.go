@@ -4,6 +4,7 @@
 package backfill
 
 import (
+	"cmp"
 	"slices"
 	"time"
 
@@ -25,9 +26,11 @@ type Missed struct {
 }
 
 // periodBounds are the first and last instants whose slots a period holds.
+// Until clamped, an outage's bounds still hold the slots catch-up replays.
 type periodBounds struct {
-	lo, hi time.Time
-	period schedulerstate.Period
+	lo, hi    time.Time
+	period    schedulerstate.Period
+	unclamped bool
 }
 
 // Catchup is what the scheduler's catch-up runs of a DAG's slots that came
@@ -63,36 +66,57 @@ func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period
 				b.lo = seen
 			}
 		}
-		if period.Reason == schedulerstate.PeriodDown && !b.hi.Before(b.lo) {
-			if replayed, ok := catchup.firstReplayed(sched, period); ok && !replayed.After(b.hi) {
-				b.hi = replayed.Add(-time.Nanosecond)
-			}
-		}
+		b.unclamped = period.Reason == schedulerstate.PeriodDown
 		if !b.hi.Before(b.lo) {
 			bounds = append(bounds, b)
 		}
 	}
 
-	var missed Missed
-	for _, at := range firesIn(sched, bounds) {
-		if missed.Slots == 0 {
-			missed.First = at
+	fires := catchup.firesIn(sched, bounds)
+	if len(fires) == 0 {
+		return Missed{}
+	}
+	missed := Missed{Slots: len(fires), First: fires[0], Last: fires[len(fires)-1]}
+	// The bounds that hold a counted fire, by the index of the oldest, name
+	// the reasons in the order of the fires.
+	type holder struct {
+		fire   int
+		reason schedulerstate.PeriodReason
+	}
+	var holders []holder
+	for i := range bounds {
+		b := &bounds[i]
+		if b.hi.Before(missed.First) {
+			continue
 		}
-		missed.Slots++
-		missed.Last = at
-		for _, b := range bounds {
-			if at.Before(b.lo) || at.After(b.hi) {
-				continue
-			}
-			if !slices.Contains(missed.Reasons, b.period.Reason) {
-				missed.Reasons = append(missed.Reasons, b.period.Reason)
-			}
-			if b.period.To.After(missed.Until) {
-				missed.Until = b.period.To
-			}
+		catchup.clamp(sched, b)
+		j, _ := slices.BinarySearchFunc(fires, b.lo, time.Time.Compare)
+		if j == len(fires) || fires[j].After(b.hi) {
+			continue
+		}
+		holders = append(holders, holder{fire: j, reason: b.period.Reason})
+		if b.period.To.After(missed.Until) {
+			missed.Until = b.period.To
+		}
+	}
+	slices.SortStableFunc(holders, func(a, b holder) int { return cmp.Compare(a.fire, b.fire) })
+	for _, h := range holders {
+		if !slices.Contains(missed.Reasons, h.reason) {
+			missed.Reasons = append(missed.Reasons, h.reason)
 		}
 	}
 	return missed
+}
+
+// clamp ends an outage's bounds before the oldest slot catch-up replays, once.
+func (c Catchup) clamp(sched SlotSchedule, b *periodBounds) {
+	if !b.unclamped {
+		return
+	}
+	b.unclamped = false
+	if replayed, ok := c.firstReplayed(sched, b.period); ok && !replayed.After(b.hi) {
+		b.hi = replayed.Add(-time.Nanosecond)
+	}
 }
 
 // firstReplayed returns the oldest slot catch-up replays when the scheduler
@@ -110,25 +134,41 @@ func (c Catchup) firstReplayed(sched SlotSchedule, down schedulerstate.Period) (
 }
 
 // firesIn returns the newest MaxMissedSlots fire times inside the bounds,
-// oldest first.
-func firesIn(sched SlotSchedule, bounds []periodBounds) []time.Time {
-	// The bounds joined where they overlap, oldest first.
-	var merged []periodBounds
-	for _, b := range slices.SortedFunc(slices.Values(bounds), func(a, b periodBounds) int { return a.lo.Compare(b.lo) }) {
-		if last := len(merged) - 1; last >= 0 && !b.lo.After(merged[last].hi) {
-			if b.hi.After(merged[last].hi) {
-				merged[last].hi = b.hi
-			}
-			continue
-		}
-		merged = append(merged, b)
-	}
+// oldest first. It reads them newest first, and clamps an outage's bounds
+// only as the read reaches them.
+func (c Catchup) firesIn(sched SlotSchedule, bounds []periodBounds) []time.Time {
 	var runs [][]time.Time
 	n := 0
-	for i := len(merged) - 1; i >= 0 && n < MaxMissedSlots; i-- {
-		fires := newestFires(sched, merged[i].lo, merged[i].hi, MaxMissedSlots-n)
+	// end is the newest instant left to read.
+	var end time.Time
+	for _, b := range bounds {
+		if b.hi.After(end) {
+			end = b.hi
+		}
+	}
+	for n < MaxMissedSlots {
+		// The bound that reaches newest below end.
+		i, hi := -1, time.Time{}
+		for j, b := range bounds {
+			top := b.hi
+			if top.After(end) {
+				top = end
+			}
+			if !top.Before(b.lo) && (i < 0 || top.After(hi)) {
+				i, hi = j, top
+			}
+		}
+		if i < 0 {
+			break
+		}
+		if bounds[i].unclamped {
+			c.clamp(sched, &bounds[i])
+			continue
+		}
+		fires := newestFires(sched, bounds[i].lo, hi, MaxMissedSlots-n)
 		runs = append(runs, fires)
 		n += len(fires)
+		end = bounds[i].lo.Add(-time.Nanosecond)
 	}
 	slices.Reverse(runs)
 	return slices.Concat(runs...)
