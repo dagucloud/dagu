@@ -491,7 +491,7 @@ func (o *operator) loadedNewDocument(ctx context.Context, document string, lost 
 
 func (o *operator) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) (opResult, error) {
 	began, before := time.Now(), o.bridge.totals()
-	schema, err := nullableSchema(spec.Schema)
+	schema, err := json.Marshal(spec.Schema)
 	if err != nil {
 		return opResult{}, fmt.Errorf("encode extract schema: %w", err)
 	}
@@ -503,19 +503,17 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	if err := json.Unmarshal(data, &values); err != nil {
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
-	pages := 1
-	if spec.Pages != nil {
-		if pages, err = o.readPages(ctx, index, spec, schema, values, timeout); err != nil {
-			return opResult{}, o.onPage(ctx, err)
-		}
-	}
-	found, err := settleAnswer(spec.Schema, values)
-	if err != nil {
-		return opResult{}, o.onPage(ctx, err)
-	}
+	// Later pages are compared with this one, so it is tidied as they are.
+	found := settleAnswer(spec.Schema, values)
 	settled, _ := json.Marshal(values)
 	detail := string(settled)
 	if spec.Pages != nil {
+		pages, err := o.readPages(ctx, index, spec, schema, values, timeout)
+		if err != nil {
+			return opResult{}, o.onPage(ctx, err)
+		}
+		found = !blank(values)
+		settled, _ = json.Marshal(values)
 		detail = fmt.Sprintf("%d pages: %s", pages, settled)
 	}
 	if !found {
@@ -524,7 +522,7 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 		if pageURL, err := o.eng.CurrentURL(ctx); err == nil {
 			where = " on " + pageURL
 		}
-		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was null or empty", where))
+		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was empty", where))
 	}
 	// Only the fields a schema lists are published, matching the output
 	// names known when the DAG loads.

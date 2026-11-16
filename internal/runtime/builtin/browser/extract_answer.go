@@ -6,8 +6,6 @@ package browser
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,98 +19,22 @@ type answerMismatch struct{ message string }
 
 func (e answerMismatch) Error() string { return e.message }
 
-// nullableSchema returns a copy of an extract schema in which every typed
-// value below the top-level object may also be null. A model that finds
-// nothing for a field writes null, which the runtime would otherwise reject
-// with its own validation report; settleAnswer decides what such a null
-// means against the original schema.
-func nullableSchema(schema map[string]any) (json.RawMessage, error) {
-	data, err := json.Marshal(schema)
-	if err != nil {
-		return nil, err
-	}
-	var relaxed map[string]any
-	if err := json.Unmarshal(data, &relaxed); err != nil {
-		return nil, err
-	}
-	relaxChildren(relaxed)
-	return json.Marshal(relaxed)
+// settleAnswer drops the list items in values whose values are all empty,
+// as a model writes "nothing here", and reports whether the answer still
+// holds anything.
+func settleAnswer(schema, values map[string]any) bool {
+	return !blank(tidy(schema, values))
 }
 
-func relaxChildren(schema map[string]any) {
-	if properties, ok := schema["properties"].(map[string]any); ok {
-		for _, property := range properties {
-			if definition, ok := property.(map[string]any); ok {
-				relax(definition)
-			}
-		}
-	}
-	if items, ok := schema["items"].(map[string]any); ok {
-		relax(items)
-	}
-}
-
-func relax(schema map[string]any) {
-	switch t := schema["type"].(type) {
-	case string:
-		if t != "null" {
-			schema["type"] = []any{t, "null"}
-		}
-	case []any:
-		if !slices.Contains(t, any("null")) {
-			schema["type"] = append(t, "null")
-		}
-	}
-	if values, ok := schema["enum"].([]any); ok && !slices.Contains(values, nil) {
-		schema["enum"] = append(values, nil)
-	}
-	relaxChildren(schema)
-}
-
-// settleAnswer turns values, an answer read with nullableSchema(schema),
-// into one schema accepts. It drops the array items whose values are all
-// null or empty, as a model writes "nothing here", turns a list answered
-// null into an empty list, and leaves out optional properties answered
-// null. It reports whether the answer holds anything; when it does, a null
-// left where schema requires a value is an answerMismatch.
-func settleAnswer(schema, values map[string]any) (bool, error) {
-	tidy(schema, values)
-	if blank(values) {
-		return false, nil
-	}
-	var nulls []string
-	findNulls(schema, values, "", &nulls)
-	if len(nulls) == 0 {
-		return true, nil
-	}
-	listed := nulls
-	if len(listed) > maxListedFields {
-		listed = listed[:maxListedFields]
-	}
-	message := "the model answered null for " + strings.Join(listed, ", ")
-	if more := len(nulls) - len(listed); more > 0 {
-		message += fmt.Sprintf(" and %d more", more)
-	}
-	return true, answerMismatch{message: message + ", which the extract schema requires"}
-}
-
-// tidy settles value in place as settleAnswer describes and returns it.
+// tidy drops the blank items of the lists in value, in place, and returns
+// value.
 func tidy(schema map[string]any, value any) any {
 	switch v := value.(type) {
 	case map[string]any:
 		properties, _ := schema["properties"].(map[string]any)
-		required := requiredProperties(schema)
 		for name, field := range v {
 			definition, _ := properties[name].(map[string]any)
-			field = tidy(definition, field)
-			switch {
-			case field == nil && typeOf(definition) == "array":
-				v[name] = []any{}
-			case field == nil && !required[name] && !allowsNull(definition):
-				delete(v, name)
-			default:
-				v[name] = field
-			}
+			v[name] = tidy(definition, field)
 		}
 		return v
 	case []any:
@@ -149,75 +71,11 @@ func blank(value any) bool {
 	return false
 }
 
-// findNulls adds to nulls each value under path that is null where schema
-// does not allow null, naming the field and the type it expects.
-func findNulls(schema map[string]any, value any, path string, nulls *[]string) {
-	switch v := value.(type) {
-	case nil:
-		if !allowsNull(schema) {
-			*nulls = append(*nulls, fmt.Sprintf("%s (expected %s)", cmpPath(path), describeType(schema)))
-		}
-	case map[string]any:
-		properties, _ := schema["properties"].(map[string]any)
-		for _, name := range slices.Sorted(maps.Keys(v)) {
-			definition, _ := properties[name].(map[string]any)
-			findNulls(definition, v[name], joinPath(path, name), nulls)
-		}
-	case []any:
-		items, _ := schema["items"].(map[string]any)
-		for i, item := range v {
-			findNulls(items, item, path+"["+strconv.Itoa(i)+"]", nulls)
-		}
-	}
-}
-
-// allowsNull reports whether schema accepts null. A schema without a type
-// is not relaxed by nullableSchema, so the runtime has already checked it.
-func allowsNull(schema map[string]any) bool {
-	switch t := schema["type"].(type) {
-	case string:
-		return t == "null"
-	case []any:
-		return slices.Contains(t, any("null"))
-	}
-	return true
-}
-
-func typeOf(schema map[string]any) string {
-	t, _ := schema["type"].(string)
-	return t
-}
-
-func describeType(schema map[string]any) string {
-	switch t := schema["type"].(type) {
-	case string:
-		return article(t)
-	case []any:
-		names := make([]string, 0, len(t))
-		for _, name := range t {
-			names = append(names, fmt.Sprint(name))
-		}
-		return article(strings.Join(names, " or "))
-	}
-	return "a value"
-}
-
 func article(noun string) string {
 	if noun != "" && strings.ContainsRune("aeiou", rune(noun[0])) {
 		return "an " + noun
 	}
 	return "a " + noun
-}
-
-func requiredProperties(schema map[string]any) map[string]bool {
-	names, _ := schema["required"].([]any)
-	required := make(map[string]bool, len(names))
-	for _, name := range names {
-		if s, ok := name.(string); ok {
-			required[s] = true
-		}
-	}
-	return required
 }
 
 func cmpPath(path string) string {
