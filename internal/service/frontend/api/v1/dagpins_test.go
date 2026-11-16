@@ -313,9 +313,9 @@ func TestDAGSpansFollowRenameAndDelete(t *testing.T) {
 	ctx := context.Background()
 	helper := test.Setup(t, test.WithStatusPersistence())
 	writePinTestDAGs(t, helper, "alpha")
-	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans), nil)
-	suspended := schedulerstate.Span{From: time.Now().Add(-2 * time.Hour).UTC(), To: time.Now().Add(-time.Hour).UTC(), Reason: schedulerstate.SpanSuspended}
-	require.NoError(t, spans.Add(ctx, "alpha", suspended))
+	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour).UTC(), To: time.Now().Add(-time.Hour).UTC()}
+	require.NoError(t, spans.AddSuspended(ctx, "alpha", suspended))
 	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans))
 	ended := func(dag string) []schedulerstate.Span {
 		t.Helper()
@@ -336,5 +336,5 @@ func TestDAGSpansFollowRenameAndDelete(t *testing.T) {
 	_, err = apiImpl.DeleteDAG(ctx, api.DeleteDAGRequestObject{FileName: "omega"})
 	require.NoError(t, err)
 	assert.Empty(t, ended("omega"))
-	assert.NoDirExists(t, filepath.Join(helper.Config.Paths.DataDir, "slot-spans", "dags"), "no span file is left")
+	assert.NoDirExists(t, filepath.Join(helper.Config.Paths.DataDir, "scheduler", "dags"), "no span file is left")
 }

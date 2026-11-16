@@ -68,7 +68,6 @@ func NewBackend(paths config.PathsConfig) *Backend {
 			persis.CollectionRemoteNodes:      {dir: paths.RemoteNodesDir, indented: true},
 			persis.CollectionSchedulerState:   {dir: SchedulerStateDir(paths), indented: true},
 			persis.CollectionSecrets:          {dir: filepath.Join(paths.DataDir, "secrets"), indented: true},
-			persis.CollectionSlotSpans:        {dir: filepath.Join(paths.DataDir, "slot-spans"), indented: true},
 			persis.CollectionUpgradeCheck:     {dir: filepath.Join(paths.DataDir, "upgrade"), indented: true},
 			persis.CollectionUsers:            {dir: paths.UsersDir, indented: true},
 			persis.CollectionViews:            {dir: paths.ViewsDir, indented: true},

@@ -4,9 +4,7 @@
 package store
 
 import (
-	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -17,21 +15,25 @@ import (
 )
 
 const (
-	spanRetention = 30 * 24 * time.Hour // how long after its end a span is kept
-	maxSpans      = 100                 // the most spans kept for one name
-	downSpansID   = "down"
+	periodRetention = 30 * 24 * time.Hour // how long after its end a period is kept
+	maxPeriods      = 100                 // the most periods a list keeps
+	downRecordID    = "down"
 )
 
-// spanRecord is the ended spans of a name, in the order they ended. It is an
-// object so that a DAG's record can hold more than its spans.
-type spanRecord struct {
-	Spans []schedulerstate.Span `json:"spans,omitempty"`
+// downRecord is the scheduler's outages, in the order they ended.
+type downRecord struct {
+	Down []schedulerstate.Period `json:"down,omitempty"`
 }
 
-// SpanStore keeps the ended spans in which slots could not run in a
-// collection: the scheduler's outages in one record and each DAG's
-// suspensions in its own. It gives with them the operator's pauses the pause
-// record keeps.
+// dagRecord is a DAG's suspensions, in the order they ended.
+type dagRecord struct {
+	Suspended []schedulerstate.Period `json:"suspended,omitempty"`
+}
+
+// SpanStore keeps the ended periods in which slots could not run as records
+// of the scheduler state collection: the scheduler's outages in one, and
+// each DAG's suspensions in its own. It gives with them the operator's
+// pauses the pause record keeps.
 type SpanStore struct {
 	col    persis.Collection
 	pauses *SchedulerPauseStore
@@ -39,128 +41,117 @@ type SpanStore struct {
 
 var _ schedulerstate.SpanStore = (*SpanStore)(nil)
 
-// NewSpanStore creates a span store backed by col that gives the ended
-// pauses of pauses, when it is not nil.
+// NewSpanStore creates a span store on the scheduler state collection col
+// that gives the ended pauses of pauses, when it is not nil.
 func NewSpanStore(col persis.Collection, pauses *SchedulerPauseStore) *SpanStore {
 	return &SpanStore{col: col, pauses: pauses}
 }
 
-// Add records a span that has ended, unless one that began at the same time
-// is recorded. A record keeps the maxSpans spans that ended last within
-// spanRetention before the write.
-func (s *SpanStore) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
-	return s.update(ctx, spansID(dag), func(record *spanRecord) {
-		record.add(time.Now(), span)
+// AddDown records a time no scheduler ran.
+func (s *SpanStore) AddDown(ctx context.Context, down schedulerstate.Period) error {
+	return changeRecord(ctx, s.col, downRecordID, func(record *downRecord) bool {
+		var added bool
+		record.Down, added = appendPeriod(record.Down, down, time.Now())
+		return added
 	})
 }
 
-// Move moves the spans of a DAG renamed from oldDAG to newDAG, joining any
-// the new name holds.
-func (s *SpanStore) Move(ctx context.Context, oldDAG, newDAG string) error {
-	moved, current, err := s.load(ctx, spansID(oldDAG))
-	if err != nil || current == nil {
-		return err
-	}
-	if err := s.update(ctx, spansID(newDAG), func(record *spanRecord) {
-		record.add(time.Now(), moved.Spans...)
-	}); err != nil {
-		return err
-	}
-	return s.Remove(ctx, oldDAG)
-}
-
-// Remove removes the spans of a deleted DAG.
-func (s *SpanStore) Remove(ctx context.Context, dag string) error {
-	if err := s.col.Delete(ctx, spansID(dag)); err != nil && !errors.Is(err, persis.ErrNotFound) {
-		return fmt.Errorf("span store: remove %s: %w", dag, err)
-	}
-	return nil
+// AddSuspended records a DAG's ended suspension, unless one that began at
+// the same time is recorded.
+func (s *SpanStore) AddSuspended(ctx context.Context, dag string, suspended schedulerstate.Period) error {
+	return changeRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), func(record *dagRecord) bool {
+		var added bool
+		record.Suspended, added = appendPeriod(record.Suspended, suspended, time.Now())
+		return added
+	})
 }
 
 // Ended returns the spans of the scheduler's outages, the operator's pauses,
-// and the DAG's suspensions that ended within spanRetention, oldest first.
+// and the DAG's suspensions that ended within periodRetention, oldest first.
 func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, error) {
-	down, _, err := s.load(ctx, downSpansID)
-	spans := down.Spans
-	if err == nil && dag != "" {
-		var own spanRecord
-		own, _, err = s.load(ctx, spansID(dag))
-		spans = append(spans, own.Spans...)
+	var down downRecord
+	if _, err := loadRecord(ctx, s.col, downRecordID, &down); err != nil {
+		return nil, err
 	}
-	if err == nil && s.pauses != nil {
-		var pauses []schedulerstate.Span
-		pauses, err = s.pauses.endedPauses(ctx)
-		spans = append(spans, pauses...)
+	var own dagRecord
+	if _, err := loadRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), &own); err != nil {
+		return nil, err
 	}
-	cutoff := time.Now().Add(-spanRetention)
-	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool { return span.To.Before(cutoff) })
-	slices.SortStableFunc(spans, func(a, b schedulerstate.Span) int { return a.From.Compare(b.From) })
-	return spans, err
+	var pauses []schedulerstate.Period
+	if s.pauses != nil {
+		var err error
+		if pauses, err = s.pauses.endedPauses(ctx); err != nil {
+			return nil, err
+		}
+	}
+	var spans []schedulerstate.Span
+	cutoff := time.Now().Add(-periodRetention)
+	for reason, periods := range map[schedulerstate.SpanReason][]schedulerstate.Period{
+		schedulerstate.SpanDown:      down.Down,
+		schedulerstate.SpanPaused:    pauses,
+		schedulerstate.SpanSuspended: own.Suspended,
+	} {
+		for _, period := range periods {
+			if !period.To.Before(cutoff) {
+				spans = append(spans, schedulerstate.Span{From: period.From, To: period.To, Reason: reason})
+			}
+		}
+	}
+	slices.SortFunc(spans, func(a, b schedulerstate.Span) int {
+		if c := a.From.Compare(b.From); c != 0 {
+			return c
+		}
+		return a.To.Compare(b.To)
+	})
+	return spans, nil
 }
 
-// update applies change to a record and writes it, through a compare and
-// swap, unless it is left as it was.
-func (s *SpanStore) update(ctx context.Context, id string, change func(*spanRecord)) error {
+// appendPeriod appends period to periods unless one that began at the same
+// time is held, and keeps the maxPeriods that ended last within
+// periodRetention before now, in the order they ended. It reports whether
+// periods changed.
+func appendPeriod(periods []schedulerstate.Period, period schedulerstate.Period, now time.Time) ([]schedulerstate.Period, bool) {
+	if slices.ContainsFunc(periods, func(held schedulerstate.Period) bool { return held.From.Equal(period.From) }) {
+		return periods, false
+	}
+	periods = append(slices.Clone(periods), period)
+	slices.SortStableFunc(periods, func(a, b schedulerstate.Period) int { return a.To.Compare(b.To) })
+	periods = slices.DeleteFunc(periods, func(held schedulerstate.Period) bool { return now.Sub(held.To) > periodRetention })
+	return periods[max(0, len(periods)-maxPeriods):], true
+}
+
+// changeRecord applies change to a record of col and writes it through a
+// compare and swap, unless change reports it left the record as it was.
+func changeRecord[T any](ctx context.Context, col persis.Collection, id string, change func(*T) bool) error {
 	return retryConflict(ctx, func(ctx context.Context) error {
-		record, current, err := s.load(ctx, id)
-		if err != nil {
+		var record T
+		current, err := loadRecord(ctx, col, id, &record)
+		if err != nil || !change(&record) {
 			return err
 		}
-		change(&record)
 		data, err := persis.Encode(&record)
 		if err != nil {
 			return err
 		}
-		if current == nil && len(record.Spans) == 0 || current != nil && bytes.Equal(data, current.Data) {
-			return nil
-		}
 		stamp := time.Now().UTC()
-		return createOrSwap(ctx, s.col, current, &persis.Record{ID: id, Data: data, CreatedAt: stamp, UpdatedAt: stamp})
+		return createOrSwap(ctx, col, current, &persis.Record{ID: id, Data: data, CreatedAt: stamp, UpdatedAt: stamp})
 	})
 }
 
-// add adds the spans whose start the record does not hold, and keeps the
-// maxSpans that ended last within spanRetention before now.
-func (r *spanRecord) add(now time.Time, spans ...schedulerstate.Span) {
-	for _, span := range spans {
-		if !slices.ContainsFunc(r.Spans, func(recorded schedulerstate.Span) bool { return recorded.From.Equal(span.From) }) {
-			r.Spans = append(r.Spans, span)
-		}
-	}
-	r.Spans = recentSpans(r.Spans, now)
-}
-
-// recentSpans keeps the maxSpans spans that ended last, within spanRetention
-// before now, in the order they ended.
-func recentSpans(spans []schedulerstate.Span, now time.Time) []schedulerstate.Span {
-	slices.SortStableFunc(spans, func(a, b schedulerstate.Span) int { return a.To.Compare(b.To) })
-	spans = slices.DeleteFunc(spans, func(span schedulerstate.Span) bool { return now.Sub(span.To) > spanRetention })
-	return spans[max(0, len(spans)-maxSpans):]
-}
-
-// load returns a record and what it was read from. A record that cannot be
-// decoded is empty, so the next write replaces it.
-func (s *SpanStore) load(ctx context.Context, id string) (spanRecord, *persis.Record, error) {
-	current, err := s.col.Get(ctx, id)
+// loadRecord decodes a record of col into dst and returns what it was read
+// from. A record that cannot be decoded leaves dst empty, so the next write
+// replaces it.
+func loadRecord[T any](ctx context.Context, col persis.Collection, id string, dst *T) (*persis.Record, error) {
+	current, err := col.Get(ctx, id)
 	if errors.Is(err, persis.ErrNotFound) {
-		return spanRecord{}, nil, nil
+		return nil, nil
 	}
 	if err != nil {
-		return spanRecord{}, nil, fmt.Errorf("span store: get %s: %w", id, err)
+		return nil, fmt.Errorf("span store: get %s: %w", id, err)
 	}
-	var record spanRecord
-	if err := persis.Decode(current, &record); err != nil {
-		return spanRecord{}, current, nil
+	if err := persis.Decode(current, dst); err != nil {
+		var empty T
+		*dst = empty
 	}
-	return record, current, nil
-}
-
-// spansID names the record of a DAG's spans, kept in hex so that names that
-// differ only in case or hold a path separator stay apart, or the
-// scheduler's outages for the empty name.
-func spansID(dag string) string {
-	if dag == "" {
-		return downSpansID
-	}
-	return "dags/" + hex.EncodeToString([]byte(dag))
+	return current, nil
 }

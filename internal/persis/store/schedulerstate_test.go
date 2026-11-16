@@ -444,3 +444,24 @@ func TestSchedulerStateLoadCorruptDataFallsBackToEmpty(t *testing.T) {
 	assert.Equal(t, lastTick, reloaded.LastTick)
 	assert.Empty(t, reloaded.DAGs)
 }
+
+// The records of the periods slots could not run, which share the scheduler
+// state's collection, are no part of the state it loads.
+func TestSchedulerStateLoadIgnoresPeriodRecords(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	col := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)
+	states := store.NewSchedulerStateStore(col)
+	saved := &schedulerstate.State{LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), DAGs: map[string]schedulerstate.DAGWatermark{}}
+	require.NoError(t, states.Save(ctx, saved))
+
+	spans := store.NewSpanStore(col, nil)
+	period := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
+	require.NoError(t, spans.AddDown(ctx, period))
+	require.NoError(t, spans.AddSuspended(ctx, "state", period))
+
+	loaded, err := store.NewSchedulerStateStore(col).Load(ctx)
+	require.NoError(t, err)
+	assert.True(t, saved.LastTick.Equal(loaded.LastTick))
+	assert.Empty(t, loaded.DAGs)
+}

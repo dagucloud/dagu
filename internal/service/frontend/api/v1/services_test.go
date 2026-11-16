@@ -159,7 +159,7 @@ func TestSchedulerPause_RecordsSpan(t *testing.T) {
 	}
 
 	pauses := store.NewSchedulerPauseStore(server.Backend.Collection(persis.CollectionSchedulerState))
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans), pauses).Ended(t.Context(), "")
+	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSchedulerState), pauses).Ended(t.Context(), "")
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanPaused, spans[0].Reason)

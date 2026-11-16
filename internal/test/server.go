@@ -123,7 +123,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		WorkerHeartbeatStore: srv.WorkerHeartbeatStore,
 		SchedulerPauseStore:  pauses,
 		BackfillStore:        filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
-		SpanStore:            store.NewSpanStore(srv.Backend.Collection(persis.CollectionSlotSpans), pauses),
+		SpanStore:            store.NewSpanStore(srv.Backend.Collection(persis.CollectionSchedulerState), pauses),
 		Stores:               stores,
 	}, serverOpts...)
 	if err != nil {

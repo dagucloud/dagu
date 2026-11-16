@@ -95,6 +95,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithSymlinks(options.Symlinks),
 		filedag.WithSkipDirs(cfg.DAGDiscovery.SkipDirs),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
+		filedag.WithDAGRecords(dagRecords(cfg.Paths)),
 	)
 	if err := dagStore.Initialize(); err != nil {
 		return nil, fmt.Errorf("initialize DAG definition store: %w", err)
@@ -104,6 +105,15 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
 		Calendars:              calendars,
 	}), nil
+}
+
+// dagRecords returns the scheduler state collection that holds the records
+// that move and go with a DAG, or nil without a data directory.
+func dagRecords(paths config.PathsConfig) persis.Collection {
+	if paths.DataDir == "" {
+		return nil
+	}
+	return NewBackend(paths).Collection(persis.CollectionSchedulerState)
 }
 
 // dagIndexDir keeps the rebuildable DAG index out of the DAGs directory, which

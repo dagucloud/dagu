@@ -57,6 +57,7 @@ type Options struct {
 	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	legacyFlagsBaseDir     string
 	indexDir               string
+	dagRecords             persis.Collection
 }
 
 // WithRecursiveDiscovery controls whether DAG files are discovered recursively.
@@ -91,6 +92,15 @@ func WithFileCache(cache *fileutil.Cache[*ir.DAG]) Option {
 func WithFlagsBaseDir(dir string) Option {
 	return func(o *Options) {
 		o.FlagsBaseDir = dir
+	}
+}
+
+// WithDAGRecords sets the scheduler state collection whose record of a DAG,
+// the periods its slots could not run, moves with the DAG on a rename and
+// goes with it on a delete.
+func WithDAGRecords(col persis.Collection) Option {
+	return func(o *Options) {
+		o.dagRecords = col
 	}
 }
 
@@ -177,6 +187,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 		changeMarker:           NewChangeMarker(ChangeMarkerPath(options.indexDir, baseDir)),
 		flagsBaseDir:           options.FlagsBaseDir,
 		legacyFlagsBaseDir:     options.legacyFlagsBaseDir,
+		dagRecords:             options.dagRecords,
 		fileCache:              options.FileCache,
 		searchPaths:            searchPaths,
 		baseConfigPath:         options.BaseConfigPath,
@@ -197,6 +208,7 @@ type Store struct {
 	changeMarker           *ChangeMarker // Signals DAG definition changes to other hosts
 	flagsBaseDir           string        // Base directory for flag store
 	legacyFlagsBaseDir     string
+	dagRecords             persis.Collection        // Optional records that move and go with a DAG
 	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
 	searchPaths            []string                 // Additional search paths for DAG files
 	baseConfigPath         string                   // Optional base config file applied when loading DAGs
@@ -681,6 +693,7 @@ func (store *Store) Delete(ctx context.Context, name string) error {
 	if err := fileutil.Remove(resolved.EntryPath); err != nil {
 		return err
 	}
+	store.removeDAGRecord(ctx, name)
 	if store.fileCache != nil {
 		store.fileCache.Invalidate(store.metadataCacheKey(resolved, store.refreshBaseConfigState()))
 	}
@@ -805,9 +818,47 @@ func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
 	if err := fileutil.Rename(oldFilePath, newFilePath); err != nil {
 		return err
 	}
+	store.moveDAGRecord(ctx, oldID, newID)
 	store.invalidateIndex()
 	store.changeMarker.Bump(ctx)
 	return nil
+}
+
+// moveDAGRecord moves a renamed DAG's record to its new name, replacing one
+// a deleted DAG of that name left. A failure is logged and leaves the rename
+// made.
+func (store *Store) moveDAGRecord(ctx context.Context, oldID, newID string) {
+	from, to := persis.SchedulerDAGRecordID(oldID), persis.SchedulerDAGRecordID(newID)
+	if store.dagRecords == nil || from == to {
+		return
+	}
+	err := func() error {
+		rec, err := store.dagRecords.Get(ctx, from)
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := store.dagRecords.Put(ctx, &persis.Record{ID: to, Data: rec.Data, CreatedAt: rec.CreatedAt, UpdatedAt: rec.UpdatedAt}); err != nil {
+			return err
+		}
+		return store.dagRecords.Delete(ctx, from)
+	}()
+	if err != nil {
+		logger.Warn(ctx, "Failed to move the record of a renamed DAG", tag.Error(err), tag.Name(oldID))
+	}
+}
+
+// removeDAGRecord removes a deleted DAG's record. A failure is logged and
+// leaves the delete made.
+func (store *Store) removeDAGRecord(ctx context.Context, id string) {
+	if store.dagRecords == nil {
+		return
+	}
+	if err := store.dagRecords.Delete(ctx, persis.SchedulerDAGRecordID(id)); err != nil && !errors.Is(err, persis.ErrNotFound) {
+		logger.Warn(ctx, "Failed to remove the record of a deleted DAG", tag.Error(err), tag.Name(id))
+	}
 }
 
 // generateFilePath generates the file path for a DAG by its name.

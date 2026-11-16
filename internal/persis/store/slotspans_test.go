@@ -5,8 +5,11 @@ package store_test
 
 import (
 	"context"
-	"encoding/hex"
+	"encoding/json"
+	"maps"
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -22,7 +25,7 @@ import (
 )
 
 func newSpanStore() *store.SpanStore {
-	return store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans), nil)
+	return store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), nil)
 }
 
 // spanAt is an hour of a day counted from 25 days ago, inside the 30 days
@@ -38,13 +41,13 @@ func TestSpanStoreGivesTheSpansOfADAG(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	pauses := store.NewSchedulerPauseStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState))
-	s := store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans), pauses)
+	s := store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
-	require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: spanAt(2, 9), To: spanAt(2, 11), Reason: schedulerstate.SpanDown}))
-	require.NoError(t, s.Add(ctx, "etl", schedulerstate.Span{From: spanAt(1, 12), To: spanAt(1, 13), Reason: schedulerstate.SpanSuspended}))
-	require.NoError(t, s.Add(ctx, "other", schedulerstate.Span{From: spanAt(1, 0), To: spanAt(1, 1), Reason: schedulerstate.SpanSuspended}))
+	require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: spanAt(2, 9), To: spanAt(2, 11)}))
+	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 12), To: spanAt(1, 13)}))
+	require.NoError(t, s.AddSuspended(ctx, "other", schedulerstate.Period{From: spanAt(1, 0), To: spanAt(1, 1)}))
 
 	spans, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
@@ -60,12 +63,12 @@ func TestSpanStoreGivesTheSpansOfADAG(t *testing.T) {
 // retried resume does, writes nothing.
 func TestSpanStoreRecordsASpanOnce(t *testing.T) {
 	t.Parallel()
-	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans)}
+	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)}
 	s := store.NewSpanStore(col, nil)
 	ctx := t.Context()
 
-	require.NoError(t, s.Add(ctx, "etl", schedulerstate.Span{From: spanAt(1, 9), To: spanAt(1, 10), Reason: schedulerstate.SpanSuspended}))
-	require.NoError(t, s.Add(ctx, "etl", schedulerstate.Span{From: spanAt(1, 9), To: spanAt(1, 11), Reason: schedulerstate.SpanSuspended}))
+	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 10)}))
+	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 11)}))
 
 	spans, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
@@ -79,12 +82,12 @@ func TestSpanStoreKeepsRecentSpans(t *testing.T) {
 	s := newSpanStore()
 	ctx := t.Context()
 	ended := time.Now().Add(-31 * 24 * time.Hour)
-	require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: ended.Add(-time.Hour), To: ended, Reason: schedulerstate.SpanDown}))
+	require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: ended.Add(-time.Hour), To: ended}))
 
 	start := spanAt(1, 0)
 	for i := range 101 {
 		from := start.Add(time.Duration(i) * time.Hour)
-		require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: from, To: from.Add(time.Minute), Reason: schedulerstate.SpanDown}))
+		require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: from, To: from.Add(time.Minute)}))
 	}
 
 	spans, err := s.Ended(ctx, "")
@@ -100,7 +103,7 @@ func TestSpanStoreGivesNoExpiredSpan(t *testing.T) {
 	s := newSpanStore()
 	ctx := t.Context()
 	ended := time.Now().Add(-31 * 24 * time.Hour)
-	require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: ended.Add(-time.Hour), To: ended, Reason: schedulerstate.SpanDown}))
+	require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: ended.Add(-time.Hour), To: ended}))
 
 	spans, err := s.Ended(ctx, "")
 	require.NoError(t, err)
@@ -115,9 +118,9 @@ func TestSpanStoreKeepsTheSpansThatEndedLast(t *testing.T) {
 	ctx := t.Context()
 	for i := range 100 {
 		from := spanAt(3, 0).Add(time.Duration(i) * time.Hour)
-		require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: from, To: from.Add(time.Minute), Reason: schedulerstate.SpanDown}))
+		require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: from, To: from.Add(time.Minute)}))
 	}
-	require.NoError(t, s.Add(ctx, "", schedulerstate.Span{From: spanAt(2, 0), To: spanAt(2, 1), Reason: schedulerstate.SpanDown}))
+	require.NoError(t, s.AddDown(ctx, schedulerstate.Period{From: spanAt(2, 0), To: spanAt(2, 1)}))
 
 	spans, err := s.Ended(ctx, "")
 	require.NoError(t, err)
@@ -136,23 +139,42 @@ func (c *swapCounter) CompareAndSwap(ctx context.Context, id string, expected, n
 	return c.Collection.CompareAndSwap(ctx, id, expected, next)
 }
 
-// The spans one process records are read by another, as the API records a
-// suspension and the scheduler an outage, each in a file of its own.
-func TestSpanStoreSharesSpansThroughFiles(t *testing.T) {
+// The periods one process records are read by another, as the API records a
+// suspension and the scheduler an outage, each in a record of its own next to
+// the scheduler state, holding only when each period began and ended.
+func TestSpanStoreSharesPeriodsThroughFiles(t *testing.T) {
 	t.Parallel()
 	paths := config.PathsConfig{DataDir: t.TempDir()}
-	writer := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSlotSpans), nil)
-	reader := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSlotSpans), nil)
+	pauses := store.NewSchedulerPauseStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState))
+	writer := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState), pauses)
+	reader := store.NewSpanStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState), pauses)
 	ctx := t.Context()
 
-	down := schedulerstate.Span{From: spanAt(1, 0), To: spanAt(1, 1), Reason: schedulerstate.SpanDown}
-	suspended := schedulerstate.Span{From: spanAt(1, 9), To: spanAt(1, 10), Reason: schedulerstate.SpanSuspended}
-	require.NoError(t, writer.Add(ctx, "", down))
-	require.NoError(t, writer.Add(ctx, "nested/etl", suspended))
+	down := schedulerstate.Period{From: spanAt(1, 0), To: spanAt(1, 1)}
+	suspended := schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 10)}
+	require.NoError(t, writer.AddDown(ctx, down))
+	require.NoError(t, writer.AddSuspended(ctx, "nested/etl", suspended))
+	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
+	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
 	spans, err := reader.Ended(ctx, "nested/etl")
 	require.NoError(t, err)
-	assert.Equal(t, []schedulerstate.Span{down, suspended}, spans)
-	assert.FileExists(t, filepath.Join(paths.DataDir, "slot-spans", "down.json"))
-	assert.FileExists(t, filepath.Join(paths.DataDir, "slot-spans", "dags", hex.EncodeToString([]byte("nested/etl"))+".json"))
+	require.Len(t, spans, 3)
+	assert.Equal(t, []schedulerstate.Span{
+		{From: down.From, To: down.To, Reason: schedulerstate.SpanDown},
+		{From: suspended.From, To: suspended.To, Reason: schedulerstate.SpanSuspended},
+	}, spans[:2])
+	assert.Equal(t, schedulerstate.SpanPaused, spans[2].Reason)
+
+	dir := file.SchedulerStateDir(paths)
+	for name, list := range map[string]string{"down.json": "down", "dags/nested-etl.json": "suspended", "paused.json": "history"} {
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+		require.NoError(t, err, name)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &fields), name)
+		var periods []map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(fields[list], &periods), name)
+		require.Len(t, periods, 1, name)
+		assert.ElementsMatch(t, []string{"from", "to"}, slices.Collect(maps.Keys(periods[0])), name)
+	}
 }

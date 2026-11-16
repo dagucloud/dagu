@@ -14,6 +14,8 @@ package persis
 import (
 	"context"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 const (
@@ -35,7 +37,6 @@ const (
 	CollectionRemoteNodes           = "remote_nodes"
 	CollectionSchedulerState        = "scheduler_state"
 	CollectionSecrets               = "secrets"
-	CollectionSlotSpans             = "slot_spans"
 	CollectionUpgradeCheck          = "upgrade_check"
 	CollectionUsers                 = "users"
 	CollectionViews                 = "views"
@@ -45,6 +46,13 @@ const (
 	CollectionWorkerHeartbeats      = "worker_heartbeats"
 	CollectionWorkspaces            = "workspaces"
 )
+
+// SchedulerDAGRecordID names a DAG's record in the scheduler state
+// collection: the ended periods in which its slots could not run. The name is
+// normalized as the DAG's suspend flag is.
+func SchedulerDAGRecordID(dag string) string {
+	return "dags/" + fileutil.NormalizeFilename(dag, "-")
+}
 
 // Record is the storage primitive for collection-backed control-plane data.
 //

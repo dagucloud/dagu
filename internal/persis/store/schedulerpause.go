@@ -26,9 +26,9 @@ type schedulerPauseRecord struct {
 	Reason   string    `json:"reason,omitempty"`
 	// Hold marks the scheduler's own wake hold; see schedulerstate.Pause.
 	Hold bool `json:"hold,omitempty"`
-	// History holds the operator's pauses that ended, the maxSpans that
-	// ended last within spanRetention, in the order they ended.
-	History []schedulerstate.Span `json:"history,omitempty"`
+	// History holds the operator's pauses that ended, the maxPeriods that
+	// ended last within periodRetention, in the order they ended.
+	History []schedulerstate.Period `json:"history,omitempty"`
 }
 
 // SchedulerPauseStore persists the cluster-wide scheduler pause flag as a
@@ -85,7 +85,7 @@ func (s *SchedulerPauseStore) Get(ctx context.Context) (schedulerstate.Pause, er
 
 // endedPauses returns the operator's pauses that ended, as the record last
 // read holds them while it is current.
-func (s *SchedulerPauseStore) endedPauses(ctx context.Context) ([]schedulerstate.Span, error) {
+func (s *SchedulerPauseStore) endedPauses(ctx context.Context) ([]schedulerstate.Period, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -145,8 +145,7 @@ func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reaso
 				next.PausedAt = record.PausedAt
 			}
 		case operator:
-			ended := schedulerstate.Span{From: record.PausedAt, To: now, Reason: schedulerstate.SpanPaused}
-			next.History = recentSpans(append(slices.Clone(record.History), ended), now)
+			next.History, _ = appendPeriod(record.History, schedulerstate.Period{From: record.PausedAt, To: now}, now)
 		}
 		data, err := persis.Encode(&next)
 		if err != nil {

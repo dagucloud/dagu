@@ -3458,19 +3458,16 @@ type spanRecorder struct {
 	spans []schedulerstate.Span
 }
 
-func (r *spanRecorder) Add(_ context.Context, dag string, span schedulerstate.Span) error {
+func (r *spanRecorder) AddDown(_ context.Context, down schedulerstate.Period) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if dag != "" {
-		return fmt.Errorf("an outage holds for every DAG, not for %s", dag)
-	}
-	r.spans = append(r.spans, span)
+	r.spans = append(r.spans, schedulerstate.Span{From: down.From, To: down.To, Reason: schedulerstate.SpanDown})
 	return nil
 }
 
-func (r *spanRecorder) Move(context.Context, string, string) error { return nil }
-
-func (r *spanRecorder) Remove(context.Context, string) error { return nil }
+func (r *spanRecorder) AddSuspended(_ context.Context, dag string, _ schedulerstate.Period) error {
+	return fmt.Errorf("the scheduler records no suspension, as of %s", dag)
+}
 
 func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, error) {
 	r.mu.Lock()
@@ -3539,12 +3536,12 @@ type flakySpans struct {
 	failed bool
 }
 
-func (r *flakySpans) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
+func (r *flakySpans) AddDown(ctx context.Context, down schedulerstate.Period) error {
 	if !r.failed {
 		r.failed = true
 		return errors.New("span store unavailable")
 	}
-	return r.spanRecorder.Add(ctx, dag, span)
+	return r.spanRecorder.AddDown(ctx, down)
 }
 
 // An outage whose span cannot be recorded is kept and recorded again as the
@@ -3578,11 +3575,11 @@ type failingSpans struct {
 	fail bool
 }
 
-func (r *failingSpans) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
+func (r *failingSpans) AddDown(ctx context.Context, down schedulerstate.Period) error {
 	if r.fail {
 		return errors.New("span store unavailable")
 	}
-	return r.spanRecorder.Add(ctx, dag, span)
+	return r.spanRecorder.AddDown(ctx, down)
 }
 
 // While the span store fails, the outages kept to record later are bounded:

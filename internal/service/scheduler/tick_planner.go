@@ -163,7 +163,7 @@ type TickPlanner struct {
 	deletedGrace map[string]time.Time
 	// pendingOutages are the outages whose spans failed to record, retried
 	// as each tick is planned.
-	pendingOutages []schedulerstate.Span
+	pendingOutages []schedulerstate.Period
 
 	// lastPlanResult holds the runs from the most recent Plan() call.
 	// It is written by Plan() and read by Advance(). Both are called
@@ -448,7 +448,7 @@ func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time)
 			tp.pendingOutages[n-1].To = to
 		}
 	} else {
-		tp.pendingOutages = append(tp.pendingOutages, schedulerstate.Span{From: lastTick, To: to, Reason: schedulerstate.SpanDown})
+		tp.pendingOutages = append(tp.pendingOutages, schedulerstate.Period{From: lastTick, To: to})
 		tp.pendingOutages = tp.pendingOutages[max(0, len(tp.pendingOutages)-maxPendingOutages):]
 	}
 	tp.recordPendingOutages(ctx)
@@ -460,8 +460,8 @@ func (tp *TickPlanner) recordPendingOutages(ctx context.Context) {
 	if len(tp.pendingOutages) == 0 {
 		return
 	}
-	tp.pendingOutages = slices.DeleteFunc(tp.pendingOutages, func(span schedulerstate.Span) bool {
-		err := tp.cfg.Spans.Add(ctx, "", span)
+	tp.pendingOutages = slices.DeleteFunc(tp.pendingOutages, func(outage schedulerstate.Period) bool {
+		err := tp.cfg.Spans.AddDown(ctx, outage)
 		if err != nil {
 			logger.Warn(ctx, "Failed to record the time no scheduler ran; retrying on the next tick", tag.Error(err))
 		}

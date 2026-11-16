@@ -2077,24 +2077,24 @@ steps:
 		}).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSlotSpans), nil).Ended(t.Context(), dag.FileName())
+	spans, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSchedulerState), nil).Ended(t.Context(), dag.FileName())
 	require.NoError(t, err)
 	require.Len(t, spans, 1)
 	assert.Equal(t, schedulerstate.SpanSuspended, spans[0].Reason)
 	assert.False(t, spans[0].To.Before(spans[0].From))
 }
 
-// flakySpans is a span store whose Add fails while fail is set.
+// flakySpans is a span store whose AddSuspended fails while fail is set.
 type flakySpans struct {
 	schedulerstate.SpanStore
 	fail bool
 }
 
-func (s *flakySpans) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
+func (s *flakySpans) AddSuspended(ctx context.Context, dag string, suspended schedulerstate.Period) error {
 	if s.fail {
 		return errors.New("span store unavailable")
 	}
-	return s.SpanStore.Add(ctx, dag, span)
+	return s.SpanStore.AddSuspended(ctx, dag, suspended)
 }
 
 // suspendFlags keeps when the suspension of each suspended DAG began, and
@@ -2132,7 +2132,7 @@ func (s *suspendFlags) SuspendedSince(_ context.Context, id string) (time.Time, 
 func TestUpdateDAGSuspensionState_RecordsSpanBeforeResume(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
-	spans := &flakySpans{SpanStore: store.NewSpanStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSlotSpans), nil)}
+	spans := &flakySpans{SpanStore: store.NewSpanStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), nil)}
 	flags := &suspendFlags{since: map[string]time.Time{}}
 	apiImpl := localapi.New(
 		persis.NewDAGRepository(flags, persis.DAGRepositoryOptions{}), helper.DAGRunRepository, helper.QueueStore,

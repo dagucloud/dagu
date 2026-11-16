@@ -126,7 +126,7 @@ func newFilePersistence(
 		SchedulerStateStore:       schedulerStateStore,
 		SchedulerPauseStore:       schedulerPauseStore,
 		RestartBackoffStore:       restartBackoffStore,
-		SpanStore:                 store.NewSpanStore(backend.Collection(persis.CollectionSlotSpans), schedulerPauseStore),
+		SpanStore:                 store.NewSpanStore(backend.Collection(persis.CollectionSchedulerState), schedulerPauseStore),
 		WatchStateStore:           watchStateStore,
 		ServiceRegistry:           serviceRegistry,
 		DispatchTaskStore:         dispatchTaskStore,
