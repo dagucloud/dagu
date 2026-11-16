@@ -159,6 +159,34 @@ describe('NoticeLine', () => {
     expect(screen.getByText('A newer run is active')).toBeInTheDocument();
   });
 
+  // A dismissal the server keeps after its notice left the list, as when the
+  // host dropped the notice, ends with that notice: a later notice with the
+  // same id shows.
+  it('hides no later notice when an earlier dismissal completes', async () => {
+    let keep: (kept: boolean) => void = () => {};
+    const host: NoticeLineItem = {
+      id: 'missed-slots',
+      tone: 'warning',
+      message: '12 slots passed while this DAG was suspended',
+      dismissible: true,
+      dismiss: () =>
+        new Promise<boolean>((resolve) => {
+          keep = resolve;
+        }),
+      priority: 15,
+    };
+    const view = render(<NoticeLine notices={[host]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    view.rerender(<NoticeLine notices={[]} />);
+    view.rerender(<NoticeLine notices={[host]} />);
+    await act(async () => keep(true));
+
+    expect(
+      screen.getByText('12 slots passed while this DAG was suspended')
+    ).toBeInTheDocument();
+  });
+
   // The host persists the choice, as the monitoring offer does, or clears the
   // cause, as run-not-found does.
   it('calls the dismiss of the top host notice', () => {

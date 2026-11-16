@@ -58,10 +58,16 @@ export function NoticeLine({ notices, className }: NoticeLineProps) {
   const [hidden, setHidden] = React.useState<ReadonlySet<string>>(
     () => new Set()
   );
+  // Ids whose dismissal is in flight. An id leaves when its notice leaves
+  // the list, which ends that dismissal for a later notice with the id.
+  const dismissing = React.useRef(new Set<string>());
 
   const ids = notices.map((notice) => notice.id).join('\n');
   React.useEffect(() => {
     const present = new Set(ids.split('\n'));
+    for (const id of dismissing.current) {
+      if (!present.has(id)) dismissing.current.delete(id);
+    }
     setHidden((previous) => {
       const next = new Set([...previous].filter((id) => present.has(id)));
       return next.size === previous.size ? previous : next;
@@ -94,7 +100,10 @@ export function NoticeLine({ notices, className }: NoticeLineProps) {
       setHidden((previous) => new Set(previous).add(notice.id));
     const dismissed = notice.dismiss?.();
     if (dismissed instanceof Promise) {
-      void dismissed.then((kept) => kept && hide());
+      dismissing.current.add(notice.id);
+      void dismissed.then((kept) => {
+        if (dismissing.current.delete(notice.id) && kept) hide();
+      });
     } else {
       hide();
     }
