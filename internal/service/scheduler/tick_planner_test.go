@@ -3568,6 +3568,51 @@ func TestTickPlanner_RetriesOutage(t *testing.T) {
 	}, recorded)
 }
 
+// failingSpans fails every Add while fail is set.
+type failingSpans struct {
+	spanRecorder
+	fail bool
+}
+
+func (r *failingSpans) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
+	if r.fail {
+		return errors.New("span store unavailable")
+	}
+	return r.spanRecorder.Add(ctx, dag, span)
+}
+
+// While the span store fails, the outages kept to record later are bounded:
+// the newest 10, an outage that begins where the last kept one ends joining
+// it.
+func TestTickPlanner_BoundsPendingOutages(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	spans := &failingSpans{fail: true}
+	tp.cfg.Spans = spans
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	start := time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)
+	var want []schedulerstate.Span
+	for i := range 12 {
+		from := start.Add(time.Duration(i) * time.Hour)
+		tp.Advance(from)
+		tp.resume(t.Context(), from.Add(30*time.Minute))
+		want = append(want, schedulerstate.Span{From: from, To: from.Add(30 * time.Minute), Reason: schedulerstate.SpanDown})
+	}
+	last := want[len(want)-1].To
+	tp.Advance(last)
+	tp.resume(t.Context(), last.Add(30*time.Minute))
+	want[len(want)-1].To = last.Add(30 * time.Minute)
+
+	spans.fail = false
+	tp.Plan(t.Context(), last.Add(30*time.Minute))
+
+	recorded, err := spans.Ended(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, want[2:], recorded)
+}
+
 // A state file written by a build that kept a tally of missed slots, with a
 // DAG held and a missed gap, loads without them; the scheduler runs the next
 // slot and writes the file back without them.

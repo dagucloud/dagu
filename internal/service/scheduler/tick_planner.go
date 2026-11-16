@@ -431,15 +431,26 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	return nil
 }
 
+// maxPendingOutages bounds the outages kept while their spans fail to record.
+const maxPendingOutages = 10
+
 // recordOutage records the time from the last tick to to as a span in which
 // no scheduler ran, when a minute or more passed between them. A span that
 // fails to record is kept until a later tick records it, as the tick moves
-// the last tick past it. Caller must hold entryMu.
+// the last tick past it: the newest maxPendingOutages, an outage that begins
+// where the last one kept ends joining it. Caller must hold entryMu.
 func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time) {
 	if tp.cfg.Spans == nil || lastTick.IsZero() || !to.After(lastTick.Add(time.Minute)) {
 		return
 	}
-	tp.pendingOutages = append(tp.pendingOutages, schedulerstate.Span{From: lastTick, To: to, Reason: schedulerstate.SpanDown})
+	if n := len(tp.pendingOutages); n > 0 && !lastTick.After(tp.pendingOutages[n-1].To) {
+		if to.After(tp.pendingOutages[n-1].To) {
+			tp.pendingOutages[n-1].To = to
+		}
+	} else {
+		tp.pendingOutages = append(tp.pendingOutages, schedulerstate.Span{From: lastTick, To: to, Reason: schedulerstate.SpanDown})
+		tp.pendingOutages = tp.pendingOutages[max(0, len(tp.pendingOutages)-maxPendingOutages):]
+	}
 	tp.recordPendingOutages(ctx)
 }
 
