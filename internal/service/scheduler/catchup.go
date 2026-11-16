@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -37,6 +38,25 @@ const MaxMissedRuns = 1000
 type missedScheduleInterval struct {
 	Schedule      ir.Schedule
 	ScheduledTime time.Time
+}
+
+// CatchupAfterOutage returns what catch-up queues of a DAG's slots that came
+// due while no scheduler ran, when a scheduler starts again or ticks late:
+// with queues enabled, the newest MaxMissedRuns within the DAG's catchup
+// window, or the newest one under overlap_policy latest.
+//
+// Catch-up then runs one queued slot per tick while the DAG is idle, and
+// may never run some: a restart queues again only the saved slots within
+// the window before it, and a pause or a suspension drops the queue. No
+// later period holds such a slot, so it is not counted as missed.
+func CatchupAfterOutage(dag *ir.DAG, queuesEnabled bool) backfill.Catchup {
+	if !queuesEnabled || dag.CatchupWindow <= 0 {
+		return backfill.Catchup{}
+	}
+	if dag.OverlapPolicy == ir.OverlapPolicyLatest {
+		return backfill.Catchup{Window: dag.CatchupWindow, Max: 1}
+	}
+	return backfill.Catchup{Window: dag.CatchupWindow, Max: MaxMissedRuns}
 }
 
 // savedCatchupIntervals returns the saved catch-up slots after earliest and by

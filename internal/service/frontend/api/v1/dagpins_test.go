@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
@@ -16,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -301,4 +304,37 @@ func TestListDAGsRunSortPinnedFirstOnlyWhereRequested(t *testing.T) {
 			assert.Equal(t, []bool{false, false, true}, listedPinned(mcp.Dags))
 		})
 	}
+}
+
+// A DAG's periods follow it when it is renamed and go when it is deleted, so
+// a period file never outlives its DAG or reaches a DAG that takes the name.
+func TestDAGPeriodsFollowRenameAndDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	writePinTestDAGs(t, helper, "alpha")
+	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour).UTC(), To: time.Now().Add(-time.Hour).UTC()}
+	require.NoError(t, periods.AddSuspended(ctx, "alpha", suspended))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods))
+	ended := func(dag string) []schedulerstate.Period {
+		t.Helper()
+		got, _, err := periods.Ended(ctx, dag)
+		require.NoError(t, err)
+		return got
+	}
+
+	_, err := apiImpl.RenameDAG(ctx, api.RenameDAGRequestObject{
+		FileName: "alpha",
+		Body:     &api.RenameDAGJSONRequestBody{NewFileName: "omega"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, ended("alpha"))
+	require.Len(t, ended("omega"), 1)
+	assert.True(t, suspended.From.Equal(ended("omega")[0].From))
+
+	_, err = apiImpl.DeleteDAG(ctx, api.DeleteDAGRequestObject{FileName: "omega"})
+	require.NoError(t, err)
+	assert.Empty(t, ended("omega"))
+	assert.NoDirExists(t, filepath.Join(helper.Config.Paths.DataDir, "scheduler", "dags"), "no period file is left")
 }

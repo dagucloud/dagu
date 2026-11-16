@@ -461,3 +461,64 @@ func TestDAGChangeMarkerPathMatchesStore(t *testing.T) {
 	cfg.Paths.DataDir = ""
 	assert.Empty(t, persisfile.DAGChangeMarkerPath(cfg), "no data directory, no marker")
 }
+
+// A suspend flag holds when the suspension began, and suspending again keeps
+// it. A flag written before flags held a time began when it was written.
+func TestDAGRepositoryKeepsWhenASuspensionBegan(t *testing.T) {
+	t.Parallel()
+	repo, cfg := newLegacyFlagsRepository(t)
+	ctx := t.Context()
+
+	_, suspended, err := repo.SuspendedSince(ctx, "alpha")
+	require.NoError(t, err)
+	assert.False(t, suspended)
+
+	before := time.Now()
+	require.NoError(t, repo.SetSuspended(ctx, "alpha", true))
+	since, suspended, err := repo.SuspendedSince(ctx, "alpha")
+	require.NoError(t, err)
+	require.True(t, suspended)
+	assert.WithinDuration(t, before, since, time.Minute)
+
+	require.NoError(t, repo.SetSuspended(ctx, "alpha", true))
+	again, _, err := repo.SuspendedSince(ctx, "alpha")
+	require.NoError(t, err)
+	assert.True(t, since.Equal(again), "suspending again moved the start to %s", again)
+
+	written := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
+	flag := filepath.Join(cfg.Paths.SuspendFlagsDir, "beta.suspend")
+	require.NoError(t, os.WriteFile(flag, nil, 0o600))
+	require.NoError(t, os.Chtimes(flag, written, written))
+	since, suspended, err = repo.SuspendedSince(ctx, "beta")
+	require.NoError(t, err)
+	require.True(t, suspended)
+	assert.True(t, written.Equal(since), "an empty flag began at %s", since)
+}
+
+// A suspension that began under a legacy flag keeps its start when the flag
+// is copied to primary storage or promoted by suspending again, which
+// removes the legacy flag.
+func TestDAGRepositoryKeepsALegacySuspensionStart(t *testing.T) {
+	t.Parallel()
+	written := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
+	for name, migrate := range map[string]bool{"copied": true, "promoted": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo, cfg := newLegacyFlagsRepository(t)
+			ctx := t.Context()
+			flag := filepath.Join(cfg.Paths.SuspendFlagsDirLegacy, "alpha.suspend")
+			require.NoError(t, os.WriteFile(flag, nil, 0o600))
+			require.NoError(t, os.Chtimes(flag, written, written))
+			if migrate {
+				require.NoError(t, repo.MigrateSuspensionState(ctx))
+			}
+
+			require.NoError(t, repo.SetSuspended(ctx, "alpha", true))
+			require.NoFileExists(t, flag)
+			since, suspended, err := repo.SuspendedSince(ctx, "alpha")
+			require.NoError(t, err)
+			require.True(t, suspended)
+			assert.True(t, written.Equal(since), "began at %s", since)
+		})
+	}
+}

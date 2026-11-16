@@ -107,6 +107,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize server stores: %w", err)
 	}
+	pauses := store.NewSchedulerPauseStore(srv.Backend.Collection(persis.CollectionSchedulerState))
 	server, err := frontend.NewServer(frontend.ServerConfig{
 		Context:              srv.Context,
 		Config:               srv.Config,
@@ -120,11 +121,10 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		ServiceRegistry:      srv.ServiceRegistry,
 		DAGRunLeaseStore:     srv.DAGRunLeaseStore,
 		WorkerHeartbeatStore: srv.WorkerHeartbeatStore,
-		SchedulerPauseStore: store.NewSchedulerPauseStore(
-			srv.Backend.Collection(persis.CollectionSchedulerState),
-		),
-		BackfillStore: filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
-		Stores:        stores,
+		SchedulerPauseStore:  pauses,
+		BackfillStore:        filebackfill.New(filebackfill.Dir(srv.Config.Paths.DataDir)),
+		PeriodStore:          store.NewPeriodStore(srv.Backend.Collection(persis.CollectionSchedulerState), pauses),
+		Stores:               stores,
 	}, serverOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server: %w", err)

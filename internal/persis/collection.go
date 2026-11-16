@@ -14,6 +14,8 @@ package persis
 import (
 	"context"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 const (
@@ -44,6 +46,13 @@ const (
 	CollectionWorkerHeartbeats      = "worker_heartbeats"
 	CollectionWorkspaces            = "workspaces"
 )
+
+// SchedulerDAGRecordID names a DAG's record in the scheduler state
+// collection: the ended periods in which its slots could not run. The name is
+// escaped as the host stores it, so no two DAGs share a record.
+func SchedulerDAGRecordID(dag string) string {
+	return "dags/" + fileutil.EscapeName(dag)
+}
 
 // Record is the storage primitive for collection-backed control-plane data.
 //

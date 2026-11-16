@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,6 +26,9 @@ type schedulerPauseRecord struct {
 	Reason   string    `json:"reason,omitempty"`
 	// Hold marks the scheduler's own wake hold; see schedulerstate.Pause.
 	Hold bool `json:"hold,omitempty"`
+	// History holds the operator's pauses that ended, the maxPeriods that
+	// ended last within periodRetention, in the order they ended.
+	History []schedulerstate.Period `json:"history,omitempty"`
 }
 
 // SchedulerPauseStore persists the cluster-wide scheduler pause flag as a
@@ -72,42 +76,96 @@ func (s *SchedulerPauseStore) Get(ctx context.Context) (schedulerstate.Pause, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	record, err := s.recordLocked(ctx)
+	if err != nil {
+		return schedulerstate.Pause{}, err
+	}
+	return pauseFromRecord(record), nil
+}
+
+// endedPauses returns the operator's pauses that ended, as the record last
+// read holds them while it is current.
+func (s *SchedulerPauseStore) endedPauses(ctx context.Context) ([]schedulerstate.Period, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, err := s.recordLocked(ctx)
+	return slices.Clone(record.History), err
+}
+
+// recordLocked returns the record, from the cache while it is current. A
+// missing or undecodable record reads as empty.
+func (s *SchedulerPauseStore) recordLocked(ctx context.Context) (schedulerPauseRecord, error) {
 	if cached, ok := s.cachedLocked(ctx); ok {
-		return pauseFromRecord(cached), nil
+		return cached, nil
 	}
 
+	// The version is read before the record, so a write between the two
+	// leaves the cache behind the record and the next read reloads it.
+	token, versioned, tokenErr := s.recordToken(ctx)
 	var record schedulerPauseRecord
 	found, err := s.rec.Load(ctx, &record)
 	if err != nil {
 		if errors.Is(err, ErrCorrupt) {
 			logger.Warn(ctx, "scheduler pause: corrupt record, treating as not paused", tag.Error(err))
-			return schedulerstate.Pause{}, nil
+			return schedulerPauseRecord{}, nil
 		}
-		return schedulerstate.Pause{}, fmt.Errorf("scheduler pause store: get: %w", err)
+		return schedulerPauseRecord{}, fmt.Errorf("scheduler pause store: get: %w", err)
 	}
 	if !found {
 		record = schedulerPauseRecord{}
 	}
-	s.cacheLocked(ctx, record)
-	return pauseFromRecord(record), nil
+	if !versioned || tokenErr != nil {
+		s.clearCacheLocked()
+		return record, nil
+	}
+	s.cached, s.cachedValid, s.cachedToken = record, true, token
+	return record, nil
 }
 
-// Set records the pause state. Resuming clears the recorded actor and reason.
+// Set records the pause state. A pause in force keeps the time it began.
+// Resuming clears the recorded actor and reason and, in the same write, adds
+// the operator's pause it ends to the history; a wake hold it ends adds
+// nothing.
 func (s *SchedulerPauseStore) Set(ctx context.Context, paused bool, actor, reason string) error {
+	// The write retries on conflicts without the lock reads take, so no
+	// pause check waits for it.
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		current, err := s.col.Get(ctx, schedulerPauseID)
+		if err != nil && !errors.Is(err, persis.ErrNotFound) {
+			return err
+		}
+		var record schedulerPauseRecord
+		if current != nil && persis.Decode(current, &record) != nil {
+			// A corrupt record reads as not paused (Get), so this write replaces it.
+			record = schedulerPauseRecord{}
+		}
+		now := time.Now().UTC()
+		operator := record.Paused && !record.Hold && !record.PausedAt.IsZero()
+		next := schedulerPauseRecord{Paused: paused, History: record.History}
+		switch {
+		case paused:
+			next.PausedAt, next.PausedBy, next.Reason = now, actor, reason
+			if operator {
+				next.PausedAt = record.PausedAt
+			}
+		case operator:
+			next.History, _ = appendPeriod(record.History, schedulerstate.Period{From: record.PausedAt, To: now}, now)
+		}
+		data, err := persis.Encode(&next)
+		if err != nil {
+			return err
+		}
+		return createOrSwap(ctx, s.col, current, &persis.Record{ID: schedulerPauseID, Data: data, CreatedAt: now, UpdatedAt: now})
+	})
+	// Another process may write right after this write, so the next read
+	// loads the record, reading its version first.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	record := schedulerPauseRecord{Paused: paused}
-	if paused {
-		record.PausedAt = time.Now().UTC()
-		record.PausedBy = actor
-		record.Reason = reason
-	}
-	if err := s.rec.Save(ctx, &record); err != nil {
-		s.clearCacheLocked()
+	s.clearCacheLocked()
+	s.mu.Unlock()
+	if err != nil {
 		return fmt.Errorf("scheduler pause store: save: %w", err)
 	}
-	s.cacheLocked(ctx, record)
 	return nil
 }
 
@@ -136,10 +194,12 @@ func (s *SchedulerPauseStore) SetHold(ctx context.Context, hold bool, reason str
 		// A pause in force, an operator's or a hold already, governs.
 		return false, nil
 	case hold:
-		next = schedulerPauseRecord{Paused: true, Hold: true, PausedAt: time.Now().UTC(), PausedBy: schedulerstate.PausedByScheduler, Reason: reason}
+		next = schedulerPauseRecord{Paused: true, Hold: true, PausedAt: time.Now().UTC(), PausedBy: schedulerstate.PausedByScheduler, Reason: reason, History: record.History}
 	case !record.Paused || !record.Hold:
 		// Nothing of the scheduler's to lift.
 		return false, nil
+	default:
+		next = schedulerPauseRecord{History: record.History}
 	}
 	data, err := persis.Encode(&next)
 	if err != nil {
@@ -158,7 +218,6 @@ func (s *SchedulerPauseStore) SetHold(ctx context.Context, hold bool, reason str
 	if err != nil {
 		return false, fmt.Errorf("scheduler pause store: hold: %w", err)
 	}
-	s.cacheLocked(ctx, next)
 	return true, nil
 }
 
@@ -174,17 +233,6 @@ func (s *SchedulerPauseStore) cachedLocked(ctx context.Context) (schedulerPauseR
 		return schedulerPauseRecord{}, false
 	}
 	return s.cached, true
-}
-
-func (s *SchedulerPauseStore) cacheLocked(ctx context.Context, record schedulerPauseRecord) {
-	token, ok, err := s.recordToken(ctx)
-	if !ok || err != nil {
-		s.clearCacheLocked()
-		return
-	}
-	s.cached = record
-	s.cachedValid = true
-	s.cachedToken = token
 }
 
 // recordToken returns the backing record's version token. An absent record

@@ -5,9 +5,12 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/robfig/cron/v3"
@@ -176,26 +179,24 @@ func TestComputeMissedIntervals_CappedAtMax(t *testing.T) {
 }
 
 // Queued catch-up runs every slot it holds, also those a late tick's window
-// has moved past, so the gap that tick records starts after the queue.
-func TestTickPlanner_LateTickLeavesOutQueuedCatchup(t *testing.T) {
+// has moved past, and the late tick records the time it missed as one
+// period in which no scheduler ran.
+func TestTickPlanner_LateTickKeepsQueuedCatchup(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		late   time.Time
 		queued []time.Time
-		gap    *schedulerstate.MissedGap
 	}{
 		{
 			name:   "queue reaches the window",
 			late:   at(14, 0),
 			queued: []time.Time{at(11, 0), at(12, 0), at(13, 0), at(14, 0)},
-			gap:    &schedulerstate.MissedGap{From: at(9, 0), To: at(10, 0), Through: at(10, 0), Reason: schedulerstate.GapDown, Slots: 1},
 		},
 		{
 			name:   "queue before the window",
 			late:   at(15, 0),
 			queued: []time.Time{at(11, 0), at(12, 0), at(14, 0), at(15, 0)},
-			gap:    &schedulerstate.MissedGap{From: at(12, 0), To: at(13, 0), Through: at(13, 0), Reason: schedulerstate.GapDown, Slots: 1},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,12 +206,31 @@ func TestTickPlanner_LateTickLeavesOutQueuedCatchup(t *testing.T) {
 			dag := &ir.DAG{Name: "hourly", CatchupWindow: 2 * time.Hour, Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 			require.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
+			tp.Advance(at(12, 0))
+			periods := &periodRecorder{}
+			tp.cfg.Periods = periods
 
 			tp.resume(t.Context(), tc.late)
 			assert.Equal(t, tc.queued, bufferedSlots(tp, dag.Name))
-			assert.Equal(t, tc.gap, missedGap(tp, dag.Name))
+			recorded, _, err := periods.Ended(t.Context(), "")
+			require.NoError(t, err)
+			assert.Equal(t, []schedulerstate.Period{{From: at(12, 0), To: tc.late, Reason: schedulerstate.PeriodDown}}, recorded)
 		})
 	}
+}
+
+func at(hour, minute int) time.Time {
+	return time.Date(2026, 2, 7, hour, minute, 0, 0, time.UTC)
+}
+
+func bufferedSlots(tp *TickPlanner, dagName string) []time.Time {
+	var slots []time.Time
+	if buffer := tp.buffers[dagName]; buffer != nil {
+		for _, item := range buffer.items {
+			slots = append(slots, item.ScheduledTime)
+		}
+	}
+	return slots
 }
 
 // enqueueOK accepts every catch-up enqueue.
@@ -219,7 +239,8 @@ func enqueueOK(context.Context, DAGEntry, string, ir.TriggerType, time.Time, str
 }
 
 // restartPlanner starts a planner at now from the state the previous one last
-// saved, as the next scheduler does, with a recovery window of recovery.
+// saved, as the next scheduler does, with a recovery window of recovery. It
+// records the periods in which no scheduler ran, as recordedPeriods gives them.
 func restartPlanner(t *testing.T, previous *mockStateStore, now time.Time, recovery time.Duration, dag *ir.DAG) (*TickPlanner, *mockStateStore) {
 	t.Helper()
 	store := &mockStateStore{state: previous.lastSaved()}
@@ -227,8 +248,18 @@ func restartPlanner(t *testing.T, previous *mockStateStore, now time.Time, recov
 	tp.cfg.Clock = func() time.Time { return now }
 	tp.cfg.RecoveryWindow = func() time.Duration { return recovery }
 	tp.cfg.Enqueue = enqueueOK
+	tp.cfg.Periods = &periodRecorder{}
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 	return tp, store
+}
+
+// recordedPeriods returns the periods a planner that restartPlanner started
+// recorded.
+func recordedPeriods(t *testing.T, tp *TickPlanner) []schedulerstate.Period {
+	t.Helper()
+	recorded, _, err := tp.cfg.Periods.Ended(t.Context(), "")
+	require.NoError(t, err)
+	return recorded
 }
 
 // runTick plans, dispatches, and saves one tick, as the scheduler does.
@@ -244,18 +275,21 @@ func runTick(t *testing.T, tp *TickPlanner, tick time.Time) {
 // A scheduler that stops while its catch-up is under way leaves the slots it
 // queued and had not run. The next one replays them, though the ticks of the
 // first ran past them, and replays nothing a finished or dropped catch-up
-// left.
+// left. Either way it records the time no scheduler ran, when a minute or
+// more passed since the last tick.
 func TestTickPlanner_ReplaysCatchupAfterStop(t *testing.T) {
 	t.Parallel()
+	stopped := []schedulerstate.Period{{From: at(12, 0), To: at(12, 3), Reason: schedulerstate.PeriodDown}}
 	for _, tc := range []struct {
 		name      string
 		ticks     []time.Time
 		suspended bool
 		want      []time.Time
+		down      []schedulerstate.Period
 	}{
-		{name: "under way", ticks: []time.Time{at(12, 0)}, want: []time.Time{at(11, 0), at(12, 0)}},
+		{name: "under way", ticks: []time.Time{at(12, 0)}, want: []time.Time{at(11, 0), at(12, 0)}, down: stopped},
 		{name: "finished", ticks: []time.Time{at(12, 0), at(12, 1), at(12, 2)}},
-		{name: "dropped by a suspension", ticks: []time.Time{at(12, 0)}, suspended: true},
+		{name: "dropped by a suspension", ticks: []time.Time{at(12, 0)}, suspended: true, down: stopped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -272,13 +306,15 @@ func TestTickPlanner_ReplaysCatchupAfterStop(t *testing.T) {
 
 			restarted, _ := restartPlanner(t, store, at(12, 3).Add(30*time.Second), 0, dag)
 			assert.Equal(t, tc.want, bufferedSlots(restarted, dag.Name))
+			assert.Equal(t, tc.down, recordedPeriods(t, restarted))
 		})
 	}
 }
 
 // An edit made while catch-up is under way keeps the queued slots that the
 // new schedules still fire, and a restart replays those only. Slots queued
-// under schedules changed while no scheduler ran are not replayed.
+// under schedules changed while no scheduler ran are not replayed. When the
+// scheduler first tracked the DAG holds through any edit.
 func TestTickPlanner_EditKeepsQueuedCatchup(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -311,6 +347,7 @@ func TestTickPlanner_EditKeepsQueuedCatchup(t *testing.T) {
 
 			restarted, _ := restartPlanner(t, store, at(12, 1).Add(30*time.Second), 0, &edited)
 			assert.Equal(t, tc.want, bufferedSlots(restarted, dag.Name))
+			assert.Equal(t, at(12, 0), restarted.dagWatermark(dag.Name).FirstSeen)
 		})
 	}
 }
@@ -418,4 +455,73 @@ func TestTickPlanner_TakeoverLeavesOutSlotsBeforeWindow(t *testing.T) {
 
 	takeover, _ := restartPlanner(t, store, at(12, 2).Add(30*time.Second), 4*time.Hour, dag)
 	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(takeover, dag.Name))
+}
+
+// The missed-slots notice counts the slots of an outage that catch-up does
+// not queue when a scheduler starts again or ticks late: the older slots of
+// a window, those past its cap, those overlap_policy latest drops, and all
+// of them without a window or queues.
+func TestCatchupAfterOutageIsWhatCatchupQueues(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		expr     string
+		window   time.Duration
+		latest   bool
+		noQueues bool
+	}{
+		{name: "window", expr: "* * * * *", window: time.Hour},
+		{name: "window past the cap", expr: "* * * * *", window: 24 * time.Hour},
+		{name: "latest", expr: "30 * * * *", window: 3 * time.Hour, latest: true},
+		{name: "no window", expr: "* * * * *"},
+		{name: "queues disabled", expr: "* * * * *", window: time.Hour, noQueues: true},
+	} {
+		for _, late := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, late tick %t", tc.name, late), func(t *testing.T) {
+				t.Parallel()
+				dag := &ir.DAG{Name: "dag", CatchupWindow: tc.window, Schedule: []ir.Schedule{mustParseSchedule(t, tc.expr)}}
+				if tc.latest {
+					dag.OverlapPolicy = ir.OverlapPolicyLatest
+				}
+				stopped := at(12, 0).Add(-26 * time.Hour)
+				periods := &periodRecorder{}
+				var tp *TickPlanner
+				if late {
+					tp, _ = newTestTickPlanner(&mockStateStore{})
+					tp.cfg.Clock = func() time.Time { return stopped }
+					tp.cfg.QueuesEnabled = !tc.noQueues
+					require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+					tp.Advance(stopped)
+					tp.cfg.Periods = periods
+					tp.resume(t.Context(), at(12, 0))
+				} else {
+					tp, _ = newTestTickPlanner(&mockStateStore{state: newMockState(stopped)})
+					tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+					tp.cfg.QueuesEnabled = !tc.noQueues
+					tp.cfg.Periods = periods
+					require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+				}
+				down, _, err := periods.Ended(t.Context(), "")
+				require.NoError(t, err)
+				require.Equal(t, []schedulerstate.Period{{From: stopped, To: at(12, 0), Reason: schedulerstate.PeriodDown}}, down)
+
+				// The outage's slots that catch-up did not queue.
+				inside, more := ir.ScheduleFiresBetween(dag.Schedule, "", time.UTC, stopped.Add(time.Second), at(12, 0).Add(-time.Second), 10000)
+				require.False(t, more)
+				var counted []time.Time
+				for _, slot := range inside {
+					if !slices.ContainsFunc(bufferedSlots(tp, dag.Name), slot.Equal) {
+						counted = append(counted, slot)
+					}
+				}
+				require.NotEmpty(t, counted)
+
+				sched := backfill.SlotSchedule{Schedules: dag.Schedule, Location: time.UTC}
+				missed := backfill.FindMissed(dag, sched, down, CatchupAfterOutage(dag, !tc.noQueues), stopped, at(13, 0))
+				assert.Equal(t, len(counted), missed.Slots)
+				assert.Equal(t, counted[0], missed.First)
+				assert.Equal(t, counted[len(counted)-1], missed.Last)
+			})
+		}
+	}
 }

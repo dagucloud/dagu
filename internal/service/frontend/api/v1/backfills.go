@@ -17,9 +17,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -123,6 +127,121 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 		}
 	}
 	return api.ListDAGSlots200JSONResponse{Slots: slots}, nil
+}
+
+// GetDAGMissedSlots returns the slots that came due while a DAG was
+// suspended, the scheduler paused, or no scheduler ran. It reads the ended
+// periods and the scheduler state only, never the DAG's slot or run history.
+func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlotsRequestObject) (api.GetDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	none := api.GetDAGMissedSlots200JSONResponse{}
+	if a.periodStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
+		return none, nil
+	}
+	// A dismissal covers every period that ended by then; only the periods
+	// that ended after it count.
+	periods, dismissal, err := a.periodStore.Ended(ctx, request.FileName)
+	periods = slices.DeleteFunc(periods, func(period schedulerstate.Period) bool { return !period.To.After(dismissal.At) })
+	if err != nil || len(periods) == 0 {
+		return none, err
+	}
+	var profile string
+	if slices.ContainsFunc(dag.Schedule, func(s ir.Schedule) bool { return s.Profile != "" }) {
+		if profile, err = a.defaultRunProfileName(ctx, request.FileName, dagWorkspaceName(dag)); err != nil {
+			return nil, err
+		}
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, a.calendarSource())
+	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
+	catchup := scheduler.CatchupAfterOutage(dag, a.config.Queues.Enabled)
+	missed := backfill.FindMissed(dag, sched, periods, catchup, a.dagFirstSeen(ctx, dag.Name), time.Now())
+	if missed.Slots == 0 {
+		return none, nil
+	}
+	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
+	for _, reason := range missed.Reasons {
+		reasons = append(reasons, api.MissedSlotsReason(reason))
+	}
+	return api.GetDAGMissedSlots200JSONResponse{MissedSlots: &api.MissedSlots{
+		Slots: missed.Slots, First: missed.First, Last: missed.Last, Reasons: reasons, Until: missed.Until,
+	}}, nil
+}
+
+// DismissDAGMissedSlots hides a DAG's missed slots from every user until a
+// period that ends after the dismissal adds missed slots. A user who may
+// suspend the DAG may dismiss them; one who cannot see it gets not found.
+func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGMissedSlotsRequestObject) (api.DismissDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
+		return nil, err
+	}
+	if err := a.requireExecuteForWorkspace(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	if a.periodStore == nil {
+		return api.DismissDAGMissedSlots204Response{}, nil
+	}
+	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: triggerActorFromContext(ctx)}
+	if err := a.periodStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
+		return nil, fmt.Errorf("error dismissing the missed slots of %s: %w", request.FileName, err)
+	}
+	a.logAudit(ctx, audit.CategoryDAG, "dag_missed_slots_dismiss", map[string]any{"dag_name": request.FileName})
+	return api.DismissDAGMissedSlots204Response{}, nil
+}
+
+// dagFirstSeen returns when the scheduler first tracked a DAG, from its
+// cached state, or zero when that is unknown.
+func (a *API) dagFirstSeen(ctx context.Context, dagName string) time.Time {
+	if a.schedulerStateStore == nil {
+		return time.Time{}
+	}
+	watermark, err := a.schedulerStateStore.LoadDAG(ctx, dagName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to load scheduler state for missed slots", tag.Error(err))
+	}
+	return watermark.FirstSeen
+}
+
+// recordSuspension records the suspension of a DAG that is to resume as a
+// period in which its slots did not run. It runs before the resume clears the
+// suspension, so a resume never holds without its period; a resume retried
+// after the clear failed records the same period, extended to the retry.
+func (a *API) recordSuspension(ctx context.Context, fileName string) error {
+	if a.periodStore == nil {
+		return nil
+	}
+	since, suspended, err := a.dagRepository.SuspendedSince(ctx, fileName)
+	if err != nil {
+		return fmt.Errorf("error reading the suspension of %s: %w", fileName, err)
+	}
+	if !suspended {
+		return nil
+	}
+	if err := a.periodStore.AddSuspended(ctx, fileName, schedulerstate.Period{From: since, To: time.Now()}); err != nil {
+		return fmt.Errorf("error recording the suspension of %s: %w", fileName, err)
+	}
+	return nil
 }
 
 // slotDates returns the dates a slot's run recorded, or, for a slot without

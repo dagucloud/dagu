@@ -100,7 +100,9 @@ describe('useBackfillNotice', () => {
       'local',
     ]);
 
-    act(() => first.result.current?.dismiss?.());
+    act(() => {
+      first.result.current?.dismiss?.();
+    });
     expect(first.result.current).toBeNull();
     expect(localStorage.getItem(DISMISSED_BACKFILLS_KEY)).toContain('bf123456');
 

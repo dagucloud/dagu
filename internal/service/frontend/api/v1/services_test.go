@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -140,4 +143,25 @@ func TestSchedulerPause_ReadRequiresAuthentication(t *testing.T) {
 
 	server.Client().Get("/api/v1/services/scheduler/pause").
 		ExpectStatus(http.StatusUnauthorized).Send(t)
+}
+
+// An operator's pause, from its start to its resume, is a period in which no
+// DAG's slots run.
+func TestSchedulerPause_RecordsPeriod(t *testing.T) {
+	t.Parallel()
+	server := setupSchedulerPauseServer(t)
+	adminToken := getWebhookAdminToken(t, server)
+
+	for _, paused := range []bool{true, true, false} {
+		server.Client().Post("/api/v1/services/scheduler/pause", api.UpdateSchedulerPauseStateJSONRequestBody{
+			Paused: paused,
+		}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+	}
+
+	pauses := store.NewSchedulerPauseStore(server.Backend.Collection(persis.CollectionSchedulerState))
+	periods, _, err := store.NewPeriodStore(server.Backend.Collection(persis.CollectionSchedulerState), pauses).Ended(t.Context(), "")
+	require.NoError(t, err)
+	require.Len(t, periods, 1)
+	assert.Equal(t, schedulerstate.PeriodPaused, periods[0].Reason)
+	assert.False(t, periods[0].To.Before(periods[0].From))
 }

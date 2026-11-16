@@ -349,6 +349,7 @@ type ServerConfig struct {
 	BackfillStore        backfill.Store
 	SchedulerPauseStore  schedulerstate.PauseStore
 	RestartBackoffStore  schedulerstate.RestartBackoffStore
+	PeriodStore          schedulerstate.PeriodStore
 	Caches               []fileutil.CacheMetrics
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
@@ -395,6 +396,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	opts = append(opts, WithAPIOption(apiv1.WithBackfillStore(setup.BackfillStore)))
 	opts = append(opts, WithAPIOption(apiv1.WithSchedulerPauseStore(setup.SchedulerPauseStore)))
 	opts = append(opts, WithAPIOption(apiv1.WithRestartBackoffStore(setup.RestartBackoffStore)))
+	opts = append(opts, WithAPIOption(apiv1.WithPeriodStore(setup.PeriodStore)))
 
 	remoteNodes := make([]string, 0, len(cfg.Server.RemoteNodes))
 	for _, n := range cfg.Server.RemoteNodes {

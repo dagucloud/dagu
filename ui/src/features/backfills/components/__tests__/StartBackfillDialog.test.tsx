@@ -150,6 +150,11 @@ describe('StartBackfillDialog', () => {
       )
     );
     expect(lastBody()).toMatchObject({ revision: 'r1', dryRun: false });
+    // Only a start from the notice of missed slots dismisses it.
+    expect(post).not.toHaveBeenCalledWith(
+      '/dags/{fileName}/missed-slots/dismissal',
+      expect.anything()
+    );
   });
 
   // The options rest folded under a summary until the user opens them.

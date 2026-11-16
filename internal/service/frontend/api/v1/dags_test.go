@@ -8,11 +8,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	persistestutil "github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
@@ -1436,37 +1440,28 @@ func (s stubSchedulerStateStore) Load(context.Context) (*schedulerstate.State, e
 	return schedulerstate.Clone(s.state), nil
 }
 
+func (s stubSchedulerStateStore) LoadDAG(_ context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	return schedulerstate.CloneDAGWatermark(s.state.DAGs[dag]), nil
+}
+
 func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) error {
 	return nil
 }
 
-// A DAG's details, read or streamed, give the latest span whose slots the
-// scheduler recorded as missed, which the DAG's page offers to backfill.
-// The details offer a DAG's missed slots only when its runs read their
-// slot, since the runs of any other DAG all do the same work.
-func TestDAGDetailsMissedSlots(t *testing.T) {
+// A DAG's details, read or streamed, have the fields they had before the
+// slots a DAG missed moved to their own endpoint, so the live feed sends no
+// more on each update than it did then. A field added on purpose joins the
+// list here, after weighing what it adds to every update.
+func TestDAGDetailsPayloadShape(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t)
 	dag := helper.DAG(t, `
-name: missed-slots-dag
+name: details-shape
 schedule: "0 * * * *"
 steps:
   - run: ./load.sh ${context.run.scheduled_at}
 `)
-	ignores := helper.DAG(t, `
-name: missed-slots-sync
-schedule: "0 * * * *"
-steps:
-  - run: ./sync.sh
-`)
-	from := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
-	gap := schedulerstate.DAGWatermark{Missed: &schedulerstate.MissedGap{
-		From: from, To: from.Add(12 * time.Hour), Reason: schedulerstate.GapSuspended, Slots: 12,
-	}}
-	state := &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
-		dag.Name: gap, ignores.Name: gap,
-	}}
 	apiImpl := localapi.New(
 		helper.DAGRepository,
 		helper.DAGRunRepository,
@@ -1478,29 +1473,20 @@ steps:
 		helper.ServiceRegistry,
 		nil,
 		nil,
-		localapi.WithSchedulerStateStore(stubSchedulerStateStore{state: state}),
 	)
-
-	want := &api.MissedSlots{
-		From: from, To: from.Add(12 * time.Hour), Reason: api.MissedSlotsReasonSuspended, Slots: 12,
-	}
-	respObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: dag.FileName()})
-	require.NoError(t, err)
-	resp, ok := respObj.(api.GetDAGDetails200JSONResponse)
-	require.True(t, ok)
-	assert.Equal(t, want, resp.MissedSlots)
 
 	live, err := apiImpl.GetDAGDetailsData(context.Background(), dag.FileName())
 	require.NoError(t, err)
-	streamed, ok := live.(api.GetDAGDetails200JSONResponse)
-	require.True(t, ok)
-	assert.Equal(t, want, streamed.MissedSlots, "a live update keeps the gap")
-
-	respObj, err = apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{FileName: ignores.FileName()})
-	require.NoError(t, err)
-	resp, ok = respObj.(api.GetDAGDetails200JSONResponse)
-	require.True(t, ok)
-	assert.Nil(t, resp.MissedSlots)
+	payload := reflect.TypeOf(live)
+	require.Equal(t, reflect.TypeFor[api.GetDAGDetails200JSONResponse](), payload, "the live feed sends the details as read")
+	var fields []string
+	for field := range payload.Fields() {
+		fields = append(fields, strings.Split(field.Tag.Get("json"), ",")[0])
+	}
+	assert.ElementsMatch(t, []string{
+		"dag", "editorHints", "errors", "latestBackfill", "latestDAGRun",
+		"localDags", "pinned", "spec", "suspended", "warnings",
+	}, fields)
 }
 
 func TestListDAGsDataPreservesNextRunAcrossSSEPath(t *testing.T) {
@@ -2077,6 +2063,113 @@ steps:
 	_, ok := respObj.(api.UpdateDAGSuspensionState200Response)
 	require.True(t, ok, "expected 200 response, got %T", respObj)
 	require.Equal(t, []string{dag.FileName()}, notified)
+}
+
+// A suspension, from its start to its resume, is a period in which the DAG's
+// slots do not run.
+func TestUpdateDAGSuspensionState_RecordsPeriod(t *testing.T) {
+	t.Parallel()
+	server := test.SetupServer(t)
+	dag := server.DAG(t, `schedule: "0 * * * *"
+steps:
+  - run: "true"
+`)
+
+	for _, suspend := range []bool{true, false} {
+		server.Client().Post("/api/v1/dags/"+dag.FileName()+"/suspend", api.UpdateDAGSuspensionStateJSONRequestBody{
+			Suspend: suspend,
+		}).ExpectStatus(http.StatusOK).Send(t)
+	}
+
+	periods, _, err := store.NewPeriodStore(server.Backend.Collection(persis.CollectionSchedulerState), nil).Ended(t.Context(), dag.FileName())
+	require.NoError(t, err)
+	require.Len(t, periods, 1)
+	assert.Equal(t, schedulerstate.PeriodSuspended, periods[0].Reason)
+	assert.False(t, periods[0].To.Before(periods[0].From))
+}
+
+// flakyPeriods is a period store whose AddSuspended fails while fail is set.
+type flakyPeriods struct {
+	schedulerstate.PeriodStore
+	fail bool
+}
+
+func (s *flakyPeriods) AddSuspended(ctx context.Context, dag string, suspended schedulerstate.Period) error {
+	if s.fail {
+		return errors.New("period store unavailable")
+	}
+	return s.PeriodStore.AddSuspended(ctx, dag, suspended)
+}
+
+// suspendFlags keeps when the suspension of each suspended DAG began, and
+// fails to change a flag while fail is set.
+type suspendFlags struct {
+	persis.DAGDefinitionStore
+	since map[string]time.Time
+	fail  bool
+}
+
+func (s *suspendFlags) GetMetadata(_ context.Context, id string) (*ir.DAG, error) {
+	return &ir.DAG{Name: strings.TrimSuffix(id, ".yaml")}, nil
+}
+
+func (s *suspendFlags) SetSuspended(_ context.Context, id string, suspended bool) error {
+	switch _, ok := s.since[id]; {
+	case s.fail:
+		return errors.New("flag store unavailable")
+	case suspended && !ok:
+		s.since[id] = time.Now()
+	case !suspended:
+		delete(s.since, id)
+	}
+	return nil
+}
+
+func (s *suspendFlags) SuspendedSince(_ context.Context, id string) (time.Time, bool, error) {
+	since, ok := s.since[id]
+	return since, ok, nil
+}
+
+// A resume records the suspension it ends before it clears the flag: one
+// whose period cannot be recorded fails and leaves the DAG suspended, and one
+// retried after the flag failed to clear records the period once, ending at
+// the retry, as the DAG stayed suspended until then.
+func TestUpdateDAGSuspensionState_RecordsPeriodBeforeResume(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	periods := &flakyPeriods{PeriodStore: store.NewPeriodStore(persistestutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), nil)}
+	flags := &suspendFlags{since: map[string]time.Time{}}
+	apiImpl := localapi.New(
+		persis.NewDAGRepository(flags, persis.DAGRepositoryOptions{}), helper.DAGRunRepository, helper.QueueStore,
+		helper.ProcRepository, helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil,
+		localapi.WithPeriodStore(periods),
+	)
+	toggle := func(suspend bool) error {
+		_, err := apiImpl.UpdateDAGSuspensionState(t.Context(), api.UpdateDAGSuspensionStateRequestObject{
+			FileName: "etl.yaml",
+			Body:     &api.UpdateDAGSuspensionStateJSONRequestBody{Suspend: suspend},
+		})
+		return err
+	}
+	require.NoError(t, toggle(true))
+	since := flags.since["etl.yaml"]
+
+	periods.fail = true
+	require.Error(t, toggle(false), "a period that cannot be recorded")
+	assert.Contains(t, flags.since, "etl.yaml", "the DAG stays suspended")
+
+	periods.fail, flags.fail = false, true
+	require.Error(t, toggle(false), "a flag that cannot be cleared")
+	flags.fail = false
+	retried := time.Now()
+	require.NoError(t, toggle(false), "the retry")
+	assert.NotContains(t, flags.since, "etl.yaml")
+
+	ended, _, err := periods.Ended(t.Context(), "etl.yaml")
+	require.NoError(t, err)
+	require.Len(t, ended, 1, "the retry records no second period")
+	assert.True(t, since.Equal(ended[0].From), "from %s", ended[0].From)
+	assert.False(t, ended[0].To.Before(retried), "the period ends at %s, before the retry", ended[0].To)
 }
 
 func TestLegacySuspensionViaAPI(t *testing.T) {

@@ -17,10 +17,13 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -257,4 +260,159 @@ func TestBackfillWorkspaceAccess(t *testing.T) {
 	cancelled, err := apiImpl.CancelBackfill(developer, cancel)
 	require.NoError(t, err)
 	assert.Equal(t, api.BackfillStatusCancelled, cancelled.(api.CancelBackfill200JSONResponse).Status)
+}
+
+// countingStates is a scheduler state store that counts its loads of the
+// whole state and of one DAG's watermark.
+type countingStates struct {
+	stubSchedulerStateStore
+	loads, dagLoads int
+}
+
+func (s *countingStates) Load(ctx context.Context) (*schedulerstate.State, error) {
+	s.loads++
+	return s.stubSchedulerStateStore.Load(ctx)
+}
+
+func (s *countingStates) LoadDAG(ctx context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	s.dagLoads++
+	return s.stubSchedulerStateStore.LoadDAG(ctx, dag)
+}
+
+// A DAG's missed slots are the slots that came due in its own periods and,
+// from when the scheduler first saw it, in the scheduler's, in the DAG's
+// workspace, read from the scheduler state store. A DAG whose runs do not
+// read their slot has none: its runs all do the same work. Neither has a DAG
+// whose catch-up replayed the outage's slots.
+func TestGetDAGMissedSlots(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	// Neither catches up, which the base config would have them do for 6h.
+	for _, name := range []string{"ops-load", "ops-new"} {
+		helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, name, []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: \"\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	}
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-caught", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: 3h\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-sync", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
+	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	hour := time.Now().Truncate(time.Hour)
+	ctx := context.Background()
+	require.NoError(t, periods.AddDown(ctx, schedulerstate.Period{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute)}))
+	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-90 * time.Minute), To: hour.Add(-30 * time.Minute)}))
+	// ops-new was first seen after the outage, so it missed none of its slots.
+	states := &countingStates{stubSchedulerStateStore: stubSchedulerStateStore{state: &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
+		"ops-load":   {FirstSeen: hour.Add(-6 * time.Hour)},
+		"ops-sync":   {FirstSeen: hour.Add(-6 * time.Hour)},
+		"ops-caught": {FirstSeen: hour.Add(-6 * time.Hour)},
+		"ops-new":    {FirstSeen: hour.Add(-2 * time.Hour)},
+	}}}}
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
+	user := func(workspace string) context.Context {
+		return auth.WithUser(ctx, &auth.User{
+			Username: "viewer", Role: auth.RoleViewer,
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: workspace, Role: auth.RoleViewer}}},
+		})
+	}
+	missedSlots := func(ctx context.Context, fileName string) *api.MissedSlots {
+		t.Helper()
+		resp, err := apiImpl.GetDAGMissedSlots(ctx, api.GetDAGMissedSlotsRequestObject{FileName: fileName})
+		require.NoError(t, err)
+		return resp.(api.GetDAGMissedSlots200JSONResponse).MissedSlots
+	}
+
+	missed := missedSlots(user("ops"), "ops-load")
+	require.NotNil(t, missed)
+	assert.Equal(t, 4, missed.Slots)
+	assert.True(t, hour.Add(-4*time.Hour).Equal(missed.First), "first %s", missed.First)
+	assert.True(t, hour.Add(-time.Hour).Equal(missed.Last), "last %s", missed.Last)
+	assert.Equal(t, []api.MissedSlotsReason{api.MissedSlotsReasonDown, api.MissedSlotsReasonSuspended}, missed.Reasons)
+	assert.True(t, hour.Add(-30*time.Minute).Equal(missed.Until), "until %s", missed.Until)
+
+	assert.Positive(t, states.dagLoads, "first seen comes from the state store")
+	assert.Zero(t, states.loads, "no read copies every DAG's watermark")
+	assert.Nil(t, missedSlots(user("ops"), "ops-new"), "a DAG first seen after the outage")
+	assert.Nil(t, missedSlots(user("ops"), "ops-sync"), "a DAG that does not read its slot")
+	assert.Nil(t, missedSlots(user("ops"), "ops-caught"), "a DAG whose catch-up replayed the outage")
+	_, err := apiImpl.GetDAGMissedSlots(user("other"), api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})
+	requireAPIErrorStatus(t, err, http.StatusNotFound)
+}
+
+// A dismissal hides a DAG's missed slots from every user who can see the
+// DAG, from the first dismissal on with no record of the DAG yet, until a
+// period that ends after it adds missed slots. Only a user who may suspend
+// the DAG may dismiss them. A user who cannot see the DAG, or a DAG that
+// does not exist, gets 404.
+func TestDismissDAGMissedSlots(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: \"\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	hour := time.Now().Truncate(time.Hour)
+	ctx := context.Background()
+	require.NoError(t, periods.AddDown(ctx, schedulerstate.Period{From: hour.Add(-3*time.Hour + 30*time.Minute), To: hour.Add(-90 * time.Minute)}))
+	states := stubSchedulerStateStore{state: &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
+		"ops-load": {FirstSeen: hour.Add(-6 * time.Hour)},
+	}}}
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
+	user := func(name, workspace string, role auth.Role) context.Context {
+		return auth.WithUser(ctx, &auth.User{
+			Username: name, Role: auth.RoleViewer,
+			WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{{Workspace: workspace, Role: role}}},
+		})
+	}
+	missedSlots := func(ctx context.Context) *api.MissedSlots {
+		t.Helper()
+		resp, err := apiImpl.GetDAGMissedSlots(ctx, api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})
+		require.NoError(t, err)
+		return resp.(api.GetDAGMissedSlots200JSONResponse).MissedSlots
+	}
+	dismiss := func(ctx context.Context, fileName string) error {
+		_, err := apiImpl.DismissDAGMissedSlots(ctx, api.DismissDAGMissedSlotsRequestObject{FileName: fileName})
+		return err
+	}
+	// A dismissal needs what a suspension needs, and is refused as one is.
+	suspend := func(ctx context.Context) error {
+		_, err := apiImpl.UpdateDAGSuspensionState(ctx, api.UpdateDAGSuspensionStateRequestObject{
+			FileName: "ops-load", Body: &api.UpdateDAGSuspensionStateJSONRequestBody{Suspend: true},
+		})
+		return err
+	}
+	viewer, operator := user("bob", "ops", auth.RoleViewer), user("alice", "ops", auth.RoleOperator)
+	require.NotNil(t, missedSlots(viewer))
+
+	requireAPIErrorStatus(t, dismiss(user("eve", "other", auth.RoleOperator), "ops-load"), http.StatusNotFound)
+	requireAPIErrorStatus(t, dismiss(operator, "missing"), http.StatusNotFound)
+	refused := dismiss(viewer, "ops-load")
+	requireAPIErrorStatus(t, refused, http.StatusForbidden)
+	assert.Equal(t, suspend(viewer), refused, "a viewer is refused as a suspension refuses one")
+	require.NotNil(t, missedSlots(viewer), "a refused dismissal hides nothing")
+
+	require.NoError(t, dismiss(operator, "ops-load"))
+	assert.Nil(t, missedSlots(viewer), "hidden from another user")
+
+	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
+	missed := missedSlots(viewer)
+	require.NotNil(t, missed, "a newer period adds missed slots")
+	// The outage ended before the dismissal, so only the suspension counts.
+	assert.Equal(t, 2, missed.Slots)
+	assert.True(t, hour.Add(-time.Hour).Equal(missed.First), "first %s", missed.First)
+	assert.True(t, hour.Equal(missed.Last), "last %s", missed.Last)
+	assert.Equal(t, []api.MissedSlotsReason{api.MissedSlotsReasonSuspended}, missed.Reasons)
+
+	helper.Config.Server.Permissions[config.PermissionRunDAGs] = false
+	refused = dismiss(operator, "ops-load")
+	requireAPIErrorStatus(t, refused, http.StatusForbidden)
+	assert.Equal(t, suspend(operator), refused, "a server that runs no DAGs refuses it as a suspension")
+	assert.NotNil(t, missedSlots(viewer), "a refused dismissal hides nothing")
+}
+
+// A server without a period store answers a dismissal as done.
+func TestDismissDAGMissedSlotsWithoutPeriodStore(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t)
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "etl", []byte("steps:\n  - run: echo hi\n"))
+	apiImpl := newDAGPinAPIWithStore(helper, nil)
+
+	resp, err := apiImpl.DismissDAGMissedSlots(context.Background(), api.DismissDAGMissedSlotsRequestObject{FileName: "etl"})
+	require.NoError(t, err)
+	assert.IsType(t, api.DismissDAGMissedSlots204Response{}, resp)
 }

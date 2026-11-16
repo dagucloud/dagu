@@ -1,136 +1,191 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MissedSlotsReason, type components } from '@/api/v1/schema';
+import { useSWRConfig } from 'swr';
+import { MissedSlotsReason } from '@/api/v1/schema';
+import { useErrorModal } from '@/components/ui/error-modal';
 import type { WorkspaceNotice } from '@/features/dags/components/dag-editor/hostTypes';
+import { useClient, useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 
-type MissedSlots = components['schemas']['MissedSlots'];
-
-/** The gaps whose notice was dismissed, newest last. */
-export const DISMISSED_GAPS_KEY = 'dagu.backfills.dismissedGaps';
-const DISMISSED_KEEP = 20;
 const MISSED_SLOTS_NOTICE_PRIORITY = 15;
+const MISSED_SLOTS_PATH = '/dags/{fileName}/missed-slots';
 
-/** The query that opens the Backfills tab on a gap to backfill. */
+/** The query that opens the Backfills tab on a range to backfill. */
 export const GAP_FROM_PARAM = 'gapFrom';
 export const GAP_TO_PARAM = 'gapTo';
 
-const MESSAGES: Record<MissedSlotsReason, string> = {
-  [MissedSlotsReason.suspended]:
-    '{count} slots passed from {from} to {to} while this DAG was suspended',
-  [MissedSlotsReason.paused]:
-    '{count} slots passed from {from} to {to} while the scheduler was paused',
-  [MissedSlotsReason.down]:
-    '{count} slots passed from {from} to {to} while the scheduler was down',
+/** Why the slots did not run; slots missed for several reasons name none. */
+const WHY: Record<MissedSlotsReason | 'several', string> = {
+  [MissedSlotsReason.suspended]: 'this DAG was suspended',
+  [MissedSlotsReason.paused]: 'the scheduler was paused',
+  [MissedSlotsReason.down]: 'the scheduler was down',
+  several: 'this DAG could not run',
 };
 
-/** The most slots the scheduler counts in a gap. */
-const MAX_GAP_SLOTS = 10000;
-
-/**
- * A gap's dismissal holds for its DAG on its node only. A backfill of a
- * gap's first slots moves its start, so the key leaves the start out: the
- * end, when the hold or the outage was found to end, tells gaps apart.
- */
-const gapKey = (gap: MissedSlots, dagName: string, remoteNode: string) =>
-  `${remoteNode}/${dagName}/${gap.reason}/${gap.to}`;
-
-function readDismissed(): string[] {
-  try {
-    const parsed: unknown = JSON.parse(
-      localStorage.getItem(DISMISSED_GAPS_KEY) ?? '[]'
-    );
-    return Array.isArray(parsed)
-      ? parsed.filter((key): key is string => typeof key === 'string')
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeDismissed(keys: string[]): void {
-  try {
-    localStorage.setItem(
-      DISMISSED_GAPS_KEY,
-      JSON.stringify(keys.slice(-DISMISSED_KEEP))
-    );
-  } catch {
-    // The notice then shows again on the next visit.
-  }
-}
+/** The most slots the server looks at. */
+const MAX_MISSED_SLOTS = 10000;
 
 const formatBound = (value: string) =>
   formatAbsoluteTime(value, { seconds: false }) ?? value;
 
+/** Whether an SWR key reads the missed slots of fileName on remoteNode. */
+const readsMissedSlotsOf =
+  (fileName: string, remoteNode: string) => (key: unknown) => {
+    if (!Array.isArray(key) || key[1] !== MISSED_SLOTS_PATH) return false;
+    const { params } = (key[2] ?? {}) as {
+      params?: {
+        path?: { fileName?: string };
+        query?: { remoteNode?: string };
+      };
+    };
+    return (
+      params?.path?.fileName === fileName &&
+      params?.query?.remoteNode === remoteNode
+    );
+  };
+
+/**
+ * Dismisses a DAG's missed slots for every user, as Dismiss does, once a
+ * backfill started from their notice. The backfill has started, so a
+ * dismissal that fails is only logged.
+ */
+export function useDismissMissedSlotsOnStart(
+  fileName: string,
+  remoteNode: string
+): () => Promise<void> {
+  const client = useClient();
+  const { mutate } = useSWRConfig();
+  return async () => {
+    try {
+      const { error } = await client.POST(
+        '/dags/{fileName}/missed-slots/dismissal',
+        { params: { path: { fileName }, query: { remoteNode } } }
+      );
+      if (error) {
+        console.warn('Failed to dismiss the missed slots:', error.message);
+        return;
+      }
+      // The server now answers none, so the slots read are dropped.
+      void mutate(
+        readsMissedSlotsOf(fileName, remoteNode),
+        {},
+        { revalidate: false }
+      );
+    } catch (error) {
+      console.warn('Failed to dismiss the missed slots:', error);
+    }
+  };
+}
+
 /**
  * The notice of the slots a DAG missed while it was suspended, the
- * scheduler paused, or no scheduler ran. For a user who may backfill, its
- * action opens the Backfills tab with the start panel on that gap.
- * Dismissed, it stays hidden until another gap is missed.
+ * scheduler paused, or no scheduler ran. For a user who may run the DAG, its
+ * action opens the Backfills tab with the start panel on those slots, and it
+ * can be dismissed. The slots are read as the page opens, never polled or
+ * retried. Dismissed, or acted on by a backfill started from it, the notice
+ * is hidden from every user until a newer period adds missed slots; a
+ * dismissal the server did not keep leaves the notice and shows the error.
  */
 export function useMissedSlotsNotice(
-  gap: MissedSlots | undefined,
-  dagName: string,
+  fileName: string,
   remoteNode: string,
   canBackfill: boolean
 ): WorkspaceNotice | null {
   const { ts } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
-  const [dismissed, setDismissed] = useState(readDismissed);
-  const dismiss = useCallback(() => {
-    if (!gap) return;
-    const next = [...readDismissed(), gapKey(gap, dagName, remoteNode)];
-    writeDismissed(next);
-    setDismissed(next);
-  }, [gap, dagName, remoteNode]);
+  const client = useClient();
+  const { showError } = useErrorModal();
+  const { data, mutate } = useQuery(
+    MISSED_SLOTS_PATH,
+    fileName ? { params: { path: { fileName }, query: { remoteNode } } } : null,
+    // The notice is advisory, and opening the page reads it again.
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+    }
+  );
+  const missed = data?.missedSlots;
 
   return useMemo(() => {
-    if (
-      !gap ||
-      gap.slots === 0 ||
-      dismissed.includes(gapKey(gap, dagName, remoteNode))
-    ) {
+    if (!missed || missed.slots === 0) {
       return null;
     }
-    // A gap at the cap may hold more slots than it counts.
-    const count =
-      gap.slots >= MAX_GAP_SLOTS ? `${MAX_GAP_SLOTS}+` : String(gap.slots);
+    const [reason] = missed.reasons;
+    const why = ts(
+      WHY[missed.reasons.length === 1 && reason ? reason : 'several']
+    );
+    const message =
+      missed.slots === 1
+        ? ts('1 slot passed at {at} while {why}', {
+            at: formatBound(missed.first),
+            why,
+          })
+        : ts('{count} slots passed from {from} to {to} while {why}', {
+            // At the cap, more slots may have been missed.
+            count:
+              missed.slots >= MAX_MISSED_SLOTS
+                ? `${MAX_MISSED_SLOTS}+`
+                : String(missed.slots),
+            from: formatBound(missed.first),
+            to: formatBound(missed.last),
+            why,
+          });
     const action = {
       label: ts('Backfill'),
       run: () => {
         const search = new URLSearchParams(location.search);
         search.set('panel', 'workflow');
         search.set('wtab', 'backfills');
-        search.set(GAP_FROM_PARAM, gap.from);
-        search.set(GAP_TO_PARAM, gap.to);
+        search.set(GAP_FROM_PARAM, missed.first);
+        search.set(GAP_TO_PARAM, missed.last);
         navigate({ pathname: location.pathname, search: `?${search}` });
       },
     };
     return {
       id: 'missed-slots',
       tone: 'warning',
-      message: ts(MESSAGES[gap.reason], {
-        count,
-        from: formatBound(gap.from),
-        to: formatBound(gap.to),
-      }),
+      message,
       action: canBackfill ? action : undefined,
-      dismissible: true,
-      dismiss,
+      dismissible: canBackfill,
+      dismiss: async () => {
+        const failed = (message: string) =>
+          showError(
+            message,
+            ts('Please try again or check the server connection.')
+          );
+        try {
+          const { error } = await client.POST(
+            '/dags/{fileName}/missed-slots/dismissal',
+            { params: { path: { fileName }, query: { remoteNode } } }
+          );
+          if (error) {
+            failed(error.message || ts('The missed slots were not dismissed.'));
+            return false;
+          }
+          // The server now answers none, so the slots read are dropped.
+          void mutate({}, { revalidate: false });
+          return true;
+        } catch (error) {
+          failed(error instanceof Error ? error.message : String(error));
+          return false;
+        }
+      },
       priority: MISSED_SLOTS_NOTICE_PRIORITY,
     };
   }, [
-    gap,
-    dagName,
+    missed,
+    fileName,
     remoteNode,
+    client,
+    mutate,
+    showError,
     canBackfill,
-    dismissed,
-    dismiss,
     navigate,
     location,
     ts,

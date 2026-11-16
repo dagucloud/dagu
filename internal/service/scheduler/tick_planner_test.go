@@ -8,11 +8,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +49,14 @@ func (m *mockStateStore) Load(_ context.Context) (*schedulerstate.State, error) 
 		}, nil
 	}
 	return schedulerstate.Clone(m.state), nil
+}
+
+func (m *mockStateStore) LoadDAG(ctx context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	state, err := m.Load(ctx)
+	if err != nil {
+		return schedulerstate.DAGWatermark{}, err
+	}
+	return state.DAGs[dag], nil
 }
 
 func (m *mockStateStore) Save(_ context.Context, state *schedulerstate.State) error {
@@ -3446,5 +3457,294 @@ func TestFailoverRecovery(t *testing.T) {
 				assert.Equal(t, tc.wantSlot, lastSlot(tp, dag.Name))
 			}
 		})
+	}
+}
+
+// periodRecorder keeps the periods the planner records as ended.
+type periodRecorder struct {
+	mu      sync.Mutex
+	periods []schedulerstate.Period
+}
+
+func (r *periodRecorder) AddDown(_ context.Context, down schedulerstate.Period) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.periods = append(r.periods, schedulerstate.Period{From: down.From, To: down.To, Reason: schedulerstate.PeriodDown})
+	return nil
+}
+
+func (r *periodRecorder) AddSuspended(_ context.Context, dag string, _ schedulerstate.Period) error {
+	return fmt.Errorf("the scheduler records no suspension, as of %s", dag)
+}
+
+func (r *periodRecorder) Ended(context.Context, string) ([]schedulerstate.Period, schedulerstate.Dismissal, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.periods), schedulerstate.Dismissal{}, nil
+}
+
+func (r *periodRecorder) Dismiss(context.Context, string, schedulerstate.Dismissal) error {
+	return errors.New("the scheduler records no dismissal")
+}
+
+// A scheduler that starts more than a minute after the last tick records the
+// time between as one period in which no scheduler ran, up to its first tick,
+// which runs its own minute. A takeover replays the slots of its recovery
+// window, so the period ends where the window starts.
+func TestTickPlanner_InitRecordsOutage(t *testing.T) {
+	t.Parallel()
+	feb7 := func(hour, minute int) time.Time { return time.Date(2026, 2, 7, hour, minute, 0, 0, time.UTC) }
+	for _, tc := range []struct {
+		name     string
+		lastTick time.Time
+		recovery time.Duration
+		want     []schedulerstate.Period
+	}{
+		{name: "outage", lastTick: feb7(9, 0), want: []schedulerstate.Period{{From: feb7(9, 0), To: feb7(12, 0), Reason: schedulerstate.PeriodDown}}},
+		{name: "takeover", lastTick: feb7(9, 0), recovery: 2 * time.Minute, want: []schedulerstate.Period{{From: feb7(9, 0), To: feb7(11, 58), Reason: schedulerstate.PeriodDown}}},
+		{name: "restart within a minute", lastTick: feb7(11, 59)},
+		{name: "first start"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(tc.lastTick)})
+			periods := &periodRecorder{}
+			tp.cfg.Periods = periods
+			tp.cfg.RecoveryWindow = func() time.Duration { return tc.recovery }
+			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+			recorded, _, err := periods.Ended(t.Context(), "")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, recorded)
+		})
+	}
+}
+
+// A tick that comes late, as after the host slept, records the time it
+// missed as a period in which no scheduler ran.
+func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	periods := &periodRecorder{}
+	tp.cfg.Periods = periods
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp.Advance(lastTick)
+
+	tp.resume(t.Context(), lastTick.Add(45*time.Minute))
+
+	recorded, _, err := periods.Ended(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, []schedulerstate.Period{
+		{From: lastTick, To: lastTick.Add(45 * time.Minute), Reason: schedulerstate.PeriodDown},
+	}, recorded)
+}
+
+// flakyPeriods fails its first Add, as a store briefly unavailable.
+type flakyPeriods struct {
+	periodRecorder
+	failed bool
+}
+
+func (r *flakyPeriods) AddDown(ctx context.Context, down schedulerstate.Period) error {
+	if !r.failed {
+		r.failed = true
+		return errors.New("period store unavailable")
+	}
+	return r.periodRecorder.AddDown(ctx, down)
+}
+
+// An outage whose period cannot be recorded is kept and recorded again as the
+// scheduler plans its ticks, though the late tick moves the last tick past
+// it.
+func TestTickPlanner_RetriesOutage(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	periods := &flakyPeriods{}
+	tp.cfg.Periods = periods
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp.Advance(lastTick)
+
+	late := lastTick.Add(45 * time.Minute)
+	tp.resume(t.Context(), late)
+	tp.Plan(t.Context(), late)
+	tp.Advance(late)
+
+	recorded, _, err := periods.Ended(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, []schedulerstate.Period{
+		{From: lastTick, To: late, Reason: schedulerstate.PeriodDown},
+	}, recorded)
+}
+
+// failingPeriods fails every Add while fail is set.
+type failingPeriods struct {
+	periodRecorder
+	fail bool
+}
+
+func (r *failingPeriods) AddDown(ctx context.Context, down schedulerstate.Period) error {
+	if r.fail {
+		return errors.New("period store unavailable")
+	}
+	return r.periodRecorder.AddDown(ctx, down)
+}
+
+// While the period store fails, the outages kept to record later are bounded:
+// the newest 10, an outage that begins where the last kept one ends joining
+// it.
+func TestTickPlanner_BoundsPendingOutages(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	periods := &failingPeriods{fail: true}
+	tp.cfg.Periods = periods
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	start := time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)
+	var want []schedulerstate.Period
+	for i := range 12 {
+		from := start.Add(time.Duration(i) * time.Hour)
+		tp.Advance(from)
+		tp.resume(t.Context(), from.Add(30*time.Minute))
+		want = append(want, schedulerstate.Period{From: from, To: from.Add(30 * time.Minute), Reason: schedulerstate.PeriodDown})
+	}
+	last := want[len(want)-1].To
+	tp.Advance(last)
+	tp.resume(t.Context(), last.Add(30*time.Minute))
+	want[len(want)-1].To = last.Add(30 * time.Minute)
+
+	periods.fail = false
+	tp.Plan(t.Context(), last.Add(30*time.Minute))
+
+	recorded, _, err := periods.Ended(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, want[2:], recorded)
+}
+
+// While outages keep failing to record, the planner warns at the first
+// failure and then at most every 10 minutes, and says once when they record
+// again.
+func TestTickPlanner_SpacesOutageWarnings(t *testing.T) {
+	t.Parallel()
+	logs := &syncBuffer{buf: new(bytes.Buffer)}
+	ctx := logger.WithFixedLogger(t.Context(), logger.NewLogger(
+		logger.WithFormat("text"), logger.WithWriter(logs),
+	))
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	periods := &failingPeriods{fail: true}
+	tp.cfg.Periods = periods
+	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp.cfg.Clock = func() time.Time { return now }
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(ctx, testDAGEntries(dag)))
+	tp.Advance(now)
+	tick := func() {
+		now = now.Add(time.Minute)
+		tp.Plan(ctx, now)
+		tp.Advance(now)
+	}
+	failed := func() int { return strings.Count(logs.String(), "Failed to record the time no scheduler ran") }
+
+	now = now.Add(45 * time.Minute)
+	tp.resume(ctx, now)
+	for range 19 {
+		tick()
+	}
+	assert.Equal(t, 2, failed(), "at 12:45 and 12:55")
+
+	periods.fail = false
+	tick()
+	tick()
+	assert.Equal(t, 1, strings.Count(logs.String(), "Recorded the time no scheduler ran"))
+	recorded, _, err := periods.Ended(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, recorded, 1)
+
+	periods.fail = true
+	tp.resume(ctx, now.Add(2*time.Minute))
+	assert.Equal(t, 3, failed(), "a new failure warns at once")
+}
+
+// The planner records when it first tracked a DAG, once: at startup or when
+// the DAG is added. Ticks, reloads, and rewrites of the state file keep it,
+// and a renamed DAG is a new DAG with its own.
+func TestTickPlanner_KeepsWhenADAGWasFirstSeen(t *testing.T) {
+	t.Parallel()
+	states := store.NewSchedulerStateStore(file.NewCollection(t.TempDir(), file.WithIndentedJSON()))
+	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	hourly := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	start := func() *TickPlanner {
+		tp, _ := newTestTickPlanner(states)
+		tp.cfg.Clock = func() time.Time { return now }
+		require.NoError(t, tp.Init(t.Context(), testDAGEntries(hourly)))
+		return tp
+	}
+	firstSeen := func(tp *TickPlanner, dag string) time.Time { return tp.dagWatermark(dag).FirstSeen }
+
+	tp := start()
+	seen := now
+	assert.True(t, seen.Equal(firstSeen(tp, "hourly")), "first seen at %s", firstSeen(tp, "hourly"))
+
+	for range 2 {
+		now = now.Add(time.Hour)
+		tp.Plan(t.Context(), now)
+		tp.Advance(now)
+		tp.Flush(t.Context())
+		tp = start()
+		assert.True(t, seen.Equal(firstSeen(tp, "hourly")), "kept at %s", firstSeen(tp, "hourly"))
+	}
+
+	now = now.Add(time.Hour)
+	renamed := &ir.DAG{Name: "renamed", Schedule: hourly.Schedule}
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeDeleted, DAGEntry: DAGEntry{DAG: hourly}})
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: renamed}})
+	assert.True(t, now.Equal(firstSeen(tp, "renamed")), "a renamed DAG is first seen at %s", firstSeen(tp, "renamed"))
+	added := now
+	now = now.Add(time.Hour)
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: renamed}})
+	assert.True(t, added.Equal(firstSeen(tp, "renamed")), "an update keeps it")
+}
+
+// A state file written by a build that kept a tally of missed slots, with a
+// DAG held and a missed gap, loads without them; the scheduler runs the next
+// slot and writes the file back without them.
+func TestTickPlanner_LoadsStateWithMissedGap(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{
+  "version": 4,
+  "dags": {
+    "hourly": {
+      "lastScheduledTime": "2026-02-07T11:00:00Z",
+      "skipSuccessResetAt": "0001-01-01T00:00:00Z",
+      "lastSlot": {"at": "2026-02-07T11:00:00Z", "outcome": "dispatched"},
+      "heldSince": "2026-02-07T09:00:00Z",
+      "heldBy": "paused",
+      "missed": {"from": "2026-02-07T06:00:00Z", "to": "2026-02-07T08:00:00Z", "through": "2026-02-07T07:59:59Z", "reason": "down", "slots": 2}
+    }
+  }
+}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "checkpoint.json"), []byte(`{"lastTick": "2026-02-07T11:59:00Z"}`), 0o600))
+	tp, _ := newTestTickPlanner(store.NewSchedulerStateStore(file.NewCollection(dir, file.WithIndentedJSON())))
+	dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+
+	noon := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	runs := tp.Plan(t.Context(), noon)
+	require.Len(t, runs, 1)
+	assert.Equal(t, noon, runs[0].ScheduledTime)
+	tp.Advance(noon)
+	tp.Flush(t.Context())
+
+	saved, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(saved), `"lastScheduledTime": "2026-02-07T12:00:00Z"`)
+	for _, field := range []string{"heldSince", "heldBy", "missed"} {
+		assert.NotContains(t, string(saved), field)
 	}
 }

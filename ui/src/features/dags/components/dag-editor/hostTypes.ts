@@ -88,8 +88,12 @@ export interface WorkspaceNotice {
     run(click?: { metaKey: boolean; ctrlKey: boolean }): void;
   };
   dismissible?: boolean;
-  /** Called when the user dismisses a dismissible notice. */
-  dismiss?(): void;
+  /**
+   * Called when the user dismisses a dismissible notice. The notice line
+   * hides the notice at once, or, when this returns a promise, once it
+   * resolves true.
+   */
+  dismiss?(): void | Promise<boolean>;
   /** The highest shows; the others count in a '+n' popover. */
   priority: number;
 }

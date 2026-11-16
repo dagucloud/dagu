@@ -36,6 +36,7 @@ type Persistence struct {
 	SchedulerStateStore       schedulerstate.Store
 	SchedulerPauseStore       schedulerstate.PauseStore
 	RestartBackoffStore       schedulerstate.RestartBackoffStore
+	PeriodStore               schedulerstate.PeriodStore
 	WatchStateStore           schedulerstate.WatchStore
 	ServiceRegistry           serviceregistry.ServiceRegistry
 	DispatchTaskStore         dispatch.DispatchTaskStore
@@ -125,6 +126,7 @@ func newFilePersistence(
 		SchedulerStateStore:       schedulerStateStore,
 		SchedulerPauseStore:       schedulerPauseStore,
 		RestartBackoffStore:       restartBackoffStore,
+		PeriodStore:               store.NewPeriodStore(backend.Collection(persis.CollectionSchedulerState), schedulerPauseStore),
 		WatchStateStore:           watchStateStore,
 		ServiceRegistry:           serviceRegistry,
 		DispatchTaskStore:         dispatchTaskStore,
