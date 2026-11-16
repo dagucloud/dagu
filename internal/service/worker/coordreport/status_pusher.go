@@ -117,7 +117,7 @@ func (p *StatusPusher) Push(ctx context.Context, status ir.DAGRunStatus) error {
 		}
 		return err
 	}
-	if status.Status != ir.NotStarted && !status.Status.IsActive() {
+	if status.Status.IsTerminal() {
 		retryCtx, cancel := context.WithTimeout(ctx, finalDeliveryRetryTimeout)
 		defer cancel()
 		err = backoff.Retry(retryCtx, report, finalDeliveryRetryPolicy(), isRetryableRPCError)

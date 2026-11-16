@@ -703,7 +703,7 @@ func retrySourceMayStillBeFinalizing(status *ir.DAGRunStatus) bool {
 	if status == nil {
 		return false
 	}
-	return status.Status != ir.NotStarted && !status.Status.IsActive()
+	return status.Status.IsTerminal()
 }
 
 // executeRetry runs a retry of a DAG run using the original run's log file.
