@@ -133,8 +133,8 @@ type TickPlannerConfig struct {
 // tracks progress via watermarks, and reacts to DAG lifecycle changes.
 //
 // Thread safety:
-//   - entries, buffers, and deletedGrace are protected by entryMu (accessed
-//     from drainEvents goroutine and cronLoop's Plan).
+//   - entries, buffers, deletedGrace, and pendingOutages are protected by
+//     entryMu (accessed from drainEvents goroutine and cronLoop's Plan).
 //   - watermarkState is shared with the flusher goroutine and protected by mu.
 //   - flushMu spans a flush's snapshot and save, so a later snapshot is never
 //     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
@@ -161,6 +161,9 @@ type TickPlanner struct {
 	entries      map[string]*plannerEntry
 	buffers      map[string]*ScheduleBuffer
 	deletedGrace map[string]time.Time
+	// pendingOutages are the outages whose spans failed to record, retried
+	// as each tick is planned.
+	pendingOutages []schedulerstate.Span
 
 	// lastPlanResult holds the runs from the most recent Plan() call.
 	// It is written by Plan() and read by Advance(). Both are called
@@ -429,15 +432,30 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 }
 
 // recordOutage records the time from the last tick to to as a span in which
-// no scheduler ran, when a minute or more passed between them.
+// no scheduler ran, when a minute or more passed between them. A span that
+// fails to record is kept until a later tick records it, as the tick moves
+// the last tick past it. Caller must hold entryMu.
 func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time) {
 	if tp.cfg.Spans == nil || lastTick.IsZero() || !to.After(lastTick.Add(time.Minute)) {
 		return
 	}
-	span := schedulerstate.Span{From: lastTick, To: to, Reason: schedulerstate.SpanDown}
-	if err := tp.cfg.Spans.Add(ctx, "", span); err != nil {
-		logger.Warn(ctx, "Failed to record the time no scheduler ran", tag.Error(err))
+	tp.pendingOutages = append(tp.pendingOutages, schedulerstate.Span{From: lastTick, To: to, Reason: schedulerstate.SpanDown})
+	tp.recordPendingOutages(ctx)
+}
+
+// recordPendingOutages records the spans of the outages kept, and keeps
+// those that fail again. Caller must hold entryMu.
+func (tp *TickPlanner) recordPendingOutages(ctx context.Context) {
+	if len(tp.pendingOutages) == 0 {
+		return
 	}
+	tp.pendingOutages = slices.DeleteFunc(tp.pendingOutages, func(span schedulerstate.Span) bool {
+		err := tp.cfg.Spans.Add(ctx, "", span)
+		if err != nil {
+			logger.Warn(ctx, "Failed to record the time no scheduler ran; retrying on the next tick", tag.Error(err))
+		}
+		return err == nil
+	})
 }
 
 // settlePlannedSlots settles each slot left planned, as when the scheduler
@@ -676,6 +694,7 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 // The caller just dispatches.
 func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
 	tp.entryMu.Lock()
+	tp.recordPendingOutages(ctx)
 	flushState := tp.pruneExpiredDeletedWatermarks(now)
 	snapshots := make([]plannerEntrySnapshot, 0, len(tp.entries))
 	for dagName, entry := range tp.entries {

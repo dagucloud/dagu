@@ -3533,6 +3533,45 @@ func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
 	}, recorded)
 }
 
+// flakySpans fails its first Add, as a store briefly unavailable.
+type flakySpans struct {
+	spanRecorder
+	failed bool
+}
+
+func (r *flakySpans) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
+	if !r.failed {
+		r.failed = true
+		return errors.New("span store unavailable")
+	}
+	return r.spanRecorder.Add(ctx, dag, span)
+}
+
+// An outage whose span cannot be recorded is kept and recorded again as the
+// scheduler plans its ticks, though the late tick moves the last tick past
+// it.
+func TestTickPlanner_RetriesOutage(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	spans := &flakySpans{}
+	tp.cfg.Spans = spans
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp.Advance(lastTick)
+
+	late := lastTick.Add(45 * time.Minute)
+	tp.resume(t.Context(), late)
+	tp.Plan(t.Context(), late)
+	tp.Advance(late)
+
+	recorded, err := spans.Ended(t.Context(), "")
+	require.NoError(t, err)
+	assert.Equal(t, []schedulerstate.Span{
+		{From: lastTick, To: late, Reason: schedulerstate.SpanDown},
+	}, recorded)
+}
+
 // A state file written by a build that kept a tally of missed slots, with a
 // DAG held and a missed gap, loads without them; the scheduler runs the next
 // slot and writes the file back without them.
