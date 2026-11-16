@@ -5,14 +5,19 @@ package persis_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -293,6 +298,190 @@ func TestSlotEventsImportsExistingHistory(t *testing.T) {
 		assert.Equal(t, "0 2 * * *", events[0].Schedule)
 		assert.Equal(t, "run-2", events[1].RunID)
 	}
+}
+
+// Reading each run's snapshot through the listing adds the same events as
+// looking each run up by its ID, on the first read and on a later one. The
+// history has runs under an earlier schedule, a retried run, a day with a
+// run index, runs already recorded or removed, and runs that belong to no
+// slot of their own.
+func TestSlotImportMatchesLookupImport(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	runsDir, ephemeralDir := filepath.Join(dir, "dag-runs"), filepath.Join(dir, "ephemeral")
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	at := func(day, hour, minute int) time.Time { return time.Date(2026, 10, day, hour, minute, 0, 0, time.UTC) }
+	loadDAG := func(yaml string) *ir.DAG {
+		dag, err := spec.LoadYAML(ctx, []byte(yaml))
+		require.NoError(t, err)
+		return dag
+	}
+	repository := func(index persis.SlotIndex) *persis.DAGRunRepository {
+		return testutil.NewFileDAGRunRepositoryWithEphemeral(runsDir, ephemeralDir, persis.DAGRunRepositoryOptions{
+			SlotIndex: index,
+			Location:  time.UTC,
+			Now:       func() time.Time { return now },
+		})
+	}
+
+	earlierDAG := loadDAG(slotDAGYAML)
+	currentDAG := loadDAG("name: daily\nslot_retention_days: 30\nschedule:\n  - \"0 3 * * *\"\n" +
+		"  - expression: \"0 4 * * *\"\n    profile: prod\nsteps:\n  - run: echo hi\n")
+	clock := at(1, 5, 0)
+	unindexed := repository(nil)
+	earlier := slotFixture{repository: unindexed, dag: earlierDAG, created: &clock}
+	current := slotFixture{repository: unindexed, dag: currentDAG, created: &clock}
+	withProfile := func(status ir.DAGRunStatus) ir.DAGRunStatus {
+		status.ProfileName = "prod"
+		return status
+	}
+
+	// A day with enough finished runs to have a run index, which lists runs
+	// without reading their statuses.
+	for i := range 10 {
+		earlier.writeRun(t, fmt.Sprintf("busy-%02d", i), persis.DAGRunCreateAttemptOptions{},
+			scheduledStatus(ir.Succeeded, at(1, 2, 0), ir.TriggerTypeManual))
+	}
+	current.writeRun(t, "busy-profile", persis.DAGRunCreateAttemptOptions{},
+		withProfile(scheduledStatus(ir.Succeeded, at(1, 4, 0), ir.TriggerTypeScheduler)))
+
+	clock = at(2, 5, 0)
+	earlier.writeRun(t, "earlier", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(2, 2, 0), ir.TriggerTypeScheduler))
+	current.writeRun(t, "current", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeScheduler))
+	current.writeRun(t, "profile", persis.DAGRunCreateAttemptOptions{},
+		withProfile(scheduledStatus(ir.Succeeded, at(2, 4, 0), ir.TriggerTypeScheduler)))
+	current.writeRun(t, "off-schedule", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(2, 2, 30), ir.TriggerTypeManual))
+	// The retry's snapshot, under the current schedule, is the one read.
+	earlier.writeRun(t, "retried", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Failed, at(2, 2, 0), ir.TriggerTypeScheduler))
+	current.writeRun(t, "retried", persis.DAGRunCreateAttemptOptions{Retry: true},
+		scheduledStatus(ir.Succeeded, at(2, 2, 0), ir.TriggerTypeRetry))
+
+	clock = at(4, 5, 0)
+	current.writeRun(t, "unscheduled", persis.DAGRunCreateAttemptOptions{}, ir.DAGRunStatus{Status: ir.Succeeded})
+	current.writeRun(t, "enqueued", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeSubDAG))
+	parent := ir.NewDAGRunRef(currentDAG.Name, "parent")
+	current.writeRun(t, "parent", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeManual))
+	child := scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeSubDAG)
+	child.Root, child.Parent = parent, parent
+	current.writeRun(t, "child", persis.DAGRunCreateAttemptOptions{RootDAGRun: parent}, child)
+	rooted := scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeManual)
+	rooted.Root = parent
+	current.writeRun(t, "rooted", persis.DAGRunCreateAttemptOptions{}, rooted)
+	current.writeRun(t, "ephemeral", persis.DAGRunCreateAttemptOptions{Ephemeral: true},
+		scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeManual))
+	current.writeRun(t, "removed", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(2, 3, 0), ir.TriggerTypeManual))
+	require.NoError(t, unindexed.RemoveDAGRun(ctx, ir.NewDAGRunRef(currentDAG.Name, "removed"), persis.DAGRunRemoveOptions{}))
+	current.writeRun(t, "expired", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC), ir.TriggerTypeScheduler))
+
+	// Runs written once the slot index exists.
+	seedDir := filepath.Join(dir, "slot-index")
+	indexed := repository(slotindex.New(seedDir))
+	clock = at(3, 5, 0)
+	slotFixture{repository: indexed, dag: currentDAG, created: &clock}.writeRun(t, "recorded", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(3, 3, 0), ir.TriggerTypeScheduler))
+	earlier.writeRun(t, "deleted", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(3, 2, 0), ir.TriggerTypeScheduler))
+	require.NoError(t, indexed.RemoveDAGRun(ctx, ir.NewDAGRunRef(currentDAG.Name, "deleted"), persis.DAGRunRemoveOptions{}))
+	// A removal that recorded the drop and then failed leaves the run.
+	earlier.writeRun(t, "drop-recorded", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(3, 2, 0), ir.TriggerTypeScheduler))
+	require.NoError(t, slotindex.New(seedDir).Record(ctx, persis.SlotEvent{
+		Kind: persis.SlotEventDropped, DAGName: currentDAG.Name, Slot: at(3, 2, 0), RunID: "drop-recorded",
+	}))
+
+	byLookup, byListing := filepath.Join(dir, "by-lookup"), filepath.Join(dir, "by-listing")
+	require.NoError(t, os.CopyFS(byLookup, os.DirFS(seedDir)))
+	require.NoError(t, os.CopyFS(byListing, os.DirFS(seedDir)))
+	lookupIndex, listingIndex := slotindex.New(byLookup), slotindex.New(byListing)
+	lookup, listing := repository(lookupIndex), repository(listingIndex)
+	from, to := at(1, 0, 0).AddDate(0, -2, 0), now
+	importBoth := func() []persis.SlotEvent {
+		t.Helper()
+		require.NoError(t, lookup.ImportSlotsByLookup(ctx, currentDAG))
+		_, err := listing.SlotEvents(ctx, currentDAG, from, to)
+		require.NoError(t, err)
+		want, err := lookupIndex.Events(ctx, currentDAG.Name, from, to)
+		require.NoError(t, err)
+		got, err := listingIndex.Events(ctx, currentDAG.Name, from, to)
+		require.NoError(t, err)
+		assert.Equal(t, withoutRecordedAt(want), withoutRecordedAt(got))
+		return got
+	}
+
+	schedules := map[string]string{}
+	for _, event := range importBoth() {
+		if event.Kind == persis.SlotEventRun {
+			schedules[event.RunID] = event.Schedule
+		}
+	}
+	assert.ElementsMatch(t, []string{
+		"busy-00", "busy-01", "busy-02", "busy-03", "busy-04", "busy-05", "busy-06", "busy-07", "busy-08", "busy-09",
+		"busy-profile", "earlier", "current", "profile", "off-schedule", "retried", "parent", "recorded",
+	}, slices.Collect(maps.Keys(schedules)))
+	assert.Equal(t, "0 2 * * *", schedules["earlier"])
+	assert.Equal(t, "0 3 * * *", schedules["current"])
+	assert.Equal(t, "0 4 * * *", schedules["profile"])
+	assert.Empty(t, schedules["retried"])
+
+	// A later read adds a run whose recording failed.
+	clock = now.Add(-30 * time.Minute)
+	earlier.writeRun(t, "late", persis.DAGRunCreateAttemptOptions{},
+		scheduledStatus(ir.Succeeded, at(20, 2, 0), ir.TriggerTypeScheduler))
+	assert.True(t, slices.ContainsFunc(importBoth(), func(event persis.SlotEvent) bool { return event.RunID == "late" }))
+}
+
+func withoutRecordedAt(events []persis.SlotEvent) []persis.SlotEvent {
+	for i := range events {
+		events[i].RecordedAt = time.Time{}
+	}
+	return events
+}
+
+const minutelyDAGYAML = "name: minutely\nschedule: \"* * * * *\"\nsteps:\n  - run: echo hi\n"
+
+// seedMinutelyRuns writes a finished scheduler run for each minute in
+// [start, end) and returns how many it wrote. It writes the files directly,
+// since creating a run through the store looks its ID up in the whole
+// history.
+func seedMinutelyRuns(tb testing.TB, runsDir string, dag *ir.DAG, start, end time.Time) int {
+	tb.Helper()
+	ctx := tb.Context()
+	snapshot, err := json.Marshal(dag)
+	require.NoError(tb, err)
+	root := filedagrun.NewDataRoot(runsDir, dag.Name)
+	runs := 0
+	for slot := start; slot.Before(end); slot = slot.Add(time.Minute) {
+		created := persis.NewUTC(slot)
+		id := "run-" + slot.Format("20060102-1504")
+		run, err := root.CreateDAGRun(created, id)
+		require.NoError(tb, err)
+		attempt, err := run.CreateAttempt(ctx, created, nil, "attempt")
+		require.NoError(tb, err)
+		status, err := json.Marshal(ir.DAGRunStatus{
+			Name:         dag.Name,
+			DAGRunID:     id,
+			AttemptID:    attempt.ID(),
+			Status:       ir.Succeeded,
+			TriggerType:  ir.TriggerTypeScheduler,
+			ScheduleTime: slot.Format(time.RFC3339),
+			StartedAt:    slot.Format(time.RFC3339),
+			FinishedAt:   slot.Add(time.Second).Format(time.RFC3339),
+		})
+		require.NoError(tb, err)
+		require.NoError(tb, os.WriteFile(filepath.Join(attempt.Dir(), filedagrun.DAGDefinition), snapshot, 0o600))
+		require.NoError(tb, os.WriteFile(filepath.Join(attempt.Dir(), filedagrun.JSONLStatusFile), append(status, '\n'), 0o600))
+		runs++
+	}
+	return runs
 }
 
 // The first read adds only the runs whose slots are within the DAG's slot
