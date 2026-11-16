@@ -527,6 +527,71 @@ test.describe('workspace layout', () => {
     expect((await box(column)).width).toBeCloseTo(1400, -1);
   });
 
+  // #3697: a long YAML needs the room of the graph and of Activity, with
+  // Save in reach at every width of the column.
+  test('maximizes the right column over the graph and Activity', async ({
+    page,
+    fixtureDAG,
+    gotoWorkspace,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.removeItem('dagu.stepDetailsDrawer.width');
+      window.localStorage.setItem('dagu.workspace.dockOpen.v2', 'true');
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const { fileName } = await fixtureDAG('visual-params.yaml');
+    await openEditor(page, gotoWorkspace, fileName);
+    const column = page.getByTestId('ww-right-column');
+    const ndv = page.getByTestId('ndv');
+    const dock = page.getByTestId('ww-dock');
+    const save = page.locator('#save-config');
+    const zoomIn = page
+      .getByTestId('ww-canvas-toolbar')
+      .getByRole('button', { name: 'Zoom in' });
+    const area = await box(page.getByTestId('ww-panel-layer'));
+
+    await openColumnTab(page, 'YAML');
+    await expect(ndv).toHaveAttribute('data-state', 'docked');
+    await expect(dock).toHaveAttribute('data-state', 'open');
+    const width = (await box(column)).width;
+
+    // Maximized, the column covers the graph and Activity yields its room.
+    // The canvas controls go, and Save stays in the row over the column.
+    await column
+      .getByRole('button', { name: 'Maximize panel', exact: true })
+      .click();
+    await expect(dock).toHaveAttribute('data-state', 'collapsed');
+    await expect(zoomIn).toBeHidden();
+    await expect(save).toBeVisible();
+    await expect(async () => {
+      const shown = await box(column);
+      expect(shown.x).toBeCloseTo(area.x, -1);
+      expect(shown.width).toBeCloseTo(area.width, -1);
+      expect((await box(ndv)).width).toBeCloseTo(area.width, -1);
+    }).toPass();
+
+    await column
+      .getByRole('button', { name: 'Restore panel', exact: true })
+      .click();
+    await expect(dock).toHaveAttribute('data-state', 'open');
+    await expect(zoomIn).toBeVisible();
+    await expect(async () => {
+      expect((await box(column)).width).toBeCloseTo(width, 0);
+    }).toPass();
+
+    // The widest column leaves a strip of the zone: Save stays inside it.
+    const edge = column.getByRole('separator', { name: 'Resize step details' });
+    await edge.focus();
+    await page.keyboard.press('End');
+    await expect(async () => {
+      const zone = await box(page.getByTestId('ww-canvas'));
+      expect(zone.width).toBeCloseTo(240, -1);
+      const button = await box(save);
+      expect(button.x).toBeGreaterThanOrEqual(zone.x);
+      expect(button.x + button.width).toBeLessThanOrEqual(zone.x + zone.width);
+    }).toPass();
+  });
+
   test('has no horizontal scroll at 375x812 and keeps the Tools button', async ({
     page,
     request,
