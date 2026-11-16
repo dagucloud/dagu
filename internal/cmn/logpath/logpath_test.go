@@ -4,6 +4,7 @@
 package logpath
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,5 +21,5 @@ func TestRunDirKeepsSimilarDAGNamesApart(t *testing.T) {
 	require.NoError(t, err)
 	underscored, err := Config{BaseDir: baseDir, Name: "etl_daily", DAGRunID: "run-1"}.RunDir()
 	require.NoError(t, err)
-	assert.NotEqual(t, dotted, underscored)
+	assert.NotEqual(t, filepath.Dir(dotted), filepath.Dir(underscored))
 }
