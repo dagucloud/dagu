@@ -4,8 +4,10 @@
 package replaycache_test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +23,16 @@ func seedReplayCache(t *testing.T, cache *replaycache.Store, dagName string, ste
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
 		require.NoError(t, os.WriteFile(path, []byte("{}"), 0o600))
 	}
+}
+
+// writeLegacyRecords writes records where released versions kept them: in
+// the DAG's directory, under the SafeName of a step key.
+func writeLegacyRecords(t *testing.T, dataDir, dagName, safeName string) string {
+	t.Helper()
+	path := filepath.Join(dataDir, "cache", dagName, safeName+".json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"k":{}}`), 0o600))
+	return path
 }
 
 func TestReplayCacheClearDAG(t *testing.T) {
@@ -176,10 +188,9 @@ func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {
 func TestReplayCacheHidesSharedLegacyRecords(t *testing.T) {
 	t.Parallel()
 
-	cache := replaycache.New(t.TempDir())
-	legacy := cache.Path("billing", "a_b")
-	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
-	require.NoError(t, os.WriteFile(legacy, []byte(`{"k":{}}`), 0o600))
+	dataDir := t.TempDir()
+	cache := replaycache.New(dataDir)
+	writeLegacyRecords(t, dataDir, "billing", "a_b")
 
 	stepKeys := []string{"a.b", "a_b"}
 	for _, key := range stepKeys {
@@ -192,35 +203,47 @@ func TestReplayCacheHidesSharedLegacyRecords(t *testing.T) {
 	}
 }
 
-// Records that this version stores stay with their step when a later claim
-// converts the DAG, even beside a step that had the same SafeName.
-func TestReplayCacheKeepsRecordsOfThisVersion(t *testing.T) {
+// Records that this version stores never mix with the file that released
+// versions stored under the same name, which another step may have written.
+func TestReplayCacheKeepsRecordsOfThisVersionApart(t *testing.T) {
 	t.Parallel()
 
-	cache := replaycache.New(t.TempDir())
+	dataDir := t.TempDir()
+	cache := replaycache.New(dataDir)
+	writeLegacyRecords(t, dataDir, "billing", "a_b")
 	records := replaycache.Open[string](cache.Path("billing", "a_b"))
-	records.Stage("k", "v")
+	records.Stage("new", "v")
 	require.NoError(t, records.Commit(t.Context()))
 
 	require.NoError(t, cache.Claim(t.Context(), "billing", "a.b", []string{"a.b", "a_b"}))
 	entries, err := cache.Entries("billing", "a_b")
 	require.NoError(t, err)
-	assert.Contains(t, entries, "k")
+	assert.Equal(t, []string{"new"}, slices.Collect(maps.Keys(entries)))
 }
 
 // A step key too long for a file name once escaped, such as one of many
-// non-ASCII characters, is listed so that its records read back.
+// non-ASCII characters, is listed so that its records read back, also after
+// another step claims first.
 func TestReplayCacheListsLongStepKeys(t *testing.T) {
 	t.Parallel()
 
-	cache := replaycache.New(t.TempDir())
+	dataDir := t.TempDir()
+	cache := replaycache.New(dataDir)
 	key := strings.Repeat("日", 12)
-	require.NoError(t, cache.Claim(t.Context(), "billing", key, []string{key}))
-	seedReplayCache(t, cache, "billing", key)
+	writeLegacyRecords(t, dataDir, "billing", strings.Repeat("_", 12))
+	stepKeys := []string{"other", key}
+	require.NoError(t, cache.Claim(t.Context(), "billing", "other", stepKeys))
 	steps, err := cache.Steps("billing")
 	require.NoError(t, err)
-	require.Len(t, steps, 1)
-	assert.Equal(t, cache.Path("billing", key), cache.Path("billing", steps[0]))
+	assert.Empty(t, steps, "nothing is listed in a form that does not read back")
+
+	require.NoError(t, cache.Claim(t.Context(), "billing", key, stepKeys))
+	steps, err = cache.Steps("billing")
+	require.NoError(t, err)
+	assert.Equal(t, []string{key}, steps)
+	entries, err := cache.Entries("billing", steps[0])
+	require.NoError(t, err)
+	assert.Contains(t, entries, "k")
 }
 
 // Clearing a step before any run claims it also removes the records released
@@ -228,8 +251,9 @@ func TestReplayCacheListsLongStepKeys(t *testing.T) {
 func TestReplayCacheClearRemovesLegacyRecords(t *testing.T) {
 	t.Parallel()
 
-	cache := replaycache.New(t.TempDir())
-	seedReplayCache(t, cache, "billing", "fetch_data")
+	dataDir := t.TempDir()
+	cache := replaycache.New(dataDir)
+	writeLegacyRecords(t, dataDir, "billing", "fetch_data")
 	removed, err := cache.Clear("billing", "fetch data")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"fetch data"}, removed)
@@ -246,9 +270,7 @@ func TestReplayCacheReadsRawDeviceName(t *testing.T) {
 	t.Parallel()
 
 	dataDir := t.TempDir()
-	raw := filepath.Join(dataDir, "cache", "con", "con.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
-	require.NoError(t, os.WriteFile(raw, []byte(`{"k":{}}`), 0o600))
+	writeLegacyRecords(t, dataDir, "con", "con")
 
 	cache := replaycache.New(dataDir)
 	require.NoError(t, cache.Claim(t.Context(), "con", "con", []string{"con"}))
@@ -278,10 +300,9 @@ func TestReplayCacheClaimsRecordsItOwns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cache := replaycache.New(t.TempDir())
-			legacy := cache.Path("billing", "fetch_data")
-			require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
-			require.NoError(t, os.WriteFile(legacy, []byte(`{"k":{}}`), 0o600))
+			dataDir := t.TempDir()
+			cache := replaycache.New(dataDir)
+			legacy := writeLegacyRecords(t, dataDir, "billing", "fetch_data")
 
 			require.NoError(t, cache.Claim(t.Context(), "billing", "fetch data", tc.stepKeys))
 			entries, err := cache.Entries("billing", "fetch data")
@@ -291,6 +312,7 @@ func TestReplayCacheClaimsRecordsItOwns(t *testing.T) {
 				assert.NoFileExists(t, legacy)
 			} else {
 				assert.Empty(t, entries)
+				assert.FileExists(t, legacy)
 			}
 		})
 	}

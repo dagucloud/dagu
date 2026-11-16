@@ -191,17 +191,10 @@ func (r *Recordings[T]) update(ctx context.Context, change func(map[string]T)) e
 }
 
 // locked runs fn under the lock of a DAG's replay cache directory, which it
-// creates and marks as named by SafeKey.
+// creates.
 func locked(ctx context.Context, dir string, fn func() error) error {
-	_, err := os.Lstat(dir)
-	created := errors.Is(err, os.ErrNotExist)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("create replay cache directory: %w", err)
-	}
-	if created {
-		if err := fileutil.MarkSafeKeyDir(dir); err != nil {
-			return fmt.Errorf("mark replay cache directory: %w", err)
-		}
 	}
 	// The step may already be over its deadline; the change still gets its
 	// own short wait.

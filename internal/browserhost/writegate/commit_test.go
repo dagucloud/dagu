@@ -122,16 +122,25 @@ func TestCommitPointsUnderRawDeviceName(t *testing.T) {
 	assert.Equal(t, []string{"con"}, steps)
 }
 
-// Points that this version keeps stay with their step when a later claim
-// converts the DAG, even beside a step that had the same SafeName.
-func TestCommitPointsKeepPointsOfThisVersion(t *testing.T) {
+// Points that this version keeps never mix with the file that released
+// versions kept under the same name, which another step may have written.
+func TestCommitPointsKeepPointsOfThisVersionApart(t *testing.T) {
 	t.Parallel()
 
-	store := writegate.NewCommitStore(t.TempDir())
-	require.NoError(t, store.Note(t.Context(), "billing", "a_b", writegate.CommitPoint{Key: "k1"}))
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "writes", "billing", "a_b.json")
+	data, err := json.Marshal([]writegate.CommitPoint{{Key: "old", Approved: true}})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+	require.NoError(t, os.WriteFile(legacy, data, 0o600))
+
+	store := writegate.NewCommitStore(dir)
+	require.NoError(t, store.Note(t.Context(), "billing", "a_b", writegate.CommitPoint{Key: "new"}))
 	none := func(string) (bool, error) { return false, nil }
 	require.NoError(t, store.Claim(t.Context(), "billing", "a.b", []string{"a.b", "a_b"}, none))
-	assert.Len(t, mustLoad(t, store, "billing", "a_b"), 1)
+	points := mustLoad(t, store, "billing", "a_b")
+	require.Len(t, points, 1)
+	assert.Equal(t, "new", points[0].Key)
 }
 
 // A step whose name is too long for a file name in full is listed by its
@@ -225,6 +234,7 @@ func TestCommitPointsClaimsPointsItOwns(t *testing.T) {
 				assert.NoFileExists(t, legacy)
 			} else {
 				assert.Empty(t, points)
+				assert.FileExists(t, legacy)
 			}
 		})
 	}
