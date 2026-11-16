@@ -607,8 +607,14 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 			replayTo = now.Truncate(time.Minute).Add(-time.Second)
 		}
 		missed := computeMissedScheduleIntervals(active.start, replayFrom.In(tp.cfg.Location), replayTo)
-		// The previous scheduler's ticks may have passed slots it queued.
-		saved := savedCatchupIntervals(active.start, wm.Catchup, now.Add(-window), replayTo, tp.cfg.Location)
+		// The previous scheduler's ticks may have passed slots it queued. A
+		// slot by LastScheduledTime was settled, though a flush before the
+		// tick's Advance may have saved it still queued.
+		savedAfter := now.Add(-window)
+		if wm.LastScheduledTime.After(savedAfter) {
+			savedAfter = wm.LastScheduledTime
+		}
+		saved := savedCatchupIntervals(active.start, wm.Catchup, savedAfter, replayTo, tp.cfg.Location)
 		missed = mergeIntervals(saved, missed)
 
 		if len(missed) == 0 {

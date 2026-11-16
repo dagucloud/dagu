@@ -376,6 +376,28 @@ func TestTickPlanner_ReplayLeavesOutDeclinedSlot(t *testing.T) {
 	assert.Equal(t, []time.Time{at(14, 0), at(15, 0)}, bufferedSlots(second, dag.Name))
 }
 
+// The periodic flusher can save a tick's state after Plan settled a queued
+// slot and before Advance saved the shorter queue. A restart from that state
+// does not replay the slot, here one the overlap policy skipped.
+func TestTickPlanner_ReplayLeavesOutSlotSettledBeforeAdvance(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(9, 0))}
+	tp, _ := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+	tp.cfg.Enqueue = enqueueOK
+	tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) { return true, nil }
+	dag := newHourlyCatchupDAG(t, "hourly")
+	dag.OverlapPolicy = ir.OverlapPolicySkip
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	require.Equal(t, []time.Time{at(10, 0), at(11, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
+	tp.Plan(t.Context(), at(12, 1))
+	require.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(tp, dag.Name), "10:00 is skipped")
+	tp.Flush(t.Context())
+
+	restarted, _ := restartPlanner(t, store, at(12, 2).Add(30*time.Second), 0, dag)
+	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(restarted, dag.Name))
+}
+
 // A startup leaves the slots before its catch-up window out of the queue.
 // A takeover whose recovery window reaches back over them does not replay
 // them while the queue waits for a run of the DAG to finish.
