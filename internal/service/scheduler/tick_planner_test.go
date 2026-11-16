@@ -51,6 +51,14 @@ func (m *mockStateStore) Load(_ context.Context) (*schedulerstate.State, error) 
 	return schedulerstate.Clone(m.state), nil
 }
 
+func (m *mockStateStore) LoadDAG(ctx context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	state, err := m.Load(ctx)
+	if err != nil {
+		return schedulerstate.DAGWatermark{}, err
+	}
+	return state.DAGs[dag], nil
+}
+
 func (m *mockStateStore) Save(_ context.Context, state *schedulerstate.State) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

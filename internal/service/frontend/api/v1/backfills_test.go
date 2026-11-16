@@ -261,15 +261,21 @@ func TestBackfillWorkspaceAccess(t *testing.T) {
 	assert.Equal(t, api.BackfillStatusCancelled, cancelled.(api.CancelBackfill200JSONResponse).Status)
 }
 
-// countingStates is a scheduler state store that counts its loads.
+// countingStates is a scheduler state store that counts its loads of the
+// whole state and of one DAG's watermark.
 type countingStates struct {
 	stubSchedulerStateStore
-	loads int
+	loads, dagLoads int
 }
 
 func (s *countingStates) Load(ctx context.Context) (*schedulerstate.State, error) {
 	s.loads++
 	return s.stubSchedulerStateStore.Load(ctx)
+}
+
+func (s *countingStates) LoadDAG(ctx context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	s.dagLoads++
+	return s.stubSchedulerStateStore.LoadDAG(ctx, dag)
 }
 
 // A DAG's missed slots are the slots that came due in its own periods and,
@@ -316,7 +322,8 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	assert.Equal(t, []api.MissedSlotsReason{api.MissedSlotsReasonDown, api.MissedSlotsReasonSuspended}, missed.Reasons)
 	assert.True(t, hour.Add(-30*time.Minute).Equal(missed.Until), "until %s", missed.Until)
 
-	assert.Positive(t, states.loads, "first seen comes from the state store")
+	assert.Positive(t, states.dagLoads, "first seen comes from the state store")
+	assert.Zero(t, states.loads, "no read copies every DAG's watermark")
 	assert.Nil(t, missedSlots(user("ops"), "ops-new"), "a DAG first seen after the outage")
 	assert.Nil(t, missedSlots(user("ops"), "ops-sync"), "a DAG that does not read its slot")
 	_, err := apiImpl.GetDAGMissedSlots(user("other"), api.GetDAGMissedSlotsRequestObject{FileName: "ops-load"})

@@ -290,6 +290,35 @@ func TestSchedulerStateLoadSeesAnotherWritersTick(t *testing.T) {
 	assert.Equal(t, state.LastTick, got.LastTick)
 }
 
+// A DAG's watermark is read from the cached state without copying the other
+// DAGs', and a write by another process is seen.
+func TestSchedulerStateLoadDAGReadsTheCache(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("scheduler")
+	writer, reader := store.NewSchedulerStateStore(col), store.NewSchedulerStateStore(col)
+	seen := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	state := &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{}}
+	for i := range 2000 {
+		state.DAGs[fmt.Sprintf("dag-%d", i)] = schedulerstate.DAGWatermark{FirstSeen: seen, NextRun: &seen}
+	}
+	require.NoError(t, writer.Save(ctx, state))
+
+	got, err := reader.LoadDAG(ctx, "dag-7")
+	require.NoError(t, err)
+	assert.Equal(t, seen, got.FirstSeen)
+	allocs := testing.AllocsPerRun(10, func() {
+		_, err = reader.LoadDAG(ctx, "dag-7")
+	})
+	require.NoError(t, err)
+	assert.Less(t, allocs, 200.0, "a cached read copies no other DAG")
+
+	state.DAGs["dag-7"] = schedulerstate.DAGWatermark{FirstSeen: seen.Add(time.Hour)}
+	require.NoError(t, writer.Save(ctx, state))
+	got, err = reader.LoadDAG(ctx, "dag-7")
+	require.NoError(t, err)
+	assert.Equal(t, seen.Add(time.Hour), got.FirstSeen)
+}
+
 func TestSchedulerStateSaveSkipsSameCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("scheduler")

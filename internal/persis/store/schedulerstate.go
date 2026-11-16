@@ -66,6 +66,29 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return schedulerstate.Clone(state), nil
+}
+
+// LoadDAG returns a copy of one DAG's watermark, zero when the state holds
+// none.
+func (s *SchedulerStateStore) LoadDAG(ctx context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return schedulerstate.DAGWatermark{}, err
+	}
+	return schedulerstate.CloneDAGWatermark(state.DAGs[dag]), nil
+}
+
+// loadLocked returns the cached state, read again when it changed. Callers
+// must not modify or retain it.
+func (s *SchedulerStateStore) loadLocked(ctx context.Context) (*schedulerstate.State, error) {
 	if cached, ok, err := s.cachedStateLocked(ctx); ok || err != nil {
 		return cached, err
 	}
@@ -78,14 +101,14 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 			state := newSchedulerState()
 			s.cacheStateLocked(ctx, state)
 			s.cachedStatePayload = nil
-			return schedulerstate.Clone(state), nil
+			return s.cachedState, nil
 		}
 		return nil, fmt.Errorf("scheduler state store: get: %w", err)
 	}
 	if !found {
 		state := newSchedulerState()
 		s.cacheStateLocked(ctx, state)
-		return schedulerstate.Clone(state), nil
+		return s.cachedState, nil
 	}
 
 	originalVersion := rawState.SchemaVersion
@@ -99,7 +122,7 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 		logger.Warn(ctx, "scheduler state: unknown version, starting fresh", tag.Version(fmt.Sprint(originalVersion)))
 		state = newSchedulerState()
 		s.cacheStateLocked(ctx, state)
-		return schedulerstate.Clone(state), nil
+		return s.cachedState, nil
 	}
 
 	if state.DAGs == nil {
@@ -114,7 +137,7 @@ func (s *SchedulerStateStore) Load(ctx context.Context) (*schedulerstate.State, 
 	if originalVersion != schedulerStateVersion || !rawState.LastTick.IsZero() {
 		s.cachedStatePayload = nil
 	}
-	return schedulerstate.Clone(state), nil
+	return s.cachedState, nil
 }
 
 // Save writes scheduler state when its durable records have changed.
@@ -203,7 +226,7 @@ func (s *SchedulerStateStore) cachedStateLocked(ctx context.Context) (*scheduler
 	if ok {
 		s.cachedState.LastTick = checkpoint.LastTick
 	}
-	return schedulerstate.Clone(s.cachedState), true, nil
+	return s.cachedState, true, nil
 }
 
 func (s *SchedulerStateStore) cacheStateLocked(ctx context.Context, state *schedulerstate.State) {

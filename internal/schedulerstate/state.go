@@ -97,6 +97,9 @@ type OneOffScheduleState struct {
 // must not retain or mutate the provided state.
 type Store interface {
 	Load(ctx context.Context) (*State, error)
+	// LoadDAG returns a copy of one DAG's watermark, zero when the state
+	// holds none, without copying the others.
+	LoadDAG(ctx context.Context, dag string) (DAGWatermark, error)
 	Save(ctx context.Context, state *State) error
 }
 

@@ -1440,6 +1440,10 @@ func (s stubSchedulerStateStore) Load(context.Context) (*schedulerstate.State, e
 	return schedulerstate.Clone(s.state), nil
 }
 
+func (s stubSchedulerStateStore) LoadDAG(_ context.Context, dag string) (schedulerstate.DAGWatermark, error) {
+	return schedulerstate.CloneDAGWatermark(s.state.DAGs[dag]), nil
+}
+
 func (stubSchedulerStateStore) Save(context.Context, *schedulerstate.State) error {
 	return nil
 }

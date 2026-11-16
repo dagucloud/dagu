@@ -206,14 +206,11 @@ func (a *API) dagFirstSeen(ctx context.Context, dagName string) time.Time {
 	if a.schedulerStateStore == nil {
 		return time.Time{}
 	}
-	state, err := a.schedulerStateStore.Load(ctx)
-	if err != nil || state == nil {
-		if err != nil {
-			logger.Warn(ctx, "Failed to load scheduler state for missed slots", tag.Error(err))
-		}
-		return time.Time{}
+	watermark, err := a.schedulerStateStore.LoadDAG(ctx, dagName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to load scheduler state for missed slots", tag.Error(err))
 	}
-	return state.DAGs[dagName].FirstSeen
+	return watermark.FirstSeen
 }
 
 // recordSuspension records the suspension of a DAG that is to resume as a
