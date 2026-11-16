@@ -2791,9 +2791,9 @@ func startBrowserOnRacedPort(ctx context.Context, path, portFile, profile string
 	}
 }
 
-// An extract whose answer holds only empty values, or an empty list after
-// the model is told its nulls cannot be used, ends as found nothing; blank
-// list items are dropped.
+// An extract whose answer holds only empty values ends as found nothing,
+// blank list items are dropped, and nulls the runtime rejects fail in
+// words that name the fields and the page.
 func TestStagehandExtractNullAnswers(t *testing.T) {
 	t.Parallel()
 	statements := map[string]any{"type": "object", "required": []any{"statements"}, "properties": map[string]any{
@@ -2806,9 +2806,14 @@ func TestStagehandExtractNullAnswers(t *testing.T) {
 		answer       string
 		values       map[string]any
 		foundNothing bool
+		err          string
 	}{
-		"nulls corrected to an empty list": {
-			answer:       `{"statements":[{"speaker":null,"answer":null}]}`,
+		"nulls the runtime rejects are told in words": {
+			answer: `{"statements":[{"speaker":null,"answer":null}]}`,
+			err:    "the model's answer does not fit the extract schema: statements[0].answer is not a string; statements[0].speaker is not a string, on http://",
+		},
+		"an empty list": {
+			answer:       `{"statements":[]}`,
 			values:       map[string]any{"statements": []any{}},
 			foundNothing: true,
 		},
@@ -2829,9 +2834,6 @@ func TestStagehandExtractNullAnswers(t *testing.T) {
 				if strings.Contains(string(req.Schema), "completed") {
 					return generateResponse{JSON: json.RawMessage(`{"completed":true,"progress":"done"}`)}, nil
 				}
-				if strings.Contains(req.Messages[len(req.Messages)-1].Text, "Call the respond tool again") {
-					return generateResponse{JSON: json.RawMessage(`{"statements":[]}`)}, nil
-				}
 				return generateResponse{JSON: json.RawMessage(tt.answer)}, nil
 			}
 			eng := launchBrowser(t, launchOptions{Generate: answer})
@@ -2839,6 +2841,10 @@ func TestStagehandExtractNullAnswers(t *testing.T) {
 			var warnings []string
 			op := &operator{eng: eng, bridge: &modelBridge{}, warn: func(_ int, message string) { warnings = append(warnings, message) }}
 			result, err := op.extract(t.Context(), 0, extractSpec{Instruction: "The statements", Schema: statements}, time.Minute)
+			if tt.err != "" {
+				require.ErrorContains(t, err, tt.err)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.values, result.Values)
 			assert.Equal(t, tt.foundNothing, result.FoundNothing)
