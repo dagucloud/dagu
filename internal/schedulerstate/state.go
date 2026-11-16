@@ -101,6 +101,13 @@ type Store interface {
 	// holds none, without copying the others.
 	LoadDAG(ctx context.Context, dag string) (DAGWatermark, error)
 	Save(ctx context.Context, state *State) error
+	// LoadCatchup returns the catch-up slots SaveCatchup last saved, by DAG
+	// name, and none when none were saved or the saved ones are corrupt.
+	// Load and LoadDAG do not read them.
+	LoadCatchup(ctx context.Context) (map[string][]time.Time, error)
+	// SaveCatchup replaces the saved catch-up slots. It must not retain or
+	// mutate slots.
+	SaveCatchup(ctx context.Context, slots map[string][]time.Time) error
 }
 
 // Clone returns a deep copy of state.

@@ -515,3 +515,73 @@ func TestSchedulerStateLoadIgnoresPeriodRecords(t *testing.T) {
 	assert.True(t, saved.LastTick.Equal(loaded.LastTick))
 	assert.Empty(t, loaded.DAGs)
 }
+
+// readsCollection records the IDs of the records read from it.
+type readsCollection struct {
+	persis.Collection
+	mu   sync.Mutex
+	read map[string]bool
+}
+
+func (c *readsCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	c.mu.Lock()
+	c.read[id] = true
+	c.mu.Unlock()
+	return c.Collection.Get(ctx, id)
+}
+
+// The catch-up slots have a record of their own beside the state, and
+// reading the state does not read them.
+func TestSchedulerStateCatchupRecord(t *testing.T) {
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "scheduler")
+	col := &readsCollection{Collection: file.NewCollection(dir, file.WithIndentedJSON())}
+	s := store.NewSchedulerStateStore(col)
+	slots := map[string][]time.Time{"etl": {
+		time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC),
+		time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+	}}
+	require.NoError(t, s.Save(ctx, &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{"etl": {}}}))
+	require.NoError(t, s.SaveCatchup(ctx, slots))
+
+	raw, err := os.ReadFile(filepath.Join(dir, "catchup.json"))
+	require.NoError(t, err)
+	var record struct {
+		DAGs map[string][]time.Time `json:"dags"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &record))
+	assert.Equal(t, slots, record.DAGs)
+
+	col.read = map[string]bool{}
+	_, err = s.Load(ctx)
+	require.NoError(t, err)
+	_, err = s.LoadDAG(ctx, "etl")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"state": true, "checkpoint": true}, col.read)
+
+	got, err := store.NewSchedulerStateStore(col).LoadCatchup(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, slots, got)
+}
+
+// Catch-up slots that are missing or corrupt load as none.
+func TestSchedulerStateCatchupMissingOrCorrupt(t *testing.T) {
+	ctx := t.Context()
+	col := testutil.NewMemoryBackend().Collection("scheduler")
+	s := store.NewSchedulerStateStore(col)
+
+	got, err := s.LoadCatchup(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        "catchup",
+		Data:      []byte(`not valid json {{`),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+	got, err = s.LoadCatchup(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

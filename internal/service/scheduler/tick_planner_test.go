@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,6 +31,7 @@ import (
 
 type mockStateStore struct {
 	state   *schedulerstate.State
+	catchup map[string][]time.Time
 	loadErr error
 	saveErr error
 	mu      sync.Mutex
@@ -69,6 +71,19 @@ func (m *mockStateStore) Save(_ context.Context, state *schedulerstate.State) er
 	if m.onSave != nil {
 		m.onSave(state)
 	}
+	return nil
+}
+
+func (m *mockStateStore) LoadCatchup(context.Context) (map[string][]time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return maps.Clone(m.catchup), nil
+}
+
+func (m *mockStateStore) SaveCatchup(_ context.Context, slots map[string][]time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.catchup = maps.Clone(slots)
 	return nil
 }
 

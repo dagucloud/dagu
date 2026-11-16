@@ -21,6 +21,7 @@ const (
 	schedulerStateVersion = 4
 	schedulerStateID      = "state"
 	schedulerCheckpointID = "checkpoint"
+	schedulerCatchupID    = "catchup"
 )
 
 type schedulerStateRecord struct {
@@ -38,11 +39,16 @@ type schedulerCheckpoint struct {
 	LastTick time.Time `json:"lastTick"`
 }
 
+type schedulerCatchupRecord struct {
+	DAGs map[string][]time.Time `json:"dags,omitempty"`
+}
+
 // SchedulerStateStore persists scheduler state as collection records.
 type SchedulerStateStore struct {
 	col           persis.Collection
 	stateRec      *SingleRecord[schedulerStateRecord]
 	checkpointRec *SingleRecord[schedulerCheckpoint]
+	catchupRec    *SingleRecord[schedulerCatchupRecord]
 
 	mu                     sync.Mutex
 	cachedState            *schedulerstate.State
@@ -58,6 +64,7 @@ func NewSchedulerStateStore(col persis.Collection) *SchedulerStateStore {
 		col:           col,
 		stateRec:      NewSingleRecord[schedulerStateRecord](col, schedulerStateID),
 		checkpointRec: NewSingleRecord[schedulerCheckpoint](col, schedulerCheckpointID),
+		catchupRec:    NewSingleRecord[schedulerCatchupRecord](col, schedulerCatchupID),
 	}
 }
 
@@ -184,6 +191,28 @@ func (s *SchedulerStateStore) Save(ctx context.Context, state *schedulerstate.St
 		}
 	}
 	s.cachedState = schedulerstate.Clone(state)
+	return nil
+}
+
+// LoadCatchup returns the saved catch-up slots by DAG name, none when the
+// record is missing or corrupt.
+func (s *SchedulerStateStore) LoadCatchup(ctx context.Context) (map[string][]time.Time, error) {
+	var record schedulerCatchupRecord
+	if _, err := s.catchupRec.Load(ctx, &record); err != nil {
+		if errors.Is(err, ErrCorrupt) {
+			logger.Warn(ctx, "scheduler state: corrupt catch-up slots, starting without them", tag.Error(err))
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scheduler state store: get catch-up: %w", err)
+	}
+	return record.DAGs, nil
+}
+
+// SaveCatchup replaces the saved catch-up slots.
+func (s *SchedulerStateStore) SaveCatchup(ctx context.Context, slots map[string][]time.Time) error {
+	if err := s.catchupRec.Save(ctx, &schedulerCatchupRecord{DAGs: slots}); err != nil {
+		return fmt.Errorf("scheduler state store: save catch-up: %w", err)
+	}
 	return nil
 }
 
