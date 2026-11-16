@@ -31,6 +31,8 @@ const (
 // reservedHeaders are set by the client or the HTTP stack.
 var reservedHeaders = map[string]struct{}{
 	"content-type": {}, "accept": {}, "a2a-version": {}, "host": {}, "content-length": {},
+	// Go replays a POST that carries one of these after a dropped connection.
+	"idempotency-key": {}, "x-idempotency-key": {},
 }
 
 var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
@@ -135,7 +137,7 @@ func (c config) validate(loadTime bool) error {
 			return fmt.Errorf("%swith.headers has an invalid header name %q", prefix, name)
 		}
 		if _, reserved := reservedHeaders[strings.ToLower(name)]; reserved {
-			return fmt.Errorf("%swith.headers.%s is set by the client and cannot be overridden", prefix, name)
+			return fmt.Errorf("%swith.headers.%s is reserved (set by the client, or able to make the HTTP stack replay the request) and cannot be overridden", prefix, name)
 		}
 		if !skip(v) && strings.ContainsAny(v, "\r\n\x00") {
 			return fmt.Errorf("%swith.headers.%s must not contain line breaks", prefix, name)

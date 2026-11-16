@@ -48,6 +48,8 @@ func TestConfigForms(t *testing.T) {
 		{name: "version", op: opSend, with: obj{"agent_url": agent, "message": "m", "headers": obj{"A2A-Version": "0.3"}}, loadErr: "cannot be overridden", runErr: "cannot be overridden"},
 		{name: "host", op: opSend, with: obj{"agent_url": agent, "message": "m", "headers": obj{"Host": "evil"}}, loadErr: "cannot be overridden", runErr: "cannot be overridden"},
 		{name: "length", op: opSend, with: obj{"agent_url": agent, "message": "m", "headers": obj{"Content-Length": "1"}}, loadErr: "cannot be overridden", runErr: "cannot be overridden"},
+		{name: "idempotency", op: opSend, with: obj{"agent_url": agent, "message": "m", "headers": obj{"Idempotency-Key": "k"}}, loadErr: "cannot be overridden", runErr: "cannot be overridden"},
+		{name: "x idempotency", op: opGetTask, with: obj{"agent_url": agent, "task_id": "t", "headers": obj{"x-idempotency-key": "k"}}, loadErr: "cannot be overridden", runErr: "cannot be overridden"},
 		{name: "http", op: opSend, with: obj{"agent_url": "http://a.example/", "message": "hi"}, loadErr: "https", runErr: "https"},
 		{name: "no message", op: opSend, with: obj{"agent_url": agent}, loadErr: "message is required", runErr: "message is required"},
 		{name: "no task", op: opGetTask, with: obj{"agent_url": agent}, loadErr: "task_id is required", runErr: "task_id is required"},

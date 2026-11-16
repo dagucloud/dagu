@@ -1762,6 +1762,7 @@ func TestStepSchemaV2_ActionA2ARejectsBadConfig(t *testing.T) {
 		"unknown key":     "action: a2a.get_task\n    with:\n      agent_url: https://x.example/a\n      task_id: t\n      message: m",
 		"missing task":    "action: a2a.get_task\n    with:\n      agent_url: https://x.example/a",
 		"query":           "action: a2a.get_task\n    with:\n      agent_url: https://x.example/a?k=v\n      task_id: t",
+		"idempotency":     "action: a2a.send\n    with:\n      agent_url: https://x.example/a\n      message: m\n      headers:\n        Idempotency-Key: k",
 		"reserved header": "action: a2a.send\n    with:\n      agent_url: https://x.example/a\n      message: m\n      headers:\n        Accept: x",
 	} {
 		_, err := LoadYAML(context.Background(), []byte("steps:\n  - "+step+"\n"))

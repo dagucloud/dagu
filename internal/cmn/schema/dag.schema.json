@@ -7834,10 +7834,10 @@
         "headers": {
           "type": "object",
           "propertyNames": {
-            "not": { "pattern": "^([cC][oO][nN][tT][eE][nN][tT]-[tT][yY][pP][eE]|[aA][cC][cC][eE][pP][tT]|[aA]2[aA]-[vV][eE][rR][sS][iI][oO][nN]|[hH][oO][sS][tT]|[cC][oO][nN][tT][eE][nN][tT]-[lL][eE][nN][gG][tT][hH])$" }
+            "not": { "pattern": "^([cC][oO][nN][tT][eE][nN][tT]-[tT][yY][pP][eE]|[aA][cC][cC][eE][pP][tT]|[aA]2[aA]-[vV][eE][rR][sS][iI][oO][nN]|[hH][oO][sS][tT]|[cC][oO][nN][tT][eE][nN][tT]-[lL][eE][nN][gG][tT][hH]|[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY]|[xX]-[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY])$" }
           },
           "additionalProperties": { "type": "string" },
-          "description": "HTTP headers for Agent Card and JSON-RPC requests to the agent_url origin only, for example Authorization: Bearer ${SECRET}. Content-Type, Accept, A2A-Version, Host, and Content-Length are set by the client and rejected."
+          "description": "HTTP headers for Agent Card and JSON-RPC requests to the agent_url origin only, for example Authorization: Bearer ${SECRET}. Content-Type, Accept, A2A-Version, Host, Content-Length, Idempotency-Key, and X-Idempotency-Key are reserved and rejected."
         },
         "tenant": {
           "type": "string",
@@ -7873,10 +7873,10 @@
         "headers": {
           "type": "object",
           "propertyNames": {
-            "not": { "pattern": "^([cC][oO][nN][tT][eE][nN][tT]-[tT][yY][pP][eE]|[aA][cC][cC][eE][pP][tT]|[aA]2[aA]-[vV][eE][rR][sS][iI][oO][nN]|[hH][oO][sS][tT]|[cC][oO][nN][tT][eE][nN][tT]-[lL][eE][nN][gG][tT][hH])$" }
+            "not": { "pattern": "^([cC][oO][nN][tT][eE][nN][tT]-[tT][yY][pP][eE]|[aA][cC][cC][eE][pP][tT]|[aA]2[aA]-[vV][eE][rR][sS][iI][oO][nN]|[hH][oO][sS][tT]|[cC][oO][nN][tT][eE][nN][tT]-[lL][eE][nN][gG][tT][hH]|[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY]|[xX]-[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY])$" }
           },
           "additionalProperties": { "type": "string" },
-          "description": "HTTP headers for Agent Card and JSON-RPC requests to the agent_url origin only, for example Authorization: Bearer ${SECRET}. Content-Type, Accept, A2A-Version, Host, and Content-Length are set by the client and rejected."
+          "description": "HTTP headers for Agent Card and JSON-RPC requests to the agent_url origin only, for example Authorization: Bearer ${SECRET}. Content-Type, Accept, A2A-Version, Host, Content-Length, Idempotency-Key, and X-Idempotency-Key are reserved and rejected."
         },
         "tenant": {
           "type": "string",

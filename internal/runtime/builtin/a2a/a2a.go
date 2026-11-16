@@ -56,10 +56,19 @@ func newCaller(_ context.Context, step ir.Step) (executor.Executor, error) {
 		stderr:  os.Stderr,
 		cfg:     cfg,
 		capture: step.Output != "",
-		base:    http.DefaultTransport.(*http.Transport).Clone(),
+		base:    newBaseTransport(),
 
 		deadline: defaultDeadline,
 	}, nil
+}
+
+// newBaseTransport clones the default transport, or builds a fresh one when
+// the default has been replaced by another RoundTripper type.
+func newBaseTransport() http.RoundTripper {
+	if t, ok := http.DefaultTransport.(*http.Transport); ok {
+		return t.Clone()
+	}
+	return &http.Transport{Proxy: http.ProxyFromEnvironment}
 }
 
 func (c *caller) SetStdout(out io.Writer) { c.stdout = out }
@@ -80,6 +89,11 @@ func (c *caller) Kill(_ os.Signal) error {
 func (c *caller) Run(ctx context.Context) error {
 	ctx, cancel := withDefaultDeadline(ctx, c.deadline)
 	defer cancel()
+	defer func() {
+		if idle, ok := c.base.(interface{ CloseIdleConnections() }); ok {
+			idle.CloseIdleConnections()
+		}
+	}()
 	c.mu.Lock()
 	c.cancel = cancel
 	killed := c.killed
@@ -99,6 +113,11 @@ func (c *caller) Run(ctx context.Context) error {
 		if limit := outputLimit(ctx); c.capture && int64(len(body)) > limit {
 			cerr = &callError{kind: kindOutputLimit, message: fmt.Sprintf(
 				"result is %d bytes, over the %d byte limit for captured step output; raise max_output_size, drop output:, or send history_length to shorten the task history", len(body), limit)}
+			if id, ok := out["sent_message_id"].(string); ok {
+				// The agent already accepted the message; a retry would submit it again.
+				cerr.messageID = id
+				cerr.message += fmt.Sprintf(". The message was accepted (task_id %v); read the task with a2a.get_task. a2a.send never retries; retrying can duplicate remote work", out["task_id"])
+			}
 		} else {
 			return wrapWrite(writeAll(c.stdout, body), c.cfg.op)
 		}
@@ -170,9 +189,15 @@ func (c *caller) send(ctx context.Context, sess *session, redact redactor) (map[
 	var out map[string]any
 	switch r := res.(type) {
 	case *a2a.Task:
-		out, err = taskOutput(sess.route, r)
+		var tree any
+		if tree, err = resultTree(sess.obs, "task", r); err == nil {
+			out, err = taskOutput(sess.route, r, tree)
+		}
 	case *a2a.Message:
-		out, err = messageOutput(sess.route, r)
+		var tree any
+		if tree, err = resultTree(sess.obs, "message", r); err == nil {
+			out, err = messageOutput(sess.route, r, tree)
+		}
 	default:
 		err = fmt.Errorf("unexpected result %T", res)
 	}
@@ -193,7 +218,11 @@ func (c *caller) getTask(ctx context.Context, sess *session) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	return taskOutput(sess.route, task)
+	tree, err := resultTree(sess.obs, "task", task)
+	if err != nil {
+		return nil, err
+	}
+	return taskOutput(sess.route, task, tree)
 }
 
 // classify maps a failure to a stable kind. Failures of a2a.send that leave

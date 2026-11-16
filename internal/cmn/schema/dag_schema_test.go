@@ -531,6 +531,19 @@ steps:
 			wantErr: "did not validate",
 		},
 		{
+			name: "RejectActionA2AIdempotencyHeader",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      headers:
+        X-Idempotency-Key: k1
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectActionA2AReservedHeader",
 			spec: `
 steps:

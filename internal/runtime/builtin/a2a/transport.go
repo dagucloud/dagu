@@ -31,6 +31,27 @@ type observer struct {
 	mu     sync.Mutex
 	status int
 	netErr error
+	// body is the last response body, kept so numbers can be passed on as
+	// written; the SDK decodes them into float64.
+	body []byte
+}
+
+func (o *observer) startBody() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.body = nil
+}
+
+func (o *observer) addBody(p []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.body = append(o.body, p...)
+}
+
+func (o *observer) lastBody() []byte {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.body
 }
 
 func (o *observer) setStatus(code int) {
@@ -97,6 +118,7 @@ func (g *guard) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	g.obs.setStatus(resp.StatusCode)
+	g.obs.startBody()
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		_ = resp.Body.Close()
 		return nil, &statusError{code: resp.StatusCode}
@@ -123,6 +145,7 @@ func (b *limitBody) Read(p []byte) (int, error) {
 	}
 	n, err := b.ReadCloser.Read(p)
 	b.left -= int64(n)
+	b.obs.addBody(p[:n])
 	if err != nil && !errors.Is(err, io.EOF) {
 		b.obs.setNetErr(err)
 	}

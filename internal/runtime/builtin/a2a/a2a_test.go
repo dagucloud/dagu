@@ -5,7 +5,9 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -145,3 +147,55 @@ func TestOutputLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, big)
 }
+
+// An integer beyond 2^53 reaches the output digit for digit.
+func TestLargeIntegersSurvive(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.task = func(id string) (obj, bool) {
+		return taskJSON(id, "COMPLETED", obj{
+			"metadata":  obj{"big": json.Number("9007199254740993")},
+			"artifacts": []obj{{"artifactId": "a", "parts": []obj{{"data": obj{"id": json.Number("9007199254740993")}}}}},
+		}), true
+	}
+
+	out, err := run(context.Background(), t, f, opGetTask, obj{"task_id": "t", "headers": authHeaders()})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, strings.Count(out, "9007199254740993"), out)
+}
+
+// A send result over the capture limit still names the accepted message and
+// warns that a retry duplicates work.
+func TestSendOutputLimitKeepsMessageID(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	big := strings.Repeat("x", 1<<20+10)
+	f.send = func(obj) any {
+		return obj{"task": taskJSON("task-9", "WORKING", obj{"artifacts": []obj{{"artifactId": "a", "parts": []obj{textPart(big)}}}})}
+	}
+
+	out, err := run(context.Background(), t, f, opSend, sendWith(nil), func(s *ir.Step) { s.Output = "SEND" })
+
+	require.Error(t, err)
+	body := errBody(t, out)
+	assert.Equal(t, kindOutputLimit, body["kind"])
+	assert.NotEmpty(t, body["message_id"])
+	assert.Contains(t, body["message"], "task-9")
+	assert.Contains(t, body["message"], "duplicate remote work")
+	assert.Equal(t, int32(1), f.sends.Load())
+}
+
+func TestFallbackTransport(t *testing.T) {
+	orig := http.DefaultTransport
+	defer func() { http.DefaultTransport = orig }()
+	http.DefaultTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) { return nil, nil })
+
+	_, ok := newBaseTransport().(*http.Transport)
+
+	assert.True(t, ok)
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

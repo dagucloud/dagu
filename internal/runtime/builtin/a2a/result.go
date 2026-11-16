@@ -4,8 +4,8 @@
 package a2a
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -64,8 +64,36 @@ func generic(v any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var out any
-	return out, json.Unmarshal(raw, &out)
+	if err := dec.Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// resultTree returns the JSON of the last result as the agent wrote it, with
+// numbers kept exact. wrapper is the key of the 1.0 result wrapper ("task" or
+// "message"). It falls back to the SDK value when the body cannot be read.
+func resultTree(obs *observer, wrapper string, v any) (any, error) {
+	var env struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if json.Unmarshal(obs.lastBody(), &env) == nil && len(env.Result) > 0 {
+		dec := json.NewDecoder(bytes.NewReader(env.Result))
+		dec.UseNumber()
+		var tree any
+		if dec.Decode(&tree) == nil {
+			if inner, ok := field(tree, wrapper).(map[string]any); ok {
+				return inner, nil
+			}
+			if _, ok := tree.(map[string]any); ok && field(tree, "task") == nil && field(tree, "message") == nil {
+				return tree, nil
+			}
+		}
+	}
+	return generic(v)
 }
 
 func field(v any, name string) any {
@@ -86,11 +114,7 @@ func (r route) base(kind string) map[string]any {
 	return out
 }
 
-func taskOutput(r route, t *a2a.Task) (map[string]any, error) {
-	tree, err := generic(t)
-	if err != nil {
-		return nil, fmt.Errorf("encoding task: %w", err)
-	}
+func taskOutput(r route, t *a2a.Task, tree any) (map[string]any, error) {
 	out := r.base("task")
 	out["task_id"] = string(t.ID)
 	out["context_id"] = t.ContextID
@@ -104,11 +128,7 @@ func taskOutput(r route, t *a2a.Task) (map[string]any, error) {
 	return out, nil
 }
 
-func messageOutput(r route, m *a2a.Message) (map[string]any, error) {
-	tree, err := generic(m)
-	if err != nil {
-		return nil, fmt.Errorf("encoding message: %w", err)
-	}
+func messageOutput(r route, m *a2a.Message, tree any) (map[string]any, error) {
 	out := r.base("message")
 	out["message_id"] = m.ID
 	out["context_id"] = m.ContextID
