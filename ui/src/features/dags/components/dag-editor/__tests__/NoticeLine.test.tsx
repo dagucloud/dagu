@@ -160,10 +160,10 @@ describe('NoticeLine', () => {
   });
 
   // A dismissal the server keeps after its notice left the list, as when the
-  // host dropped the notice, ends with that notice: a later notice with the
-  // same id shows.
+  // host dropped the notice, ends with that notice: it hides no later notice
+  // with the same id, even one whose own dismissal is in flight.
   it('hides no later notice when an earlier dismissal completes', async () => {
-    let keep: (kept: boolean) => void = () => {};
+    const keep: ((kept: boolean) => void)[] = [];
     const host: NoticeLineItem = {
       id: 'missed-slots',
       tone: 'warning',
@@ -171,20 +171,23 @@ describe('NoticeLine', () => {
       dismissible: true,
       dismiss: () =>
         new Promise<boolean>((resolve) => {
-          keep = resolve;
+          keep.push(resolve);
         }),
       priority: 15,
     };
+    const shown = () =>
+      screen.queryByText('12 slots passed while this DAG was suspended');
     const view = render(<NoticeLine notices={[host]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     view.rerender(<NoticeLine notices={[]} />);
     view.rerender(<NoticeLine notices={[host]} />);
-    await act(async () => keep(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    await act(async () => keep[0]?.(true));
+    expect(shown()).toBeInTheDocument();
 
-    expect(
-      screen.getByText('12 slots passed while this DAG was suspended')
-    ).toBeInTheDocument();
+    await act(async () => keep[1]?.(true));
+    expect(shown()).toBeNull();
   });
 
   // The host persists the choice, as the monitoring offer does, or clears the
