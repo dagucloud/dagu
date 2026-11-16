@@ -17,8 +17,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -173,15 +171,18 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 }
 
 // markSpan records that the slots of a DAG, or of every DAG for the empty
-// name, stopped or resumed running. A failure leaves the change made and
-// only the missed slots it would show unknown.
-func (a *API) markSpan(ctx context.Context, dag string, reason schedulerstate.SpanReason, held bool) {
+// name, stop or resume running. It runs before the change it marks, so the
+// change never holds without its span. A change that then fails leaves a
+// span begun, which counts no slot until it ends, or one ended, which a
+// retry of the change leaves as it is.
+func (a *API) markSpan(ctx context.Context, dag string, reason schedulerstate.SpanReason, held bool) error {
 	if a.spanStore == nil {
-		return
+		return nil
 	}
 	if err := a.spanStore.Mark(ctx, dag, reason, held, time.Now()); err != nil {
-		logger.Warn(ctx, "Failed to record a span in which slots could not run", tag.Error(err))
+		return fmt.Errorf("error recording the span in which slots could not run: %w", err)
 	}
+	return nil
 }
 
 // slotDates returns the dates a slot's run recorded, or, for a slot without
