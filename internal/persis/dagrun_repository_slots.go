@@ -67,6 +67,15 @@ func (r *DAGRunRepository) slotCutoff(retentionDays int) time.Time {
 	return r.now().AddDate(0, 0, -retentionDays)
 }
 
+// slotCandidate is a run that an import adds to the slot index unless the
+// index has it. It keeps what the import needs of the run's status, not the
+// status itself.
+type slotCandidate struct {
+	event       SlotEvent
+	profile     string
+	openAttempt func(context.Context) (dagrun.Attempt, error)
+}
+
 // importSlots adds a run event for every run created since the last import
 // that has a slot within the slot retention and no event yet.
 func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
@@ -83,19 +92,19 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
 	if dag.SlotRetentionDays > 0 {
 		cutoff = r.slotCutoff(dag.SlotRetentionDays)
 	}
-	var candidates []ListedDAGRun
+	var candidates []slotCandidate
 	var first, last time.Time
 	err = r.store.WalkRuns(ctx, dag.Name, from, func(run ListedDAGRun) error {
-		slot, ok := slotOfStatus(run.Status)
-		if !ok || slot.Before(cutoff) {
+		event, ok := slotRunEvent(run.Status)
+		if !ok || event.Slot.Before(cutoff) {
 			return nil
 		}
-		candidates = append(candidates, run)
-		if first.IsZero() || slot.Before(first) {
-			first = slot
+		candidates = append(candidates, slotCandidate{event: event, profile: run.Status.ProfileName, openAttempt: run.OpenAttempt})
+		if first.IsZero() || event.Slot.Before(first) {
+			first = event.Slot
 		}
-		if slot.After(last) {
-			last = slot
+		if event.Slot.After(last) {
+			last = event.Slot
 		}
 		return nil
 	})
@@ -114,11 +123,12 @@ func (r *DAGRunRepository) importSlots(ctx context.Context, dag *ir.DAG) error {
 		for _, event := range recorded {
 			known[event.RunID] = true
 		}
-		for _, run := range candidates {
-			if known[run.Status.DAGRunID] {
+		for _, candidate := range candidates {
+			event := candidate.event
+			if known[event.RunID] {
 				continue
 			}
-			event, _ := slotRunEvent(runDAG(ctx, run), r.location, r.calendars, run.Status)
+			event.Schedule = firingSchedule(runDAG(ctx, candidate.openAttempt), r.location, r.calendars, candidate.profile, event.Slot)
 			events = append(events, event)
 			if len(events) == slotImportBatch {
 				if err := r.importSlotEvents(ctx, dag.Name, events, time.Time{}); err != nil {
@@ -144,8 +154,8 @@ func (r *DAGRunRepository) importSlotEvents(ctx context.Context, dagName string,
 // runDAG returns the DAG snapshot a run was created with, or nil when it
 // cannot be read. The snapshot names the schedule that fired the run, which
 // the current definition may no longer have.
-func runDAG(ctx context.Context, run ListedDAGRun) *ir.DAG {
-	attempt, err := run.OpenAttempt(ctx)
+func runDAG(ctx context.Context, openAttempt func(context.Context) (dagrun.Attempt, error)) *ir.DAG {
+	attempt, err := openAttempt(ctx)
 	if err != nil {
 		return nil
 	}
@@ -158,13 +168,26 @@ func runDAG(ctx context.Context, run ListedDAGRun) *ir.DAG {
 
 // slotRunEvent returns the run event of a status that belongs to a slot: a
 // top-level run with a scheduled time. A sub-DAG run takes its parent's slot
-// and is not a run of its own slot. Calendars bind the business calendars of
-// the DAG's schedules, which a snapshot read back from history lacks.
-func slotRunEvent(dag *ir.DAG, loc *time.Location, calendars *spec.CalendarSource, status *ir.DAGRunStatus) (SlotEvent, bool) {
+// and is not a run of its own slot. The event names no schedule yet.
+func slotRunEvent(status *ir.DAGRunStatus) (SlotEvent, bool) {
 	slot, ok := slotOfStatus(status)
 	if !ok {
 		return SlotEvent{}, false
 	}
+	return SlotEvent{
+		Kind:        SlotEventRun,
+		DAGName:     status.Name,
+		Slot:        slot,
+		RunID:       status.DAGRunID,
+		TriggerType: status.TriggerType,
+	}, true
+}
+
+// firingSchedule returns the expression of the recurring schedule of dag,
+// active for profile, that fires at slot, or empty when none does.
+// Calendars bind the business calendars of the DAG's schedules, which a
+// snapshot read back from history lacks.
+func firingSchedule(dag *ir.DAG, loc *time.Location, calendars *spec.CalendarSource, profile string, slot time.Time) string {
 	var schedules []ir.Schedule
 	if dag != nil {
 		schedules = dag.Schedule
@@ -173,14 +196,7 @@ func slotRunEvent(dag *ir.DAG, loc *time.Location, calendars *spec.CalendarSourc
 		schedules = slices.Clone(schedules)
 		spec.BindScheduleCalendars(schedules, calendars)
 	}
-	return SlotEvent{
-		Kind:        SlotEventRun,
-		DAGName:     status.Name,
-		Slot:        slot,
-		RunID:       status.DAGRunID,
-		TriggerType: status.TriggerType,
-		Schedule:    ir.FiringScheduleExpression(schedules, status.ProfileName, loc, slot),
-	}, true
+	return ir.FiringScheduleExpression(schedules, profile, loc, slot)
 }
 
 func slotOfStatus(status *ir.DAGRunStatus) (time.Time, bool) {
@@ -260,11 +276,12 @@ func (a *eventingAttempt) recordSlotRun(ctx context.Context, status *ir.DAGRunSt
 	if a.slots == nil || status.ScheduleTime == "" {
 		return
 	}
-	event, ok := slotRunEvent(a.dag, a.slots.location, a.slots.calendars, status)
+	event, ok := slotRunEvent(status)
 	if !ok {
 		a.slots = nil
 		return
 	}
+	event.Schedule = firingSchedule(a.dag, a.slots.location, a.slots.calendars, status.ProfileName, event.Slot)
 	if err := a.slots.index.Record(ctx, event); err != nil {
 		logger.Warn(ctx, "Failed to record a run in its schedule slot",
 			tag.RunID(status.DAGRunID), tag.Error(err))

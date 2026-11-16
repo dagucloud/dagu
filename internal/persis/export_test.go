@@ -64,7 +64,8 @@ func (r *DAGRunRepository) ImportSlotsByLookup(ctx context.Context, dag *ir.DAG)
 			if known[status.DAGRunID] {
 				continue
 			}
-			event, _ := slotRunEvent(r.lookUpRunDAG(ctx, status), r.location, r.calendars, status)
+			event, _ := slotRunEvent(status)
+			event.Schedule = firingSchedule(r.lookUpRunDAG(ctx, status), r.location, r.calendars, status.ProfileName, event.Slot)
 			events = append(events, event)
 		}
 	}

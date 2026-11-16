@@ -82,35 +82,38 @@ func (store *Store) WalkRuns(ctx context.Context, name string, from persis.TimeI
 		if err != nil || item == nil {
 			return err
 		}
-		run := item.run
-		err = fn(persis.ListedDAGRun{
-			Status: item.Status,
-			OpenAttempt: func(ctx context.Context) (dagrun.Attempt, error) {
-				return store.newestAttempt(ctx, run)
-			},
-		})
-		if err != nil {
+		if err := fn(persis.ListedDAGRun{Status: item.Status, OpenAttempt: store.attemptOpener(item.run)}); err != nil {
 			return err
 		}
 	}
 }
 
-// newestAttempt opens the newest attempt of a listed run. The day index that
-// listed a run names that attempt, as checked against the disk.
-func (store *Store) newestAttempt(ctx context.Context, run *DAGRun) (dagrun.Attempt, error) {
-	var (
-		attempt *Attempt
-		err     error
-	)
+// attemptOpener returns a function that opens the newest attempt of a listed
+// run: the one its day index names, as checked against the disk, or else the
+// newest in its directory. It keeps the run's directory, not the summary the
+// listing read.
+func (store *Store) attemptOpener(run *DAGRun) func(context.Context) (dagrun.Attempt, error) {
+	dir := *run
+	dir.summary = nil
+	var indexed string
 	if run.summary != nil {
-		attempt, err = run.AttemptByDir(run.summary.LatestAttemptDir, store.cache)
-	} else {
-		attempt, err = run.LatestAttempt(ctx, store.cache)
+		indexed = run.summary.LatestAttemptDir
 	}
-	if err != nil {
-		return nil, err
+	return func(ctx context.Context) (dagrun.Attempt, error) {
+		var (
+			attempt *Attempt
+			err     error
+		)
+		if indexed != "" {
+			attempt, err = dir.AttemptByDir(indexed, store.cache)
+		} else {
+			attempt, err = dir.LatestAttempt(ctx, store.cache)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return attempt, nil
 	}
-	return attempt, nil
 }
 
 func (store *Store) listStatusesOrdered(
