@@ -319,6 +319,27 @@ func TestSchedulerStateLoadDAGReadsTheCache(t *testing.T) {
 	assert.Equal(t, seen.Add(time.Hour), got.FirstSeen)
 }
 
+// A state written by another process while the store reads the record is
+// seen on the next read, not hidden behind the record read before it.
+func TestSchedulerStateSeesAWriteDuringARead(t *testing.T) {
+	ctx := t.Context()
+	inner := testutil.NewMemoryBackend().Collection("scheduler").(*testutil.MemoryCollection)
+	writer := store.NewSchedulerStateStore(inner)
+	require.NoError(t, writer.Save(ctx, &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{"etl": {}}}))
+	seen := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	col := &racingCollection{MemoryCollection: inner}
+	col.race = func() {
+		require.NoError(t, writer.Save(ctx, &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{"etl": {FirstSeen: seen}}}))
+	}
+	reader := store.NewSchedulerStateStore(col)
+
+	_, err := reader.LoadDAG(ctx, "etl")
+	require.NoError(t, err)
+	got, err := reader.LoadDAG(ctx, "etl")
+	require.NoError(t, err)
+	assert.Equal(t, seen, got.FirstSeen)
+}
+
 func TestSchedulerStateSaveSkipsSameCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("scheduler")

@@ -93,13 +93,19 @@ func (s *SchedulerStateStore) loadLocked(ctx context.Context) (*schedulerstate.S
 		return cached, err
 	}
 
+	// The version is read before the record, so a write between the two
+	// leaves the cache behind the record and the next read reloads it.
+	token, versioned, err := collectionRecordVersion(ctx, s.col, schedulerStateID)
+	if !versioned || err != nil {
+		token = ""
+	}
 	var rawState schedulerStateCompatRecord
 	found, err := NewSingleRecord[schedulerStateCompatRecord](s.col, schedulerStateID).Load(ctx, &rawState)
 	if err != nil {
 		if errors.Is(err, ErrCorrupt) {
 			logger.Warn(ctx, "scheduler state: corrupt state, starting fresh", tag.Error(err))
 			state := newSchedulerState()
-			s.cacheStateLocked(ctx, state)
+			s.cacheStateLocked(state, token)
 			s.cachedStatePayload = nil
 			return s.cachedState, nil
 		}
@@ -107,7 +113,7 @@ func (s *SchedulerStateStore) loadLocked(ctx context.Context) (*schedulerstate.S
 	}
 	if !found {
 		state := newSchedulerState()
-		s.cacheStateLocked(ctx, state)
+		s.cacheStateLocked(state, token)
 		return s.cachedState, nil
 	}
 
@@ -121,7 +127,7 @@ func (s *SchedulerStateStore) loadLocked(ctx context.Context) (*schedulerstate.S
 	default:
 		logger.Warn(ctx, "scheduler state: unknown version, starting fresh", tag.Version(fmt.Sprint(originalVersion)))
 		state = newSchedulerState()
-		s.cacheStateLocked(ctx, state)
+		s.cacheStateLocked(state, token)
 		return s.cachedState, nil
 	}
 
@@ -133,7 +139,7 @@ func (s *SchedulerStateStore) loadLocked(ctx context.Context) (*schedulerstate.S
 	} else if ok {
 		state.LastTick = checkpoint.LastTick
 	}
-	s.cacheStateLocked(ctx, state)
+	s.cacheStateLocked(state, token)
 	if originalVersion != schedulerStateVersion || !rawState.LastTick.IsZero() {
 		s.cachedStatePayload = nil
 	}
@@ -229,17 +235,15 @@ func (s *SchedulerStateStore) cachedStateLocked(ctx context.Context) (*scheduler
 	return s.cachedState, true, nil
 }
 
-func (s *SchedulerStateStore) cacheStateLocked(ctx context.Context, state *schedulerstate.State) {
+// cacheStateLocked caches state as read from the record at version token;
+// an empty token caches nothing that a later read trusts.
+func (s *SchedulerStateStore) cacheStateLocked(state *schedulerstate.State, token string) {
 	s.cachedState = schedulerstate.Clone(state)
 	stateRecord := newSchedulerStateRecord(state)
 	if data, err := persis.Encode(&stateRecord); err == nil {
 		s.cachedStatePayload = data
 	}
-	if token, ok, err := collectionRecordVersion(ctx, s.col, schedulerStateID); ok && err == nil {
-		s.cachedStateRecordToken = token
-	} else {
-		s.cachedStateRecordToken = ""
-	}
+	s.cachedStateRecordToken = token
 }
 
 func (s *SchedulerStateStore) clearCacheLocked() {
