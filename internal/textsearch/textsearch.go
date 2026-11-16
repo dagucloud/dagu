@@ -239,7 +239,10 @@ func buildMatches(lines []string, matches []int, opts GrepOptions) []*Match {
 	var ret []*Match
 	start := max(opts.Offset, 0)
 	end := len(matches)
-	if opts.Limit > 0 && start+opts.Limit < end {
+	// Compare against the remaining length instead of adding Limit to start:
+	// math.MaxInt (the unbounded sentinel GrepWindow uses) would overflow
+	// start+Limit into a negative slice bound.
+	if opts.Limit > 0 && opts.Limit < end-start {
 		end = start + opts.Limit
 	}
 	if start >= len(matches) {

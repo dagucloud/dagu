@@ -4,6 +4,7 @@
 package textsearch
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,4 +196,18 @@ func TestGrepWindow(t *testing.T) {
 	require.Len(t, next.Matches, 1)
 	require.False(t, next.HasMore)
 	require.Equal(t, "cc\nneedle 3\ndd", next.Matches[0].Line)
+}
+
+func TestGrepUnboundedLimitDoesNotOverflow(t *testing.T) {
+	t.Parallel()
+
+	dat := []byte("needle 1\nneedle 2\nneedle 3\n")
+	// math.MaxInt is the unbounded sentinel GrepWindow accepts. Grep must
+	// treat it the same way instead of overflowing start+Limit into a
+	// negative slice bound.
+	matches, err := Grep(dat, "needle", GrepOptions{Offset: 1, Limit: math.MaxInt})
+	require.NoError(t, err)
+	require.Len(t, matches, 2)
+	require.Equal(t, 2, matches[0].LineNumber)
+	require.Equal(t, 3, matches[1].LineNumber)
 }
