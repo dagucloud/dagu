@@ -6608,25 +6608,49 @@ func TestSameTimestamp(t *testing.T) {
 }
 
 // A run in flight across an upgrade keeps the logs that a released version
-// named by SafeName, for a step that alone had that name.
-func TestTransformLogPathsKeepsLegacyLogs(t *testing.T) {
+// named by SafeName, for a step that alone had that name. Paths this version
+// stored stay as they are.
+func TestKeepLegacyLogPaths(t *testing.T) {
 	t.Parallel()
 
 	logDir := t.TempDir()
 	legacyDir := filepath.Join(logDir, "etl_daily", "run-1", "attempt-1")
+	newDir := filepath.Join(logDir, "etl%2Edaily", "run-1", "attempt-1")
 	require.NoError(t, os.MkdirAll(legacyDir, 0o750))
 	for _, file := range []string{"scheduler.log", "fetch_data.stdout.log", "a_b.stdout.log"} {
 		require.NoError(t, os.WriteFile(filepath.Join(legacyDir, file), nil, 0o600))
 	}
-	status := &ir.DAGRunStatus{Name: "etl.daily", DAGRunID: "run-1", AttemptID: "attempt-1", Nodes: []*ir.Node{
-		{Step: ir.Step{Name: "fetch data"}}, {Step: ir.Step{Name: "a.b"}}, {Step: ir.Step{Name: "a b"}},
-	}}
-	NewHandler(HandlerConfig{LogDir: logDir}).transformLogPaths(status)
+	report := func() *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{Name: "etl.daily", DAGRunID: "run-1", AttemptID: "attempt-1", Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "fetch data"}}, {Step: ir.Step{Name: "a.b"}}, {Step: ir.Step{Name: "a b"}},
+		}}
+	}
+	h := NewHandler(HandlerConfig{LogDir: logDir})
 
-	newDir := filepath.Join(logDir, "etl%2Edaily", "run-1", "attempt-1")
+	// A released coordinator stored every path under SafeName.
+	released := report()
+	released.Log = filepath.Join(legacyDir, "scheduler.log")
+	for _, node := range released.Nodes {
+		node.Stdout = filepath.Join(legacyDir, "fetch_data.stdout.log")
+		node.Stderr = filepath.Join(legacyDir, "fetch_data.stderr.log")
+	}
+	released.Nodes[1].Stdout = filepath.Join(legacyDir, "a_b.stdout.log")
+	released.Nodes[2].Stdout = filepath.Join(legacyDir, "a_b.stdout.log")
+
+	status := report()
+	h.transformLogPaths(status)
+	h.keepLegacyLogPaths(released, status)
 	assert.Equal(t, filepath.Join(legacyDir, "scheduler.log"), status.Log)
 	assert.Equal(t, filepath.Join(legacyDir, "fetch_data.stdout.log"), status.Nodes[0].Stdout)
 	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stderr.log"), status.Nodes[0].Stderr)
 	assert.Equal(t, filepath.Join(newDir, "a%2Eb.stdout.log"), status.Nodes[1].Stdout)
 	assert.Equal(t, filepath.Join(newDir, "a%20b.stdout.log"), status.Nodes[2].Stdout)
+
+	stored := report()
+	h.transformLogPaths(stored)
+	status = report()
+	h.transformLogPaths(status)
+	h.keepLegacyLogPaths(stored, status)
+	assert.Equal(t, filepath.Join(newDir, "scheduler.log"), status.Log)
+	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stdout.log"), status.Nodes[0].Stdout)
 }

@@ -289,8 +289,7 @@ const schedulerLogFile = "scheduler.log"
 // stepLogPath returns the coordinator file of a step's log of an attempt.
 // steps returns the names of the run's steps (see attemptLogPath).
 func stepLogPath(logDir, dagName, dagRunID, attemptID, step, ext string, steps func() []string) string {
-	legacyStep := legacyName(step)
-	return attemptLogPath(logDir, dagName, dagRunID, attemptID, fileutil.SafeKey(step)+"."+ext, legacyStep+"."+ext, func() bool {
+	return attemptLogPath(logDir, dagName, dagRunID, attemptID, stepLogFile(step, ext), legacyName(step)+"."+ext, func() bool {
 		names := steps()
 		_, owned := fileutil.LegacySafeName(step, names)
 		return owned && len(names) > 0
@@ -309,7 +308,7 @@ func schedulerLogPath(logDir, dagName, dagRunID, attemptID string) string {
 // such a file when it exists and the new one does not, if owned reports that
 // no other step of the run had the same SafeName. owned is called only then.
 func attemptLogPath(logDir, dagName, dagRunID, attemptID, file, legacyFile string, owned func() bool) string {
-	path := filepath.Join(logDir, fileutil.SafeKey(dagName), fileutil.SafeKey(dagRunID), fileutil.SafeKey(attemptID), file)
+	path := attemptLogFile(logDir, dagName, dagRunID, attemptID, file)
 	legacy := filepath.Join(legacyName(dagName), legacyName(dagRunID), legacyName(attemptID), legacyFile)
 	if filepath.Join(logDir, legacy) == path {
 		return path
@@ -322,6 +321,17 @@ func attemptLogPath(logDir, dagName, dagRunID, attemptID, file, legacyFile strin
 		return path
 	}
 	return filepath.Join(logDir, rel)
+}
+
+// attemptLogFile returns the coordinator file named file in the directory
+// this version gives an attempt's logs.
+func attemptLogFile(logDir, dagName, dagRunID, attemptID, file string) string {
+	return filepath.Join(logDir, fileutil.SafeKey(dagName), fileutil.SafeKey(dagRunID), fileutil.SafeKey(attemptID), file)
+}
+
+// stepLogFile names the file of a step's log with extension ext.
+func stepLogFile(step, ext string) string {
+	return fileutil.SafeKey(step) + "." + ext
 }
 
 func legacyName(name string) string {

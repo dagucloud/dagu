@@ -2234,6 +2234,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 		}
 		if bootstrapped {
 			h.transformLogPaths(dagRunStatus)
+			h.keepLegacyLogPaths(nil, dagRunStatus)
 			if err := h.transformArtifactPaths(ctx, bootstrappedAttempt, nil, dagRunStatus); err != nil {
 				return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 			}
@@ -2290,6 +2291,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if err := h.transformArtifactPaths(ctx, latestAttempt, latestStatus, dagRunStatus); err != nil {
 		return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 	}
+	h.keepLegacyLogPaths(latestStatus, dagRunStatus)
 	if len(latestStatus.Labels) > 0 {
 		dagRunStatus.Labels = append([]string(nil), latestStatus.Labels...)
 	}
@@ -2571,34 +2573,68 @@ func (h *Handler) sameAttemptCancellationRequested(
 	return aborting
 }
 
-// transformLogPaths rewrites worker-local log paths to coordinator paths.
+// transformLogPaths rewrites worker-local log paths to coordinator paths, as
+// this version names them. keepLegacyLogPaths then corrects the paths of a
+// run in flight across an upgrade.
 func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 	if h.logDir == "" {
 		return
 	}
+	dagName, dagRunID, attemptID := logAttempt(status)
+	stdout := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
+	stderr := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
+	logNodes(status, func(node *ir.Node, name string) {
+		node.Stdout = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, stepLogFile(name, stdout))
+		node.Stderr = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, stepLogFile(name, stderr))
+	})
+	status.Log = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, schedulerLogFile)
+}
 
-	dagName := status.Name
-	dagRunID := status.DAGRunID
-	attemptID := status.AttemptID
-
-	// For sub-DAGs, logs are stored under root DAG's directory
-	if status.Root.ID != "" && status.Root.ID != dagRunID {
-		dagName = status.Root.Name
-		dagRunID = status.Root.ID
+// keepLegacyLogPaths points the log paths of a run in flight across an
+// upgrade back at the files a released version named, which the log handler
+// goes on writing (see attemptLogPath). Only a path that latest, the status
+// stored before, does not hold already is checked, so a run this version
+// started reaches the file system on its first report only. A nil latest
+// checks every path.
+func (h *Handler) keepLegacyLogPaths(latest, status *ir.DAGRunStatus) {
+	if h.logDir == "" {
+		return
 	}
+	stored := map[string]*ir.Node{}
+	if latest != nil {
+		logNodes(latest, func(node *ir.Node, name string) { stored[name] = node })
+	}
+	dagName, dagRunID, attemptID := logAttempt(status)
+	names := logStepNames(status)
+	steps := func() []string { return names }
+	stdout := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
+	stderr := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
+	logNodes(status, func(node *ir.Node, name string) {
+		prev := stored[name]
+		if prev == nil || prev.Stdout != node.Stdout {
+			node.Stdout = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, stdout, steps)
+		}
+		if prev == nil || prev.Stderr != node.Stderr {
+			node.Stderr = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, stderr, steps)
+		}
+	})
+	if latest == nil || latest.Log != status.Log {
+		status.Log = schedulerLogPath(h.logDir, dagName, dagRunID, attemptID)
+	}
+}
 
+// logAttempt returns the DAG, run, and attempt that name the coordinator
+// directory of a run's logs. A sub-DAG run keeps its logs under its root run.
+func logAttempt(status *ir.DAGRunStatus) (dagName, dagRunID, attemptID string) {
+	dagName, dagRunID, attemptID = status.Name, status.DAGRunID, status.AttemptID
+	if status.Root.ID != "" && status.Root.ID != dagRunID {
+		dagName, dagRunID = status.Root.Name, status.Root.ID
+	}
 	// Use dagRunID as attemptID if not set (matches log_handler.go logic)
 	if attemptID == "" {
 		attemptID = status.DAGRunID
 	}
-
-	names := logStepNames(status)
-	steps := func() []string { return names }
-	logNodes(status, func(node *ir.Node, name string) {
-		node.Stdout = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT), steps)
-		node.Stderr = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR), steps)
-	})
-	status.Log = schedulerLogPath(h.logDir, dagName, dagRunID, attemptID)
+	return dagName, dagRunID, attemptID
 }
 
 // logNodes calls fn with each node of a run and the name the coordinator
