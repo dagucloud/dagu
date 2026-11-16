@@ -5,14 +5,22 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MissedSlotsReason } from '@/api/v1/schema';
+import { useMissedSlotsNotice } from '../../hooks/useMissedSlotsNotice';
 import { DAGBackfillsTab } from '../DAGBackfillsTab';
 
-const h = vi.hoisted(() => ({ GET: vi.fn() }));
+const h = vi.hoisted(() => ({ GET: vi.fn(), POST: vi.fn() }));
 
 vi.mock('@/hooks/api', async () => {
   const { createQueryHook } = await import('swr-openapi');
-  return { useQuery: createQueryHook({ GET: h.GET } as never, '/') };
+  return {
+    useQuery: createQueryHook({ GET: h.GET } as never, '/'),
+    useClient: () => ({ POST: h.POST }),
+  };
 });
+vi.mock('@/components/ui/error-modal', () => ({
+  useErrorModal: () => ({ showError: vi.fn() }),
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -67,10 +75,50 @@ function renderTab(canExecute: boolean, cache = new Map(), url = '/dags/etl') {
   );
 }
 
+const GAP_URL =
+  '/dags/etl?gapFrom=2026-11-01T09:00:00Z&gapTo=2026-11-01T21:00:00Z';
+const DISMISSAL_PATH = '/dags/{fileName}/missed-slots/dismissal';
+
+// The notice of missed slots over the canvas, as the DAG's page shows it.
+function MissedSlotsNotice() {
+  const notice = useMissedSlotsNotice('etl', 'local', true);
+  return <p aria-label="Notice">{notice?.message}</p>;
+}
+
+// The tab with the notice of missed slots that links it, on a gap.
+function renderTabWithNotice() {
+  h.GET.mockImplementation(async (path: string) =>
+    path === '/dags/{fileName}/missed-slots'
+      ? {
+          data: {
+            missedSlots: {
+              slots: 12,
+              first: '2026-11-01T09:00:00Z',
+              last: '2026-11-01T20:00:00Z',
+              reasons: [MissedSlotsReason.suspended],
+              until: '2026-11-01T20:30:00Z',
+            },
+          },
+        }
+      : { data: { backfills: [] } }
+  );
+  return render(
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <MemoryRouter initialEntries={[GAP_URL]}>
+        <MissedSlotsNotice />
+        <DAGBackfillsTab dagName="etl" fileName="etl" canExecute />
+        <Location />
+      </MemoryRouter>
+    </SWRConfig>
+  );
+}
+
 describe('DAGBackfillsTab', () => {
   beforeEach(() => {
     h.GET.mockReset();
     h.GET.mockResolvedValue({ data: { backfills: [] } });
+    h.POST.mockReset();
+    h.POST.mockResolvedValue({});
   });
 
   it('offers the slots when the backfills fail to load', async () => {
@@ -112,6 +160,39 @@ describe('DAGBackfillsTab', () => {
     expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
       '/backfills/bf123456'
     );
+  });
+
+  // A backfill started from the notice dismisses it for every user, as
+  // Dismiss does; a later period brings a new one.
+  it('dismisses the notice a backfill starts from', async () => {
+    renderTabWithNotice();
+    const notice = screen.getByLabelText('Notice');
+    await waitFor(() => expect(notice).toHaveTextContent('12 slots passed'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(notice).toBeEmptyDOMElement());
+    expect(h.POST).toHaveBeenCalledWith(DISMISSAL_PATH, {
+      params: { path: { fileName: 'etl' }, query: { remoteNode: 'local' } },
+    });
+  });
+
+  // The backfill has started, so a dismissal that fails is only logged.
+  it('keeps the started backfill when the notice is not dismissed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.POST.mockResolvedValue({ error: { message: 'disk full' } });
+    renderTabWithNotice();
+    const notice = screen.getByLabelText('Notice');
+    await waitFor(() => expect(notice).toHaveTextContent('12 slots passed'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
+      '/backfills/bf123456'
+    );
+    expect(notice).toHaveTextContent('12 slots passed');
+    warn.mockRestore();
   });
 
   // The backfill's page takes the place of the link that opened the panel,

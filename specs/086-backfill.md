@@ -285,6 +285,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   with its bounds editable, since the range may hold more slots than one
   backfill may run. A backfill started there opens its page in place of
   the panel's, so going back leads to the page the action was taken on.
+  Once it starts, the page dismisses the notice as Dismiss does; a
+  dismissal that fails then is logged in the browser and leaves the
+  backfill started. A backfill started anywhere else dismisses nothing.
 - A user who may suspend the DAG may dismiss the notice: the server allows
   running DAGs, and the user has an operator role or above in the DAG's
   workspace. Others see the notice without a Dismiss button, and the server

@@ -3,6 +3,7 @@
 
 import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useSWRConfig } from 'swr';
 import { MissedSlotsReason } from '@/api/v1/schema';
 import { useErrorModal } from '@/components/ui/error-modal';
 import type { WorkspaceNotice } from '@/features/dags/components/dag-editor/hostTypes';
@@ -31,14 +32,50 @@ const MAX_MISSED_SLOTS = 10000;
 const formatBound = (value: string) =>
   formatAbsoluteTime(value, { seconds: false }) ?? value;
 
+/** Whether an SWR key reads the missed slots of fileName. */
+const readsMissedSlotsOf = (fileName: string) => (key: unknown) =>
+  Array.isArray(key) &&
+  key[1] === MISSED_SLOTS_PATH &&
+  (key[2] as { params?: { path?: { fileName?: string } } } | undefined)?.params
+    ?.path?.fileName === fileName;
+
+/**
+ * Dismisses a DAG's missed slots for every user, as Dismiss does, once a
+ * backfill started from their notice. The backfill has started, so a
+ * dismissal that fails is only logged.
+ */
+export function useDismissMissedSlotsOnStart(
+  fileName: string,
+  remoteNode: string
+): () => Promise<void> {
+  const client = useClient();
+  const { mutate } = useSWRConfig();
+  return async () => {
+    try {
+      const { error } = await client.POST(
+        '/dags/{fileName}/missed-slots/dismissal',
+        { params: { path: { fileName }, query: { remoteNode } } }
+      );
+      if (error) {
+        console.warn('Failed to dismiss the missed slots:', error.message);
+        return;
+      }
+      // The server now answers none, so the slots read are dropped.
+      void mutate(readsMissedSlotsOf(fileName), {}, { revalidate: false });
+    } catch (error) {
+      console.warn('Failed to dismiss the missed slots:', error);
+    }
+  };
+}
+
 /**
  * The notice of the slots a DAG missed while it was suspended, the
  * scheduler paused, or no scheduler ran. For a user who may run the DAG, its
  * action opens the Backfills tab with the start panel on those slots, and it
  * can be dismissed. The slots are read as the page opens, never polled or
- * retried: a backfill does not change them. Dismissed, the notice is hidden
- * from every user until a newer period adds missed slots; a dismissal the
- * server did not keep leaves the notice and shows the error.
+ * retried. Dismissed, or acted on by a backfill started from it, the notice
+ * is hidden from every user until a newer period adds missed slots; a
+ * dismissal the server did not keep leaves the notice and shows the error.
  */
 export function useMissedSlotsNotice(
   fileName: string,
