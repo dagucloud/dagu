@@ -129,7 +129,7 @@ type API struct {
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
 	restartBackoffStore  schedulerstate.RestartBackoffStore
-	spanStore            schedulerstate.SpanStore
+	periodStore          schedulerstate.PeriodStore
 }
 
 type processRepository interface {
@@ -456,10 +456,10 @@ func WithRestartBackoffStore(store schedulerstate.RestartBackoffStore) APIOption
 	}
 }
 
-// WithSpanStore sets the store of the spans in which slots could not run.
-func WithSpanStore(store schedulerstate.SpanStore) APIOption {
+// WithPeriodStore sets the store of the periods in which slots could not run.
+func WithPeriodStore(store schedulerstate.PeriodStore) APIOption {
 	return func(a *API) {
-		a.spanStore = store
+		a.periodStore = store
 	}
 }
 

@@ -220,14 +220,14 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
-- Dagu records each span in which start-schedule slots cannot run once it
-  ends, and keeps the spans that ended in the last 30 days, at most 100
+- Dagu records each period in which start-schedule slots cannot run once it
+  ends, and keeps the periods that ended in the last 30 days, at most 100
   each for the scheduler's outages, the operator's pauses, and each DAG:
   - `suspended`: from a DAG's suspension to its resume, for that DAG. The
     suspend flag holds when the suspension began, and suspending again
-    keeps it. A resume through the API records the span before it clears
+    keeps it. A resume through the API records the period before it clears
     the flag, and fails, leaving the DAG suspended, when it cannot; a
-    retried resume records the span once;
+    retried resume records the period once;
   - `paused`: from an operator's pause of the scheduler to its resume, for
     every DAG, kept with the pause state and recorded in the same write as
     the resume. Pausing again while paused keeps the time the pause began.
@@ -235,7 +235,7 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   - `down`: when a scheduler starts, takes over, or ticks, more than a
     minute after the last tick, from that tick to its own, or to where a
     takeover's recovery window starts, for every DAG.
-  A DAG's own spans follow it when Dagu renames it and are removed when Dagu
+  A DAG's own periods follow it when Dagu renames it and are removed when Dagu
   deletes it.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
@@ -256,9 +256,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   `interval_end`, `next_scheduled_at`, or `${dates.*}`, or calls a sub-DAG,
   which inherits the slot. A run reaches its slot only through these.
 - A DAG's missed slots are the fire times of its start schedules for its
-  active profile that came due strictly inside those spans, the newest
+  active profile that came due strictly inside those periods, the newest
   10,000 at most, whether or not a run filled them later. They are read from
-  the spans and the scheduler state only, never from the DAG's slot or run
+  the periods and the scheduler state only, never from the DAG's slot or run
   history; the backfill planner decides which of them still need a run.
   Left out: slots older than `slot_retention_days`, and the slots of the
   scheduler's outages and pauses up to when the scheduler first tracked the
@@ -267,8 +267,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   its suspensions.
 - `GET /api/v1/dags/{fileName}/missed-slots` returns the missed slots of a
   DAG that reads its slot as `missedSlots`: their count, the `first` and
-  `last`, the `reasons` of the spans that hold them, and `until`, when the
-  newest such span ended. The runs of any other DAG all do the same work,
+  `last`, the `reasons` of the periods that hold them, and `until`, when the
+  newest such period ended. The runs of any other DAG all do the same work,
   so it has none. The DAG's details and their live feed do not carry them.
 - The DAG's page reads them as it opens and when a backfill starts there,
   and then says `12 slots passed from 2026-11-01 09:00 to 2026-11-01 20:00
@@ -281,8 +281,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   the panel's, so going back leads to the page the action was taken on.
 - Any user who can see the DAG may dismiss the notice:
   `POST /api/v1/dags/{fileName}/missed-slots/dismissal` records the server's
-  time and the user with the DAG's spans, and writes an audit entry. The
-  notice is then hidden for every user until a span that ends after the
+  time and the user with the DAG's periods, and writes an audit entry. The
+  notice is then hidden for every user until a period that ends after the
   dismissal adds missed slots. A later dismissal replaces an earlier one. A
   dismissal that fails leaves the notice and shows the error.
 - Each run is queued through the DAG's queue and counts against its limit.

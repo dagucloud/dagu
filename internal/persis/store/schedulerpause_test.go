@@ -228,7 +228,7 @@ func TestSchedulerPauseResumeRecordsTheEndedPause(t *testing.T) {
 	ctx := t.Context()
 	col := &writeCounter{Collection: testutil.NewMemoryBackend().Collection("scheduler")}
 	pauses := store.NewSchedulerPauseStore(col)
-	spans := store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	periods := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
 
 	require.NoError(t, pauses.Set(ctx, true, "alice", "db migration"))
 	pause, err := pauses.Get(ctx)
@@ -237,22 +237,22 @@ func TestSchedulerPauseResumeRecordsTheEndedPause(t *testing.T) {
 	before := col.writes
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
-	assert.Equal(t, 1, col.writes-before, "the resume and its span are one write")
-	ended, _, err := spans.Ended(ctx, "")
+	assert.Equal(t, 1, col.writes-before, "the resume and its period are one write")
+	ended, _, err := periods.Ended(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, ended, 1)
 	assert.True(t, pause.PausedAt.Equal(ended[0].From), "from %s", ended[0].From)
-	assert.Equal(t, schedulerstate.SpanPaused, ended[0].Reason)
+	assert.Equal(t, schedulerstate.PeriodPaused, ended[0].Reason)
 	assert.False(t, ended[0].To.Before(ended[0].From))
 }
 
 // A resume whose write fails leaves the scheduler paused and records no
-// span.
+// period.
 func TestSchedulerPauseFailedResumeRecordsNothing(t *testing.T) {
 	ctx := t.Context()
 	col := &writeCounter{Collection: testutil.NewMemoryBackend().Collection("scheduler")}
 	pauses := store.NewSchedulerPauseStore(col)
-	spans := store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	periods := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 
 	col.fail = true
@@ -261,17 +261,17 @@ func TestSchedulerPauseFailedResumeRecordsNothing(t *testing.T) {
 	paused, err := pauses.IsPaused(ctx)
 	require.NoError(t, err)
 	assert.True(t, paused)
-	ended, _, err := spans.Ended(ctx, "")
+	ended, _, err := periods.Ended(ctx, "")
 	require.NoError(t, err)
 	assert.Empty(t, ended)
 }
 
 // The scheduler's wake hold is not an operator's pause: ending it records
-// no span, and placing or lifting it keeps the pauses recorded.
-func TestSchedulerPauseHoldRecordsNoSpan(t *testing.T) {
+// no period, and placing or lifting it keeps the pauses recorded.
+func TestSchedulerPauseHoldRecordsNoPeriod(t *testing.T) {
 	ctx := t.Context()
 	pauses := store.NewSchedulerPauseStore(testutil.NewMemoryBackend().Collection("scheduler"))
-	spans := store.NewSpanStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
+	periods := store.NewPeriodStore(testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState), pauses)
 	require.NoError(t, pauses.Set(ctx, true, "alice", ""))
 	require.NoError(t, pauses.Set(ctx, false, "", ""))
 
@@ -285,7 +285,7 @@ func TestSchedulerPauseHoldRecordsNoSpan(t *testing.T) {
 		require.NoError(t, end())
 	}
 
-	ended, _, err := spans.Ended(ctx, "")
+	ended, _, err := periods.Ended(ctx, "")
 	require.NoError(t, err)
 	assert.Len(t, ended, 1, "the operator's pause only")
 }

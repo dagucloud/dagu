@@ -455,10 +455,10 @@ func TestSchedulerStateLoadIgnoresPeriodRecords(t *testing.T) {
 	saved := &schedulerstate.State{LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), DAGs: map[string]schedulerstate.DAGWatermark{}}
 	require.NoError(t, states.Save(ctx, saved))
 
-	spans := store.NewSpanStore(col, nil)
+	periods := store.NewPeriodStore(col, nil)
 	period := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
-	require.NoError(t, spans.AddDown(ctx, period))
-	require.NoError(t, spans.AddSuspended(ctx, "state", period))
+	require.NoError(t, periods.AddDown(ctx, period))
+	require.NoError(t, periods.AddSuspended(ctx, "state", period))
 
 	loaded, err := store.NewSchedulerStateStore(col).Load(ctx)
 	require.NoError(t, err)

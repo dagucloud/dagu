@@ -32,25 +32,25 @@ type dagRecord struct {
 	Dismissed *schedulerstate.Dismissal `json:"dismissed,omitempty"`
 }
 
-// SpanStore keeps the ended periods in which slots could not run as records
+// PeriodStore keeps the ended periods in which slots could not run as records
 // of the scheduler state collection: the scheduler's outages in one, and
 // each DAG's suspensions in its own. It gives with them the operator's
 // pauses the pause record keeps.
-type SpanStore struct {
+type PeriodStore struct {
 	col    persis.Collection
 	pauses *SchedulerPauseStore
 }
 
-var _ schedulerstate.SpanStore = (*SpanStore)(nil)
+var _ schedulerstate.PeriodStore = (*PeriodStore)(nil)
 
-// NewSpanStore creates a span store on the scheduler state collection col
+// NewPeriodStore creates a period store on the scheduler state collection col
 // that gives the ended pauses of pauses, when it is not nil.
-func NewSpanStore(col persis.Collection, pauses *SchedulerPauseStore) *SpanStore {
-	return &SpanStore{col: col, pauses: pauses}
+func NewPeriodStore(col persis.Collection, pauses *SchedulerPauseStore) *PeriodStore {
+	return &PeriodStore{col: col, pauses: pauses}
 }
 
 // AddDown records a time no scheduler ran.
-func (s *SpanStore) AddDown(ctx context.Context, down schedulerstate.Period) error {
+func (s *PeriodStore) AddDown(ctx context.Context, down schedulerstate.Period) error {
 	return changeRecord(ctx, s.col, downRecordID, func(record *downRecord) bool {
 		var added bool
 		record.Down, added = appendPeriod(record.Down, down, time.Now())
@@ -60,7 +60,7 @@ func (s *SpanStore) AddDown(ctx context.Context, down schedulerstate.Period) err
 
 // AddSuspended records a DAG's ended suspension, or extends the one that
 // began at the same time to its later end.
-func (s *SpanStore) AddSuspended(ctx context.Context, dag string, suspended schedulerstate.Period) error {
+func (s *PeriodStore) AddSuspended(ctx context.Context, dag string, suspended schedulerstate.Period) error {
 	return changeRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), func(record *dagRecord) bool {
 		var added bool
 		record.Suspended, added = appendPeriod(record.Suspended, suspended, time.Now())
@@ -70,7 +70,7 @@ func (s *SpanStore) AddSuspended(ctx context.Context, dag string, suspended sche
 
 // Dismiss records that the DAG's missed slots were dismissed, unless a
 // later dismissal is recorded.
-func (s *SpanStore) Dismiss(ctx context.Context, dag string, dismissal schedulerstate.Dismissal) error {
+func (s *PeriodStore) Dismiss(ctx context.Context, dag string, dismissal schedulerstate.Dismissal) error {
 	return changeRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), func(record *dagRecord) bool {
 		if record.Dismissed != nil && !dismissal.At.After(record.Dismissed.At) {
 			return false
@@ -80,10 +80,10 @@ func (s *SpanStore) Dismiss(ctx context.Context, dag string, dismissal scheduler
 	})
 }
 
-// Ended returns the spans of the scheduler's outages, the operator's pauses,
+// Ended returns the periods of the scheduler's outages, the operator's pauses,
 // and the DAG's suspensions that ended within periodRetention, oldest first,
 // and the DAG's latest dismissal. It reads each record once.
-func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Span, schedulerstate.Dismissal, error) {
+func (s *PeriodStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Period, schedulerstate.Dismissal, error) {
 	var none schedulerstate.Dismissal
 	var down downRecord
 	if _, err := loadRecord(ctx, s.col, downRecordID, &down); err != nil {
@@ -100,29 +100,29 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 			return nil, none, err
 		}
 	}
-	var spans []schedulerstate.Span
+	var ended []schedulerstate.Period
 	cutoff := time.Now().Add(-periodRetention)
-	for reason, periods := range map[schedulerstate.SpanReason][]schedulerstate.Period{
-		schedulerstate.SpanDown:      down.Down,
-		schedulerstate.SpanPaused:    pauses,
-		schedulerstate.SpanSuspended: own.Suspended,
+	for reason, periods := range map[schedulerstate.PeriodReason][]schedulerstate.Period{
+		schedulerstate.PeriodDown:      down.Down,
+		schedulerstate.PeriodPaused:    pauses,
+		schedulerstate.PeriodSuspended: own.Suspended,
 	} {
 		for _, period := range periods {
 			if !period.To.Before(cutoff) {
-				spans = append(spans, schedulerstate.Span{From: period.From, To: period.To, Reason: reason})
+				ended = append(ended, schedulerstate.Period{From: period.From, To: period.To, Reason: reason})
 			}
 		}
 	}
-	slices.SortFunc(spans, func(a, b schedulerstate.Span) int {
+	slices.SortFunc(ended, func(a, b schedulerstate.Period) int {
 		if c := a.From.Compare(b.From); c != 0 {
 			return c
 		}
 		return a.To.Compare(b.To)
 	})
 	if own.Dismissed != nil {
-		return spans, *own.Dismissed, nil
+		return ended, *own.Dismissed, nil
 	}
-	return spans, none, nil
+	return ended, none, nil
 }
 
 // appendPeriod appends period to periods, or extends the one that began at
@@ -171,7 +171,7 @@ func loadRecord[T any](ctx context.Context, col persis.Collection, id string, ds
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("span store: get %s: %w", id, err)
+		return nil, fmt.Errorf("period store: get %s: %w", id, err)
 	}
 	if err := persis.Decode(current, dst); err != nil {
 		var empty T

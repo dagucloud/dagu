@@ -145,9 +145,9 @@ func TestSchedulerPause_ReadRequiresAuthentication(t *testing.T) {
 		ExpectStatus(http.StatusUnauthorized).Send(t)
 }
 
-// An operator's pause, from its start to its resume, is a span in which no
+// An operator's pause, from its start to its resume, is a period in which no
 // DAG's slots run.
-func TestSchedulerPause_RecordsSpan(t *testing.T) {
+func TestSchedulerPause_RecordsPeriod(t *testing.T) {
 	t.Parallel()
 	server := setupSchedulerPauseServer(t)
 	adminToken := getWebhookAdminToken(t, server)
@@ -159,9 +159,9 @@ func TestSchedulerPause_RecordsSpan(t *testing.T) {
 	}
 
 	pauses := store.NewSchedulerPauseStore(server.Backend.Collection(persis.CollectionSchedulerState))
-	spans, _, err := store.NewSpanStore(server.Backend.Collection(persis.CollectionSchedulerState), pauses).Ended(t.Context(), "")
+	periods, _, err := store.NewPeriodStore(server.Backend.Collection(persis.CollectionSchedulerState), pauses).Ended(t.Context(), "")
 	require.NoError(t, err)
-	require.Len(t, spans, 1)
-	assert.Equal(t, schedulerstate.SpanPaused, spans[0].Reason)
-	assert.False(t, spans[0].To.Before(spans[0].From))
+	require.Len(t, periods, 1)
+	assert.Equal(t, schedulerstate.PeriodPaused, periods[0].Reason)
+	assert.False(t, periods[0].To.Before(periods[0].From))
 }

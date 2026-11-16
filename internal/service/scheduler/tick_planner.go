@@ -124,8 +124,8 @@ type TickPlannerConfig struct {
 	// RecoveryWindow returns how far back startup replays slots missed while
 	// the lock passed from a failed scheduler, or 0 after a normal start.
 	RecoveryWindow func() time.Duration
-	// Spans records the time no scheduler ran. Nil records none.
-	Spans schedulerstate.SpanStore
+	// Periods records the time no scheduler ran. Nil records none.
+	Periods schedulerstate.PeriodStore
 }
 
 // TickPlanner is the unified scheduling decision module.
@@ -161,7 +161,7 @@ type TickPlanner struct {
 	entries      map[string]*plannerEntry
 	buffers      map[string]*ScheduleBuffer
 	deletedGrace map[string]time.Time
-	// pendingOutages are the outages whose spans failed to record, retried
+	// pendingOutages are the outages whose periods failed to record, retried
 	// as each tick is planned.
 	pendingOutages []schedulerstate.Period
 
@@ -435,16 +435,16 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	return nil
 }
 
-// maxPendingOutages bounds the outages kept while their spans fail to record.
+// maxPendingOutages bounds the outages kept while their periods fail to record.
 const maxPendingOutages = 10
 
-// recordOutage records the time from the last tick to to as a span in which
-// no scheduler ran, when a minute or more passed between them. A span that
+// recordOutage records the time from the last tick to to as a period in which
+// no scheduler ran, when a minute or more passed between them. A period that
 // fails to record is kept until a later tick records it, as the tick moves
 // the last tick past it: the newest maxPendingOutages, an outage that begins
 // where the last one kept ends joining it. Caller must hold entryMu.
 func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time) {
-	if tp.cfg.Spans == nil || lastTick.IsZero() || !to.After(lastTick.Add(time.Minute)) {
+	if tp.cfg.Periods == nil || lastTick.IsZero() || !to.After(lastTick.Add(time.Minute)) {
 		return
 	}
 	if n := len(tp.pendingOutages); n > 0 && !lastTick.After(tp.pendingOutages[n-1].To) {
@@ -458,14 +458,14 @@ func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time)
 	tp.recordPendingOutages(ctx)
 }
 
-// recordPendingOutages records the spans of the outages kept, and keeps
+// recordPendingOutages records the periods of the outages kept, and keeps
 // those that fail again. Caller must hold entryMu.
 func (tp *TickPlanner) recordPendingOutages(ctx context.Context) {
 	if len(tp.pendingOutages) == 0 {
 		return
 	}
 	tp.pendingOutages = slices.DeleteFunc(tp.pendingOutages, func(outage schedulerstate.Period) bool {
-		err := tp.cfg.Spans.AddDown(ctx, outage)
+		err := tp.cfg.Periods.AddDown(ctx, outage)
 		if err != nil {
 			logger.Warn(ctx, "Failed to record the time no scheduler ran; retrying on the next tick", tag.Error(err))
 		}

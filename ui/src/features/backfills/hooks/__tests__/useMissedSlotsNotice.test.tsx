@@ -187,7 +187,7 @@ describe('useMissedSlotsNotice', () => {
   });
 
   // The server keeps the dismissal for every user and answers no missed
-  // slots until a newer span adds some, so the page drops the slots it read
+  // slots until a newer period adds some, so the page drops the slots it read
   // instead of reading them again.
   it('dismisses the missed slots for every user', async () => {
     post.mockResolvedValue({});

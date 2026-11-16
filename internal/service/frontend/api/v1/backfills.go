@@ -144,12 +144,12 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 		return nil, err
 	}
 	none := api.GetDAGMissedSlots200JSONResponse{}
-	if a.spanStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
+	if a.periodStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
 		return none, nil
 	}
-	// A dismissal hides the slots until a span that ended after it holds one.
-	spans, dismissal, err := a.spanStore.Ended(ctx, request.FileName)
-	if err != nil || !slices.ContainsFunc(spans, func(span schedulerstate.Span) bool { return span.To.After(dismissal.At) }) {
+	// A dismissal hides the slots until a period that ended after it holds one.
+	periods, dismissal, err := a.periodStore.Ended(ctx, request.FileName)
+	if err != nil || !slices.ContainsFunc(periods, func(period schedulerstate.Period) bool { return period.To.After(dismissal.At) }) {
 		return none, err
 	}
 	var profile string
@@ -161,7 +161,7 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	schedules := slices.Clone(dag.Schedule)
 	spec.BindScheduleCalendars(schedules, a.calendarSource())
 	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
-	missed := backfill.FindMissed(dag, sched, spans, a.dagFirstSeen(ctx, dag.Name), time.Now())
+	missed := backfill.FindMissed(dag, sched, periods, a.dagFirstSeen(ctx, dag.Name), time.Now())
 	if missed.Slots == 0 || !missed.Until.After(dismissal.At) {
 		return none, nil
 	}
@@ -175,7 +175,7 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 }
 
 // DismissDAGMissedSlots hides a DAG's missed slots from every user until a
-// span that ends after the dismissal adds missed slots. Any user who can see
+// period that ends after the dismissal adds missed slots. Any user who can see
 // the DAG may dismiss them.
 func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGMissedSlotsRequestObject) (api.DismissDAGMissedSlotsResponseObject, error) {
 	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
@@ -189,11 +189,11 @@ func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGM
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err
 	}
-	if a.spanStore == nil {
+	if a.periodStore == nil {
 		return api.DismissDAGMissedSlots204Response{}, nil
 	}
 	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: triggerActorFromContext(ctx)}
-	if err := a.spanStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
+	if err := a.periodStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
 		return nil, fmt.Errorf("error dismissing the missed slots of %s: %w", request.FileName, err)
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_missed_slots_dismiss", map[string]any{"dag_name": request.FileName})
@@ -217,11 +217,11 @@ func (a *API) dagFirstSeen(ctx context.Context, dagName string) time.Time {
 }
 
 // recordSuspension records the suspension of a DAG that is to resume as a
-// span in which its slots did not run. It runs before the resume clears the
-// suspension, so a resume never holds without its span; a resume retried
-// after the clear failed records the same span, extended to the retry.
+// period in which its slots did not run. It runs before the resume clears the
+// suspension, so a resume never holds without its period; a resume retried
+// after the clear failed records the same period, extended to the retry.
 func (a *API) recordSuspension(ctx context.Context, fileName string) error {
-	if a.spanStore == nil {
+	if a.periodStore == nil {
 		return nil
 	}
 	since, suspended, err := a.dagRepository.SuspendedSince(ctx, fileName)
@@ -231,7 +231,7 @@ func (a *API) recordSuspension(ctx context.Context, fileName string) error {
 	if !suspended {
 		return nil
 	}
-	if err := a.spanStore.AddSuspended(ctx, fileName, schedulerstate.Period{From: since, To: time.Now()}); err != nil {
+	if err := a.periodStore.AddSuspended(ctx, fileName, schedulerstate.Period{From: since, To: time.Now()}); err != nil {
 		return fmt.Errorf("error recording the suspension of %s: %w", fileName, err)
 	}
 	return nil

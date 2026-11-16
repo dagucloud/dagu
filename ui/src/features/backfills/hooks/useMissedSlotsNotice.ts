@@ -44,7 +44,7 @@ const formatBound = (value: string) =>
  * action opens the Backfills tab with the start panel on those slots. The
  * slots are read as the page opens and again when a backfill starts, never
  * polled or retried. Dismissed, the notice is hidden from every user until a
- * newer span adds missed slots; a dismissal the server did not keep leaves
+ * newer period adds missed slots; a dismissal the server did not keep leaves
  * the notice and shows the error.
  */
 export function useMissedSlotsNotice(

@@ -306,20 +306,20 @@ func TestListDAGsRunSortPinnedFirstOnlyWhereRequested(t *testing.T) {
 	}
 }
 
-// A DAG's spans follow it when it is renamed and go when it is deleted, so
-// a span file never outlives its DAG or reaches a DAG that takes the name.
-func TestDAGSpansFollowRenameAndDelete(t *testing.T) {
+// A DAG's periods follow it when it is renamed and go when it is deleted, so
+// a period file never outlives its DAG or reaches a DAG that takes the name.
+func TestDAGPeriodsFollowRenameAndDelete(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	helper := test.Setup(t, test.WithStatusPersistence())
 	writePinTestDAGs(t, helper, "alpha")
-	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
 	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour).UTC(), To: time.Now().Add(-time.Hour).UTC()}
-	require.NoError(t, spans.AddSuspended(ctx, "alpha", suspended))
-	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans))
-	ended := func(dag string) []schedulerstate.Span {
+	require.NoError(t, periods.AddSuspended(ctx, "alpha", suspended))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods))
+	ended := func(dag string) []schedulerstate.Period {
 		t.Helper()
-		got, _, err := spans.Ended(ctx, dag)
+		got, _, err := periods.Ended(ctx, dag)
 		require.NoError(t, err)
 		return got
 	}
@@ -336,5 +336,5 @@ func TestDAGSpansFollowRenameAndDelete(t *testing.T) {
 	_, err = apiImpl.DeleteDAG(ctx, api.DeleteDAGRequestObject{FileName: "omega"})
 	require.NoError(t, err)
 	assert.Empty(t, ended("omega"))
-	assert.NoDirExists(t, filepath.Join(helper.Config.Paths.DataDir, "scheduler", "dags"), "no span file is left")
+	assert.NoDirExists(t, filepath.Join(helper.Config.Paths.DataDir, "scheduler", "dags"), "no period file is left")
 }

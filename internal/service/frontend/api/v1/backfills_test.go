@@ -283,18 +283,18 @@ func TestGetDAGMissedSlots(t *testing.T) {
 		helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, name, []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
 	}
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-sync", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
-	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
-	require.NoError(t, spans.AddDown(ctx, schedulerstate.Period{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute)}))
-	require.NoError(t, spans.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-90 * time.Minute), To: hour.Add(-30 * time.Minute)}))
+	require.NoError(t, periods.AddDown(ctx, schedulerstate.Period{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute)}))
+	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-90 * time.Minute), To: hour.Add(-30 * time.Minute)}))
 	// ops-new was first seen after the outage, so it missed none of its slots.
 	states := &countingStates{stubSchedulerStateStore: stubSchedulerStateStore{state: &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
 		"ops-load": {FirstSeen: hour.Add(-6 * time.Hour)},
 		"ops-sync": {FirstSeen: hour.Add(-6 * time.Hour)},
 		"ops-new":  {FirstSeen: hour.Add(-2 * time.Hour)},
 	}}}}
-	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
 	user := func(workspace string) context.Context {
 		return auth.WithUser(ctx, &auth.User{
 			Username: "viewer", Role: auth.RoleViewer,
@@ -331,14 +331,14 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
-	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
-	require.NoError(t, spans.AddDown(ctx, schedulerstate.Period{From: hour.Add(-3*time.Hour + 30*time.Minute), To: hour.Add(-90 * time.Minute)}))
+	require.NoError(t, periods.AddDown(ctx, schedulerstate.Period{From: hour.Add(-3*time.Hour + 30*time.Minute), To: hour.Add(-90 * time.Minute)}))
 	states := stubSchedulerStateStore{state: &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{
 		"ops-load": {FirstSeen: hour.Add(-6 * time.Hour)},
 	}}}
-	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithPeriodStore(periods), localapi.WithSchedulerStateStore(states), localapi.WithAuthService(stubAuthService{}))
 	user := func(name, workspace string) context.Context {
 		return auth.WithUser(ctx, &auth.User{
 			Username: name, Role: auth.RoleViewer,
@@ -364,12 +364,12 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	require.NoError(t, dismiss(user("alice", "ops"), "ops-load"))
 	assert.Nil(t, missedSlots(user("bob", "ops")), "hidden from another user")
 
-	require.NoError(t, spans.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
+	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
 	assert.NotNil(t, missedSlots(user("bob", "ops")), "a newer period adds missed slots")
 }
 
-// A server without a span store answers a dismissal as done.
-func TestDismissDAGMissedSlotsWithoutSpanStore(t *testing.T) {
+// A server without a period store answers a dismissal as done.
+func TestDismissDAGMissedSlotsWithoutPeriodStore(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "etl", []byte("steps:\n  - run: echo hi\n"))

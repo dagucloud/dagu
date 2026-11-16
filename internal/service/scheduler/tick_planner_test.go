@@ -3452,37 +3452,37 @@ func TestFailoverRecovery(t *testing.T) {
 	}
 }
 
-// spanRecorder keeps the spans the planner records as ended.
-type spanRecorder struct {
-	mu    sync.Mutex
-	spans []schedulerstate.Span
+// periodRecorder keeps the periods the planner records as ended.
+type periodRecorder struct {
+	mu      sync.Mutex
+	periods []schedulerstate.Period
 }
 
-func (r *spanRecorder) AddDown(_ context.Context, down schedulerstate.Period) error {
+func (r *periodRecorder) AddDown(_ context.Context, down schedulerstate.Period) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.spans = append(r.spans, schedulerstate.Span{From: down.From, To: down.To, Reason: schedulerstate.SpanDown})
+	r.periods = append(r.periods, schedulerstate.Period{From: down.From, To: down.To, Reason: schedulerstate.PeriodDown})
 	return nil
 }
 
-func (r *spanRecorder) AddSuspended(_ context.Context, dag string, _ schedulerstate.Period) error {
+func (r *periodRecorder) AddSuspended(_ context.Context, dag string, _ schedulerstate.Period) error {
 	return fmt.Errorf("the scheduler records no suspension, as of %s", dag)
 }
 
-func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, schedulerstate.Dismissal, error) {
+func (r *periodRecorder) Ended(context.Context, string) ([]schedulerstate.Period, schedulerstate.Dismissal, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return slices.Clone(r.spans), schedulerstate.Dismissal{}, nil
+	return slices.Clone(r.periods), schedulerstate.Dismissal{}, nil
 }
 
-func (r *spanRecorder) Dismiss(context.Context, string, schedulerstate.Dismissal) error {
+func (r *periodRecorder) Dismiss(context.Context, string, schedulerstate.Dismissal) error {
 	return errors.New("the scheduler records no dismissal")
 }
 
 // A scheduler that starts more than a minute after the last tick records the
-// time between as one span in which no scheduler ran, up to its first tick,
+// time between as one period in which no scheduler ran, up to its first tick,
 // which runs its own minute. A takeover replays the slots of its recovery
-// window, so the span ends where the window starts.
+// window, so the period ends where the window starts.
 func TestTickPlanner_InitRecordsOutage(t *testing.T) {
 	t.Parallel()
 	feb7 := func(hour, minute int) time.Time { return time.Date(2026, 2, 7, hour, minute, 0, 0, time.UTC) }
@@ -3490,23 +3490,23 @@ func TestTickPlanner_InitRecordsOutage(t *testing.T) {
 		name     string
 		lastTick time.Time
 		recovery time.Duration
-		want     []schedulerstate.Span
+		want     []schedulerstate.Period
 	}{
-		{name: "outage", lastTick: feb7(9, 0), want: []schedulerstate.Span{{From: feb7(9, 0), To: feb7(12, 0), Reason: schedulerstate.SpanDown}}},
-		{name: "takeover", lastTick: feb7(9, 0), recovery: 2 * time.Minute, want: []schedulerstate.Span{{From: feb7(9, 0), To: feb7(11, 58), Reason: schedulerstate.SpanDown}}},
+		{name: "outage", lastTick: feb7(9, 0), want: []schedulerstate.Period{{From: feb7(9, 0), To: feb7(12, 0), Reason: schedulerstate.PeriodDown}}},
+		{name: "takeover", lastTick: feb7(9, 0), recovery: 2 * time.Minute, want: []schedulerstate.Period{{From: feb7(9, 0), To: feb7(11, 58), Reason: schedulerstate.PeriodDown}}},
 		{name: "restart within a minute", lastTick: feb7(11, 59)},
 		{name: "first start"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(tc.lastTick)})
-			spans := &spanRecorder{}
-			tp.cfg.Spans = spans
+			periods := &periodRecorder{}
+			tp.cfg.Periods = periods
 			tp.cfg.RecoveryWindow = func() time.Duration { return tc.recovery }
 			dag := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
 			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
-			recorded, _, err := spans.Ended(t.Context(), "")
+			recorded, _, err := periods.Ended(t.Context(), "")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, recorded)
 		})
@@ -3514,12 +3514,12 @@ func TestTickPlanner_InitRecordsOutage(t *testing.T) {
 }
 
 // A tick that comes late, as after the host slept, records the time it
-// missed as a span in which no scheduler ran.
+// missed as a period in which no scheduler ran.
 func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
 	t.Parallel()
 	tp, _ := newTestTickPlanner(&mockStateStore{})
-	spans := &spanRecorder{}
-	tp.cfg.Spans = spans
+	periods := &periodRecorder{}
+	tp.cfg.Periods = periods
 	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -3527,35 +3527,35 @@ func TestTickPlanner_ResumeRecordsOutage(t *testing.T) {
 
 	tp.resume(t.Context(), lastTick.Add(45*time.Minute))
 
-	recorded, _, err := spans.Ended(t.Context(), "")
+	recorded, _, err := periods.Ended(t.Context(), "")
 	require.NoError(t, err)
-	assert.Equal(t, []schedulerstate.Span{
-		{From: lastTick, To: lastTick.Add(45 * time.Minute), Reason: schedulerstate.SpanDown},
+	assert.Equal(t, []schedulerstate.Period{
+		{From: lastTick, To: lastTick.Add(45 * time.Minute), Reason: schedulerstate.PeriodDown},
 	}, recorded)
 }
 
-// flakySpans fails its first Add, as a store briefly unavailable.
-type flakySpans struct {
-	spanRecorder
+// flakyPeriods fails its first Add, as a store briefly unavailable.
+type flakyPeriods struct {
+	periodRecorder
 	failed bool
 }
 
-func (r *flakySpans) AddDown(ctx context.Context, down schedulerstate.Period) error {
+func (r *flakyPeriods) AddDown(ctx context.Context, down schedulerstate.Period) error {
 	if !r.failed {
 		r.failed = true
-		return errors.New("span store unavailable")
+		return errors.New("period store unavailable")
 	}
-	return r.spanRecorder.AddDown(ctx, down)
+	return r.periodRecorder.AddDown(ctx, down)
 }
 
-// An outage whose span cannot be recorded is kept and recorded again as the
+// An outage whose period cannot be recorded is kept and recorded again as the
 // scheduler plans its ticks, though the late tick moves the last tick past
 // it.
 func TestTickPlanner_RetriesOutage(t *testing.T) {
 	t.Parallel()
 	tp, _ := newTestTickPlanner(&mockStateStore{})
-	spans := &flakySpans{}
-	tp.cfg.Spans = spans
+	periods := &flakyPeriods{}
+	tp.cfg.Periods = periods
 	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 	lastTick := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
@@ -3566,54 +3566,54 @@ func TestTickPlanner_RetriesOutage(t *testing.T) {
 	tp.Plan(t.Context(), late)
 	tp.Advance(late)
 
-	recorded, _, err := spans.Ended(t.Context(), "")
+	recorded, _, err := periods.Ended(t.Context(), "")
 	require.NoError(t, err)
-	assert.Equal(t, []schedulerstate.Span{
-		{From: lastTick, To: late, Reason: schedulerstate.SpanDown},
+	assert.Equal(t, []schedulerstate.Period{
+		{From: lastTick, To: late, Reason: schedulerstate.PeriodDown},
 	}, recorded)
 }
 
-// failingSpans fails every Add while fail is set.
-type failingSpans struct {
-	spanRecorder
+// failingPeriods fails every Add while fail is set.
+type failingPeriods struct {
+	periodRecorder
 	fail bool
 }
 
-func (r *failingSpans) AddDown(ctx context.Context, down schedulerstate.Period) error {
+func (r *failingPeriods) AddDown(ctx context.Context, down schedulerstate.Period) error {
 	if r.fail {
-		return errors.New("span store unavailable")
+		return errors.New("period store unavailable")
 	}
-	return r.spanRecorder.AddDown(ctx, down)
+	return r.periodRecorder.AddDown(ctx, down)
 }
 
-// While the span store fails, the outages kept to record later are bounded:
+// While the period store fails, the outages kept to record later are bounded:
 // the newest 10, an outage that begins where the last kept one ends joining
 // it.
 func TestTickPlanner_BoundsPendingOutages(t *testing.T) {
 	t.Parallel()
 	tp, _ := newTestTickPlanner(&mockStateStore{})
-	spans := &failingSpans{fail: true}
-	tp.cfg.Spans = spans
+	periods := &failingPeriods{fail: true}
+	tp.cfg.Periods = periods
 	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
 	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
 
 	start := time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)
-	var want []schedulerstate.Span
+	var want []schedulerstate.Period
 	for i := range 12 {
 		from := start.Add(time.Duration(i) * time.Hour)
 		tp.Advance(from)
 		tp.resume(t.Context(), from.Add(30*time.Minute))
-		want = append(want, schedulerstate.Span{From: from, To: from.Add(30 * time.Minute), Reason: schedulerstate.SpanDown})
+		want = append(want, schedulerstate.Period{From: from, To: from.Add(30 * time.Minute), Reason: schedulerstate.PeriodDown})
 	}
 	last := want[len(want)-1].To
 	tp.Advance(last)
 	tp.resume(t.Context(), last.Add(30*time.Minute))
 	want[len(want)-1].To = last.Add(30 * time.Minute)
 
-	spans.fail = false
+	periods.fail = false
 	tp.Plan(t.Context(), last.Add(30*time.Minute))
 
-	recorded, _, err := spans.Ended(t.Context(), "")
+	recorded, _, err := periods.Ended(t.Context(), "")
 	require.NoError(t, err)
 	assert.Equal(t, want[2:], recorded)
 }

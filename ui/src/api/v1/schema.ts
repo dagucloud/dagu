@@ -438,7 +438,7 @@ export interface paths {
         };
         /**
          * Get the slots a DAG missed
-         * @description Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, whether or not a run filled them later. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work. Once dismissed, it returns none until a span that ends after the dismissal adds missed slots.
+         * @description Returns the start-schedule slots that came due while the DAG was suspended, the scheduler paused, or no scheduler ran, whether or not a run filled them later. A DAG whose runs do not read their slot has none, since the runs of such a DAG all do the same work. Once dismissed, it returns none until a period that ends after the dismissal adds missed slots.
          */
         get: operations["getDAGMissedSlots"];
         put?: never;
@@ -460,7 +460,7 @@ export interface paths {
         put?: never;
         /**
          * Dismiss the slots a DAG missed
-         * @description Hides the DAG's missed slots from every user until a span that ends after the dismissal adds missed slots. Any user who can see the DAG may dismiss them.
+         * @description Hides the DAG's missed slots from every user until a period that ends after the dismissal adds missed slots. Any user who can see the DAG may dismiss them.
          */
         post: operations["dismissDAGMissedSlots"];
         delete?: never;
@@ -5214,7 +5214,7 @@ export interface components {
             /** @description Slots whose run failed */
             failed: number;
         };
-        /** @description The start-schedule slots a DAG missed, among the newest 10,000 slots of the spans in which its slots could not run in the last 30 days and its slot retention. */
+        /** @description The start-schedule slots a DAG missed, among the newest 10,000 slots of the periods in which its slots could not run in the last 30 days and its slot retention. */
         MissedSlots: {
             /** @description How many slots were missed */
             slots: number;
@@ -5232,7 +5232,7 @@ export interface components {
             reasons: components["schemas"]["MissedSlotsReason"][];
             /**
              * Format: date-time
-             * @description When the newest span that holds a missed slot ended. It changes only when a newer span adds missed slots, so it identifies them for a dismissal.
+             * @description When the newest period that holds a missed slot ended. It changes only when a newer period adds missed slots, so it identifies them for a dismissal.
              */
             until: string;
         };

@@ -15,38 +15,38 @@ import (
 const MaxMissedSlots = 10000
 
 // Missed is the slots of a DAG that came due while it could not run, with
-// why the spans that hold them happened, in the order of the slots, and when
-// the newest of those spans ended.
+// why the periods that hold them happened, in the order of the slots, and when
+// the newest of those periods ended.
 type Missed struct {
 	Slots       int
 	First, Last time.Time
-	Reasons     []schedulerstate.SpanReason
+	Reasons     []schedulerstate.PeriodReason
 	Until       time.Time
 }
 
-// spanBounds are the first and last instants whose slots a span holds.
-type spanBounds struct {
+// periodBounds are the first and last instants whose slots a period holds.
+type periodBounds struct {
 	lo, hi time.Time
-	span   schedulerstate.Span
+	period schedulerstate.Period
 }
 
 // FindMissed counts the newest MaxMissedSlots fire times of sched that came
-// due strictly inside spans; the tick at a span's end runs its own. It leaves
+// due strictly inside periods; the tick at a period's end runs its own. It leaves
 // out slots older than the DAG's slot retention, and the slots of the
 // scheduler's outages and pauses up to firstSeen, when the scheduler first
-// saw the DAG; without firstSeen, those spans count none.
-func FindMissed(dag *ir.DAG, sched SlotSchedule, spans []schedulerstate.Span, firstSeen, now time.Time) Missed {
+// saw the DAG; without firstSeen, those periods count none.
+func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period, firstSeen, now time.Time) Missed {
 	var cutoff time.Time
 	if dag.SlotRetentionDays > 0 {
 		cutoff = now.AddDate(0, 0, -dag.SlotRetentionDays)
 	}
-	var bounds []spanBounds
-	for _, span := range spans {
-		b := spanBounds{lo: span.From.Add(time.Nanosecond), hi: span.To.Add(-time.Nanosecond), span: span}
+	var bounds []periodBounds
+	for _, period := range periods {
+		b := periodBounds{lo: period.From.Add(time.Nanosecond), hi: period.To.Add(-time.Nanosecond), period: period}
 		if b.lo.Before(cutoff) {
 			b.lo = cutoff
 		}
-		if span.Reason != schedulerstate.SpanSuspended {
+		if period.Reason != schedulerstate.PeriodSuspended {
 			if firstSeen.IsZero() {
 				continue
 			}
@@ -70,11 +70,11 @@ func FindMissed(dag *ir.DAG, sched SlotSchedule, spans []schedulerstate.Span, fi
 			if at.Before(b.lo) || at.After(b.hi) {
 				continue
 			}
-			if !slices.Contains(missed.Reasons, b.span.Reason) {
-				missed.Reasons = append(missed.Reasons, b.span.Reason)
+			if !slices.Contains(missed.Reasons, b.period.Reason) {
+				missed.Reasons = append(missed.Reasons, b.period.Reason)
 			}
-			if b.span.To.After(missed.Until) {
-				missed.Until = b.span.To
+			if b.period.To.After(missed.Until) {
+				missed.Until = b.period.To
 			}
 		}
 	}
@@ -83,10 +83,10 @@ func FindMissed(dag *ir.DAG, sched SlotSchedule, spans []schedulerstate.Span, fi
 
 // firesIn returns the newest MaxMissedSlots fire times inside the bounds,
 // oldest first.
-func firesIn(sched SlotSchedule, bounds []spanBounds) []time.Time {
+func firesIn(sched SlotSchedule, bounds []periodBounds) []time.Time {
 	// The bounds joined where they overlap, oldest first.
-	var merged []spanBounds
-	for _, b := range slices.SortedFunc(slices.Values(bounds), func(a, b spanBounds) int { return a.lo.Compare(b.lo) }) {
+	var merged []periodBounds
+	for _, b := range slices.SortedFunc(slices.Values(bounds), func(a, b periodBounds) int { return a.lo.Compare(b.lo) }) {
 		if last := len(merged) - 1; last >= 0 && !b.lo.After(merged[last].hi) {
 			if b.hi.After(merged[last].hi) {
 				merged[last].hi = b.hi
