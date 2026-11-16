@@ -36,17 +36,21 @@ func New(dataDir string) *Store {
 
 // Path returns the file that holds the records of a step.
 func (c *Store) Path(dagName, stepKey string) string {
-	dir := c.dagDir(dagName)
-	name := fileutil.SafeName(stepKey) + replayCacheFileExt
-	// Earlier versions kept a Windows device name such as con as written.
-	if fileutil.SafeNameEscapesDevice(stepKey) {
-		name = fileutil.ExistingName(dir, name, stepKey+replayCacheFileExt)
-	}
-	return filepath.Join(dir, name)
+	return filepath.Join(c.dagDir(dagName), fileutil.SafeKey(stepKey)+replayCacheFileExt)
 }
 
-// Steps returns the sorted keys of the DAG's steps that have records. A step
-// name is returned in the file-safe form its records are stored under.
+// Claim moves the records that released versions stored for a step, under the
+// SafeName of its key, to the step's own file, when no other key in stepKeys,
+// the keys of all steps of the DAG, had that SafeName too. Records already in
+// the step's own file stay.
+func (c *Store) Claim(dagName, stepKey string, stepKeys []string) error {
+	dir := c.dagDir(dagName)
+	return fileutil.ClaimLegacySafeName(dir, stepKey, replayCacheFileExt, stepKeys, c.Path(dagName, stepKey))
+}
+
+// Steps returns the sorted keys of the DAG's steps that have records. A key
+// stored in a form that does not hold it in full, such as the SafeName of a
+// released version, is returned in that form.
 func (c *Store) Steps(dagName string) ([]string, error) {
 	entries, err := os.ReadDir(c.dagDir(dagName))
 	if errors.Is(err, os.ErrNotExist) {
@@ -61,7 +65,7 @@ func (c *Store) Steps(dagName string) ([]string, error) {
 		if entry.IsDir() || !ok {
 			continue
 		}
-		steps = append(steps, step)
+		steps = append(steps, fileutil.UnescapeSafeKey(step))
 	}
 	slices.Sort(steps)
 	return steps, nil

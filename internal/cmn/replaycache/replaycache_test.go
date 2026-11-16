@@ -166,18 +166,58 @@ func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {
 }
 
 // Earlier versions kept a device name such as con as written, which
-// Windows 11 stores, so the records under it are still read.
+// Windows 11 stores, so a run of the step claims the records under it.
 func TestReplayCacheReadsRawDeviceName(t *testing.T) {
 	t.Parallel()
 
 	dataDir := t.TempDir()
 	raw := filepath.Join(dataDir, "cache", "con", "con.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
-	require.NoError(t, os.WriteFile(raw, []byte("{}"), 0o600))
+	require.NoError(t, os.WriteFile(raw, []byte(`{"k":{}}`), 0o600))
 
 	cache := replaycache.New(dataDir)
-	assert.Equal(t, raw, cache.Path("con", "con"))
+	require.NoError(t, cache.Claim("con", "con", []string{"con"}))
+	entries, err := cache.Entries("con", "con")
+	require.NoError(t, err)
+	assert.Contains(t, entries, "k")
 	steps, err := cache.Steps("con")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"con"}, steps)
+}
+
+// Released versions stored a step's records under the SafeName of its key,
+// which other keys could share. A run claims them only when no other step of
+// the DAG had that SafeName, so a step never reads another step's records.
+func TestReplayCacheClaimsRecordsItOwns(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		stepKeys []string
+		claimed  bool
+	}{
+		{name: "Owned", stepKeys: []string{"fetch data", "parse"}, claimed: true},
+		{name: "SharedWithLiteral", stepKeys: []string{"fetch data", "fetch_data"}},
+		{name: "SharedWithAnother", stepKeys: []string{"fetch data", "fetch.data"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cache := replaycache.New(t.TempDir())
+			legacy := cache.Path("billing", "fetch_data")
+			require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+			require.NoError(t, os.WriteFile(legacy, []byte(`{"k":{}}`), 0o600))
+
+			require.NoError(t, cache.Claim("billing", "fetch data", tc.stepKeys))
+			entries, err := cache.Entries("billing", "fetch data")
+			require.NoError(t, err)
+			if tc.claimed {
+				assert.Contains(t, entries, "k")
+				assert.NoFileExists(t, legacy)
+			} else {
+				assert.Empty(t, entries)
+				assert.FileExists(t, legacy)
+			}
+		})
+	}
 }

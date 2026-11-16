@@ -16,6 +16,7 @@ import (
 
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
@@ -157,10 +158,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if env.DAG != nil {
 		dagName = env.DAG.Name
 	}
-	stepKey := e.step.ID
-	if stepKey == "" {
-		stepKey = e.step.Name
-	}
+	stepKey := agentstep.StepKey(e.step)
 	// A step whose operations never call the model has none configured.
 	var models []model
 	if e.step.LLM != nil {
@@ -196,6 +194,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if r.variables == nil {
 		r.variables = map[string]string{}
 	}
+	agentstep.ClaimRecords(ctx, replaycache.New(computerDir), env.DAG, stepKey)
 	r.cache = openReplayCache(computerDir, dagName, stepKey)
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil

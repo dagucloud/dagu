@@ -112,10 +112,60 @@ func TestCommitPointsUnderRawDeviceName(t *testing.T) {
 	require.NoError(t, os.WriteFile(raw, data, 0o600))
 
 	store := writegate.NewCommitStore(dir)
+	require.NoError(t, store.Claim(t.Context(), "con", "con", []string{"con"}, nil))
 	points := mustLoad(t, store, "con", "con")
 	require.Len(t, points, 1)
 	assert.True(t, points[0].Approved)
 	steps, err := store.Steps("con")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"con"}, steps)
+}
+
+// Released versions stored commit points under the SafeNames of the DAG and
+// the step, which other DAGs and steps could share. A run claims them only
+// when no other step of the DAG, and no other DAG, had those SafeNames, so a
+// step never reads another's approvals.
+func TestCommitPointsClaimsPointsItOwns(t *testing.T) {
+	t.Parallel()
+
+	none := func(string) (bool, error) { return false, nil }
+	for _, tc := range []struct {
+		name      string
+		dag       string
+		legacyDAG string
+		step      string
+		steps     []string
+		taken     func(string) (bool, error)
+		claimed   bool
+	}{
+		{name: "Owned", dag: "etl-daily", legacyDAG: "etl-daily", step: "fetch data", steps: []string{"fetch data", "parse"}, claimed: true},
+		{name: "StepShared", dag: "etl-daily", legacyDAG: "etl-daily", step: "fetch data", steps: []string{"fetch data", "fetch_data"}},
+		{name: "DottedDAGOwned", dag: "etl.daily", legacyDAG: "etl_daily", step: "fetch data", steps: []string{"fetch data"}, taken: none, claimed: true},
+		{name: "DottedDAGSafeStep", dag: "etl.daily", legacyDAG: "etl_daily", step: "fetch_data", steps: []string{"fetch_data"}, taken: none, claimed: true},
+		{name: "DottedDAGShared", dag: "etl.daily", legacyDAG: "etl_daily", step: "fetch data", steps: []string{"fetch data"},
+			taken: func(name string) (bool, error) { return name == "etl_daily", nil }},
+		{name: "DAGSharedUnknown", dag: "etl_daily", legacyDAG: "etl_daily", step: "fetch data", steps: []string{"fetch data"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			legacy := filepath.Join(dir, "writes", tc.legacyDAG, "fetch_data.json")
+			data, err := json.Marshal([]writegate.CommitPoint{{Key: "k1", Approved: true}})
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+			require.NoError(t, os.WriteFile(legacy, data, 0o600))
+
+			store := writegate.NewCommitStore(dir)
+			require.NoError(t, store.Claim(t.Context(), tc.dag, tc.step, tc.steps, tc.taken))
+			points := mustLoad(t, store, tc.dag, tc.step)
+			if tc.claimed {
+				assert.Len(t, points, 1)
+				assert.NoFileExists(t, legacy)
+			} else {
+				assert.Empty(t, points)
+				assert.FileExists(t, legacy)
+			}
+		})
+	}
 }

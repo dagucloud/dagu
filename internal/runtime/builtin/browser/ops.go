@@ -20,8 +20,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -159,10 +162,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if env.DAG != nil {
 		dagName = env.DAG.Name
 	}
-	stepKey := e.step.ID
-	if stepKey == "" {
-		stepKey = e.step.Name
-	}
+	stepKey := agentstep.StepKey(e.step)
 	masker := agentstep.NewMasker(secrets, nil)
 	bridge, err := newModelBridge(ctx, e.step.LLM, masker, e.stderr, e.newProvider)
 	if err != nil {
@@ -203,10 +203,17 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	}
 	// A variable holding a declared secret or an ask's answer is secret.
 	r.secret = func(name string) bool { return holdsSecret(r.variables[name], r.secrets, r.answers) }
+	agentstep.ClaimRecords(ctx, replaycache.New(browserDir), env.DAG, stepKey)
 	r.cache = openReplayCache(browserDir, dagName, stepKey)
 	r.recorder = stepRecorder{cache: r.cache}
 	r.stepKey = stepKey
 	r.commits = writegate.NewCommitStore(browserDir)
+	if env.DAG != nil {
+		taken := func(name string) (bool, error) { return runtime.DAGExists(ctx, name) }
+		if err := r.commits.Claim(ctx, dagName, stepKey, agentstep.StepKeys(env.DAG), taken); err != nil {
+			logger.Warn(ctx, "Failed to move commit points stored under an older name", tag.Error(err))
+		}
+	}
 	r.committed = r.committedActions
 	r.commitDecisions = map[int]string{}
 	r.approvedKeys = map[string]bool{}
