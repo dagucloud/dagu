@@ -291,9 +291,12 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   refuses their dismissal as it refuses their suspension; a user who cannot
   see the DAG gets not found.
   `POST /api/v1/dags/{fileName}/missed-slots/dismissal` records the server's
-  time and the user with the DAG's periods, and writes an audit entry. The
-  notice is then hidden for every user until a period that ends after the
-  dismissal adds missed slots. A later dismissal replaces an earlier one. A
+  time and the user with the DAG's periods, and writes an audit entry. A
+  dismissal covers every period that ended by then, so the notice is hidden
+  for every user until a period that ends after the dismissal adds missed
+  slots; that notice counts only the periods that ended after the
+  dismissal. A suspension still running when the notice was dismissed ends
+  later, so it counts in full. A later dismissal replaces an earlier one. A
   dismissal that fails leaves the notice and shows the error.
 - Each run is queued through the DAG's queue and counts against its limit.
   It runs the definition pinned at submit, with the backfill's profile and

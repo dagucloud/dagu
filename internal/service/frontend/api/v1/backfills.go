@@ -148,9 +148,11 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	if a.periodStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
 		return none, nil
 	}
-	// A dismissal hides the slots until a period that ended after it holds one.
+	// A dismissal covers every period that ended by then; only the periods
+	// that ended after it count.
 	periods, dismissal, err := a.periodStore.Ended(ctx, request.FileName)
-	if err != nil || !slices.ContainsFunc(periods, func(period schedulerstate.Period) bool { return period.To.After(dismissal.At) }) {
+	periods = slices.DeleteFunc(periods, func(period schedulerstate.Period) bool { return !period.To.After(dismissal.At) })
+	if err != nil || len(periods) == 0 {
 		return none, err
 	}
 	var profile string
@@ -164,7 +166,7 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
 	catchup := scheduler.CatchupAfterOutage(dag, a.config.Queues.Enabled)
 	missed := backfill.FindMissed(dag, sched, periods, catchup, a.dagFirstSeen(ctx, dag.Name), time.Now())
-	if missed.Slots == 0 || !missed.Until.After(dismissal.At) {
+	if missed.Slots == 0 {
 		return none, nil
 	}
 	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))

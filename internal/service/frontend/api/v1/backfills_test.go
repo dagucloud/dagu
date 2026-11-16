@@ -390,7 +390,13 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	assert.Nil(t, missedSlots(viewer), "hidden from another user")
 
 	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
-	assert.NotNil(t, missedSlots(viewer), "a newer period adds missed slots")
+	missed := missedSlots(viewer)
+	require.NotNil(t, missed, "a newer period adds missed slots")
+	// The outage ended before the dismissal, so only the suspension counts.
+	assert.Equal(t, 2, missed.Slots)
+	assert.True(t, hour.Add(-time.Hour).Equal(missed.First), "first %s", missed.First)
+	assert.True(t, hour.Equal(missed.Last), "last %s", missed.Last)
+	assert.Equal(t, []api.MissedSlotsReason{api.MissedSlotsReasonSuspended}, missed.Reasons)
 
 	helper.Config.Server.Permissions[config.PermissionRunDAGs] = false
 	refused = dismiss(operator, "ops-load")
