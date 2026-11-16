@@ -95,6 +95,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetAllDAGTags":                   remoteNodeAccessRead,
 	"ValidateDAGSpec":                 remoteNodeAccessRead,
 	"GetDAGDetails":                   remoteNodeAccessRead,
+	"GetDAGMissedSlots":               remoteNodeAccessRead,
 	"GetDAGDAGRunHistory":             remoteNodeAccessRead,
 	"GetDAGDAGRunDetails":             remoteNodeAccessRead,
 	"GetDAGSettings":                  remoteNodeAccessRead,
