@@ -825,25 +825,35 @@ func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
 }
 
 // moveDAGRecord moves a renamed DAG's record to its new name, replacing one
-// a deleted DAG of that name left. A failure is logged and leaves the rename
-// made.
+// a deleted DAG of that name left. A write to the old record while it moves
+// is moved too. A failure is logged and leaves the rename made.
 func (store *Store) moveDAGRecord(ctx context.Context, oldID, newID string) {
 	from, to := persis.SchedulerDAGRecordID(oldID), persis.SchedulerDAGRecordID(newID)
 	if store.dagRecords == nil || from == to {
 		return
 	}
 	err := func() error {
-		rec, err := store.dagRecords.Get(ctx, from)
-		if errors.Is(err, persis.ErrNotFound) {
-			return nil
+		for {
+			rec, err := store.dagRecords.Get(ctx, from)
+			if errors.Is(err, persis.ErrNotFound) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if err := store.dagRecords.Put(ctx, &persis.Record{ID: to, Data: rec.Data, CreatedAt: rec.CreatedAt, UpdatedAt: rec.UpdatedAt}); err != nil {
+				return err
+			}
+			// The old record is removed only as it was read; one changed
+			// since is read and moved again.
+			err = store.dagRecords.CompareAndDelete(ctx, rec)
+			if errors.Is(err, persis.ErrNotFound) {
+				return nil
+			}
+			if !errors.Is(err, persis.ErrConflict) {
+				return err
+			}
 		}
-		if err != nil {
-			return err
-		}
-		if err := store.dagRecords.Put(ctx, &persis.Record{ID: to, Data: rec.Data, CreatedAt: rec.CreatedAt, UpdatedAt: rec.UpdatedAt}); err != nil {
-			return err
-		}
-		return store.dagRecords.Delete(ctx, from)
 	}()
 	if err != nil {
 		logger.Warn(ctx, "Failed to move the record of a renamed DAG", tag.Error(err), tag.Name(oldID))

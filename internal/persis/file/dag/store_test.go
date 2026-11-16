@@ -21,6 +21,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
+	pstore "github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
@@ -1254,6 +1257,46 @@ steps:
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode()&os.ModeSymlink)
 	assert.FileExists(t, targetPath)
+}
+
+// writeAfterPut is a collection that runs write once, right after its first
+// Put, as a write that lands while a renamed DAG's record moves does.
+type writeAfterPut struct {
+	persis.Collection
+	once  sync.Once
+	write func()
+}
+
+func (c *writeAfterPut) Put(ctx context.Context, rec *persis.Record) error {
+	err := c.Collection.Put(ctx, rec)
+	c.once.Do(c.write)
+	return err
+}
+
+// A dismissal recorded under a DAG's old name while its record moves to the
+// new name moves with it.
+func TestRenameKeepsAWriteDuringTheMove(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	col := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)
+	periods := pstore.NewPeriodStore(col, nil)
+	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
+	require.NoError(t, periods.AddSuspended(ctx, "old-name", suspended))
+	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: "alice"}
+	records := &writeAfterPut{Collection: col, write: func() {
+		require.NoError(t, periods.Dismiss(ctx, "old-name", dismissal))
+	}}
+	repo := newRepository(t.TempDir(), WithSkipExamples(true), WithDAGRecords(records))
+	require.NoError(t, repo.Create(ctx, "old-name", []byte("steps:\n  - run: echo hi\n")))
+
+	require.NoError(t, repo.Rename(ctx, "old-name", "new-name"))
+	moved, got, err := periods.Ended(ctx, "new-name")
+	require.NoError(t, err)
+	require.Len(t, moved, 1)
+	assert.True(t, suspended.From.Equal(moved[0].From))
+	assert.True(t, dismissal.At.Equal(got.At), "the dismissal moved, at %s", got.At)
+	_, err = col.Get(ctx, persis.SchedulerDAGRecordID("old-name"))
+	assert.ErrorIs(t, err, persis.ErrNotFound)
 }
 
 func TestGrep(t *testing.T) {
