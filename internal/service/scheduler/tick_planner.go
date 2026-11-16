@@ -391,6 +391,10 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 		state.DAGs[dag.Name] = next
 	}
 
+	for _, entry := range entries {
+		state.DAGs[entry.DAG.Name] = withFirstSeen(state.DAGs[entry.DAG.Name], observedAt)
+	}
+
 	if pruned > 0 {
 		logger.Info(ctx, "Pruned stale watermark entries",
 			slog.Int("pruned", pruned),
@@ -1338,6 +1342,32 @@ func (tp *TickPlanner) dropSuspendedCatchupState(dagName string, dag *ir.DAG, no
 	}
 }
 
+// markFirstSeen records now as when the planner first tracked a DAG, unless
+// it has. Caller must NOT hold tp.mu.
+func (tp *TickPlanner) markFirstSeen(dagName string, now time.Time) bool {
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+
+	current := tp.watermarkState.DAGs[dagName]
+	next := withFirstSeen(current, now)
+	if next.FirstSeen.Equal(current.FirstSeen) {
+		return false
+	}
+	tp.watermarkState.DAGs[dagName] = next
+	return true
+}
+
+// withFirstSeen returns the watermark with now as when the DAG was first
+// seen, unless it holds a time already.
+func withFirstSeen(watermark schedulerstate.DAGWatermark, now time.Time) schedulerstate.DAGWatermark {
+	if !watermark.FirstSeen.IsZero() {
+		return watermark
+	}
+	next := schedulerstate.CloneDAGWatermark(watermark)
+	next.FirstSeen = now.UTC()
+	return next
+}
+
 // advanceDAGWatermark updates the per-DAG watermark to the given time.
 // Caller must NOT hold tp.mu.
 func (tp *TickPlanner) advanceDAGWatermark(dagName string, scheduledTime time.Time) bool {
@@ -1556,8 +1586,9 @@ func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) eve
 		active, activeOK := tp.activeDAGSchedules(ctx, event.DAGEntry)
 		delete(tp.deletedGrace, dagName)
 		tp.entries[dagName] = &plannerEntry{DAGEntry: event.DAGEntry}
+		flushNow = tp.markFirstSeen(dagName, tp.cfg.Clock())
 		// Set watermark to now (new DAGs have no catchup)
-		flushNow = tp.advanceDAGWatermark(dagName, tp.cfg.Clock())
+		flushNow = tp.advanceDAGWatermark(dagName, tp.cfg.Clock()) || flushNow
 		if activeOK {
 			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
 			flushNow = tp.reconcileOneOffSchedules(event.DAG, active) || flushNow

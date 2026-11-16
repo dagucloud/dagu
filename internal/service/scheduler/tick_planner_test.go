@@ -3614,6 +3614,46 @@ func TestTickPlanner_BoundsPendingOutages(t *testing.T) {
 	assert.Equal(t, want[2:], recorded)
 }
 
+// The planner records when it first tracked a DAG, once: at startup or when
+// the DAG is added. Ticks, reloads, and rewrites of the state file keep it,
+// and a renamed DAG is a new DAG with its own.
+func TestTickPlanner_KeepsWhenADAGWasFirstSeen(t *testing.T) {
+	t.Parallel()
+	states := store.NewSchedulerStateStore(file.NewCollection(t.TempDir(), file.WithIndentedJSON()))
+	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	hourly := &ir.DAG{Name: "hourly", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	start := func() *TickPlanner {
+		tp, _ := newTestTickPlanner(states)
+		tp.cfg.Clock = func() time.Time { return now }
+		require.NoError(t, tp.Init(t.Context(), testDAGEntries(hourly)))
+		return tp
+	}
+	firstSeen := func(tp *TickPlanner, dag string) time.Time { return tp.dagWatermark(dag).FirstSeen }
+
+	tp := start()
+	seen := now
+	assert.True(t, seen.Equal(firstSeen(tp, "hourly")), "first seen at %s", firstSeen(tp, "hourly"))
+
+	for range 2 {
+		now = now.Add(time.Hour)
+		tp.Plan(t.Context(), now)
+		tp.Advance(now)
+		tp.Flush(t.Context())
+		tp = start()
+		assert.True(t, seen.Equal(firstSeen(tp, "hourly")), "kept at %s", firstSeen(tp, "hourly"))
+	}
+
+	now = now.Add(time.Hour)
+	renamed := &ir.DAG{Name: "renamed", Schedule: hourly.Schedule}
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeDeleted, DAGEntry: DAGEntry{DAG: hourly}})
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: renamed}})
+	assert.True(t, now.Equal(firstSeen(tp, "renamed")), "a renamed DAG is first seen at %s", firstSeen(tp, "renamed"))
+	added := now
+	now = now.Add(time.Hour)
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: renamed}})
+	assert.True(t, added.Equal(firstSeen(tp, "renamed")), "an update keeps it")
+}
+
 // A state file written by a build that kept a tally of missed slots, with a
 // DAG held and a missed gap, loads without them; the scheduler runs the next
 // slot and writes the file back without them.

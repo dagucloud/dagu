@@ -30,6 +30,9 @@ type DAGWatermark struct {
 	// Catchup holds the slots the DAG's catch-up has queued and not yet run,
 	// oldest first.
 	Catchup []time.Time `json:"catchup,omitempty"`
+	// FirstSeen is when the scheduler first tracked the DAG. It is set once
+	// and never changes.
+	FirstSeen time.Time `json:"firstSeen,omitzero"`
 }
 
 // ScheduleSlot is a start-schedule slot that came due, and what came of it.
@@ -118,6 +121,7 @@ func CloneDAGWatermark(watermark DAGWatermark) DAGWatermark {
 		LastScheduledTime:        watermark.LastScheduledTime,
 		StartScheduleFingerprint: watermark.StartScheduleFingerprint,
 		SkipSuccessResetAt:       watermark.SkipSuccessResetAt,
+		FirstSeen:                watermark.FirstSeen,
 	}
 	if watermark.NextRun != nil {
 		nextRun := *watermark.NextRun
