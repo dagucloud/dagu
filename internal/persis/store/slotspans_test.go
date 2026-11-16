@@ -59,8 +59,9 @@ func TestSpanStoreGivesTheSpansOfADAG(t *testing.T) {
 	assert.Equal(t, schedulerstate.SpanPaused, spans[2].Reason)
 }
 
-// A span is recorded once by when it began, so recording it again, as a
-// retried resume does, writes nothing.
+// A span is recorded once by when it began: recording it again with a later
+// end, as a resume retried after the DAG stayed suspended does, extends it,
+// and with no later end writes nothing.
 func TestSpanStoreRecordsASpanOnce(t *testing.T) {
 	t.Parallel()
 	col := &swapCounter{Collection: testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)}
@@ -69,11 +70,12 @@ func TestSpanStoreRecordsASpanOnce(t *testing.T) {
 
 	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 10)}))
 	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 11)}))
+	require.NoError(t, s.AddSuspended(ctx, "etl", schedulerstate.Period{From: spanAt(1, 9), To: spanAt(1, 10)}))
 
 	spans, _, err := s.Ended(ctx, "etl")
 	require.NoError(t, err)
-	assert.Equal(t, []schedulerstate.Span{{From: spanAt(1, 9), To: spanAt(1, 10), Reason: schedulerstate.SpanSuspended}}, spans)
-	assert.Zero(t, col.swaps, "the second record writes nothing")
+	assert.Equal(t, []schedulerstate.Span{{From: spanAt(1, 9), To: spanAt(1, 11), Reason: schedulerstate.SpanSuspended}}, spans)
+	assert.Equal(t, 1, col.swaps, "only the later end writes")
 }
 
 // A write keeps the 100 spans that ended last within the 30 days before it.

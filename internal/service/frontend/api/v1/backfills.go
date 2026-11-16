@@ -219,7 +219,7 @@ func (a *API) dagFirstSeen(ctx context.Context, dagName string) time.Time {
 // recordSuspension records the suspension of a DAG that is to resume as a
 // span in which its slots did not run. It runs before the resume clears the
 // suspension, so a resume never holds without its span; a resume retried
-// after the clear failed records the same span, which is kept once.
+// after the clear failed records the same span, extended to the retry.
 func (a *API) recordSuspension(ctx context.Context, fileName string) error {
 	if a.spanStore == nil {
 		return nil

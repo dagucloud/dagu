@@ -2128,7 +2128,8 @@ func (s *suspendFlags) SuspendedSince(_ context.Context, id string) (time.Time, 
 
 // A resume records the suspension it ends before it clears the flag: one
 // whose span cannot be recorded fails and leaves the DAG suspended, and one
-// retried after the flag failed to clear records the span once.
+// retried after the flag failed to clear records the span once, ending at
+// the retry, as the DAG stayed suspended until then.
 func TestUpdateDAGSuspensionState_RecordsSpanBeforeResume(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
@@ -2156,6 +2157,7 @@ func TestUpdateDAGSuspensionState_RecordsSpanBeforeResume(t *testing.T) {
 	spans.fail, flags.fail = false, true
 	require.Error(t, toggle(false), "a flag that cannot be cleared")
 	flags.fail = false
+	retried := time.Now()
 	require.NoError(t, toggle(false), "the retry")
 	assert.NotContains(t, flags.since, "etl.yaml")
 
@@ -2163,6 +2165,7 @@ func TestUpdateDAGSuspensionState_RecordsSpanBeforeResume(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ended, 1, "the retry records no second span")
 	assert.True(t, since.Equal(ended[0].From), "from %s", ended[0].From)
+	assert.False(t, ended[0].To.Before(retried), "the span ends at %s, before the retry", ended[0].To)
 }
 
 func TestLegacySuspensionViaAPI(t *testing.T) {

@@ -43,8 +43,8 @@ const (
 type SpanStore interface {
 	// AddDown records a time no scheduler ran.
 	AddDown(ctx context.Context, down Period) error
-	// AddSuspended records a DAG's ended suspension, unless one that began
-	// at the same time is recorded.
+	// AddSuspended records a DAG's ended suspension, or extends the one
+	// that began at the same time to its later end.
 	AddSuspended(ctx context.Context, dag string, suspended Period) error
 	// Dismiss records that the DAG's missed slots were dismissed, unless a
 	// later dismissal is recorded.

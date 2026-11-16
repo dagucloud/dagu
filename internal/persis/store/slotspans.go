@@ -58,8 +58,8 @@ func (s *SpanStore) AddDown(ctx context.Context, down schedulerstate.Period) err
 	})
 }
 
-// AddSuspended records a DAG's ended suspension, unless one that began at
-// the same time is recorded.
+// AddSuspended records a DAG's ended suspension, or extends the one that
+// began at the same time to its later end.
 func (s *SpanStore) AddSuspended(ctx context.Context, dag string, suspended schedulerstate.Period) error {
 	return changeRecord(ctx, s.col, persis.SchedulerDAGRecordID(dag), func(record *dagRecord) bool {
 		var added bool
@@ -125,15 +125,20 @@ func (s *SpanStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Spa
 	return spans, none, nil
 }
 
-// appendPeriod appends period to periods unless one that began at the same
-// time is held, and keeps the maxPeriods that ended last within
-// periodRetention before now, in the order they ended. It reports whether
-// periods changed.
+// appendPeriod appends period to periods, or extends the one that began at
+// the same time to its later end, and keeps the maxPeriods that ended last
+// within periodRetention before now, in the order they ended. It reports
+// whether periods changed.
 func appendPeriod(periods []schedulerstate.Period, period schedulerstate.Period, now time.Time) ([]schedulerstate.Period, bool) {
-	if slices.ContainsFunc(periods, func(held schedulerstate.Period) bool { return held.From.Equal(period.From) }) {
-		return periods, false
+	periods = slices.Clone(periods)
+	if i := slices.IndexFunc(periods, func(held schedulerstate.Period) bool { return held.From.Equal(period.From) }); i >= 0 {
+		if !period.To.After(periods[i].To) {
+			return periods, false
+		}
+		periods[i].To = period.To
+	} else {
+		periods = append(periods, period)
 	}
-	periods = append(slices.Clone(periods), period)
 	slices.SortStableFunc(periods, func(a, b schedulerstate.Period) int { return a.To.Compare(b.To) })
 	periods = slices.DeleteFunc(periods, func(held schedulerstate.Period) bool { return now.Sub(held.To) > periodRetention })
 	return periods[max(0, len(periods)-maxPeriods):], true
