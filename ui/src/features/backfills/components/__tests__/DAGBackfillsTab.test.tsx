@@ -80,12 +80,13 @@ const GAP_URL =
 const DISMISSAL_PATH = '/dags/{fileName}/missed-slots/dismissal';
 
 // The notice of missed slots over the canvas, as the DAG's page shows it.
-function MissedSlotsNotice() {
-  const notice = useMissedSlotsNotice('etl', 'local', true);
-  return <p aria-label="Notice">{notice?.message}</p>;
+function MissedSlotsNotice({ node }: { node: string }) {
+  const notice = useMissedSlotsNotice('etl', node, true);
+  return <p aria-label={`Notice on ${node}`}>{notice?.message}</p>;
 }
 
-// The tab with the notice of missed slots that links it, on a gap.
+// The tab with the notice of missed slots that links it, on a gap, and the
+// notice of a DAG of the same file on another node.
 function renderTabWithNotice() {
   h.GET.mockImplementation(async (path: string) =>
     path === '/dags/{fileName}/missed-slots'
@@ -105,7 +106,8 @@ function renderTabWithNotice() {
   return render(
     <SWRConfig value={{ provider: () => new Map() }}>
       <MemoryRouter initialEntries={[GAP_URL]}>
-        <MissedSlotsNotice />
+        <MissedSlotsNotice node="local" />
+        <MissedSlotsNotice node="other" />
         <DAGBackfillsTab dagName="etl" fileName="etl" canExecute />
         <Location />
       </MemoryRouter>
@@ -166,8 +168,10 @@ describe('DAGBackfillsTab', () => {
   // Dismiss does; a later period brings a new one.
   it('dismisses the notice a backfill starts from', async () => {
     renderTabWithNotice();
-    const notice = screen.getByLabelText('Notice');
+    const notice = screen.getByLabelText('Notice on local');
+    const elsewhere = screen.getByLabelText('Notice on other');
     await waitFor(() => expect(notice).toHaveTextContent('12 slots passed'));
+    await waitFor(() => expect(elsewhere).toHaveTextContent('12 slots passed'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
 
@@ -175,6 +179,7 @@ describe('DAGBackfillsTab', () => {
     expect(h.POST).toHaveBeenCalledWith(DISMISSAL_PATH, {
       params: { path: { fileName: 'etl' }, query: { remoteNode: 'local' } },
     });
+    expect(elsewhere).toHaveTextContent('12 slots passed');
   });
 
   // The backfill has started, so a dismissal that fails is only logged.
@@ -182,7 +187,7 @@ describe('DAGBackfillsTab', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     h.POST.mockResolvedValue({ error: { message: 'disk full' } });
     renderTabWithNotice();
-    const notice = screen.getByLabelText('Notice');
+    const notice = screen.getByLabelText('Notice on local');
     await waitFor(() => expect(notice).toHaveTextContent('12 slots passed'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));

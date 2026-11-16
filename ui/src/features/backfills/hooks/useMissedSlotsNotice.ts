@@ -32,12 +32,21 @@ const MAX_MISSED_SLOTS = 10000;
 const formatBound = (value: string) =>
   formatAbsoluteTime(value, { seconds: false }) ?? value;
 
-/** Whether an SWR key reads the missed slots of fileName. */
-const readsMissedSlotsOf = (fileName: string) => (key: unknown) =>
-  Array.isArray(key) &&
-  key[1] === MISSED_SLOTS_PATH &&
-  (key[2] as { params?: { path?: { fileName?: string } } } | undefined)?.params
-    ?.path?.fileName === fileName;
+/** Whether an SWR key reads the missed slots of fileName on remoteNode. */
+const readsMissedSlotsOf =
+  (fileName: string, remoteNode: string) => (key: unknown) => {
+    if (!Array.isArray(key) || key[1] !== MISSED_SLOTS_PATH) return false;
+    const { params } = (key[2] ?? {}) as {
+      params?: {
+        path?: { fileName?: string };
+        query?: { remoteNode?: string };
+      };
+    };
+    return (
+      params?.path?.fileName === fileName &&
+      params?.query?.remoteNode === remoteNode
+    );
+  };
 
 /**
  * Dismisses a DAG's missed slots for every user, as Dismiss does, once a
@@ -61,7 +70,11 @@ export function useDismissMissedSlotsOnStart(
         return;
       }
       // The server now answers none, so the slots read are dropped.
-      void mutate(readsMissedSlotsOf(fileName), {}, { revalidate: false });
+      void mutate(
+        readsMissedSlotsOf(fileName, remoteNode),
+        {},
+        { revalidate: false }
+      );
     } catch (error) {
       console.warn('Failed to dismiss the missed slots:', error);
     }
