@@ -30,13 +30,14 @@ type cdpEvent struct {
 	Params    map[string]any `json:"params"`
 }
 
-// scriptedBrowser answers every DevTools command and then sends the events
-// its script returns for that command.
+// scriptedBrowser answers every DevTools command, except those silent
+// picks, and then sends the events its script returns for that command.
 type scriptedBrowser struct {
 	server   *httptest.Server
 	script   func(cdpCommand) []cdpEvent
 	refuse   func(cdpCommand) string
 	answer   func(cdpCommand) map[string]any
+	silent   func(cdpCommand) bool
 	mu       sync.Mutex
 	commands []cdpCommand
 	conns    []*websocket.Conn
@@ -102,6 +103,9 @@ func (f *scriptedBrowser) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.commands = append(f.commands, command.cdpCommand)
 		f.mu.Unlock()
+		if f.silent != nil && f.silent(command.cdpCommand) {
+			continue
+		}
 		result := map[string]any{}
 		if f.answer != nil {
 			if answered := f.answer(command.cdpCommand); answered != nil {
