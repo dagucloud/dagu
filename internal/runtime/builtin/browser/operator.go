@@ -115,6 +115,9 @@ type opResult struct {
 	// Values are the values an extract read, limited to the properties its
 	// schema lists.
 	Values map[string]any
+	// FoundNothing is set when an extract found nothing the schema asks
+	// for: every value it read was null or empty.
+	FoundNothing bool
 }
 
 func (o *operator) runOperation(ctx context.Context, index int, op operation) (opResult, error) {
@@ -488,26 +491,40 @@ func (o *operator) loadedNewDocument(ctx context.Context, document string, lost 
 
 func (o *operator) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) (opResult, error) {
 	began, before := time.Now(), o.bridge.totals()
-	schema, err := json.Marshal(spec.Schema)
+	schema, err := nullableSchema(spec.Schema)
 	if err != nil {
 		return opResult{}, fmt.Errorf("encode extract schema: %w", err)
 	}
 	data, err := o.eng.Extract(ctx, spec.Instruction, schema, timeout)
 	if err != nil {
-		return opResult{}, err
+		return opResult{}, o.onPage(ctx, err)
 	}
 	var values map[string]any
 	if err := json.Unmarshal(data, &values); err != nil {
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
-	detail := string(data)
+	pages := 1
 	if spec.Pages != nil {
-		pages, err := o.readPages(ctx, index, spec, schema, values, timeout)
-		if err != nil {
-			return opResult{}, err
+		if pages, err = o.readPages(ctx, index, spec, schema, values, timeout); err != nil {
+			return opResult{}, o.onPage(ctx, err)
 		}
-		all, _ := json.Marshal(values)
-		detail = fmt.Sprintf("%d pages: %s", pages, all)
+	}
+	found, err := settleAnswer(spec.Schema, values)
+	if err != nil {
+		return opResult{}, o.onPage(ctx, err)
+	}
+	settled, _ := json.Marshal(values)
+	detail := string(settled)
+	if spec.Pages != nil {
+		detail = fmt.Sprintf("%d pages: %s", pages, settled)
+	}
+	if !found {
+		detail = "found nothing: " + detail
+		where := ""
+		if pageURL, err := o.eng.CurrentURL(ctx); err == nil {
+			where = " on " + pageURL
+		}
+		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was null or empty", where))
 	}
 	// Only the fields a schema lists are published, matching the output
 	// names known when the DAG loads.
@@ -524,8 +541,22 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 			Index: index, Kind: opExtract, Subject: spec.Instruction, Status: agentstep.StatusCompleted, Via: agentstep.ViaModel,
 			Detail: detail, Tokens: o.bridge.totals().sub(before).total(), Duration: time.Since(began),
 		},
-		Values: published,
+		Values:       published,
+		FoundNothing: !found,
 	}, nil
+}
+
+// onPage adds the page an extract read to err when err tells how the
+// model's answer did not fit the schema.
+func (o *operator) onPage(ctx context.Context, err error) error {
+	if _, ok := errors.AsType[answerMismatch](err); !ok {
+		return err
+	}
+	pageURL, urlErr := o.eng.CurrentURL(ctx)
+	if urlErr != nil {
+		return err
+	}
+	return fmt.Errorf("%w, on %s", err, pageURL)
 }
 
 // readPages reads the pages of a list after the first, which values holds,
@@ -570,6 +601,8 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 		if err := json.Unmarshal(data, &page); err != nil {
 			return read, fmt.Errorf("extract returned a non-object value: %w", err)
 		}
+		// A page whose items are all blank holds none of the list.
+		tidy(spec.Schema, page)
 		items := pageItems(page, arrays)
 		if reflect.DeepEqual(items, last) {
 			return read, nil

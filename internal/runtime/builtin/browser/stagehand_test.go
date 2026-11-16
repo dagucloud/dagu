@@ -2790,3 +2790,67 @@ func startBrowserOnRacedPort(ctx context.Context, path, portFile, profile string
 		}
 	}
 }
+
+// The runtime accepts the nulls a model writes for what it cannot find.
+// An answer of nulls only ends as found nothing, blank list items are
+// dropped, and a null left where the schema needs a value fails in words
+// that name the field and the page.
+func TestStagehandExtractNullAnswers(t *testing.T) {
+	t.Parallel()
+	statements := map[string]any{"type": "object", "required": []any{"statements"}, "properties": map[string]any{
+		"statements": map[string]any{"type": "array", "items": map[string]any{
+			"type": "object", "required": []any{"speaker", "answer"},
+			"properties": map[string]any{"speaker": map[string]any{"type": "string"}, "answer": map[string]any{"type": "string"}},
+		}},
+	}}
+	tests := map[string]struct {
+		answer       string
+		values       map[string]any
+		foundNothing bool
+		err          string
+	}{
+		"all null is found nothing": {
+			answer:       `{"statements":[{"speaker":null,"answer":null}]}`,
+			values:       map[string]any{"statements": []any{}},
+			foundNothing: true,
+		},
+		"blank items are dropped": {
+			answer: `{"statements":[{"speaker":"Ann","answer":"Yes"},{"speaker":null,"answer":""}]}`,
+			values: map[string]any{"statements": []any{map[string]any{"speaker": "Ann", "answer": "Yes"}}},
+		},
+		"a required null is told in words": {
+			answer: `{"statements":[{"speaker":"Ann","answer":null}]}`,
+			err:    "the model answered null for statements[0].answer (expected a string), which the extract schema requires, on http://",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			answer := func(_ context.Context, req generateRequest) (generateResponse, error) {
+				if strings.Contains(string(req.Schema), "completed") {
+					return generateResponse{JSON: json.RawMessage(`{"completed":true,"progress":"done"}`)}, nil
+				}
+				return generateResponse{JSON: json.RawMessage(tt.answer)}, nil
+			}
+			eng := launchBrowser(t, launchOptions{Generate: answer})
+			require.NoError(t, eng.Goto(t.Context(), serveShop(t), time.Minute))
+			var warnings []string
+			op := &operator{eng: eng, bridge: &modelBridge{}, warn: func(_ int, message string) { warnings = append(warnings, message) }}
+			result, err := op.extract(t.Context(), 0, extractSpec{Instruction: "The statements", Schema: statements}, time.Minute)
+			if tt.err != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.values, result.Values)
+			assert.Equal(t, tt.foundNothing, result.FoundNothing)
+			if tt.foundNothing {
+				require.Len(t, warnings, 1)
+				assert.Contains(t, warnings[0], "extract found nothing on http://")
+			} else {
+				assert.Empty(t, warnings)
+			}
+		})
+	}
+}

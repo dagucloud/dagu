@@ -1187,6 +1187,13 @@ func (e *stagehandEngine) Extract(ctx context.Context, instruction string, schem
 		err = e.client.ExperimentalBatch(ctx, extractBatchSource,
 			map[string]any{"instruction": instruction, "schema": schema, "options": map[string]any{}},
 			&result, stagehand.ExperimentalBatchOptions{Timeout: timeout, Page: page})
+		if rpcErr, ok := errors.AsType[*stagehand.RPCError](err); ok {
+			// The runtime rejects an answer that does not fit the schema
+			// with its validation report as the message.
+			if mismatch, ok := describeValidationReport(rpcErr.Message); ok {
+				return nil, mismatch
+			}
+		}
 		if err != nil {
 			return nil, err
 		}

@@ -232,6 +232,23 @@ func TestRunPublishesExtractedOutputs(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"), "a successful step keeps no screenshot by default")
 }
 
+// An extract that reads nothing but nulls completes as found nothing, with
+// a warning and a screenshot of the page it read.
+func TestExtractFoundNothingWarnsAndCapturesPage(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":null}`}))
+	execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
+		{"extract": {"instruction": "The order number", "schema": {"type": "object", "required": ["order"], "properties": {"order": {"type": "string"}}}}}
+	]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, map[string]any{"order": nil}, extracted(execution.exec))
+	assert.Contains(t, execution.stderr.String(), "extract found nothing on https://shop.example.com/cart")
+	assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-found-nothing.png"))
+}
+
 func TestWhenSkipsOperation(t *testing.T) {
 	t.Parallel()
 
