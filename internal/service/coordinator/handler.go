@@ -2987,7 +2987,7 @@ func (h *Handler) GetDAG(ctx context.Context, req *coordinatorv1.GetDAGRequest) 
 	}
 	spec, err := h.dagRepository.GetSpec(ctx, req.Name)
 	if err != nil {
-		return &coordinatorv1.GetDAGResponse{Error: err.Error()}, nil
+		return &coordinatorv1.GetDAGResponse{Error: err.Error(), NotFound: errors.Is(err, persis.ErrDAGNotFound)}, nil
 	}
 	return &coordinatorv1.GetDAGResponse{Spec: spec}, nil
 }

@@ -577,6 +577,7 @@ message GetDAGRequest {
 message GetDAGResponse {
   string spec = 1;  // Raw YAML content of the DAG definition (empty if not found)
   string error = 2; // Error description when the DAG cannot be retrieved
+  bool not_found = 3; // True when the error is that no DAG has the name
 }
 
 // ResolveSecretReference resolves or checks one Dagu-managed registry ref.
