@@ -3626,6 +3626,50 @@ func TestTickPlanner_BoundsPendingOutages(t *testing.T) {
 	assert.Equal(t, want[2:], recorded)
 }
 
+// While outages keep failing to record, the planner warns at the first
+// failure and then at most every 10 minutes, and says once when they record
+// again.
+func TestTickPlanner_SpacesOutageWarnings(t *testing.T) {
+	t.Parallel()
+	logs := &syncBuffer{buf: new(bytes.Buffer)}
+	ctx := logger.WithFixedLogger(t.Context(), logger.NewLogger(
+		logger.WithFormat("text"), logger.WithWriter(logs),
+	))
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	periods := &failingPeriods{fail: true}
+	tp.cfg.Periods = periods
+	now := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	tp.cfg.Clock = func() time.Time { return now }
+	dag := &ir.DAG{Name: "quarterly", Schedule: []ir.Schedule{mustParseSchedule(t, "*/15 * * * *")}}
+	require.NoError(t, tp.Init(ctx, testDAGEntries(dag)))
+	tp.Advance(now)
+	tick := func() {
+		now = now.Add(time.Minute)
+		tp.Plan(ctx, now)
+		tp.Advance(now)
+	}
+	failed := func() int { return strings.Count(logs.String(), "Failed to record the time no scheduler ran") }
+
+	now = now.Add(45 * time.Minute)
+	tp.resume(ctx, now)
+	for range 19 {
+		tick()
+	}
+	assert.Equal(t, 2, failed(), "at 12:45 and 12:55")
+
+	periods.fail = false
+	tick()
+	tick()
+	assert.Equal(t, 1, strings.Count(logs.String(), "Recorded the time no scheduler ran"))
+	recorded, _, err := periods.Ended(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, recorded, 1)
+
+	periods.fail = true
+	tp.resume(ctx, now.Add(2*time.Minute))
+	assert.Equal(t, 3, failed(), "a new failure warns at once")
+}
+
 // The planner records when it first tracked a DAG, once: at startup or when
 // the DAG is added. Ticks, reloads, and rewrites of the state file keep it,
 // and a renamed DAG is a new DAG with its own.

@@ -133,8 +133,9 @@ type TickPlannerConfig struct {
 // tracks progress via watermarks, and reacts to DAG lifecycle changes.
 //
 // Thread safety:
-//   - entries, buffers, deletedGrace, and pendingOutages are protected by
-//     entryMu (accessed from drainEvents goroutine and cronLoop's Plan).
+//   - entries, buffers, deletedGrace, pendingOutages, and outageWarnedAt are
+//     protected by entryMu (accessed from drainEvents goroutine and cronLoop's
+//     Plan).
 //   - watermarkState is shared with the flusher goroutine and protected by mu.
 //   - flushMu spans a flush's snapshot and save, so a later snapshot is never
 //     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
@@ -164,6 +165,9 @@ type TickPlanner struct {
 	// pendingOutages are the outages whose periods failed to record, retried
 	// as each tick is planned.
 	pendingOutages []schedulerstate.Period
+	// outageWarnedAt is when the planner last warned that outages failed to
+	// record, or zero while they record.
+	outageWarnedAt time.Time
 
 	// lastPlanResult holds the runs from the most recent Plan() call.
 	// It is written by Plan() and read by Advance(). Both are called
@@ -438,6 +442,9 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 // maxPendingOutages bounds the outages kept while their periods fail to record.
 const maxPendingOutages = 10
 
+// outageWarnInterval spaces the warnings while outages keep failing to record.
+const outageWarnInterval = 10 * time.Minute
+
 // recordOutage records the time from the last tick to to as a period in which
 // no scheduler ran, when a minute or more passed between them. A period that
 // fails to record is kept until a later tick records it, as the tick moves
@@ -459,18 +466,35 @@ func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time)
 }
 
 // recordPendingOutages records the periods of the outages kept, and keeps
-// those that fail again. Caller must hold entryMu.
+// those that fail again. It warns at the first failure and then at most once
+// per outageWarnInterval while they fail, and logs once when they record
+// again. Caller must hold entryMu.
 func (tp *TickPlanner) recordPendingOutages(ctx context.Context) {
 	if len(tp.pendingOutages) == 0 {
 		return
 	}
+	var failure error
 	tp.pendingOutages = slices.DeleteFunc(tp.pendingOutages, func(outage schedulerstate.Period) bool {
 		err := tp.cfg.Periods.AddDown(ctx, outage)
 		if err != nil {
-			logger.Warn(ctx, "Failed to record the time no scheduler ran; retrying on the next tick", tag.Error(err))
+			failure = err
 		}
 		return err == nil
 	})
+	now := tp.cfg.Clock()
+	switch {
+	case failure == nil:
+		if !tp.outageWarnedAt.IsZero() {
+			logger.Info(ctx, "Recorded the time no scheduler ran after earlier failures")
+			tp.outageWarnedAt = time.Time{}
+		}
+	case tp.outageWarnedAt.IsZero() || now.Sub(tp.outageWarnedAt) >= outageWarnInterval:
+		logger.Warn(ctx, "Failed to record the time no scheduler ran; retrying on later ticks",
+			slog.Int("pending", len(tp.pendingOutages)),
+			tag.Error(failure),
+		)
+		tp.outageWarnedAt = now
+	}
 }
 
 // settlePlannedSlots settles each slot left planned, as when the scheduler
