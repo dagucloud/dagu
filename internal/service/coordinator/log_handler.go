@@ -274,14 +274,14 @@ func (h *logHandler) logFilePath(chunk *coordinatorv1.LogChunk) string {
 	if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER {
 		filename = "scheduler.log"
 	} else {
-		filename = fmt.Sprintf("%s.%s", fileutil.SafeName(chunk.StepName), ext)
+		filename = fmt.Sprintf("%s.%s", fileutil.SafeKey(chunk.StepName), ext)
 	}
 
 	return filepath.Join(
 		h.logDir,
-		fileutil.SafeName(dagName),
-		fileutil.SafeName(dagRunID),
-		fileutil.SafeName(attemptDir),
+		fileutil.SafeKey(dagName),
+		fileutil.SafeKey(dagRunID),
+		fileutil.SafeKey(attemptDir),
 		filename,
 	)
 }

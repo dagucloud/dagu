@@ -2596,12 +2596,12 @@ func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 	// Helper to compute coordinator log path
 	computePath := func(stepName string, streamType coordinatorv1.LogStreamType) string {
 		ext := StreamTypeToExtension(streamType)
-		filename := fmt.Sprintf("%s.%s", fileutil.SafeName(stepName), ext)
+		filename := fmt.Sprintf("%s.%s", fileutil.SafeKey(stepName), ext)
 		return filepath.Join(
 			h.logDir,
-			fileutil.SafeName(dagName),
-			fileutil.SafeName(dagRunID),
-			fileutil.SafeName(attemptID),
+			fileutil.SafeKey(dagName),
+			fileutil.SafeKey(dagRunID),
+			fileutil.SafeKey(attemptID),
 			filename,
 		)
 	}
@@ -2636,9 +2636,9 @@ func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 	// Transform scheduler log path
 	status.Log = filepath.Join(
 		h.logDir,
-		fileutil.SafeName(dagName),
-		fileutil.SafeName(dagRunID),
-		fileutil.SafeName(attemptID),
+		fileutil.SafeKey(dagName),
+		fileutil.SafeKey(dagRunID),
+		fileutil.SafeKey(attemptID),
 		"scheduler.log",
 	)
 }

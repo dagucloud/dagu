@@ -90,7 +90,7 @@ func newSearch(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		if dir == "" {
 			return nil, errors.New("save_attachments requires artifact storage")
 		}
-		options.AttachmentsDir = filepath.Join(dir, "mail", fileutil.SafeName(step.Name))
+		options.AttachmentsDir = filepath.Join(dir, "mail", fileutil.SafeKey(step.Name))
 	}
 
 	address := accountAddress(cfg.Mailbox)

@@ -1329,7 +1329,7 @@ func (n *Node) Prepare(ctx context.Context, logDir string, dagRunID string) erro
 
 	// Set the log file path
 	startedAt := time.Now()
-	safeName := fileutil.SafeName(n.Name())
+	safeName := fileutil.SafeKey(n.Name())
 	timestamp := startedAt.Format("20060102.150405.000")
 	postfix := stringutil.TruncString(dagRunID, 8)
 	logFilename := fmt.Sprintf("%s.%s.%s", safeName, timestamp, postfix)

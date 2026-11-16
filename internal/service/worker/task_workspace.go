@@ -88,6 +88,6 @@ func materializeTaskWorkspace(
 func remoteWorkspaceWorkDir(task *coordinatorv1.Task) string {
 	return filepath.Join(
 		os.TempDir(),
-		fmt.Sprintf("dagu_%s_%s", fileutil.SafeName(task.Target), task.DagRunId),
+		fmt.Sprintf("dagu_%s_%s", fileutil.SafeKey(task.Target), task.DagRunId),
 	)
 }

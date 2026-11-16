@@ -95,7 +95,7 @@ func (cfg Config) RunDir() (string, error) {
 
 	utcTimestamp := time.Now().UTC().Format("20060102_150405Z")
 
-	safeName := fileutil.SafeName(cfg.Name)
+	safeName := fileutil.SafeKey(cfg.Name)
 	logDir := filepath.Join(baseDir, safeName, "dag-run_"+utcTimestamp+"_"+cfg.DAGRunID)
 	if err := os.MkdirAll(logDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to initialize directory %s: %w", logDir, err)
