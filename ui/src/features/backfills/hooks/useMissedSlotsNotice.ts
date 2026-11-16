@@ -54,7 +54,7 @@ const formatBound = (value: string) =>
  * scheduler paused, or no scheduler ran. For a user who may backfill, its
  * action opens the Backfills tab with the start panel on those slots. The
  * slots are read as the page opens and again when a backfill starts, never
- * polled. Dismissed, the notice stays hidden until a newer span adds missed
+ * polled or retried. Dismissed, the notice stays hidden until a newer span adds missed
  * slots, which moves their `until` later.
  */
 export function useMissedSlotsNotice(
@@ -69,7 +69,13 @@ export function useMissedSlotsNotice(
   const { data } = useQuery(
     MISSED_SLOTS_PATH,
     fileName ? { params: { path: { fileName }, query: { remoteNode } } } : null,
-    { revalidateOnFocus: false, revalidateOnReconnect: false }
+    // A failed read may be a slow first import of the DAG's slot history,
+    // which a retry would start over.
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+    }
   );
   const missed = data?.missedSlots;
   const key = dismissedKey(remoteNode, dagName);
