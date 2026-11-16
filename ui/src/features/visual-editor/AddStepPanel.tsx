@@ -134,6 +134,8 @@ const GROUP_BLURBS: ReadonlyMap<string, string> = new Map(
     'sftp.upload': 'Upload files over SFTP.',
     'mail.send': 'Send an email.',
     'mcp.call': 'Call a tool on a remote MCP server.',
+    'a2a.send': 'Send a message to a remote A2A agent.',
+    'a2a.get_task': 'Read the state and artifacts of a remote A2A task.',
     'human.task': 'Ask a person to review or fill in a form.',
     'outputs.write': 'Publish values as outputs of the run.',
   })

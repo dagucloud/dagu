@@ -1,0 +1,17 @@
+working_dir: .
+env:
+  - A2A_URL: ${A2A_URL}
+  - TASK_ID: ${TASK_ID}
+secrets:
+  - name: A2A_TOKEN
+    provider: env
+    key: A2A_TOKEN
+steps:
+  - id: poll
+    action: a2a.get_task
+    with:
+      agent_url: ${A2A_URL}
+      task_id: ${TASK_ID}
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    stdout: poll.out

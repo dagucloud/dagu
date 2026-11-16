@@ -9,6 +9,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.0
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/a2aproject/a2a-go/v2 v2.8.0
 	github.com/adrg/xdg v0.5.3
 	github.com/alibabacloud-go/darabonba-openapi/v2 v2.2.4
 	github.com/alibabacloud-go/kms-20160120/v4 v4.1.0

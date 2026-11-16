@@ -4,6 +4,7 @@
 package builtin
 
 import (
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/a2a"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/action"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/agent"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/archive"

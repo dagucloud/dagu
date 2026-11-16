@@ -31,6 +31,8 @@ describe('actionTitle', () => {
     ['k8s.run', 'K8s run'],
     ['ssh.run', 'SSH run'],
     ['mcp.call', 'MCP call'],
+    ['a2a.send', 'A2A send'],
+    ['a2a.get_task', 'A2A get task'],
     ['s3.upload', 'S3 upload'],
     ['jq.filter', 'Jq filter'],
     ['send-slack', 'Send slack'],

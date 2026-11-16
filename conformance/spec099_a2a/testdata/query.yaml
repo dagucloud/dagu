@@ -1,0 +1,5 @@
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: https://agents.example.invalid/a?api_key=abc
+      task_id: t1

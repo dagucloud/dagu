@@ -1,0 +1,6 @@
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.invalid/a
+      message: hi
+      task_id: t1
