@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,6 +76,23 @@ func TestForeachStepDirReadsLegacyNameItOwns(t *testing.T) {
 	assert.Equal(t, legacy, ForeachStepDir(logDir, "fetch data", []string{"fetch data", "parse"}))
 	assert.NotEqual(t, legacy, ForeachStepDir(logDir, "fetch data", []string{"fetch data", "fetch_data"}))
 	assert.NotEqual(t, legacy, ForeachStepDir(logDir, "fetch.data", []string{"fetch data", "fetch.data"}))
+}
+
+// A directory of an earlier version that steps fetch data and fetch_data
+// shared is not read even by fetch_data, whose name it has. In a run of this
+// version, the directory is fetch_data's own.
+func TestForeachStepDirKeepsSharedLegacyDirApart(t *testing.T) {
+	t.Parallel()
+
+	siblings := []string{"fetch data", "fetch_data"}
+	logDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(logDir, ForeachLogDirName, "fetch_data"), 0o750))
+	assert.Empty(t, ForeachStepDir(logDir, "fetch_data", siblings))
+	assert.Empty(t, ForeachNestedParent(logDir, "0", "fetch_data", siblings))
+
+	dir := ForeachStepDir(logDir, "fetch_data", nil)
+	require.NoError(t, fileutil.MarkSafeKeyDir(filepath.Dir(dir)))
+	assert.Equal(t, dir, ForeachStepDir(logDir, "fetch_data", siblings))
 }
 
 func TestForeachItemDir(t *testing.T) {

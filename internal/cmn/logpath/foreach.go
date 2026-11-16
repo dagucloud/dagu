@@ -34,18 +34,27 @@ const (
 var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_%-]+$`)
 
 // ForeachStepDir returns the directory holding the item bodies of a foreach
-// step whose log files are in logDir. siblings are the names of all steps
-// whose log files share logDir; when they are unknown, as for a directory
-// written only by this version, siblings is empty.
+// step whose log files are in logDir. With siblings empty, it returns the
+// directory a step of this version writes to, and the step marks its parent
+// (see fileutil.MarkSafeKeyDir). A reader passes in siblings the names of all
+// steps whose log files share logDir. A directory under an unmarked parent
+// was named by an earlier version with SafeName, which other steps could
+// share; it is returned only when no other step did, and otherwise the
+// result is empty.
 func ForeachStepDir(logDir, stepName string, siblings []string) string {
 	dir := filepath.Join(logDir, ForeachLogDirName)
-	name := fileutil.SafeKey(stepName)
-	// Earlier versions named the directory with SafeName, which other steps
-	// could share. It is read only when no other step did.
-	if legacy, ok := fileutil.LegacySafeName(stepName, siblings); ok && len(siblings) > 0 {
-		name = fileutil.ExistingName(dir, name, legacy)
+	if len(siblings) == 0 || fileutil.IsSafeKeyDir(dir) {
+		return filepath.Join(dir, fileutil.SafeKey(stepName))
 	}
-	return filepath.Join(dir, name)
+	legacy, ok := fileutil.LegacySafeName(stepName, siblings)
+	if !ok {
+		return ""
+	}
+	rel, ok := fileutil.LegacyEntry(dir, legacy)
+	if !ok {
+		return ""
+	}
+	return filepath.Join(dir, rel)
 }
 
 // ForeachItemPath builds the item path of an item nested under parent. An
@@ -59,9 +68,14 @@ func ForeachItemPath(parent string, index int) string {
 
 // ForeachNestedParent builds the parent path for the items of a foreach body
 // step running inside item itemPath, whose directory is itemDir. siblings are
-// the item's body steps. The path names the step's directory as it is stored.
+// the item's body steps. The path names the step's directory as it is
+// stored, and is empty when ForeachStepDir finds no directory to read.
 func ForeachNestedParent(itemDir, itemPath, bodyStepName string, siblings []string) string {
-	return itemPath + foreachItemPathSeparator + filepath.Base(ForeachStepDir(itemDir, bodyStepName, siblings))
+	dir := ForeachStepDir(itemDir, bodyStepName, siblings)
+	if dir == "" {
+		return ""
+	}
+	return itemPath + foreachItemPathSeparator + filepath.Base(dir)
 }
 
 // ForeachItemDir resolves an item path to its directory under stepDir. A path

@@ -242,6 +242,33 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 	require.NotNil(t, refused.AgentSession)
 }
 
+// A reader finds the items of a step of this version even when a step of an
+// earlier version could have shared its directory, as fetch data could with
+// fetch_data.
+func TestStepDirIsFoundBesideSimilarNames(t *testing.T) {
+	executorType := "test-foreach-found"
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		return &itemExecutor{report: func(string) {}}, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	logDir := t.TempDir()
+	e := &foreachExecutor{step: ir.Step{
+		Name: "fetch_data",
+		Foreach: &ir.ForeachConfig{
+			Items: []any{"a"},
+			Steps: []ir.Step{{Name: "body", ExecutorConfig: ir.ExecutorConfig{Type: executorType}}},
+		},
+	}}
+	e.SetStdout(io.Discard)
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "", runtime.WithDAGRunLogDir(logDir))
+	require.NoError(t, e.Run(ctx))
+
+	dir := logpath.ForeachStepDir(logDir, "fetch_data", []string{"fetch data", "fetch_data"})
+	require.NotEmpty(t, dir)
+	assert.FileExists(t, filepath.Join(dir, logpath.ForeachItemsFile))
+}
+
 // itemExecutor stands for a body step and reports the foreach item it runs
 // in.
 type itemExecutor struct {

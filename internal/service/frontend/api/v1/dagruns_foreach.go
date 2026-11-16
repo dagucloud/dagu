@@ -361,7 +361,8 @@ func invalidForeachPath(err error) error {
 }
 
 // foreachStepDir is the directory holding the step's item records and body
-// logs. A step that never prepared a log file has none.
+// logs. A step that never prepared a log file has none, as has a step whose
+// items an earlier version kept where another step's could be.
 func foreachStepDir(node foreachStep) string {
 	if node.Stdout == "" {
 		return ""

@@ -31,6 +31,16 @@ const recordInterval = time.Second
 
 // writeItems records the expanded items of the step in its foreach directory.
 func writeItems(ctx context.Context, stepDir string, items []expandedItem) {
+	// Readers tell directories of this version from those of earlier
+	// versions, named otherwise, by the mark.
+	parent := filepath.Dir(stepDir)
+	err := os.MkdirAll(parent, 0750)
+	if err == nil {
+		err = fileutil.MarkSafeKeyDir(parent)
+	}
+	if err != nil {
+		logger.Warn(ctx, "Failed to mark foreach log directory", tag.Error(err), tag.Dir(parent))
+	}
 	record := ir.ForeachItems{Total: len(items), Items: make([]ir.ForeachItemRef, len(items))}
 	for i, item := range items {
 		record.Items[i] = ir.ForeachItemRef{Index: item.index, Key: item.key}
