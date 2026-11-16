@@ -124,12 +124,14 @@ export function useMissedSlotsNotice(
           );
           if (error) {
             failed(error.message || ts('The missed slots were not dismissed.'));
-            return;
+            return false;
           }
           // The server now answers none, so the slots read are dropped.
           void mutate({}, { revalidate: false });
+          return true;
         } catch (error) {
           failed(error instanceof Error ? error.message : String(error));
+          return false;
         }
       },
       priority: MISSED_SLOTS_NOTICE_PRIORITY,

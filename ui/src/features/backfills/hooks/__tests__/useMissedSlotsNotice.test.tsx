@@ -1,11 +1,19 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, renderHook, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissedSlotsReason, type components } from '@/api/v1/schema';
+import { NoticeLine } from '@/features/dags/components/dag-editor/NoticeLine';
 import { useQuery } from '@/hooks/api';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { useMissedSlotsNotice } from '../useMissedSlotsNotice';
@@ -232,4 +240,22 @@ describe('useMissedSlotsNotice', () => {
       expect(showError).toHaveBeenCalledOnce();
     }
   );
+
+  // The notice line over the canvas shows the notice until the server keeps
+  // its dismissal, so a refused one stays in view beside the error.
+  it('stays in the notice line when the dismissal is refused', async () => {
+    post.mockResolvedValue({ error: { message: 'no' } });
+    function Line() {
+      const { notice } = useNoticeAndLocation(missed);
+      return <NoticeLine notices={notice ? [notice] : []} />;
+    }
+    render(<Line />, { wrapper });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    await waitFor(() => expect(showError).toHaveBeenCalledOnce());
+    expect(screen.getByRole('status')).toHaveTextContent(
+      `12 slots passed ${span} while this DAG was suspended`
+    );
+  });
 });

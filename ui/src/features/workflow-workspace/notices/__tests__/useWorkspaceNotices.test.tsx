@@ -463,7 +463,9 @@ describe('useWorkspaceNotices', () => {
 
     it('stays dismissed for the server once dismissed', () => {
       const { result } = renderNotices({ schedule: true });
-      act(() => find(result.current, 'monitoring-offer').dismiss?.());
+      act(() => {
+        find(result.current, 'monitoring-offer').dismiss?.();
+      });
       expect(ids(result.current)).not.toContain('monitoring-offer');
       expect(localStorage.getItem(OFFER_KEY)).toBe('dismissed');
     });

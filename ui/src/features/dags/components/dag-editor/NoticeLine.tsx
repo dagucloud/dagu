@@ -88,9 +88,15 @@ export function NoticeLine({ notices, className }: NoticeLineProps) {
   const dismiss = (notice: NoticeLineItem) => {
     if (notice.onDismiss) {
       notice.onDismiss();
-    } else {
-      notice.dismiss?.();
+      return;
+    }
+    const hide = () =>
       setHidden((previous) => new Set(previous).add(notice.id));
+    const dismissed = notice.dismiss?.();
+    if (dismissed instanceof Promise) {
+      void dismissed.then((kept) => kept && hide());
+    } else {
+      hide();
     }
   };
 
