@@ -81,8 +81,7 @@ describe('useMissedSlotsNotice', () => {
 
   // The page reads the missed slots as it opens and after a backfill
   // starts; it neither polls nor reads them again on focus, on reconnect,
-  // or after a failed read, which may be a slow first import of the DAG's
-  // slot history.
+  // or after a failed read, as the notice is advisory.
   it("reads the DAG's missed slots without polling or retrying", () => {
     renderHook(() => useNoticeAndLocation(missed), { wrapper });
 

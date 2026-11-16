@@ -60,8 +60,7 @@ export function useMissedSlotsNotice(
   const { data, mutate } = useQuery(
     MISSED_SLOTS_PATH,
     fileName ? { params: { path: { fileName }, query: { remoteNode } } } : null,
-    // A failed read may be a slow first import of the DAG's slot history,
-    // which a retry would start over.
+    // The notice is advisory, and opening the page reads it again.
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
