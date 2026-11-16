@@ -5,13 +5,18 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
@@ -433,6 +438,42 @@ func TestTickPlanner_ReplayLeavesOutSlotSettledBeforeAdvance(t *testing.T) {
 
 	restarted, _ := restartPlanner(t, store, at(12, 2).Add(30*time.Second), 0, dag)
 	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(restarted, dag.Name))
+}
+
+// The slots a startup queues stay out of the scheduler state record, which
+// readers of the state copy whole, and a restart still replays them.
+func TestTickPlanner_KeepsCatchupOutOfState(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	newStore := func() *store.SchedulerStateStore {
+		return store.NewSchedulerStateStore(file.NewCollection(dir, file.WithIndentedJSON()))
+	}
+	states := newStore()
+	require.NoError(t, states.Save(t.Context(), newMockState(at(6, 0))))
+	dag := &ir.DAG{Name: "minutely", CatchupWindow: 6 * time.Hour, Schedule: []ir.Schedule{mustParseSchedule(t, "* * * * *")}}
+	tp, _ := newTestTickPlanner(states)
+	tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+	tp.cfg.Enqueue = enqueueOK
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	require.Len(t, bufferedSlots(tp, dag.Name), 360)
+	runTick(t, tp, at(12, 0))
+	queued := bufferedSlots(tp, dag.Name)
+	require.Len(t, queued, 359)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	require.NoError(t, err)
+	var record struct {
+		DAGs map[string]map[string]json.RawMessage `json:"dags"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &record))
+	require.Contains(t, record.DAGs, dag.Name)
+	_, saved := record.DAGs[dag.Name]["catchup"]
+	assert.False(t, saved, "state.json holds catch-up slots")
+
+	restarted, _ := newTestTickPlanner(newStore())
+	restarted.cfg.Clock = func() time.Time { return at(12, 0).Add(45 * time.Second) }
+	require.NoError(t, restarted.Init(t.Context(), testDAGEntries(dag)))
+	assert.Equal(t, queued, bufferedSlots(restarted, dag.Name))
 }
 
 // A startup leaves the slots before its catch-up window out of the queue.
