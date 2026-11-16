@@ -100,6 +100,9 @@ func (s *SchedulerPauseStore) recordLocked(ctx context.Context) (schedulerPauseR
 		return cached, nil
 	}
 
+	// The version is read before the record, so a write between the two
+	// leaves the cache behind the record and the next read reloads it.
+	token, versioned, tokenErr := s.recordToken(ctx)
 	var record schedulerPauseRecord
 	found, err := s.rec.Load(ctx, &record)
 	if err != nil {
@@ -112,7 +115,11 @@ func (s *SchedulerPauseStore) recordLocked(ctx context.Context) (schedulerPauseR
 	if !found {
 		record = schedulerPauseRecord{}
 	}
-	s.cacheLocked(ctx, record)
+	if !versioned || tokenErr != nil {
+		s.clearCacheLocked()
+		return record, nil
+	}
+	s.cached, s.cachedValid, s.cachedToken = record, true, token
 	return record, nil
 }
 

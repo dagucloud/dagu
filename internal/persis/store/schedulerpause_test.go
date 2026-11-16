@@ -289,3 +289,35 @@ func TestSchedulerPauseHoldRecordsNoSpan(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, ended, 1, "the operator's pause only")
 }
+
+// racingCollection lets another writer change a record right after the
+// first read of it returns.
+type racingCollection struct {
+	*testutil.MemoryCollection
+	race func()
+}
+
+func (c *racingCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	rec, err := c.MemoryCollection.Get(ctx, id)
+	if race := c.race; race != nil {
+		c.race = nil
+		race()
+	}
+	return rec, err
+}
+
+// A pause written by another process while the store reads the record is
+// seen on the next read, not hidden behind the record read before it.
+func TestSchedulerPauseSeesAWriteDuringARead(t *testing.T) {
+	ctx := t.Context()
+	inner := testutil.NewMemoryBackend().Collection("scheduler").(*testutil.MemoryCollection)
+	col := &racingCollection{MemoryCollection: inner}
+	reader := store.NewSchedulerPauseStore(col)
+	col.race = func() { require.NoError(t, store.NewSchedulerPauseStore(inner).Set(ctx, true, "alice", "")) }
+
+	_, err := reader.IsPaused(ctx)
+	require.NoError(t, err)
+	paused, err := reader.IsPaused(ctx)
+	require.NoError(t, err)
+	assert.True(t, paused)
+}
