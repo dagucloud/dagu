@@ -5,6 +5,7 @@ package logpath
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -26,6 +27,10 @@ const (
 	// item's directory.
 	ForeachItemStatusFile = "status.json"
 
+	// ForeachKeysFile marks a foreach directory whose step directories are
+	// named by fileutil.SafeKey. A run of this version writes it.
+	ForeachKeysFile = ".safekey"
+
 	// foreachItemPathSeparator joins the segments of an item path. SafeKey
 	// never produces it, so a path splits unambiguously.
 	foreachItemPathSeparator = "."
@@ -36,14 +41,14 @@ var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_%-]+$`)
 // ForeachStepDir returns the directory holding the item bodies of a foreach
 // step whose log files are in logDir. With siblings empty, it returns the
 // directory a step of this version writes to, and the step marks its parent
-// (see fileutil.MarkSafeKeyDir). A reader passes in siblings the names of all
-// steps whose log files share logDir. A directory under an unmarked parent
-// was named by an earlier version with SafeName, which other steps could
-// share; it is returned only when no other step did, and otherwise the
-// result is empty.
+// with ForeachKeysFile. A reader passes in siblings the names of all steps
+// whose log files share logDir. A directory under an unmarked parent was
+// named by an earlier version with SafeName, which other steps could share;
+// it is returned only when no other step did, and otherwise the result is
+// empty.
 func ForeachStepDir(logDir, stepName string, siblings []string) string {
 	dir := filepath.Join(logDir, ForeachLogDirName)
-	if len(siblings) == 0 || fileutil.IsSafeKeyDir(dir) {
+	if _, err := os.Lstat(filepath.Join(dir, ForeachKeysFile)); len(siblings) == 0 || err == nil {
 		return filepath.Join(dir, fileutil.SafeKey(stepName))
 	}
 	legacy, ok := fileutil.LegacySafeName(stepName, siblings)

@@ -36,7 +36,7 @@ func writeItems(ctx context.Context, stepDir string, items []expandedItem) {
 	parent := filepath.Dir(stepDir)
 	err := os.MkdirAll(parent, 0750)
 	if err == nil {
-		err = fileutil.MarkSafeKeyDir(parent)
+		err = os.WriteFile(filepath.Join(parent, logpath.ForeachKeysFile), nil, 0600)
 	}
 	if err != nil {
 		logger.Warn(ctx, "Failed to mark foreach log directory", tag.Error(err), tag.Dir(parent))

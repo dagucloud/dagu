@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,7 +90,7 @@ func TestForeachStepDirKeepsSharedLegacyDirApart(t *testing.T) {
 	assert.Empty(t, ForeachNestedParent(logDir, "0", "fetch_data", siblings))
 
 	dir := ForeachStepDir(logDir, "fetch_data", nil)
-	require.NoError(t, fileutil.MarkSafeKeyDir(filepath.Dir(dir)))
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(dir), ForeachKeysFile), nil, 0o600))
 	assert.Equal(t, dir, ForeachStepDir(logDir, "fetch_data", siblings))
 }
 
