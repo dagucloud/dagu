@@ -51,7 +51,7 @@ func labelDigest(text string) string {
 type extractCache = replaycache.Recordings[extractEntry]
 
 func openExtractCache(dataDir, dagName, stepKey string) *extractCache {
-	return replaycache.OpenStep[extractEntry](replaycache.New(filepath.Join(dataDir, workbook.DataDirName)), dagName, stepKey)
+	return replaycache.Open[extractEntry](replaycache.New(filepath.Join(dataDir, workbook.DataDirName)).Path(dagName, stepKey))
 }
 
 // labelsFor collects the label cells an entry watches: every cell the
