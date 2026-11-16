@@ -17,6 +17,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -126,8 +128,9 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 	return api.ListDAGSlots200JSONResponse{Slots: slots}, nil
 }
 
-// GetDAGMissedSlots returns the slots a DAG missed while it was suspended,
-// the scheduler paused, or no scheduler ran, as its slot history gives them.
+// GetDAGMissedSlots returns the slots that came due while a DAG was
+// suspended, the scheduler paused, or no scheduler ran. It reads the ended
+// periods and the scheduler state only, never the DAG's slot or run history.
 func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlotsRequestObject) (api.GetDAGMissedSlotsResponseObject, error) {
 	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
 	if err != nil {
@@ -157,9 +160,9 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	schedules := slices.Clone(dag.Schedule)
 	spec.BindScheduleCalendars(schedules, a.calendarSource())
 	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
-	missed, err := backfill.FindMissed(ctx, a.dagRunRepository, dag, sched, spans, time.Now())
-	if err != nil || missed.Slots == 0 {
-		return none, err
+	missed := backfill.FindMissed(dag, sched, spans, a.dagFirstSeen(ctx, dag.Name), time.Now())
+	if missed.Slots == 0 {
+		return none, nil
 	}
 	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
 	for _, reason := range missed.Reasons {
@@ -168,6 +171,22 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	return api.GetDAGMissedSlots200JSONResponse{MissedSlots: &api.MissedSlots{
 		Slots: missed.Slots, First: missed.First, Last: missed.Last, Reasons: reasons, Until: missed.Until,
 	}}, nil
+}
+
+// dagFirstSeen returns when the scheduler first tracked a DAG, from its
+// cached state, or zero when that is unknown.
+func (a *API) dagFirstSeen(ctx context.Context, dagName string) time.Time {
+	if a.schedulerStateStore == nil {
+		return time.Time{}
+	}
+	state, err := a.schedulerStateStore.Load(ctx)
+	if err != nil || state == nil {
+		if err != nil {
+			logger.Warn(ctx, "Failed to load scheduler state for missed slots", tag.Error(err))
+		}
+		return time.Time{}
+	}
+	return state.DAGs[dagName].FirstSeen
 }
 
 // recordSuspension records the suspension of a DAG that is to resume as a
