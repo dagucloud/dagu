@@ -37,7 +37,7 @@ func seedForeachRun(t *testing.T) foreachFixture {
 	logDir := t.TempDir()
 	stepLog := filepath.Join(logDir, "each.out")
 	require.NoError(t, os.WriteFile(stepLog, []byte(`{"summary":{}}`), 0o600))
-	stepDir := logpath.ForeachStepDir(filepath.Dir(stepLog), "each")
+	stepDir := logpath.ForeachStepDir(filepath.Dir(stepLog), "each", nil)
 
 	writeJSON := func(path string, v any) {
 		data, err := json.Marshal(v)

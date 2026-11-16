@@ -15,8 +15,8 @@ import (
 func TestForeachStepDir(t *testing.T) {
 	t.Parallel()
 
-	dir := ForeachStepDir(filepath.Join("logs", "run"), "each step")
-	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each_step"), dir)
+	dir := ForeachStepDir(filepath.Join("logs", "run"), "each step", nil)
+	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each%20step"), dir)
 }
 
 // Steps con and con_ keep their items apart on every system, although
@@ -25,7 +25,7 @@ func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
 	t.Parallel()
 
 	logDir := t.TempDir()
-	assert.NotEqual(t, ForeachStepDir(logDir, "con"), ForeachStepDir(logDir, "con_"))
+	assert.NotEqual(t, ForeachStepDir(logDir, "con", nil), ForeachStepDir(logDir, "con_", nil))
 }
 
 // A step whose raw name cleans to another step's name, such as ./b for b,
@@ -34,10 +34,10 @@ func TestForeachStepDirKeepsCleanedNamesApart(t *testing.T) {
 	t.Parallel()
 
 	logDir := t.TempDir()
-	dir := ForeachStepDir(logDir, "b")
+	dir := ForeachStepDir(logDir, "b", nil)
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	for _, name := range []string{"./b", "x/../b", "b/."} {
-		assert.NotEqual(t, dir, ForeachStepDir(logDir, name), name)
+		assert.NotEqual(t, dir, ForeachStepDir(logDir, name, []string{"b", name}), name)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestForeachStepDirKeepsRawDeviceName(t *testing.T) {
 	runDir := t.TempDir()
 	raw := filepath.Join(runDir, ForeachLogDirName, "con")
 	require.NoError(t, os.MkdirAll(raw, 0o750))
-	assert.Equal(t, raw, ForeachStepDir(runDir, "con"))
+	assert.Equal(t, raw, ForeachStepDir(runDir, "con", []string{"con"}))
 }
 
 // Foreach steps whose names differ only in characters a file name cannot hold,
@@ -59,8 +59,22 @@ func TestForeachStepDirKeepsSimilarNamesApart(t *testing.T) {
 	t.Parallel()
 
 	logDir := t.TempDir()
-	assert.NotEqual(t, ForeachStepDir(logDir, "a.b"), ForeachStepDir(logDir, "a_b"))
-	assert.NotEqual(t, ForeachStepDir(logDir, "fetch data"), ForeachStepDir(logDir, "fetch_data"))
+	assert.NotEqual(t, ForeachStepDir(logDir, "a.b", nil), ForeachStepDir(logDir, "a_b", nil))
+	assert.NotEqual(t, ForeachStepDir(logDir, "fetch data", nil), ForeachStepDir(logDir, "fetch_data", nil))
+}
+
+// Earlier versions named the directory with SafeName, so a step reads its
+// items there when no other step of the run had that name, and never reads
+// another step's items.
+func TestForeachStepDirReadsLegacyNameItOwns(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	legacy := filepath.Join(logDir, ForeachLogDirName, "fetch_data")
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	assert.Equal(t, legacy, ForeachStepDir(logDir, "fetch data", []string{"fetch data", "parse"}))
+	assert.NotEqual(t, legacy, ForeachStepDir(logDir, "fetch data", []string{"fetch data", "fetch_data"}))
+	assert.NotEqual(t, legacy, ForeachStepDir(logDir, "fetch.data", []string{"fetch data", "fetch.data"}))
 }
 
 func TestForeachItemDir(t *testing.T) {
@@ -114,7 +128,7 @@ func TestForeachNestedParentKeepsRawDeviceName(t *testing.T) {
 	stepDir := t.TempDir()
 	raw := filepath.Join(stepDir, "0", ForeachLogDirName, "con")
 	require.NoError(t, os.MkdirAll(raw, 0o750))
-	dir, err := ForeachParentDir(stepDir, ForeachNestedParent(filepath.Join(stepDir, "0"), "0", "con"))
+	dir, err := ForeachParentDir(stepDir, ForeachNestedParent(filepath.Join(stepDir, "0"), "0", "con", []string{"con"}))
 	require.NoError(t, err)
 	assert.Equal(t, raw, dir)
 }
@@ -123,12 +137,12 @@ func TestForeachItemPathRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "4", ForeachItemPath("", 4))
-	parent := ForeachNestedParent(filepath.Join("each", "4"), "4", "inner step")
-	assert.Equal(t, "4.inner_step", parent)
-	assert.Equal(t, "4.inner_step.1", ForeachItemPath(parent, 1))
+	parent := ForeachNestedParent(filepath.Join("each", "4"), "4", "inner step", nil)
+	assert.Equal(t, "4.inner%20step", parent)
+	assert.Equal(t, "4.inner%20step.1", ForeachItemPath(parent, 1))
 
 	stepDir := "each"
 	dir, err := ForeachItemDir(stepDir, ForeachItemPath(parent, 1))
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("each", "4", "foreach", "inner_step", "1"), dir)
+	assert.Equal(t, filepath.Join("each", "4", "foreach", "inner%20step", "1"), dir)
 }

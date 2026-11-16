@@ -26,21 +26,24 @@ const (
 	// item's directory.
 	ForeachItemStatusFile = "status.json"
 
-	// foreachItemPathSeparator joins the segments of an item path. SafeName
+	// foreachItemPathSeparator joins the segments of an item path. SafeKey
 	// never produces it, so a path splits unambiguously.
 	foreachItemPathSeparator = "."
 )
 
-var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_%-]+$`)
 
 // ForeachStepDir returns the directory holding the item bodies of a foreach
-// step whose log files are in logDir.
-func ForeachStepDir(logDir, stepName string) string {
+// step whose log files are in logDir. siblings are the names of all steps
+// whose log files share logDir; when they are unknown, as for a directory
+// written only by this version, siblings is empty.
+func ForeachStepDir(logDir, stepName string, siblings []string) string {
 	dir := filepath.Join(logDir, ForeachLogDirName)
-	name := fileutil.SafeName(stepName)
-	// Earlier versions kept a Windows device name such as con as written.
-	if fileutil.SafeNameEscapesDevice(stepName) {
-		name = fileutil.ExistingName(dir, name, stepName)
+	name := fileutil.SafeKey(stepName)
+	// Earlier versions named the directory with SafeName, which other steps
+	// could share. It is read only when no other step did.
+	if legacy, ok := fileutil.LegacySafeName(stepName, siblings); ok && len(siblings) > 0 {
+		name = fileutil.ExistingName(dir, name, legacy)
 	}
 	return filepath.Join(dir, name)
 }
@@ -55,10 +58,10 @@ func ForeachItemPath(parent string, index int) string {
 }
 
 // ForeachNestedParent builds the parent path for the items of a foreach body
-// step running inside item itemPath, whose directory is itemDir. The path
-// names the step's directory as it is stored.
-func ForeachNestedParent(itemDir, itemPath, bodyStepName string) string {
-	return itemPath + foreachItemPathSeparator + filepath.Base(ForeachStepDir(itemDir, bodyStepName))
+// step running inside item itemPath, whose directory is itemDir. siblings are
+// the item's body steps. The path names the step's directory as it is stored.
+func ForeachNestedParent(itemDir, itemPath, bodyStepName string, siblings []string) string {
+	return itemPath + foreachItemPathSeparator + filepath.Base(ForeachStepDir(itemDir, bodyStepName, siblings))
 }
 
 // ForeachItemDir resolves an item path to its directory under stepDir. A path
