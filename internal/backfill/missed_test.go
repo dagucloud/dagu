@@ -24,9 +24,9 @@ func spanOf(reason schedulerstate.SpanReason, from, to time.Time) schedulerstate
 }
 
 // missed finds the slots the fixture's daily DAG missed in spans.
-func (f *dispatchFixture) missed(catchup time.Duration, spans ...schedulerstate.Span) backfill.Missed {
+func (f *dispatchFixture) missed(spans ...schedulerstate.Span) backfill.Missed {
 	f.t.Helper()
-	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, f.sched, spans, catchup, f.clock)
+	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, f.sched, spans, f.clock)
 	require.NoError(f.t, err)
 	return missed
 }
@@ -80,7 +80,7 @@ func TestFindMissedCountsSpans(t *testing.T) {
 	f := newDispatchFixture(t)
 	require.NoError(t, f.write("before", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
 
-	missed := f.missed(0,
+	missed := f.missed(
 		spanOf(schedulerstate.SpanSuspended, at(3, 0), at(5, 12)),
 		spanOf(schedulerstate.SpanPaused, at(8, 0), at(9, 0)),
 		spanOf(schedulerstate.SpanDown, at(12, 1), at(13, 3)),
@@ -105,12 +105,12 @@ func TestFindMissedLeavesOutSlotsThatRan(t *testing.T) {
 	require.NoError(t, f.write("catchup", at(5, 2), ir.Succeeded, ir.TriggerTypeCatchUp, ""))
 	require.NoError(t, f.repository.RecordSkippedSlot(f.ctx, "etl", at(6, 2), "0 2 * * *", "running"))
 
-	missed := f.missed(0, spanOf(schedulerstate.SpanDown, at(3, 0), at(8, 0)))
+	missed := f.missed(spanOf(schedulerstate.SpanDown, at(3, 0), at(8, 0)))
 
 	assert.Equal(t, backfill.Missed{
 		Slots: 1, First: at(7, 2), Last: at(7, 2), Reasons: reasons(schedulerstate.SpanDown), Until: at(8, 0),
 	}, missed)
-	assert.Equal(t, backfill.Missed{}, f.missed(0, spanOf(schedulerstate.SpanDown, at(3, 0), at(7, 0))),
+	assert.Equal(t, backfill.Missed{}, f.missed(spanOf(schedulerstate.SpanDown, at(3, 0), at(7, 0))),
 		"no slot is missed once every one ran")
 }
 
@@ -120,76 +120,46 @@ func TestFindMissedStartsAtTheFirstRecordedSlot(t *testing.T) {
 	t.Parallel()
 	f := newDispatchFixture(t)
 	outage := spanOf(schedulerstate.SpanDown, at(3, 0), at(5, 0))
-	assert.Equal(t, backfill.Missed{}, f.missed(0, outage), "a DAG without history")
+	assert.Equal(t, backfill.Missed{}, f.missed(outage), "a DAG without history")
 
 	require.NoError(t, f.write("first", at(10, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
-	missed := f.missed(0, outage, spanOf(schedulerstate.SpanPaused, at(12, 0), at(13, 0)))
+	missed := f.missed(outage, spanOf(schedulerstate.SpanPaused, at(12, 0), at(13, 0)))
 
 	assert.Equal(t, backfill.Missed{
 		Slots: 1, First: at(12, 2), Last: at(12, 2), Reasons: reasons(schedulerstate.SpanPaused), Until: at(13, 0),
 	}, missed)
 }
 
-// The slots that catch-up replays after an outage are left to it, and a
-// slot older than the DAG's slot retention is not missed: its history is
+// A slot older than the DAG's slot retention is not missed: its history is
 // gone.
-func TestFindMissedLeavesOutReplayedAndExpiredSlots(t *testing.T) {
+func TestFindMissedLeavesOutExpiredSlots(t *testing.T) {
 	t.Parallel()
 	f := newDispatchFixture(t)
-	require.NoError(t, f.write("before", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
-
-	// A catch-up window of three days replays the slots after 00:00 on the
-	// 7th.
-	missed := f.missed(72*time.Hour, spanOf(schedulerstate.SpanDown, at(3, 0), at(10, 0)))
-	assert.Equal(t, backfill.Missed{
-		Slots: 4, First: at(3, 2), Last: at(6, 2), Reasons: reasons(schedulerstate.SpanDown), Until: at(10, 0),
-	}, missed)
+	f.dag.SlotRetentionDays = 5
 
 	// Five days of retention keep the slots after 00:00 on the 15th, and
 	// the DAG counts as on its schedule from there.
-	f.dag.SlotRetentionDays = 5
-	missed = f.missed(0, spanOf(schedulerstate.SpanSuspended, at(12, 0), at(18, 0)))
+	missed := f.missed(spanOf(schedulerstate.SpanSuspended, at(12, 0), at(18, 0)))
 	assert.Equal(t, 3, missed.Slots)
 	assert.Equal(t, at(15, 2), missed.First)
 }
 
-// Catch-up replays only the newest 1,000 slots of its window, and under the
-// overlap policy latest at most one, which may come after the outage; the
-// slots it drops are missed.
-func TestFindMissedCountsSlotsCatchupDrops(t *testing.T) {
+// After an outage, a slot catch-up ran is not missed, and one it did not
+// run is, whatever its window: catch-up holds the slots it has yet to run
+// in memory, and a restart or a busy DAG loses them.
+func TestFindMissedCountsSlotsCatchupDidNotRun(t *testing.T) {
 	t.Parallel()
 	f := newDispatchFixture(t)
-	require.NoError(t, f.write("before", at(2, 0), ir.Succeeded, ir.TriggerTypeScheduler, ""))
-	outage := spanOf(schedulerstate.SpanDown, at(2, 0), at(4, 0))
+	f.dag.CatchupWindow = 72 * time.Hour
+	require.NoError(t, f.write("before", at(2, 2), ir.Succeeded, ir.TriggerTypeScheduler, ""))
+	require.NoError(t, f.write("catchup-7", at(7, 2), ir.Succeeded, ir.TriggerTypeCatchUp, ""))
+	require.NoError(t, f.write("catchup-8", at(8, 2), ir.Failed, ir.TriggerTypeCatchUp, ""))
 
-	// A day's window holds 1,439 slots of a per-minute schedule; the oldest
-	// 439 of them are dropped.
-	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, dailyAt(t, "* * * * *"),
-		[]schedulerstate.Span{outage}, 24*time.Hour, f.clock)
-	require.NoError(t, err)
-	assert.Equal(t, 2879-1000, missed.Slots)
-	assert.Equal(t, at(4, 0).Add(-1001*time.Minute), missed.Last)
+	missed := f.missed(spanOf(schedulerstate.SpanDown, at(3, 0), at(10, 0)))
 
-	f.dag.OverlapPolicy = ir.OverlapPolicyLatest
-	missed = f.missed(72*time.Hour, spanOf(schedulerstate.SpanDown, at(3, 0), at(10, 0)))
-	assert.Equal(t, 7, missed.Slots)
-}
-
-// Of an outage longer than catch-up's window holds and older than the
-// slot retention, the retained slots before the newest 1,000 are missed.
-func TestFindMissedCountsRetainedSlotsBeforeCatchup(t *testing.T) {
-	t.Parallel()
-	f := newDispatchFixture(t)
-	f.dag.SlotRetentionDays = 7
-
-	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, dailyAt(t, "* * * * *"),
-		[]schedulerstate.Span{spanOf(schedulerstate.SpanDown, at(1, 0), at(21, 0))}, 30*24*time.Hour, at(21, 0))
-	require.NoError(t, err)
-
-	// The retention keeps the slots from 00:00 on the 14th.
-	assert.Equal(t, 9080, missed.Slots)
-	assert.Equal(t, at(14, 0), missed.First)
-	assert.Equal(t, at(21, 0).Add(-1001*time.Minute), missed.Last)
+	assert.Equal(t, backfill.Missed{
+		Slots: 5, First: at(3, 2), Last: at(9, 2), Reasons: reasons(schedulerstate.SpanDown), Until: at(10, 0),
+	}, missed)
 }
 
 // FindMissed reads the status of a run only near the slots it looks at, yet
@@ -243,7 +213,7 @@ func TestFindMissedAgreesWithRunHistory(t *testing.T) {
 	assert.Equal(t, backfill.Missed{
 		Slots: len(missing), First: missing[0], Last: missing[len(missing)-1],
 		Reasons: reasons(schedulerstate.SpanSuspended), Until: at(19, 0),
-	}, f.missed(0, span))
+	}, f.missed(span))
 }
 
 // countingHistory is a run history whose runs were created as the slot index
@@ -307,7 +277,7 @@ func TestFindMissedReadsOnlyRunsNearItsSlots(t *testing.T) {
 	missed, err := backfill.FindMissed(f.ctx, history, f.dag, f.sched, []schedulerstate.Span{
 		spanOf(schedulerstate.SpanSuspended, at(5, 0), at(8, 0)),
 		spanOf(schedulerstate.SpanSuspended, at(20, 0), at(23, 0)),
-	}, 0, at(28, 0))
+	}, at(28, 0))
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, missed.Slots)
@@ -322,7 +292,7 @@ func TestFindMissedCapsSlots(t *testing.T) {
 	require.NoError(t, f.write("before", at(2, 0), ir.Succeeded, ir.TriggerTypeScheduler, ""))
 
 	missed, err := backfill.FindMissed(f.ctx, f.repository, f.dag, minutely,
-		[]schedulerstate.Span{spanOf(schedulerstate.SpanDown, at(2, 0), at(10, 0))}, 0, f.clock)
+		[]schedulerstate.Span{spanOf(schedulerstate.SpanDown, at(2, 0), at(10, 0))}, f.clock)
 	require.NoError(t, err)
 
 	assert.Equal(t, backfill.MaxMissedSlots, missed.Slots)

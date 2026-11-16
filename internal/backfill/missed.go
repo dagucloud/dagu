@@ -34,11 +34,9 @@ type spanBounds struct {
 
 // FindMissed finds the missed slots of dag among the oldest MaxMissedSlots
 // that came due strictly inside spans; the tick at a span's end runs its
-// own. It leaves out slots older than the DAG's slot retention, slots up to
-// its first recorded slot, before which it was not on its schedule, and
-// after an outage the slots catch-up replays: the newest 1,000 within its
-// window, catchup, unless its overlap policy is latest.
-func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched SlotSchedule, spans []schedulerstate.Span, catchup time.Duration, now time.Time) (Missed, error) {
+// own. It leaves out slots older than the DAG's slot retention and slots up
+// to its first recorded slot, before which it was not on its schedule.
+func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched SlotSchedule, spans []schedulerstate.Span, now time.Time) (Missed, error) {
 	var cutoff time.Time
 	if dag.SlotRetentionDays > 0 {
 		cutoff = now.AddDate(0, 0, -dag.SlotRetentionDays)
@@ -48,13 +46,6 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 		b := spanBounds{lo: span.From.Add(time.Nanosecond), hi: span.To.Add(-time.Nanosecond), span: span}
 		if b.lo.Before(cutoff) {
 			b.lo = cutoff
-		}
-		// Under the overlap policy latest, catch-up replays at most one slot,
-		// which may come after the outage.
-		if span.Reason == schedulerstate.SpanDown && catchup > 0 && dag.OverlapPolicy != ir.OverlapPolicyLatest {
-			if replayed := replayStart(sched, span, catchup, b.lo); !replayed.After(b.hi) {
-				b.hi = replayed.Add(-time.Nanosecond)
-			}
 		}
 		if !b.hi.Before(b.lo) {
 			bounds = append(bounds, b)
@@ -117,27 +108,6 @@ func FindMissed(ctx context.Context, reader HistoryReader, dag *ir.DAG, sched Sl
 		}
 	}
 	return missed, nil
-}
-
-// maxCatchupSlots is the most slots catch-up replays after an outage, the
-// newest of its window, as the scheduler's MaxMissedRuns caps them.
-const maxCatchupSlots = 1000
-
-// replayStart returns the first slot catch-up replays after an outage, from
-// the last tick or the start of its window, or the outage's end when it
-// replays none. It reads the window from lo, below which no slot counts,
-// and only as far as FindMissed looks past it.
-func replayStart(sched SlotSchedule, outage schedulerstate.Span, window time.Duration, lo time.Time) time.Time {
-	from := outage.To.Add(-window).Add(time.Nanosecond)
-	if from.Before(lo) {
-		from = lo
-	}
-	fires, _ := ir.ScheduleFiresBetween(sched.Schedules, sched.Profile, sched.Location,
-		from, outage.To.Add(-time.Nanosecond), MaxMissedSlots+maxCatchupSlots)
-	if len(fires) == 0 {
-		return outage.To
-	}
-	return fires[max(0, len(fires)-maxCatchupSlots)]
 }
 
 // firesIn returns the fire times inside the bounds, oldest first, up to

@@ -159,11 +159,7 @@ func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlo
 	schedules := slices.Clone(dag.Schedule)
 	spec.BindScheduleCalendars(schedules, a.calendarSource())
 	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
-	var catchup time.Duration
-	if a.config.Queues.Enabled {
-		catchup = dag.CatchupWindow
-	}
-	missed, err := backfill.FindMissed(ctx, a.dagRunRepository, dag, sched, spans, catchup, time.Now())
+	missed, err := backfill.FindMissed(ctx, a.dagRunRepository, dag, sched, spans, time.Now())
 	if err != nil || missed.Slots == 0 {
 		return none, err
 	}
