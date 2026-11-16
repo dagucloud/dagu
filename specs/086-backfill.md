@@ -261,14 +261,16 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   the periods and the scheduler state only, never from the DAG's slot or run
   history; the backfill planner decides which of them still need a run.
   Left out: slots older than `slot_retention_days`; the slots of an outage
-  that the DAG's catch-up replays when a scheduler starts again or ticks
+  that the DAG's catch-up queues when a scheduler starts again or ticks
   late, which with queues enabled are the newest slots within its
   `catchup_window` before then, at most 1,000, or only the newest under
   `overlap_policy: latest`; and the slots of the scheduler's outages and
   pauses up to when the scheduler first tracked the DAG, which its
   watermark keeps once as `firstSeen`, so a DAG created after an outage did
   not miss it. A DAG the scheduler never tracked counts only its
-  suspensions.
+  suspensions. A queued slot that catch-up never runs is not counted
+  either: a restart queues again only the saved slots within the
+  `catchup_window` before it, and a pause or a suspension drops the queue.
 - `GET /api/v1/dags/{fileName}/missed-slots` returns the missed slots of a
   DAG that reads its slot as `missedSlots`: their count, the `first` and
   `last`, the `reasons` of the periods that hold them, and `until`, when the

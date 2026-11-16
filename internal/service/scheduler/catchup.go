@@ -40,10 +40,15 @@ type missedScheduleInterval struct {
 	ScheduledTime time.Time
 }
 
-// CatchupAfterOutage returns what catch-up replays of a DAG's slots that came
+// CatchupAfterOutage returns what catch-up queues of a DAG's slots that came
 // due while no scheduler ran, when a scheduler starts again or ticks late:
 // with queues enabled, the newest MaxMissedRuns within the DAG's catchup
 // window, or the newest one under overlap_policy latest.
+//
+// Catch-up then runs one queued slot per tick while the DAG is idle, and
+// may never run some: a restart queues again only the saved slots within
+// the window before it, and a pause or a suspension drops the queue. No
+// later period holds such a slot, so it is not counted as missed.
 func CatchupAfterOutage(dag *ir.DAG, queuesEnabled bool) backfill.Catchup {
 	if !queuesEnabled || dag.CatchupWindow <= 0 {
 		return backfill.Catchup{}

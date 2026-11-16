@@ -26,16 +26,16 @@ type Missed struct {
 }
 
 // periodBounds are the first and last instants whose slots a period holds.
-// Until clamped, an outage's bounds still hold the slots catch-up replays.
+// Until clamped, an outage's bounds still hold the slots catch-up queues.
 type periodBounds struct {
 	lo, hi    time.Time
 	period    schedulerstate.Period
 	unclamped bool
 }
 
-// Catchup is what the scheduler's catch-up runs of a DAG's slots that came
+// Catchup is what the scheduler's catch-up queues of a DAG's slots that came
 // due while no scheduler ran: the newest Max of those within Window before
-// it ran again. A zero Catchup runs none.
+// it ran again. A zero Catchup queues none.
 type Catchup struct {
 	Window time.Duration
 	Max    int
@@ -44,7 +44,7 @@ type Catchup struct {
 // FindMissed counts the newest MaxMissedSlots fire times of sched that came
 // due strictly inside periods; the tick at a period's end runs its own. It leaves
 // out slots older than the DAG's slot retention, the slots of an outage that
-// catchup replays, and the slots of the scheduler's outages and pauses up to
+// catchup queues, and the slots of the scheduler's outages and pauses up to
 // firstSeen, when the scheduler first saw the DAG; without firstSeen, those
 // periods count none.
 func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period, catchup Catchup, firstSeen, now time.Time) Missed {
@@ -108,21 +108,21 @@ func FindMissed(dag *ir.DAG, sched SlotSchedule, periods []schedulerstate.Period
 	return missed
 }
 
-// clamp ends an outage's bounds before the oldest slot catch-up replays, once.
+// clamp ends an outage's bounds before the oldest slot catch-up queues, once.
 func (c Catchup) clamp(sched SlotSchedule, b *periodBounds) {
 	if !b.unclamped {
 		return
 	}
 	b.unclamped = false
-	if replayed, ok := c.firstReplayed(sched, b.period); ok && !replayed.After(b.hi) {
-		b.hi = replayed.Add(-time.Nanosecond)
+	if queued, ok := c.firstQueued(sched, b.period); ok && !queued.After(b.hi) {
+		b.hi = queued.Add(-time.Nanosecond)
 	}
 }
 
-// firstReplayed returns the oldest slot catch-up replays when the scheduler
-// runs again at the end of down, or false when it replays none: the newest
-// Max fires after the window before that end, through the end itself.
-func (c Catchup) firstReplayed(sched SlotSchedule, down schedulerstate.Period) (time.Time, bool) {
+// firstQueued returns the oldest slot catch-up queues when the scheduler runs
+// again at the end of down, or false when it queues none: the newest Max
+// fires after the window before that end, through the end itself.
+func (c Catchup) firstQueued(sched SlotSchedule, down schedulerstate.Period) (time.Time, bool) {
 	if c.Window <= 0 || c.Max <= 0 {
 		return time.Time{}, false
 	}
