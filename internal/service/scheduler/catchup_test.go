@@ -6,6 +6,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -750,4 +751,89 @@ func TestCatchupAfterOutageIsWhatCatchupQueues(t *testing.T) {
 			})
 		}
 	}
+}
+
+// The saved catch-up slots are written again only when a restart from them
+// would replay other slots than the queue holds: not as catch-up runs the
+// queue, nor when a suspension settles it.
+func TestTickPlanner_CatchupWrites(t *testing.T) {
+	t.Parallel()
+	apply := func(t *testing.T, tp *TickPlanner, change DAGChangeType, dag *ir.DAG) {
+		t.Helper()
+		tp.entryMu.Lock()
+		tp.applyEvent(t.Context(), DAGChangeEvent{Type: change, DAGEntry: testDAGEntries(dag)[0]})
+		tp.entryMu.Unlock()
+		tp.Flush(t.Context())
+	}
+	for _, tc := range []struct {
+		name   string
+		act    func(t *testing.T, tp *TickPlanner, dag *ir.DAG)
+		writes int
+	}{
+		{name: "drain", act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+			for minute := range 6 {
+				runTick(t, tp, at(12, minute+1))
+			}
+			require.Empty(t, bufferedSlots(tp, dag.Name))
+		}},
+		{name: "late tick", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *ir.DAG) {
+			tp.resume(t.Context(), at(14, 0))
+			runTick(t, tp, at(14, 0))
+		}},
+		{name: "edit dropping queued slots", writes: 1, act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+			edited := *dag
+			edited.Schedule = []ir.Schedule{mustParseSchedule(t, "0 */2 * * *")}
+			apply(t, tp, DAGChangeUpdated, &edited)
+			require.Equal(t, []time.Time{at(8, 0), at(10, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
+		}},
+		{name: "delete", writes: 1, act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+			apply(t, tp, DAGChangeDeleted, dag)
+		}},
+		{name: "catch-up disabled", writes: 1, act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+			edited := *dag
+			edited.CatchupWindow = 0
+			apply(t, tp, DAGChangeUpdated, &edited)
+		}},
+		{name: "enqueue unset", writes: 1, act: func(t *testing.T, tp *TickPlanner, _ *ir.DAG) {
+			tp.cfg.Enqueue = nil
+			runTick(t, tp, at(12, 1))
+		}},
+		{name: "suspension", act: func(t *testing.T, tp *TickPlanner, dag *ir.DAG) {
+			tp.cfg.IsSuspended = func(context.Context, string) (bool, error) { return true, nil }
+			runTick(t, tp, at(12, 1))
+			require.Empty(t, bufferedSlots(tp, dag.Name))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := &mockStateStore{state: newMockState(at(6, 0))}
+			tp, _ := newTestTickPlanner(store)
+			tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+			tp.cfg.Enqueue = enqueueOK
+			dag := newHourlyCatchupDAG(t, "hourly")
+			require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+			require.Len(t, bufferedSlots(tp, dag.Name), 6)
+			startup := store.catchupWriteCount()
+
+			tc.act(t, tp, dag)
+			assert.Equal(t, tc.writes, store.catchupWriteCount()-startup)
+		})
+	}
+}
+
+// A failed write of the catch-up slots is retried on the next flush, and
+// the state is saved meanwhile.
+func TestTickPlanner_RetriesFailedCatchupWrite(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(6, 0)), catchupErr: errors.New("disk full")}
+	tp, _ := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+	dag := &ir.DAG{Name: "hourly", CatchupWindow: 2 * time.Hour, Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	require.Equal(t, 1, store.catchupWriteCount())
+	require.Contains(t, store.lastSaved().DAGs, dag.Name, "the state is saved")
+
+	store.catchupErr = nil
+	tp.Flush(t.Context())
+	assert.Equal(t, map[string][]time.Time{dag.Name: {at(11, 0), at(12, 0)}}, store.savedCatchup())
 }

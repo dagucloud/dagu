@@ -34,9 +34,12 @@ type mockStateStore struct {
 	catchup map[string][]time.Time
 	loadErr error
 	saveErr error
-	mu      sync.Mutex
-	saved   []*schedulerstate.State
-	onSave  func(*schedulerstate.State)
+	// catchupErr fails each SaveCatchup, which catchupWrites counts.
+	catchupErr    error
+	mu            sync.Mutex
+	saved         []*schedulerstate.State
+	catchupWrites int
+	onSave        func(*schedulerstate.State)
 }
 
 func (m *mockStateStore) Load(_ context.Context) (*schedulerstate.State, error) {
@@ -81,6 +84,10 @@ func (m *mockStateStore) LoadCatchup(context.Context) (map[string][]time.Time, e
 func (m *mockStateStore) SaveCatchup(_ context.Context, slots map[string][]time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.catchupWrites++
+	if m.catchupErr != nil {
+		return m.catchupErr
+	}
 	m.catchup = maps.Clone(slots)
 	return nil
 }
@@ -89,6 +96,12 @@ func (m *mockStateStore) savedCatchup() map[string][]time.Time {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return maps.Clone(m.catchup)
+}
+
+func (m *mockStateStore) catchupWriteCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.catchupWrites
 }
 
 func (m *mockStateStore) lastSaved() *schedulerstate.State {
