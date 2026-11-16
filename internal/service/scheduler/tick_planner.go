@@ -423,14 +423,15 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 		recovery = tp.cfg.RecoveryWindow()
 	}
 	// The first tick takes the current minute's slots, and recovery replays
-	// the slots inside its window.
-	firstTick := tp.cfg.Clock().Truncate(time.Minute)
+	// the slots inside its window. Both count from one reading of the clock.
+	now := tp.cfg.Clock()
+	firstTick := now.Truncate(time.Minute)
 	tp.mu.Lock()
 	tp.firstTick = firstTick
 	tp.mu.Unlock()
 	missedBefore := firstTick
 	if recovery > 0 {
-		missedBefore = tp.cfg.Clock().Add(-recovery)
+		missedBefore = now.Add(-recovery)
 	}
 	tp.recordOutage(ctx, state.LastTick, missedBefore)
 	for _, entry := range entries {
@@ -438,7 +439,7 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
 		}
 	}
-	tp.initBuffers(ctx, entries, activeByDAG, recovery)
+	tp.initBuffers(ctx, entries, activeByDAG, recovery, now)
 	tp.mu.Lock()
 	tp.saveQueues()
 	tp.mu.Unlock()
@@ -624,9 +625,9 @@ func includeUnstartedSlot(replayFrom time.Time, slot *schedulerstate.ScheduleSlo
 }
 
 // initBuffers creates per-DAG queues for DAGs with CatchupWindow > 0
-// and enqueues catch-up items. Requires QueuesEnabled; when disabled,
-// catchup buffers are not populated and a warning is logged per DAG.
-func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules, recovery time.Duration) {
+// and enqueues the catch-up items due by now. Requires QueuesEnabled; when
+// disabled, catchup buffers are not populated and a warning is logged per DAG.
+func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules, recovery time.Duration, now time.Time) {
 	if !tp.cfg.QueuesEnabled {
 		for _, entry := range entries {
 			dag := entry.DAG
@@ -648,7 +649,6 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 	maps.Copy(dagWatermarks, tp.watermarkState.DAGs)
 	tp.mu.RUnlock()
 
-	now := tp.cfg.Clock()
 	var totalMissed int
 
 	for _, entry := range entries {
@@ -1879,8 +1879,10 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 	lastTick := tp.watermarkState.LastTick
 	// Before the first tick, Init has settled the slots up to the minute
 	// before the one it counted that tick on, by outage or replay.
-	if settled := tp.firstTick.Add(-time.Minute); !tp.firstTick.IsZero() && settled.After(lastTick) {
-		lastTick = settled
+	if !tp.firstTick.IsZero() {
+		if settled := tp.firstTick.Add(-time.Minute); settled.After(lastTick) {
+			lastTick = settled
+		}
 	}
 	tp.firstTick = time.Time{}
 	tp.mu.Unlock()

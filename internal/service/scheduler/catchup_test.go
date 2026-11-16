@@ -513,6 +513,40 @@ func TestTickPlanner_LateFirstTickKeepsSkippedSlots(t *testing.T) {
 	}
 }
 
+// Init settles the slots before the minute it counts the first tick on,
+// though a write during startup lasts into the next minute. A takeover's
+// replay then holds no slot that the late first tick counts as missed.
+func TestTickPlanner_SlowStartupReplaysNoMissedSlot(t *testing.T) {
+	t.Parallel()
+	tp, _ := newTestTickPlanner(&mockStateStore{state: newMockState(at(9, 0))})
+	now := at(11, 59).Add(30 * time.Second)
+	tp.cfg.Clock = func() time.Time { return now }
+	tp.cfg.RecoveryWindow = func() time.Duration { return time.Hour }
+	tp.cfg.Enqueue = enqueueOK
+	tp.cfg.Periods = &slowPeriods{onAdd: func() { now = at(12, 0).Add(time.Second) }}
+	dag := &ir.DAG{Name: "twice", Schedule: []ir.Schedule{mustParseSchedule(t, "30,59 11 * * *")}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	assert.Equal(t, []time.Time{at(11, 30)}, bufferedSlots(tp, dag.Name))
+
+	runTick(t, tp, at(12, 0))
+	assert.Equal(t, []schedulerstate.Period{
+		{From: at(9, 0), To: at(10, 59).Add(30 * time.Second), Reason: schedulerstate.PeriodDown},
+		{From: at(11, 58), To: at(12, 0), Reason: schedulerstate.PeriodDown},
+	}, recordedPeriods(t, tp))
+}
+
+// slowPeriods records periods as periodRecorder does, and calls onAdd as
+// each outage is written, as a write that takes time.
+type slowPeriods struct {
+	periodRecorder
+	onAdd func()
+}
+
+func (p *slowPeriods) AddDown(ctx context.Context, down schedulerstate.Period) error {
+	p.onAdd()
+	return p.periodRecorder.AddDown(ctx, down)
+}
+
 // The missed-slots notice counts the slots of an outage that catch-up does
 // not queue when a scheduler starts again or ticks late: the older slots of
 // a window, those past its cap, those overlap_policy latest drops, and all
