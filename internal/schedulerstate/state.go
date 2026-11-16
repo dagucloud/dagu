@@ -7,6 +7,7 @@ package schedulerstate
 import (
 	"context"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -33,6 +34,9 @@ type DAGWatermark struct {
 	// Missed is the latest span whose start-schedule slots passed without a
 	// run; nil when none has.
 	Missed *MissedGap `json:"missed,omitempty"`
+	// Catchup holds the slots the DAG's catch-up has queued and not yet run,
+	// oldest first.
+	Catchup []time.Time `json:"catchup,omitempty"`
 }
 
 // MissedGap is a span whose start-schedule slots passed without a run: the
@@ -172,5 +176,6 @@ func CloneDAGWatermark(watermark DAGWatermark) DAGWatermark {
 		cloned.OneOffs = make(map[string]OneOffScheduleState, len(watermark.OneOffs))
 		maps.Copy(cloned.OneOffs, watermark.OneOffs)
 	}
+	cloned.Catchup = slices.Clone(watermark.Catchup)
 	return cloned
 }
