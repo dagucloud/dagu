@@ -243,12 +243,13 @@ func enqueueOK(context.Context, DAGEntry, string, ir.TriggerType, time.Time, str
 	return nil
 }
 
-// restartPlanner starts a planner at now from the state the previous one last
-// saved, as the next scheduler does, with a recovery window of recovery. It
-// records the periods in which no scheduler ran, as recordedPeriods gives them.
+// restartPlanner starts a planner at now from the state and catch-up slots
+// the previous one last saved, as the next scheduler does, with a recovery
+// window of recovery. It records the periods in which no scheduler ran, as
+// recordedPeriods gives them.
 func restartPlanner(t *testing.T, previous *mockStateStore, now time.Time, recovery time.Duration, dag *ir.DAG) (*TickPlanner, *mockStateStore) {
 	t.Helper()
-	store := &mockStateStore{state: previous.lastSaved()}
+	store := &mockStateStore{state: previous.lastSaved(), catchup: previous.savedCatchup()}
 	tp, _ := newTestTickPlanner(store)
 	tp.cfg.Clock = func() time.Time { return now }
 	tp.cfg.RecoveryWindow = func() time.Duration { return recovery }
@@ -474,6 +475,100 @@ func TestTickPlanner_KeepsCatchupOutOfState(t *testing.T) {
 	restarted.cfg.Clock = func() time.Time { return at(12, 0).Add(45 * time.Second) }
 	require.NoError(t, restarted.Init(t.Context(), testDAGEntries(dag)))
 	assert.Equal(t, queued, bufferedSlots(restarted, dag.Name))
+}
+
+// A DAG that goes idle between the catch-up check and the live one runs its
+// live slot, which moves the last scheduled time past the queue, and its
+// next catch-up run moves it back. A restart in between still leaves out a
+// slot an edit dropped from the queue meanwhile.
+func TestTickPlanner_ReplayAfterWatermarkMovesBack(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(7, 0))}
+	tp, _ := newTestTickPlanner(store)
+	now := at(12, 0).Add(30 * time.Second)
+	tp.cfg.Clock = func() time.Time { return now }
+	tp.cfg.Enqueue = enqueueOK
+	var running []bool
+	tp.cfg.IsRunning = func(context.Context, *ir.DAG) (bool, error) {
+		if len(running) == 0 {
+			return false, nil
+		}
+		answer := running[0]
+		running = running[1:]
+		return answer, nil
+	}
+	even := mustParseSchedule(t, "0 */2 * * *")
+	dag := &ir.DAG{Name: "etl", CatchupWindow: 6 * time.Hour, OverlapPolicy: ir.OverlapPolicyAll,
+		Schedule: []ir.Schedule{mustParseSchedule(t, "0 10 * * *"), even}}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	require.Equal(t, []time.Time{at(8, 0), at(10, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
+	running = []bool{true, true}
+	runTick(t, tp, at(12, 0))
+
+	running = []bool{true, false}
+	runTick(t, tp, at(14, 0))
+	require.Equal(t, at(14, 0), tp.dagWatermark(dag.Name).LastScheduledTime, "the live slot ran")
+	now = at(14, 0).Add(30 * time.Second)
+	edited := *dag
+	edited.Schedule = []ir.Schedule{even}
+	tp.entryMu.Lock()
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: testDAGEntries(&edited)[0]})
+	tp.entryMu.Unlock()
+	require.Equal(t, []time.Time{at(8, 0), at(12, 0)}, bufferedSlots(tp, dag.Name))
+	for _, run := range tp.Plan(t.Context(), at(14, 1)) {
+		tp.DispatchRun(t.Context(), run)
+	}
+	require.Equal(t, at(8, 0), tp.dagWatermark(dag.Name).LastScheduledTime, "the catch-up run moved it back")
+	// The periodic flusher saves the tick before its Advance.
+	tp.Flush(t.Context())
+
+	restarted, _ := restartPlanner(t, store, at(14, 1).Add(30*time.Second), 0, &edited)
+	assert.Equal(t, []time.Time{at(12, 0)}, bufferedSlots(restarted, dag.Name), "10:00 left the queue")
+}
+
+// An event that saves one DAG's queue leaves the saved queue of another
+// as it was, so a restart replays the slot the other was dispatching.
+func TestTickPlanner_ReplaysSlotDispatchedDuringEvent(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(9, 0))}
+	tp, _ := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+	tp.cfg.Enqueue = enqueueOK
+	etl, report := newHourlyCatchupDAG(t, "etl"), newHourlyCatchupDAG(t, "report")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(etl, report)))
+	runTick(t, tp, at(12, 1))
+	require.Len(t, tp.Plan(t.Context(), at(12, 2)), 2, "both dispatch 11:00")
+
+	tp.entryMu.Lock()
+	tp.applyEvent(t.Context(), DAGChangeEvent{Type: DAGChangeDeleted, DAGEntry: testDAGEntries(report)[0]})
+	tp.entryMu.Unlock()
+	tp.Flush(t.Context())
+
+	restarted, _ := restartPlanner(t, store, at(12, 2).Add(30*time.Second), 0, etl)
+	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(restarted, etl.Name))
+}
+
+// A catch-up dispatch that panics, which the scheduler recovers, takes its
+// slot off the queue without settling it. A restart replays the queue as
+// it stands, without that slot.
+func TestTickPlanner_ReplayLeavesOutSlotLostToPanic(t *testing.T) {
+	t.Parallel()
+	store := &mockStateStore{state: newMockState(at(9, 0))}
+	tp, _ := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return at(12, 0).Add(30 * time.Second) }
+	tp.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
+		panic("enqueue")
+	}
+	dag := newHourlyCatchupDAG(t, "hourly")
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	for _, run := range tp.Plan(t.Context(), at(12, 1)) {
+		require.Panics(t, func() { tp.DispatchRun(t.Context(), run) })
+	}
+	tp.Advance(at(12, 1))
+	tp.Flush(t.Context())
+
+	restarted, _ := restartPlanner(t, store, at(12, 1).Add(30*time.Second), 0, dag)
+	assert.Equal(t, []time.Time{at(11, 0), at(12, 0)}, bufferedSlots(restarted, dag.Name))
 }
 
 // A startup leaves the slots before its catch-up window out of the queue.

@@ -75,9 +75,7 @@ func (m *mockStateStore) Save(_ context.Context, state *schedulerstate.State) er
 }
 
 func (m *mockStateStore) LoadCatchup(context.Context) (map[string][]time.Time, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return maps.Clone(m.catchup), nil
+	return m.savedCatchup(), nil
 }
 
 func (m *mockStateStore) SaveCatchup(_ context.Context, slots map[string][]time.Time) error {
@@ -85,6 +83,12 @@ func (m *mockStateStore) SaveCatchup(_ context.Context, slots map[string][]time.
 	defer m.mu.Unlock()
 	m.catchup = maps.Clone(slots)
 	return nil
+}
+
+func (m *mockStateStore) savedCatchup() map[string][]time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return maps.Clone(m.catchup)
 }
 
 func (m *mockStateStore) lastSaved() *schedulerstate.State {
