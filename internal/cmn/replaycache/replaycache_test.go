@@ -264,6 +264,23 @@ func TestReplayCacheClearRemovesLegacyRecords(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+// Clear does not know the DAG's steps, so the old file it cannot claim for the
+// cleared step may be another step's, here fetch_data's.
+func TestReplayCacheClearKeepsOtherStepsLegacyRecords(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	cache := replaycache.New(dataDir)
+	writeLegacyRecords(t, dataDir, "billing", "fetch_data")
+	_, err := cache.Clear("billing", "fetch.data")
+	require.NoError(t, err)
+
+	require.NoError(t, cache.Claim(t.Context(), "billing", "fetch_data", []string{"fetch_data"}))
+	entries, err := cache.Entries("billing", "fetch_data")
+	require.NoError(t, err)
+	assert.Contains(t, entries, "k")
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so a run of the step claims the records under it.
 func TestReplayCacheReadsRawDeviceName(t *testing.T) {

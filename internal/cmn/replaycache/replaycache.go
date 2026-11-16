@@ -23,6 +23,9 @@ const (
 	// stepsDirName holds a DAG's step files, apart from the files released
 	// versions kept beside it under names other steps could share.
 	stepsDirName = "steps"
+	// clearedFileExt follows the key of the mark that Clear leaves for a step
+	// whose released-version file stays, since another step may own it.
+	clearedFileExt = ".cleared"
 )
 
 // Store locates the recorded operations that steps replay on later runs.
@@ -47,7 +50,8 @@ func (c *Store) Path(dagName, stepKey string) string {
 // share; Claim moves it to the step's own file when no other key in
 // stepKeys, the keys of all steps of the DAG, had that SafeName. Records
 // already in the step's own file stay, and a file several keys had is never
-// read. Claim also keeps the key so that Steps returns it in full.
+// read, nor is a file of a step that Clear cleared. Claim also keeps the
+// key so that Steps returns it in full.
 func (c *Store) Claim(ctx context.Context, dagName, stepKey string, stepKeys []string) error {
 	path := c.Path(dagName, stepKey)
 	if err := fileutil.KeepSafeKeyName(filepath.Dir(path), stepKey); err != nil {
@@ -55,7 +59,7 @@ func (c *Store) Claim(ctx context.Context, dagName, stepKey string, stepKeys []s
 	}
 	dir := c.dagDir(dagName)
 	legacy, owned := fileutil.LegacySafeName(stepKey, stepKeys)
-	if _, ok := fileutil.LegacyEntry(dir, legacy+replayCacheFileExt); !ok || !owned {
+	if _, ok := fileutil.LegacyEntry(dir, legacy+replayCacheFileExt); !ok || !owned || c.cleared(dagName, stepKey) {
 		return nil
 	}
 	return locked(ctx, filepath.Dir(path), func() error {
@@ -89,27 +93,28 @@ func (c *Store) Steps(dagName string) ([]string, error) {
 // Clear removes the records of one step, or of every step of the DAG when
 // stepKey is empty, and returns the keys of the steps it removed: stepKey
 // itself, or the keys Steps reports. Missing records are not an error.
-// Clearing a step also removes the file that released versions stored under
-// its SafeName, so no claim brings it back.
+// Clearing a step also keeps it from claiming the file that released versions
+// stored under its SafeName. That file stays, since another step may own it.
 func (c *Store) Clear(dagName, stepKey string) ([]string, error) {
 	if dagName == "" {
 		// An empty name maps to the cache root, which holds every DAG.
 		return nil, errors.New("dag name is required")
 	}
 	if stepKey != "" {
-		paths := []string{c.Path(dagName, stepKey)}
-		dir := c.dagDir(dagName)
-		legacy, _ := fileutil.LegacySafeName(stepKey, nil)
-		if rel, ok := fileutil.LegacyEntry(dir, legacy+replayCacheFileExt); ok {
-			paths = append(paths, filepath.Join(dir, rel))
+		err := fileutil.Remove(c.Path(dagName, stepKey))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
 		}
-		removed := false
-		for _, path := range paths {
-			err := fileutil.Remove(path)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
+		removed := err == nil
+		legacy, _ := fileutil.LegacySafeName(stepKey, nil)
+		if _, ok := fileutil.LegacyEntry(c.dagDir(dagName), legacy+replayCacheFileExt); ok && !c.cleared(dagName, stepKey) {
+			if err := os.MkdirAll(c.stepsDir(dagName), dirMode); err != nil {
 				return nil, err
 			}
-			removed = removed || err == nil
+			if err := fileutil.WriteFileAtomic(c.clearedPath(dagName, stepKey), nil, fileMode); err != nil {
+				return nil, err
+			}
+			removed = true
 		}
 		if !removed {
 			return nil, nil
@@ -160,6 +165,18 @@ func (c *Store) Drop(ctx context.Context, dagName, stepKey string, drop func(ent
 
 func (c *Store) stepsDir(dagName string) string {
 	return filepath.Join(c.dagDir(dagName), stepsDirName)
+}
+
+// cleared reports whether Clear left its mark for a step. A mark that cannot
+// be checked counts as left, so a cleared step never gets its old records
+// back.
+func (c *Store) cleared(dagName, stepKey string) bool {
+	_, err := os.Lstat(c.clearedPath(dagName, stepKey))
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+func (c *Store) clearedPath(dagName, stepKey string) string {
+	return filepath.Join(c.stepsDir(dagName), fileutil.SafeKey(stepKey)+clearedFileExt)
 }
 
 // dagDir keeps DAGs whose names differ only in characters SafeName replaces,
