@@ -87,7 +87,7 @@ func (r *registry) Register(ctx context.Context, serviceName serviceregistry.Ser
 	}
 
 	// Generate file path
-	reg.fileName = filepath.Join(r.baseDir, string(serviceName), fmt.Sprintf("%s.json", fileutil.SafeName(hostInfo.ID)))
+	reg.fileName = filepath.Join(r.baseDir, string(serviceName), fmt.Sprintf("%s.json", fileutil.SafeKey(hostInfo.ID)))
 
 	// Write initial instance file
 	if err := writeInstanceFile(reg.fileName, reg.instanceInfo); err != nil {

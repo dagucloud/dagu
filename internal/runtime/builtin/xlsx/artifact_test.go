@@ -55,8 +55,8 @@ func TestArtifactCopiesTheSavedWorkbook(t *testing.T) {
 	require.NoError(t, exec.Run(context.Background()))
 
 	outputs := exec.GetOutputs()
-	assert.Equal(t, "xlsx/Write_report/report.xlsx", outputs["artifact"])
-	copied := filepath.Join(artifacts, "xlsx", "Write_report", "report.xlsx")
+	assert.Equal(t, "xlsx/Write%20report/report.xlsx", outputs["artifact"])
+	copied := filepath.Join(artifacts, "xlsx", "Write%20report", "report.xlsx")
 	back, err := workbook.Read(context.Background(), copied, workbook.ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, back.Count)

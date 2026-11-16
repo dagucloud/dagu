@@ -38,7 +38,10 @@ const (
 // the file as it is then, and each change is merged into it under a lock.
 type Recordings[T any] struct {
 	path string
-	mu   sync.Mutex
+	// stepKey is kept beside the file when SafeKey cut it in the file name,
+	// so that Store.Steps lists it in full.
+	stepKey string
+	mu      sync.Mutex
 	// pending holds what the attempt recorded, until it succeeds. A nil
 	// entry removes the recording for its key.
 	pending map[string]*T
@@ -49,6 +52,13 @@ type Recordings[T any] struct {
 // Open returns an attempt's view of the recordings in the file at path.
 func Open[T any](path string) *Recordings[T] {
 	return &Recordings[T]{path: path, pending: map[string]*T{}, used: map[string]T{}}
+}
+
+// OpenStep returns an attempt's view of the recordings of a step of a DAG.
+func OpenStep[T any](store *Store, dagName, stepKey string) *Recordings[T] {
+	r := Open[T](store.Path(dagName, stepKey))
+	r.stepKey = stepKey
+	return r
 }
 
 // Lookup returns the recording for key as the file holds it now and counts
@@ -197,6 +207,11 @@ func (r *Recordings[T]) update(ctx context.Context, change func(map[string]T)) e
 			return fmt.Errorf("remove replay cache: %w", err)
 		}
 		return nil
+	}
+	if r.stepKey != "" {
+		if err := fileutil.KeepSafeKeyName(dir, r.stepKey); err != nil {
+			return err
+		}
 	}
 	return fileutil.WriteJSONAtomic(r.path, entries, fileMode)
 }

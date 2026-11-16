@@ -6,6 +6,7 @@ package replaycache_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
@@ -150,19 +151,60 @@ func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {
 	}
 }
 
-// Earlier versions kept a device name such as con as written, which
-// Windows 11 stores, so the records under it are still read.
-func TestReplayCacheReadsRawDeviceName(t *testing.T) {
+// Step keys that differ only in characters a file name cannot hold, such as
+// a.b and a_b, keep separate records.
+func TestReplayCacheKeepsSimilarStepKeysApart(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	for _, key := range []string{"a.b", "a_b"} {
+		records := replaycache.OpenStep[string](cache, "billing", key)
+		records.Stage("k", key)
+		require.NoError(t, records.Commit(t.Context()))
+	}
+	assert.NotEqual(t, cache.Path("billing", "a.b"), cache.Path("billing", "a_b"))
+
+	removed, err := cache.Clear("billing", "a.b")
+	require.NoError(t, err)
+	assert.Len(t, removed, 1)
+	assert.FileExists(t, cache.Path("billing", "a_b"))
+}
+
+// Released versions stored records under the SafeName of a step key, which
+// other keys could share, so no step reads them, not even a_b, whose name
+// SafeName kept.
+func TestReplayCacheIgnoresLegacyRecords(t *testing.T) {
 	t.Parallel()
 
 	dataDir := t.TempDir()
-	raw := filepath.Join(dataDir, "cache", "con", "con.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
-	require.NoError(t, os.WriteFile(raw, []byte("{}"), 0o600))
+	legacy := filepath.Join(dataDir, "cache", "billing", "a_b.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+	require.NoError(t, os.WriteFile(legacy, []byte(`{"k":{}}`), 0o600))
 
 	cache := replaycache.New(dataDir)
-	assert.Equal(t, raw, cache.Path("con", "con"))
-	steps, err := cache.Steps("con")
+	entries, err := cache.Entries("billing", "a_b")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"con"}, steps)
+	assert.Empty(t, entries)
+	steps, err := cache.Steps("billing")
+	require.NoError(t, err)
+	assert.Empty(t, steps)
+}
+
+// A step key too long for a file name once escaped, such as one of many
+// non-ASCII characters, is listed in full, so its records read back.
+func TestReplayCacheListsLongStepKeys(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	key := strings.Repeat("日", 12)
+	records := replaycache.OpenStep[string](cache, "billing", key)
+	records.Stage("k", "v")
+	require.NoError(t, records.Commit(t.Context()))
+
+	steps, err := cache.Steps("billing")
+	require.NoError(t, err)
+	assert.Equal(t, []string{key}, steps)
+	entries, err := cache.Entries("billing", steps[0])
+	require.NoError(t, err)
+	assert.Contains(t, entries, "k")
 }

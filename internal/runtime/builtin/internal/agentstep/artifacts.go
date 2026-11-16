@@ -40,7 +40,7 @@ type ArtifactStore struct {
 // subdir/<step key> in the run artifacts directory root. An empty root
 // means storage is disabled.
 func NewArtifactStore(root, subdir, stepKey string) *ArtifactStore {
-	return &ArtifactStore{root: root, rel: path.Join(subdir, fileutil.SafeName(stepKey))}
+	return &ArtifactStore{root: root, rel: path.Join(subdir, fileutil.SafeKey(stepKey))}
 }
 
 // Enabled reports whether the DAG stores artifacts.

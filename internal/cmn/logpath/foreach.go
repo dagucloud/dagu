@@ -5,6 +5,7 @@ package logpath
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -26,23 +27,44 @@ const (
 	// item's directory.
 	ForeachItemStatusFile = "status.json"
 
-	// foreachItemPathSeparator joins the segments of an item path. SafeName
+	// ForeachKeysFile marks a foreach directory whose step directories are
+	// named by fileutil.SafeKey. A run of this version writes it.
+	ForeachKeysFile = ".safekey"
+
+	// foreachItemPathSeparator joins the segments of an item path. SafeKey
 	// never produces it, so a path splits unambiguously.
 	foreachItemPathSeparator = "."
+
+	// foreachPathEscape stands for "%" in the body step segments of an item
+	// path. Item paths travel in URLs, where "%" starts an escape; neither
+	// SafeKey nor SafeName writes "~".
+	foreachPathEscape = "~"
 )
 
-var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var foreachSafeNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_~-]+$`)
 
 // ForeachStepDir returns the directory holding the item bodies of a foreach
-// step whose log files are in logDir.
-func ForeachStepDir(logDir, stepName string) string {
+// step whose log files are in logDir. With siblings empty, it returns the
+// directory a step of this version writes to, and the step marks its parent
+// with ForeachKeysFile. A reader passes in siblings the names of all steps
+// whose log files share logDir. A directory under an unmarked parent was
+// named by an earlier version with SafeName, which other steps could share;
+// it is returned only when no other step did, and otherwise the result is
+// empty.
+func ForeachStepDir(logDir, stepName string, siblings []string) string {
 	dir := filepath.Join(logDir, ForeachLogDirName)
-	name := fileutil.SafeName(stepName)
-	// Earlier versions kept a Windows device name such as con as written.
-	if fileutil.SafeNameEscapesDevice(stepName) {
-		name = fileutil.ExistingName(dir, name, stepName)
+	if _, err := os.Lstat(filepath.Join(dir, ForeachKeysFile)); len(siblings) == 0 || err == nil {
+		return filepath.Join(dir, fileutil.SafeKey(stepName))
 	}
-	return filepath.Join(dir, name)
+	legacy, ok := fileutil.LegacySafeName(stepName, siblings)
+	if !ok {
+		return ""
+	}
+	rel, ok := fileutil.LegacyEntry(dir, legacy)
+	if !ok {
+		return ""
+	}
+	return filepath.Join(dir, rel)
 }
 
 // ForeachItemPath builds the item path of an item nested under parent. An
@@ -55,16 +77,23 @@ func ForeachItemPath(parent string, index int) string {
 }
 
 // ForeachNestedParent builds the parent path for the items of a foreach body
-// step running inside item itemPath, whose directory is itemDir. The path
-// names the step's directory as it is stored.
-func ForeachNestedParent(itemDir, itemPath, bodyStepName string) string {
-	return itemPath + foreachItemPathSeparator + filepath.Base(ForeachStepDir(itemDir, bodyStepName))
+// step running inside item itemPath, whose directory is itemDir. siblings are
+// the item's body steps. The path names the step's directory as it is
+// stored, with "~" for each "%", and is empty when ForeachStepDir finds no
+// directory to read.
+func ForeachNestedParent(itemDir, itemPath, bodyStepName string, siblings []string) string {
+	dir := ForeachStepDir(itemDir, bodyStepName, siblings)
+	if dir == "" {
+		return ""
+	}
+	return itemPath + foreachItemPathSeparator + strings.ReplaceAll(filepath.Base(dir), "%", foreachPathEscape)
 }
 
 // ForeachItemDir resolves an item path to its directory under stepDir. A path
 // is "<index>" for a top-level item and "<index>.<bodyStep>.<index>" for an
-// item of a nested foreach, where <bodyStep> is the safe name of the body
-// step. Every segment is validated so the result stays inside stepDir.
+// item of a nested foreach, where <bodyStep> names the body step's directory
+// as ForeachNestedParent writes it. Every segment is validated so the result
+// stays inside stepDir.
 func ForeachItemDir(stepDir, itemPath string) (string, error) {
 	segments, endsWithIndex, err := splitForeachItemPath(itemPath)
 	if err != nil {
@@ -93,8 +122,8 @@ func ForeachParentDir(stepDir, parent string) (string, error) {
 }
 
 // splitForeachItemPath validates a path and returns its directory segments,
-// each index as is and each body step as "foreach/<safe name>", along with
-// whether the path ends with an index.
+// each index as is and each body step as "foreach/<directory name>", along
+// with whether the path ends with an index.
 func splitForeachItemPath(path string) ([]string, bool, error) {
 	if path == "" {
 		return nil, false, fmt.Errorf("foreach item path is empty")
@@ -113,7 +142,7 @@ func splitForeachItemPath(path string) ([]string, bool, error) {
 		if !foreachSafeNamePattern.MatchString(part) {
 			return nil, false, fmt.Errorf("invalid foreach item path %q: %q is not a body step name", path, part)
 		}
-		segments = append(segments, ForeachLogDirName, part)
+		segments = append(segments, ForeachLogDirName, strings.ReplaceAll(part, foreachPathEscape, "%"))
 	}
 	return segments, len(parts)%2 == 1, nil
 }

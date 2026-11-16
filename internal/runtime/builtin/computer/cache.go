@@ -184,7 +184,7 @@ func targetRadius(rect image.Rectangle) int {
 type replayCache = replaycache.Recordings[recording]
 
 func openReplayCache(computerDir, dagName, stepKey string) *replayCache {
-	return replaycache.Open[recording](replaycache.New(computerDir).Path(dagName, stepKey))
+	return replaycache.OpenStep[recording](replaycache.New(computerDir), dagName, stepKey)
 }
 
 // replayKey identifies an act operation.

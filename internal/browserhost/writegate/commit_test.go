@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,23 +88,48 @@ func TestCommitPointsKeepCleanedNamesApart(t *testing.T) {
 	}
 }
 
-// Earlier versions kept a device name such as con as written, which
-// Windows 11 stores, so the commit points under it are still read.
-func TestCommitPointsUnderRawDeviceName(t *testing.T) {
+// DAGs and steps whose names differ only in characters a file name cannot
+// hold, such as etl.daily and etl_daily, keep separate commit points.
+func TestCommitPointsKeepSimilarNamesApart(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	require.NoError(t, store.Note(t.Context(), "etl.daily", "a.b", writegate.CommitPoint{Key: "k1"}))
+	assert.Empty(t, mustLoad(t, store, "etl_daily", "a.b"))
+	assert.Empty(t, mustLoad(t, store, "etl.daily", "a_b"))
+	assert.Len(t, mustLoad(t, store, "etl.daily", "a.b"), 1)
+}
+
+// Released versions kept commit points under the SafeNames of the DAG and
+// the step, which other DAGs and steps could share, so no step reads them,
+// not even a_b of etl_daily, whose names SafeName kept.
+func TestCommitPointsIgnoreLegacyPoints(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	raw := filepath.Join(dir, "writes", "con", "con.json")
+	legacy := filepath.Join(dir, "writes", "etl_daily", "a_b.json")
 	data, err := json.Marshal([]writegate.CommitPoint{{Key: "k1", Approved: true}})
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Dir(raw), 0o700))
-	require.NoError(t, os.WriteFile(raw, data, 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+	require.NoError(t, os.WriteFile(legacy, data, 0o600))
 
 	store := writegate.NewCommitStore(dir)
-	points := mustLoad(t, store, "con", "con")
-	require.Len(t, points, 1)
-	assert.True(t, points[0].Approved)
-	steps, err := store.Steps("con")
+	assert.Empty(t, mustLoad(t, store, "etl_daily", "a_b"))
+	steps, err := store.Steps("etl_daily")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"con"}, steps)
+	assert.Empty(t, steps)
+}
+
+// A step whose name is too long for a file name in full is listed by its
+// name, so its points read back.
+func TestCommitPointsListLongSteps(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	step := strings.Repeat("日", 12)
+	require.NoError(t, store.Note(t.Context(), "billing", step, writegate.CommitPoint{Key: "k1"}))
+	steps, err := store.Steps("billing")
+	require.NoError(t, err)
+	assert.Equal(t, []string{step}, steps)
+	assert.Len(t, mustLoad(t, store, "billing", steps[0]), 1)
 }

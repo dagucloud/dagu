@@ -6,6 +6,7 @@ package logpath
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,8 +16,8 @@ import (
 func TestForeachStepDir(t *testing.T) {
 	t.Parallel()
 
-	dir := ForeachStepDir(filepath.Join("logs", "run"), "each step")
-	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each_step"), dir)
+	dir := ForeachStepDir(filepath.Join("logs", "run"), "each step", nil)
+	assert.Equal(t, filepath.Join("logs", "run", "foreach", "each%20step"), dir)
 }
 
 // Steps con and con_ keep their items apart on every system, although
@@ -25,7 +26,7 @@ func TestForeachStepDirKeepsDeviceNamedStepApart(t *testing.T) {
 	t.Parallel()
 
 	logDir := t.TempDir()
-	assert.NotEqual(t, ForeachStepDir(logDir, "con"), ForeachStepDir(logDir, "con_"))
+	assert.NotEqual(t, ForeachStepDir(logDir, "con", nil), ForeachStepDir(logDir, "con_", nil))
 }
 
 // A step whose raw name cleans to another step's name, such as ./b for b,
@@ -34,10 +35,10 @@ func TestForeachStepDirKeepsCleanedNamesApart(t *testing.T) {
 	t.Parallel()
 
 	logDir := t.TempDir()
-	dir := ForeachStepDir(logDir, "b")
+	dir := ForeachStepDir(logDir, "b", nil)
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	for _, name := range []string{"./b", "x/../b", "b/."} {
-		assert.NotEqual(t, dir, ForeachStepDir(logDir, name), name)
+		assert.NotEqual(t, dir, ForeachStepDir(logDir, name, []string{"b", name}), name)
 	}
 }
 
@@ -50,7 +51,48 @@ func TestForeachStepDirKeepsRawDeviceName(t *testing.T) {
 	runDir := t.TempDir()
 	raw := filepath.Join(runDir, ForeachLogDirName, "con")
 	require.NoError(t, os.MkdirAll(raw, 0o750))
-	assert.Equal(t, raw, ForeachStepDir(runDir, "con"))
+	assert.Equal(t, raw, ForeachStepDir(runDir, "con", []string{"con"}))
+}
+
+// Foreach steps whose names differ only in characters a file name cannot hold,
+// such as a.b and a_b, keep their items apart.
+func TestForeachStepDirKeepsSimilarNamesApart(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	assert.NotEqual(t, ForeachStepDir(logDir, "a.b", nil), ForeachStepDir(logDir, "a_b", nil))
+	assert.NotEqual(t, ForeachStepDir(logDir, "fetch data", nil), ForeachStepDir(logDir, "fetch_data", nil))
+}
+
+// Earlier versions named the directory with SafeName, so a step reads its
+// items there when no other step of the run had that name, and never reads
+// another step's items.
+func TestForeachStepDirReadsLegacyNameItOwns(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	legacy := filepath.Join(logDir, ForeachLogDirName, "fetch_data")
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	assert.Equal(t, legacy, ForeachStepDir(logDir, "fetch data", []string{"fetch data", "parse"}))
+	assert.NotEqual(t, legacy, ForeachStepDir(logDir, "fetch data", []string{"fetch data", "fetch_data"}))
+	assert.NotEqual(t, legacy, ForeachStepDir(logDir, "fetch.data", []string{"fetch data", "fetch.data"}))
+}
+
+// A directory of an earlier version that steps fetch data and fetch_data
+// shared is not read even by fetch_data, whose name it has. In a run of this
+// version, the directory is fetch_data's own.
+func TestForeachStepDirKeepsSharedLegacyDirApart(t *testing.T) {
+	t.Parallel()
+
+	siblings := []string{"fetch data", "fetch_data"}
+	logDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(logDir, ForeachLogDirName, "fetch_data"), 0o750))
+	assert.Empty(t, ForeachStepDir(logDir, "fetch_data", siblings))
+	assert.Empty(t, ForeachNestedParent(logDir, "0", "fetch_data", siblings))
+
+	dir := ForeachStepDir(logDir, "fetch_data", nil)
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(dir), ForeachKeysFile), nil, 0o600))
+	assert.Equal(t, dir, ForeachStepDir(logDir, "fetch_data", siblings))
 }
 
 func TestForeachItemDir(t *testing.T) {
@@ -104,21 +146,25 @@ func TestForeachNestedParentKeepsRawDeviceName(t *testing.T) {
 	stepDir := t.TempDir()
 	raw := filepath.Join(stepDir, "0", ForeachLogDirName, "con")
 	require.NoError(t, os.MkdirAll(raw, 0o750))
-	dir, err := ForeachParentDir(stepDir, ForeachNestedParent(filepath.Join(stepDir, "0"), "0", "con"))
+	dir, err := ForeachParentDir(stepDir, ForeachNestedParent(filepath.Join(stepDir, "0"), "0", "con", []string{"con"}))
 	require.NoError(t, err)
 	assert.Equal(t, raw, dir)
 }
 
+// An item path holds no "%", so it passes through a URL unchanged, and it
+// still resolves to the directory the body step writes, cut keys included.
 func TestForeachItemPathRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "4", ForeachItemPath("", 4))
-	parent := ForeachNestedParent(filepath.Join("each", "4"), "4", "inner step")
-	assert.Equal(t, "4.inner_step", parent)
-	assert.Equal(t, "4.inner_step.1", ForeachItemPath(parent, 1))
+	itemDir := filepath.Join("each", "4")
+	for _, name := range []string{"inner step", "a.b", strings.Repeat("日", 40)} {
+		parent := ForeachNestedParent(itemDir, "4", name, nil)
+		path := ForeachItemPath(parent, 1)
+		assert.NotContains(t, path, "%", name)
 
-	stepDir := "each"
-	dir, err := ForeachItemDir(stepDir, ForeachItemPath(parent, 1))
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("each", "4", "foreach", "inner_step", "1"), dir)
+		dir, err := ForeachItemDir("each", path)
+		require.NoError(t, err, name)
+		assert.Equal(t, filepath.Join(ForeachStepDir(itemDir, name, nil), "1"), dir, name)
+	}
 }
