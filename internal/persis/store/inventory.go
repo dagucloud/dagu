@@ -197,21 +197,24 @@ func (s *InventoryStore) Import(ctx context.Context, invs []inventory.Inventory,
 			return nil
 		}
 		// Each inventory is stored on its own. When this stops partway, the
-		// ones stored so far stay, and the same import with Replace finishes.
+		// ones stored so far stay, the result names them, and the same import
+		// with Replace finishes.
 		for _, step := range plan.steps {
 			if err := held(); err != nil {
 				return err
 			}
 			if step.current == nil {
-				_, err = s.create(ctx, step.inv)
-			} else {
-				_, err = s.replace(ctx, *step.current, step.inv)
+				if _, err := s.create(ctx, step.inv); err != nil {
+					return err
+				}
+				result.Created = append(result.Created, step.inv.Name)
+				continue
 			}
-			if err != nil {
+			if _, err := s.replace(ctx, *step.current, step.inv); err != nil {
 				return err
 			}
+			result.Replaced = append(result.Replaced, step.inv.Name)
 		}
-		result = plan.result()
 		return nil
 	})
 	return result, err

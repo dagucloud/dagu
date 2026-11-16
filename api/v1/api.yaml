@@ -63,6 +63,8 @@ tags:
     description: "Runtime profile operations for managed environment variables and secrets"
   - name: "views"
     description: "Shared saved view configurations"
+  - name: "nodes"
+    description: "Node inventories: named lists of SSH hosts that steps select by label"
 
 paths:
   /health:
@@ -12036,6 +12038,277 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /nodes:
+    get:
+      summary: "List inventory nodes"
+      description: "Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values."
+      operationId: "listInventoryNodes"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: "labels"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term."
+        - name: "inventory"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400."
+        - name: "name"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Lists only the nodes whose name contains this text, compared without case."
+      responses:
+        "200":
+          description: "The matched nodes"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryNodeListResponse"
+        "400":
+          description: "Invalid selector or unknown inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /nodes/{nodeName}:
+    get:
+      summary: "Get an inventory node"
+      description: "Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values."
+      operationId: "getInventoryNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: nodeName
+          in: path
+          required: true
+          description: "Node name, compared without case"
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryNode"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No node has this name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /node-labels:
+    get:
+      summary: "List inventory node labels"
+      description: "Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion."
+      operationId: "listInventoryNodeLabels"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The labels, sorted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListLabelResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventories:
+    get:
+      summary: "List inventories"
+      description: "Lists the inventories in name order, with their node counts."
+      operationId: "listInventories"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The inventories"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventories/{inventoryId}:
+    get:
+      summary: "Get an inventory"
+      description: "Returns one inventory as stored, with the version a change to it names. Credentials appear as secret references and key paths, never as values."
+      operationId: "getInventory"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "The inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventory-imports:
+    post:
+      summary: "Import inventories"
+      description: "Imports a JSON array of inventories, as `dagu nodes export` prints it. The whole array is checked against every rule and the stored inventories first. An inventory whose name is new is created. One whose name is taken, compared without case, is refused unless `replace` is true, which replaces that inventory as a whole and keeps its ID. An inventory that sets `id` is refused, since Dagu assigns IDs. When any rule is broken, nothing is stored and the response lists every broken rule. Otherwise the inventories are stored one at a time; an import that stops partway finishes when run again with `replace`. Requires the developer role or above."
+      operationId: "importInventories"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - name: "replace"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Replace an inventory whose name is taken, keeping its ID."
+        - name: "dryRun"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Check the import and store nothing."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              description: "Inventories in the record format that `Inventory` describes, without `id`, `version`, `createdAt`, and `updatedAt`. An unknown field is refused."
+              items:
+                type: object
+                additionalProperties: true
+      responses:
+        "200":
+          description: "The inventories that were, or with `dryRun` would be, created and replaced"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportResult"
+        "400":
+          description: "The import breaks a rule, and nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "An inventory changed during the import; run it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "The import exceeds the 32 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /secrets:
     get:
       summary: "List secrets"
@@ -21750,6 +22023,311 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/View"
+
+    InventoryNodeKind:
+      type: string
+      description: "How Dagu reaches a node. An `ssh` node is a host of an inventory."
+      enum:
+        - "ssh"
+
+    InventoryRef:
+      type: object
+      description: "The inventory a node belongs to"
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name
+
+    InventoryNodeAuth:
+      type: object
+      description: "The credentials a node uses. Secrets appear as references, never as values."
+      properties:
+        keyPath:
+          type: string
+          description: "Path of the private key, read on the host that opens the connection"
+        keySecret:
+          type: string
+          description: "Secret reference of the private key"
+        passwordSecret:
+          type: string
+          description: "Secret reference of the password"
+        passphraseSecret:
+          type: string
+          description: "Secret reference of the private key's passphrase"
+
+    InventoryNode:
+      type: object
+      description: "A node of an inventory with its inventory's defaults applied"
+      properties:
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/InventoryNodeKind"
+        inventory:
+          $ref: "#/components/schemas/InventoryRef"
+        host:
+          type: string
+        port:
+          type: integer
+        user:
+          type: string
+        auth:
+          $ref: "#/components/schemas/InventoryNodeAuth"
+        bastion:
+          type: string
+          description: "Name of the node of the same inventory that the connection goes through"
+        hostKey:
+          type: string
+          description: "Public key the host must present"
+        strictHostKey:
+          type: boolean
+          description: "Whether the host key is checked"
+        shell:
+          type: string
+        timeout:
+          type: string
+          description: "Connect timeout, such as `30s`"
+        labels:
+          type: array
+          description: "Labels as `key` or `key=value`, sorted"
+          items:
+            type: string
+        description:
+          type: string
+        disabled:
+          type: boolean
+          description: "Whether runs are kept off the node. A disabled node is still listed and matched."
+      required:
+        - name
+        - kind
+        - inventory
+        - host
+        - port
+        - auth
+        - strictHostKey
+        - timeout
+        - labels
+        - disabled
+
+    InventoryNodeListResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryNode"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required:
+        - nodes
+        - pagination
+
+    InventoryCredential:
+      description: "A key path, `{\"file\": <path>}`, or `{\"secret\": <ref>}`. A password and a passphrase take only `{\"secret\": <ref>}`."
+
+    InventoryDefaults:
+      type: object
+      description: "Node fields that fill the fields a node leaves unset, and labels added to every node. Field names are those of the inventory record."
+      properties:
+        port:
+          type: integer
+        user:
+          type: string
+        key:
+          $ref: "#/components/schemas/InventoryCredential"
+        password:
+          $ref: "#/components/schemas/InventoryCredential"
+        passphrase:
+          $ref: "#/components/schemas/InventoryCredential"
+        bastion:
+          type: string
+        host_key:
+          type: string
+        strict_host_key:
+          type: boolean
+        shell:
+          type: string
+        timeout:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+
+    InventoryNodeSpec:
+      type: object
+      description: "One node of an inventory record. Field names are those of the inventory record."
+      properties:
+        name:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        user:
+          type: string
+        key:
+          $ref: "#/components/schemas/InventoryCredential"
+        password:
+          $ref: "#/components/schemas/InventoryCredential"
+        passphrase:
+          $ref: "#/components/schemas/InventoryCredential"
+        bastion:
+          type: string
+        host_key:
+          type: string
+        strict_host_key:
+          type: boolean
+        shell:
+          type: string
+        timeout:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        disabled:
+          type: boolean
+      required:
+        - name
+        - host
+
+    Inventory:
+      type: object
+      description: "An inventory as stored. `name`, `description`, `defaults`, and `nodes` form the record that `dagu nodes export` prints and an import takes. `version` counts the changes stored, starting at 1; a change names the version it is based on."
+      properties:
+        id:
+          type: string
+          description: "Set by Dagu when the inventory is created. It never changes."
+        name:
+          type: string
+          description: "Display name, unique without regard to case"
+        description:
+          type: string
+        defaults:
+          $ref: "#/components/schemas/InventoryDefaults"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryNodeSpec"
+        version:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - defaults
+        - nodes
+        - version
+        - createdAt
+        - updatedAt
+
+    InventorySummary:
+      type: object
+      description: "An inventory without its nodes, as a list shows it"
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        nodeCount:
+          type: integer
+        version:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - nodeCount
+        - version
+        - createdAt
+        - updatedAt
+
+    InventoryListResponse:
+      type: object
+      properties:
+        inventories:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventorySummary"
+      required:
+        - inventories
+
+    InventoryImportResult:
+      type: object
+      properties:
+        created:
+          type: array
+          description: "Names of the inventories created, in import order"
+          items:
+            type: string
+        replaced:
+          type: array
+          description: "Names of the inventories replaced, in import order"
+          items:
+            type: string
+        dryRun:
+          type: boolean
+          description: "Whether the import only checked and stored nothing"
+      required:
+        - created
+        - replaced
+        - dryRun
+
+    InventoryRuleError:
+      type: object
+      description: "A rule an import breaks, located by inventory, node, and field"
+      properties:
+        inventory:
+          type: string
+          description: "Name of the inventory that breaks the rule"
+        node:
+          type: string
+          description: "Name of the node that breaks the rule"
+        field:
+          type: string
+          description: "Field that breaks the rule"
+        message:
+          type: string
+      required:
+        - message
+
+    InventoryImportError:
+      type: object
+      description: "An import that was refused, with every rule it breaks"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryRuleError"
+      required:
+        - code
+        - message
+        - errors
 
     CreateWorkspaceRequest:
       type: object

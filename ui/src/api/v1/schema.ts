@@ -4463,6 +4463,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List inventory nodes
+         * @description Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values.
+         */
+        get: operations["listInventoryNodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{nodeName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an inventory node
+         * @description Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values.
+         */
+        get: operations["getInventoryNode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/node-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List inventory node labels
+         * @description Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion.
+         */
+        get: operations["listInventoryNodeLabels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List inventories
+         * @description Lists the inventories in name order, with their node counts.
+         */
+        get: operations["listInventories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventories/{inventoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an inventory
+         * @description Returns one inventory as stored, with the version a change to it names. Credentials appear as secret references and key paths, never as values.
+         */
+        get: operations["getInventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventory-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import inventories
+         * @description Imports a JSON array of inventories, as `dagu nodes export` prints it. The whole array is checked against every rule and the stored inventories first. An inventory whose name is new is created. One whose name is taken, compared without case, is refused unless `replace` is true, which replaces that inventory as a whole and keeps its ID. An inventory that sets `id` is refused, since Dagu assigns IDs. When any rule is broken, nothing is stored and the response lists every broken rule. Otherwise the inventories are stored one at a time; an import that stops partway finishes when run again with `replace`. Requires the developer role or above.
+         */
+        post: operations["importInventories"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/secrets": {
         parameters: {
             query?: never;
@@ -9184,6 +9304,145 @@ export interface components {
         };
         ViewListResponse: {
             views: components["schemas"]["View"][];
+        };
+        /**
+         * @description How Dagu reaches a node. An `ssh` node is a host of an inventory.
+         * @enum {string}
+         */
+        InventoryNodeKind: InventoryNodeKind;
+        /** @description The inventory a node belongs to */
+        InventoryRef: {
+            id: string;
+            name: string;
+        };
+        /** @description The credentials a node uses. Secrets appear as references, never as values. */
+        InventoryNodeAuth: {
+            /** @description Path of the private key, read on the host that opens the connection */
+            keyPath?: string;
+            /** @description Secret reference of the private key */
+            keySecret?: string;
+            /** @description Secret reference of the password */
+            passwordSecret?: string;
+            /** @description Secret reference of the private key's passphrase */
+            passphraseSecret?: string;
+        };
+        /** @description A node of an inventory with its inventory's defaults applied */
+        InventoryNode: {
+            name: string;
+            kind: components["schemas"]["InventoryNodeKind"];
+            inventory: components["schemas"]["InventoryRef"];
+            host: string;
+            port: number;
+            user?: string;
+            auth: components["schemas"]["InventoryNodeAuth"];
+            /** @description Name of the node of the same inventory that the connection goes through */
+            bastion?: string;
+            /** @description Public key the host must present */
+            hostKey?: string;
+            /** @description Whether the host key is checked */
+            strictHostKey: boolean;
+            shell?: string;
+            /** @description Connect timeout, such as `30s` */
+            timeout: string;
+            /** @description Labels as `key` or `key=value`, sorted */
+            labels: string[];
+            description?: string;
+            /** @description Whether runs are kept off the node. A disabled node is still listed and matched. */
+            disabled: boolean;
+        };
+        InventoryNodeListResponse: {
+            nodes: components["schemas"]["InventoryNode"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        /** @description A key path, `{"file": <path>}`, or `{"secret": <ref>}`. A password and a passphrase take only `{"secret": <ref>}`. */
+        InventoryCredential: unknown;
+        /** @description Node fields that fill the fields a node leaves unset, and labels added to every node. Field names are those of the inventory record. */
+        InventoryDefaults: {
+            port?: number;
+            user?: string;
+            key?: components["schemas"]["InventoryCredential"];
+            password?: components["schemas"]["InventoryCredential"];
+            passphrase?: components["schemas"]["InventoryCredential"];
+            bastion?: string;
+            host_key?: string;
+            strict_host_key?: boolean;
+            shell?: string;
+            timeout?: string;
+            labels?: string[];
+        };
+        /** @description One node of an inventory record. Field names are those of the inventory record. */
+        InventoryNodeSpec: {
+            name: string;
+            host: string;
+            port?: number;
+            user?: string;
+            key?: components["schemas"]["InventoryCredential"];
+            password?: components["schemas"]["InventoryCredential"];
+            passphrase?: components["schemas"]["InventoryCredential"];
+            bastion?: string;
+            host_key?: string;
+            strict_host_key?: boolean;
+            shell?: string;
+            timeout?: string;
+            labels?: string[];
+            description?: string;
+            disabled?: boolean;
+        };
+        /** @description An inventory as stored. `name`, `description`, `defaults`, and `nodes` form the record that `dagu nodes export` prints and an import takes. `version` counts the changes stored, starting at 1; a change names the version it is based on. */
+        Inventory: {
+            /** @description Set by Dagu when the inventory is created. It never changes. */
+            id: string;
+            /** @description Display name, unique without regard to case */
+            name: string;
+            description?: string;
+            defaults: components["schemas"]["InventoryDefaults"];
+            nodes: components["schemas"]["InventoryNodeSpec"][];
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description An inventory without its nodes, as a list shows it */
+        InventorySummary: {
+            id: string;
+            name: string;
+            description?: string;
+            nodeCount: number;
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        InventoryListResponse: {
+            inventories: components["schemas"]["InventorySummary"][];
+        };
+        InventoryImportResult: {
+            /** @description Names of the inventories created, in import order */
+            created: string[];
+            /** @description Names of the inventories replaced, in import order */
+            replaced: string[];
+            /** @description Whether the import only checked and stored nothing */
+            dryRun: boolean;
+        };
+        /** @description A rule an import breaks, located by inventory, node, and field */
+        InventoryRuleError: {
+            /** @description Name of the inventory that breaks the rule */
+            inventory?: string;
+            /** @description Name of the node that breaks the rule */
+            node?: string;
+            /** @description Field that breaks the rule */
+            field?: string;
+            message: string;
+        };
+        /** @description An import that was refused, with every rule it breaks */
+        InventoryImportError: {
+            code: components["schemas"]["ErrorCode"];
+            message: string;
+            errors: components["schemas"]["InventoryRuleError"][];
         };
         CreateWorkspaceRequest: {
             name: components["schemas"]["WorkspaceName"];
@@ -24062,6 +24321,340 @@ export interface operations {
             };
         };
     };
+    listInventoryNodes: {
+        parameters: {
+            query?: {
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term. */
+                labels?: string;
+                /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400. */
+                inventory?: string;
+                /** @description Lists only the nodes whose name contains this text, compared without case. */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matched nodes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryNodeListResponse"];
+                };
+            };
+            /** @description Invalid selector or unknown inventory */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getInventoryNode: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description Node name, compared without case */
+                nodeName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryNode"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No node has this name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listInventoryNodeLabels: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The labels, sorted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListLabelResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listInventories: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The inventories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getInventory: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                inventoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The inventory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    importInventories: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Replace an inventory whose name is taken, keeping its ID. */
+                replace?: boolean;
+                /** @description Check the import and store nothing. */
+                dryRun?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                }[];
+            };
+        };
+        responses: {
+            /** @description The inventories that were, or with `dryRun` would be, created and replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportResult"];
+                };
+            };
+            /** @description The import breaks a rule, and nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An inventory changed during the import; run it again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The import exceeds the 32 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listSecrets: {
         parameters: {
             query?: {
@@ -25482,6 +26075,9 @@ export enum ViewSpecType {
     workflow = "workflow",
     run = "run",
     artifact = "artifact"
+}
+export enum InventoryNodeKind {
+    ssh = "ssh"
 }
 export enum WorkspaceDeprecationItemKind {
     baseConfig = "baseConfig",
