@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -2593,54 +2592,57 @@ func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 		attemptID = status.DAGRunID
 	}
 
-	// Helper to compute coordinator log path
-	computePath := func(stepName string, streamType coordinatorv1.LogStreamType) string {
-		ext := StreamTypeToExtension(streamType)
-		filename := fmt.Sprintf("%s.%s", fileutil.SafeKey(stepName), ext)
-		return filepath.Join(
-			h.logDir,
-			fileutil.SafeKey(dagName),
-			fileutil.SafeKey(dagRunID),
-			fileutil.SafeKey(attemptID),
-			filename,
-		)
-	}
+	names := logStepNames(status)
+	steps := func() []string { return names }
+	logNodes(status, func(node *ir.Node, name string) {
+		node.Stdout = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT), steps)
+		node.Stderr = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR), steps)
+	})
+	status.Log = schedulerLogPath(h.logDir, dagName, dagRunID, attemptID)
+}
 
-	// Transform node log paths
-	transformNode := func(node *ir.Node, fallbackName string) {
+// logNodes calls fn with each node of a run and the name the coordinator
+// keeps its logs under.
+func logNodes(status *ir.DAGRunStatus, fn func(node *ir.Node, name string)) {
+	visit := func(node *ir.Node, fallbackName string) {
 		if node == nil {
 			return
 		}
 		// Use step name, or fallback for handler nodes with empty names
-		stepName := node.Step.Name
-		if stepName == "" {
-			stepName = fallbackName
+		name := node.Step.Name
+		if name == "" {
+			name = fallbackName
 		}
-		node.Stdout = computePath(stepName, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
-		node.Stderr = computePath(stepName, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
+		fn(node, name)
 	}
-
-	// Transform all regular nodes
 	for _, node := range status.Nodes {
-		transformNode(node, "step")
+		visit(node, "step")
 	}
+	visit(status.OnInit, "on_init")
+	visit(status.OnExit, "on_exit")
+	visit(status.OnSuccess, "on_success")
+	visit(status.OnFailure, "on_failure")
+	visit(status.OnAbort, "on_abort")
+	visit(status.OnWait, "on_wait")
+}
 
-	// Transform handler nodes with explicit fallback names
-	transformNode(status.OnInit, "on_init")
-	transformNode(status.OnExit, "on_exit")
-	transformNode(status.OnSuccess, "on_success")
-	transformNode(status.OnFailure, "on_failure")
-	transformNode(status.OnAbort, "on_abort")
-	transformNode(status.OnWait, "on_wait")
+// logStepNames returns the names the coordinator keeps the logs of a run's
+// steps under.
+func logStepNames(status *ir.DAGRunStatus) []string {
+	var names []string
+	logNodes(status, func(_ *ir.Node, name string) { names = append(names, name) })
+	return names
+}
 
-	// Transform scheduler log path
-	status.Log = filepath.Join(
-		h.logDir,
-		fileutil.SafeKey(dagName),
-		fileutil.SafeKey(dagRunID),
-		fileutil.SafeKey(attemptID),
-		"scheduler.log",
-	)
+// runLogStepNames returns the names the coordinator keeps the logs of the
+// steps of a chunk's run under, or none when the run cannot be read.
+func (h *Handler) runLogStepNames(ctx context.Context, chunk *coordinatorv1.LogChunk) []string {
+	root := ir.DAGRunRef{Name: chunk.RootDagRunName, ID: chunk.RootDagRunId}
+	_, runStatus, err := h.resolveLatestAttempt(ctx, chunk.DagName, chunk.DagRunId, root)
+	if err != nil || runStatus == nil {
+		return nil
+	}
+	return logStepNames(runStatus)
 }
 
 // transformArtifactPaths rewrites worker-local artifact directories to coordinator paths.
@@ -2865,6 +2867,7 @@ func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsS
 
 	// Delegate to the log handler
 	logHandler := newLogHandler(h.logDir)
+	logHandler.stepNames = func(chunk *coordinatorv1.LogChunk) []string { return h.runLogStepNames(stream.Context(), chunk) }
 	if h.dagRunLeaseStore != nil {
 		logHandler.attemptValidator = h.validateAttempt
 	}
