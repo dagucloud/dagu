@@ -141,6 +141,25 @@ func (c *swapCounter) CompareAndSwap(ctx context.Context, id string, expected, n
 	return c.Collection.CompareAndSwap(ctx, id, expected, next)
 }
 
+// Each DAG keeps a record of its own on disk, also one named as a device
+// that a host reserves, or as names that normalize alike.
+func TestPeriodStoreKeepsARecordPerDAGName(t *testing.T) {
+	t.Parallel()
+	s := store.NewPeriodStore(file.NewCollection(t.TempDir()), nil)
+	ctx := t.Context()
+	names := []string{"CON", "nul", "-", "etl."}
+	for i, name := range names {
+		from := periodAt(1, i)
+		require.NoError(t, s.AddSuspended(ctx, name, schedulerstate.Period{From: from, To: from.Add(time.Minute)}), name)
+	}
+	for i, name := range names {
+		periods, _, err := s.Ended(ctx, name)
+		require.NoError(t, err, name)
+		from := periodAt(1, i)
+		assert.Equal(t, []schedulerstate.Period{{From: from, To: from.Add(time.Minute), Reason: schedulerstate.PeriodSuspended}}, periods, name)
+	}
+}
+
 // The periods one process records are read by another, as the API records a
 // suspension and the scheduler an outage, each in a record of its own next to
 // the scheduler state, holding only when each period began and ended.
@@ -169,7 +188,7 @@ func TestPeriodStoreSharesPeriodsThroughFiles(t *testing.T) {
 	assert.Equal(t, schedulerstate.PeriodPaused, periods[2].Reason)
 
 	dir := file.SchedulerStateDir(paths)
-	for name, list := range map[string]string{"down.json": "down", "dags/nested-etl.json": "suspended", "paused.json": "history"} {
+	for name, list := range map[string]string{"down.json": "down", "dags/nested%2Fetl.json": "suspended", "paused.json": "history"} {
 		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
 		require.NoError(t, err, name)
 		var fields map[string]json.RawMessage

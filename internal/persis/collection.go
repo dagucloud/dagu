@@ -49,9 +49,9 @@ const (
 
 // SchedulerDAGRecordID names a DAG's record in the scheduler state
 // collection: the ended periods in which its slots could not run. The name is
-// normalized as the DAG's suspend flag is.
+// escaped as the host stores it, so no two DAGs share a record.
 func SchedulerDAGRecordID(dag string) string {
-	return "dags/" + fileutil.NormalizeFilename(dag, "-")
+	return "dags/" + fileutil.EscapeName(dag)
 }
 
 // Record is the storage primitive for collection-backed control-plane data.
