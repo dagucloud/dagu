@@ -34,21 +34,102 @@ var (
 // LPT1 gets a hyphen and a short hash of itself appended, so it does not share
 // a result with a name such as CON_.
 func SafeName(str string) string {
-	// Replace any character not in [a-zA-Z0-9_\-] with underscore
-	safe := allowedCharRegex.ReplaceAllString(str, "_")
-
-	// Truncate to a safe length
-	runes := []rune(safe)
-	if len(runes) > MaxSafeNameLength {
-		safe = string(runes[:MaxSafeNameLength])
-	}
-
+	safe := replacedName(str)
 	if reservesDeviceName(safe) {
 		sum := sha256.Sum256([]byte(safe))
 		safe += "-" + hex.EncodeToString(sum[:4])
 	}
 
 	return safe
+}
+
+// replacedName replaces each character not in [a-zA-Z0-9_-] with an
+// underscore and truncates the result to MaxSafeNameLength.
+func replacedName(str string) string {
+	safe := allowedCharRegex.ReplaceAllString(str, "_")
+	if runes := []rune(safe); len(runes) > MaxSafeNameLength {
+		safe = string(runes[:MaxSafeNameLength])
+	}
+	return safe
+}
+
+// SafeKey returns a file name for str that no other string shares. ASCII
+// letters, digits, "_", and "-" are kept, so a name of only those, at most
+// MaxSafeNameLength bytes long, is its own key, except a Windows device name
+// on Windows. Every other byte, and on Windows the first byte of a device
+// name, is written as %XX. A longer key is cut and ends in "%-" and a hash of
+// str. Names that differ only in letter case still share an entry on a file
+// system that ignores case.
+func SafeKey(str string) string {
+	var b strings.Builder
+	for i := 0; i < len(str); i++ {
+		if c := str[i]; isSafeKeyByte(c) {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	key := b.String()
+	if reservesDeviceName(key) {
+		key = fmt.Sprintf("%%%02X", key[0]) + key[1:]
+	}
+	if len(key) > MaxSafeNameLength {
+		sum := sha256.Sum256([]byte(str))
+		suffix := "%-" + hex.EncodeToString(sum[:16])
+		key = key[:MaxSafeNameLength-len(suffix)] + suffix
+	}
+	return key
+}
+
+func isSafeKeyByte(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '_' || c == '-'
+}
+
+// LegacySafeName returns the name under which released versions stored data
+// for name with SafeName, which other names could share, and reports whether
+// that data belongs to name alone: no other name in siblings, the names that
+// could share it, had that name too, ignoring case.
+func LegacySafeName(name string, siblings []string) (string, bool) {
+	legacy := replacedName(name)
+	for _, sibling := range siblings {
+		if sibling != name && strings.EqualFold(replacedName(sibling), legacy) {
+			return legacy, false
+		}
+	}
+	return legacy, true
+}
+
+// UnescapeSafeKey returns the name that SafeKey made key from, or key itself
+// when key does not hold a name in full, such as a key that SafeKey cut or a
+// SafeName that released versions stored.
+func UnescapeSafeKey(key string) string {
+	name, err := url.PathUnescape(key)
+	if err != nil || SafeKey(name) != key {
+		return key
+	}
+	return name
+}
+
+// ClaimLegacySafeName moves the entry that released versions stored in
+// fromDir for name, under its SafeName followed by suffix, to path, so name
+// keeps its data under its own key. It moves nothing when another name in
+// siblings may own that entry (see LegacySafeName), or when path exists.
+func ClaimLegacySafeName(fromDir, name, suffix string, siblings []string, path string) error {
+	legacy, ok := LegacySafeName(name, siblings)
+	if !ok || filepath.Join(fromDir, legacy+suffix) == path {
+		return nil
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	rel, ok := LegacyEntry(fromDir, legacy+suffix)
+	if !ok {
+		return nil
+	}
+	if err := Rename(filepath.Join(fromDir, rel), path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // SafeNameEscapesDevice reports whether SafeName changes str only because

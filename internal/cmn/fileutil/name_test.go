@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,6 +113,51 @@ func TestSafeNameDeviceNames(t *testing.T) {
 			require.NoError(t, storeUnder(t.TempDir(), safe))
 		})
 	}
+}
+
+// SafeKey keeps a name of letters, digits, "_", and "-" as written, and
+// gives every name a key that no other name shares and the host stores.
+func TestSafeKey(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", MaxSafeNameLength)
+	names := []string{
+		"fetch_data", "fetch data", "fetch.data", "fetch%20data", "fetch%2Edata",
+		"a/b", "nul", "con", long, long + "b", long + "c", "日本",
+	}
+	keys := map[string]string{}
+	for _, name := range names {
+		key := SafeKey(name)
+		require.NoError(t, storeUnder(t.TempDir(), key), name)
+		require.LessOrEqual(t, len(key), MaxSafeNameLength, name)
+		for other, otherKey := range keys {
+			require.NotEqual(t, otherKey, key, "%q and %q", name, other)
+		}
+		keys[name] = key
+	}
+	assert.Equal(t, "fetch_data", keys["fetch_data"])
+	assert.Equal(t, long, keys[long])
+}
+
+// Data that released versions stored under a SafeName belongs to a name only
+// when no other name of the same set had that SafeName.
+func TestLegacySafeName(t *testing.T) {
+	t.Parallel()
+
+	legacy, ok := LegacySafeName("fetch data", []string{"fetch data", "parse"})
+	assert.True(t, ok)
+	assert.Equal(t, "fetch_data", legacy)
+
+	for _, siblings := range [][]string{{"fetch data", "fetch_data"}, {"fetch data", "fetch.data"}, {"fetch data", "Fetch.data"}} {
+		_, ok = LegacySafeName("fetch data", siblings)
+		assert.False(t, ok, siblings)
+	}
+
+	legacy, ok = LegacySafeName("fetch_data", []string{"fetch_data", "parse"})
+	assert.True(t, ok)
+	assert.Equal(t, "fetch_data", legacy)
+	_, ok = LegacySafeName("fetch_data", []string{"fetch_data", "fetch data"})
+	assert.False(t, ok)
 }
 
 // EscapeName returns a name this host stores as written, the same on every
