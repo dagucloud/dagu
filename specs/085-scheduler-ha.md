@@ -73,7 +73,11 @@ reading logs, which instance is active and how long a failover takes.
 ### Missed slots
 
 - The first tick of a new active scheduler runs the slots of the current
-  minute.
+  minute. When startup runs past that minute, the first tick comes later, and
+  the slots between came due while no tick ran. The first tick recovers them
+  as a late tick does, as if a tick had run in the minute before: catch-up
+  replays them, and the time is recorded as a `down` period
+  ([Spec 086](086-backfill.md)).
 - A scheduler that takes over a stale lock also replays earlier slots of
   recurring schedules that fell between the failed scheduler's last tick and
   the takeover, as far back as `scheduler.failover_recovery_window`. A slot the
