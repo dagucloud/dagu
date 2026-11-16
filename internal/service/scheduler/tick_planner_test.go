@@ -3468,6 +3468,10 @@ func (r *spanRecorder) Add(_ context.Context, dag string, span schedulerstate.Sp
 	return nil
 }
 
+func (r *spanRecorder) Move(context.Context, string, string) error { return nil }
+
+func (r *spanRecorder) Remove(context.Context, string) error { return nil }
+
 func (r *spanRecorder) Ended(context.Context, string) ([]schedulerstate.Span, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -287,6 +287,7 @@ func (a *API) DeleteDAG(ctx context.Context, request api.DeleteDAGRequestObject)
 	}
 
 	a.removeDAGPinAfterDelete(ctx, request.FileName)
+	a.removeDAGSpansAfterDelete(ctx, request.FileName)
 
 	a.logAudit(ctx, audit.CategoryDAG, "dag_delete", map[string]any{"dag_name": request.FileName})
 
@@ -531,6 +532,7 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 	}
 	a.migrateDAGSettingsAfterRename(ctx, request.FileName, request.Body.NewFileName)
 	a.migrateDAGPinAfterRename(ctx, request.FileName, request.Body.NewFileName)
+	a.moveDAGSpansAfterRename(ctx, request.FileName, request.Body.NewFileName)
 
 	a.logAudit(ctx, audit.CategoryDAG, "dag_rename", map[string]any{
 		"old_name": request.FileName,

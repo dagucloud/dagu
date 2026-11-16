@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -190,6 +193,35 @@ func (a *API) recordSuspension(ctx context.Context, fileName string) error {
 		return fmt.Errorf("error recording the suspension of %s: %w", fileName, err)
 	}
 	return nil
+}
+
+// moveDAGSpansAfterRename moves a renamed DAG's spans to its new name. A
+// failure leaves the rename made and the spans with the old name.
+func (a *API) moveDAGSpansAfterRename(ctx context.Context, oldName, newName string) {
+	if a.spanStore == nil {
+		return
+	}
+	if err := a.spanStore.Move(ctx, oldName, newName); err != nil {
+		logger.Warn(ctx, "Failed to move DAG slot spans after rename",
+			tag.Error(err),
+			slog.String("old_name", oldName),
+			slog.String("new_name", newName),
+		)
+	}
+}
+
+// removeDAGSpansAfterDelete removes a deleted DAG's spans. A failure leaves
+// the delete made and the spans in place.
+func (a *API) removeDAGSpansAfterDelete(ctx context.Context, fileName string) {
+	if a.spanStore == nil {
+		return
+	}
+	if err := a.spanStore.Remove(ctx, fileName); err != nil {
+		logger.Warn(ctx, "Failed to remove DAG slot spans after delete",
+			tag.Error(err),
+			tag.Name(fileName),
+		)
+	}
 }
 
 // slotDates returns the dates a slot's run recorded, or, for a slot without

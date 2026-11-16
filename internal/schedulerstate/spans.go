@@ -37,4 +37,8 @@ type SpanStore interface {
 	// scheduler's outages, the operator's pauses, and the DAG's own, oldest
 	// first.
 	Ended(ctx context.Context, dag string) ([]Span, error)
+	// Move moves the spans of a DAG renamed from oldDAG to newDAG.
+	Move(ctx context.Context, oldDAG, newDAG string) error
+	// Remove removes the spans of a deleted DAG.
+	Remove(ctx context.Context, dag string) error
 }

@@ -50,11 +50,31 @@ func NewSpanStore(col persis.Collection, pauses *SchedulerPauseStore) *SpanStore
 // spanRetention before the write.
 func (s *SpanStore) Add(ctx context.Context, dag string, span schedulerstate.Span) error {
 	return s.update(ctx, spansID(dag), func(record *spanRecord) {
-		if slices.ContainsFunc(record.Spans, func(recorded schedulerstate.Span) bool { return recorded.From.Equal(span.From) }) {
-			return
-		}
-		record.Spans = recentSpans(append(record.Spans, span), time.Now())
+		record.add(time.Now(), span)
 	})
+}
+
+// Move moves the spans of a DAG renamed from oldDAG to newDAG, joining any
+// the new name holds.
+func (s *SpanStore) Move(ctx context.Context, oldDAG, newDAG string) error {
+	moved, current, err := s.load(ctx, spansID(oldDAG))
+	if err != nil || current == nil {
+		return err
+	}
+	if err := s.update(ctx, spansID(newDAG), func(record *spanRecord) {
+		record.add(time.Now(), moved.Spans...)
+	}); err != nil {
+		return err
+	}
+	return s.Remove(ctx, oldDAG)
+}
+
+// Remove removes the spans of a deleted DAG.
+func (s *SpanStore) Remove(ctx context.Context, dag string) error {
+	if err := s.col.Delete(ctx, spansID(dag)); err != nil && !errors.Is(err, persis.ErrNotFound) {
+		return fmt.Errorf("span store: remove %s: %w", dag, err)
+	}
+	return nil
 }
 
 // Ended returns the spans of the scheduler's outages, the operator's pauses,
@@ -97,6 +117,17 @@ func (s *SpanStore) update(ctx context.Context, id string, change func(*spanReco
 		stamp := time.Now().UTC()
 		return createOrSwap(ctx, s.col, current, &persis.Record{ID: id, Data: data, CreatedAt: stamp, UpdatedAt: stamp})
 	})
+}
+
+// add adds the spans whose start the record does not hold, and keeps the
+// maxSpans that ended last within spanRetention before now.
+func (r *spanRecord) add(now time.Time, spans ...schedulerstate.Span) {
+	for _, span := range spans {
+		if !slices.ContainsFunc(r.Spans, func(recorded schedulerstate.Span) bool { return recorded.From.Equal(span.From) }) {
+			r.Spans = append(r.Spans, span)
+		}
+	}
+	r.Spans = recentSpans(r.Spans, now)
 }
 
 // recentSpans keeps the maxSpans spans that ended last, within spanRetention

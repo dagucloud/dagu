@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
@@ -16,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -301,4 +304,37 @@ func TestListDAGsRunSortPinnedFirstOnlyWhereRequested(t *testing.T) {
 			assert.Equal(t, []bool{false, false, true}, listedPinned(mcp.Dags))
 		})
 	}
+}
+
+// A DAG's spans follow it when it is renamed and go when it is deleted, so
+// a span file never outlives its DAG or reaches a DAG that takes the name.
+func TestDAGSpansFollowRenameAndDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	writePinTestDAGs(t, helper, "alpha")
+	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans), nil)
+	suspended := schedulerstate.Span{From: time.Now().Add(-2 * time.Hour).UTC(), To: time.Now().Add(-time.Hour).UTC(), Reason: schedulerstate.SpanSuspended}
+	require.NoError(t, spans.Add(ctx, "alpha", suspended))
+	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithSpanStore(spans))
+	ended := func(dag string) []schedulerstate.Span {
+		t.Helper()
+		got, err := spans.Ended(ctx, dag)
+		require.NoError(t, err)
+		return got
+	}
+
+	_, err := apiImpl.RenameDAG(ctx, api.RenameDAGRequestObject{
+		FileName: "alpha",
+		Body:     &api.RenameDAGJSONRequestBody{NewFileName: "omega"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, ended("alpha"))
+	require.Len(t, ended("omega"), 1)
+	assert.True(t, suspended.From.Equal(ended("omega")[0].From))
+
+	_, err = apiImpl.DeleteDAG(ctx, api.DeleteDAGRequestObject{FileName: "omega"})
+	require.NoError(t, err)
+	assert.Empty(t, ended("omega"))
+	assert.NoDirExists(t, filepath.Join(helper.Config.Paths.DataDir, "slot-spans", "dags"), "no span file is left")
 }

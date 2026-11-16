@@ -235,6 +235,8 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   - `down`: when a scheduler starts, takes over, or ticks, more than a
     minute after the last tick, from that tick to its own, or to where a
     takeover's recovery window starts, for every DAG.
+  A DAG's own spans follow it when it is renamed through the API and are
+  removed when it is deleted through the API.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
