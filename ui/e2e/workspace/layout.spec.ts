@@ -527,7 +527,8 @@ test.describe('workspace layout', () => {
     expect((await box(column)).width).toBeCloseTo(1400, -1);
   });
 
-  // #3697: a long YAML needs the room of the graph and of Activity.
+  // #3697: a long YAML needs the room of the graph and of Activity, with
+  // Save in reach at every width of the column.
   test('maximizes the right column over the graph and Activity', async ({
     page,
     fixtureDAG,
@@ -576,6 +577,18 @@ test.describe('workspace layout', () => {
     await expect(zoomIn).toBeVisible();
     await expect(async () => {
       expect((await box(column)).width).toBeCloseTo(width, 0);
+    }).toPass();
+
+    // The widest column leaves a strip of the zone: Save stays inside it.
+    const edge = column.getByRole('separator', { name: 'Resize step details' });
+    await edge.focus();
+    await page.keyboard.press('End');
+    await expect(async () => {
+      const zone = await box(page.getByTestId('ww-canvas'));
+      expect(zone.width).toBeCloseTo(240, -1);
+      const button = await box(save);
+      expect(button.x).toBeGreaterThanOrEqual(zone.x);
+      expect(button.x + button.width).toBeLessThanOrEqual(zone.x + zone.width);
     }).toPass();
   });
 

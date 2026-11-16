@@ -1512,10 +1512,15 @@ function CanvasView({
                 createPortal(
                   <>
                     {/* The marker keeps the canvas from taking a click on a
-                        toolbar for a click on the pane. */}
+                        toolbar for a click on the pane. A compact row gives
+                        its room to the right group, with Save, first: the
+                        canvas controls scroll instead. */}
                     <div
                       data-flow-overlay=""
-                      className="flex min-w-0 shrink-0 items-center gap-2"
+                      className={cn(
+                        'flex min-w-0 items-center gap-2',
+                        compactBar ? 'overflow-x-auto' : 'shrink-0'
+                      )}
                     >
                       {toolbarStart}
                       <div
@@ -1529,6 +1534,7 @@ function CanvasView({
                       data-flow-overlay=""
                       className={cn(
                         'flex min-w-0 justify-end',
+                        compactBar && 'max-w-full shrink-0',
                         TOOLBAR_GROUP_CLASS
                       )}
                     >
