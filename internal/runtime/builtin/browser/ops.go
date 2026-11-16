@@ -20,8 +20,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
@@ -203,7 +201,9 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	}
 	// A variable holding a declared secret or an ask's answer is secret.
 	r.secret = func(name string) bool { return holdsSecret(r.variables[name], r.secrets, r.answers) }
-	agentstep.ClaimRecords(ctx, replaycache.New(browserDir), env.DAG, stepKey)
+	if err := agentstep.ClaimRecords(ctx, replaycache.New(browserDir), env.DAG, stepKey); err != nil {
+		return nil, err
+	}
 	r.cache = openReplayCache(browserDir, dagName, stepKey)
 	r.recorder = stepRecorder{cache: r.cache}
 	r.stepKey = stepKey
@@ -211,7 +211,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if env.DAG != nil {
 		taken := func(name string) (bool, error) { return runtime.DAGExists(ctx, name) }
 		if err := r.commits.Claim(ctx, dagName, stepKey, agentstep.StepKeys(env.DAG), taken); err != nil {
-			logger.Warn(ctx, "Failed to move commit points stored under an older name", tag.Error(err))
+			return nil, fmt.Errorf("ready the commit points: %w", err)
 		}
 	}
 	r.committed = r.committedActions

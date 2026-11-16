@@ -160,6 +160,51 @@ func TestLegacySafeName(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// ConvertSafeNameDir gives a released version's entry to the one name that
+// had its SafeName, and sets aside an entry that several names, or none, had.
+func TestConvertSafeNameDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, file := range []string{"fetch_data.json", "a_b.json", "gone.json", "a%2Eb.json"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte(file), 0o600))
+	}
+	names := []string{"fetch data", "a.b", "a_b", "fetch data"}
+	require.NoError(t, ConvertSafeNameDir(dir, ".json", names))
+
+	read := func(file string) string {
+		data, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			return ""
+		}
+		return string(data)
+	}
+	assert.Equal(t, "fetch_data.json", read(SafeKey("fetch data")+".json"))
+	assert.Empty(t, read("fetch_data.json"))
+	assert.Empty(t, read("a_b.json"))
+	assert.Empty(t, read("gone.json"))
+	assert.Equal(t, "a%2Eb.json", read("a%2Eb.json"))
+
+	// A converted directory is left as it is.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a_b.json"), []byte("new"), 0o600))
+	require.NoError(t, ConvertSafeNameDir(dir, ".json", names))
+	assert.Equal(t, "new", read("a_b.json"))
+	assert.True(t, IsSafeKeyDir(dir))
+}
+
+// A key that SafeKey cut maps back to its name once the name is kept.
+func TestSafeKeyName(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	long := strings.Repeat("日", 12)
+	for _, name := range []string{"fetch_data", "fetch data", "con", long} {
+		require.NoError(t, KeepSafeKeyName(dir, name))
+		assert.Equal(t, name, SafeKeyName(dir, SafeKey(name)), name)
+	}
+	assert.Equal(t, SafeKey(long+"x"), SafeKeyName(dir, SafeKey(long+"x")))
+}
+
 // EscapeName returns a name this host stores as written, the same on every
 // version of the host, and UnescapeName maps it back. On Windows a device
 // name is escaped in any case and with any extension.

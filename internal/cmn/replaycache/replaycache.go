@@ -39,20 +39,33 @@ func (c *Store) Path(dagName, stepKey string) string {
 	return filepath.Join(c.dagDir(dagName), fileutil.SafeKey(stepKey)+replayCacheFileExt)
 }
 
-// Claim moves the records that released versions stored for a step, under the
-// SafeName of its key, to the step's own file, when no other key in stepKeys,
-// the keys of all steps of the DAG, had that SafeName too. Records already in
-// the step's own file stay.
-func (c *Store) Claim(dagName, stepKey string, stepKeys []string) error {
+// Claim readies the file of a step before a run opens it. Released versions
+// named the file by the SafeName of the step key, which other keys could
+// share. The first claim on a DAG gives each such file to the one key in
+// stepKeys, the keys of all steps of the DAG, that had its SafeName; a file
+// that several keys, or none, had is never read again. Claim also keeps the
+// key so that Steps returns it in full.
+func (c *Store) Claim(ctx context.Context, dagName, stepKey string, stepKeys []string) error {
 	dir := c.dagDir(dagName)
-	return fileutil.ClaimLegacySafeName(dir, stepKey, replayCacheFileExt, stepKeys, c.Path(dagName, stepKey))
+	_, err := os.Lstat(dir)
+	if errors.Is(err, os.ErrNotExist) && fileutil.SafeKeyName(dir, fileutil.SafeKey(stepKey)) == stepKey {
+		// Nothing is stored for the DAG, and the key needs nothing kept.
+		return nil
+	}
+	return locked(ctx, dir, func() error {
+		if err := fileutil.ConvertSafeNameDir(dir, replayCacheFileExt, append(slices.Clone(stepKeys), stepKey)); err != nil {
+			return err
+		}
+		return fileutil.KeepSafeKeyName(dir, stepKey)
+	})
 }
 
-// Steps returns the sorted keys of the DAG's steps that have records. A key
-// stored in a form that does not hold it in full, such as the SafeName of a
-// released version, is returned in that form.
+// Steps returns the sorted keys of the DAG's steps that have records. Until a
+// run claims a step of the DAG, a key is returned as the SafeName that
+// released versions stored it under.
 func (c *Store) Steps(dagName string) ([]string, error) {
-	entries, err := os.ReadDir(c.dagDir(dagName))
+	dir := c.dagDir(dagName)
+	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -65,7 +78,7 @@ func (c *Store) Steps(dagName string) ([]string, error) {
 		if entry.IsDir() || !ok {
 			continue
 		}
-		steps = append(steps, fileutil.UnescapeSafeKey(step))
+		steps = append(steps, fileutil.SafeKeyName(dir, step))
 	}
 	slices.Sort(steps)
 	return steps, nil
@@ -73,19 +86,31 @@ func (c *Store) Steps(dagName string) ([]string, error) {
 
 // Clear removes the records of one step, or of every step of the DAG when
 // stepKey is empty, and returns the keys of the steps it removed: stepKey
-// itself, or the keys Steps reports. Missing records are not an error.
+// itself, or the keys Steps reports. Missing records are not an error. Until
+// a run claims a step of the DAG, clearing a step also removes the file that
+// released versions stored under its SafeName, so no claim brings it back.
 func (c *Store) Clear(dagName, stepKey string) ([]string, error) {
 	if dagName == "" {
 		// An empty name maps to the cache root, which holds every DAG.
 		return nil, errors.New("dag name is required")
 	}
 	if stepKey != "" {
-		err := fileutil.Remove(c.Path(dagName, stepKey))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+		paths := []string{c.Path(dagName, stepKey)}
+		dir := c.dagDir(dagName)
+		legacy, _ := fileutil.LegacySafeName(stepKey, nil)
+		if rel, ok := fileutil.LegacyEntry(dir, legacy+replayCacheFileExt); ok && !fileutil.IsSafeKeyDir(dir) {
+			paths = append(paths, filepath.Join(dir, rel))
 		}
-		if err != nil {
-			return nil, err
+		removed := false
+		for _, path := range paths {
+			err := fileutil.Remove(path)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+			removed = removed || err == nil
+		}
+		if !removed {
+			return nil, nil
 		}
 		return []string{stepKey}, nil
 	}

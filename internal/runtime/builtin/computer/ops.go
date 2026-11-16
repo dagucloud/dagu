@@ -194,7 +194,9 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if r.variables == nil {
 		r.variables = map[string]string{}
 	}
-	agentstep.ClaimRecords(ctx, replaycache.New(computerDir), env.DAG, stepKey)
+	if err := agentstep.ClaimRecords(ctx, replaycache.New(computerDir), env.DAG, stepKey); err != nil {
+		return nil, err
+	}
 	r.cache = openReplayCache(computerDir, dagName, stepKey)
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil

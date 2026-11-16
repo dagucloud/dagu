@@ -235,7 +235,9 @@ func (e *extractExecutor) Run(ctx context.Context) error {
 func (e *extractExecutor) run(ctx context.Context) (map[string]any, string, []string, error) {
 	if e.cfg.Cache {
 		stepKey := agentstep.StepKey(e.step)
-		agentstep.ClaimRecords(ctx, replaycache.New(filepath.Join(e.dataDir, workbook.DataDirName)), runtime.GetDAGContext(ctx).DAG, stepKey)
+		if err := agentstep.ClaimRecords(ctx, replaycache.New(filepath.Join(e.dataDir, workbook.DataDirName)), runtime.GetDAGContext(ctx).DAG, stepKey); err != nil {
+			return nil, "", nil, err
+		}
 		e.cache = openExtractCache(e.dataDir, e.dagName, stepKey)
 	}
 

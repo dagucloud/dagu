@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,66 @@ func TestCommitPointsUnderRawDeviceName(t *testing.T) {
 	assert.Equal(t, []string{"con"}, steps)
 }
 
+// Points that this version keeps stay with their step when a later claim
+// converts the DAG, even beside a step that had the same SafeName.
+func TestCommitPointsKeepPointsOfThisVersion(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	require.NoError(t, store.Note(t.Context(), "billing", "a_b", writegate.CommitPoint{Key: "k1"}))
+	none := func(string) (bool, error) { return false, nil }
+	require.NoError(t, store.Claim(t.Context(), "billing", "a.b", []string{"a.b", "a_b"}, none))
+	assert.Len(t, mustLoad(t, store, "billing", "a_b"), 1)
+}
+
+// A step whose name is too long for a file name in full is listed by its
+// name, so its points read back.
+func TestCommitPointsListLongSteps(t *testing.T) {
+	t.Parallel()
+
+	store := writegate.NewCommitStore(t.TempDir())
+	step := strings.Repeat("日", 12)
+	require.NoError(t, store.Note(t.Context(), "billing", step, writegate.CommitPoint{Key: "k1"}))
+	steps, err := store.Steps("billing")
+	require.NoError(t, err)
+	assert.Equal(t, []string{step}, steps)
+	assert.Len(t, mustLoad(t, store, "billing", steps[0]), 1)
+}
+
+// A released version's file that two steps shared, or a directory that two
+// DAGs shared, is read by none of them, not even by the one whose own name
+// it has.
+func TestCommitPointsHideSharedLegacyPoints(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		dag   string
+		step  string
+		steps []string
+		taken func(string) (bool, error)
+	}{
+		{name: "SharedStep", dag: "billing", step: "a_b", steps: []string{"a.b", "a_b"}},
+		{name: "SharedDAG", dag: "etl_daily", step: "a_b", steps: []string{"a_b"},
+			taken: func(name string) (bool, error) { return name == "etl.daily", nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			legacy := filepath.Join(dir, "writes", tc.dag, "a_b.json")
+			data, err := json.Marshal([]writegate.CommitPoint{{Key: "k1", Approved: true}})
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+			require.NoError(t, os.WriteFile(legacy, data, 0o600))
+
+			store := writegate.NewCommitStore(dir)
+			require.NoError(t, store.Claim(t.Context(), tc.dag, tc.step, tc.steps, tc.taken))
+			assert.Empty(t, mustLoad(t, store, tc.dag, tc.step))
+		})
+	}
+}
+
 // Released versions stored commit points under the SafeNames of the DAG and
 // the step, which other DAGs and steps could share. A run claims them only
 // when no other step of the DAG, and no other DAG, had those SafeNames, so a
@@ -164,7 +225,6 @@ func TestCommitPointsClaimsPointsItOwns(t *testing.T) {
 				assert.NoFileExists(t, legacy)
 			} else {
 				assert.Empty(t, points)
-				assert.FileExists(t, legacy)
 			}
 		})
 	}

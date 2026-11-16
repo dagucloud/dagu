@@ -174,9 +174,34 @@ func removeUnchanged[T any](entries map[string]T, key string, replayed T) {
 // update applies change to the file as it is now. An emptied file is
 // removed, so clearing a cache leaves nothing behind.
 func (r *Recordings[T]) update(ctx context.Context, change func(map[string]T)) error {
-	dir := filepath.Dir(r.path)
+	return locked(ctx, filepath.Dir(r.path), func() error {
+		entries, err := read[T](r.path)
+		if err != nil {
+			return err
+		}
+		change(entries)
+		if len(entries) == 0 {
+			if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("remove replay cache: %w", err)
+			}
+			return nil
+		}
+		return fileutil.WriteJSONAtomic(r.path, entries, fileMode)
+	})
+}
+
+// locked runs fn under the lock of a DAG's replay cache directory, which it
+// creates and marks as named by SafeKey.
+func locked(ctx context.Context, dir string, fn func() error) error {
+	_, err := os.Lstat(dir)
+	created := errors.Is(err, os.ErrNotExist)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("create replay cache directory: %w", err)
+	}
+	if created {
+		if err := fileutil.MarkSafeKeyDir(dir); err != nil {
+			return fmt.Errorf("mark replay cache directory: %w", err)
+		}
 	}
 	// The step may already be over its deadline; the change still gets its
 	// own short wait.
@@ -187,18 +212,7 @@ func (r *Recordings[T]) update(ctx context.Context, change func(map[string]T)) e
 		return fmt.Errorf("lock replay cache: %w", err)
 	}
 	defer func() { _ = lock.Unlock() }()
-	entries, err := read[T](r.path)
-	if err != nil {
-		return err
-	}
-	change(entries)
-	if len(entries) == 0 {
-		if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove replay cache: %w", err)
-		}
-		return nil
-	}
-	return fileutil.WriteJSONAtomic(r.path, entries, fileMode)
+	return fn()
 }
 
 func read[T any](path string) (map[string]T, error) {

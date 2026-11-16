@@ -5,9 +5,8 @@ package agentstep
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -49,14 +48,14 @@ func StepKeys(dag *ir.DAG) []string {
 	return keys
 }
 
-// ClaimRecords moves the replay records that released versions stored for a
-// step of dag under an older file name to the step's own file, when no other
-// step of dag had that name. A failure leaves them in place and is logged.
-func ClaimRecords(ctx context.Context, cache *replaycache.Store, dag *ir.DAG, stepKey string) {
+// ClaimRecords readies a step's replay records before the step opens them
+// (see replaycache.Store.Claim).
+func ClaimRecords(ctx context.Context, cache *replaycache.Store, dag *ir.DAG, stepKey string) error {
 	if dag == nil {
-		return
+		return nil
 	}
-	if err := cache.Claim(dag.Name, stepKey, StepKeys(dag)); err != nil {
-		logger.Warn(ctx, "Failed to move replay records stored under an older name", tag.Error(err))
+	if err := cache.Claim(ctx, dag.Name, stepKey, StepKeys(dag)); err != nil {
+		return fmt.Errorf("ready the replay records: %w", err)
 	}
+	return nil
 }

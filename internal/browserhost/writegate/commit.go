@@ -75,33 +75,57 @@ func (s *CommitStore) dagDir(dag string) string {
 	return filepath.Join(s.dir, fileutil.SafeKey(dag))
 }
 
-// Claim moves the commit points that released versions stored for a step,
-// under the SafeNames of its DAG and of its step, to the step's own file. It
-// moves them only when they belong to the step alone: no other step in steps,
-// the keys of all steps of the DAG, had the step's SafeName, and taken, which
-// reports whether a DAG of a given name exists, finds no other DAG that had
-// the DAG's SafeName. Points already in the step's own file stay.
+// Claim readies the commit points of a step before a run reads them.
+// Released versions kept them under the SafeNames of the DAG and of the
+// step, which other DAGs and steps could share. A DAG whose name keeps its
+// directory has it converted on its first claim: each file goes to the one
+// step in steps, the keys of all steps of the DAG, that had its SafeName,
+// unless taken, which reports whether a DAG of a given name exists, finds
+// another DAG that had the DAG's SafeName. A file that several steps or DAGs
+// had is never read again. A DAG whose name moves its directory takes the
+// step's file from the old directory under the same rules. Claim also keeps
+// the step so that Steps returns it in full.
 func (s *CommitStore) Claim(ctx context.Context, dag, step string, steps []string, taken func(dag string) (bool, error)) error {
+	dir := s.dagDir(dag)
 	legacyDAG, _ := fileutil.LegacySafeName(dag, nil)
-	legacyStep, owned := fileutil.LegacySafeName(step, steps)
 	fromDir := filepath.Join(s.dir, legacyDAG)
-	path := s.path(dag, step)
-	if !owned || filepath.Join(fromDir, legacyStep+commitFileExt) == path {
+	return s.locked(ctx, dir, func() error {
+		if fromDir == dir {
+			if !fileutil.IsSafeKeyDir(dir) {
+				var names []string
+				if ownsLegacyDAGDir(dag, legacyDAG, taken) {
+					names = append(slices.Clone(steps), step)
+				}
+				if err := fileutil.ConvertSafeNameDir(dir, commitFileExt, names); err != nil {
+					return err
+				}
+			}
+		} else if err := s.claimFrom(fromDir, dag, legacyDAG, step, steps, taken); err != nil {
+			return err
+		}
+		return fileutil.KeepSafeKeyName(dir, step)
+	})
+}
+
+// claimFrom moves the step's file from the directory released versions kept
+// the DAG's commit points in.
+func (s *CommitStore) claimFrom(fromDir, dag, legacyDAG, step string, steps []string, taken func(string) (bool, error)) error {
+	legacyStep, owned := fileutil.LegacySafeName(step, steps)
+	if !owned {
 		return nil
 	}
 	// The cheap checks come first, since checking the DAG may load DAGs.
-	if _, ok := fileutil.LegacyEntry(fromDir, legacyStep+commitFileExt); !ok {
+	if _, ok := fileutil.LegacyEntry(fromDir, legacyStep+commitFileExt); !ok || fileutil.IsSafeKeyDir(fromDir) {
 		return nil
 	}
+	path := s.path(dag, step)
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if !ownsLegacyDAGDir(dag, legacyDAG, taken) {
 		return nil
 	}
-	return s.locked(ctx, filepath.Dir(path), func() error {
-		return fileutil.ClaimLegacySafeName(fromDir, step, commitFileExt, steps, path)
-	})
+	return fileutil.ClaimLegacySafeName(fromDir, step, commitFileExt, steps, path)
 }
 
 // maxLegacyDAGUnderscores bounds the DAG names checked for sharing a legacy
@@ -156,11 +180,12 @@ func (s *CommitStore) Load(dag, step string) ([]CommitPoint, error) {
 	return points, nil
 }
 
-// Steps returns the steps of a DAG that have commit points. A step kept in a
-// form that does not hold its name in full, such as the SafeName of a released
-// version, is returned in that form.
+// Steps returns the steps of a DAG that have commit points. Until a run
+// claims a step of the DAG, a step is returned as the SafeName that released
+// versions kept it under.
 func (s *CommitStore) Steps(dag string) ([]string, error) {
-	entries, err := os.ReadDir(s.dagDir(dag))
+	dir := s.dagDir(dag)
+	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -170,7 +195,7 @@ func (s *CommitStore) Steps(dag string) ([]string, error) {
 	var steps []string
 	for _, entry := range entries {
 		if name, ok := strings.CutSuffix(entry.Name(), commitFileExt); ok && !entry.IsDir() {
-			steps = append(steps, fileutil.UnescapeSafeKey(name))
+			steps = append(steps, fileutil.SafeKeyName(dir, name))
 		}
 	}
 	slices.Sort(steps)
@@ -249,14 +274,25 @@ func (s *CommitStore) update(ctx context.Context, dag, step string, change func(
 		if err != nil {
 			return err
 		}
+		if err := fileutil.KeepSafeKeyName(filepath.Dir(path), step); err != nil {
+			return err
+		}
 		return fileutil.WriteJSONAtomic(path, change(points), commitFileMode)
 	})
 }
 
-// locked runs fn under the lock of a DAG's commit points directory.
+// locked runs fn under the lock of a DAG's commit points directory, which
+// it creates and marks as named by SafeKey.
 func (s *CommitStore) locked(ctx context.Context, dir string, fn func() error) error {
+	_, err := os.Lstat(dir)
+	created := errors.Is(err, os.ErrNotExist)
 	if err := os.MkdirAll(dir, commitDirMode); err != nil {
 		return fmt.Errorf("create the commit points directory: %w", err)
+	}
+	if created {
+		if err := fileutil.MarkSafeKeyDir(dir); err != nil {
+			return fmt.Errorf("mark the commit points directory: %w", err)
+		}
 	}
 	lockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitLockTimeout)
 	defer cancel()

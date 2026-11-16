@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -99,10 +100,10 @@ func LegacySafeName(name string, siblings []string) (string, bool) {
 	return legacy, true
 }
 
-// UnescapeSafeKey returns the name that SafeKey made key from, or key itself
+// unescapeSafeKey returns the name that SafeKey made key from, or key itself
 // when key does not hold a name in full, such as a key that SafeKey cut or a
 // SafeName that released versions stored.
-func UnescapeSafeKey(key string) string {
+func unescapeSafeKey(key string) string {
 	name, err := url.PathUnescape(key)
 	if err != nil || SafeKey(name) != key {
 		return key
@@ -110,13 +111,127 @@ func UnescapeSafeKey(key string) string {
 	return name
 }
 
+const (
+	// safeKeyDirMarker marks a directory whose entries are named by SafeKey.
+	safeKeyDirMarker = ".safekey"
+	// unclaimedDirName holds the entries that ConvertSafeNameDir gave to no
+	// name. Nothing reads them again.
+	unclaimedDirName = ".unclaimed"
+	// safeKeyNameExt follows the key of the file that holds the name of a key
+	// SafeKey cut.
+	safeKeyNameExt = ".name"
+)
+
+// MarkSafeKeyDir records that the entries of dir, which must exist, are
+// named by SafeKey.
+func MarkSafeKeyDir(dir string) error {
+	file, err := os.OpenFile(filepath.Join(dir, safeKeyDirMarker), os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // dir is the caller's own directory
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+// IsSafeKeyDir reports whether dir is marked as named by SafeKey (see
+// MarkSafeKeyDir).
+func IsSafeKeyDir(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, safeKeyDirMarker))
+	return err == nil
+}
+
+// ConvertSafeNameDir names the entries of dir by SafeKey and marks dir (see
+// MarkSafeKeyDir), unless it is marked already. A directory created after
+// the upgrade is marked when it is created, so this converts only a
+// directory of a released version. Released versions named an
+// entry by the SafeName of a name followed by ext. Such an entry is renamed
+// to the SafeKey of the one name in names that had that SafeName, ignoring
+// case. An entry that no name or several names had moves to a subdirectory
+// that nothing reads. dir must exist, and the caller holds a lock on it.
+func ConvertSafeNameDir(dir, ext string, names []string) error {
+	if IsSafeKeyDir(dir) {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		base, ok := strings.CutSuffix(entry.Name(), ext)
+		if !ok || base == "" || allowedCharRegex.MatchString(base) || !entry.Type().IsRegular() {
+			continue
+		}
+		if _, ok := LegacyEntry(dir, entry.Name()); !ok {
+			continue
+		}
+		if err := convertSafeNameEntry(dir, entry.Name(), base, ext, names); err != nil {
+			return err
+		}
+	}
+	return MarkSafeKeyDir(dir)
+}
+
+func convertSafeNameEntry(dir, entry, base, ext string, names []string) error {
+	var owners []string
+	for _, name := range names {
+		if strings.EqualFold(replacedName(name), base) && !slices.Contains(owners, name) {
+			owners = append(owners, name)
+		}
+	}
+	if len(owners) == 1 {
+		key := SafeKey(owners[0]) + ext
+		// A key that differs only in case names the same entry on a file
+		// system that ignores case.
+		if strings.EqualFold(key, entry) {
+			return nil
+		}
+		if _, err := os.Lstat(filepath.Join(dir, key)); errors.Is(err, os.ErrNotExist) {
+			return Rename(filepath.Join(dir, entry), filepath.Join(dir, key))
+		}
+	}
+	unclaimed := filepath.Join(dir, unclaimedDirName)
+	if err := os.MkdirAll(unclaimed, 0o700); err != nil {
+		return err
+	}
+	return Rename(filepath.Join(dir, entry), filepath.Join(unclaimed, entry))
+}
+
+// KeepSafeKeyName records name in dir, when SafeKey cut its key, so that
+// SafeKeyName can return it. dir must exist.
+func KeepSafeKeyName(dir, name string) error {
+	key := SafeKey(name)
+	if unescapeSafeKey(key) == name {
+		return nil
+	}
+	path := filepath.Join(dir, key+safeKeyNameExt)
+	if _, err := os.Lstat(path); err == nil {
+		return nil
+	}
+	return WriteFileAtomic(path, []byte(name), 0o600)
+}
+
+// SafeKeyName returns the name whose SafeKey is key, the name of an entry of
+// dir. The name is decoded from key, or read from what KeepSafeKeyName
+// recorded for a key SafeKey cut. Without either, as for a SafeName that
+// released versions stored, it returns key.
+func SafeKeyName(dir, key string) string {
+	if name := unescapeSafeKey(key); SafeKey(name) == key {
+		return name
+	}
+	data, err := os.ReadFile(filepath.Join(dir, key+safeKeyNameExt)) //nolint:gosec // dir and key name an entry the caller listed
+	if err == nil && SafeKey(string(data)) == key {
+		return string(data)
+	}
+	return key
+}
+
 // ClaimLegacySafeName moves the entry that released versions stored in
 // fromDir for name, under its SafeName followed by suffix, to path, so name
-// keeps its data under its own key. It moves nothing when another name in
-// siblings may own that entry (see LegacySafeName), or when path exists.
+// keeps its data under its own key. It moves nothing when fromDir is named by
+// SafeKey (see IsSafeKeyDir), when another name in siblings may own that
+// entry (see LegacySafeName), or when path exists.
 func ClaimLegacySafeName(fromDir, name, suffix string, siblings []string, path string) error {
 	legacy, ok := LegacySafeName(name, siblings)
-	if !ok || filepath.Join(fromDir, legacy+suffix) == path {
+	if !ok || IsSafeKeyDir(fromDir) {
 		return nil
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {

@@ -6,6 +6,7 @@ package replaycache_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
@@ -144,7 +145,11 @@ func TestReplayCacheKeepsSimilarStepKeysApart(t *testing.T) {
 	t.Parallel()
 
 	cache := replaycache.New(t.TempDir())
-	seedReplayCache(t, cache, "billing", "a.b", "a_b")
+	for _, key := range []string{"a.b", "a_b"} {
+		records := replaycache.Open[string](cache.Path("billing", key))
+		records.Stage("k", key)
+		require.NoError(t, records.Commit(t.Context()))
+	}
 	assert.NotEqual(t, cache.Path("billing", "a.b"), cache.Path("billing", "a_b"))
 
 	removed, err := cache.Clear("billing", "a.b")
@@ -165,6 +170,76 @@ func TestReplayCacheKeepsCleanedKeysApart(t *testing.T) {
 	}
 }
 
+// A released version's file that two step keys shared, such as a_b.json for
+// a.b and a_b, is read by neither of them, not even by a_b, whose own file
+// has that name.
+func TestReplayCacheHidesSharedLegacyRecords(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	legacy := cache.Path("billing", "a_b")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
+	require.NoError(t, os.WriteFile(legacy, []byte(`{"k":{}}`), 0o600))
+
+	stepKeys := []string{"a.b", "a_b"}
+	for _, key := range stepKeys {
+		require.NoError(t, cache.Claim(t.Context(), "billing", key, stepKeys))
+	}
+	for _, key := range stepKeys {
+		entries, err := cache.Entries("billing", key)
+		require.NoError(t, err)
+		assert.Empty(t, entries, key)
+	}
+}
+
+// Records that this version stores stay with their step when a later claim
+// converts the DAG, even beside a step that had the same SafeName.
+func TestReplayCacheKeepsRecordsOfThisVersion(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	records := replaycache.Open[string](cache.Path("billing", "a_b"))
+	records.Stage("k", "v")
+	require.NoError(t, records.Commit(t.Context()))
+
+	require.NoError(t, cache.Claim(t.Context(), "billing", "a.b", []string{"a.b", "a_b"}))
+	entries, err := cache.Entries("billing", "a_b")
+	require.NoError(t, err)
+	assert.Contains(t, entries, "k")
+}
+
+// A step key too long for a file name once escaped, such as one of many
+// non-ASCII characters, is listed so that its records read back.
+func TestReplayCacheListsLongStepKeys(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	key := strings.Repeat("日", 12)
+	require.NoError(t, cache.Claim(t.Context(), "billing", key, []string{key}))
+	seedReplayCache(t, cache, "billing", key)
+	steps, err := cache.Steps("billing")
+	require.NoError(t, err)
+	require.Len(t, steps, 1)
+	assert.Equal(t, cache.Path("billing", key), cache.Path("billing", steps[0]))
+}
+
+// Clearing a step before any run claims it also removes the records released
+// versions stored under its SafeName, so a later run does not bring them back.
+func TestReplayCacheClearRemovesLegacyRecords(t *testing.T) {
+	t.Parallel()
+
+	cache := replaycache.New(t.TempDir())
+	seedReplayCache(t, cache, "billing", "fetch_data")
+	removed, err := cache.Clear("billing", "fetch data")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"fetch data"}, removed)
+
+	require.NoError(t, cache.Claim(t.Context(), "billing", "fetch data", []string{"fetch data"}))
+	entries, err := cache.Entries("billing", "fetch data")
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
 // Earlier versions kept a device name such as con as written, which
 // Windows 11 stores, so a run of the step claims the records under it.
 func TestReplayCacheReadsRawDeviceName(t *testing.T) {
@@ -176,7 +251,7 @@ func TestReplayCacheReadsRawDeviceName(t *testing.T) {
 	require.NoError(t, os.WriteFile(raw, []byte(`{"k":{}}`), 0o600))
 
 	cache := replaycache.New(dataDir)
-	require.NoError(t, cache.Claim("con", "con", []string{"con"}))
+	require.NoError(t, cache.Claim(t.Context(), "con", "con", []string{"con"}))
 	entries, err := cache.Entries("con", "con")
 	require.NoError(t, err)
 	assert.Contains(t, entries, "k")
@@ -208,7 +283,7 @@ func TestReplayCacheClaimsRecordsItOwns(t *testing.T) {
 			require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o700))
 			require.NoError(t, os.WriteFile(legacy, []byte(`{"k":{}}`), 0o600))
 
-			require.NoError(t, cache.Claim("billing", "fetch data", tc.stepKeys))
+			require.NoError(t, cache.Claim(t.Context(), "billing", "fetch data", tc.stepKeys))
 			entries, err := cache.Entries("billing", "fetch data")
 			require.NoError(t, err)
 			if tc.claimed {
@@ -216,7 +291,6 @@ func TestReplayCacheClaimsRecordsItOwns(t *testing.T) {
 				assert.NoFileExists(t, legacy)
 			} else {
 				assert.Empty(t, entries)
-				assert.FileExists(t, legacy)
 			}
 		})
 	}
