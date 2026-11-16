@@ -38,7 +38,6 @@ const {
   deleteResultsMock,
   deleteViewMock,
   listMutateMock,
-  renameErrorMock,
   sharedWorkflowViewState,
   showErrorMock,
   updateViewMock,
@@ -53,7 +52,6 @@ const {
   deleteResultsMock: vi.fn(),
   deleteViewMock: vi.fn(),
   listMutateMock: vi.fn(),
-  renameErrorMock: vi.fn(),
   sharedWorkflowViewState: { views: [] as View[] },
   showErrorMock: vi.fn(),
   updateViewMock: vi.fn(),
@@ -112,8 +110,8 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onSetPinnedWorkflowView,
     onDeleteWorkflowView,
     onDeleteDAGs,
-    onRenameDAG,
     onSetDAGPinned,
+    canEditDAG,
     canPinDAG,
   }: {
     dags: Array<{
@@ -140,8 +138,11 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onDeleteDAGs: (
       fileNames: string[]
     ) => Promise<Array<{ fileName: string; error?: string }>>;
-    onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
     onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
+    canEditDAG?: (dag: {
+      fileName: string;
+      dag: { name: string; workspace?: string };
+    }) => boolean;
     canPinDAG?: (dag: {
       fileName: string;
       dag: { name: string; workspace?: string };
@@ -224,14 +225,6 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </button>
       <button
         type="button"
-        onClick={() =>
-          void onRenameDAG('demo.yaml', 'renamed.yaml').catch(renameErrorMock)
-        }
-      >
-        Rename demo workflow
-      </button>
-      <button
-        type="button"
         onClick={() => void onSetDAGPinned('demo.yaml', true)}
       >
         Pin demo workflow
@@ -244,7 +237,11 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </button>
       <ul>
         {dags.map((dag) => (
-          <li key={dag.fileName} data-can-pin={String(canPinDAG?.(dag))}>
+          <li
+            key={dag.fileName}
+            data-can-edit={String(canEditDAG?.(dag))}
+            data-can-pin={String(canPinDAG?.(dag))}
+          >
             {dag.fileName}
           </li>
         ))}
@@ -472,7 +469,6 @@ describe('DagsPage', () => {
     showErrorMock.mockReset();
     workspaceWriteCheckMock.mockReset();
     workspaceWriteCheckMock.mockReturnValue(true);
-    renameErrorMock.mockReset();
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
     updateViewMock.mockReset();
@@ -1039,24 +1035,6 @@ describe('DagsPage', () => {
     expect(deleteResultsMock).toHaveBeenCalledOnce();
   });
 
-  it('renames workflows through the existing DAG endpoint', async () => {
-    renderPage();
-
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Rename demo workflow' })
-      );
-    });
-
-    expect(clientPostMock).toHaveBeenCalledWith('/dags/{fileName}/rename', {
-      params: {
-        path: { fileName: 'demo.yaml' },
-        query: { remoteNode: 'remote-a' },
-      },
-      body: { newFileName: 'renamed.yaml' },
-    });
-  });
-
   it('pins and unpins workflows through the pin endpoint', async () => {
     renderPage();
     const request = {
@@ -1086,7 +1064,7 @@ describe('DagsPage', () => {
   });
 
   // In an all-workspaces view, write access differs between workflows.
-  it('checks pin permission against each workflow workspace', () => {
+  it('checks edit and pin permission against each workflow workspace', () => {
     dagsPageResponse.dags = [
       { fileName: 'demo.yaml', dag: { name: 'demo' }, latestDAGRun: {} },
       {
@@ -1100,14 +1078,13 @@ describe('DagsPage', () => {
     );
     renderPage();
 
-    expect(screen.getByText('ops.yaml')).toHaveAttribute(
-      'data-can-pin',
-      'true'
-    );
-    expect(screen.getByText('demo.yaml')).toHaveAttribute(
-      'data-can-pin',
-      'false'
-    );
+    for (const permission of ['data-can-edit', 'data-can-pin']) {
+      expect(screen.getByText('ops.yaml')).toHaveAttribute(permission, 'true');
+      expect(screen.getByText('demo.yaml')).toHaveAttribute(
+        permission,
+        'false'
+      );
+    }
   });
 
   it('surfaces workflow pin errors without reloading the list', async () => {
@@ -1128,23 +1105,6 @@ describe('DagsPage', () => {
       expect.any(String)
     );
     expect(listMutateMock).toHaveBeenCalledTimes(reloadsBefore);
-  });
-
-  it('surfaces workflow rename errors', async () => {
-    clientPostMock.mockResolvedValueOnce({
-      error: { message: 'name already exists' },
-    });
-    renderPage();
-
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Rename demo workflow' })
-      );
-    });
-
-    expect(renameErrorMock).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'name already exists' })
-    );
   });
 
   // The preview of an older version had a ?peek link.
