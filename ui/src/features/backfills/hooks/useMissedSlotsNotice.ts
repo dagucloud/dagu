@@ -54,8 +54,8 @@ const formatBound = (value: string) =>
  * scheduler paused, or no scheduler ran. For a user who may backfill, its
  * action opens the Backfills tab with the start panel on those slots. The
  * slots are read as the page opens and again when a backfill starts, never
- * polled or retried. Dismissed, the notice stays hidden until a newer span adds missed
- * slots, which moves their `until` later.
+ * polled or retried. Dismissed, the notice stays hidden until a newer span
+ * adds missed slots, which moves their `until` later.
  */
 export function useMissedSlotsNotice(
   fileName: string,
