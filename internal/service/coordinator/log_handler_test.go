@@ -245,6 +245,9 @@ func TestLogHandler_ContinuesLegacyLog(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "hello world", string(content))
 			} else {
+				// The new file lacks the bytes before the offset, so the
+				// stream cannot resume there.
+				require.ErrorContains(t, err, "exceeds current file size")
 				assert.Equal(t, "hello ", string(content))
 				assert.NotEqual(t, legacy, h.logFilePath(chunk))
 			}
