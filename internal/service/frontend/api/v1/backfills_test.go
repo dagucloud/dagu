@@ -272,7 +272,7 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	spans := store.NewSpanStore(helper.Backend.Collection(persis.CollectionSlotSpans), nil)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
-	require.NoError(t, spans.Add(ctx, "", schedulerstate.Span{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute), Reason: schedulerstate.SpanPaused}))
+	require.NoError(t, spans.Add(ctx, "", schedulerstate.Span{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute), Reason: schedulerstate.SpanDown}))
 	require.NoError(t, spans.Add(ctx, "ops-load", schedulerstate.Span{From: hour.Add(-90 * time.Minute), To: hour.Add(-30 * time.Minute), Reason: schedulerstate.SpanSuspended}))
 	for _, dag := range []string{"ops-load", "ops-sync"} {
 		// The slot before the spans ran, so the DAGs were on their schedule.
@@ -297,7 +297,7 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	assert.Equal(t, 4, missed.Slots)
 	assert.True(t, hour.Add(-4*time.Hour).Equal(missed.First), "first %s", missed.First)
 	assert.True(t, hour.Add(-time.Hour).Equal(missed.Last), "last %s", missed.Last)
-	assert.Equal(t, []api.MissedSlotsReason{api.MissedSlotsReasonPaused, api.MissedSlotsReasonSuspended}, missed.Reasons)
+	assert.Equal(t, []api.MissedSlotsReason{api.MissedSlotsReasonDown, api.MissedSlotsReasonSuspended}, missed.Reasons)
 	assert.True(t, hour.Add(-30*time.Minute).Equal(missed.Until), "until %s", missed.Until)
 
 	assert.Nil(t, missedSlots(user("ops"), "ops-sync"), "a DAG that does not read its slot")

@@ -3458,10 +3458,6 @@ type spanRecorder struct {
 	spans []schedulerstate.Span
 }
 
-func (r *spanRecorder) Mark(context.Context, string, schedulerstate.SpanReason, bool, time.Time) error {
-	return nil
-}
-
 func (r *spanRecorder) Add(_ context.Context, dag string, span schedulerstate.Span) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

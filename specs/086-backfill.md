@@ -220,9 +220,9 @@ dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --
   send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
-- Dagu records each span in which start-schedule slots cannot run as it
-  begins and ends, and keeps the spans that ended in the last 30 days, at
-  most 100 for the scheduler and 100 for each DAG:
+- Dagu records each span in which start-schedule slots cannot run once it
+  ends, and keeps the spans that ended in the last 30 days, at most 100
+  each for the scheduler's outages, the operator's pauses, and each DAG:
   - `suspended`: from a DAG's suspension to its resume, for that DAG. The
     suspend flag holds when the suspension began, and suspending again
     keeps it. A resume through the API records the span before it clears
