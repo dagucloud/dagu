@@ -37,7 +37,8 @@ func cardURL(agentURL string) (string, error) {
 	}
 	u.RawQuery = ""
 	if !strings.HasSuffix(u.Path, ".json") {
-		u.Path = strings.TrimSuffix(u.Path, "/") + cardPath
+		// JoinPath keeps an escaped path such as team%2Fdiag intact.
+		u = u.JoinPath(".well-known", "agent-card.json")
 	}
 	return u.String(), nil
 }

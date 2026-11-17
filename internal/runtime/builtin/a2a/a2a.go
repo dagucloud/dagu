@@ -113,19 +113,15 @@ func (c *caller) Run(ctx context.Context) error {
 		if limit := outputLimit(ctx); c.capture && int64(len(body)) > limit {
 			cerr = &callError{kind: kindOutputLimit, message: fmt.Sprintf(
 				"result is %d bytes, over the %d byte limit for captured step output; raise max_output_size, drop output:, or send history_length to shorten the task history", len(body), limit)}
-			if id, ok := out["sent_message_id"].(string); ok {
-				// The agent already accepted the message; a retry would submit it again.
+			if id, note := acceptedNote(out); id != "" {
 				cerr.messageID = id
-				cerr.message += ". The message was accepted"
-				if tid, _ := out["task_id"].(string); tid != "" {
-					cerr.message += fmt.Sprintf(" (task_id %s); read the task with a2a.get_task", redact.apply(tid))
-				} else {
-					cerr.message += " and answered with a direct Message, which a2a.get_task cannot recover"
-				}
-				cerr.message += ". a2a.send never retries; retrying can duplicate remote work"
+				cerr.message += note
 			}
+		} else if err := writeAll(c.stdout, body); err != nil {
+			_, note := acceptedNote(out)
+			return fmt.Errorf("a2a.%s: writing output: %s%s", c.cfg.op, redact.apply(err.Error()), redact.apply(note))
 		} else {
-			return wrapWrite(writeAll(c.stdout, body), c.cfg.op)
+			return nil
 		}
 	}
 	cerr.action = "a2a." + c.cfg.op
@@ -147,11 +143,21 @@ func withDefaultDeadline(ctx context.Context, d time.Duration) (context.Context,
 	return context.WithTimeout(ctx, d)
 }
 
-func wrapWrite(err error, op string) error {
-	if err != nil {
-		return fmt.Errorf("a2a.%s: writing output: %w", op, err)
+// acceptedNote returns the message ID and a recovery note for a result of
+// a2a.send, whose message the agent has already accepted; a retry would submit
+// it again. It is empty for other results.
+func acceptedNote(out map[string]any) (string, string) {
+	id, ok := out["sent_message_id"].(string)
+	if !ok {
+		return "", ""
 	}
-	return nil
+	note := fmt.Sprintf(". The message was accepted (message_id %s)", id)
+	if tid, _ := out["task_id"].(string); tid != "" {
+		note += fmt.Sprintf(" and started task_id %s; read the task with a2a.get_task", tid)
+	} else {
+		note += " and answered with a direct Message, which a2a.get_task cannot recover"
+	}
+	return id, note + ". a2a.send never retries; retrying can duplicate remote work"
 }
 
 func outputLimit(ctx context.Context) int64 {

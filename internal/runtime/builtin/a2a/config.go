@@ -105,7 +105,7 @@ func decodeConfig(step ir.Step, loadTime bool) (config, error) {
 	if raw == nil {
 		raw = map[string]any{}
 	}
-	if s, ok := raw["history_length"].(string); ok && loadTime && value.HasAnyReference(s) {
+	if s, ok := raw["history_length"].(string); ok && loadTime && cfg.op == opGetTask && value.HasAnyReference(s) {
 		raw = maps.Clone(raw)
 		delete(raw, "history_length")
 	}

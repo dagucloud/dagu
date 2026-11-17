@@ -5,6 +5,7 @@ package a2a
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -390,4 +391,47 @@ func TestTaskWithoutIdentity(t *testing.T) {
 	assert.Equal(t, kindProtocol, body["kind"])
 	assert.Contains(t, body["message"], "no id")
 	assert.NotEmpty(t, body["message_id"])
+}
+
+type failWriter struct{ err error }
+
+func (w failWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// When stdout cannot be written after the agent accepted the message, the
+// error still names the message and task and warns about duplicate work.
+func TestWriteFailureKeepsRecovery(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.send = func(obj) any { return obj{"task": taskJSON("task-7", "WORKING", nil)} }
+	tweak := func(c *caller) { c.SetStdout(failWriter{errors.New("disk full " + token)}) }
+
+	_, err := runTweaked(context.Background(), t, f, opSend, sendWith(nil), tweak)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "writing output")
+	assert.Contains(t, err.Error(), "message_id ")
+	assert.Contains(t, err.Error(), "task-7")
+	assert.Contains(t, err.Error(), "duplicate remote work")
+	assert.NotContains(t, err.Error(), token)
+}
+
+// An escaped slash in agent_url stays escaped in the card request.
+func TestCardURLKeepsEscapedPath(t *testing.T) {
+	t.Parallel()
+	got, err := cardURL("https://h.example/agents/team%2Fdiag/")
+	require.NoError(t, err)
+	assert.Equal(t, "https://h.example/agents/team%2Fdiag/.well-known/agent-card.json", got)
+
+	got, err = cardURL("https://h.example")
+	require.NoError(t, err)
+	assert.Equal(t, "https://h.example/.well-known/agent-card.json", got)
+
+	f := newFixture(t)
+	var uri string
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uri = r.RequestURI
+		http.NotFound(w, r)
+	})
+	_, _ = run(context.Background(), t, f, opSend, sendWith(obj{"agent_url": f.srv.URL + "/agents/team%2Fdiag"}))
+	assert.Equal(t, "/agents/team%2Fdiag/.well-known/agent-card.json", uri)
 }

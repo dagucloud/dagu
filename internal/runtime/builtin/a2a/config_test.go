@@ -39,6 +39,7 @@ func TestConfigForms(t *testing.T) {
 			runErr: "integer"},
 		{name: "get resolved", op: opGetTask, with: obj{"agent_url": agent, "task_id": "t1", "history_length": "5"}},
 		{name: "unknown key", op: opSend, with: obj{"agent_url": agent, "message": "hi", "task_id": "x"}, loadErr: "invalid keys", runErr: "invalid keys"},
+		{name: "send history ref", op: opSend, with: obj{"agent_url": agent, "message": "hi", "history_length": "${N}"}, loadErr: "invalid keys", runErr: "invalid keys"},
 		{name: "unknown get key", op: opGetTask, with: obj{"agent_url": agent, "task_id": "x", "message": "hi"}, loadErr: "invalid keys", runErr: "invalid keys"},
 		{name: "userinfo", op: opSend, with: obj{"agent_url": "https://u:p@a.example/", "message": "hi"}, loadErr: "credentials", runErr: "credentials"},
 		{name: "query", op: opSend, with: obj{"agent_url": agent + "?api_key=abc", "message": "hi"}, loadErr: "query string", runErr: "query string"},
