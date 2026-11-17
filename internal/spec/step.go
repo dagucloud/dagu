@@ -1020,8 +1020,8 @@ func parseBackoffValue(val any, fieldName string) (float64, error) {
 		return 0, fmt.Errorf("invalid type for %s: %T (must be boolean or number)", fieldName, v)
 	}
 
-	// Validate backoff value
-	if backoff > 0 && backoff <= 1.0 {
+	// Validate backoff value: 0 or > 1.0 (negative values are not valid)
+	if backoff != 0 && backoff <= 1.0 {
 		return 0, fmt.Errorf("%s must be greater than 1.0 for exponential growth, got: %v", fieldName, backoff)
 	}
 

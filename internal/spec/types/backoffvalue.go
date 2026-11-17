@@ -62,7 +62,7 @@ func (b *BackoffValue) UnmarshalYAML(data []byte) error {
 	}
 
 	// Validate: multiplier must be 0 or > 1.0
-	if b.multiplier > 0 && b.multiplier <= 1.0 {
+	if b.multiplier != 0 && b.multiplier <= 1.0 {
 		return fmt.Errorf("backoff must be greater than 1.0 for exponential growth, got: %v", b.multiplier)
 	}
 

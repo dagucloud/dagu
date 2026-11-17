@@ -50,6 +50,11 @@ func TestBackoffValue_UnmarshalYAML(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "negative multiplier rejected",
+			yaml:    "-2",
+			wantErr: true,
+		},
+		{
 			name:    "invalid multiplier == 1.0",
 			yaml:    "1.0",
 			wantErr: true,
