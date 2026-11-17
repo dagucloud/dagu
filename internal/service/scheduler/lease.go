@@ -100,19 +100,18 @@ type lockLease struct {
 // releases the lock once storage allows.
 func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold time.Duration) (*lockLease, error) {
 	lease := newLockLease(lock, staleThreshold, time.Now())
-	notRenewed := fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
+	release := func() {
+		if err := lock.Unlock(); err != nil {
+			logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(err))
+		}
+	}
 	renewed := make(chan error, 1)
 	// Releasing touches the same storage as renewing, so it runs here too and
 	// the deadline bounds both.
 	go func() {
 		err := lock.Heartbeat(ctx)
-		if err == nil && lease.expired() {
-			err = notRenewed
-		}
 		if err != nil {
-			if unlockErr := lock.Unlock(); unlockErr != nil {
-				logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(unlockErr))
-			}
+			release()
 		}
 		renewed <- err
 	}()
@@ -124,16 +123,19 @@ func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold ti
 		if err != nil {
 			return nil, err
 		}
-		return lease, nil
+		if !lease.expired() {
+			return lease, nil
+		}
+		go release()
 	case <-deadline.C:
-		// A renewal that finished just before the deadline still holds the lock.
+		// A renewal that succeeds after the deadline still holds the lock.
 		go func() {
 			if <-renewed == nil {
-				_ = lock.Unlock()
+				release()
 			}
 		}()
-		return nil, notRenewed
 	}
+	return nil, fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
 }
 
 // newLockLease returns a lease that counts from renewed, the start of the call
