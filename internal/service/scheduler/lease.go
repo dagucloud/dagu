@@ -97,31 +97,42 @@ type lockLease struct {
 // that renewal starts. Acquiring can stall after the lock is taken, long enough
 // for a standby to take it over, so the time it returns is no safe start. It
 // fails when the renewal fails or does not finish within the lease, and then
-// releases the lock unless the renewal is still blocked on storage.
+// releases the lock once storage allows.
 func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold time.Duration) (*lockLease, error) {
 	lease := newLockLease(lock, staleThreshold, time.Now())
+	notRenewed := fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
 	renewed := make(chan error, 1)
+	// Releasing touches the same storage as renewing, so it runs here too and
+	// the deadline bounds both.
 	go func() {
-		renewed <- lock.Heartbeat(ctx)
+		err := lock.Heartbeat(ctx)
+		if err == nil && lease.expired() {
+			err = notRenewed
+		}
+		if err != nil {
+			if unlockErr := lock.Unlock(); unlockErr != nil {
+				logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(unlockErr))
+			}
+		}
+		renewed <- err
 	}()
 
 	deadline := time.NewTimer(time.Until(*lease.expiry.Load()))
 	defer deadline.Stop()
 	select {
 	case err := <-renewed:
-		if err == nil && lease.expired() {
-			err = fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
+		if err != nil {
+			return nil, err
 		}
-		if err == nil {
-			return lease, nil
-		}
-		if unlockErr := lock.Unlock(); unlockErr != nil {
-			logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(unlockErr))
-		}
-		return nil, err
+		return lease, nil
 	case <-deadline.C:
-		// The blocked renewal keeps the lock busy, so it is left to go stale.
-		return nil, fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
+		// A renewal that finished just before the deadline still holds the lock.
+		go func() {
+			if <-renewed == nil {
+				_ = lock.Unlock()
+			}
+		}()
+		return nil, notRenewed
 	}
 }
 

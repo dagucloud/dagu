@@ -24,11 +24,17 @@ const testLeaseStale = 2 * time.Second
 type scriptedLock struct {
 	dirlock.DirLock
 	beats     atomic.Int32
+	unlocks   atomic.Int32
 	heartbeat func(beat int32) error
 }
 
 func (l *scriptedLock) Heartbeat(context.Context) error {
 	return l.heartbeat(l.beats.Add(1))
+}
+
+func (l *scriptedLock) Unlock() error {
+	l.unlocks.Add(1)
+	return nil
 }
 
 func runLease(t *testing.T, lease *lockLease) (<-chan error, func()) {
@@ -128,12 +134,11 @@ func TestLeaseLost(t *testing.T) {
 
 // The lease starts when the renewal that confirms the lock starts. A renewal
 // stuck on storage must fail startup before a standby can take over, without
-// waiting for the renewal to return.
+// waiting for the renewal to return, and release the lock once it does.
 func TestLeaseStartHang(t *testing.T) {
 	t.Parallel()
 
 	release := make(chan struct{})
-	defer close(release)
 	lock := &scriptedLock{heartbeat: func(int32) error {
 		<-release
 		return nil
@@ -142,6 +147,11 @@ func TestLeaseStartHang(t *testing.T) {
 	_, err := startLockLease(context.Background(), lock, testLeaseStale)
 	require.Error(t, err)
 	require.Less(t, time.Since(started), testLeaseStale, "startup must fail before the lock goes stale")
+
+	close(release)
+	require.Eventually(t, func() bool {
+		return lock.unlocks.Load() == 1
+	}, 5*time.Second, 10*time.Millisecond, "the lock must be released once the renewal returns")
 }
 
 // stallingLock stalls once acquiring has taken the lock, as a process paused
