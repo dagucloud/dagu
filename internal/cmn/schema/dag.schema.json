@@ -7823,7 +7823,7 @@
         "agent_url": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^?#]*$",
+          "pattern": "^(https://[^?#@/]*(/[^?#]*)?|[^?#]*\\$\\{[^?#]*)$",
           "description": "HTTPS URL of the agent. Its Agent Card is read from /.well-known/agent-card.json below it. Must not contain credentials, a query string, or a fragment."
         },
         "message": {
@@ -7862,7 +7862,7 @@
         "agent_url": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^?#]*$",
+          "pattern": "^(https://[^?#@/]*(/[^?#]*)?|[^?#]*\\$\\{[^?#]*)$",
           "description": "HTTPS URL of the agent. Its Agent Card is read from /.well-known/agent-card.json below it. Must not contain credentials, a query string, or a fragment."
         },
         "task_id": {

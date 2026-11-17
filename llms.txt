@@ -821,6 +821,9 @@ Put credentials in `headers`, never in the URL. Values of headers and URL query 
 Delegate a task to a remote A2A 1.0 agent over JSON-RPC and HTTPS without an LLM. `a2a.send` reads the Agent Card from `/.well-known/agent-card.json` below `agent_url`, sends one nonblocking `SendMessage` to the card's JSON-RPC 1.0 interface, and returns a Task or a direct Message. `a2a.get_task` reads one Task by ID. The remote agent owns the task; Dagu only submits and reads.
 
 ```yaml
+params:
+  - ISSUE_ID: TICKET-123
+
 secrets:
   - name: A2A_TOKEN
     provider: env

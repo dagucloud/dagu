@@ -531,6 +531,28 @@ steps:
 			wantErr: "did not validate",
 		},
 		{
+			name: "RejectActionA2AHTTPURL",
+			spec: `
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: http://agents.example.com/diag
+      task_id: t1
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AUserinfoURL",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://user:pw@agents.example.com/diag
+      message: hi
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectActionA2AIdempotencyHeader",
 			spec: `
 steps:
