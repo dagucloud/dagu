@@ -126,18 +126,22 @@ func TestLeaseLost(t *testing.T) {
 	require.Less(t, time.Since(started), lease.budget, "losing the lock ends the lease at once")
 }
 
-// The lease starts when the renewal that confirms the lock starts, so a
-// renewal that stalls uses up the lease instead of extending it.
-func TestLeaseStartsAtRenewal(t *testing.T) {
+// The lease starts when the renewal that confirms the lock starts. A renewal
+// stuck on storage must fail startup before a standby can take over, without
+// waiting for the renewal to return.
+func TestLeaseStartHang(t *testing.T) {
 	t.Parallel()
 
+	release := make(chan struct{})
+	defer close(release)
 	lock := &scriptedLock{heartbeat: func(int32) error {
-		time.Sleep(testLeaseStale)
+		<-release
 		return nil
 	}}
-	lease, err := startLockLease(context.Background(), lock, testLeaseStale)
-	require.NoError(t, err)
-	require.True(t, lease.expired())
+	started := time.Now()
+	_, err := startLockLease(context.Background(), lock, testLeaseStale)
+	require.Error(t, err)
+	require.Less(t, time.Since(started), testLeaseStale, "startup must fail before the lock goes stale")
 }
 
 // stallingLock stalls once acquiring has taken the lock, as a process paused

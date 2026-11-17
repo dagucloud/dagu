@@ -741,9 +741,6 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 	// renew it before acting as active.
 	lease, err := startLockLease(ctx, s.dirLock, s.config.Scheduler.LockStaleThreshold)
 	if err != nil {
-		if unlockErr := s.dirLock.Unlock(); unlockErr != nil {
-			logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(unlockErr))
-		}
 		return fmt.Errorf("%w: %v", ErrLockLost, err)
 	}
 

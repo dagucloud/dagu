@@ -95,13 +95,34 @@ type lockLease struct {
 
 // startLockLease renews a newly acquired lock once and starts the lease when
 // that renewal starts. Acquiring can stall after the lock is taken, long enough
-// for a standby to take it over, so the time it returns is no safe start.
+// for a standby to take it over, so the time it returns is no safe start. It
+// fails when the renewal fails or does not finish within the lease, and then
+// releases the lock unless the renewal is still blocked on storage.
 func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold time.Duration) (*lockLease, error) {
-	start := time.Now()
-	if err := lock.Heartbeat(ctx); err != nil {
+	lease := newLockLease(lock, staleThreshold, time.Now())
+	renewed := make(chan error, 1)
+	go func() {
+		renewed <- lock.Heartbeat(ctx)
+	}()
+
+	deadline := time.NewTimer(time.Until(*lease.expiry.Load()))
+	defer deadline.Stop()
+	select {
+	case err := <-renewed:
+		if err == nil && lease.expired() {
+			err = fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
+		}
+		if err == nil {
+			return lease, nil
+		}
+		if unlockErr := lock.Unlock(); unlockErr != nil {
+			logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(unlockErr))
+		}
 		return nil, err
+	case <-deadline.C:
+		// The blocked renewal keeps the lock busy, so it is left to go stale.
+		return nil, fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
 	}
-	return newLockLease(lock, staleThreshold, start), nil
 }
 
 // newLockLease returns a lease that counts from renewed, the start of the call
