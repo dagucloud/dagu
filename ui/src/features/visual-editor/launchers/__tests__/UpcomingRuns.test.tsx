@@ -210,4 +210,72 @@ describe('UpcomingRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(7);
   });
+
+  // Two schedules that override the same parameter must look different.
+  it('shows the overrides of each run beside its time', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrideCount: 1,
+          },
+          {
+            expression: '0 6 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrideCount: 1,
+          },
+        ]}
+        overrides={[
+          { expression: '0 5 * * *', params: { mode: 'y' } },
+          { expression: '0 6 * * *', params: { mode: 'z' } },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          { time: '2027-01-25T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    expect(screen.getByText('· mode: y')).toBeInTheDocument();
+    expect(screen.getByText('· mode: z')).toBeInTheDocument();
+    expect(screen.queryByText(/parameter override/)).toBeNull();
+  });
+
+  it('tells the duplicates of one expression apart by their order', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+        ]}
+        overrides={[
+          { expression: '0 5 * * *', params: { mode: 'a' } },
+          { expression: '0 5 * * *', params: { mode: 'b' } },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    expect(screen.getByText('· mode: b')).toBeInTheDocument();
+  });
+
+  it('falls back to the count without a matching entry', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrideCount: 2,
+          },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+        ]}
+      />
+    );
+    expect(screen.getByText('· 2 parameter overrides')).toBeInTheDocument();
+  });
 });

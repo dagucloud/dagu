@@ -1426,6 +1426,14 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       session.apply({ kind: 'setSchedule', expressions, removedIndex })
     );
   };
+  const setScheduleParam = (
+    index: number,
+    name: string,
+    value: string | null
+  ) => {
+    if (!canEdit) return;
+    afterEdit(session.apply({ kind: 'setScheduleParam', index, name, value }));
+  };
   const toggleYaml = (open?: boolean) => {
     if (!onYamlVisibleChange) return;
     // The form shows in place of the text: the button then shows the text.
@@ -1983,7 +1991,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               upcomingRuns={details?.upcomingRuns}
               upcomingRunsHold={details?.upcomingRunsHold}
               schedules={details?.schedule}
+              paramDefaults={details?.paramDefs?.flatMap((def) =>
+                def.name
+                  ? [
+                      {
+                        name: def.name,
+                        default:
+                          def.default === undefined
+                            ? undefined
+                            : String(def.default),
+                      },
+                    ]
+                  : []
+              )}
               onChange={setSchedule}
+              onParamChange={setScheduleParam}
               onClose={closeLauncher}
             />
           )}

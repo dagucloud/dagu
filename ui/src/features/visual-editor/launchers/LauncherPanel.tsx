@@ -1,10 +1,11 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Plus, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import type { components, UpcomingRunsHold } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { useConfig } from '@/contexts/ConfigContext';
 import WebhookTab from '@/features/dags/components/dag-details/WebhookTab';
 import {
@@ -133,15 +134,89 @@ function NextRunsPreview({ expression }: { expression: string }): ReactElement {
   );
 }
 
+/** A named parameter of the workflow and its default, for the schedule fields. */
+export interface ParamDefault {
+  name: string;
+  default?: string;
+}
+
+/**
+ * One field per workflow parameter. The workflow default shows as the muted
+ * placeholder; a typed value is an override of this schedule, and the reset
+ * button clears it. An emptied field has no override.
+ */
+function ParamOverrideFields({
+  defaults,
+  values,
+  editable,
+  onChange,
+}: {
+  defaults: readonly ParamDefault[];
+  values: Record<string, string>;
+  editable: boolean;
+  onChange(name: string, value: string | null): void;
+}): ReactElement | null {
+  const { ts } = useI18n();
+  if (defaults.length === 0) return null;
+  const overrides = new Map(Object.entries(values));
+  return (
+    <div className="space-y-1" role="group" aria-label={ts('Parameters')}>
+      {defaults.map((param) => {
+        const overridden = overrides.has(param.name);
+        return (
+          <div key={param.name} className="flex items-center gap-2">
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="w-20 shrink-0 truncate" title={param.name}>
+                {param.name}
+              </span>
+              <input
+                type="text"
+                value={overrides.get(param.name) ?? ''}
+                placeholder={param.default ?? ''}
+                readOnly={!editable}
+                spellCheck={false}
+                aria-label={param.name}
+                onChange={(event) =>
+                  onChange(
+                    param.name,
+                    event.target.value === '' ? null : event.target.value
+                  )
+                }
+                className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            {editable && overridden && (
+              <IconButton
+                size="sm"
+                icon={RotateCcw}
+                label={ts('Use workflow default for {name}', {
+                  name: param.name,
+                })}
+                onClick={() => onChange(param.name, null)}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ExpressionRow({
   expression,
   editable,
+  paramDefaults,
+  paramValues,
   serverPreview,
   onCommit,
+  onParamChange,
   onRemove,
 }: {
   expression: string;
   editable: boolean;
+  paramDefaults: readonly ParamDefault[];
+  paramValues: Record<string, string>;
+  onParamChange(name: string, value: string | null): void;
   /** The panel lists the server's runs, so the row previews only drafts. */
   serverPreview: boolean;
   /** False when the panel refuses the expression: the draft goes back. */
@@ -196,16 +271,12 @@ function ExpressionRow({
           </Button>
         )}
         {editable && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={ts('Remove this expression')}
-            title={ts('Remove this expression')}
+          <IconButton
+            icon={Trash2}
+            tone="destructive"
+            label={ts('Remove schedule')}
             onClick={onRemove}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </Button>
+          />
         )}
       </div>
       {editable && formOpen && (
@@ -217,6 +288,12 @@ function ExpressionRow({
         />
       )}
       <ScheduleSummary expression={draft} />
+      <ParamOverrideFields
+        defaults={paramDefaults}
+        values={paramValues}
+        editable={editable}
+        onChange={onParamChange}
+      />
       {previewed && <NextRunsPreview expression={draft.trim()} />}
     </li>
   );
@@ -234,7 +311,9 @@ export function CronLauncherPanel({
   upcomingRuns,
   upcomingRunsHold,
   schedules = [],
+  paramDefaults = [],
   onChange,
+  onParamChange,
   onClose,
 }: {
   schedule: ScheduleView;
@@ -245,8 +324,12 @@ export function CronLauncherPanel({
   upcomingRunsHold?: UpcomingRunsHold;
   /** The server's start schedules, which upcomingRuns index. */
   schedules?: Schedule[];
+  /** Named parameters of the workflow, whose defaults each schedule inherits. */
+  paramDefaults?: readonly ParamDefault[];
   /** The new list of start expressions; the other entries stay. */
   onChange(expressions: string[], removedIndex?: number): void;
+  /** Sets (value) or clears (null) a parameter override of an expression. */
+  onParamChange?(index: number, name: string, value: string | null): void;
   onClose(): void;
 }): ReactElement {
   const { ts } = useI18n();
@@ -278,6 +361,11 @@ export function CronLauncherPanel({
               key={`${removals}-${index}`}
               expression={expression}
               editable={editable}
+              paramDefaults={paramDefaults}
+              paramValues={schedule.params?.[index] ?? {}}
+              onParamChange={(name, value) =>
+                onParamChange?.(index, name, value)
+              }
               serverPreview={upcomingRuns !== undefined}
               onCommit={(next) => {
                 if (expressions.includes(next)) return false;
@@ -300,6 +388,10 @@ export function CronLauncherPanel({
           runs={upcomingRuns}
           hold={upcomingRunsHold}
           schedules={schedules}
+          overrides={expressions.map((entry, index) => ({
+            expression: entry,
+            params: schedule.params?.[index] ?? {},
+          }))}
         />
       )}
       {schedule.others > 0 && (
@@ -328,16 +420,12 @@ export function CronLauncherPanel({
               }}
               className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
+            <IconButton
+              icon={Plus}
+              label={ts('Add schedule')}
               disabled={added.trim() === ''}
               onClick={() => add(added)}
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              {ts('Add')}
-            </Button>
+            />
           </div>
           {added.trim() !== '' && (
             <>
@@ -359,18 +447,6 @@ export function CronLauncherPanel({
             ))}
           </div>
         </section>
-      )}
-      {editable && expressions.length > 0 && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="text-destructive"
-          onClick={() => onChange([])}
-        >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          {ts('Remove schedule')}
-        </Button>
       )}
     </Shell>
   );

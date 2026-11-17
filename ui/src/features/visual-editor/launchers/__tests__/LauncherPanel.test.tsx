@@ -170,7 +170,7 @@ describe('CronLauncherPanel', () => {
       )
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add schedule' }));
     expect(onChange).toHaveBeenCalledExactlyOnceWith(['30 18 31 * *']);
   });
 
@@ -261,9 +261,129 @@ describe('CronLauncherPanel', () => {
     expect(list.getByTestId('ve-schedule-builder')).toBeInTheDocument();
 
     fireEvent.click(
-      list.getAllByRole('button', { name: 'Remove this expression' })[0]!
+      list.getAllByRole('button', { name: 'Remove schedule' })[0]!
     );
     expect(list.getByLabelText('Cron expression')).toHaveValue('0 18 * * *');
     expect(list.queryByTestId('ve-schedule-builder')).toBeNull();
+  });
+});
+
+describe('CronLauncherPanel parameter overrides', () => {
+  const defaults = [{ name: 'mode', default: 'manual' }];
+
+  function renderParams(
+    params: Array<Record<string, string>>,
+    expressions = ['0 5 * * *', '0 6 * * *']
+  ) {
+    const onParamChange = vi.fn();
+    const onChange = vi.fn();
+    render(
+      <CronLauncherPanel
+        schedule={{ present: true, expressions, others: 0, params }}
+        editable
+        paramDefaults={defaults}
+        onChange={onChange}
+        onParamChange={onParamChange}
+        onClose={() => undefined}
+      />
+    );
+    return { onParamChange, onChange };
+  }
+
+  it('shows the workflow default as a placeholder on every schedule', () => {
+    renderParams([{}, {}]);
+    const fields = screen.getAllByLabelText('mode');
+    expect(fields).toHaveLength(2);
+    fields.forEach((field) => {
+      expect(field).toHaveValue('');
+      expect(field).toHaveAttribute('placeholder', 'manual');
+    });
+    expect(
+      screen.queryByRole('button', { name: /Use workflow default/ })
+    ).toBeNull();
+  });
+
+  it('sets an override for the schedule that was edited', () => {
+    const { onParamChange } = renderParams([{}, {}]);
+    fireEvent.change(screen.getAllByLabelText('mode')[1]!, {
+      target: { value: 'z' },
+    });
+    expect(onParamChange).toHaveBeenCalledWith(1, 'mode', 'z');
+  });
+
+  it('keeps an explicit value that equals the default', () => {
+    const { onParamChange } = renderParams([{ mode: 'x' }, {}]);
+    fireEvent.change(screen.getAllByLabelText('mode')[0]!, {
+      target: { value: 'manual' },
+    });
+    expect(onParamChange).toHaveBeenCalledWith(0, 'mode', 'manual');
+  });
+
+  it('resets an override with the button beside its field', () => {
+    const { onParamChange } = renderParams([{}, { mode: 'z' }]);
+    expect(screen.getAllByLabelText('mode')[1]).toHaveValue('z');
+    const reset = screen.getByRole('button', {
+      name: 'Use workflow default for mode',
+    });
+    fireEvent.click(reset);
+    expect(onParamChange).toHaveBeenCalledWith(1, 'mode', null);
+  });
+
+  it('clears an override when its field is emptied', () => {
+    const { onParamChange } = renderParams([{ mode: 'z' }, {}]);
+    fireEvent.change(screen.getAllByLabelText('mode')[0]!, {
+      target: { value: '' },
+    });
+    expect(onParamChange).toHaveBeenCalledWith(0, 'mode', null);
+  });
+
+  it('removes one schedule with its overrides', () => {
+    const { onChange } = renderParams([{ mode: 'y' }, { mode: 'z' }]);
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Remove schedule' })[0]!
+    );
+    expect(onChange).toHaveBeenCalledWith(['0 6 * * *'], 0);
+  });
+
+  it('shows the fields of a schedule that was just added', () => {
+    function Stateful(): ReactElement {
+      const [expressions, setExpressions] = useState<string[]>([]);
+      return (
+        <CronLauncherPanel
+          schedule={{
+            present: true,
+            expressions,
+            others: 0,
+            params: expressions.map(() => ({})),
+          }}
+          editable
+          paramDefaults={defaults}
+          onChange={setExpressions}
+          onClose={() => undefined}
+        />
+      );
+    }
+    render(<Stateful />);
+    expect(screen.queryByLabelText('mode')).toBeNull();
+    fireEvent.change(screen.getByLabelText('New cron expression'), {
+      target: { value: '0 7 * * *' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add schedule' }));
+    expect(screen.getByLabelText('mode')).toHaveAttribute(
+      'placeholder',
+      'manual'
+    );
+  });
+
+  it('shows no fields for a workflow without parameters', () => {
+    render(
+      <CronLauncherPanel
+        schedule={{ present: true, expressions: ['0 5 * * *'], others: 0 }}
+        editable
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+    expect(screen.queryByRole('group', { name: 'Parameters' })).toBeNull();
   });
 });

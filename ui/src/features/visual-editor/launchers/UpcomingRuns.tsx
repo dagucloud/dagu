@@ -15,6 +15,11 @@ import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
+/** The parameter overrides of one cron expression of the YAML. */
+export interface ScheduleOverrides {
+  expression: string;
+  params: Record<string, string>;
+}
 type Translate = ReturnType<typeof useI18n>['ts'];
 
 /** Upcoming runs shown before the list is expanded. */
@@ -30,12 +35,15 @@ export function UpcomingRuns({
   runs,
   hold,
   schedules,
+  overrides = [],
 }: {
   runs: UpcomingRun[];
   /** Why none of the runs will start, if they will not. */
   hold?: UpcomingRunsHold;
   /** The schedules that runs index. */
   schedules: Schedule[];
+  /** The parameter overrides of the editable start expressions, in YAML order. */
+  overrides?: readonly ScheduleOverrides[];
 }): ReactElement {
   const { ts, locale } = useI18n();
   const dayjsLocale = locale === 'zh-CN' ? 'zh-cn' : locale;
@@ -73,6 +81,7 @@ export function UpcomingRuns({
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
             const notes = upcomingRunNotes(run, dayjsLocale, ts);
+            const params = overridesOf(schedules, run.scheduleIndex, overrides);
             return (
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
@@ -94,16 +103,25 @@ export function UpcomingRuns({
                     {scheduleSummary(schedule)}
                   </span>
                 )}
-                {!!schedule?.paramOverrideCount && (
-                  <span>
+                {params.length > 0 ? (
+                  <span className="font-mono text-foreground/80">
                     {' · '}
-                    {ts(
-                      schedule.paramOverrideCount === 1
-                        ? '{count} parameter override'
-                        : '{count} parameter overrides',
-                      { count: schedule.paramOverrideCount }
-                    )}
+                    {params
+                      .map(([name, value]) => `${name}: ${value}`)
+                      .join(', ')}
                   </span>
+                ) : (
+                  !!schedule?.paramOverrideCount && (
+                    <span>
+                      {' · '}
+                      {ts(
+                        schedule.paramOverrideCount === 1
+                          ? '{count} parameter override'
+                          : '{count} parameter overrides',
+                        { count: schedule.paramOverrideCount }
+                      )}
+                    </span>
+                  )
                 )}
                 {notes.length > 0 && (
                   <span className="text-foreground/80">
@@ -165,4 +183,23 @@ function upcomingRunNotes(
 function scheduleSummary(schedule: Schedule): string {
   const label = getScheduleLabel(schedule);
   return schedule.profile ? `${label} (${schedule.profile})` : label;
+}
+
+/**
+ * The overrides of the schedule that a run came from. The k-th schedule of
+ * an expression on the server is the k-th entry of that expression in the
+ * YAML.
+ */
+function overridesOf(
+  schedules: Schedule[],
+  index: number,
+  overrides: readonly ScheduleOverrides[]
+): Array<[string, string]> {
+  const expression = schedules[index]?.expression;
+  if (!expression) return [];
+  const nth = schedules
+    .slice(0, index)
+    .filter((schedule) => schedule.expression === expression).length;
+  const entry = overrides.filter((item) => item.expression === expression)[nth];
+  return Object.entries(entry?.params ?? {});
 }

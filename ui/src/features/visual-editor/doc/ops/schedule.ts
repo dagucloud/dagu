@@ -14,8 +14,10 @@ export interface ScheduleView {
   present: boolean;
   /** Start expressions that are plain strings, in the YAML order. */
   expressions: string[];
-  /** Entries that are not plain strings, such as a one-off or a profile entry. */
+  /** Entries that the panel cannot show, such as a one-off or a profile entry. */
   others: number;
+  /** Parameter overrides of each expression, by the index of `expressions`. */
+  params?: Array<Record<string, string>>;
 }
 
 const NO_SCHEDULE: ScheduleView = {
@@ -35,25 +37,60 @@ const BEFORE_SCHEDULE = [
   'schedule',
 ];
 
-// The start of the map form can be one object, such as a one-off run.
+/** A cron entry that the panel edits: a plain string, or `expression` with `params`. */
+const ENTRY_KEYS = ['expression', 'params'];
+
+function paramsOf(node: unknown): Record<string, string> | null {
+  if (node === undefined || node === null) return {};
+  if (!isMap(node)) return null;
+  const params: Record<string, string> = {};
+  for (const pair of node.items) {
+    if (!isScalar(pair.key) || !isScalar(pair.value)) return null;
+    params[String(pair.key.value)] = String(pair.value.value ?? '');
+  }
+  return params;
+}
+
+/** The expression of an entry the panel edits, or null for any other entry. */
+function entryExpression(item: unknown): string | null {
+  if (isScalar(item)) return typeof item.value === 'string' ? item.value : null;
+  if (!isMap(item)) return null;
+  const expression = item.get('expression', true);
+  const keys = item.items.map((pair) =>
+    String(isScalar(pair.key) ? pair.key.value : '')
+  );
+  if (
+    !isScalar(expression) ||
+    typeof expression.value !== 'string' ||
+    expression.value.trim() === '' ||
+    !keys.every((key) => ENTRY_KEYS.includes(key)) ||
+    paramsOf(item.get('params', true)) === null
+  ) {
+    return null;
+  }
+  return expression.value;
+}
+
+function entryItems(node: unknown): unknown[] {
+  if (isSeq(node)) return node.items;
+  return node === undefined || node === null ? [] : [node];
+}
+
 function readEntries(node: unknown): Omit<ScheduleView, 'present'> {
-  if (isMap(node)) return { expressions: [], others: 1 };
-  if (isScalar(node)) {
-    return typeof node.value === 'string' && node.value.trim() !== ''
-      ? { expressions: [node.value.trim()], others: 0 }
-      : { expressions: [], others: 0 };
-  }
-  if (!isSeq(node)) return { expressions: [], others: 0 };
   const expressions: string[] = [];
+  const params: Array<Record<string, string>> = [];
   let others = 0;
-  for (const item of node.items) {
-    if (isScalar(item) && typeof item.value === 'string') {
-      if (item.value.trim() !== '') expressions.push(item.value.trim());
-    } else {
-      others++;
+  for (const item of entryItems(node)) {
+    const expression = entryExpression(item);
+    if (expression === null) {
+      if (isSeq(node) || isMap(item)) others++;
+      continue;
     }
+    if (expression.trim() === '') continue;
+    expressions.push(expression.trim());
+    params.push(isMap(item) ? (paramsOf(item.get('params', true)) ?? {}) : {});
   }
-  return { expressions, others };
+  return { expressions, others, params };
 }
 
 /**
@@ -87,27 +124,25 @@ function seqOf(doc: Document, values: unknown[]): YAMLSeq {
   return seq;
 }
 
-/** Keeps object entries in place when the Cron launcher edits plain strings. */
+/** Keeps the other entries in place when the Cron launcher edits its own. */
 function startNode(
   doc: Document,
   expressions: string[],
   existing: unknown,
   removedIndex?: number
 ): unknown {
+  const items = entryItems(existing);
   const others = keepOthers(existing);
-  if (others.length === 0) {
+  const hasMapEntry = items.some(
+    (item) => isMap(item) && entryExpression(item) !== null
+  );
+  if (others.length === 0 && !hasMapEntry) {
     return expressions.length === 1
       ? new Scalar(expressions[0])
       : seqOf(doc, expressions);
   }
 
   const seq = seqOf(doc, []);
-  if (isMap(existing)) {
-    seq.items.push(existing, ...seqOf(doc, expressions).items);
-    return seq;
-  }
-  if (!isSeq(existing)) return seq;
-
   const previous = readEntries(existing).expressions;
   const removed = Math.max(0, previous.length - expressions.length);
   let firstChange = 0;
@@ -119,41 +154,43 @@ function startNode(
   }
   let oldIndex = 0;
   let nextIndex = 0;
-  for (const item of existing.items) {
-    if (!isScalar(item) || typeof item.value !== 'string') {
+  for (const item of items) {
+    const current = entryExpression(item);
+    if (current === null) {
       seq.items.push(item);
       continue;
     }
-    if (item.value.trim() === '') continue;
+    if (current.trim() === '') continue;
     const index = oldIndex++;
     const removalStart = removedIndex ?? firstChange;
     if (index >= removalStart && index < removalStart + removed) continue;
     const expression = expressions[nextIndex++];
-    // A stale removedIndex leaves more old strings than new expressions.
+    // A stale removedIndex leaves more old entries than new expressions.
     if (expression === undefined) continue;
-    seq.items.push(
-      item.value.trim() === expression ? item : new Scalar(expression)
-    );
+    if (current.trim() === expression) {
+      seq.items.push(item);
+      continue;
+    }
+    if (isMap(item)) {
+      item.set('expression', expression);
+      seq.items.push(item);
+      continue;
+    }
+    seq.items.push(new Scalar(expression));
   }
   seq.items.push(...seqOf(doc, expressions.slice(nextIndex)).items);
   return seq;
 }
 
 function keepOthers(node: unknown): unknown[] {
-  if (isMap(node)) return [node];
-  return isSeq(node)
-    ? node.items.filter(
-        (item) => !(isScalar(item) && typeof item.value === 'string')
-      )
-    : [];
+  return entryItems(node).filter((item) => entryExpression(item) === null);
 }
 
-/** Drops the plain strings of a start list. False when nothing is left. */
+/** Drops the entries that the panel edits from a start list. False when nothing is left. */
 function clearExpressions(node: unknown): boolean {
-  if (isMap(node)) return true;
-  if (!isSeq(node)) return false;
-  node.items = keepOthers(node);
-  return node.items.length > 0;
+  const kept = keepOthers(node);
+  if (isSeq(node)) node.items = kept;
+  return kept.length > 0;
 }
 
 function setSchedule(
@@ -219,5 +256,74 @@ export function opSetSchedule(
     .filter((expression) => expression !== '');
   return editDocument(text, (doc) =>
     setSchedule(doc, expressions, op.removedIndex)
+  );
+}
+
+function setParam(
+  doc: Document,
+  index: number,
+  name: string,
+  value: string | null
+): MutateOutcome {
+  const root = doc.contents;
+  const schedule = isMap(root) ? root.get('schedule', true) : undefined;
+  const holder = isMap(schedule) ? schedule : root;
+  const key = isMap(schedule) ? 'start' : 'schedule';
+  const node = isMap(holder) ? holder.get(key, true) : undefined;
+  const entries = entryItems(node)
+    .map((item, position) => ({ item, position }))
+    .filter(({ item }) => {
+      const expression = entryExpression(item);
+      return expression !== null && expression.trim() !== '';
+    });
+  const target = entries[index];
+  if (!isMap(holder) || !target) {
+    return {
+      ok: false,
+      code: 'unsupportedForm',
+      message: 'The schedule entry does not exist.',
+    };
+  }
+  // The entries stay a list, so that an entry can become an object.
+  const seq = isSeq(node) ? node : seqOf(doc, []);
+  if (!isSeq(node)) {
+    seq.items.push(target.item);
+    holder.set(key, seq);
+  }
+  const position = isSeq(node) ? target.position : 0;
+
+  const entry = isMap(target.item)
+    ? target.item
+    : (doc.createNode({
+        expression: (entryExpression(target.item) ?? '').trim(),
+      }) as YAMLMap);
+  const params = entry.get('params', true);
+  if (value !== null) {
+    if (isMap(params)) params.set(name, value);
+    else entry.set('params', doc.createNode({ [name]: value }));
+  } else if (isMap(params)) {
+    params.delete(name);
+    if (params.items.length === 0) entry.delete('params');
+  }
+  // An entry without overrides goes back to its plain form.
+  const plain = entry.items.length === 1 && entry.has('expression');
+  seq.items[position] = plain
+    ? new Scalar((entryExpression(entry) ?? '').trim())
+    : entry;
+  return;
+}
+
+/**
+ * Sets (value) or clears (null) one parameter override of the index-th
+ * start expression. A plain string becomes an object on its first override,
+ * and a string again when its last override goes. Other entries and the
+ * order of the entries do not change.
+ */
+export function opSetScheduleParam(
+  text: string,
+  op: Extract<DagEditOp, { kind: 'setScheduleParam' }>
+): EditResult {
+  return editDocument(text, (doc) =>
+    setParam(doc, op.index, op.name, op.value)
   );
 }
