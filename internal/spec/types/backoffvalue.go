@@ -5,6 +5,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/goccy/go-yaml"
 )
@@ -61,8 +62,9 @@ func (b *BackoffValue) UnmarshalYAML(data []byte) error {
 		return fmt.Errorf("invalid type for backoff: %T (must be boolean or number)", v)
 	}
 
-	// Validate: multiplier must be 0 or > 1.0
-	if b.multiplier != 0 && b.multiplier <= 1.0 {
+	// Validate: multiplier must be 0 or > 1.0. NaN satisfies neither
+	// comparison below, so reject it explicitly.
+	if math.IsNaN(b.multiplier) || (b.multiplier != 0 && b.multiplier <= 1.0) {
 		return fmt.Errorf("backoff must be greater than 1.0 for exponential growth, got: %v", b.multiplier)
 	}
 
