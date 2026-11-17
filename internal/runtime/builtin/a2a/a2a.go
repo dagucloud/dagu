@@ -129,6 +129,8 @@ func (c *caller) Run(ctx context.Context) error {
 		}
 	}
 	cerr.action = "a2a." + c.cfg.op
+	// Every message may hold text from the agent or its card, so all of them are masked here.
+	cerr.message = redact.apply(cerr.message)
 	body, err := redact.marshal(errorOutput{Error: errorBody{Kind: cerr.kind, Message: cerr.message, MessageID: cerr.messageID}})
 	if err == nil {
 		_ = writeAll(c.stdout, body)
@@ -165,7 +167,8 @@ func (c *caller) call(ctx context.Context, redact redactor) (map[string]any, *ca
 	sess, err := connect(ctx, c.base, c.cfg.base(), cardObs)
 	if err != nil {
 		cerr := classify(ctx, err, cardObs, redact, false)
-		if cerr.kind == kindProtocol {
+		var refused *statusError
+		if cerr.kind == kindProtocol && !errors.As(err, &refused) {
 			cerr.kind = kindDiscovery
 		}
 		return nil, cerr
@@ -208,7 +211,7 @@ func (c *caller) send(ctx context.Context, sess *session, redact redactor) (map[
 		err = fmt.Errorf("unexpected result %T", res)
 	}
 	if err != nil {
-		return nil, &callError{kind: kindProtocol, message: redact.apply(err.Error()), messageID: msg.ID}
+		return nil, &callError{kind: kindProtocol, message: redact.apply(err.Error()) + "." + unknownOutcome, messageID: msg.ID}
 	}
 	out["sent_message_id"] = msg.ID
 	return out, nil

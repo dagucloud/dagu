@@ -6,6 +6,7 @@ package a2a
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -114,7 +115,12 @@ func (r route) base(kind string) map[string]any {
 	return out
 }
 
+var errNoTaskID = errors.New("the result is not a task: it has no id")
+
 func taskOutput(r route, t *a2a.Task, tree any) (map[string]any, error) {
+	if t == nil || t.ID == "" {
+		return nil, errNoTaskID
+	}
 	out := r.base("task")
 	out["task_id"] = string(t.ID)
 	out["context_id"] = t.ContextID

@@ -130,6 +130,7 @@ func TestRedirectRefused(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, errBody(t, out)["message"], "redirects are not followed")
+		assert.Equal(t, kindProtocol, errBody(t, out)["kind"], "a redirect is a protocol error, also on the card")
 	}
 	assert.Zero(t, other.sends.Load())
 	other.mu.Lock()
@@ -337,4 +338,56 @@ func TestOriginOf(t *testing.T) {
 	assert.Equal(t, parse("https://h:8443/a"), parse("https://h:8443/b"))
 	assert.NotEqual(t, parse("https://h"), parse("https://h:8443"))
 	assert.NotEqual(t, parse("https://h"), parse("http://h"))
+}
+
+// Text from the card is masked in the error the step returns, not only on stdout.
+func TestSecretInCardDiagnostic(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.card = func(string) any {
+		return obj{"supportedInterfaces": []obj{{"url": "https://x.example/r", "protocolBinding": token, "protocolVersion": "1.0"}}}
+	}
+
+	out, err := run(context.Background(), t, f, opSend, sendWith(nil))
+
+	require.Error(t, err)
+	assert.NotContains(t, out, token)
+	assert.NotContains(t, err.Error(), token)
+	assert.Contains(t, err.Error(), "no JSONRPC interface")
+}
+
+// A token separated from its scheme by several spaces is masked when echoed alone.
+func TestBearerWithExtraSpaces(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.needAuth = false
+	f.task = func(id string) (obj, bool) {
+		return taskJSON(id, "COMPLETED", obj{"metadata": obj{"echo": token}}), true
+	}
+
+	out, err := run(context.Background(), t, f, opGetTask, obj{"task_id": "t", "headers": obj{"Authorization": "Bearer   " + token}})
+
+	require.NoError(t, err)
+	assert.NotContains(t, out, token)
+	assert.Equal(t, "***", decodeOut(t, out)["metadata"].(obj)["echo"])
+}
+
+// A result without a task id is a protocol error, for both actions.
+func TestTaskWithoutIdentity(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.task = func(string) (obj, bool) { return nil, true }
+	f.send = func(obj) any { return obj{"task": obj{}} }
+
+	out, err := run(context.Background(), t, f, opGetTask, obj{"task_id": "t", "headers": authHeaders()})
+	require.Error(t, err)
+	assert.Equal(t, kindProtocol, errBody(t, out)["kind"])
+	assert.Contains(t, errBody(t, out)["message"], "no id")
+
+	out, err = run(context.Background(), t, f, opSend, sendWith(nil))
+	require.Error(t, err)
+	body := errBody(t, out)
+	assert.Equal(t, kindProtocol, body["kind"])
+	assert.Contains(t, body["message"], "no id")
+	assert.NotEmpty(t, body["message_id"])
 }

@@ -44,8 +44,11 @@ func newRedactor(headers map[string]string, rawURL string) redactor {
 			continue
 		}
 		secrets = append(secrets, v)
-		if _, rest, ok := strings.Cut(v, " "); ok && rest != "" && (named || len(rest) >= minPlainHeaderLen) {
-			secrets = append(secrets, rest)
+		if _, rest, ok := strings.Cut(v, " "); ok {
+			// The scheme separator may be several spaces; the token is what follows.
+			if rest = strings.TrimSpace(rest); rest != "" && (named || len(rest) >= minPlainHeaderLen) {
+				secrets = append(secrets, rest)
+			}
 		}
 	}
 	if u, err := url.Parse(rawURL); err == nil {

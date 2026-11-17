@@ -116,9 +116,11 @@ func (a *a2aAgent) replyTask() {
 		"id": "task-1", "contextId": "ctx-1", "status": map[string]any{"state": "TASK_STATE_WORKING"}}}
 }
 
-func (a *a2aAgent) replyMessage() {
+func (a *a2aAgent) replyMessage() { a.replyMessageText(a2aReport) }
+
+func (a *a2aAgent) replyMessageText(text string) {
 	a.reply = map[string]any{"message": map[string]any{
-		"messageId": "m-1", "role": "ROLE_AGENT", "parts": []map[string]any{{"text": a2aReport}}}}
+		"messageId": "m-1", "role": "ROLE_AGENT", "parts": []map[string]any{{"text": text}}}}
 }
 
 // a2aExample loads an example DAG pointed at the agent, with a file-backed
@@ -210,6 +212,49 @@ func TestA2AMessagePath(t *testing.T) {
 	assert.Zero(t, agent.gets.Load(), "a direct message needs no polling")
 	assert.Equal(t, ir.NodeSkipped, nodeStatus(t, th, dag, "wait_for_task"))
 	assert.Contains(t, stdoutOf(t, th, dag, "use_message"), "agent replied: "+a2aReport)
+}
+
+// A credential the agent echoes in a task artifact or a direct message is
+// masked in the captured output and in what later steps print.
+func TestA2AEchoedCredentialMasked(t *testing.T) {
+	t.Parallel()
+	echo := "echo " + a2aToken + " end"
+
+	t.Run("task", func(t *testing.T) {
+		t.Parallel()
+		th := test.Setup(t)
+		agent := newA2AAgent(t)
+		agent.replyTask()
+		agent.state = func(int32) string { return "COMPLETED" }
+		agent.artifact = echo
+		dag := a2aExample(t, th, "a2a-delegate.yaml", agent.srv.URL, "20")
+
+		dag.Agent().RunSuccess(t)
+
+		poll := stdoutOf(t, th, dag, "wait_for_task")
+		assert.Contains(t, poll, "echo *** end")
+		assert.NotContains(t, poll, a2aToken)
+		verify := stdoutOf(t, th, dag, "verify")
+		assert.Contains(t, verify, "report: echo *** end")
+		assert.NotContains(t, verify, a2aToken)
+	})
+
+	t.Run("message", func(t *testing.T) {
+		t.Parallel()
+		th := test.Setup(t)
+		agent := newA2AAgent(t)
+		agent.replyMessageText(echo)
+		dag := a2aExample(t, th, "a2a-delegate.yaml", agent.srv.URL, "20")
+
+		dag.Agent().RunSuccess(t)
+
+		send := stdoutOf(t, th, dag, "send")
+		assert.Contains(t, send, "echo *** end")
+		assert.NotContains(t, send, a2aToken)
+		reply := stdoutOf(t, th, dag, "use_message")
+		assert.Contains(t, reply, "agent replied: echo *** end")
+		assert.NotContains(t, reply, a2aToken)
+	})
 }
 
 func TestA2AInterruptedAndExhausted(t *testing.T) {
