@@ -186,6 +186,25 @@ func TestSendOutputLimitKeepsMessageID(t *testing.T) {
 	assert.Equal(t, int32(1), f.sends.Load())
 }
 
+func TestSendOutputLimitDirectMessage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	big := strings.Repeat("x", 1<<20+10)
+	f.send = func(obj) any {
+		return obj{"message": obj{"messageId": "m1", "role": "ROLE_AGENT", "parts": []obj{textPart(big)}}}
+	}
+
+	out, err := run(context.Background(), t, f, opSend, sendWith(nil), func(s *ir.Step) { s.Output = "SEND" })
+
+	require.Error(t, err)
+	body := errBody(t, out)
+	assert.Equal(t, kindOutputLimit, body["kind"])
+	assert.NotEmpty(t, body["message_id"])
+	assert.Contains(t, body["message"], "direct Message")
+	assert.NotContains(t, body["message"], "read the task")
+	assert.Contains(t, body["message"], "duplicate remote work")
+}
+
 func TestFallbackTransport(t *testing.T) {
 	orig := http.DefaultTransport
 	defer func() { http.DefaultTransport = orig }()

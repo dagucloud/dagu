@@ -116,7 +116,13 @@ func (c *caller) Run(ctx context.Context) error {
 			if id, ok := out["sent_message_id"].(string); ok {
 				// The agent already accepted the message; a retry would submit it again.
 				cerr.messageID = id
-				cerr.message += fmt.Sprintf(". The message was accepted (task_id %v); read the task with a2a.get_task. a2a.send never retries; retrying can duplicate remote work", out["task_id"])
+				cerr.message += ". The message was accepted"
+				if tid, _ := out["task_id"].(string); tid != "" {
+					cerr.message += fmt.Sprintf(" (task_id %s); read the task with a2a.get_task", tid)
+				} else {
+					cerr.message += " and answered with a direct Message, which a2a.get_task cannot recover"
+				}
+				cerr.message += ". a2a.send never retries; retrying can duplicate remote work"
 			}
 		} else {
 			return wrapWrite(writeAll(c.stdout, body), c.cfg.op)
