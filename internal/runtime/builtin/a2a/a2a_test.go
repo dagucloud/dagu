@@ -186,6 +186,21 @@ func TestSendOutputLimitKeepsMessageID(t *testing.T) {
 	assert.Equal(t, int32(1), f.sends.Load())
 }
 
+func TestSendOutputLimitMasksTaskID(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	big := strings.Repeat("x", 1<<20+10)
+	f.send = func(obj) any {
+		return obj{"task": taskJSON(token, "WORKING", obj{"artifacts": []obj{{"artifactId": "a", "parts": []obj{textPart(big)}}}})}
+	}
+
+	_, err := run(context.Background(), t, f, opSend, sendWith(nil), func(s *ir.Step) { s.Output = "SEND" })
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), token)
+	assert.Contains(t, err.Error(), "***")
+}
+
 func TestSendOutputLimitDirectMessage(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

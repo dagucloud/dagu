@@ -118,7 +118,7 @@ func (c *caller) Run(ctx context.Context) error {
 				cerr.messageID = id
 				cerr.message += ". The message was accepted"
 				if tid, _ := out["task_id"].(string); tid != "" {
-					cerr.message += fmt.Sprintf(" (task_id %s); read the task with a2a.get_task", tid)
+					cerr.message += fmt.Sprintf(" (task_id %s); read the task with a2a.get_task", redact.apply(tid))
 				} else {
 					cerr.message += " and answered with a direct Message, which a2a.get_task cannot recover"
 				}
