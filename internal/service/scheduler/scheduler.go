@@ -737,6 +737,16 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to acquire scheduler lock: %w", err)
 	}
 
+	// A standby may have taken the lock over while acquiring it stalled, so
+	// renew it before acting as active.
+	lease, err := startLockLease(ctx, s.dirLock, s.config.Scheduler.LockStaleThreshold)
+	if err != nil {
+		if unlockErr := s.dirLock.Unlock(); unlockErr != nil {
+			logger.Error(ctx, "Failed to release scheduler lock after a failed renewal", tag.Error(unlockErr))
+		}
+		return fmt.Errorf("%w: %v", ErrLockLost, err)
+	}
+
 	// Catch signals before reporting the lock as held. A signal during the rest
 	// of startup waits here for the cron loop, which stops cleanly and releases
 	// the lock; without this it would kill the process and leave the lock to go
@@ -756,7 +766,7 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 		return nil
 	}
 
-	s.lease = newLockLease(s.dirLock, s.config.Scheduler.LockStaleThreshold)
+	s.lease = lease
 
 	var wg sync.WaitGroup
 	wg.Go(func() {

@@ -93,7 +93,20 @@ type lockLease struct {
 	expiry   atomic.Pointer[time.Time]
 }
 
-func newLockLease(lock dirlock.DirLock, staleThreshold time.Duration) *lockLease {
+// startLockLease renews a newly acquired lock once and starts the lease when
+// that renewal starts. Acquiring can stall after the lock is taken, long enough
+// for a standby to take it over, so the time it returns is no safe start.
+func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold time.Duration) (*lockLease, error) {
+	start := time.Now()
+	if err := lock.Heartbeat(ctx); err != nil {
+		return nil, err
+	}
+	return newLockLease(lock, staleThreshold, start), nil
+}
+
+// newLockLease returns a lease that counts from renewed, the start of the call
+// that last renewed lock.
+func newLockLease(lock dirlock.DirLock, staleThreshold time.Duration, renewed time.Time) *lockLease {
 	if staleThreshold <= 0 {
 		staleThreshold = defaultLockStaleThreshold
 	}
@@ -103,7 +116,7 @@ func newLockLease(lock dirlock.DirLock, staleThreshold time.Duration) *lockLease
 		interval: interval,
 		budget:   staleThreshold - interval,
 	}
-	lease.renewedAt(time.Now())
+	lease.renewedAt(renewed)
 	return lease
 }
 

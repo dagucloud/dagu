@@ -6,11 +6,16 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,7 +56,7 @@ func TestLeaseInterval(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			lease := newLockLease(&scriptedLock{}, tt.stale)
+			lease := newLockLease(&scriptedLock{}, tt.stale, time.Now())
 			require.Equal(t, tt.wantInterval, lease.interval)
 		})
 	}
@@ -67,7 +72,7 @@ func TestLeaseTransient(t *testing.T) {
 		}
 		return nil
 	}}
-	lease := newLockLease(lock, testLeaseStale)
+	lease := newLockLease(lock, testLeaseStale, time.Now())
 	result, stop := runLease(t, lease)
 
 	select {
@@ -91,7 +96,7 @@ func TestLeaseHang(t *testing.T) {
 		<-release
 		return nil
 	}}
-	lease := newLockLease(lock, testLeaseStale)
+	lease := newLockLease(lock, testLeaseStale, time.Now())
 	started := time.Now()
 	result, _ := runLease(t, lease)
 
@@ -112,13 +117,93 @@ func TestLeaseLost(t *testing.T) {
 	lock := &scriptedLock{heartbeat: func(int32) error {
 		return dirlock.ErrLockNotHeld
 	}}
-	lease := newLockLease(lock, testLeaseStale)
+	lease := newLockLease(lock, testLeaseStale, time.Now())
 	started := time.Now()
 	result, _ := runLease(t, lease)
 
 	err := <-result
 	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 	require.Less(t, time.Since(started), lease.budget, "losing the lock ends the lease at once")
+}
+
+// The lease starts when the renewal that confirms the lock starts, so a
+// renewal that stalls uses up the lease instead of extending it.
+func TestLeaseStartsAtRenewal(t *testing.T) {
+	t.Parallel()
+
+	lock := &scriptedLock{heartbeat: func(int32) error {
+		time.Sleep(testLeaseStale)
+		return nil
+	}}
+	lease, err := startLockLease(context.Background(), lock, testLeaseStale)
+	require.NoError(t, err)
+	require.True(t, lease.expired())
+}
+
+// stallingLock stalls once acquiring has taken the lock, as a process paused
+// at that moment does.
+type stallingLock struct {
+	dirlock.DirLock
+	stall func()
+}
+
+func (l *stallingLock) Lock(ctx context.Context) error {
+	if err := l.DirLock.Lock(ctx); err != nil {
+		return err
+	}
+	l.stall()
+	return nil
+}
+
+type statusRecorder struct {
+	serviceregistry.ServiceRegistry
+	mu       sync.Mutex
+	statuses []serviceregistry.ServiceStatus
+}
+
+func (*statusRecorder) Register(context.Context, serviceregistry.ServiceName, serviceregistry.HostInfo) error {
+	return nil
+}
+
+func (*statusRecorder) Unregister(context.Context) {}
+
+func (r *statusRecorder) UpdateStatus(_ context.Context, _ serviceregistry.ServiceName, status serviceregistry.ServiceStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.statuses = append(r.statuses, status)
+	return nil
+}
+
+func (r *statusRecorder) reported() []serviceregistry.ServiceStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.statuses)
+}
+
+// A standby can take the lock over while acquiring it stalls. The scheduler
+// that stalled must find that out before it reports itself active.
+func TestLeaseTakenOverDuringAcquire(t *testing.T) {
+	fixture := newHASchedulerFixture(t)
+	sc := newHASchedulerForTest(t, fixture, TestHooks{})
+	registry := &statusRecorder{}
+	sc.serviceRegistry = registry
+
+	lockDir := filepath.Join(persisfile.SchedulerStateDir(fixture.cfg.Paths), "locks")
+	standby := dirlock.New(lockDir, &dirlock.LockOptions{
+		StaleThreshold:   50 * time.Millisecond,
+		RetryInterval:    10 * time.Millisecond,
+		ObserveHeartbeat: true,
+	})
+	sc.dirLock = &stallingLock{DirLock: sc.dirLock, stall: func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, standby.Lock(ctx))
+	}}
+
+	require.ErrorIs(t, sc.Start(context.Background()), ErrLockLost)
+	require.NotContains(t, registry.reported(), serviceregistry.ServiceStatusActive)
+	require.True(t, standby.IsHeldByMe(), "the stalled scheduler must leave the new holder's lock in place")
+	require.NoError(t, standby.Unlock())
 }
 
 type stuckEntryReader struct {
