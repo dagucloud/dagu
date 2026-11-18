@@ -93,11 +93,12 @@ type lockLease struct {
 	expiry   atomic.Pointer[time.Time]
 }
 
-// startLockLease renews a newly acquired lock once and starts the lease when
-// that renewal starts. Acquiring can stall after the lock is taken, long enough
-// for a standby to take it over, so the time it returns is no safe start. It
-// fails when the renewal fails or does not finish within the lease, and then
-// releases the lock once storage allows.
+// startLockLease renews a newly acquired lock and starts the lease when the
+// renewal that succeeds starts. Acquiring can stall after the lock is taken,
+// long enough for a standby to take it over, so the time it returns is no safe
+// start. A failed renewal is retried as run retries it. It fails when the lock
+// is lost, ctx ends, or no renewal succeeds within the lease, and then releases
+// the lock once storage allows.
 func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold time.Duration) (*lockLease, error) {
 	lease := newLockLease(lock, staleThreshold, time.Now())
 	release := func() {
@@ -109,7 +110,7 @@ func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold ti
 	// Releasing touches the same storage as renewing, so it runs here too and
 	// the deadline bounds both.
 	go func() {
-		err := lock.Heartbeat(ctx)
+		err := lease.confirm(ctx)
 		if err != nil {
 			release()
 		}
@@ -136,6 +137,35 @@ func startLockLease(ctx context.Context, lock dirlock.DirLock, staleThreshold ti
 		}()
 	}
 	return nil, fmt.Errorf("scheduler lock was not renewed within %s", lease.budget)
+}
+
+// confirm renews the lock until a renewal succeeds, and then counts the lease
+// from the start of that renewal. It retries a failed renewal every interval,
+// and returns an error once the lock is lost, ctx ends, or the lease has run
+// out.
+func (l *lockLease) confirm(ctx context.Context) error {
+	retry := time.NewTicker(l.interval)
+	defer retry.Stop()
+	for {
+		start := time.Now()
+		err := l.lock.Heartbeat(ctx)
+		if err == nil {
+			l.renewedAt(start)
+			return nil
+		}
+		if lockGone(err) {
+			return err
+		}
+		logger.Warn(ctx, "Failed to renew scheduler lock, will retry", tag.Error(err))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-retry.C:
+		}
+		if l.expired() {
+			return err
+		}
+	}
 }
 
 // newLockLease returns a lease that counts from renewed, the start of the call
@@ -205,10 +235,16 @@ func (l *lockLease) run(ctx context.Context, done <-chan any) error {
 				deadline.Reset(time.Until(*l.expiry.Load()))
 				continue
 			}
-			if errors.Is(result.err, dirlock.ErrLockNotHeld) || errors.Is(result.err, dirlock.ErrNotLocked) {
+			if lockGone(result.err) {
 				return result.err
 			}
 			logger.Warn(ctx, "Failed to renew scheduler lock, will retry", tag.Error(result.err))
 		}
 	}
+}
+
+// lockGone reports whether a renewal failed because the lock is no longer
+// held, which retrying cannot fix.
+func lockGone(err error) bool {
+	return errors.Is(err, dirlock.ErrLockNotHeld) || errors.Is(err, dirlock.ErrNotLocked)
 }

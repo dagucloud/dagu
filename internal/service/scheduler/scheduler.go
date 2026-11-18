@@ -741,6 +741,9 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 	// renew it before acting as active.
 	lease, err := startLockLease(ctx, s.dirLock, s.config.Scheduler.LockStaleThreshold)
 	if err != nil {
+		if errors.Is(err, context.Canceled) && s.stopping() {
+			return nil
+		}
 		return fmt.Errorf("%w: %v", ErrLockLost, err)
 	}
 

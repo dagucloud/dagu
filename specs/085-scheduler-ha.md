@@ -34,9 +34,11 @@ reading logs, which instance is active and how long a failover takes.
   and stops being active once it has gone `T - I` without a renewal or finds
   the lock is no longer its own. A renewal that blocks on storage counts as
   no renewal.
-- An instance that acquires the lock renews it once before acting as active,
-  and counts `T - I` from the start of that renewal. If the lock is no longer
-  its own, it exits with a non-zero status without acting as active.
+- An instance that acquires the lock renews it before acting as active. It
+  retries through renewal errors every `I`, and counts `T - I` from the start
+  of the renewal that succeeds. If the lock is no longer its own, or no
+  renewal succeeds within `T - I`, it exits with a non-zero status without
+  acting as active.
 - An instance past that limit dispatches nothing, even before it stops.
 - An instance that stops being active this way exits with a non-zero status,
   so a supervisor can restart it. `dagu start-all` exits too, rather than

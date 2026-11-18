@@ -19,7 +19,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testLeaseStale = 2 * time.Second
+const (
+	testLeaseStale = 2 * time.Second
+	// testLeaseRetry is the renewal interval a lease with testLeaseStale uses.
+	testLeaseRetry = testLeaseStale / 4
+)
 
 type scriptedLock struct {
 	dirlock.DirLock
@@ -152,6 +156,57 @@ func TestLeaseStartHang(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return lock.unlocks.Load() == 1
 	}, 5*time.Second, 10*time.Millisecond, "the lock must be released once the renewal returns")
+}
+
+// A startup renewal that fails for a moment must be retried rather than end
+// startup, as a renewal after startup is.
+func TestLeaseStartRetry(t *testing.T) {
+	t.Parallel()
+
+	lock := &scriptedLock{heartbeat: func(beat int32) error {
+		if beat == 1 {
+			return errors.New("input/output error")
+		}
+		return nil
+	}}
+	lease, err := startLockLease(context.Background(), lock, testLeaseStale)
+	require.NoError(t, err)
+	require.False(t, lease.expired())
+	require.EqualValues(t, 2, lock.beats.Load())
+	require.Zero(t, lock.unlocks.Load())
+}
+
+// A startup renewal that finds the lock taken over must fail at once.
+func TestLeaseStartLost(t *testing.T) {
+	t.Parallel()
+
+	lock := &scriptedLock{heartbeat: func(int32) error {
+		return dirlock.ErrLockNotHeld
+	}}
+	started := time.Now()
+	_, err := startLockLease(context.Background(), lock, testLeaseStale)
+	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+	require.EqualValues(t, 1, lock.beats.Load(), "a lost lock must not be renewed again")
+	require.Less(t, time.Since(started), testLeaseRetry, "losing the lock must not wait for a retry")
+}
+
+// Stopping while a startup renewal waits to retry must end startup at once and
+// release the lock.
+func TestLeaseStartCanceled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	lock := &scriptedLock{heartbeat: func(int32) error {
+		cancel()
+		return errors.New("input/output error")
+	}}
+	started := time.Now()
+	_, err := startLockLease(ctx, lock, testLeaseStale)
+	require.ErrorIs(t, err, context.Canceled)
+	require.EqualValues(t, 1, lock.beats.Load())
+	require.EqualValues(t, 1, lock.unlocks.Load())
+	require.Less(t, time.Since(started), testLeaseRetry, "stopping must not wait for a retry")
 }
 
 // stallingLock stalls once acquiring has taken the lock, as a process paused
