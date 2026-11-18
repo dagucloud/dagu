@@ -181,7 +181,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	startedAt := time.Now()
-	seenBusy := false
+	seenBusy, settling := false, false
 	statusFailures := 0
 
 	for {
@@ -241,7 +241,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			if waiting {
 				return e.finishManagedWaiting("OpenCode needs input")
 			}
-			status, err := client.sessionStatus(ctx, sessionID)
+			family, err := client.family(ctx, sessionID)
 			if err != nil {
 				if ctx.Err() != nil {
 					return e.finishManagedCancelled(ctx, client, sessionID)
@@ -260,10 +260,21 @@ func (e *harnessExecutor) runManagedOpenCode(
 				continue
 			}
 			statusFailures = 0
+			status := family.status
+			if status == "idle" && len(family.descendants) > 0 {
+				status = "busy"
+			}
 			seenBusy = seenBusy || status == "busy" || status == "retry"
 			if status == "idle" && (seenBusy || time.Since(startedAt) >= time.Second) {
+				// A child's report can start another turn of the session, so the
+				// session must stay idle for one more tick before it is settled.
+				if family.hasChildren && !settling {
+					settling = true
+					continue
+				}
 				return e.finishManagedSuccess(ctx, client, sessionID)
 			}
+			settling = false
 		}
 	}
 }
@@ -714,6 +725,11 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 			// nothing if it has not. Another session may run the user's own turn.
 			if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
 				err = errors.Join(err, abortErr)
+			}
+			if family, familyErr := client.family(cleanupCtx, sessionID); familyErr == nil {
+				for _, id := range family.descendants {
+					_ = client.abort(cleanupCtx, id)
+				}
 			}
 		}
 	case owned:

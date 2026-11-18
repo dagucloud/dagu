@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -996,6 +997,10 @@ type managedTestHost struct {
 	pendingPolls int
 	busy         map[string]bool
 	interrupted  map[string]bool
+	// parents links a session to its parent session.
+	parents map[string]string
+	// v2 serves the v2 API routes.
+	v2 bool
 }
 
 func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
@@ -1004,10 +1009,42 @@ func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managed
 	if configure != nil {
 		configure(host)
 	}
-	server := httptest.NewServer(http.HandlerFunc(host.serve))
+	handler := host.serve
+	if host.v2 {
+		handler = host.serveV2
+	}
+	server := httptest.NewServer(http.HandlerFunc(handler))
 	t.Cleanup(server.Close)
 	host.config = opencodehost.Config{URL: server.URL, Username: "opencode", Password: "test", InstanceID: "host-1"}
+	if host.v2 {
+		host.config.Version = "2.3.2"
+	}
 	return host
+}
+
+// serveV2 maps v2 session routes onto the v1 handler, wrapping bodies in the
+// v2 data envelope.
+func (h *managedTestHost) serveV2(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api")
+	if path == "/session/active" {
+		path = "/session/status"
+	}
+	if before, ok := strings.CutSuffix(path, "/interrupt"); ok {
+		path = before + "/abort"
+	}
+	r.URL.Path = path
+	if path == "/event" {
+		h.serve(w, r)
+		return
+	}
+	rec := httptest.NewRecorder()
+	h.serve(rec, r)
+	if rec.Code != http.StatusOK {
+		w.WriteHeader(rec.Code)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = io.WriteString(w, `{"data":`+rec.Body.String()+`}`)
 }
 
 func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
@@ -1018,6 +1055,9 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/config":
 		_, _ = io.WriteString(w, `{"share":"disabled"}`)
+	case r.Method == http.MethodGet && h.parentOf(strings.TrimPrefix(r.URL.Path, "/session/")) != "":
+		id := strings.TrimPrefix(r.URL.Path, "/session/")
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "parentID": h.parentOf(id)})
 	case r.Method == http.MethodPost && r.URL.Path == "/session",
 		r.Method == http.MethodGet && r.URL.Path == "/session/session-1":
 		_, _ = io.WriteString(w, `{"id":"session-1"}`)
@@ -1098,6 +1138,12 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (h *managedTestHost) parentOf(sessionID string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.parents[sessionID]
 }
 
 func (h *managedTestHost) setBusy(sessionID string, busy bool) {
@@ -2680,4 +2726,132 @@ func newHarnessTestContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...stri
 
 	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithEnvVars(envs...))
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+}
+
+const subagentReply = `[{"info":{"id":"msg-1","role":"user"},"parts":[]},{"info":{"id":"msg-2","role":"assistant","parentID":"msg-1","finish":"stop","time":{"completed":1}},"parts":[{"type":"text","text":"done"}]}]`
+
+const subagentReplyV2 = `[{"id":"msg-1","type":"user","text":"p","time":{"created":1}},{"id":"msg-2","type":"assistant","time":{"created":2,"completed":3},"content":[{"type":"text","text":"done"}],"finish":"stop"},{"id":"msg-3","type":"idle","outcome":"succeeded","time":{"created":4}}]`
+
+func subagentHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
+	return newManagedTestHost(t, func(h *managedTestHost) {
+		h.v2 = true
+		h.history = subagentReplyV2
+		h.parents = map[string]string{"session-child": "session-1", "session-grandchild": "session-child"}
+		h.busy["session-other"] = true
+		if configure != nil {
+			configure(h)
+		}
+	})
+}
+
+func resumedSubagentExecutor(t *testing.T) *harnessExecutor {
+	return &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+		Provider: "opencode", Generation: 1, SessionID: "session-1", SessionOwned: true,
+		PromptSent: true, PromptMessageID: "msg-1", State: ir.AgentSessionUnavailable,
+	}}
+}
+
+// Only sessions linked to the root by parent are part of its family.
+func TestOpenCodeFamilySelectsByParent(t *testing.T) {
+	t.Parallel()
+
+	host := subagentHost(t, func(h *managedTestHost) { h.busy["session-grandchild"] = true })
+	client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+
+	family, err := client.family(t.Context(), "session-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"session-grandchild"}, family.descendants)
+	assert.False(t, family.idle())
+	other, err := client.family(t.Context(), "session-unrelated")
+	require.NoError(t, err)
+	assert.True(t, other.idle(), "an unrelated session's family ignores the other active sessions")
+}
+
+func TestManagedOpenCodeSuccessWaitsForSubagent(t *testing.T) {
+	t.Parallel()
+
+	host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
+	exec := resumedSubagentExecutor(t)
+	var childDone atomic.Bool
+	go func() {
+		for host.count("GET /session/status") < 1 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		time.Sleep(300 * time.Millisecond)
+		childDone.Store(true)
+		host.setBusy("session-child", false)
+	}()
+
+	stdout, err := exec.runManagedOpenCode(runtime.WithEnv(t.Context(), runtime.Env{}), providerConfig{flags: map[string]any{}}, host.config)
+
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	assert.True(t, childDone.Load(), "the step succeeded while its subagent was still active")
+	assert.Equal(t, ir.AgentSessionSucceeded, exec.GetAgentSession().State)
+	assert.NotContains(t, host.requestLog(), "POST /session/session-other/abort")
+}
+
+func TestManagedOpenCodeCancelInterruptsSubagent(t *testing.T) {
+	t.Parallel()
+
+	host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
+	exec := resumedSubagentExecutor(t)
+	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(cancel)
+
+	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, host.wasInterrupted("session-child"))
+	assert.False(t, host.isBusy("session-child"), "the subagent settled before the run returned")
+	assert.True(t, host.isBusy("session-other"), "an unrelated session is left alone")
+	assert.NotContains(t, host.requestLog(), "POST /session/session-other/abort")
+	session := exec.GetAgentSession()
+	assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+}
+
+func TestManagedOpenCodeCancelUnconfirmedSubagent(t *testing.T) {
+	t.Parallel()
+
+	host := subagentHost(t, func(h *managedTestHost) {
+		h.busy["session-child"] = true
+		h.interruptStatus = http.StatusInternalServerError
+	})
+	client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	err := client.interruptAndAwaitIdle(ctx, "session-1")
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "active subagent sessions")
+}
+
+func TestSettleDiscardedSessionWaitsForSubagent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("owned", func(t *testing.T) {
+		t.Parallel()
+		host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
+		client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+
+		require.NoError(t, settleDiscardedSession(t.Context(), client, "session-1", true))
+
+		assert.True(t, host.wasInterrupted("session-child"))
+		assert.False(t, host.isBusy("session-child"))
+	})
+	t.Run("not owned", func(t *testing.T) {
+		t.Parallel()
+		host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
+		client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+
+		err := settleDiscardedSession(ctx, client, "session-1", false)
+
+		require.ErrorContains(t, err, "may still be running")
+		assert.NotContains(t, host.requestLog(), "POST /session/session-child/abort")
+	})
 }
