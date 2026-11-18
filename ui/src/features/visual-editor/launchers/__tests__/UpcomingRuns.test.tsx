@@ -262,6 +262,29 @@ describe('UpcomingRuns', () => {
     expect(items[1]).toHaveTextContent('mode: b');
   });
 
+  // A `kind: cron` entry is editable, so it takes the first override.
+  it('treats a kind cron entry as editable', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+        ]}
+        overrides={[
+          { expression: '0 5 * * *', params: {} },
+          { expression: '0 5 * * *', params: { mode: 'b' } },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          { time: '2027-01-26T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).not.toHaveTextContent('mode: b');
+    expect(items[1]).toHaveTextContent('mode: b');
+  });
+
   it('tells the duplicates of one expression apart by their order', () => {
     render(
       <UpcomingRuns

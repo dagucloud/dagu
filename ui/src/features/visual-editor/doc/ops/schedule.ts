@@ -37,8 +37,11 @@ const BEFORE_SCHEDULE = [
   'schedule',
 ];
 
-/** A cron entry that the panel edits: a plain string, or `expression` with `params`. */
-const ENTRY_KEYS = ['expression', 'params'];
+/**
+ * A cron entry that the panel edits: a plain string, or `expression` with
+ * `params` and an optional `kind: cron`.
+ */
+const ENTRY_KEYS = ['expression', 'params', 'kind'];
 
 function paramsOf(node: unknown): Record<string, string> | null {
   if (node === undefined || node === null) return {};
@@ -49,6 +52,10 @@ function paramsOf(node: unknown): Record<string, string> | null {
     params[String(pair.key.value)] = String(pair.value.value ?? '');
   }
   return params;
+}
+
+function isCronKind(node: unknown): boolean {
+  return isScalar(node) && node.value === 'cron';
 }
 
 /** The expression of an entry the panel edits, or null for any other entry. */
@@ -64,6 +71,9 @@ function entryExpression(item: unknown): string | null {
     typeof expression.value !== 'string' ||
     expression.value.trim() === '' ||
     !keys.every((key) => ENTRY_KEYS.includes(key)) ||
+    !(
+      item.get('kind', true) === undefined || isCronKind(item.get('kind', true))
+    ) ||
     paramsOf(item.get('params', true)) === null
   ) {
     return null;

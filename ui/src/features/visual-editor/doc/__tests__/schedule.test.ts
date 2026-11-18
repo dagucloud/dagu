@@ -324,4 +324,23 @@ describe('schedule parameter overrides', () => {
     });
     expect(kept.ok && readSchedule(kept.text).params).toEqual([{ mode: 'y' }]);
   });
+
+  it('edits a kind cron entry and keeps its kind', () => {
+    const text = `schedule:
+  - kind: cron
+    expression: "0 5 * * *"
+  - kind: at
+    at: "2027-01-01T00:00:00Z"
+`;
+    expect(readSchedule(text)).toMatchObject({
+      expressions: ['0 5 * * *'],
+      others: 1,
+    });
+    const withParam = setParam(text, 0, 'mode', 'z');
+    expect(readSchedule(withParam).params).toEqual([{ mode: 'z' }]);
+    const cleared = setParam(withParam, 0, 'mode', null);
+    expect(cleared).toContain('kind: cron');
+    expect(cleared).toContain('kind: at');
+    expect(readSchedule(cleared).params).toEqual([{}]);
+  });
 });
