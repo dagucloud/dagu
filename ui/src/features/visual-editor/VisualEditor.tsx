@@ -2000,6 +2000,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                           def.default === undefined
                             ? undefined
                             : String(def.default),
+                        computed: def.computed,
                       },
                     ]
                   : []

@@ -351,6 +351,30 @@ describe('CronLauncherPanel parameter overrides', () => {
     expect(onParamChange).toHaveBeenCalledWith(0, 'mode', null);
   });
 
+  // The default of a computed param is only the fallback of a failed eval.
+  it('shows a computed param as computed, not its fallback', () => {
+    render(
+      <CronLauncherPanel
+        schedule={{
+          present: true,
+          expressions: ['0 5 * * *'],
+          others: 0,
+          params: [{}],
+        }}
+        editable
+        paramDefaults={[
+          { name: 'date', default: '1970-01-01', computed: true },
+        ]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+    expect(screen.getByLabelText('date')).toHaveAttribute(
+      'placeholder',
+      'Computed when the run starts'
+    );
+  });
+
   it('removes one schedule with its overrides', () => {
     const { onChange } = renderParams([{ mode: 'y' }, { mode: 'z' }]);
     fireEvent.click(

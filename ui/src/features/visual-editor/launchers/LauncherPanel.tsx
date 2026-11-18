@@ -139,6 +139,8 @@ function NextRunsPreview({ expression }: { expression: string }): ReactElement {
 export interface ParamDefault {
   name: string;
   default?: string;
+  /** The value comes from an eval when the run starts; `default` is its fallback. */
+  computed?: boolean;
 }
 
 /**
@@ -170,7 +172,11 @@ function ParamOverrideFields({
               <TextField
                 label={param.name}
                 value={overrides.get(param.name) ?? ''}
-                placeholder={param.default ?? ''}
+                placeholder={
+                  param.computed
+                    ? ts('Computed when the run starts')
+                    : (param.default ?? '')
+                }
                 readOnly={!editable}
                 onCommit={(text) =>
                   onChange(param.name, text === '' ? null : text)
