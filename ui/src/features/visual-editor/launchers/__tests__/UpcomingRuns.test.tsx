@@ -242,6 +242,26 @@ describe('UpcomingRuns', () => {
     expect(screen.queryByText(/parameter override/)).toBeNull();
   });
 
+  // A profile entry that shares an expression must not take another entry's overrides.
+  it('skips entries the panel does not edit when it matches overrides', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          { expression: '0 5 * * *', kind: ScheduleKind.cron, profile: 'x' },
+          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+        ]}
+        overrides={[{ expression: '0 5 * * *', params: { mode: 'b' } }]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          { time: '2027-01-26T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).not.toHaveTextContent('mode: b');
+    expect(items[1]).toHaveTextContent('mode: b');
+  });
+
   it('tells the duplicates of one expression apart by their order', () => {
     render(
       <UpcomingRuns

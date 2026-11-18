@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState, type ReactElement } from 'react';
-import { UpcomingRunsHold, type components } from '@/api/v1/schema';
+import {
+  ScheduleKind,
+  UpcomingRunsHold,
+  type components,
+} from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ScheduleCalendarLinks } from '@/features/calendars/components/ScheduleCalendarLinks';
@@ -185,8 +189,21 @@ function scheduleSummary(schedule: Schedule): string {
   return schedule.profile ? `${label} (${schedule.profile})` : label;
 }
 
+/** A schedule the panel edits: a plain cron entry without scoping fields. */
+function isEditable(schedule: Schedule): boolean {
+  return (
+    !!schedule.expression &&
+    schedule.kind !== ScheduleKind.at &&
+    !schedule.at &&
+    !schedule.profile &&
+    !schedule.calendar &&
+    !schedule.businessDays?.length
+  );
+}
+
 /**
- * The overrides of the schedule that a run came from. The k-th schedule of
+ * The overrides of the schedule that a run came from. Entries the panel does
+ * not edit own no overrides here. Among editable ones, the k-th schedule of
  * an expression on the server is the k-th entry of that expression in the
  * YAML.
  */
@@ -195,11 +212,16 @@ function overridesOf(
   index: number,
   overrides: readonly ScheduleOverrides[]
 ): Array<[string, string]> {
-  const expression = schedules[index]?.expression;
-  if (!expression) return [];
+  const current = schedules[index];
+  if (!current || !isEditable(current)) return [];
   const nth = schedules
     .slice(0, index)
-    .filter((schedule) => schedule.expression === expression).length;
-  const entry = overrides.filter((item) => item.expression === expression)[nth];
+    .filter(
+      (schedule) =>
+        isEditable(schedule) && schedule.expression === current.expression
+    ).length;
+  const entry = overrides.filter(
+    (item) => item.expression === current.expression
+  )[nth];
   return Object.entries(entry?.params ?? {});
 }
