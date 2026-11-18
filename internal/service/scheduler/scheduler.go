@@ -737,7 +737,7 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to acquire scheduler lock: %w", err)
 	}
 
-	// Catch signals before reporting the lock as held. A signal during the rest
+	// Catch signals as soon as the lock is acquired. A signal during the rest
 	// of startup waits here for the cron loop, which stops cleanly and releases
 	// the lock; without this it would kill the process and leave the lock to go
 	// stale.
@@ -745,6 +745,16 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 	if !s.disableSignals {
 		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 		defer signal.Stop(sig)
+	}
+
+	// A standby may have taken the lock over while acquiring it stalled, so
+	// renew it before acting as active.
+	lease, err := startLockLease(ctx, s.dirLock, s.config.Scheduler.LockStaleThreshold)
+	if err != nil {
+		if errors.Is(err, context.Canceled) && s.stopping() {
+			return nil
+		}
+		return fmt.Errorf("%w: %v", ErrLockLost, err)
 	}
 
 	s.lockHeld.Store(true)
@@ -756,7 +766,7 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 		return nil
 	}
 
-	s.lease = newLockLease(s.dirLock, s.config.Scheduler.LockStaleThreshold)
+	s.lease = lease
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
