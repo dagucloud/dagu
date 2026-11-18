@@ -330,8 +330,8 @@ describe('schedule parameter overrides', () => {
     expect(kept.ok && readSchedule(kept.text).params).toEqual([{ mode: 'y' }]);
   });
 
-  // The server indexes start entries by YAML position, whatever their keys.
-  it('reads the overrides of every start entry by position', () => {
+  // An entry with keys other than expression and params stays in the YAML.
+  it('edits only entries with an expression and params', () => {
     const text = `schedule:
   - expression: "0 5 * * *"
     calendar: none
@@ -343,11 +343,11 @@ describe('schedule parameter overrides', () => {
     params:
       mode: b
 `;
-    expect(readSchedule(text).startParams).toEqual([
-      null,
-      null,
-      null,
-      { mode: 'b' },
-    ]);
+    expect(readSchedule(text)).toEqual({
+      present: true,
+      expressions: ['0 5 * * *'],
+      others: 3,
+      params: [{ mode: 'b' }],
+    });
   });
 });

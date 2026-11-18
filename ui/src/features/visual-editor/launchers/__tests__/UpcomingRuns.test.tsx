@@ -56,28 +56,6 @@ describe('UpcomingRuns', () => {
     expect(screen.getByRole('listitem')).toHaveTextContent('loads 2027-01-24');
   });
 
-  it('shows how many parameters the matching schedule overrides', () => {
-    render(
-      <UpcomingRuns
-        schedules={[
-          { expression: '0 5 * * *', paramOverrideCount: 1 },
-          { expression: '0 6 * * *', paramOverrideCount: 2 },
-        ]}
-        runs={[
-          { time: '2027-01-01T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
-          { time: '2027-01-01T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
-        ]}
-      />
-    );
-
-    expect(
-      screen.getByText('1 parameter override', { exact: false })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('2 parameter overrides', { exact: false })
-    ).toBeInTheDocument();
-  });
-
   it('names the zone and schedule of each run when they differ', () => {
     render(
       <UpcomingRuns
@@ -219,15 +197,14 @@ describe('UpcomingRuns', () => {
           {
             expression: '0 5 * * *',
             kind: ScheduleKind.cron,
-            paramOverrideCount: 1,
+            paramOverrides: { mode: 'y' },
           },
           {
             expression: '0 6 * * *',
             kind: ScheduleKind.cron,
-            paramOverrideCount: 1,
+            paramOverrides: { mode: 'z' },
           },
         ]}
-        overrides={[{ mode: 'y' }, { mode: 'z' }]}
         runs={[
           { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
           { time: '2027-01-25T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
@@ -236,18 +213,24 @@ describe('UpcomingRuns', () => {
     );
     expect(screen.getByText('· mode: y')).toBeInTheDocument();
     expect(screen.getByText('· mode: z')).toBeInTheDocument();
-    expect(screen.queryByText(/parameter override/)).toBeNull();
   });
 
-  // An entry the panel cannot edit shares an expression with an editable one.
-  it('gives an entry the panel does not edit no overrides', () => {
+  it('shows the overrides of an entry the panel does not edit', () => {
     render(
       <UpcomingRuns
         schedules={[
-          { expression: '0 5 * * *', kind: ScheduleKind.cron, profile: 'x' },
-          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            profile: 'x',
+            paramOverrides: { mode: 'a' },
+          },
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'b' },
+          },
         ]}
-        overrides={[null, { mode: 'b' }]}
         runs={[
           { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
           { time: '2027-01-26T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
@@ -255,7 +238,7 @@ describe('UpcomingRuns', () => {
       />
     );
     const items = screen.getAllByRole('listitem');
-    expect(items[0]).not.toHaveTextContent('mode: b');
+    expect(items[0]).toHaveTextContent('mode: a');
     expect(items[1]).toHaveTextContent('mode: b');
   });
 
@@ -263,33 +246,22 @@ describe('UpcomingRuns', () => {
     render(
       <UpcomingRuns
         schedules={[
-          { expression: '0 5 * * *', kind: ScheduleKind.cron },
-          { expression: '0 5 * * *', kind: ScheduleKind.cron },
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'a' },
+          },
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'b' },
+          },
         ]}
-        overrides={[{ mode: 'a' }, { mode: 'b' }]}
         runs={[
           { time: '2027-01-25T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
         ]}
       />
     );
     expect(screen.getByText('· mode: b')).toBeInTheDocument();
-  });
-
-  it('falls back to the count without a matching entry', () => {
-    render(
-      <UpcomingRuns
-        schedules={[
-          {
-            expression: '0 5 * * *',
-            kind: ScheduleKind.cron,
-            paramOverrideCount: 2,
-          },
-        ]}
-        runs={[
-          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
-        ]}
-      />
-    );
-    expect(screen.getByText('· 2 parameter overrides')).toBeInTheDocument();
   });
 });

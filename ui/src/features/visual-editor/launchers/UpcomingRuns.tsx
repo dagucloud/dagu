@@ -15,8 +15,6 @@ import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
-/** Parameter overrides of each start entry, by its index; null when not editable. */
-export type ScheduleOverrides = ReadonlyArray<Record<string, string> | null>;
 type Translate = ReturnType<typeof useI18n>['ts'];
 
 /** Upcoming runs shown before the list is expanded. */
@@ -32,15 +30,12 @@ export function UpcomingRuns({
   runs,
   hold,
   schedules,
-  overrides = [],
 }: {
   runs: UpcomingRun[];
   /** Why none of the runs will start, if they will not. */
   hold?: UpcomingRunsHold;
   /** The schedules that runs index. */
   schedules: Schedule[];
-  /** The parameter overrides of the start entries, by the index that runs carry. */
-  overrides?: ScheduleOverrides;
 }): ReactElement {
   const { ts, locale } = useI18n();
   const dayjsLocale = locale === 'zh-CN' ? 'zh-cn' : locale;
@@ -78,7 +73,7 @@ export function UpcomingRuns({
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
             const notes = upcomingRunNotes(run, dayjsLocale, ts);
-            const params = Object.entries(overrides[run.scheduleIndex] ?? {});
+            const params = Object.entries(schedule?.paramOverrides ?? {});
             return (
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
@@ -100,25 +95,13 @@ export function UpcomingRuns({
                     {scheduleSummary(schedule)}
                   </span>
                 )}
-                {params.length > 0 ? (
+                {params.length > 0 && (
                   <span className="font-mono text-foreground/80">
                     {' · '}
                     {params
                       .map(([name, value]) => `${name}: ${value}`)
                       .join(', ')}
                   </span>
-                ) : (
-                  !!schedule?.paramOverrideCount && (
-                    <span>
-                      {' · '}
-                      {ts(
-                        schedule.paramOverrideCount === 1
-                          ? '{count} parameter override'
-                          : '{count} parameter overrides',
-                        { count: schedule.paramOverrideCount }
-                      )}
-                    </span>
-                  )
                 )}
                 {notes.length > 0 && (
                   <span className="text-foreground/80">

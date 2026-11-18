@@ -402,7 +402,6 @@ export function CronLauncherPanel({
           runs={upcomingRuns}
           hold={upcomingRunsHold}
           schedules={schedules}
-          overrides={schedule.startParams}
         />
       )}
       {schedule.others > 0 && (

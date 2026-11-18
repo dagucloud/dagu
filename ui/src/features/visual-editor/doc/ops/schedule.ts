@@ -18,11 +18,6 @@ export interface ScheduleView {
   others: number;
   /** Parameter overrides of each expression, by the index of `expressions`. */
   params?: Array<Record<string, string>>;
-  /**
-   * Overrides of every start entry by its position in the YAML, which is the
-   * index the server reports for it; null for an entry the panel cannot edit.
-   */
-  startParams?: Array<Record<string, string> | null>;
 }
 
 const NO_SCHEDULE: ScheduleView = {
@@ -84,25 +79,18 @@ function entryItems(node: unknown): unknown[] {
 function readEntries(node: unknown): Omit<ScheduleView, 'present'> {
   const expressions: string[] = [];
   const params: Array<Record<string, string>> = [];
-  const startParams: Array<Record<string, string> | null> = [];
   let others = 0;
   for (const item of entryItems(node)) {
     const expression = entryExpression(item);
     if (expression === null) {
       if (isSeq(node) || isMap(item)) others++;
-      startParams.push(null);
       continue;
     }
-    if (expression.trim() === '') {
-      startParams.push(null);
-      continue;
-    }
-    const own = isMap(item) ? (paramsOf(item.get('params', true)) ?? {}) : {};
+    if (expression.trim() === '') continue;
     expressions.push(expression.trim());
-    params.push(own);
-    startParams.push(own);
+    params.push(isMap(item) ? (paramsOf(item.get('params', true)) ?? {}) : {});
   }
-  return { expressions, others, params, startParams };
+  return { expressions, others, params };
 }
 
 /**
