@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState, type ReactElement } from 'react';
-import {
-  ScheduleKind,
-  UpcomingRunsHold,
-  type components,
-} from '@/api/v1/schema';
+import { UpcomingRunsHold, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ScheduleCalendarLinks } from '@/features/calendars/components/ScheduleCalendarLinks';
@@ -19,11 +15,8 @@ import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
-/** The parameter overrides of one cron expression of the YAML. */
-export interface ScheduleOverrides {
-  expression: string;
-  params: Record<string, string>;
-}
+/** Parameter overrides of each start entry, by its index; null when not editable. */
+export type ScheduleOverrides = ReadonlyArray<Record<string, string> | null>;
 type Translate = ReturnType<typeof useI18n>['ts'];
 
 /** Upcoming runs shown before the list is expanded. */
@@ -46,8 +39,8 @@ export function UpcomingRuns({
   hold?: UpcomingRunsHold;
   /** The schedules that runs index. */
   schedules: Schedule[];
-  /** The parameter overrides of the editable start expressions, in YAML order. */
-  overrides?: readonly ScheduleOverrides[];
+  /** The parameter overrides of the start entries, by the index that runs carry. */
+  overrides?: ScheduleOverrides;
 }): ReactElement {
   const { ts, locale } = useI18n();
   const dayjsLocale = locale === 'zh-CN' ? 'zh-cn' : locale;
@@ -85,7 +78,7 @@ export function UpcomingRuns({
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
             const notes = upcomingRunNotes(run, dayjsLocale, ts);
-            const params = overridesOf(schedules, run.scheduleIndex, overrides);
+            const params = Object.entries(overrides[run.scheduleIndex] ?? {});
             return (
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
@@ -187,41 +180,4 @@ function upcomingRunNotes(
 function scheduleSummary(schedule: Schedule): string {
   const label = getScheduleLabel(schedule);
   return schedule.profile ? `${label} (${schedule.profile})` : label;
-}
-
-/** A schedule the panel edits: a plain cron entry without scoping fields. */
-function isEditable(schedule: Schedule): boolean {
-  return (
-    !!schedule.expression &&
-    schedule.kind !== ScheduleKind.at &&
-    !schedule.at &&
-    !schedule.profile &&
-    !schedule.calendar &&
-    !schedule.businessDays?.length
-  );
-}
-
-/**
- * The overrides of the schedule that a run came from. Entries the panel does
- * not edit own no overrides here. Among editable ones, the k-th schedule of
- * an expression on the server is the k-th entry of that expression in the
- * YAML.
- */
-function overridesOf(
-  schedules: Schedule[],
-  index: number,
-  overrides: readonly ScheduleOverrides[]
-): Array<[string, string]> {
-  const current = schedules[index];
-  if (!current || !isEditable(current)) return [];
-  const nth = schedules
-    .slice(0, index)
-    .filter(
-      (schedule) =>
-        isEditable(schedule) && schedule.expression === current.expression
-    ).length;
-  const entry = overrides.filter(
-    (item) => item.expression === current.expression
-  )[nth];
-  return Object.entries(entry?.params ?? {});
 }

@@ -388,10 +388,7 @@ export function CronLauncherPanel({
           runs={upcomingRuns}
           hold={upcomingRunsHold}
           schedules={schedules}
-          overrides={expressions.map((entry, index) => ({
-            expression: entry,
-            params: schedule.params?.[index] ?? {},
-          }))}
+          overrides={schedule.startParams}
         />
       )}
       {schedule.others > 0 && (

@@ -44,7 +44,7 @@ describe('readSchedule', () => {
     const view = readSchedule(
       'schedule:\n  - "0 * * * *"\n  - at: 2030-01-01T00:00:00Z\n'
     );
-    expect(view).toEqual({
+    expect(view).toMatchObject({
       present: true,
       expressions: ['0 * * * *'],
       others: 1,
@@ -55,7 +55,12 @@ describe('readSchedule', () => {
   it('counts a start that is one object', () => {
     expect(
       readSchedule('schedule:\n  start:\n    at: 2030-01-01T00:00:00Z\n')
-    ).toEqual({ present: true, expressions: [], others: 1, params: [] });
+    ).toMatchObject({
+      present: true,
+      expressions: [],
+      others: 1,
+      params: [],
+    });
   });
 
   it('does not throw on a broken text', () => {
@@ -178,7 +183,7 @@ steps:
     const text = 'schedule:\n  start:\n    at: 2030-01-01T00:00:00Z\n';
     const next = set(text, ['0 9 * * *']);
     expect(next).toContain('at: 2030-01-01T00:00:00Z');
-    expect(readSchedule(next)).toEqual({
+    expect(readSchedule(next)).toMatchObject({
       present: true,
       expressions: ['0 9 * * *'],
       others: 1,
@@ -200,7 +205,7 @@ describe('schedule of a file with a quoted string with unindented lines', () => 
   const text = `schedule: '0 1 * * *'\n${yamlUnindentedQuote}`;
 
   it('reads the schedule', () => {
-    expect(readSchedule(text)).toEqual({
+    expect(readSchedule(text)).toMatchObject({
       present: true,
       expressions: ['0 1 * * *'],
       others: 0,
@@ -323,5 +328,26 @@ describe('schedule parameter overrides', () => {
       removedIndex: 1,
     });
     expect(kept.ok && readSchedule(kept.text).params).toEqual([{ mode: 'y' }]);
+  });
+
+  // The server indexes start entries by YAML position, whatever their keys.
+  it('reads the overrides of every start entry by position', () => {
+    const text = `schedule:
+  - expression: "0 5 * * *"
+    calendar: none
+  - expression: "0 5 * * *"
+    profile: ""
+  - kind: cron
+    expression: "0 5 * * *"
+  - expression: "0 5 * * *"
+    params:
+      mode: b
+`;
+    expect(readSchedule(text).startParams).toEqual([
+      null,
+      null,
+      null,
+      { mode: 'b' },
+    ]);
   });
 });

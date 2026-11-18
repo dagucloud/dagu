@@ -227,10 +227,7 @@ describe('UpcomingRuns', () => {
             paramOverrideCount: 1,
           },
         ]}
-        overrides={[
-          { expression: '0 5 * * *', params: { mode: 'y' } },
-          { expression: '0 6 * * *', params: { mode: 'z' } },
-        ]}
+        overrides={[{ mode: 'y' }, { mode: 'z' }]}
         runs={[
           { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
           { time: '2027-01-25T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
@@ -242,15 +239,15 @@ describe('UpcomingRuns', () => {
     expect(screen.queryByText(/parameter override/)).toBeNull();
   });
 
-  // A profile entry that shares an expression must not take another entry's overrides.
-  it('skips entries the panel does not edit when it matches overrides', () => {
+  // An entry the panel cannot edit shares an expression with an editable one.
+  it('gives an entry the panel does not edit no overrides', () => {
     render(
       <UpcomingRuns
         schedules={[
           { expression: '0 5 * * *', kind: ScheduleKind.cron, profile: 'x' },
           { expression: '0 5 * * *', kind: ScheduleKind.cron },
         ]}
-        overrides={[{ expression: '0 5 * * *', params: { mode: 'b' } }]}
+        overrides={[null, { mode: 'b' }]}
         runs={[
           { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
           { time: '2027-01-26T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
@@ -262,17 +259,14 @@ describe('UpcomingRuns', () => {
     expect(items[1]).toHaveTextContent('mode: b');
   });
 
-  it('tells the duplicates of one expression apart by their order', () => {
+  it('tells the duplicates of one expression apart by their index', () => {
     render(
       <UpcomingRuns
         schedules={[
           { expression: '0 5 * * *', kind: ScheduleKind.cron },
           { expression: '0 5 * * *', kind: ScheduleKind.cron },
         ]}
-        overrides={[
-          { expression: '0 5 * * *', params: { mode: 'a' } },
-          { expression: '0 5 * * *', params: { mode: 'b' } },
-        ]}
+        overrides={[{ mode: 'a' }, { mode: 'b' }]}
         runs={[
           { time: '2027-01-25T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
         ]}
