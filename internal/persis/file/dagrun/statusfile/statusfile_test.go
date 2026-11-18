@@ -293,6 +293,62 @@ func FuzzReadLatest(f *testing.F) {
 	})
 }
 
+// BenchmarkEncodeRun encodes the updates of a run in which each step starts
+// and then succeeds, with steps shaped like those of a real 47-step run. It
+// reports the bytes the status file receives, with change records and with
+// full records only.
+func BenchmarkEncodeRun(b *testing.B) {
+	for _, steps := range []int{5, 20, 47, 100, 200} {
+		for _, fullOnly := range []bool{false, true} {
+			name := fmt.Sprintf("Steps%d/Changes", steps)
+			if fullOnly {
+				name = fmt.Sprintf("Steps%d/FullOnly", steps)
+			}
+			b.Run(name, func(b *testing.B) {
+				var written int
+				for b.Loop() {
+					written = encodeRun(b, steps, fullOnly)
+				}
+				b.ReportMetric(float64(written), "bytes/run")
+			})
+		}
+	}
+}
+
+func encodeRun(b *testing.B, steps int, fullOnly bool) (written int) {
+	st := testStatus(0)
+	st.Log = "/home/dagu/.local/share/dagu/logs/etl-nightly/dag-run_20261115_000000Z_019a7c3e/attempt.log"
+	st.Params = "date=2026-11-15 region=ap-northeast-1 batch=nightly retries=3"
+	for i := range steps {
+		name := fmt.Sprintf("extract-orders-%03d", i)
+		node := ir.NewNodeFromStep(ir.Step{
+			Name:        name,
+			Dir:         "/srv/dagu/workspaces/etl-nightly",
+			CmdWithArgs: "python3 /srv/etl/jobs/extract.py --date 2026-11-15 --shard " + strconv.Itoa(i),
+		})
+		node.WorkingDir = "/srv/dagu/workspaces/etl-nightly/dag-run_20261115_000000Z_019a7c3e/" + name
+		st.Nodes = append(st.Nodes, node)
+	}
+	var enc statusfile.Encoder
+	for _, node := range st.Nodes {
+		for _, status := range []ir.NodeStatus{ir.NodeRunning, ir.NodeSucceeded} {
+			node.Status = status
+			node.StartedAt = "2026-11-15T00:00:00Z"
+			logs := "/home/dagu/.local/share/dagu/logs/etl-nightly/dag-run_20261115_000000Z_019a7c3e/" + node.Step.Name
+			node.Stdout, node.Stderr = logs+".out", logs+".err"
+			if status == ir.NodeSucceeded {
+				node.FinishedAt = "2026-11-15T00:00:05Z"
+			}
+			if fullOnly {
+				written += len(storedLine(b, st)) + 1
+			} else {
+				written += len(encode(b, &enc, st)) + 1
+			}
+		}
+	}
+	return written
+}
+
 // history simulates a status file written by a runner through an Encoder,
 // with the other lines that real files hold, and knows what each line records.
 type history struct {

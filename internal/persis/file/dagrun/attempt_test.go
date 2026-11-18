@@ -585,6 +585,112 @@ func TestAttempt_WriteAfterPartialLine(t *testing.T) {
 	})
 }
 
+// A running attempt writes change records, and each status it writes reads
+// back as written. Close leaves one full record.
+func TestAttempt_WritesChangeRecords(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	for i := range 40 {
+		node := st.Nodes[i%len(st.Nodes)]
+		node.Status = ir.NodeStatus(1 + i%4)
+		node.StartedAt = fmt.Sprintf("2026-11-15T00:00:%02dZ", i)
+		require.NoError(t, att.Write(ctx, st))
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, readBack(t, st), status)
+	}
+	data, err := fileutil.ReadFile(att.file)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "\n~")
+
+	require.NoError(t, att.Close(ctx))
+	data, err = fileutil.ReadFile(att.file)
+	require.NoError(t, err)
+	assert.Equal(t, 1, bytes.Count(data, []byte("\n")))
+	assert.Equal(t, byte('{'), data[0])
+	status, err := ParseStatusFile(att.file)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
+
+// A record that another writer appends between two of the runner's, such as
+// an approval, does not break the runner's change records.
+func TestAttempt_ChangeRecordAfterOtherWriter(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
+
+	other := NewWriter(att.file)
+	require.NoError(t, other.Open())
+	approved := wideStatus(20)
+	approved.Nodes[0].ApprovedBy = "other"
+	require.NoError(t, other.Write(ctx, approved))
+	require.NoError(t, other.close())
+
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	require.Equal(t, byte('~'), lastLine(t, att.file)[0])
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
+
+// Another writer can leave a partial line while the runner holds the file
+// open, as its write cut off by a full disk does. The runner's next record
+// still starts a line of its own, so the run's later statuses and the status
+// that Close compacts are not lost.
+func TestAttempt_WriteAfterOtherWritersPartialLine(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
+	st.Nodes[0].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+
+	other, err := os.OpenFile(att.file, os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = other.WriteString(`{"partial`)
+	require.NoError(t, err)
+	require.NoError(t, other.Close())
+
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+
+	require.NoError(t, att.Close(ctx))
+	status, err = ParseStatusFile(att.file)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
+
+// Once another attempt replaces the file, as its compaction does, the line the
+// runner's next change record would build on is gone.
+func TestAttempt_WriteAfterReplacedFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot replace a file that another handle holds open")
+	}
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
+	st.Nodes[0].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+
+	other, err := NewAttempt(att.file, nil)
+	require.NoError(t, err)
+	require.NoError(t, other.Compact(ctx))
+
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
+
 func TestSafeRename(t *testing.T) {
 	dir := createTempDir(t)
 	sourceFile := filepath.Join(dir, "source.txt")
@@ -705,6 +811,35 @@ func statusWithPID(pid int) ir.DAGRunStatus {
 	status := createTestStatus(ir.Running)
 	status.PID = ir.PID(pid)
 	return status
+}
+
+// wideStatus returns a running status with enough steps that a change to one
+// of them is written as a change record.
+func wideStatus(steps int) ir.DAGRunStatus {
+	st := createTestStatus(ir.Running)
+	for i := range steps {
+		st.Nodes = append(st.Nodes, ir.NewNodeFromStep(ir.Step{Name: fmt.Sprintf("wide%d", i)}))
+	}
+	return st
+}
+
+// readBack returns the status as reading its full record returns it.
+func readBack(t *testing.T, st ir.DAGRunStatus) *ir.DAGRunStatus {
+	t.Helper()
+	data, err := json.Marshal(ir.StoredStatus(st))
+	require.NoError(t, err)
+	var read ir.DAGRunStatus
+	require.NoError(t, json.Unmarshal(data, &read))
+	return &read
+}
+
+// lastLine returns the last line of the file.
+func lastLine(t *testing.T, file string) []byte {
+	t.Helper()
+	data, err := fileutil.ReadFile(file)
+	require.NoError(t, err)
+	lines := bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
+	return lines[len(lines)-1]
 }
 
 // createTestStatus creates a sample status for testing using StatusFactory

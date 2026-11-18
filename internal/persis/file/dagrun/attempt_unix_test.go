@@ -34,13 +34,13 @@ func TestAttempt_WriteAfterWriteError(t *testing.T) {
 		require.ErrorIs(t, att.Write(ctx, status), ErrWriteFailed)
 	}
 	// A status larger than the write buffer goes to the file while it is
-	// encoded; a smaller one goes when the buffer is flushed.
+	// buffered; a smaller one goes when the buffer is flushed.
 	large := statusWithPID(2)
 	large.Log = strings.Repeat("x", 64*1024)
 
 	for name, failed := range map[string]ir.DAGRunStatus{
-		"FailedFlush":  statusWithPID(2),
-		"FailedEncode": large,
+		"FailedFlush":         statusWithPID(2),
+		"FailedBufferedWrite": large,
 	} {
 		t.Run(name, func(t *testing.T) {
 			att := openAttemptForTest(t)
@@ -68,6 +68,24 @@ func TestAttempt_WriteAfterWriteError(t *testing.T) {
 		status, err := att.ReadStatus(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, ir.PID(4), status.PID)
+	})
+
+	// A change record must not build on a status that failed to write.
+	t.Run("FailedChangeRecord", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		st := wideStatus(20)
+		require.NoError(t, att.Write(ctx, st))
+		st.Nodes[0].Status = ir.NodeRunning
+		require.NoError(t, att.Write(ctx, st))
+		require.Equal(t, byte('~'), lastLine(t, att.file)[0])
+		st.Nodes[1].Status = ir.NodeRunning
+		failNextWrite(t, att, st)
+
+		st.Nodes[2].Status = ir.NodeRunning
+		require.NoError(t, att.Write(ctx, st))
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, readBack(t, st), status)
 	})
 
 	t.Run("CloseCompacts", func(t *testing.T) {
