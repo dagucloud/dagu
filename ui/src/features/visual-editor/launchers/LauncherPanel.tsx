@@ -185,15 +185,19 @@ function ParamOverrideFields({
                 className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
-            {editable && overridden && (
-              <IconButton
-                size="sm"
-                icon={RotateCcw}
-                label={ts('Use workflow default for {name}', {
-                  name: param.name,
-                })}
-                onClick={() => onChange(param.name, null)}
-              />
+            {editable && (
+              <span className="flex h-7 w-16 shrink-0 items-center">
+                {overridden && (
+                  <IconButton
+                    size="sm"
+                    icon={RotateCcw}
+                    label={ts('Use workflow default for {name}', {
+                      name: param.name,
+                    })}
+                    onClick={() => onChange(param.name, null)}
+                  />
+                )}
+              </span>
             )}
           </div>
         );
