@@ -303,19 +303,33 @@ describe('CronLauncherPanel parameter overrides', () => {
     ).toBeNull();
   });
 
-  it('sets an override for the schedule that was edited', () => {
+  // Each sent value is one YAML edit and one undo step, so typing alone
+  // sends nothing.
+  it('sets an override of the edited schedule on blur', () => {
     const { onParamChange } = renderParams([{}, {}]);
-    fireEvent.change(screen.getAllByLabelText('mode')[1]!, {
-      target: { value: 'z' },
-    });
+    const field = screen.getAllByLabelText('mode')[1]!;
+    fireEvent.change(field, { target: { value: 'z' } });
+    expect(onParamChange).not.toHaveBeenCalled();
+    fireEvent.blur(field);
+    expect(onParamChange).toHaveBeenCalledOnce();
     expect(onParamChange).toHaveBeenCalledWith(1, 'mode', 'z');
+  });
+
+  it('sets an override on Enter after the input method finishes', () => {
+    const { onParamChange } = renderParams([{}, {}]);
+    const field = screen.getAllByLabelText('mode')[0]!;
+    fireEvent.change(field, { target: { value: '本番' } });
+    fireEvent.keyDown(field, { key: 'Enter', isComposing: true });
+    expect(onParamChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(onParamChange).toHaveBeenCalledWith(0, 'mode', '本番');
   });
 
   it('keeps an explicit value that equals the default', () => {
     const { onParamChange } = renderParams([{ mode: 'x' }, {}]);
-    fireEvent.change(screen.getAllByLabelText('mode')[0]!, {
-      target: { value: 'manual' },
-    });
+    const field = screen.getAllByLabelText('mode')[0]!;
+    fireEvent.change(field, { target: { value: 'manual' } });
+    fireEvent.blur(field);
     expect(onParamChange).toHaveBeenCalledWith(0, 'mode', 'manual');
   });
 
@@ -331,9 +345,9 @@ describe('CronLauncherPanel parameter overrides', () => {
 
   it('clears an override when its field is emptied', () => {
     const { onParamChange } = renderParams([{ mode: 'z' }, {}]);
-    fireEvent.change(screen.getAllByLabelText('mode')[0]!, {
-      target: { value: '' },
-    });
+    const field = screen.getAllByLabelText('mode')[0]!;
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.blur(field);
     expect(onParamChange).toHaveBeenCalledWith(0, 'mode', null);
   });
 

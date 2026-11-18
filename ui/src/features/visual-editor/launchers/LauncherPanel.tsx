@@ -16,6 +16,7 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import type { ScheduleView } from '../doc';
+import { TextField } from '../inspector/TextField';
 import { LAUNCHER_ICONS, LAUNCHER_LABELS } from './LauncherNode';
 import type { LauncherId } from './model';
 import { nextRuns, SCHEDULE_PRESETS } from './nextRuns';
@@ -142,8 +143,8 @@ export interface ParamDefault {
 
 /**
  * One field per workflow parameter. The workflow default shows as the muted
- * placeholder; a typed value is an override of this schedule, and the reset
- * button clears it. An emptied field has no override.
+ * placeholder; a value sent on blur or Enter is an override of this schedule,
+ * and the reset button clears it. An emptied field has no override.
  */
 function ParamOverrideFields({
   defaults,
@@ -164,27 +165,18 @@ function ParamOverrideFields({
       {defaults.map((param) => {
         const overridden = overrides.has(param.name);
         return (
-          <div key={param.name} className="flex items-center gap-2">
-            <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-muted-foreground">
-              <span className="w-20 shrink-0 truncate" title={param.name}>
-                {param.name}
-              </span>
-              <input
-                type="text"
+          <div key={param.name} className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <TextField
+                label={param.name}
                 value={overrides.get(param.name) ?? ''}
                 placeholder={param.default ?? ''}
                 readOnly={!editable}
-                spellCheck={false}
-                aria-label={param.name}
-                onChange={(event) =>
-                  onChange(
-                    param.name,
-                    event.target.value === '' ? null : event.target.value
-                  )
+                onCommit={(text) =>
+                  onChange(param.name, text === '' ? null : text)
                 }
-                className="h-7 min-w-0 flex-1 rounded-md border bg-background px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring"
               />
-            </label>
+            </div>
             {editable && (
               <span className="flex h-7 w-16 shrink-0 items-center">
                 {overridden && (
