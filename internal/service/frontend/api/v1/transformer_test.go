@@ -27,6 +27,20 @@ func writeArtifactFile(t *testing.T) string {
 	return dir
 }
 
+func TestToScheduleParamOverrides(t *testing.T) {
+	t.Parallel()
+
+	schedule := toSchedule(ir.Schedule{
+		Expression: "0 5 * * *",
+		Params:     json.RawMessage(`{"mode":"y","count":5}`),
+	})
+
+	require.NotNil(t, schedule.ParamOverrides)
+	assert.Equal(t, map[string]string{"mode": "y", "count": "5"}, *schedule.ParamOverrides)
+	require.NotNil(t, schedule.ParamOverrideCount)
+	assert.Equal(t, 2, *schedule.ParamOverrideCount)
+}
+
 func TestToStepIncludesHarnessPrompt(t *testing.T) {
 	prompt := "Review the implementation.\nReport every finding.\n"
 	step := toStep(ir.Step{

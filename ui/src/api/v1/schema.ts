@@ -6344,6 +6344,10 @@ export interface components {
             calendar?: string;
             /** @description Number of named parameter overrides on this schedule entry */
             paramOverrideCount?: number;
+            /** @description Named parameter overrides on this schedule entry. A value that is not a string is given as its JSON text. */
+            paramOverrides?: {
+                [key: string]: string;
+            };
             /** @description Business days of the month the schedule keeps; negative values count from the end. 0 is never listed. */
             businessDays?: number[];
         };
