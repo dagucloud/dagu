@@ -12,7 +12,7 @@ import { parseAllDocumentsAsServer } from '../serverYaml';
 export interface ScheduleView {
   /** True when the top-level `schedule` key has a value. */
   present: boolean;
-  /** Start expressions that are plain strings, in the YAML order. */
+  /** Start expressions of the entries that the panel edits, in the YAML order. */
   expressions: string[];
   /** Entries that the panel cannot show, such as a one-off or a profile entry. */
   others: number;
@@ -208,7 +208,7 @@ function setSchedule(
   const root: YAMLMap = doc.contents;
   const existing = root.get('schedule', true);
   if (expressions.length === 0) {
-    // Entries that are not plain strings stay, and so do `stop` and `restart`.
+    // Entries that the panel does not edit stay, and so do `stop` and `restart`.
     if (isMap(existing)) {
       if (!clearExpressions(existing.get('start', true))) {
         existing.delete('start');
@@ -242,10 +242,11 @@ function setSchedule(
 }
 
 /**
- * Sets the start expressions of the `schedule` key. Entries that are not
- * plain strings, and the `stop` and `restart` of the map form, stay. An empty
- * list removes the key when nothing else is left. The other lines of the
- * text do not change.
+ * Sets the start expressions of the `schedule` key. Plain strings and
+ * `expression` entries with `params` take the new expressions, and an entry
+ * keeps its params while it stays. Other entries, and the `stop` and
+ * `restart` of the map form, stay. An empty list removes the key when nothing
+ * else is left. The other lines of the text do not change.
  */
 export function opSetSchedule(
   text: string,
