@@ -46,9 +46,24 @@ func toSchedule(s ir.Schedule) api.Schedule {
 		var overrides map[string]json.RawMessage
 		if err := json.Unmarshal(s.Params, &overrides); err == nil && len(overrides) > 0 {
 			schedule.ParamOverrideCount = ptrOf(len(overrides))
+			schedule.ParamOverrides = ptrOf(paramOverrideTexts(overrides))
 		}
 	}
 	return schedule
+}
+
+// paramOverrideTexts returns each override as text: a string as is, and any
+// other value as its JSON.
+func paramOverrideTexts(overrides map[string]json.RawMessage) map[string]string {
+	texts := make(map[string]string, len(overrides))
+	for name, raw := range overrides {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			text = string(raw)
+		}
+		texts[name] = text
+	}
+	return texts
 }
 
 func workspaceResponseNameFromLabels(labels ir.Labels) *string {

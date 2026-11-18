@@ -56,28 +56,6 @@ describe('UpcomingRuns', () => {
     expect(screen.getByRole('listitem')).toHaveTextContent('loads 2027-01-24');
   });
 
-  it('shows how many parameters the matching schedule overrides', () => {
-    render(
-      <UpcomingRuns
-        schedules={[
-          { expression: '0 5 * * *', paramOverrideCount: 1 },
-          { expression: '0 6 * * *', paramOverrideCount: 2 },
-        ]}
-        runs={[
-          { time: '2027-01-01T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
-          { time: '2027-01-01T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
-        ]}
-      />
-    );
-
-    expect(
-      screen.getByText('1 parameter override', { exact: false })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('2 parameter overrides', { exact: false })
-    ).toBeInTheDocument();
-  });
-
   it('names the zone and schedule of each run when they differ', () => {
     render(
       <UpcomingRuns
@@ -209,5 +187,81 @@ describe('UpcomingRuns', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(7);
+  });
+
+  // Two schedules that override the same parameter must look different.
+  it('shows the overrides of each run beside its time', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'y' },
+          },
+          {
+            expression: '0 6 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'z' },
+          },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          { time: '2027-01-25T06:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    expect(screen.getByText('· mode: y')).toBeInTheDocument();
+    expect(screen.getByText('· mode: z')).toBeInTheDocument();
+  });
+
+  it('shows the overrides of an entry the panel does not edit', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            profile: 'x',
+            paramOverrides: { mode: 'a' },
+          },
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'b' },
+          },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          { time: '2027-01-26T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('mode: a');
+    expect(items[1]).toHaveTextContent('mode: b');
+  });
+
+  it('tells the duplicates of one expression apart by their index', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'a' },
+          },
+          {
+            expression: '0 5 * * *',
+            kind: ScheduleKind.cron,
+            paramOverrides: { mode: 'b' },
+          },
+        ]}
+        runs={[
+          { time: '2027-01-25T05:00:00Z', scheduleIndex: 1, timezone: 'UTC' },
+        ]}
+      />
+    );
+    expect(screen.getByText('· mode: b')).toBeInTheDocument();
   });
 });

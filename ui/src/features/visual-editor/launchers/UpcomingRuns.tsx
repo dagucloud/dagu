@@ -73,6 +73,7 @@ export function UpcomingRuns({
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
             const notes = upcomingRunNotes(run, dayjsLocale, ts);
+            const params = Object.entries(schedule?.paramOverrides ?? {});
             return (
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
@@ -94,15 +95,12 @@ export function UpcomingRuns({
                     {scheduleSummary(schedule)}
                   </span>
                 )}
-                {!!schedule?.paramOverrideCount && (
-                  <span>
+                {params.length > 0 && (
+                  <span className="font-mono text-foreground/80">
                     {' · '}
-                    {ts(
-                      schedule.paramOverrideCount === 1
-                        ? '{count} parameter override'
-                        : '{count} parameter overrides',
-                      { count: schedule.paramOverrideCount }
-                    )}
+                    {params
+                      .map(([name, value]) => `${name}: ${value}`)
+                      .join(', ')}
                   </span>
                 )}
                 {notes.length > 0 && (

@@ -20,7 +20,7 @@ steps:
 
 describe('readSchedule', () => {
   it('reads no schedule', () => {
-    expect(readSchedule(BASE)).toEqual({
+    expect(readSchedule(BASE)).toMatchObject({
       present: false,
       expressions: [],
       others: 0,
@@ -44,17 +44,23 @@ describe('readSchedule', () => {
     const view = readSchedule(
       'schedule:\n  - "0 * * * *"\n  - at: 2030-01-01T00:00:00Z\n'
     );
-    expect(view).toEqual({
+    expect(view).toMatchObject({
       present: true,
       expressions: ['0 * * * *'],
       others: 1,
+      params: [{}],
     });
   });
 
   it('counts a start that is one object', () => {
     expect(
       readSchedule('schedule:\n  start:\n    at: 2030-01-01T00:00:00Z\n')
-    ).toEqual({ present: true, expressions: [], others: 1 });
+    ).toMatchObject({
+      present: true,
+      expressions: [],
+      others: 1,
+      params: [],
+    });
   });
 
   it('does not throw on a broken text', () => {
@@ -111,7 +117,7 @@ steps:
 `;
     const result = applyEdit(text, {
       kind: 'setSchedule',
-      expressions: ['0 6 * * *'],
+      expressions: ['0 6 * * *', '0 6 * * *'],
       removedIndex: 0,
     });
     expect(result.ok).toBe(true);
@@ -177,10 +183,11 @@ steps:
     const text = 'schedule:\n  start:\n    at: 2030-01-01T00:00:00Z\n';
     const next = set(text, ['0 9 * * *']);
     expect(next).toContain('at: 2030-01-01T00:00:00Z');
-    expect(readSchedule(next)).toEqual({
+    expect(readSchedule(next)).toMatchObject({
       present: true,
       expressions: ['0 9 * * *'],
       others: 1,
+      params: [{}],
     });
 
     const result = applyEdit(text, { kind: 'setSchedule', expressions: [] });
@@ -198,10 +205,11 @@ describe('schedule of a file with a quoted string with unindented lines', () => 
   const text = `schedule: '0 1 * * *'\n${yamlUnindentedQuote}`;
 
   it('reads the schedule', () => {
-    expect(readSchedule(text)).toEqual({
+    expect(readSchedule(text)).toMatchObject({
       present: true,
       expressions: ['0 1 * * *'],
       others: 0,
+      params: [{}],
     });
   });
 
@@ -209,5 +217,137 @@ describe('schedule of a file with a quoted string with unindented lines', () => 
     expect(set(text, ['5 4 * * *'])).toBe(
       `schedule: 5 4 * * *\n${yamlUnindentedQuote}`
     );
+  });
+});
+
+function setParam(
+  text: string,
+  index: number,
+  name: string,
+  value: string | null
+): string {
+  const result = applyEdit(text, {
+    kind: 'setScheduleParam',
+    index,
+    name,
+    value,
+  });
+  if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
+  return result.text;
+}
+
+describe('schedule parameter overrides', () => {
+  const PARAMETERIZED = `schedule:
+  - expression: "0 5 * * *"
+    params:
+      mode: y
+  - "0 6 * * *"
+`;
+
+  it('reads the overrides next to their expressions', () => {
+    const view = readSchedule(PARAMETERIZED);
+    expect(view.expressions).toEqual(['0 5 * * *', '0 6 * * *']);
+    expect(view.params).toEqual([{ mode: 'y' }, {}]);
+    expect(view.others).toBe(0);
+  });
+
+  it('turns a plain string into an object on its first override', () => {
+    const next = setParam(PARAMETERIZED, 1, 'mode', 'z');
+    expect(next).toBe(`schedule:
+  - expression: "0 5 * * *"
+    params:
+      mode: y
+  - expression: 0 6 * * *
+    params:
+      mode: z
+`);
+  });
+
+  it('turns a lone string into a list entry', () => {
+    const next = setParam('schedule: "0 6 * * *"\n', 0, 'mode', 'z');
+    const view = readSchedule(next);
+    expect(view.expressions).toEqual(['0 6 * * *']);
+    expect(view.params).toEqual([{ mode: 'z' }]);
+  });
+
+  it('keeps an override that equals the default as a pinned value', () => {
+    const next = setParam(PARAMETERIZED, 1, 'mode', 'manual');
+    expect(readSchedule(next).params?.[1]).toEqual({ mode: 'manual' });
+  });
+
+  it('clears one override and keeps the others and the order', () => {
+    const text = `schedule:
+  - expression: "0 5 * * *"
+    params:
+      mode: y
+      level: "3"
+  - "0 6 * * *"
+`;
+    const next = setParam(text, 0, 'mode', null);
+    expect(readSchedule(next).params).toEqual([{ level: '3' }, {}]);
+    expect(readSchedule(next).expressions).toEqual(['0 5 * * *', '0 6 * * *']);
+  });
+
+  it('writes a plain string again when the last override goes', () => {
+    const next = setParam(PARAMETERIZED, 0, 'mode', null);
+    expect(next).toBe(`schedule:
+  - 0 5 * * *
+  - "0 6 * * *"
+`);
+  });
+
+  it('keeps other entries and indexes only editable ones', () => {
+    const text = `schedule:
+  - at: 2030-01-01T00:00:00Z
+  - "0 6 * * *"
+`;
+    const next = setParam(text, 0, 'mode', 'z');
+    expect(next).toContain('at: 2030-01-01T00:00:00Z');
+    expect(readSchedule(next).params).toEqual([{ mode: 'z' }]);
+    expect(readSchedule(next).others).toBe(1);
+  });
+
+  it('refuses an index that has no entry', () => {
+    const result = applyEdit(PARAMETERIZED, {
+      kind: 'setScheduleParam',
+      index: 5,
+      name: 'mode',
+      value: 'z',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('keeps the overrides of the other entries when one is removed', () => {
+    const next = set(PARAMETERIZED, ['0 6 * * *']);
+    expect(next).toBe(`schedule:
+  - "0 6 * * *"
+`);
+    const kept = applyEdit(PARAMETERIZED, {
+      kind: 'setSchedule',
+      expressions: ['0 5 * * *'],
+      removedIndex: 1,
+    });
+    expect(kept.ok && readSchedule(kept.text).params).toEqual([{ mode: 'y' }]);
+  });
+
+  // An entry with keys other than expression and params stays in the YAML.
+  it('edits only entries with an expression and params', () => {
+    const text = `schedule:
+  - expression: "0 5 * * *"
+    calendar: none
+  - expression: "0 5 * * *"
+    profile: ""
+  - kind: cron
+    expression: "0 5 * * *"
+  - expression: "0 5 * * *"
+    params:
+      mode: b
+`;
+    expect(readSchedule(text)).toEqual({
+      present: true,
+      expressions: ['0 5 * * *'],
+      others: 3,
+      params: [{ mode: 'b' }],
+    });
   });
 });
