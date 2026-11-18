@@ -375,6 +375,24 @@ describe('CronLauncherPanel parameter overrides', () => {
     );
   });
 
+  // The override applies to the run although the workflow no longer
+  // declares the name, so it must stay visible and removable.
+  it('shows and resets an override of an undeclared name', () => {
+    const { onParamChange } = renderParams([{ mode: 'y', region: 'eu' }]);
+    expect(screen.getByLabelText('region')).toHaveValue('eu');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use workflow default for region' })
+    );
+    expect(onParamChange).toHaveBeenCalledWith(0, 'region', null);
+  });
+
+  it('marks an override set to the empty string', () => {
+    renderParams([{ mode: '' }, {}]);
+    const [empty, inherited] = screen.getAllByLabelText('mode');
+    expect(empty).toHaveAttribute('placeholder', '""');
+    expect(inherited).toHaveAttribute('placeholder', 'manual');
+  });
+
   it('removes one schedule with its overrides', () => {
     const { onChange } = renderParams([{ mode: 'y' }, { mode: 'z' }]);
     fireEvent.click(

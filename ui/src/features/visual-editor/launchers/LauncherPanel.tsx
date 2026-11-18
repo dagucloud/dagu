@@ -143,8 +143,12 @@ export interface ParamDefault {
   computed?: boolean;
 }
 
+/** Placeholder of an override set to the empty string, which a blank field hides. */
+const EMPTY_OVERRIDE = '""';
+
 /**
- * One field per workflow parameter. The workflow default shows as the muted
+ * One field per workflow parameter, and one per override of a name the
+ * workflow does not declare. The workflow default shows as the muted
  * placeholder; a value sent on blur or Enter is an override of this schedule,
  * and the reset button clears it. An emptied field has no override.
  */
@@ -160,11 +164,23 @@ function ParamOverrideFields({
   onChange(name: string, value: string | null): void;
 }): ReactElement | null {
   const { ts } = useI18n();
-  if (defaults.length === 0) return null;
   const overrides = new Map(Object.entries(values));
+  const declared = new Set(defaults.map((param) => param.name));
+  const fields: readonly ParamDefault[] = [
+    ...defaults,
+    ...[...overrides.keys()]
+      .filter((name) => !declared.has(name))
+      .map((name) => ({ name })),
+  ];
+  if (fields.length === 0) return null;
+  const placeholderOf = (param: ParamDefault): string => {
+    if (overrides.get(param.name) === '') return EMPTY_OVERRIDE;
+    if (param.computed) return ts('Computed when the run starts');
+    return param.default ?? '';
+  };
   return (
     <div className="space-y-1" role="group" aria-label={ts('Parameters')}>
-      {defaults.map((param) => {
+      {fields.map((param) => {
         const overridden = overrides.has(param.name);
         return (
           <div key={param.name} className="flex items-end gap-2">
@@ -172,11 +188,7 @@ function ParamOverrideFields({
               <TextField
                 label={param.name}
                 value={overrides.get(param.name) ?? ''}
-                placeholder={
-                  param.computed
-                    ? ts('Computed when the run starts')
-                    : (param.default ?? '')
-                }
+                placeholder={placeholderOf(param)}
                 readOnly={!editable}
                 onCommit={(text) =>
                   onChange(param.name, text === '' ? null : text)
