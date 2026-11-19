@@ -73,8 +73,14 @@ export interface StepYamlCheck {
   error?: { message: string; line?: number; column?: number };
 }
 
-/** Parses the YAML of one step; the text must hold one mapping. */
-export function parseStepYaml(text: string): StepYamlCheck {
+/**
+ * Parses a YAML text that must hold one mapping. `notMapping` is the message
+ * for a text that holds something else.
+ */
+export function parseMappingYaml(
+  text: string,
+  notMapping: string
+): StepYamlCheck {
   const doc = parseDocumentAsServer(text);
   const [first] = doc.errors;
   if (first) {
@@ -89,10 +95,7 @@ export function parseStepYaml(text: string): StepYamlCheck {
     };
   }
   if (!isMap(doc.contents)) {
-    return {
-      ok: false,
-      error: { message: 'The step must be a YAML mapping.' },
-    };
+    return { ok: false, error: { message: notMapping } };
   }
   try {
     return { ok: true, value: doc.toJS() as Record<string, unknown> };
@@ -101,4 +104,9 @@ export function parseStepYaml(text: string): StepYamlCheck {
     // it, or the validation of the DAG reports it.
     return { ok: true };
   }
+}
+
+/** Parses the YAML of one step; the text must hold one mapping. */
+export function parseStepYaml(text: string): StepYamlCheck {
+  return parseMappingYaml(text, 'The step must be a YAML mapping.');
 }

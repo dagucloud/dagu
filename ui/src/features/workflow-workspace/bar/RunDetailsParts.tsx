@@ -32,6 +32,7 @@ import { toneClasses } from '@/lib/statusPalette';
 import { cn, FOCUS_RING } from '@/lib/utils';
 import type { ApiDAGRunDetails } from '../contracts';
 import { TEST_RUN_TTL_MINUTES, testRunExpiry } from '../data/testRun';
+import { useIsServiceDag } from '../data/useServiceDag';
 import { InputsUsed, useInputsUsed } from '../step/InputsUsed';
 
 // The pieces of the run details popover. Each one shows only when it applies
@@ -108,7 +109,8 @@ export function RunStatusSection({
   onShowLog: () => void;
 }): ReactElement {
   const { ts } = useI18n();
-  const display = runDisplayStatus(details);
+  const service = useIsServiceDag();
+  const display = runDisplayStatus(details, { service });
   const colours = toneClasses(display.tone);
   return (
     <DetailRow label={ts('Status')} testId="ww-run-details-status">

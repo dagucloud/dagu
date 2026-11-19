@@ -1,0 +1,8 @@
+# Keep the last seven backups only.
+group: maintenance
+description: Keep the last seven backups only.
+schedule: "0 3 * * 0"
+type: chain
+steps:
+  - name: run
+    run: echo "rotate-backups"

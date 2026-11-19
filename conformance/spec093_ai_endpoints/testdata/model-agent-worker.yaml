@@ -1,0 +1,10 @@
+description: An agent step on an agent worker with an unlisted model, for the model check of Spec 093.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-ghost
+      prompt: Fix the failing test.

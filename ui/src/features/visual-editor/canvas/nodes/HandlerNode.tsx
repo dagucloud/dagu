@@ -32,7 +32,7 @@ function HandlerNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
       aria-label={compact ? node.label : undefined}
       style={compact ? compactCardPlace(direction) : undefined}
       className={cn(
-        'group flex rounded-md border-[1.5px] border-dashed border-muted-foreground/60 bg-card text-card-foreground dark:border dark:border-muted-foreground/40',
+        'group flex rounded-md border-[1.5px] border-dashed border-node-line bg-card text-card-foreground dark:border',
         compact ? 'absolute h-14 w-14' : 'relative h-16 w-60',
         cardStateClass(node, selected, data.highlighted)
       )}

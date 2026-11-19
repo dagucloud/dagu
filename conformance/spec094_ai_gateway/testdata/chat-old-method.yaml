@@ -1,0 +1,16 @@
+description: A chat step on the old method. It has no endpoint, so it needs no gateway.
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - OLD_METHOD_KEY: ${OLD_METHOD_KEY}
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      provider: local
+      model: good-model
+      base_url: $LLM_BASE_URL
+      api_key_name: OLD_METHOD_KEY
+      stream: false
+      prompt: Say hello.

@@ -8,6 +8,7 @@ import RelativeTime from '@/components/ui/relative-time';
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { StatusDot } from '@/components/ui/status-dot';
 import { useI18n } from '@/i18n/I18nProvider';
+import { isServiceDAG } from '@/lib/dagSchedule';
 import { runDisplayStatus } from '@/lib/runDisplayStatus';
 import { statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
@@ -74,7 +75,9 @@ function CompactRunIdentity({
   const dock = useDockCommands();
   if (!details) return null;
   const pinned = run.selection !== 'latest';
-  const display = runDisplayStatus(details);
+  const display = runDisplayStatus(details, {
+    service: !!dag && isServiceDAG(dag),
+  });
   const statusName = display.healthy
     ? display.text
     : statusLabelText(details.statusLabel);

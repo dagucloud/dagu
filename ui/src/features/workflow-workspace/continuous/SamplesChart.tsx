@@ -17,6 +17,7 @@ import { toneClasses } from '@/lib/statusPalette';
 import { layoutLabels, timeTicks } from '../dock/runTimelineModel';
 import { formatResolution, formatSpanMs } from './format';
 import { barAt, barModel, p50Path, type Bar } from './sampleBars';
+import type { SampleUnit } from './sampleSource';
 
 type StepSamples = components['schemas']['StepSamples'];
 
@@ -35,6 +36,8 @@ export interface SamplesChartProps {
   window: { from: number; to: number };
   /** The width of the whole chart, in px. */
   width: number;
+  /** What a sample counts. The default is the executions of a step. */
+  unit?: SampleUnit;
   /** The start (ms) of the selected bucket, or null. */
   selected: number | null;
   onSelect(bucket: { time: number; resolutionSeconds: number } | null): void;
@@ -45,7 +48,7 @@ export interface SamplesChartProps {
 }
 
 /**
- * The chart of the samples of a continuous step: one bar for each bucket of
+ * The chart of the samples of a continuous step or of a run history: one bar for each bucket of
  * the response, as tall as the p95 latency, with a thin p50 line and a red
  * part for the failures. It draws the buckets of the response and nothing
  * else, so the page weight does not follow the count of samples. The wheel
@@ -55,6 +58,7 @@ export function SamplesChart({
   samples,
   window: view,
   width,
+  unit = 'executions',
   selected,
   onSelect,
   onZoom,
@@ -290,6 +294,7 @@ export function SamplesChart({
       {hover && (
         <BucketTooltip
           bar={hover.bar}
+          unit={unit}
           resolutionSeconds={samples.resolutionSeconds}
           left={Math.min(Math.max(0, AXIS_PX + hover.x - 80), width - 216)}
         />
@@ -300,10 +305,12 @@ export function SamplesChart({
 
 function BucketTooltip({
   bar,
+  unit,
   resolutionSeconds,
   left,
 }: {
   bar: Bar;
+  unit: SampleUnit;
   resolutionSeconds: number;
   left: number;
 }): ReactElement {
@@ -311,7 +318,10 @@ function BucketTooltip({
   const { bucket } = bar;
   const rows: Array<[string, string]> = [
     [ts('Resolution'), formatResolution(resolutionSeconds)],
-    [ts('Executions'), formatExactCount(bucket.count, locale)],
+    [
+      ts(unit === 'runs' ? 'Runs' : 'Executions'),
+      formatExactCount(bucket.count, locale),
+    ],
     [ts('Failed'), formatExactCount(bucket.failures, locale)],
     [ts('Min'), formatSpanMs(bucket.minMs)],
     [ts('Median (p50)'), formatSpanMs(bucket.p50Ms)],

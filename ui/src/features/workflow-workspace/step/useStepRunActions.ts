@@ -111,7 +111,8 @@ export interface OpenSubRunArgs {
 
 /**
  * Opens one child run of a step. A plain click pushes it on the sub-run
- * stack; a new tab, or a view outside a stack, opens the run page.
+ * stack; a new tab, or a view outside a stack, opens the child run on the
+ * workflow page of its root run.
  */
 export function useSubRunOpener(): (args: OpenSubRunArgs) => void {
   const openOnStack = useOpenSubRun();

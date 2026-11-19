@@ -152,7 +152,10 @@ export function attributeIssues(
   );
 }
 
-function findModelStep(model: DagDocModel, key: StepKey): StepView | null {
+export function findModelStep(
+  model: DagDocModel,
+  key: StepKey
+): StepView | null {
   return (
     model.steps.find((s) => s.key === key) ??
     model.handlers.find((s) => s.key === key) ??
@@ -160,7 +163,7 @@ function findModelStep(model: DagDocModel, key: StepKey): StepView | null {
   );
 }
 
-function trimmedEnd(text: string, from: number, to: number): number {
+export function trimmedEnd(text: string, from: number, to: number): number {
   let end = to;
   while (end > from && /\s/.test(text.charAt(end - 1))) end--;
   return end;
@@ -216,7 +219,7 @@ function seqEntryAt(seq: Node, offset: number): Node | null {
 }
 
 /** Finds the AST node of a model step by the start offset of its range. */
-function stepEntry(doc: Document, step: StepView): Node | null {
+export function stepEntry(doc: Document, step: StepView): Node | null {
   const root = doc.contents;
   if (!isMap(root)) return null;
   const container = root.get(step.handler ? 'handler_on' : 'steps', true);
@@ -246,34 +249,40 @@ function emptyValue(value: unknown): boolean {
   );
 }
 
-function walk(start: Node, tokens: PathToken[]): Node {
+/**
+ * The deepest node of `tokens` that exists. `exact` is true when the node is
+ * the one that the whole path names.
+ */
+function walk(
+  start: Node,
+  tokens: PathToken[]
+): { node: Node; exact: boolean } {
   let node = start;
   for (const token of tokens) {
     if (isMap(node)) {
       const pair = node.items.find(
         (p) => isScalar(p.key) && String(p.key.value) === String(token)
       );
-      if (!pair) break;
+      if (!pair) return { node, exact: false };
       if (emptyValue(pair.value)) {
-        if (isNode(pair.key)) node = pair.key;
-        break;
+        return { node: isNode(pair.key) ? pair.key : node, exact: false };
       }
       node = pair.value as Node;
     } else if (isSeq(node) && typeof token === 'number') {
       const item = node.items[token];
-      if (!isNode(item)) break;
+      if (!isNode(item)) return { node, exact: false };
       node = item;
     } else {
-      break;
+      return { node, exact: false };
     }
   }
-  return node;
+  return { node, exact: true };
 }
 
-function locateFieldPath(
+function resolveFieldPath(
   model: DagDocModel,
   fieldPath: string
-): TextRange | null {
+): { node: Node; exact: boolean } | null {
   const tokens = parsePath(fieldPath);
   if (tokens.length === 0) return null;
   let doc: Document | undefined;
@@ -301,8 +310,10 @@ function locateFieldPath(
     return null;
   }
   if (!start?.range) return null;
+  return walk(start, rest);
+}
 
-  const node = walk(start, rest);
+function nodeRange(model: DagDocModel, node: Node): TextRange | null {
   if (!node.range) return null;
   const from = node.range[0];
   return rangeFromOffsets(
@@ -310,6 +321,28 @@ function locateFieldPath(
     from,
     trimmedEnd(model.text, from, node.range[1])
   );
+}
+
+function locateFieldPath(
+  model: DagDocModel,
+  fieldPath: string
+): TextRange | null {
+  const found = resolveFieldPath(model, fieldPath);
+  return found ? nodeRange(model, found.node) : null;
+}
+
+/**
+ * The scalar that `fieldPath` names, with its value and its range. Returns
+ * null when the path does not reach a scalar, for a missing key as well.
+ */
+export function scalarAtField(
+  model: DagDocModel,
+  fieldPath: string
+): { value: unknown; range: TextRange } | null {
+  const found = resolveFieldPath(model, fieldPath);
+  if (!found?.exact || !isScalar(found.node)) return null;
+  const range = nodeRange(model, found.node);
+  return range ? { value: found.node.value, range } : null;
 }
 
 const POSITION_PREFIX = /^\[\d+:\d+\]\s*/;

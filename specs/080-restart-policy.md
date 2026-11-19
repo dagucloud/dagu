@@ -96,6 +96,10 @@ runs do not bound its history:
 A service DAG left without a retention keeps its latest 100 runs, where other
 DAGs keep 30 days of runs.
 
+The retention does not remove the long-term history of a service DAG. Spec 099
+keeps one sample of each run beyond this retention. See
+[Spec 099: Service Run History](099-service-run-history.md).
+
 ### Restart Command
 
 The `restart` command fails for a service DAG, without stopping or starting a

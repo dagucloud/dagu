@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { NodeStatus } from '@/api/v1/schema';
+import {
+  NodeStatus,
+  ValidationIssueSeverity,
+  ValidationIssueSource,
+} from '@/api/v1/schema';
+import { SECRETS_UNTRUSTED_MESSAGE } from '../../doc/issueMessages';
 import type { InputProvenance } from '../../run/inputProvenance';
 import type {
   CanvasGraph,
@@ -930,5 +935,180 @@ describe('buildCanvasGraph reuse outline', () => {
       two: undefined,
       three: undefined,
     });
+  });
+});
+
+describe('buildCanvasGraph agent.run steps', () => {
+  function agentStep(withValue: Record<string, unknown>) {
+    return makeStep({
+      key: 'steps[0]',
+      kind: 'action',
+      action: 'agent.run',
+      explicitName: 'review',
+      value: { action: 'agent.run', with: withValue },
+    });
+  }
+
+  function build(step: StepView): CanvasNodeWithRoutes {
+    const model = makeModel([step]);
+    const graph = buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: noIssues,
+    });
+    return nodeOf(graph, 'steps[0]');
+  }
+
+  // The mark follows the YAML: an agent step is untrusted, and shows no mark
+  // unless it says `untrusted: true`.
+  it('names the provider and shows no trust mark', () => {
+    const node = build(agentStep({ provider: 'claude', prompt: 'x' }));
+    expect(node.subtitle).toBe('agent.run \u00b7 claude');
+    expect(node.untrusted).toBeUndefined();
+    expect(node.trust).toBeUndefined();
+  });
+
+  it('marks an agent step that says untrusted: true', () => {
+    const node = build(
+      makeStep({
+        key: 'steps[0]',
+        kind: 'action',
+        action: 'agent.run',
+        value: { action: 'agent.run', untrusted: true, with: {} },
+      })
+    );
+    expect(node.untrusted).toBe(true);
+    expect(node.trust).toBe('marked');
+  });
+
+  it('names a custom harness provider', () => {
+    const node = build(agentStep({ provider: 'mytool' }));
+    expect(node.subtitle).toBe('agent.run \u00b7 mytool');
+    expect(node.untrusted).toBeUndefined();
+  });
+
+  it('keeps the action as subtitle when no provider is known', () => {
+    const node = build(agentStep({ prompt: 'x' }));
+    expect(node.subtitle).toBe('agent.run');
+    expect(node.untrusted).toBeUndefined();
+  });
+
+  it('marks a shell step with untrusted: true and no other shell step', () => {
+    const model = makeModel([
+      makeStep({
+        key: 'steps[0]',
+        explicitName: 'verify',
+        runPreview: 'make test',
+        value: { run: 'make test', untrusted: true },
+      }),
+      makeStep({
+        key: 'steps[1]',
+        explicitName: 'plain',
+        runPreview: 'make',
+        value: { run: 'make', untrusted: false },
+      }),
+    ]);
+    const graph = buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: noIssues,
+    });
+    expect(nodeOf(graph, 'steps[0]').untrusted).toBe(true);
+    expect(nodeOf(graph, 'steps[1]').untrusted).toBeUndefined();
+    expect(nodeOf(graph, 'steps[1]').trust).toBe('opted-out');
+  });
+
+  // Spec 092, "Default of the key": a default shows no mark, only the key.
+  it('marks the keys of a DAG that has an agent step, and no default', () => {
+    const model = makeModel([
+      agentStep({ provider: 'claude', prompt: 'x' }),
+      makeStep({
+        key: 'steps[1]',
+        explicitName: 'verify',
+        runPreview: 'make test',
+        value: { run: 'make test' },
+      }),
+      makeStep({
+        key: 'steps[2]',
+        explicitName: 'check',
+        runPreview: 'make check',
+        value: { run: 'make check', untrusted: false },
+      }),
+      makeStep({
+        key: 'steps[3]',
+        explicitName: 'push',
+        runPreview: 'git push',
+        value: { run: 'git push', secrets: ['TOKEN'] },
+      }),
+      makeStep({
+        key: 'steps[4]',
+        kind: 'action',
+        action: 'http.request',
+        value: { action: 'http.request', with: { url: 'x' } },
+      }),
+    ]);
+    const graph = buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: noIssues,
+    });
+    for (const key of ['steps[0]', 'steps[1]', 'steps[3]', 'steps[4]']) {
+      expect(nodeOf(graph, key).untrusted).toBeUndefined();
+      expect(nodeOf(graph, key).trust).toBeUndefined();
+    }
+    expect(nodeOf(graph, 'steps[2]').untrusted).toBeUndefined();
+    expect(nodeOf(graph, 'steps[2]').trust).toBe('opted-out');
+  });
+
+  // The client issue of secrets without untrusted: false reaches the card.
+  it('shows the error of secrets on the card of the step', () => {
+    const model = makeModel([
+      agentStep({ provider: 'claude', prompt: 'x' }),
+      makeStep({
+        key: 'steps[1]',
+        explicitName: 'push',
+        runPreview: 'git push',
+        value: { run: 'git push', secrets: ['TOKEN'] },
+      }),
+    ]);
+    const graph = buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: {
+        byStep: {
+          'steps[1]': [
+            {
+              severity: ValidationIssueSeverity.error,
+              source: ValidationIssueSource.build,
+              message: SECRETS_UNTRUSTED_MESSAGE,
+              stepPath: 'steps[1]',
+              fieldPath: 'steps[1].secrets',
+            },
+          ],
+        },
+        dag: [],
+      },
+    });
+    const node = nodeOf(graph, 'steps[1]');
+    expect(node.issues.errors).toBe(1);
+    expect(node.issueMessages?.errors).toEqual([SECRETS_UNTRUSTED_MESSAGE]);
+    expect(node.untrusted).toBeUndefined();
+  });
+
+  it('marks nothing by default in a DAG without an agent step', () => {
+    const model = makeModel([
+      makeStep({
+        key: 'steps[0]',
+        explicitName: 'plain',
+        runPreview: 'make',
+        value: { run: 'make' },
+      }),
+    ]);
+    const graph = buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: noIssues,
+    });
+    expect(nodeOf(graph, 'steps[0]').untrusted).toBeUndefined();
   });
 });

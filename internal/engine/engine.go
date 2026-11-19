@@ -222,6 +222,9 @@ func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Con
 		WorkerID:           "local",
 		DAGRunLogDir:       e.cfg.Paths.LogDir,
 		DAGRunArtifactDir:  e.cfg.Paths.ArtifactDir,
+		// Without coordinators, a child that needs a CLI provider runs here,
+		// as the root run of a local run does (Spec 092, "Dispatch").
+		LocalAgentRuns: len(e.distributed.Coordinators) == 0,
 	})
 }
 

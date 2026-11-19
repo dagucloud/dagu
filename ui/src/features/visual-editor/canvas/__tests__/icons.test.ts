@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  Bot,
   Box,
   Boxes,
   Braces,
@@ -57,6 +58,7 @@ describe('actionIcon', () => {
     ['router.route', Split],
     ['dag.run', Workflow],
     ['chat.completion', MessageSquare],
+    ['agent.run', Bot],
     ['jq.filter', Braces],
     ['my-action', Box],
   ])('maps %s', (action, icon) => {
