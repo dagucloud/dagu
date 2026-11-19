@@ -3,16 +3,25 @@
  *
  * @module features/dags/components/dag-editor
  */
-import { Calendar, CheckSquare, Settings, Tag, Variable } from 'lucide-react';
+import {
+  AlertTriangle,
+  Calendar,
+  CheckSquare,
+  Settings,
+  Tag,
+  Variable,
+} from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { RelativeTime } from '@/components/ui/relative-time';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
+  describeScheduleCoincidence,
   formatFireTime,
+  formatParamOverrides,
   getRestartValue,
   getScheduleKey,
-  getScheduleLabel,
+  getScheduleSummary,
   isServiceDAG,
   parseNextRun,
 } from '@/lib/dagSchedule';
@@ -26,6 +35,11 @@ type Props = {
   /** DAG details to display */
   dag: components['schemas']['DAGDetails'];
 };
+
+type Schedule = components['schemas']['Schedule'];
+
+/** Overrides shown on a badge; its title lists them all. */
+const BADGE_OVERRIDES = 2;
 
 /**
  * The next run in the zone of its schedule, as the server writes it, with
@@ -41,6 +55,19 @@ function NextRun({ time, locale }: { time: string; locale: string }) {
   );
 }
 
+/** The full entry of a schedule badge: its time, every override, and a warning. */
+function badgeTitle(schedule: Schedule, coincidence?: string): string {
+  return [
+    schedule.kind === 'at' ? schedule.at : schedule.expression,
+    ...Object.entries(schedule.paramOverrides ?? {}).map(
+      ([name, value]) => `${name}: ${value}`
+    ),
+    coincidence,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 /**
  * DAGAttributes displays the configuration of a DAG, such as its schedule
  * with its next run, its parameters and its run limits. The canvas also
@@ -52,6 +79,15 @@ function DAGAttributes({ dag }: Props) {
   const labels = visibleLabels(dag);
   const envNames = envVariableNames(dag.env);
   const nextRun = parseNextRun(dag.nextRun);
+  const lang = locale === 'zh-CN' ? 'zh-cn' : locale;
+  const coincidenceOf = (index: number) =>
+    describeScheduleCoincidence(
+      index,
+      dag.scheduleCoincidences,
+      dag.schedule ?? [],
+      ts,
+      lang
+    );
 
   return (
     <div>
@@ -64,20 +100,38 @@ function DAGAttributes({ dag }: Props) {
               <span>{ts('Schedule')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
-              {dag.schedule.map((schedule, index) => (
-                <Badge
-                  key={getScheduleKey(schedule, index)}
-                  variant="outline"
-                  title={
-                    schedule.kind === 'at'
-                      ? schedule.at || undefined
-                      : schedule.expression || undefined
-                  }
-                  className="h-auto max-w-full justify-start whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
-                >
-                  {getScheduleLabel(schedule)}
-                </Badge>
-              ))}
+              {dag.schedule.map((schedule, index) => {
+                const overrides = formatParamOverrides(
+                  schedule.paramOverrides,
+                  BADGE_OVERRIDES
+                );
+                const coincidence = coincidenceOf(index);
+                return (
+                  <Badge
+                    key={getScheduleKey(schedule, index)}
+                    variant="outline"
+                    title={badgeTitle(schedule, coincidence) || undefined}
+                    className="h-auto max-w-full justify-start gap-1 whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
+                  >
+                    {coincidence && (
+                      <AlertTriangle
+                        className="h-3.5 w-3.5 shrink-0 text-warning"
+                        role="img"
+                        aria-label={coincidence}
+                      />
+                    )}
+                    <span>
+                      {getScheduleSummary(schedule)}
+                      {overrides && (
+                        <span className="font-mono text-primary/80">
+                          {' · '}
+                          {overrides}
+                        </span>
+                      )}
+                    </span>
+                  </Badge>
+                );
+              })}
             </div>
             <div className="text-sm text-muted-foreground">
               <span className="font-medium text-foreground">

@@ -32,6 +32,72 @@ describe('DAGAttributes', () => {
     );
   });
 
+  // Two schedules of one expression differ only by their overrides.
+  it('shows the profile and overrides of a schedule', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'overrides',
+          schedule: [
+            {
+              expression: '0 5 * * *',
+              kind: ScheduleKind.cron,
+              profile: 'prod',
+              paramOverrides: { mode: 'y', count: '2', region: 'eu' },
+            },
+          ],
+        }}
+      />
+    );
+
+    const label = screen.getByText('0 5 * * * (prod)');
+    expect(screen.getByText('· mode: y, count: 2, +1')).toBeInTheDocument();
+    expect(label.closest('[title]')).toHaveAttribute(
+      'title',
+      '0 5 * * *\nmode: y\ncount: 2\nregion: eu'
+    );
+  });
+
+  it('warns on a schedule that another one starts in place of', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'coinciding',
+          schedule: [
+            {
+              expression: '0 * * * *',
+              kind: ScheduleKind.cron,
+              paramOverrides: { mode: 'x' },
+            },
+            {
+              expression: '0 5 * * *',
+              kind: ScheduleKind.cron,
+              paramOverrides: { mode: 'y' },
+            },
+          ],
+          scheduleCoincidences: [
+            {
+              scheduleIndex: 1,
+              startedScheduleIndex: 0,
+              time: '2026-11-23T05:00:00+09:00',
+              timezone: 'Asia/Tokyo',
+            },
+          ],
+        }}
+      />
+    );
+
+    const warnings = screen.getAllByRole('img');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toHaveAccessibleName(
+      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then and starts instead.'
+    );
+    expect(screen.getByText('0 5 * * *').closest('[title]')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Does not start at Mon 2026-11-23 05:00')
+    );
+  });
+
   it('renders the restart policy of a service DAG', () => {
     render(
       <DAGAttributes

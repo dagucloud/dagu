@@ -58,6 +58,8 @@ export default defineMessages({
       'Times are in the time zone of the scheduler ({tz}).',
     'Workflow sections': 'Workflow sections',
     'Workflow > {tab}': 'Workflow > {tab}',
+    'Does not start at {time}: {schedule} is due then and starts instead.':
+      'Does not start at {time}: {schedule} is due then and starts instead.',
   },
   'zh-CN': {
     Cron: '定时（Cron）',
@@ -110,6 +112,8 @@ export default defineMessages({
       '时间采用调度器的时区（{tz}）。',
     'Workflow sections': '工作流分区',
     'Workflow > {tab}': '工作流 > {tab}',
+    'Does not start at {time}: {schedule} is due then and starts instead.':
+      '在 {time} 不会启动：{schedule} 同时到期，将由它启动。',
   },
   ja: {
     Cron: '定期実行（Cron）',
@@ -164,5 +168,7 @@ export default defineMessages({
       '時刻はスケジューラーのタイムゾーン（{tz}）です。',
     'Workflow sections': 'ワークフローのセクション',
     'Workflow > {tab}': 'ワークフロー > {tab}',
+    'Does not start at {time}: {schedule} is due then and starts instead.':
+      '{time} には起動しません。同時刻の {schedule} が代わりに起動します。',
   },
 });
