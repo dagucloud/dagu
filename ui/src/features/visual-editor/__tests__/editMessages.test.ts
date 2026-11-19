@@ -16,6 +16,9 @@ const codes: EditErrorCode[] = [
   'invalidName',
   'cycle',
   'invalidYaml',
+  'handlerStep',
+  'restartConflict',
+  'invalidValue',
 ];
 
 describe('editErrorMessage', () => {

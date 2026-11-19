@@ -40,6 +40,8 @@ import { useRunStart } from '../bar/RunStartContext';
 import type { ApiDAGRunDetails } from '../contracts';
 import { useWorkspaceData } from '../data/context';
 import { useWorkspaceRun } from '../data';
+import { useIsServiceDag } from '../data/useServiceDag';
+import { presetsFor, type RangePreset } from '../rangePresets';
 import {
   RUN_COUNT_KEY,
   SHOW_TESTS_KEY,
@@ -51,6 +53,7 @@ import { DockHeaderToolsContext } from './DockHeaderTools';
 import { propsEqual } from './propsEqual';
 import { RunPicker } from './RunPicker';
 import { RunTimelineControls } from './RunTimelineControls';
+import { ServiceHistory } from './ServiceHistory';
 import {
   EXTENT_PX,
   isLongRun,
@@ -875,6 +878,8 @@ export interface RunTimelineViewProps {
   rangeBounds?: { from: number; to: number } | null;
   /** Offers the time range in the select of the runs. */
   onRangeChange?(range: RunRange): void;
+  /** The presets of the range menu. */
+  presets?: readonly RangePreset[];
   /** True when the range reaches back further than the runs that are loaded. */
   truncated?: boolean;
   /** The number of runs that the server lists at the most. */
@@ -936,6 +941,7 @@ export function RunTimelineView({
   range = null,
   rangeBounds: rangeEnds = null,
   onRangeChange,
+  presets,
   truncated = false,
   historyLimit = HISTORY_LIMIT,
   hasCachedTime = false,
@@ -1366,6 +1372,7 @@ export function RunTimelineView({
       onCountChange={onCountChange}
       range={range}
       onRangeChange={onRangeChange}
+      presets={presets}
       truncatedNote={
         truncated
           ? ts('Only the last {n} runs are loaded', { n: historyLimit })
@@ -1412,7 +1419,14 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   // list is read again while one exists, as no event tells that it is gone.
   // The navigation (chip arrows, keys) reads the same visible runs.
   const visible = useVisibleRuns({ enabled: true, pollTestRuns: true });
-  const [settings, actions] = useRunViewSettings();
+  const [, actions] = useRunViewSettings();
+  // The settings with the range that this DAG offers.
+  const settings = visible.settings;
+  const service = useIsServiceDag();
+  const presets = useMemo(
+    () => presetsFor(service ? 'service' : 'dag'),
+    [service]
+  );
   const dock = useDock();
   const headerTools = useContext(DockHeaderToolsContext);
   // The controls go to the dock header while the dock is open.
@@ -1429,10 +1443,10 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const statusTextOf = useCallback<StatusTextOf>(
     (item) =>
       (selected && item.dagRunId === selected.dagRunId
-        ? runDisplayStatus(selected)
-        : summaryDisplayStatus(item.status, continuous)
+        ? runDisplayStatus(selected, { service })
+        : summaryDisplayStatus(item.status, { service, continuous })
       ).text,
-    [selected, continuous]
+    [selected, service, continuous]
   );
   const inRange = settings.mode === 'range';
   const select = (id: string) => run.select(id, { replace: true });
@@ -1440,6 +1454,29 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const backfillToggle = dagData.dag?.schedule?.length
     ? actions.setShowBackfill
     : undefined;
+  const setCount = actions.setCount;
+  const setRange = actions.setRange;
+
+  // A service DAG always shows its run history, not the retained runs: the
+  // view menu has nothing to filter, so it is not offered. It has no count.
+  if (service) {
+    return (
+      <ServiceHistory
+        range={settings.range}
+        controlsHost={compact ? undefined : controlsHost}
+        controls={
+          <RunTimelineControls
+            count={settings.count}
+            counts={[]}
+            onCountChange={setCount}
+            range={settings.range}
+            onRangeChange={setRange}
+            presets={presets}
+          />
+        }
+      />
+    );
+  }
 
   if (compact) {
     // The bars have no room: the runs are a menu, under the controls that
@@ -1450,9 +1487,10 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
           <RunTimelineControls
             count={settings.count}
             counts={countOptions(inRange ? 0 : visible.pool.length)}
-            onCountChange={actions.setCount}
+            onCountChange={setCount}
             range={inRange ? settings.range : null}
-            onRangeChange={actions.setRange}
+            onRangeChange={setRange}
+            presets={presets}
             hasTestRuns={visible.hasTestRuns}
             showTests={settings.showTests}
             onShowTestsChange={actions.setShowTests}
@@ -1489,10 +1527,11 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
       count={inRange ? visible.pool.length : settings.count}
       statusTextOf={statusTextOf}
       onSelect={select}
-      onCountChange={actions.setCount}
+      onCountChange={setCount}
       range={inRange ? settings.range : null}
       rangeBounds={visible.range}
-      onRangeChange={actions.setRange}
+      onRangeChange={setRange}
+      presets={presets}
       truncated={visible.truncated}
       canStart={start.canStart}
       onStart={() => start.requestStart()}

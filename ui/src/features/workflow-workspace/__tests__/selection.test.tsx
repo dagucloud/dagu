@@ -337,7 +337,10 @@ describe('workspace selection', () => {
   });
 
   it('clears the row selection when ?step goes', () => {
-    renderWorkspace('/dags/f?step=fetch');
+    // A selection without a click opens no step panel, which would fold the
+    // Activity panel (the owner decided that they take turns).
+    renderWorkspace('/dags/f');
+    act(() => props().onSelectedStepNameChange?.('fetch'));
     expect(stepRow('fetch')).toHaveAttribute('aria-current', 'true');
 
     act(() => {
@@ -411,8 +414,8 @@ describe('workspace selection', () => {
     expect(props().ndv?.state).toBe('expanded');
   });
 
-  // Esc closes the top layer only. The YAML tab of the right column is no
-  // layer to leave: it stays. A link to the YAML panel opens that tab.
+  // Esc closes the top layer only. The YAML panel is no layer to leave: it
+  // stays.
   it('closes the menu on Esc and keeps the YAML panel', async () => {
     const user = userEvent.setup();
     renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun(), <Menu />);
@@ -426,13 +429,16 @@ describe('workspace selection', () => {
 
     await user.keyboard('{Escape}');
     expect(props().ndv?.state).toBe('docked');
-    expect(nav.location).toBe('/dags/f?step=fetch');
+    expect(nav.location).toBe('/dags/f?step=fetch&ndv=docked');
   });
 
   it('restores a maximized Activity panel on Esc, then keeps it open', async () => {
     const user = userEvent.setup();
-    renderWorkspace('/dags/f?step=fetch', freshRun(), <Menu />);
+    // A selection without a click opens no step panel, which would fold the
+    // Activity panel (the owner decided that they take turns).
+    renderWorkspace('/dags/f', freshRun(), <Menu />);
     loadSpec();
+    act(() => props().onSelectedStepNameChange?.('fetch'));
     // A real click puts the focus in the Activity panel, which owns this Esc.
     await user.click(within(dock()).getByRole('button', { name: 'Maximize' }));
     expect(dock()).toHaveAttribute('data-maximized', 'true');
@@ -441,6 +447,23 @@ describe('workspace selection', () => {
     expect(dock()).not.toHaveAttribute('data-maximized');
     expect(dock()).toHaveAttribute('data-state', 'open');
     expect(nav.location).toBe('/dags/f?step=fetch');
+  });
+
+  // The right panel and the Activity panel take turns.
+  it('collapses the Activity panel while a right panel is open', () => {
+    renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun());
+    loadSpec();
+    expect(dock()).toHaveAttribute('data-state', 'collapsed');
+  });
+
+  it('closes the right panel when the Activity panel opens', () => {
+    renderWorkspace('/dags/f?step=fetch&ndv=docked', freshRun());
+    loadSpec();
+    expect(props().ndv?.state).toBe('docked');
+
+    fireEvent.click(within(dock()).getByRole('button', { name: 'Activity' }));
+    expect(dock()).toHaveAttribute('data-state', 'open');
+    expect(props().ndv?.state).toBeNull();
   });
 
   // The canvas keymap must not take Esc ('clear selection') while the NDV
@@ -467,10 +490,12 @@ describe('step panel', () => {
     });
   }
 
-  it('opens on a click with the Details tab, and leaves the Run panel shut', () => {
-    localStorage.removeItem(DOCK_OPEN_KEY);
+  // The owner decided that the step panel and the Run panel take turns, as the
+  // YAML and Workflow panels do with it: a click on a step folds the Run panel.
+  it('opens on a click with the Details tab, and folds the Run panel', () => {
     renderWorkspace('/dags/f');
     loadSpec();
+    expect(dock()).toHaveAttribute('data-state', 'open');
     clickStep('fetch');
 
     const panel = screen.getByRole('complementary', {
@@ -482,11 +507,13 @@ describe('step panel', () => {
     );
     expect(dock()).toHaveAttribute('data-state', 'collapsed');
 
-    // Another click switches it; a click on the pane closes it.
+    // Another click switches it; a click on the pane closes it, and the Run
+    // panel comes back.
     clickStep('store');
     expect(stepPanel()).toHaveAccessibleName('Details of store');
     act(() => props().onSelectedStepNameChange?.(null));
     expect(stepPanel()).toBeNull();
+    expect(dock()).toHaveAttribute('data-state', 'open');
   });
 
   it('does not open for a pick in the Run panel', () => {
@@ -497,15 +524,19 @@ describe('step panel', () => {
     );
     expect(nav.location).toBe('/dags/f?step=fetch&dock=log');
     expect(stepPanel()).toBeNull();
+    expect(dock()).toHaveAttribute('data-state', 'open');
   });
 
-  it('follows a pick in the Run panel while it is open', () => {
+  it('closes when the Run panel opens', () => {
     renderWorkspace('/dags/f');
     loadSpec();
     clickStep('fetch');
-    fireEvent.click(
-      within(stepRow('store')).getByRole('button', { name: 'store' })
-    );
-    expect(stepPanel()).toHaveAccessibleName('Details of store');
+    expect(stepPanel()).not.toBeNull();
+
+    fireEvent.click(within(dock()).getByRole('button', { name: 'Activity' }));
+    expect(dock()).toHaveAttribute('data-state', 'open');
+    expect(stepPanel()).toBeNull();
+    // The step stays selected.
+    expect(nav.location).toBe('/dags/f?step=fetch');
   });
 });

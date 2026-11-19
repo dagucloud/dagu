@@ -1,0 +1,8 @@
+llm:
+  endpoint: test-endpoint
+  model: claude-test
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      prompt: Say hello.

@@ -154,16 +154,17 @@ steps:
     // Brackets Monaco auto-closes and does not overtype end up after the
     // cursor, so the rest of the line is dropped. Select-all right after
     // focusing is occasionally lost, so the replacement is retried until the
-    // buffer is that single line.
+    // buffer is that single line. The editor wraps long lines: the line
+    // numbers count the lines of the buffer, not the wrapped rows.
     const replaceSpec = async (spec: string) => {
       await expect(async () => {
         await page.keyboard.press('ControlOrMeta+A');
         await page.keyboard.insertText(spec);
         await page.keyboard.press('Shift+End');
         await page.keyboard.press('Delete');
-        await expect(monaco.locator('.view-line')).toHaveCount(1, {
-          timeout: 500,
-        });
+        await expect(
+          monaco.locator('.line-numbers').filter({ hasText: /\d/ })
+        ).toHaveCount(1, { timeout: 500 });
       }).toPass();
     };
     const step = (name: string, extra = '') =>

@@ -120,7 +120,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -1154,15 +1157,7 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
     h.post.mockResolvedValue({ data: { referenceScope: scopeHttpJq } });
     h.runSpec = yamlHttpJq;
     h.run = makeRun(
-      runDetails(
-        'run-1',
-        [
-          node('fetch'),
-          node('extract'),
-          node('publish', NodeStatus.NotStarted),
-        ],
-        Status.Success
-      )
+      runDetails('run-1', [node('fetch'), node('extract')], Status.Success)
     );
     renderCanvas('/dags/demo?run=run-1&def=run&step=extract&ndv=expanded');
 
@@ -1456,14 +1451,15 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas agent grid', () => {
     expect(h.yaml.mounts).toBe(editors);
   });
 
-  // The mode of the last step view is the one of the next view: after the
-  // form, a link to a step opens the form.
-  it('opens a linked step in the last mode of the session', async () => {
-    sessionStorage.setItem('dagu.stepView.mode', 'form');
+  // A link to a step opens its YAML, never its form.
+  it('opens a linked step on its YAML, not its form', async () => {
     renderCanvas('/dags/demo?run=run-1&def=run&step=transform&ndv=expanded');
     const ndv = await screen.findByTestId('ndv');
     expect(
-      await within(ndv).findByRole('button', { name: 'Form', pressed: true })
+      await within(ndv).findByRole('button', { name: 'YAML', pressed: true })
+    ).toBeInTheDocument();
+    expect(
+      within(ndv).getByRole('button', { name: 'Form', pressed: false })
     ).toBeInTheDocument();
   });
 });

@@ -1,0 +1,5 @@
+{
+  "calls": [
+    { "tool": "broken", "arguments": { "CUSTOMER_ID": "c-1" } }
+  ]
+}

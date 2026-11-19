@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
+	"github.com/dagucloud/dagu/v2/internal/skill"
 )
 
 type workspaceSeedKey struct{}
@@ -34,7 +35,7 @@ func workspaceSeedFromContext(ctx context.Context) (WorkspaceSeed, bool) {
 
 // PrepareDAGWorkspace snapshots the files declared by a DAG.
 func PrepareDAGWorkspace(ctx context.Context, dag *ir.DAG) (*WorkspaceSeed, error) {
-	root, opts, err := dagWorkspacePackOptions(ctx, dag)
+	root, opts, err := dagWorkspacePackOptions(ctx, dag, false)
 	if err != nil || opts == nil {
 		return nil, err
 	}
@@ -45,9 +46,11 @@ func PrepareDAGWorkspace(ctx context.Context, dag *ir.DAG) (*WorkspaceSeed, erro
 	return &WorkspaceSeed{Descriptor: *descriptor, Archive: archive}, nil
 }
 
-// PrepareDAGWorkspaceFile snapshots declared files into a staged archive under bundleDir.
+// PrepareDAGWorkspaceFile snapshots declared files into a staged archive under
+// bundleDir, for a dispatch to a worker. The archive also holds the side files
+// of the DAG (skills), so that the worker can load the DAG.
 func PrepareDAGWorkspaceFile(ctx context.Context, dag *ir.DAG, bundleDir string) (*workspacebundle.Descriptor, string, error) {
-	root, opts, err := dagWorkspacePackOptions(ctx, dag)
+	root, opts, err := dagWorkspacePackOptions(ctx, dag, true)
 	if err != nil || opts == nil {
 		return nil, "", err
 	}
@@ -58,12 +61,41 @@ func PrepareDAGWorkspaceFile(ctx context.Context, dag *ir.DAG, bundleDir string)
 	if err != nil {
 		return nil, "", fmt.Errorf("prepare DAG file dependencies: %w", err)
 	}
+	// The files of a skill are read one by one. The check below makes sure that
+	// the bundle holds the version of each skill that the loader read: a skill
+	// that changed in between stops the dispatch (Spec 096, "The bundle").
+	if err := verifySkillRefs(dag); err != nil {
+		_ = os.Remove(archivePath)
+		return nil, "", err
+	}
 	return descriptor, archivePath, nil
 }
 
-func dagWorkspacePackOptions(ctx context.Context, dag *ir.DAG) (string, *workspacebundle.PackOptions, error) {
+// verifySkillRefs reads each skill that the DAG uses again and compares its
+// hash with the hash that the loader recorded.
+func verifySkillRefs(dag *ir.DAG) error {
+	if dag == nil {
+		return nil
+	}
+	for _, ref := range dag.SkillRefs {
+		current, err := skill.Read(ref.Dir)
+		if err != nil {
+			return fmt.Errorf("skill %q changed while the dispatch was prepared: %w; retry", ref.Name, err)
+		}
+		if current.Hash != ref.Hash {
+			return fmt.Errorf("skill %q changed while the dispatch was prepared (hash %s, then %s); retry", ref.Name, ref.Hash, current.Hash)
+		}
+	}
+	return nil
+}
+
+func dagWorkspacePackOptions(ctx context.Context, dag *ir.DAG, withSideFiles bool) (string, *workspacebundle.PackOptions, error) {
 	includes := dagFileDependencies(dag)
-	if len(includes) == 0 {
+	var sideFiles []string
+	if withSideFiles && dag != nil {
+		sideFiles = dag.SideFiles
+	}
+	if len(includes) == 0 && len(sideFiles) == 0 {
 		return "", nil, nil
 	}
 	if dag.YamlData == nil {
@@ -94,6 +126,13 @@ func dagWorkspacePackOptions(ctx context.Context, dag *ir.DAG) (string, *workspa
 	dagPath, err := workspaceDAGPath(root, sourceFile)
 	if err != nil {
 		return "", nil, err
+	}
+	for _, path := range sideFiles {
+		rel, err := sideFileInclude(root, path)
+		if err != nil {
+			return "", nil, err
+		}
+		includes = append(includes, rel)
 	}
 	return root, &workspacebundle.PackOptions{
 		DAGPath:  dagPath,
@@ -130,10 +169,33 @@ func workspaceDAGPath(root, sourceFile string) (string, error) {
 	}
 }
 
+// sideFileInclude returns the path of a side file relative to the workspace
+// root. The worker finds the file at the same place next to the DAG file.
+func sideFileInclude(root, path string) (string, error) {
+	if !workspacebundle.IsPathWithin(root, path) {
+		return "", fmt.Errorf("the file %s that the DAG uses is outside the working directory %s of the DAG: a worker cannot load it", path, root)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", fmt.Errorf("resolve the file %s that the DAG uses: %w", path, err)
+	}
+	normalized, err := workspacebundle.NormalizeRelativePath(rel)
+	if err != nil {
+		return "", fmt.Errorf("the file %s that the DAG uses: %w", path, err)
+	}
+	return normalized, nil
+}
+
 // HasDAGFileDependencies reports whether a DAG or any inline child declares
 // files that must be included in its execution workspace.
 func HasDAGFileDependencies(dag *ir.DAG) bool {
 	return len(dagFileDependencies(dag)) > 0
+}
+
+// HasDispatchFiles reports whether a dispatch of the DAG to a worker needs a
+// workspace bundle: the DAG declares files, or it uses skills.
+func HasDispatchFiles(dag *ir.DAG) bool {
+	return HasDAGFileDependencies(dag) || (dag != nil && len(dag.SideFiles) > 0)
 }
 
 func dagFileDependencies(dag *ir.DAG) []string {

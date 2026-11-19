@@ -104,8 +104,9 @@ function specDiffersDot(page: Page): Locator {
   return runChip(page).getByTestId('ww-run-stale-dot');
 }
 
-function runActions(page: Page): Locator {
-  return page.getByTestId('ww-run-actions');
+/** The one action of the shown run: Dequeue, Stop, Retry or Start. */
+function runSlot(page: Page): Locator {
+  return page.getByTestId('ww-run-start-slot');
 }
 
 /** 'Run…': the start-only DAGActions of the bar. */
@@ -352,7 +353,9 @@ steps:
       );
 
       await openWorkspace(page, gotoWorkspace, dagPath(fileName));
-      await runButton(page).click();
+      // The first run is active, so Stop has the slot of Start and Start is
+      // hidden. A script click opens its dialog, as the command palette does.
+      await runButton(page).dispatchEvent('click');
       const dialog = page.getByRole('dialog', { name: 'Start workflow' });
       await expect(dialog).toBeVisible();
       const enqueue = dialog.getByRole('checkbox', { name: 'Enqueue' });
@@ -379,7 +382,13 @@ steps:
       await openRun(page, gotoWorkspace, fileName, queuedId);
       await expect(chipRun(page, queuedId)).toBeAttached({ timeout: 30_000 });
       await expect(chipStatus(page, 'Queued')).toBeVisible();
-      await runActions(page)
+      // A queued run has Dequeue in the slot of Start, not in the cluster.
+      await expect(
+        page
+          .getByTestId('ww-run-actions')
+          .getByRole('button', { name: 'Dequeue', exact: true })
+      ).toHaveCount(0);
+      await runSlot(page)
         .getByRole('button', { name: 'Dequeue', exact: true })
         .click();
       const confirm = page.getByRole('dialog', {
@@ -610,7 +619,14 @@ steps:
     await openRun(page, gotoWorkspace, fileName);
     await expect(chipRun(page, runId)).toBeAttached({ timeout: 30_000 });
     await expect(chipStatus(page, 'Running')).toBeVisible();
-    await runActions(page)
+    // While the run is active, Stop is in the slot of Start. Start stays
+    // mounted but hidden, and Retry is for a failed run only.
+    await expect(runButton(page)).toBeHidden();
+    await expect(
+      page.getByRole('button', { name: 'Retry', exact: true })
+    ).toHaveCount(0);
+    await page
+      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Stop', exact: true })
       .click();
     const confirm = page.getByRole('dialog', { name: 'Stop this run?' });
@@ -672,7 +688,10 @@ steps:
     await openRun(page, gotoWorkspace, fileName);
     await expect(chipRun(page, runId)).toBeAttached({ timeout: 30_000 });
     await expect(chipStatus(page, 'Failed')).toBeVisible();
-    await runActions(page)
+    // Retry replaces Start in its slot, for a failed run only.
+    await expect(runButton(page)).toBeHidden();
+    await page
+      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Retry', exact: true })
       .click();
     const confirm = page.getByRole('dialog', { name: 'Retry this run?' });
@@ -703,7 +722,7 @@ steps:
   });
 
   // parity:retry-modal-reschedule
-  test('Reschedule of a finished run makes a new run', async ({
+  test('Reschedule of a failed run makes a new run', async ({
     page,
     request,
     inlineDAG,
@@ -716,16 +735,19 @@ steps:
 name: ${name}
 steps:
   - name: say
-    run: echo "reschedule complete"
+    run: |
+      echo "reschedule complete"
+      exit 1
 `
     );
+    // Retry is offered for a failed run only, so the run fails.
     const firstId = await startDAG(request, token, fileName);
     await waitForRunStatus(
       request,
       token,
       dagName,
       firstId,
-      ['succeeded'],
+      ['failed'],
       'local',
       30_000
     );
@@ -733,7 +755,8 @@ steps:
     const newRunId = uniqueName('ws-rescheduled-run');
     await openRun(page, gotoWorkspace, fileName);
     await expect(chipRun(page, firstId)).toBeAttached({ timeout: 30_000 });
-    await runActions(page)
+    await page
+      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Retry', exact: true })
       .click();
     await expect(
@@ -762,13 +785,13 @@ steps:
       token,
       dagName,
       newRunId,
-      ['succeeded'],
+      ['failed'],
       'local',
       30_000
     );
     await expect(chipRun(page, newRunId)).toBeAttached({ timeout: 30_000 });
     // The first run is unchanged.
-    await waitForRunStatus(request, token, dagName, firstId, ['succeeded']);
+    await waitForRunStatus(request, token, dagName, firstId, ['failed']);
   });
 
   // parity:canvas-node-toolbar

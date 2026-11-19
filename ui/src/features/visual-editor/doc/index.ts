@@ -18,7 +18,9 @@ import {
   opSetStepField,
   opSetStepId,
 } from './ops/fields';
+import { opSetRestartPolicy } from './ops/restart';
 import { opSetSchedule, opSetScheduleParam } from './ops/schedule';
+import { editStepSkills, editStepTools } from '../tools/edit';
 import {
   opAddDependency,
   opAddStep,
@@ -31,6 +33,8 @@ export { createTextHistory } from './history';
 export { attributeIssues, groupIssues, locateIssue } from './issues';
 export { parseDagDoc, parseDagDocLenient, resolveStepNames } from './parse';
 export { parseAllDocumentsAsServer, parseDocumentAsServer } from './serverYaml';
+export { isServicePolicy, readRestart } from './ops/restart';
+export type { RestartPolicy, RestartView } from './ops/restart';
 export { readSchedule, scheduleParamIssueIndex } from './ops/schedule';
 export type { ScheduleEntryView, ScheduleView } from './ops/schedule';
 
@@ -140,5 +144,11 @@ function applyStrict(
       return opSetSchedule(text, op);
     case 'setScheduleParam':
       return opSetScheduleParam(text, op);
+    case 'setRestartPolicy':
+      return opSetRestartPolicy(text, op);
+    case 'editStepTools':
+      return editStepTools(text, op.step, op.change);
+    case 'editStepSkills':
+      return editStepSkills(text, op.step, op.change);
   }
 }

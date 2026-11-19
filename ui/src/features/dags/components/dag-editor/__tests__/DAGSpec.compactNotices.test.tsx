@@ -546,10 +546,10 @@ describe('DAGSpec compact notices: Save and Issues', () => {
     expect(panel).toHaveTextContent('Second error');
   });
 
-  // The owner asked that the two buttons take the same place: one box of a
-  // fixed size, with the button aligned to its left.
+  // The two buttons take the same place: one box that starts at the end of
+  // the YAML button, so that Save has no gap before it.
   it('gives Save and the Issues button the same box', async () => {
-    const box = ['h-7', 'w-14', 'justify-start'];
+    const box = ['h-7', 'justify-start'];
     await renderSpec();
     expect(screen.getByTestId('save-slot')).toHaveClass(...box);
     expect(screen.getByTestId('save-slot')).toContainElement(save());

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -52,6 +53,62 @@ func NewProfileStore(ctx context.Context, cfg *config.Config, col persis.Collect
 		return nil
 	}
 	return profileStore
+}
+
+// NewAIEndpointService wires the AI endpoint service (Spec 093). The metadata of
+// the endpoints is in col. The keys are managed secrets of secrets. It returns
+// nil when secrets is nil, because a key needs the secret store.
+func NewAIEndpointService(ctx context.Context, col persis.Collection, secrets secret.Store) *aiendpoint.Service {
+	if secrets == nil {
+		return nil
+	}
+	endpointStore, err := store.NewAIEndpointStore(col)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create AI endpoint store", tag.Error(err))
+		return nil
+	}
+	service, err := aiendpoint.NewService(endpointStore, secrets)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create AI endpoint service", tag.Error(err))
+		return nil
+	}
+	return service
+}
+
+// NewAIMCPServerService wires the MCP server entry service (Spec 095). The metadata
+// of the entries is in col. The credentials are managed secrets of secrets. It
+// returns nil when secrets is nil, because a credential needs the secret store.
+func NewAIMCPServerService(ctx context.Context, col persis.Collection, secrets secret.Store) *aiendpoint.MCPService {
+	if secrets == nil {
+		return nil
+	}
+	serverStore, err := store.NewAIMCPServerStore(col)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create MCP server entry store", tag.Error(err))
+		return nil
+	}
+	service, err := aiendpoint.NewMCPService(serverStore, secrets)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create MCP server entry service", tag.Error(err))
+		return nil
+	}
+	return service
+}
+
+// EnableAIEndpointModels gives the service its models store (Spec 093, "The
+// models list"). The lists are in col. The reader calls the providers. A failure
+// is logged, and the service then has no lists.
+func EnableAIEndpointModels(ctx context.Context, service *aiendpoint.Service, col persis.Collection, reader *aiendpoint.ModelsReader) {
+	if service == nil {
+		return
+	}
+	modelsStore, err := store.NewAIEndpointModelsStore(col)
+	if err == nil {
+		err = service.EnableModels(modelsStore, reader)
+	}
+	if err != nil {
+		logger.Warn(ctx, "Failed to enable the AI models lists", tag.Error(err))
+	}
 }
 
 func NewDAGSettingsStore(cfg *config.Config, col persis.Collection) (dagsettings.Store, error) {

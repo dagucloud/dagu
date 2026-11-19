@@ -1,0 +1,10 @@
+# With worker pools, a call that is not a call of a worker needs a dispatcher,
+# so coordinator.dispatchers is required. This file has no dispatchers.
+peer:
+  cert_file: tls/coordinator.crt
+  key_file: tls/coordinator.key
+  client_ca_file: tls/dagu-ca.crt
+coordinator:
+  worker_pools:
+    - name: general
+      identities: [general-worker]

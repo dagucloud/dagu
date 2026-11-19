@@ -141,8 +141,8 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	}
 	var secrets map[string]string
 	artifactsDir := ""
+	secrets = runtime.SecretsForMasking(ctx)
 	if env.Scope != nil {
-		secrets = env.Scope.AllSecrets()
 		artifactsDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	}
 	if err := agentstep.CheckSecrets(executorType, e.cfg.operationTexts(), secrets); err != nil {

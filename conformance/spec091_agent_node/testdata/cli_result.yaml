@@ -1,0 +1,27 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - PATCH_ID: p-42
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    stderr: review.err
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict:
+          type: string
+          enum: [accept, reject]
+      required: [verdict]
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: "Review the patch ${PATCH_ID}."
+      system: Report only real defects.
+      max_tool_iterations: 8

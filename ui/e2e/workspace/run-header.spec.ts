@@ -15,7 +15,7 @@ import { expect, signIn, test } from './fixtures';
 
 // parity:chg-run-url-latest (the redirect to the latest run) and the run
 // header: facts as wide as their text, the whole run ID, no tooltip that
-// repeats the bar, and "Healthy" for a run that never ends.
+// repeats the bar, and "Healthy" for a run of a service DAG that never ends.
 
 const DOCK_KEYS = [
   'dagu.workspace.dockHeight',
@@ -220,8 +220,6 @@ test.describe('workspace run header', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((keys) => {
       for (const key of keys) window.localStorage.removeItem(key);
-      // Collapsed: a laptop would open the Run panel by default.
-      window.localStorage.setItem('dagu.workspace.dockOpen.v2', 'false');
     }, DOCK_KEYS);
     await signIn(page);
   });
@@ -384,7 +382,7 @@ test.describe('workspace run header', () => {
     await expect(page.getByRole('tooltip')).toContainText(runId);
   });
 
-  test('reads Healthy for a run that never ends, and keeps a failure visible', async ({
+  test('keeps Running for a run that never ends in a workflow that is not a service DAG, and keeps a failure visible', async ({
     page,
     request,
     gotoWorkspace,
@@ -410,19 +408,17 @@ test.describe('workspace run header', () => {
     await page.setViewportSize({ width: 1920, height: 900 });
     await openWorkflow(page, gotoWorkspace, good.fileName);
     const chip = page.getByTestId('ww-run-chip');
-    await expect(chip.getByRole('img', { name: 'Healthy' })).toBeVisible({
+    // Only a service DAG (restart_policy) reads Healthy: this one has none.
+    await expect(chip.getByRole('img', { name: 'Running' })).toBeVisible({
       timeout: 30_000,
     });
-    // The raw API status stays in the data attribute.
+    await expect(chip.getByRole('img', { name: 'Healthy' })).toHaveCount(0);
     await expect(chip).toHaveAttribute('data-status', '1');
-    // The repeat count takes the place of the progress "0/1".
-    await expect(chip.getByTestId('repeat-badge')).toContainText('×');
-    await expect(chip.getByRole('group', { name: 'Run progress' })).toHaveCount(
-      0
-    );
+    // The progress and the Stop button stay, as for any running run.
+    await expect(chip.getByTestId('repeat-badge')).toHaveCount(0);
     await expect(
-      chip.getByRole('button', { name: 'Stop', exact: true })
-    ).toHaveCount(0);
+      chip.getByRole('group', { name: 'Run progress' })
+    ).toBeVisible();
     await expect(
       page
         .getByTestId('ww-bar')

@@ -476,13 +476,14 @@ describe('Flow', () => {
 
     it('fits the nodes once, when the canvas has a size', () => {
       renderFlow({ fitOptions: { padding: 0.1, maxZoom: 2 } });
-      // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits.
+      // The nodes span 540 x 64: 1000 / (540 * 1.2) = 1.54 fits, and the
+      // largest step that fits is 150 %.
       const match =
         /translate\(([\d.]+)px, ([\d.]+)px\) scale\(([\d.]+)\)/.exec(
           layerTransform()
         );
       expect(match).not.toBeNull();
-      expect(Number(match![3])).toBeCloseTo(1000 / (540 * 1.2), 5);
+      expect(Number(match![3])).toBe(1.5);
     });
 
     it('keeps a readable zoom for a tall content and shows its top', () => {
@@ -548,6 +549,46 @@ describe('Flow', () => {
 
       fireEvent.click(nodeBox('a'));
       expect(onNodeClick).not.toHaveBeenCalled();
+    });
+
+    // The caller makes new node objects at each move: only the node that
+    // moved draws again.
+    it('draws only the node that moved', () => {
+      const drawn = { a: 0, b: 0 };
+      const Counted = (props: NodeProps<TestNode>) => {
+        drawn[props.id as 'a' | 'b'] += 1;
+        return <Box {...props} />;
+      };
+      const view = (list: TestNode[]) => (
+        <UserPreferencesProvider>
+          <FlowProvider>
+            <Flow<TestNode, TestEdge>
+              nodes={list}
+              edges={edges}
+              nodeTypes={{ box: Counted }}
+              edgeTypes={{ line: Line }}
+            />
+          </FlowProvider>
+        </UserPreferencesProvider>
+      );
+      const copy = (list: TestNode[]): TestNode[] =>
+        list.map((node) => ({
+          ...node,
+          position: { ...node.position },
+          data: { ...node.data },
+        }));
+      const { rerender } = render(view(nodes));
+      const before = { ...drawn };
+      rerender(
+        view(
+          copy(nodes).map((node) =>
+            node.id === 'a' ? { ...node, position: { x: 20, y: 10 } } : node
+          )
+        )
+      );
+      expect(nodeBox('a').style.transform).toBe('translate(20px, 10px)');
+      expect(drawn.a).toBeGreaterThan(before.a);
+      expect(drawn.b).toBe(before.b);
     });
 
     it('does not move a node when dragging is off', () => {

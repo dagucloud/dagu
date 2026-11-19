@@ -23,13 +23,13 @@ import { readRepeatPolicy } from '@/components/ui/repeat-summary';
 import { isEphemeralRun } from '@/features/visual-editor/run/inputProvenance';
 import AutoRetryBadge from '@/features/dag-runs/components/common/AutoRetryBadge';
 import { useI18n } from '@/i18n/I18nProvider';
+import { isServiceDAG } from '@/lib/dagSchedule';
 import { runDisplayStatus } from '@/lib/runDisplayStatus';
 import { readableToneText, toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspaceRun } from '../data';
 import { useVisibleRuns } from '../data/useVisibleRuns';
-import { isNewerRun } from '../data/runFacts';
 import { useDockCommands } from '../dock/DockContext';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { RunFacts, hasHiddenFacts, visibleFacts } from './RunFacts';
@@ -37,13 +37,6 @@ import { RunIdMark, RunStaleDot } from './RunStaleDot';
 import { factsShownAt, useBarWidth } from './useFactTiers';
 
 // The statuses for which isRunActive is true.
-const ACTIVE_STATUSES: ReadonlySet<Status> = new Set([
-  Status.NotStarted,
-  Status.Queued,
-  Status.Running,
-  Status.Waiting,
-]);
-
 type Direction = 'older' | 'newer';
 
 // The slot of the count holds "99/99" or the repeat badge with "×1.2M". Its
@@ -102,8 +95,6 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     setPending(dir);
   };
 
-  const pinned = run.selection !== 'latest';
-
   if (!details) {
     return (
       <div
@@ -120,8 +111,11 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
 
   const olderDisabled = historyReady ? olderId === null : !run.hasRun;
   // The latest run can have a newer test run in the timeline: the history
-  // decides, as it does for the older run.
-  const newerDisabled = historyReady ? newerId === null : !run.hasRun;
+  // decides, as it does for the older run. Until the history is read, the
+  // latest run of the workflow has no newer run, as Latest run shows.
+  const newerDisabled = historyReady
+    ? newerId === null
+    : !run.hasRun || (run.isLatest && !isEphemeralRun(details));
 
   const failedNode = run.failedStep
     ? run.nodeByStep.get(run.failedStep)
@@ -152,7 +146,9 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     dock.openStep({ step, stream: 'stderr' });
   };
 
-  const display = runDisplayStatus(details);
+  const display = runDisplayStatus(details, {
+    service: !!dag && isServiceDAG(dag),
+  });
   const visible = visibleFacts(shownFacts, failedRun);
   // The warning dot of a run of another definition stands in front of the run
   // ID, in place of the #. Without the ID in the row it keeps its own slot.
@@ -170,6 +166,11 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     ? readRepeatPolicy(continuous.step.repeatPolicy)
     : null;
 
+  const noCount =
+    run.isActive &&
+    display.healthy &&
+    !(continuousPolicy && continuous && continuous.doneCount > 0);
+
   // The skipped steps are not in the count: they did not have to run.
   const nodes = (details.nodes ?? []).filter(
     (n) => n.status !== NodeStatus.Skipped
@@ -179,13 +180,6 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     done: succeeded,
     total: nodes.length,
   });
-
-  const latestRef = run.latestRef;
-  const newerActive =
-    pinned &&
-    latestRef !== null &&
-    ACTIVE_STATUSES.has(latestRef.status) &&
-    isNewerRun(latestRef, details);
 
   return (
     <div
@@ -334,7 +328,12 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
           done; a run that never ends shows how many times its continuous
           step ran. The slot is there, empty, at any other time, so that the
           chip keeps its width when a run starts or ends. */}
-      <span data-testid="ww-run-count-slot" className={COUNT_SLOT}>
+      <span
+        data-testid="ww-run-count-slot"
+        // A healthy run with no repeat count has nothing for the slot: it
+        // leaves no gap between the heart and the next fact.
+        className={cn(COUNT_SLOT, noCount && 'hidden')}
+      >
         {run.isActive && display.healthy
           ? continuousPolicy &&
             continuous &&
@@ -393,18 +392,6 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
           dag={dag}
           className={rowShown ? 'order-1' : undefined}
         />
-      )}
-      {newerActive && (
-        <button
-          type="button"
-          className={cn(
-            'shrink-0 rounded-md px-1.5 py-0.5 font-medium text-primary hover:bg-muted',
-            rowShown && 'order-2'
-          )}
-          onClick={() => select('latest')}
-        >
-          {ts('A newer run is active')}
-        </button>
       )}
     </div>
   );

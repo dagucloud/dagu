@@ -219,6 +219,8 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
   const live = useRef({
     store,
     nodes,
+    onNodeClick,
+    onNodeDoubleClick,
     onNodesMove,
     onUserMove,
     onConnect,
@@ -232,6 +234,8 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
   live.current = {
     store,
     nodes,
+    onNodeClick,
+    onNodeDoubleClick,
     onNodesMove,
     onUserMove,
     onConnect,
@@ -600,6 +604,17 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
     onPaneContextMenu(menuPoint(event, event.currentTarget));
   };
 
+  // The node boxes keep these across renders: a draw of the flow does not
+  // draw a node that did not change.
+  const clickNode = useCallback(
+    (id: string, event: ReactMouseEvent<HTMLElement>) =>
+      live.current.onNodeClick?.(id, event),
+    []
+  );
+  const doubleClickNode = useCallback(
+    (id: string) => live.current.onNodeDoubleClick?.(id),
+    []
+  );
   const onNodeMenu = useCallback(
     (id: string, event: ReactMouseEvent<HTMLElement>) => {
       if (!live.current.onNodeContextMenu) {
@@ -921,8 +936,8 @@ function FlowView<N extends FlowNode, E extends FlowEdge>({
                       // The node box passes the props that the node type gives.
                       Component={Component as ComponentType<NodeProps>}
                       connectable={connectable}
-                      onClick={onNodeClick}
-                      onDoubleClick={onNodeDoubleClick}
+                      onClick={clickNode}
+                      onDoubleClick={doubleClickNode}
                       onContextMenu={onNodeMenu}
                     />
                   );
@@ -1024,8 +1039,54 @@ function Arrow({ id }: { id: string }) {
   );
 }
 
-// A node draws again only when its own props change: a hover on an edge or a
-// new handle place does not draw every node.
+function sameList(a: unknown, b: unknown): boolean {
+  return (
+    Array.isArray(a) &&
+    Array.isArray(b) &&
+    a.length === b.length &&
+    a.every((value, index) => Object.is(value, b[index]))
+  );
+}
+
+/**
+ * True when two nodes draw the same box. The caller makes new node objects
+ * at each move of a node: only the node that moved has a new place.
+ */
+function sameNode(a: FlowNode, b: FlowNode): boolean {
+  if (a === b) {
+    return true;
+  }
+  const keys = Object.keys(a.data);
+  return (
+    a.id === b.id &&
+    a.type === b.type &&
+    a.position.x === b.position.x &&
+    a.position.y === b.position.y &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.selected === b.selected &&
+    a.passThrough === b.passThrough &&
+    keys.length === Object.keys(b.data).length &&
+    keys.every(
+      (key) =>
+        key in b.data &&
+        (Object.is(a.data[key], b.data[key]) ||
+          sameList(a.data[key], b.data[key]))
+    )
+  );
+}
+
+interface NodeBoxProps {
+  node: FlowNode;
+  Component: ComponentType<NodeProps<FlowNode>>;
+  connectable: boolean;
+  onClick?: (id: string, event: ReactMouseEvent<HTMLElement>) => void;
+  onDoubleClick?: (id: string) => void;
+  onContextMenu?: (id: string, event: ReactMouseEvent<HTMLElement>) => void;
+}
+
+// A node draws again only when its own props change: a hover on an edge, a
+// new handle place or a move of another node does not draw every node.
 const FlowNodeBox = memo(function FlowNodeBox({
   node,
   Component,
@@ -1033,14 +1094,7 @@ const FlowNodeBox = memo(function FlowNodeBox({
   onClick,
   onDoubleClick,
   onContextMenu,
-}: {
-  node: FlowNode;
-  Component: ComponentType<NodeProps<FlowNode>>;
-  connectable: boolean;
-  onClick?: (id: string, event: ReactMouseEvent<HTMLElement>) => void;
-  onDoubleClick?: (id: string) => void;
-  onContextMenu?: (id: string, event: ReactMouseEvent<HTMLElement>) => void;
-}) {
+}: NodeBoxProps) {
   const value = useMemo(() => ({ id: node.id }), [node.id]);
   return (
     <div
@@ -1048,7 +1102,8 @@ const FlowNodeBox = memo(function FlowNodeBox({
       className={cn(
         // A host lights the node with data-spotlit; the card reads it.
         'group/node absolute left-0 top-0 hover:z-10 focus-within:z-10',
-        node.selected && 'z-10'
+        node.selected && 'z-10',
+        node.passThrough && 'pointer-events-none'
       )}
       style={{
         width: node.width,
@@ -1069,4 +1124,15 @@ const FlowNodeBox = memo(function FlowNodeBox({
       </NodeContext.Provider>
     </div>
   );
-});
+}, sameBox);
+
+function sameBox(a: NodeBoxProps, b: NodeBoxProps): boolean {
+  return (
+    a.Component === b.Component &&
+    a.connectable === b.connectable &&
+    a.onClick === b.onClick &&
+    a.onDoubleClick === b.onDoubleClick &&
+    a.onContextMenu === b.onContextMenu &&
+    sameNode(a.node, b.node)
+  );
+}

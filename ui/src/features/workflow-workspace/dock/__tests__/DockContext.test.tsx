@@ -196,8 +196,8 @@ describe('DockProvider on a narrow window', () => {
   });
 });
 
-// A laptop opens the panel until the user closes it; a smaller window keeps
-// it collapsed until asked.
+// No window opens the panel by itself (the owner decided that no panel opens
+// by default): it opens as the user left it.
 describe('DockProvider default by window', () => {
   function windowOf(width: number) {
     window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
@@ -212,16 +212,16 @@ describe('DockProvider default by window', () => {
     );
   }
 
-  it('opens on a laptop with nothing stored', () => {
+  it('stays collapsed on a laptop with nothing stored', () => {
     localStorage.clear();
     windowOf(1440);
-    expect(renderDock().dock.open).toBe(true);
+    expect(renderDock().dock.open).toBe(false);
   });
 
-  it('keeps a close of the user on a laptop', () => {
-    localStorage.setItem(DOCK_OPEN_KEY, 'false');
+  it('keeps an open of the user on a laptop', () => {
+    localStorage.setItem(DOCK_OPEN_KEY, 'true');
     windowOf(1440);
-    expect(renderDock().dock.open).toBe(false);
+    expect(renderDock().dock.open).toBe(true);
   });
 
   it('stays collapsed on a tablet with nothing stored', () => {

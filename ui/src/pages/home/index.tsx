@@ -128,6 +128,11 @@ export default function HomePage(): React.ReactElement {
               },
             ]
           : []),
+        {
+          to: '/ai',
+          label: t('navigation.ai'),
+          description: t('home.aiDescription'),
+        },
         ...(canWrite && config.gitSyncEnabled
           ? [
               {

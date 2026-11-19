@@ -54,13 +54,14 @@ export function forgetCaptures(scope: CacheScope, step: string): void {
 
 /**
  * Keeps the outputs of a step that succeeded in the cache of the workflow,
- * with the hash of the step as the run saw it. The caller passes the data
+ * with the hash of the step and the parameters of the run, as the run saw
+ * them (the hash does not cover the parameters). The caller passes the data
  * that it already loaded (`useStepOutputs`): this hook makes no request for
  * outputs. It reads the definition and the parameters of the run, and the
  * defaults of the workflow, once. Nothing happens without a file name. Every
  * entry names the run that it was read from. An entry that is fresh for the
  * saved definition is not replaced by the step of an older run that the user
- * looks at. A run with other parameters than the defaults of the workflow is
+ * looks at. The entry keeps the parameters of its run. A run with other parameters than the defaults of the workflow is
  * not kept: a step run uses the defaults, and the hash does not cover the
  * parameters of a run.
  */
@@ -105,6 +106,9 @@ export function useCaptureStepOutputs(p: {
         : undefined,
     [dagName, runNodes]
   );
+  // The parameters of the run, as the server stores them; undefined until the
+  // run answers.
+  const params = run.data ? (run.data.dagRunDetails.params ?? '') : undefined;
   const hashes = useRunStepHashes({
     dagName,
     runId,
@@ -132,6 +136,7 @@ export function useCaptureStepOutputs(p: {
   const savedHash = saved?.get(step);
   useEffect(() => {
     if (!fileName || !runId || values === null || hash === undefined) return;
+    if (params === undefined) return;
     // Wait for the saved definition, so that a stale read never replaces a
     // fresh entry for a moment.
     if (saved === null) return;
@@ -149,6 +154,7 @@ export function useCaptureStepOutputs(p: {
       runId,
       capturedAt: Date.now(),
       stepHash: hash,
+      params,
     };
     const seen = captured.get(capturedKey(scope, step)) ?? new Set<string>();
     const pair = `${runId}\u0000${JSON.stringify(values)}`;
@@ -163,6 +169,7 @@ export function useCaptureStepOutputs(p: {
     runId,
     step,
     hash,
+    params,
     savedHash,
     saved === null,
     ranWithDefaults,
