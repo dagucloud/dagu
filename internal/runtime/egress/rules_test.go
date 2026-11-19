@@ -71,6 +71,30 @@ func TestRulesAllowIPv6(t *testing.T) {
 	}
 }
 
+// A name with letters outside ASCII matches in its IDNA ASCII form, the form
+// that HTTP clients and the proxy transport send, and in its Unicode form.
+func TestRulesAllowInternationalizedNames(t *testing.T) {
+	t.Parallel()
+
+	rules, err := egress.ParseRules([]string{"Bücher.example:443", "*.xn--mnchen-3ya.example"})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{
+		{"xn--bcher-kva.example", true},
+		{"bücher.example", true},
+		{"BÜCHER.example", true},
+		{"api.xn--mnchen-3ya.example", true},
+		{"api.münchen.example", true},
+		{"münchen.example", false},
+		{"bucher.example", false},
+	} {
+		assert.Equal(t, tc.want, rules.Allows(tc.host, 443), "%s", tc.host)
+	}
+}
+
 // The check never resolves a name, so a name that resolves to a listed address is
 // not listed.
 func TestRulesDoNotResolveNames(t *testing.T) {
@@ -91,6 +115,7 @@ func TestParseRuleRejectsWhatIsNotADestination(t *testing.T) {
 		"api example.com", "*.", "*.*.example.com", "..example.com", "a..b", "*.10.0.0.1", "user@example.com",
 		"api.example.com\n", "api.example.com\r\n", "api.\x00example.com", "api.example.com\u00a0",
 		"[::1", "[::1]:", "[::1]443", "[10.0.0.1]:443", "[api.example.com]:443", "2001:db8::zz", "*.::1",
+		"bü_cher.example", "*.bü_cher.example",
 	} {
 		_, err := egress.ParseRule(text)
 		assert.Error(t, err, "%q", text)

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"golang.org/x/net/idna"
 )
 
 // Rule is one destination of the key network.egress: a host name or an address,
@@ -21,8 +23,9 @@ import (
 type Rule struct {
 	// Text is the rule as the operator wrote it.
 	Text string
-	// Host is the host name in lower case, without a leading "*." and without a
-	// trailing dot, or the address in its shortest form.
+	// Host is the host name in lower case and in its IDNA ASCII form, without a
+	// leading "*." and without a trailing dot, or the address in its shortest
+	// form.
 	Host string
 	// Wildcard is true for a rule that starts with "*.". It matches each
 	// subdomain of Host, and not Host itself.
@@ -32,8 +35,9 @@ type Rule struct {
 }
 
 // ParseRule reads one destination. An IPv6 address with a port is in brackets,
-// such as [2001:db8::1]:443. It accepts no scheme, no path, no whitespace and no
-// control character. The port is a whole number from 1 to 65535.
+// such as [2001:db8::1]:443. A host name can be in Unicode or in its IDNA ASCII
+// form. It accepts no scheme, no path, no whitespace and no control character.
+// The port is a whole number from 1 to 65535.
 func ParseRule(text string) (Rule, error) {
 	rule := Rule{Text: text}
 	host, rest, ok := splitRule(text)
@@ -58,6 +62,10 @@ func ParseRule(text string) (Rule, error) {
 	}
 	if rule.Wildcard && net.ParseIP(host) != nil {
 		return Rule{}, fmt.Errorf("egress destination %q: a wildcard needs a host name, not an address", text)
+	}
+	host, err := asciiHost(host)
+	if err != nil {
+		return Rule{}, fmt.Errorf("egress destination %q: the host name is not a valid internationalized name", text)
 	}
 	rule.Host = canonicalAddr(host)
 	return rule, nil
@@ -93,6 +101,16 @@ func notHostRune(r rune) bool {
 	return unicode.IsSpace(r) || unicode.IsControl(r)
 }
 
+// asciiHost gives a host name with letters outside ASCII in its IDNA ASCII form,
+// which the HTTP transport dials and clients send. An ASCII name stays as it
+// is.
+func asciiHost(host string) (string, error) {
+	if !strings.ContainsFunc(host, func(r rune) bool { return r > unicode.MaxASCII }) {
+		return host, nil
+	}
+	return idna.Lookup.ToASCII(host)
+}
+
 // canonicalAddr gives an address in its shortest form, so that two spellings of
 // one IPv6 address match. A host name stays as it is.
 func canonicalAddr(host string) string {
@@ -102,9 +120,14 @@ func canonicalAddr(host string) string {
 	return host
 }
 
-// normalizeHost puts a host of a request in the form of Rule.Host.
+// normalizeHost puts a host of a request in the form of Rule.Host. A name that
+// has no IDNA ASCII form stays in Unicode and matches no rule.
 func normalizeHost(host string) string {
-	return canonicalAddr(strings.ToLower(strings.TrimSuffix(host, ".")))
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if ascii, err := asciiHost(host); err == nil {
+		host = ascii
+	}
+	return canonicalAddr(host)
 }
 
 // matches reports whether the rule allows the host and the port. The host is in

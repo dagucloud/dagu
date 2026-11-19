@@ -218,6 +218,26 @@ func TestUpstreamInjectsTheKey(t *testing.T) {
 	}
 }
 
+// An upstream with an internationalized host name is reached under its ASCII
+// form, which the HTTP transport dials, and matches a rule in either spelling.
+func TestUpstreamWithAnInternationalizedName(t *testing.T) {
+	t.Parallel()
+
+	for _, rule := range []string{"bücher.example.test", "xn--bcher-kva.example.test"} {
+		t.Run(rule, func(t *testing.T) {
+			t.Parallel()
+
+			rec, host, port := startRecorder(t, false, nil)
+			upstream := mustUpstream(t, "http://bücher.example.test:"+port, egress.AuthXAPIKey)
+			proxyAddr, _ := upstreamProxy(t, []string{rule + ":" + port}, upstream, resolverFor("xn--bcher-kva.example.test", host), nil, nil)
+
+			reply := originFormRequest(t, proxyAddr, http.MethodGet, "/v1/models", "", nil)
+			assert.Equal(t, http.StatusOK, reply.StatusCode)
+			assert.Equal(t, "xn--bcher-kva.example.test:"+port, rec.only(t).Host)
+		})
+	}
+}
+
 // The path of the upstream and the path of the request join with one slash. The
 // escaped form of the path and a final slash stay as the client wrote them.
 func TestUpstreamJoinsThePaths(t *testing.T) {
