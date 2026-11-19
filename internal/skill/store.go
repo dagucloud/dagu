@@ -282,8 +282,10 @@ func linkRefusal(rule, rel, format string, args ...any) error {
 // operation stays inside this folder: the Go root refuses a path that leaves it, also
 // when another process swaps a folder for a link while the operation runs. It refuses
 // a skill folder that is a symbolic link.
-func (s *Store) openSkillRoot(name string) (*os.Root, error) {
-	dir := s.Dir(name)
+func (s *Store) openSkillRoot(name string) (*os.Root, error) { return openSkillDir(s.Dir(name)) }
+
+// openSkillDir opens the skill folder dir as openSkillRoot does.
+func openSkillDir(dir string) (*os.Root, error) {
 	before, err := os.Lstat(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

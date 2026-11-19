@@ -5,9 +5,12 @@ package skill
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -64,32 +67,82 @@ func (s *Store) DownloadSkills(names []string) ([]*Skill, error) {
 // <name>/ that holds its files, exactly as stored. The order of the entries is
 // the order of the skills, then the order of the paths. Every entry has the
 // same time stamp and the mode 0644, so the same skills give the same bytes.
-// A skill that is not valid is written too. A file that changed since the read
-// of the skill stops the write with an error.
+// A skill that is not valid is written too, also a file above MaxFileBytes. A
+// file that changed since the read of the skill stops the write with an error.
 func WriteZip(w io.Writer, skills []*Skill) error {
 	zw := zip.NewWriter(w)
 	for _, sk := range skills {
-		for _, f := range sk.Files {
-			data, err := sk.ReadVerified(f.Path)
-			if err != nil {
-				return err
-			}
-			header := &zip.FileHeader{
-				Name:     sk.Name + "/" + f.Path,
-				Method:   zip.Deflate,
-				Modified: zipEpoch,
-			}
-			header.SetMode(0o644)
-			fw, err := zw.CreateHeader(header)
-			if err != nil {
-				return err
-			}
-			if _, err := fw.Write(data); err != nil {
-				return err
-			}
+		if err := writeSkillEntries(zw, sk); err != nil {
+			return err
 		}
 	}
 	return zw.Close()
+}
+
+// writeSkillEntries reads the files of one skill from disk. The root keeps every
+// read inside the skill folder, also when a file becomes a link.
+func writeSkillEntries(zw *zip.Writer, sk *Skill) error {
+	if len(sk.Files) == 0 {
+		return nil
+	}
+	root, err := openSkillDir(sk.Dir)
+	if err != nil {
+		return fmt.Errorf("skill %q: %w", sk.Name, err)
+	}
+	defer func() { _ = root.Close() }()
+	for _, f := range sk.Files {
+		if err := writeEntry(zw, root, sk, f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeEntry writes one file as one entry. A file up to MaxFileBytes must have
+// the recorded SHA-256 before its first byte is written. A larger file has no
+// content hash: it streams, and its size must match.
+func writeEntry(zw *zip.Writer, root *os.Root, sk *Skill, f File) error {
+	file, err := root.Open(f.Path)
+	if err != nil {
+		return fmt.Errorf("skill %q: %w", sk.Name, err)
+	}
+	defer func() { _ = file.Close() }()
+	changed := func() error {
+		return fmt.Errorf("skill %q: file %q changed after Dagu read the skill (hash %s)", sk.Name, f.Path, sk.Hash)
+	}
+	header := &zip.FileHeader{
+		Name:     sk.Name + "/" + f.Path,
+		Method:   zip.Deflate,
+		Modified: zipEpoch,
+	}
+	header.SetMode(0o644)
+	if f.Size <= MaxFileBytes {
+		data, err := io.ReadAll(io.LimitReader(file, f.Size+1))
+		if err != nil {
+			return fmt.Errorf("skill %q: %w", sk.Name, err)
+		}
+		if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != f.SHA256 {
+			return changed()
+		}
+		fw, err := zw.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+		_, err = fw.Write(data)
+		return err
+	}
+	fw, err := zw.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	n, err := io.Copy(fw, io.LimitReader(file, f.Size+1))
+	if err != nil {
+		return fmt.Errorf("skill %q: %w", sk.Name, err)
+	}
+	if n != f.Size {
+		return changed()
+	}
+	return nil
 }
 
 // ZipFileName returns the file name of the ZIP of the skills: <name>.zip for
