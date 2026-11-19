@@ -29,6 +29,27 @@ func rejectUnsupportedStepKeys(s *step) ir.ErrorList {
 	return errs
 }
 
+// rejectUnsupportedAIKeys refuses a step that names an AI endpoint (Spec 094)
+// or a MCP server entry of the AI page (Spec 095). Both need the AI gateway,
+// which this version of Dagu does not start, so the step would fail when it
+// starts.
+func rejectUnsupportedAIKeys(result *ir.Step) ir.ErrorList {
+	if result.Agent != nil {
+		// rejectUnsupportedStepKeys refuses the whole action.
+		return nil
+	}
+	var errs ir.ErrorList
+	if endpoints := result.AIEndpoints(); len(endpoints) > 0 {
+		errs = append(errs, unsupportedKey("endpoint", endpoints[0],
+			fmt.Sprintf("the AI endpoint %q", endpoints[0])))
+	}
+	if servers := result.AIMCPServers(); len(servers) > 0 {
+		errs = append(errs, unsupportedKey("tools.mcp", servers[0],
+			fmt.Sprintf("the mcp entry %q, which has no url,", servers[0])))
+	}
+	return errs
+}
+
 func unsupportedKey(field string, value any, what string) error {
 	return ir.NewValidationError(field, value, fmt.Errorf("%s is not supported in this version of Dagu", what))
 }

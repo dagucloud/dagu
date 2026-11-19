@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A step key whose runtime this version lacks fails the load, so that no run
+// A key whose runtime this version lacks fails the load, so that no run
 // ignores it. The refusal also shows when another rule of the step fails.
-func TestUnsupportedStepKeys(t *testing.T) {
+func TestUnsupportedKeys(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -96,6 +96,53 @@ steps:
       prompt: Fix the tests.
 `,
 			want: "the action agent.run is not supported in this version of Dagu",
+		},
+		{
+			name: "endpoint block",
+			yaml: `
+steps:
+  - name: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: openai-main
+        model: gpt-4o
+      prompt: hi
+`,
+			want: `the AI endpoint "openai-main" is not supported in this version of Dagu`,
+		},
+		{
+			name: "endpoint of a model entry",
+			yaml: `
+steps:
+  - name: ask
+    action: chat.completion
+    with:
+      model:
+        - name: gpt-4o
+          provider: openai
+        - name: gpt-4o-mini
+          endpoint: openai-backup
+      prompt: hi
+`,
+			want: `the AI endpoint "openai-backup" is not supported in this version of Dagu`,
+		},
+		{
+			name: "named mcp entry",
+			yaml: `
+steps:
+  - name: ask
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: hi
+      tools:
+        mcp:
+          - name: github
+            allow: [search_issues]
+`,
+			want: `the mcp entry "github", which has no url, is not supported in this version of Dagu`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

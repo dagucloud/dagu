@@ -683,6 +683,7 @@ func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 	// Capabilities-based validators handle all execution type conflicts
 	errs = append(errs, runStepValidationStages(result)...)
 	errs = append(errs, buildStepTrust(s, result)...)
+	errs = append(errs, rejectUnsupportedAIKeys(result)...)
 
 	// Validate executor config against registered schema
 	// Only validate when config has actual values (not just initialized as empty map)

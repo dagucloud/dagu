@@ -7183,22 +7183,9 @@
       },
       "description": "An inline MCP server, with its URL. The connection, the listing and each call have a fixed limit of 30 seconds."
     },
-    "toolMCPNamedEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "allow"],
-      "properties": {
-        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$", "not": { "const": "dagu" }, "description": "Name of a MCP server entry of the AI page. The tools of the server get the names <name>_<tool>. The URL and the credentials stay in the coordinator." },
-        "allow": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Tools of the server that the step can call. The coordinator refuses a tools/call for another tool." }
-      },
-      "description": "A MCP server entry of the AI page, with no url. Only the actions chat.completion and agent.run can use it. The MCP traffic goes through the relay of the gateway."
-    },
     "toolMCPEntry": {
-      "oneOf": [
-        { "$ref": "#/definitions/toolMCPInlineEntry" },
-        { "$ref": "#/definitions/toolMCPNamedEntry" }
-      ],
-      "description": "A remote MCP server: an inline entry with url, or a named entry with no url."
+      "$ref": "#/definitions/toolMCPInlineEntry",
+      "description": "A remote MCP server, with its URL."
     },
     "toolList": {
       "type": "array",
@@ -8277,32 +8264,18 @@
       },
       "description": "Configuration for action: decision.evaluate. Responses are captured as JSON automatically unless output capture is explicitly configured."
     },
-    "aiEndpointName": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,63}$",
-      "description": "Name of an AI endpoint (Spec 094). An administrator adds the endpoint with its key on the AI page, and chooses which DAGs may use it. The step never sees the key. The value is a name, not a reference. Dagu checks that the endpoint exists and that the DAG may use it when the step starts, not when it loads the DAG."
-    },
     "chatModelEntry": {
       "type": "object",
       "required": ["name"],
       "properties": {
         "name": { "type": "string" },
-        "endpoint": {
-          "$ref": "#/definitions/aiEndpointName",
-          "description": "AI endpoint of this model. The provider type comes from the endpoint. Not valid with provider, base_url or api_key_name in the same entry."
-        },
         "provider": { "$ref": "#/definitions/llmProvider" },
         "temperature": { "type": "number" },
         "max_tokens": { "type": "integer" },
         "top_p": { "type": "number" },
         "base_url": { "type": "string" },
         "api_key_name": { "type": "string" }
-      },
-      "allOf": [
-        { "not": { "required": ["endpoint", "api_key_name"] } },
-        { "not": { "required": ["endpoint", "base_url"] } },
-        { "not": { "required": ["endpoint", "provider"] } }
-      ]
+      }
     },
     "chatCompletionActionConfig": {
       "type": "object",
@@ -8310,36 +8283,8 @@
         { "required": ["prompt"] },
         { "required": ["messages"] }
       ],
-      "allOf": [
-        { "not": { "required": ["endpoint", "api_key_name"] } },
-        { "not": { "required": ["endpoint", "base_url"] } },
-        { "not": { "required": ["endpoint", "provider"] } },
-        { "not": { "required": ["endpoint", "model"] } },
-        { "not": { "required": ["endpoint", "thinking"] } }
-      ],
       "additionalProperties": true,
       "properties": {
-        "endpoint": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["name", "model"],
-          "properties": {
-            "name": {
-              "$ref": "#/definitions/aiEndpointName"
-            },
-            "model": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Model of the endpoint. Choose a model that the endpoint lists. Dagu checks the model when the step starts. The value can be a reference."
-            },
-            "effort": {
-              "type": "string",
-              "enum": ["low", "medium", "high", "xhigh", "max"],
-              "description": "Level of effort of the model. The step turns thinking on with this effort. The value is a literal level, not a reference."
-            }
-          },
-          "description": "The AI endpoint and the model of the step, as one block. The provider type comes from the endpoint. The block replaces the keys provider, base_url, api_key_name, model and thinking: they are not valid in the same with. A step that needs a model list keeps the key model, and each entry names its own endpoint."
-        },
         "model": {
           "oneOf": [
             { "type": "string" },
@@ -8349,7 +8294,7 @@
               "items": { "$ref": "#/definitions/chatModelEntry" }
             }
           ],
-          "description": "Model name (string) or array of model objects for fallback. Each object can name its own endpoint. Not valid with the block endpoint, which gives the model."
+          "description": "Model name (string) or array of model objects for fallback."
         },
         "prompt": {
           "type": "string",
