@@ -366,13 +366,43 @@ func TestRelay_FailureEndsTheBodyRead(t *testing.T) {
 	client := newBodyTimeoutClient()
 	relay := startRelay(t, client, nil)
 
-	_, resp := send(t, relay, stalledBody(relay))
+	conn, resp := send(t, relay, stalledBody(relay))
 	_ = resp.Body.Close()
 	assert.Equal(t, aigateway.ReasonUpstreamTimeout.Status(), resp.StatusCode)
 	select {
 	case <-client.released:
 	case <-time.After(3 * time.Second):
 		t.Fatal("the read of the body still waits for the client")
+	}
+	_, err := conn.Read(make([]byte, 1))
+	assert.ErrorIs(t, err, io.EOF, "the relay closes the connection")
+}
+
+// A refusal reads no more of the body. A local process that announces a body
+// and sends none still gets the answer, and holds no connection after it.
+func TestRelay_RefusalReadsNoMoreOfTheBody(t *testing.T) {
+	t.Parallel()
+	relay := startRelay(t, &fakeClient{}, nil)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(relay.URL(), "http://"))
+	for name, tc := range map[string]struct {
+		request string
+		status  int
+	}{
+		"no secret": {
+			request: "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\nContent-Length: 2\r\n\r\n",
+			status:  http.StatusUnauthorized,
+		},
+		"path not allowed": {
+			request: "POST /v1/complete HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\nX-Api-Key: " + relay.Secret() +
+				"\r\nContent-Length: 2\r\n\r\n",
+			status: http.StatusNotFound,
+		},
+	} {
+		conn, resp := send(t, relay, tc.request)
+		_ = resp.Body.Close()
+		assert.Equal(t, tc.status, resp.StatusCode, name)
+		_, err := conn.Read(make([]byte, 1))
+		assert.ErrorIs(t, err, io.EOF, "%s: the relay closes the connection", name)
 	}
 }
 

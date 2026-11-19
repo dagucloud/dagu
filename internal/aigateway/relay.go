@@ -333,12 +333,26 @@ func logSafe(path string) string {
 // writeFailureFor writes a failure in the error format of the request: a JSON-RPC
 // error for a MCP path, and the error format of the protocol for a model request.
 func (r *Relay) writeFailureFor(w http.ResponseWriter, req *http.Request, failure *Failure) {
+	dropBody(w, req)
 	if IsMCPPath(req.URL.Path) {
 		contentType, body := MCPErrorBody(failure)
 		r.writeBody(w, failure, contentType, body)
 		return
 	}
 	r.writeFailure(w, failure)
+}
+
+// dropBody stops the read of the request body before a failure answer, and
+// closes the connection after the answer. Otherwise the server reads the rest
+// of the body before it answers or reuses the connection, with no time limit,
+// so a client that announced a body and sent none would hold the connection
+// and never get the answer.
+func dropBody(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Connection", "close")
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now())
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
 }
 
 func (r *Relay) writeFailure(w http.ResponseWriter, failure *Failure) {

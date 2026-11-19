@@ -138,6 +138,8 @@ attempt, as the tool bridge does (Spec 091). The relay:
 - needs the relay secret: 32 random bytes from the system random generator, in the header that the
   client uses for its key
 - compares the secret in constant time, and answers 401 for a wrong secret
+- answers a refusal or a failure without reading the rest of the request body, and closes the
+  connection after it
 - is bound to the run, the step and the target of the attempt
 - ends when the attempt ends. A request that is open then gets an error and the stream ends.
 
