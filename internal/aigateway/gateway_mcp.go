@@ -106,7 +106,7 @@ func (g *Gateway) doMCP(ctx context.Context, req Request, sink ResponseSink) (fa
 		record.RPCMethod = joinAudit(inspection.methods)
 		record.Tool = joinAudit(inspection.tools)
 		if inspection.refused != nil {
-			return g.refuseTool(ctx, sink, req.Target.Name, inspection, &record)
+			return g.refuseTool(ctx, callCtx, sink, req.Target.Name, inspection, &record)
 		}
 	}
 
@@ -127,8 +127,9 @@ func (g *Gateway) doMCP(ctx context.Context, req Request, sink ResponseSink) (fa
 
 // refuseTool answers a body that holds a tools/call for a tool outside allow. The
 // answer is a JSON-RPC error with the status 200, and no call goes to the server.
-// A body with no request, which has no answer, gets the status 202.
-func (g *Gateway) refuseTool(ctx context.Context, sink ResponseSink, server string, inspection *mcpInspection, record *AuditRecord) *Failure {
+// A body with no request, which has no answer, gets the status 202. The answer
+// is written within the total timeout of the call.
+func (g *Gateway) refuseTool(ctx, callCtx context.Context, sink ResponseSink, server string, inspection *mcpInspection, record *AuditRecord) *Failure {
 	record.Reason = ReasonMCPToolNotAllowed
 	answer := inspection.refusalBody(server)
 	header := http.Header{}
@@ -139,12 +140,12 @@ func (g *Gateway) refuseTool(ctx context.Context, sink ResponseSink, server stri
 		header.Set("Content-Type", "application/json")
 	}
 	record.Status = status
-	if err := sink.Head(ctx, status, header); err != nil {
-		return g.classify(ctx, ctx, err)
+	if err := sink.Head(callCtx, status, header); err != nil {
+		return g.classify(ctx, callCtx, err)
 	}
 	if answer != nil {
-		if err := sink.Write(ctx, answer); err != nil {
-			return g.classify(ctx, ctx, err)
+		if err := sink.Write(callCtx, answer); err != nil {
+			return g.classify(ctx, callCtx, err)
 		}
 		record.ResponseBytes = int64(len(answer))
 	}

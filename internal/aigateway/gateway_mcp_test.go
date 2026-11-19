@@ -258,6 +258,29 @@ func TestDoMCP_ToolOutsideAllowIsRefused(t *testing.T) {
 	assert.Equal(t, int32(3), calls.Load())
 }
 
+// A client that does not read the refusal holds no stream past the total timeout.
+func TestDoMCP_RefusalEndsWithTheTotalTimeout(t *testing.T) {
+	t.Parallel()
+	limits := testLimits()
+	limits.TotalTimeout = 200 * time.Millisecond
+	g := newMCPGateway(t, mcpSourceFor("https://docs.example.com/mcp"), limits, nil)
+	block := make(chan struct{})
+	defer close(block)
+
+	done := make(chan *aigateway.Failure, 1)
+	go func() {
+		done <- g.Do(context.Background(), mcpRequest(http.MethodPost, rpcCall(7, "delete_all")), &blockingSink{block: block})
+	}()
+	select {
+	case failure := <-done:
+		require.NotNil(t, failure)
+		assert.Equal(t, aigateway.ReasonUpstreamTimeout, failure.Reason)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refusal kept its stream after the total timeout")
+	}
+	assert.Zero(t, g.OpenStreams())
+}
+
 func TestDoMCP_BatchIsParsedItemByItem(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
