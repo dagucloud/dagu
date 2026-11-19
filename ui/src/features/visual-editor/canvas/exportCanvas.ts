@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { NodeStatus } from '@/api/v1/schema';
+import { GRAPH_TONE_COLORS, type StatusTone } from '@/lib/statusPalette';
 import type {
   CanvasDirection,
   CanvasEdge,
@@ -42,18 +43,8 @@ const CAPTION_CHAR_PX = 6.4;
 const MONO_CHAR_PX = 6.7;
 const SMALL_MONO_CHAR_PX = 6.1;
 
-// The status colours of the graph, the same in both themes (the --graph-*
-// tokens of global.css).
-const GRAPH_STATUS = {
-  success: '#22c55e',
-  failed: '#ef5350',
-  running: '#7c6ef4',
-  warning: '#d9a03c',
-  aborted: '#c084fc',
-  neutral: '#8a8d99',
-};
-
-interface Palette {
+/** The colours of a theme, with the status colours that the canvas shows. */
+interface Palette extends Record<StatusTone, string> {
   background: string;
   card: string;
   border: string;
@@ -61,12 +52,6 @@ interface Palette {
   muted: string;
   edge: string;
   edgeMuted: string;
-  success: string;
-  failed: string;
-  running: string;
-  warning: string;
-  aborted: string;
-  neutral: string;
 }
 
 const LIGHT: Palette = {
@@ -77,7 +62,7 @@ const LIGHT: Palette = {
   muted: '#6b6b76',
   edge: '#80808b',
   edgeMuted: '#b0b0ba',
-  ...GRAPH_STATUS,
+  ...GRAPH_TONE_COLORS.light,
 };
 
 const DARK: Palette = {
@@ -88,7 +73,7 @@ const DARK: Palette = {
   muted: '#9a9aa6',
   edge: '#8b8b97',
   edgeMuted: '#5a5a66',
-  ...GRAPH_STATUS,
+  ...GRAPH_TONE_COLORS.dark,
 };
 
 /** Same grouping as `statusStrokeClass`. */
@@ -104,7 +89,7 @@ function statusColor(status: NodeStatus, palette: Palette): string {
       return palette.warning;
     case NodeStatus.Failed:
     case NodeStatus.Rejected:
-      return palette.failed;
+      return palette.error;
     case NodeStatus.Aborted:
       return palette.aborted;
     default:
