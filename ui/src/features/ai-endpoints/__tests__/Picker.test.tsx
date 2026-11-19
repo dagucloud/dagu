@@ -92,6 +92,18 @@ describe('Picker', () => {
     expect(onSelect).toHaveBeenCalledWith('claude-haiku-5');
   });
 
+  // The active item was the last one, which a new list no longer has.
+  it('keeps an active item when the list shrinks', () => {
+    const { onSelect, trigger, update } = renderPicker(
+      MODELS,
+      'claude-haiku-5'
+    );
+    fireEvent.click(trigger);
+    update({ items: MODELS.slice(0, 2) });
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith('claude-opus-5-5');
+  });
+
   it('names the list after the trigger', () => {
     const { trigger } = renderPicker();
     fireEvent.click(trigger);

@@ -160,12 +160,14 @@ function PickerList({
         : items.filter((i) => matches(i, query.trim())),
     [items, query]
   );
-  const [active, setActive] = useState(() =>
+  const [picked, setActive] = useState(() =>
     Math.max(
       0,
       items.findIndex((item) => item.value === value)
     )
   );
+  // A shorter list keeps an active item: the last one.
+  const active = Math.min(picked, Math.max(0, shown.length - 1));
   // The layout height of the whole list, measured once it is drawn: the choice
   // between under and over the trigger does not change while the user types.
   const [height, setHeight] = useState(
