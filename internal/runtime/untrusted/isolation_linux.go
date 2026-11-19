@@ -36,6 +36,9 @@ import (
 // user after SIGKILL.
 const killTimeout = 30 * time.Second
 
+// pidfdOpen opens a descriptor that follows a process. A test replaces it.
+var pidfdOpen = unix.PidfdOpen
+
 // gitConfig is the global git config of the restricted user. The folders that
 // hold an entry .git belong to the user of the worker, and git refuses a
 // repository of another owner without it.
@@ -613,15 +616,16 @@ func (iso *isolation) started(pid int) {
 	fd := -1
 	if pid > 0 {
 		// The process is not reaped yet: its caller has not called Wait.
-		if opened, err := unix.PidfdOpen(pid, 0); err == nil {
+		if opened, err := pidfdOpen(pid, 0); err == nil {
 			fd = opened
 		}
 	}
 	// One step moves the process from starting to running, so that no check
-	// in between sees neither.
+	// in between sees neither. A process that no watcher can follow counts as
+	// running until the end of the step, so that no watcher stops it.
 	iso.startMu.Lock()
 	iso.starting--
-	if fd >= 0 {
+	if pid > 0 {
 		iso.running++
 	}
 	iso.startMu.Unlock()

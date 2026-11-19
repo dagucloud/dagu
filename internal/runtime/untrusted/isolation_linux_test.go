@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // The isolation tests need the user ID 0, the six capabilities and the flag
@@ -258,14 +259,16 @@ func TestIsolatedStepsOneAtATime(t *testing.T) {
 }
 
 // The end of a process of the step does not stop another process of the step
-// that runs, whichever of the two was prepared first. Both are prepared before
-// either starts, and the process that ends starts first.
+// that runs, whichever of the two was prepared first, and also when no watcher
+// can follow the other process. Both are prepared before either starts, and
+// the process that ends starts first.
 func TestIsolatedStepKeepsAnotherProcess(t *testing.T) {
-	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true) })
-	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false) })
+	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true, false) })
+	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false, false) })
+	t.Run("unwatched", func(t *testing.T) { testKeepsAnotherProcess(t, true, true) })
 }
 
-func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
+func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst, stayingUnwatched bool) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
@@ -295,6 +298,10 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
 		return process
 	}
 	endingProcess := start(ending)
+	if stayingUnwatched {
+		pidfdOpen = func(int, int) (int, error) { return -1, unix.EMFILE }
+		t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
+	}
 	stayingProcess := start(staying)
 
 	require.NoError(t, endingProcess.Wait())
