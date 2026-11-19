@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { YAML_PANEL_OPEN_KEY, yamlPanelWasOpen } from '../useYamlPanelMemory';
+import {
+  WORKFLOW_PANEL_OPEN_KEY,
+  YAML_PANEL_OPEN_KEY,
+  yamlPanelWasOpen,
+} from '../useYamlPanelMemory';
 
 function laptop(on: boolean) {
   window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;
@@ -11,26 +15,29 @@ function laptop(on: boolean) {
   );
 }
 
-// The owner decided that no panel opens by default, on a laptop either: the
-// panel opens only as the user left it.
+// A laptop opens the YAML until the user closes it.
 describe('yamlPanelWasOpen', () => {
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
   });
 
-  it('is closed by default, on a laptop too', () => {
+  it('is open by default on a laptop', () => {
     laptop(true);
+    expect(yamlPanelWasOpen()).toBe(true);
+  });
+
+  it('keeps a close of the user, or a Workflow panel that was the choice', () => {
+    laptop(true);
+    localStorage.setItem(YAML_PANEL_OPEN_KEY, 'false');
     expect(yamlPanelWasOpen()).toBe(false);
-    laptop(false);
+    localStorage.clear();
+    localStorage.setItem(WORKFLOW_PANEL_OPEN_KEY, 'true');
     expect(yamlPanelWasOpen()).toBe(false);
   });
 
-  it('keeps the choice of the user', () => {
-    laptop(true);
-    localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
-    expect(yamlPanelWasOpen()).toBe(true);
-    localStorage.setItem(YAML_PANEL_OPEN_KEY, 'false');
+  it('is closed by default on a smaller window', () => {
+    laptop(false);
     expect(yamlPanelWasOpen()).toBe(false);
   });
 });
