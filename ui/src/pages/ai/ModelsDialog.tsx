@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useContext, useMemo, useState, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { RelativeTime } from '@/components/ui/relative-time';
-import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { scopeQuery, type AIEndpoint } from '@/features/ai-endpoints/endpoint';
 import { useQuery } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -28,8 +28,7 @@ export function ModelsDialog({
   onClose(): void;
 }): ReactElement {
   const { ts } = useI18n();
-  const appBar = useContext(AppBarContext);
-  const remoteNode = appBar.selectedRemoteNode || 'local';
+  const remoteNode = useRemoteNode();
   const [search, setSearch] = useState('');
   const { data, error } = useQuery('/ai/endpoints/{name}/models', {
     params: {
