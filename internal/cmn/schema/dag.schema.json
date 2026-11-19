@@ -2529,13 +2529,6 @@
           "deprecated": true,
           "description": "Deprecated top-level messages for chat steps. Use action with with.prompt or with.messages."
         },
-        "tools": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of tool DAG names available to the LLM for function calling. Only valid when type is 'chat'. Tools are other DAGs that can be called by the LLM to perform specific tasks."
-        },
         "value": {
           "type": "string",
           "deprecated": true,
@@ -7074,6 +7067,35 @@
           "$ref": "#/definitions/thinkingConfig",
           "description": "Extended thinking/reasoning configuration. Enables deeper reasoning for complex tasks."
         },
+        "dags": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolDAGEntry" },
+          "description": "DAGs offered to the model as tools. A call runs the DAG as a child run. Do not use it with the list form of tools."
+        },
+        "tools": {
+          "oneOf": [
+            { "$ref": "#/definitions/toolMap" },
+            { "$ref": "#/definitions/toolList" }
+          ],
+          "description": "Other tools offered to the model: a map with the category mcp. The list form (a list of DAG names) is deprecated. Use the key dags."
+        },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/skillEntry" },
+          "description": "Names of the skills offered to the model (skills/<name>/SKILL.md). The system message lists the skills, and the model reads one with the tool load_skill."
+        },
+        "max_tools": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Maximum number of tools in the effective catalog of the step. A larger catalog fails the step. The default is the key agent_tools.max_tools of the Dagu configuration."
+        },
+        "tool_result_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 524288,
+          "description": "Maximum size in bytes of one tool result sent to the model. Set to zero to disable the limit. The default is the key agent_tools.tool_result_max_bytes of the Dagu configuration."
+        },
         "max_context_tokens": {
           "type": "integer",
           "minimum": 0,
@@ -7085,11 +7107,6 @@
           "minimum": 0,
           "default": 524288,
           "description": "Maximum UTF-8 byte size of one agent-facing tool observation. Only valid in an agent DAG's root llm configuration. Set to zero to disable the limit. The full step output remains stored on the step."
-        },
-        "tools": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "description": "Names of DAGs that chat.completion steps may call as tools."
         },
         "max_tool_iterations": {
           "type": "integer",
@@ -7132,6 +7149,61 @@
         }
       ],
       "description": "LLM configuration without agent-only context management settings."
+    },
+    "skillEntry": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[\\p{Ll}\\p{Nd}]+(-[\\p{Ll}\\p{Nd}]+)*$",
+      "description": "Name of a skill folder in the skills directory (skills/<name>/SKILL.md)."
+    },
+    "toolParams": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Inputs of the tool. A plain value is fixed and hidden from the model. { from_ai: true } or { from_ai: { description } } leaves the input to the model."
+    },
+    "toolDAGEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Name of a DAG of the DAGs directory or of the same file. The tool name is this name, with each character outside [A-Za-z0-9_-] replaced by an underscore. It has 64 characters at most." },
+        "params": { "$ref": "#/definitions/toolParams" }
+      },
+      "description": "A DAG offered as a tool. The tool description is the description of the DAG."
+    },
+    "toolMCPInlineEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url", "allow"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "not": { "const": "dagu" }, "description": "Label of the server. The tools of the server get the names <name>_<tool>. The name dagu is reserved for the tool bridge." },
+        "url": { "type": "string", "minLength": 1, "description": "Streamable HTTP endpoint of the MCP server (http or https). May reference upstream values." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Headers sent to the server, for example Authorization." },
+        "allow": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Tools of the server that join the catalog." }
+      },
+      "description": "An inline MCP server, with its URL. The connection, the listing and each call have a fixed limit of 30 seconds."
+    },
+    "toolMCPEntry": {
+      "$ref": "#/definitions/toolMCPInlineEntry",
+      "description": "A remote MCP server, with its URL."
+    },
+    "toolList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "deprecated": true,
+      "description": "The list form of tools: a list of DAG names. It is deprecated. Use the key dags. Each name is an entry of dags with no params."
+    },
+    "toolMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mcp": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolMCPEntry" },
+          "description": "Remote MCP servers."
+        }
+      },
+      "description": "The tool map of a chat step. It has the category mcp. The DAG tools are in the key dags."
     },
     "webSearchConfig": {
       "type": "object",
@@ -7271,6 +7343,7 @@
         {
           "type": "string",
           "enum": [
+            "agent.run",
             "archive.create",
             "archive.extract",
             "archive.list",
@@ -8191,6 +8264,19 @@
       },
       "description": "Configuration for action: decision.evaluate. Responses are captured as JSON automatically unless output capture is explicitly configured."
     },
+    "chatModelEntry": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "provider": { "$ref": "#/definitions/llmProvider" },
+        "temperature": { "type": "number" },
+        "max_tokens": { "type": "integer" },
+        "top_p": { "type": "number" },
+        "base_url": { "type": "string" },
+        "api_key_name": { "type": "string" }
+      }
+    },
     "chatCompletionActionConfig": {
       "type": "object",
       "anyOf": [
@@ -8199,6 +8285,17 @@
       ],
       "additionalProperties": true,
       "properties": {
+        "model": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/definitions/chatModelEntry" }
+            }
+          ],
+          "description": "Model name (string) or array of model objects for fallback."
+        },
         "prompt": {
           "type": "string",
           "minLength": 1,
@@ -8212,6 +8309,35 @@
           },
           "description": "Explicit chat messages."
         },
+        "dags": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/toolDAGEntry" },
+          "description": "DAGs offered to the model as tools. A call runs the DAG as a child run. Do not use it with the list form of tools."
+        },
+        "tools": {
+          "oneOf": [
+            { "$ref": "#/definitions/toolMap" },
+            { "$ref": "#/definitions/toolList" }
+          ],
+          "description": "Other tools offered to the model: a map with the category mcp. The list form (a list of DAG names) is deprecated. Use the key dags."
+        },
+        "skills": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/skillEntry" },
+          "description": "Names of the skills offered to the model (skills/<name>/SKILL.md). The system message lists the skills, and the model reads one with the tool load_skill."
+        },
+        "max_tools": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Maximum number of tools in the effective catalog of the step. A larger catalog fails the step. The default is the key agent_tools.max_tools of the Dagu configuration."
+        },
+        "tool_result_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 524288,
+          "description": "Maximum size in bytes of one tool result sent to the model. Set to zero to disable the limit. The default is the key agent_tools.tool_result_max_bytes of the Dagu configuration."
+        },
         "files": {
           "$ref": "#/definitions/modelFiles"
         },
@@ -8220,9 +8346,6 @@
         },
         "provider": {
           "$ref": "#/definitions/llmConfig/properties/provider"
-        },
-        "model": {
-          "$ref": "#/definitions/llmConfig/properties/model"
         }
       },
       "description": "Configuration for action: chat.completion."

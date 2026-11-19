@@ -121,6 +121,113 @@ func HasAnyReference(raw string) bool {
 	return false
 }
 
+// EnvReferenceNames returns the environment names that raw refers to with
+// ${NAME}, $NAME, ${NAME:-word} or ${env.NAME}, including those in the word, in
+// order and without duplicates. An escaped dollar is not a reference. A quoted
+// reference counts, because the text can reach a shell that expands it.
+func EnvReferenceNames(raw string) []string {
+	var names []string
+	seen := make(map[string]struct{})
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	for _, loc := range reVarSubstitution.FindAllStringSubmatchIndex(raw, -1) {
+		if isEscapedDollar(raw, loc[0]) {
+			continue
+		}
+		switch {
+		case loc[2] >= 0:
+			addBracedEnvNames(raw[loc[2]:loc[3]], add)
+		case loc[4] >= 0:
+			add(raw[loc[4]:loc[5]])
+		}
+	}
+	return names
+}
+
+// addBracedEnvNames adds the names that the expression of a braced reference
+// refers to: its leading name, and the names in its word, such as B in
+// ${A:-$B}. The expression stops at the first closing brace, so a nested
+// braced reference in it, such as ${B in ${A:-${B}}, has no closing brace.
+func addBracedEnvNames(expr string, add func(string)) {
+	expr = strings.TrimSpace(expr)
+	if after, ok := strings.CutPrefix(expr, "env."); ok {
+		expr = after
+	}
+	name := leadingEnvName(expr)
+	// A dotted expression other than env.NAME names another scope.
+	if name != "" && (len(name) == len(expr) || expr[len(name)] != '.') {
+		add(name)
+	}
+	word := expr[len(name):]
+	nested := len(word)
+	for i := 0; i+1 < len(word); i++ {
+		if word[i] == '$' && word[i+1] == '{' && !isEscapedDollar(word, i) {
+			nested = i
+			break
+		}
+	}
+	for _, n := range EnvReferenceNames(word[:nested]) {
+		add(n)
+	}
+	if nested < len(word) {
+		addBracedEnvNames(word[nested+2:], add)
+	}
+}
+
+// StepValueReference is a reference to a value that a step published: the
+// form ${steps.<id>.outputs.<name>}, or an older form such as
+// ${<id>.outputs.<name>} or ${<id>.output.<path>}.
+type StepValueReference struct {
+	// Step is the ID or the name of the step that the reference names.
+	Step string
+	// Text is the reference as the text has it.
+	Text string
+}
+
+// StepValueReferences returns the references to values that steps published.
+// Dagu puts such a value in the text where the reference is. An escaped dollar
+// is not a reference.
+func StepValueReferences(raw string) []StepValueReference {
+	var refs []StepValueReference
+	for _, ref := range scanReferences(raw, true) {
+		if ref.StepOutput != nil {
+			refs = append(refs, StepValueReference{Step: ref.StepOutput.StepName, Text: ref.Raw})
+			continue
+		}
+		if ref.Kind != referenceEval {
+			continue
+		}
+		name, path, ok := referenceParts(ref.Raw)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(path, ".output") {
+			refs = append(refs, StepValueReference{Step: name, Text: ref.Raw})
+		}
+	}
+	return refs
+}
+
+// leadingEnvName returns the longest prefix of expr that is an environment
+// name.
+func leadingEnvName(expr string) string {
+	for i, r := range expr {
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return expr[:i]
+	}
+	return expr
+}
+
 // HasReferenceToNamespace reports whether raw references one of the named scopes.
 func HasReferenceToNamespace(raw string, namespaces ...string) bool {
 	for _, ref := range scanReferences(raw, true) {

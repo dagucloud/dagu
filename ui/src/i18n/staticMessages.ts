@@ -3,6 +3,9 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { backfillMessages } from '@/features/backfills/messages';
+import aiEndpointMessages from '@/features/ai-endpoints/messages';
+import mcpMessages from '@/features/ai-endpoints/mcpMessages';
+import skillMessages from '@/features/skills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -2646,6 +2649,7 @@ const baseEnglish = {
   'Show description': 'Show description',
   'Last run': 'Last run',
   '{time} ago': '{time} ago',
+  'in {time}': 'in {time}',
   'Open run {dagRunId}': 'Open run {dagRunId}',
   'Copy link to this run': 'Copy link to this run',
   'Show in workflow': 'Show in workflow',
@@ -3301,6 +3305,9 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = {
   ...workspaceMessages.en,
   ...backfillMessages.en,
+  ...aiEndpointMessages.en,
+  ...mcpMessages.en,
+  ...skillMessages.en,
   ...baseEnglish,
 } as const;
 
@@ -5878,6 +5885,7 @@ const baseChinese = {
   'Show description': '显示说明',
   'Last run': '最近一次运行',
   '{time} ago': '{time}前',
+  'in {time}': '{time}后',
   'Open run {dagRunId}': '打开运行 {dagRunId}',
   'Copy link to this run': '复制此次运行的链接',
   'Show in workflow': '在工作流中显示',
@@ -9173,6 +9181,7 @@ const baseJapanese = {
   'Show description': '説明を表示',
   'Last run': '直近の実行',
   '{time} ago': '{time}前',
+  'in {time}': '{time}後',
   'Open run {dagRunId}': '実行 {dagRunId} を開く',
   'Copy link to this run': 'この実行へのリンクをコピー',
   'Show in workflow': 'ワークフローで表示',
@@ -9827,12 +9836,18 @@ const baseJapanese = {
 const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
+  ...aiEndpointMessages['zh-CN'],
+  ...mcpMessages['zh-CN'],
+  ...skillMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
   ...backfillMessages.ja,
+  ...aiEndpointMessages.ja,
+  ...mcpMessages.ja,
+  ...skillMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 

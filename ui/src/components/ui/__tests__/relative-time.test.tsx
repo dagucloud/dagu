@@ -63,6 +63,34 @@ describe('RelativeTime', () => {
     expect(screen.getByText('Now')).toBeInTheDocument();
   });
 
+  it('counts down to a timestamp ahead with "until"', () => {
+    const { rerender } = render(
+      <RelativeTime timestamp={secondsAgo(-19 * 60)} compact until />
+    );
+    expect(screen.getByText('in 19m')).toBeInTheDocument();
+
+    rerender(<RelativeTime timestamp={secondsAgo(-2)} compact until />);
+    expect(screen.getByText('Now')).toBeInTheDocument();
+  });
+
+  // A countdown left mounted past its deadline must not read as a future time.
+  it('reads "Now" once a countdown passes its timestamp', () => {
+    const { rerender } = render(
+      <RelativeTime timestamp={secondsAgo(-3)} compact until />
+    );
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByText('Now')).toBeInTheDocument();
+
+    rerender(<RelativeTime timestamp={secondsAgo(30 * 60)} compact until />);
+    expect(screen.getByText('Now')).toBeInTheDocument();
+  });
+
+  // "in 9s" keeps the width of "in 99s", so the text next to it never moves.
+  it('keeps the width of the words around a stable countdown', () => {
+    render(<RelativeTime timestamp={secondsAgo(-9)} compact until stable />);
+    expect(screen.getByText('in 9s')).toHaveStyle({ minWidth: '6ch' });
+  });
+
   it('updates the compact label when its interval ticks', () => {
     render(<RelativeTime timestamp={secondsAgo(4)} compact absolute={null} />);
     const value = screen.getByText('Now');
@@ -100,6 +128,24 @@ describe('RelativeTime', () => {
       <UserPreferencesProvider>
         <I18nProvider>
           <RelativeTime timestamp={secondsAgo(seconds)} compact ago />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText(text)).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it.each([
+    ['ja', '3分後'],
+    ['zh-CN', '3分钟后'],
+  ])('writes the compact %s countdown with a unit word', (locale, text) => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <RelativeTime timestamp={secondsAgo(-3 * 60)} compact until />
         </I18nProvider>
       </UserPreferencesProvider>
     );

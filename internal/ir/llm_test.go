@@ -251,3 +251,25 @@ func TestLLMConfig_StreamEnabled(t *testing.T) {
 		})
 	}
 }
+
+// A dag.json written before tool entries holds the tool DAGs as a list of
+// names. A retry of such a run offers the same tools.
+func TestLLMConfigReadsTheToolListOfOlderRuns(t *testing.T) {
+	t.Parallel()
+
+	var cfg LLMConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"provider":"openai","model":"gpt-4o","tools":["search","lookup"]}`), &cfg))
+	assert.Equal(t, "gpt-4o", cfg.Model)
+	assert.Equal(t, []ToolEntry{
+		{Kind: ToolEntryDAG, Name: "search", DAG: "search", NameFromDAG: true},
+		{Kind: ToolEntryDAG, Name: "lookup", DAG: "lookup", NameFromDAG: true},
+	}, cfg.ToolEntries)
+
+	entries := []ToolEntry{{Kind: ToolEntryDAG, Name: "search", DAG: "search"}}
+	data, err := json.Marshal(LLMConfig{Model: "m", ToolEntries: entries})
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), `"tools"`)
+	var current LLMConfig
+	require.NoError(t, json.Unmarshal(data, &current))
+	assert.Equal(t, entries, current.ToolEntries)
+}
