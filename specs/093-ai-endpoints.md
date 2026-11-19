@@ -383,10 +383,11 @@ the same upstream settings as the gateway: the proxy of `ai.upstream.proxy_url` 
 and no redirect. A redirect is an error. The key goes to the host of the models URL only.
 
 For the protocol `anthropic`, the call adds the header `anthropic-version` with the value `2023-06-01`
-and the query `limit=1000`. It follows the pages while `has_more` is true, up to 10 pages. The cursor of
-the next page is the field `last_id` of the response, sent as the query `after_id`. For the protocol
-`openai`, the call has no query, and it reads the field `data` of one response. The name of a model is
-the field `id` of each item. A response with no field `data` is an error.
+and the query `limit=1000`. It follows the pages while `has_more` is true, up to 10 pages, and stops
+once it keeps 5000 names. The cursor of the next page is the field `last_id` of the response, sent as
+the query `after_id`. For the protocol `openai`, the call has no query, and it reads the field `data`
+of one response. The name of a model is the field `id` of each item. A response with no field `data`
+is an error.
 
 The timeout `ai.models_timeout_sec` limits the whole read of one endpoint, all its pages together.
 

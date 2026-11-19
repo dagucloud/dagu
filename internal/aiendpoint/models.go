@@ -179,7 +179,7 @@ func (r *ModelsReader) ReadList(ctx context.Context, ep Endpoint, key string) (l
 		}
 	}()
 
-	var all []ModelInfo
+	seen := map[string]struct{}{}
 	after := ""
 	for range MaxModelsPages {
 		body, err := r.get(ctx, ep, target, key, after)
@@ -190,8 +190,9 @@ func (r *ModelsReader) ReadList(ctx context.Context, ep Endpoint, key string) (l
 		if err != nil {
 			return ModelsList{}, err
 		}
-		all = append(all, parsed.models...)
-		if ep.Protocol != ProtocolAnthropic || !parsed.hasMore {
+		list = normalizeModels(list, seen, parsed.models)
+		// A full list keeps no name of a later page.
+		if ep.Protocol != ProtocolAnthropic || !parsed.hasMore || len(list.Names) == MaxModels {
 			break
 		}
 		if parsed.lastID == "" || parsed.lastID == after {
@@ -199,7 +200,6 @@ func (r *ModelsReader) ReadList(ctx context.Context, ep Endpoint, key string) (l
 		}
 		after = parsed.lastID
 	}
-	list = normalizeModels(all)
 	if ep.Protocol != ProtocolAnthropic {
 		list.Info = nil
 	}
@@ -365,14 +365,18 @@ func validDisplayName(name string) bool {
 	return !strings.ContainsFunc(name, unicode.IsControl)
 }
 
-// normalizeModels keeps the models whose name is not empty and has at most 256
-// characters, once each, in the order of the provider, up to 5000. It never
-// changes a name. The details of a model with no display name and no effort are
-// not kept.
-func normalizeModels(models []ModelInfo) ModelsList {
-	out := ModelsList{Names: make([]string, 0, len(models))}
-	seen := make(map[string]struct{}, len(models))
+// normalizeModels adds to out the models whose name is not empty and has at
+// most 256 characters, once each, in the order of the provider, until out has
+// 5000 names. seen holds the names of out. It never changes a name. The details
+// of a model with no display name and no effort are not kept.
+func normalizeModels(out ModelsList, seen map[string]struct{}, models []ModelInfo) ModelsList {
+	if out.Names == nil {
+		out.Names = make([]string, 0, min(len(models), MaxModels))
+	}
 	for _, model := range models {
+		if len(out.Names) == MaxModels {
+			break
+		}
 		name := model.ID
 		if name == "" || utf8.RuneCountInString(name) > MaxModelNameChars || !utf8.ValidString(name) {
 			continue
@@ -384,9 +388,6 @@ func normalizeModels(models []ModelInfo) ModelsList {
 		out.Names = append(out.Names, name)
 		if model.DisplayName != "" || len(model.Efforts) > 0 {
 			out.Info = append(out.Info, model)
-		}
-		if len(out.Names) == MaxModels {
-			break
 		}
 	}
 	return out

@@ -197,6 +197,32 @@ func TestModelsReadAnthropicStopsAfterTenPages(t *testing.T) {
 	assert.Len(t, names, aiendpoint.MaxModelsPages)
 }
 
+// A provider that keeps saying has_more after the list is full gets no more
+// page requests.
+func TestModelsReadAnthropicStopsAtAFullList(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := calls.Add(1)
+		var b strings.Builder
+		b.WriteString(`{"data":[`)
+		for i := range aiendpoint.MaxModels + 1000 {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, `{"id":"m-%d-%d"}`, n, i)
+		}
+		fmt.Fprintf(&b, `],"has_more":true,"last_id":"m-%d"}`, n)
+		_, _ = w.Write([]byte(b.String()))
+	}))
+	defer server.Close()
+
+	names, err := readNames(newReader(t, 5*time.Second), customEndpoint(server, aiendpoint.ProtocolAnthropic, aiendpoint.AuthXAPIKey), modelsKey)
+	require.NoError(t, err)
+	require.Len(t, names, aiendpoint.MaxModels)
+	assert.Equal(t, fmt.Sprintf("m-1-%d", aiendpoint.MaxModels-1), names[len(names)-1])
+	assert.EqualValues(t, 1, calls.Load())
+}
+
 func TestModelsReadAnthropicHasMoreWithoutCursorFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"m-1"}],"has_more":true}`))
