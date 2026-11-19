@@ -255,17 +255,25 @@ func validateURLParts(field, raw string, allowHTTP, allowQuery bool) error {
 // redactURL gives the form of a URL for an error message. It drops the query
 // and the fragment and hides the password, since each can hold a credential.
 func redactURL(raw string) string {
-	if i := strings.IndexAny(raw, "?#"); i >= 0 {
-		raw = raw[:i]
-	}
-	u, err := url.Parse(raw)
+	cut := withoutQuery(raw)
+	u, err := url.Parse(cut)
 	switch {
 	case err == nil && u.User != nil:
 		return u.Redacted()
 	case err == nil && u.Opaque == "":
-		return raw
+		return cut
 	}
-	return hideUserInfo(raw)
+	// The user information of the whole text is hidden first: a password can
+	// hold the ? or the # that would cut it before its @.
+	return withoutQuery(hideUserInfo(raw))
+}
+
+// withoutQuery cuts text at its first ? or #.
+func withoutQuery(text string) string {
+	if i := strings.IndexAny(text, "?#"); i >= 0 {
+		return text[:i]
+	}
+	return text
 }
 
 // hideUserInfo replaces the text before the last @ of a URL with xxxxx, and

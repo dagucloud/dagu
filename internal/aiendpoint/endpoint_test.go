@@ -121,6 +121,9 @@ func TestURLErrorsHideQueryAndFragment(t *testing.T) {
 		"https://user:" + leak + "@api.example.com/%ZZ",
 		"https://user:" + leak + "@api example.com/v1",
 		"user:" + leak + "@api.example.com/v1",
+		// The ? or # of the password comes before the @.
+		"https://user:" + leak + "?x@api.example.com/%ZZ",
+		"https://user:" + leak + "#x@api.example.com/%ZZ",
 	}
 	for _, raw := range append([]string{
 		"https://api.example.com/v1?key=" + leak,
