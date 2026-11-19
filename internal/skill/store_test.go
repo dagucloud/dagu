@@ -10,8 +10,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -100,6 +102,58 @@ func TestReadSeesEveryChange(t *testing.T) {
 	data, ok := next.Text("references/a.md")
 	require.True(t, ok)
 	require.Equal(t, "three", string(data))
+}
+
+// A change of the layout that leaves every file as it was shows in the next
+// read, also when the cache holds the folder (Spec 096, "Source of truth").
+func TestReadSeesALayoutChange(t *testing.T) {
+	t.Parallel()
+	// age gives every entry of dir the same old time, so that the cache keeps
+	// the folder and the change leaves the times of the files as they were.
+	old := time.Now().Add(-time.Hour)
+	age := func(t *testing.T, dir string) {
+		require.NoError(t, filepath.WalkDir(dir, func(p string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Chtimes(p, old, old)
+		}))
+	}
+	cases := []struct {
+		name   string
+		change func(t *testing.T, dir string)
+		rule   string
+	}{
+		{name: "folder at the root", rule: skill.RuleRootEntry, change: func(t *testing.T, dir string) {
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "docs"), 0o755))
+		}},
+		{name: "hidden folder", rule: skill.RuleHiddenFile, change: func(t *testing.T, dir string) {
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "references", ".cache"), 0o755))
+		}},
+		{name: "hard link from outside", rule: skill.RuleHardlink, change: func(t *testing.T, dir string) {
+			if runtime.GOOS == "windows" {
+				t.Skip("the link count of a file is not read on Windows")
+			}
+			require.NoError(t, os.Link(filepath.Join(dir, "SKILL.md"), filepath.Join(t.TempDir(), "outside.md")))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
+			age(t, dir)
+			first, err := skill.Read(dir)
+			require.NoError(t, err)
+			require.True(t, first.Valid(), "%v", first.Issues)
+
+			tc.change(t, dir)
+			age(t, dir)
+			next, err := skill.Read(dir)
+			require.NoError(t, err)
+			require.Contains(t, ruleSet(next.Issues), tc.rule)
+			require.False(t, next.Valid())
+		})
+	}
 }
 
 func newStore(t *testing.T) *skill.Store {
