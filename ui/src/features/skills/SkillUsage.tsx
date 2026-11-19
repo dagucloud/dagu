@@ -39,7 +39,7 @@ export function SkillUsage({
       <CopyButton
         size="sm"
         text={stepSnippet(name)}
-        label={ts('Copy the step')}
+        label={ts('Copy the with block')}
       />
     </div>
   );
