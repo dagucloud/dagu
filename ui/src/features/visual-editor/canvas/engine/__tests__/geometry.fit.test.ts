@@ -27,6 +27,27 @@ describe('fitViewport with a readable zoom', () => {
     expect(view.y).toBeLessThan(60);
   });
 
+  // A panel narrows the area: the content is below the floor in width only,
+  // and stays centred in height like a fit of all of it.
+  it('centres in height a content that fits in height', () => {
+    const bounds = { x: 0, y: 0, width: 2000, height: 454 };
+    const narrow = { width: 698, height: 825 };
+    const inset = { top: 48, right: 24, bottom: 48, left: 24 };
+    const view = fitViewport(bounds, narrow, {
+      ...options,
+      readableZoom: 0.5,
+      inset,
+    });
+    // (698 - 48) / (2000 * 1.4) = 0.23 is under the floor of 0.35.
+    expect(view.zoom).toBeCloseTo(0.35, 5);
+    // Wider than the area: it starts at its left edge.
+    expect(view.x).toBe(24 + 24);
+    expect(view.y + (bounds.height / 2) * view.zoom).toBeCloseTo(
+      48 + (825 - 96) / 2,
+      5
+    );
+  });
+
   it('fits the width when the width gives more than the floor', () => {
     // 900 x 3000 px at 1000 px of canvas: the width fit is 1000 / 1260.
     const bounds = { x: 0, y: 0, width: 900, height: 3000 };

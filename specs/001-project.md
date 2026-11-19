@@ -130,6 +130,8 @@ Rules:
   directory, is a loading error, so a typo never reads as an empty project.
 - Dagu searches the workflow directory and its subdirectories. It skips
   directories whose names start with `.`.
+- Dagu skips the directory `skills` at the root of the workflow directory.
+  It holds skill folders, not workflows ([Spec 096](096-skills.md)).
 - Dagu does not follow symbolic links.
 - Discovered files end in `.yaml` or `.yml`.
 - `base.yaml` in `project_root` is never a workflow, even when the workflow
