@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useI18n } from '@/i18n/I18nProvider';
-import { cn } from '@/lib/utils';
+import { cn, FOCUS_RING } from '@/lib/utils';
 import { bodyMeter, bodyStats, type MeterBar } from './skillIssues';
 
 const NUMBER = new Intl.NumberFormat('en-US');
@@ -26,10 +26,12 @@ function Bar({
     <Tooltip>
       <TooltipTrigger asChild>
         <span
+          tabIndex={0}
           data-testid="skill-meter-item"
           data-over={bar.over ? 'true' : undefined}
           className={cn(
-            'inline-flex items-center gap-2',
+            'inline-flex items-center gap-2 rounded-sm',
+            FOCUS_RING,
             bar.over && 'text-warning'
           )}
         >
