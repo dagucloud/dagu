@@ -10,13 +10,13 @@ import (
 	"strings"
 )
 
-// Spec 093, "Configuration". The block ai sets the operational values of the
-// gateway and of the models list. The coordinator, the server and a local process
-// read it. The block has a closed schema. An unknown key, a wrong type, a value
-// out of range and a contradiction of two keys stop Dagu at start. The error
-// names the key, the expected type or range, and the value. The loader changes no
-// value to make it fit. The block has no secret and no key that an environment
-// variable can set: the file is the only source.
+// The block ai sets the operational values of the AI gateway and of the models
+// list. The coordinator, the server and a local process read it. The block has
+// a closed schema. An unknown key, a wrong type, a value out of range and a
+// contradiction of two keys stop Dagu at start. The error names the key, the
+// expected type or range, and the value. The loader changes no value to make it
+// fit. The block has no secret and no key that an environment variable can set:
+// the file is the only source.
 
 // AIBlock is the name of the block in the configuration file.
 const AIBlock = "ai"
@@ -73,7 +73,7 @@ type aiKey struct {
 	field func(*AIConfig) *int
 }
 
-// aiKeys lists the keys in the order of Spec 093.
+// aiKeys lists the keys in display order.
 var aiKeys = []aiKey{
 	{path: "models_refresh_hours", integer: true, min: 0, max: 720, def: 24,
 		description: "The period of the refresh of the models lists, in hours. Zero stops the automatic refresh.",
@@ -135,7 +135,7 @@ type AIKeyDoc struct {
 }
 
 // AIKeyDocs lists each key of the block with its type, its default and its range,
-// in the order of Spec 093. The code is the single source of this table: the
+// in display order. The code is the single source of this table: the
 // loader, the printed configuration and the reference read it.
 func AIKeyDocs() []AIKeyDoc {
 	docs := make([]AIKeyDoc, 0, len(aiKeys))

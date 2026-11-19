@@ -8,9 +8,9 @@ import (
 	"os"
 )
 
-// fileOnlyBlocks lists the blocks that only the configuration file sets: ai
-// (Spec 093), untrusted (Spec 092) and agent_tools (Spec 090). Their keys are
-// closed objects, so a variable of the environment cannot set one of them.
+// fileOnlyBlocks lists the blocks that only the configuration file sets: ai,
+// untrusted (Spec 092) and agent_tools. Their keys are closed objects, so a
+// variable of the environment cannot set one of them.
 var fileOnlyBlocks = []struct{ block, variable string }{
 	{AIBlock, "DAGU_AI"},
 	{"untrusted", "DAGU_UNTRUSTED"},

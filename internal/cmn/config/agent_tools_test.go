@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The block agent_tools has the defaults of Spec 090, each value says that it is a
-// default, and an environment variable does not set a key of the block.
+// The block agent_tools has its defaults, each value says that it is a default,
+// and an environment variable does not set a key of the block.
 func TestAgentToolsDefaults(t *testing.T) {
 	t.Setenv("DAGU_AGENT_TOOLS_MAX_TOOLS", "3")
 	t.Setenv("DAGU_AGENT_TOOLS_TOOL_RESULT_MAX_BYTES", "3")

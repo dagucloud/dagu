@@ -7,8 +7,10 @@ Not implemented.
 The blocks `untrusted`, `coordinator.worker_pools` and `coordinator.dispatchers` are parsed and
 checked at start. Nothing enforces them yet.
 
-This spec is the companion of [Spec 091: Agent Node](091-agent-node.md) and [Spec 090: Agent
-Tools](090-agent-tools.md). Spec 090 defines the tools that an `agent.run` step selects. Spec 091
+Specs 090, 091, 093, 094, 095 and 096, which this spec cites, are not in this repository yet.
+
+This spec is the companion of Spec 091: Agent Node and Spec 090: Agent
+Tools. Spec 090 defines the tools that an `agent.run` step selects. Spec 091
 defines the tool bridge that gives the Dagu tools to the CLI agent.
 
 ## Scope
@@ -203,7 +205,7 @@ The dispatch of a DAG that uses skills carries them. The coordinator adds every 
 of the DAG to the workspace bundle of the run. The agent worker reads the skills from the bundle. It
 does not read the skills directory of the coordinator. The coordinator checks the hash of each skill
 after it builds the bundle. A skill that changed in that time fails the dispatch, and the error names
-the skill ([Spec 096](096-skills.md), "The bundle"). A skill that lies outside the working
+the skill (Spec 096, "The bundle"). A skill that lies outside the working
 directory of the DAG fails the dispatch, and the error names the file.
 
 A process with `coordinator.enabled: false` runs the DAG itself. The CLI agent then runs on the
@@ -867,8 +869,8 @@ The token and the credential are never in an argument:
 
 ### The agent side
 
-A step with the provider `claude` MUST give the block `endpoint` ([Spec 091](091-agent-node.md#endpoint)),
-with the name of an endpoint and a model ([Spec 091](091-agent-node.md#model)). For such a step,
+A step with the provider `claude` MUST give the block `endpoint` (Spec 091),
+with the name of an endpoint and a model (Spec 091). For such a step,
 `ANTHROPIC_BASE_URL` is the address of the relay of the attempt, and `ANTHROPIC_API_KEY` is the secret
 of the relay. Dagu sets them. The CLI gets no other variable that starts with `ANTHROPIC_` or
 `CLAUDE_CODE_USE_`, and no `CLAUDE_CODE_OAUTH_TOKEN`, from the environment. The model traffic does not go through the proxy.
@@ -891,14 +893,14 @@ not name `127.0.0.1`. The proxy refuses them, and the step fails with the reason
 `bridge_unavailable`. So `NO_PROXY` names `127.0.0.1` and `localhost`. The host of an inline `mcp`
 entry goes through the proxy unless `NO_PROXY` names it too, so the proxy must allow it. A named
 `mcp` entry goes to the relay on `127.0.0.1`, and the coordinator calls its server. The proxy never
-sees that call. See [Spec 095](095-mcp-servers.md#mcp-servers-with-credentials).
+sees that call. See Spec 095, "MCP servers with credentials".
 
 An OAuth token of a subscription goes in an endpoint of the form `anthropic-oauth` (Spec 093). The
 worker never holds it.
 
 ## The AI gateway
 
-[Spec 094](094-ai-gateway.md) defines the gateway. This section links it to this spec.
+Spec 094 defines the gateway. This section links it to this spec.
 
 The proxy above keeps the real key of the model API in the proxy. The gateway of Spec 094 is a second
 way. A step that has the block `with.endpoint` calls a relay in the worker. The relay sends the request through

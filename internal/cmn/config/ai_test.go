@@ -40,8 +40,8 @@ func loadAIError(t *testing.T, yaml string) error {
 	return err
 }
 
-// The block ai has the defaults of Spec 093, each value says that it is a
-// default, and an environment variable does not set a key of the block.
+// The block ai has its defaults, each value says that it is a default,
+// and an environment variable does not set a key of the block.
 func TestAIDefaults(t *testing.T) {
 	t.Setenv("DAGU_AI_MODELS_REFRESH_HOURS", "3")
 	t.Setenv("DAGU_AI_RELAY_MAX_STREAMS", "3")

@@ -10,10 +10,10 @@ import (
 	"strings"
 )
 
-// Spec 090, "Limits". The block agent_tools sets the limits of the tool catalog
-// for each step of the process. The block has a closed schema. An unknown key
-// stops Dagu at start, and the error names the key, the expected type and the
-// value. The loader changes no value to make it fit. The block has no key that an
+// The block agent_tools sets the limits of the tool catalog for each step of
+// the process. The block has a closed schema. An unknown key stops Dagu at
+// start, and the error names the key, the expected type and the value. The
+// loader changes no value to make it fit. The block has no key that an
 // environment variable can set: the file is the only source.
 
 // Defaults of the block agent_tools.
