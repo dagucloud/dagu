@@ -311,9 +311,9 @@ message RelayEnd {
 ```
 
 The worker announces the capability `ai_relay.v1` in `PollRequest` and `HeartbeatRequest`
-(`repeated string capabilities`, with the numbers 4 and 5). The task has `repeated string
-required_capabilities`, with the number 46. See [Version check](#version-check). A worker or a
-coordinator of a release before these fields ignores them.
+(`repeated string capabilities`). The task has `repeated string required_capabilities`. The proto
+file holds their field numbers. See [Version check](#version-check). A worker or a coordinator of a
+release before these fields ignores them.
 
 The coordinator reports a refusal of the identity checks 1, 2 and 4 as an error of gRPC with the code
 `PermissionDenied`. It reports a refusal of the checks 3 and 5 to 9 as a `RelayError` of the stream. For
