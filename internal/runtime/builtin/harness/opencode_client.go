@@ -637,7 +637,12 @@ func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt
 					for _, id := range family.descendants {
 						_ = c.abort(ctx, id)
 					}
-					c.stopJobs(ctx, family.jobs)
+					jobs := family.jobs
+					if len(family.unknown) > 0 && len(jobs) == 0 {
+						// Unresolved ancestry skips the idle job read.
+						jobs, _ = c.runningJobs(ctx, sessionID)
+					}
+					c.stopJobs(ctx, jobs)
 				}
 				// A child's report can start a new turn of an interrupted root.
 				if rootIdle && family.status != "idle" {

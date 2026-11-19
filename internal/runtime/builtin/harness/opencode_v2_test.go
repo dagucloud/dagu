@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -587,6 +588,46 @@ func TestV2InterruptStopsJobs(t *testing.T) {
 	}
 }
 
+// An owned root's shell jobs are stopped even while another active session's
+// ancestry is unresolved, which still blocks settlement.
+func TestV2InterruptStopsJobsUnresolved(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		var stopped atomic.Bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.URL.Path == "/api/session/active":
+				_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+			case r.URL.Path == "/api/session/ses_other":
+				http.Error(w, "boom", http.StatusInternalServerError)
+			case r.URL.Path == "/api/session/ses_root/interrupt":
+				_, _ = w.Write([]byte(`{"interrupted":true}`))
+			case r.URL.Path == "/api/shell/sh_1" && r.Method == http.MethodDelete:
+				stopped.Store(true)
+				w.WriteHeader(http.StatusNoContent)
+			case r.URL.Path == "/api/experimental/job":
+				_, _ = w.Write([]byte(`{"data":[{"kind":"shell","id":"job_1","shellID":"sh_1","status":"running"}]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+		ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+
+		var err error
+		if owned {
+			err = client.interruptAndAwaitIdle(ctx, "ses_root")
+		} else {
+			err = client.interruptRootAndAwaitIdle(ctx, "ses_root")
+		}
+
+		cancel()
+		server.Close()
+		require.Equal(t, owned, stopped.Load())
+		require.Error(t, err, "unresolved ancestry blocks settlement")
+	}
+}
+
 // v1 has no background jobs, so none are requested.
 func TestV1NoJobRequest(t *testing.T) {
 	var requests atomic.Int32
@@ -735,8 +776,8 @@ func TestRealV2Subagent(t *testing.T) {
 	require.Equal(t, ir.AgentSessionSucceeded, executor.GetAgentSession().State)
 	require.Contains(t, string(output), "PARENT_FOLLOWUP", "the parent's later turn must be collected")
 
-	require.NoError(t, os.Remove(done))
-	require.NoError(t, os.Remove(started))
+	require.NoError(t, fileutil.Remove(done))
+	require.NoError(t, fileutil.Remove(started))
 	cancelCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	watched := make(chan struct{})
@@ -779,8 +820,8 @@ func TestRealV2BackgroundJob(t *testing.T) {
 	require.NoError(t, cleanupStdoutSpool(stdout))
 	require.FileExists(t, done, "the step succeeded before its background job finished")
 
-	require.NoError(t, os.Remove(done))
-	require.NoError(t, os.Remove(started))
+	require.NoError(t, fileutil.Remove(done))
+	require.NoError(t, fileutil.Remove(started))
 	cancelCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	watched := make(chan struct{})
