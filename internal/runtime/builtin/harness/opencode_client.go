@@ -331,10 +331,13 @@ type openCodeFamily struct {
 	unknown []string
 	// hasChildren is set only when the whole family is idle.
 	hasChildren bool
+	// jobs are the running background jobs of the root and its descendants.
+	// They are read only when the sessions are otherwise idle.
+	jobs []openCodeJob
 }
 
 func (f openCodeFamily) idle() bool {
-	return f.status == "idle" && len(f.descendants) == 0 && len(f.unknown) == 0
+	return f.status == "idle" && len(f.descendants) == 0 && len(f.unknown) == 0 && len(f.jobs) == 0
 }
 
 // family reads the status of a root session and its descendants. Sessions are
@@ -369,9 +372,62 @@ func (c *openCodeClient) family(ctx context.Context, rootID string) (openCodeFam
 		}
 	}
 	if family.idle() {
+		if family.jobs, err = c.runningJobs(ctx, rootID); err != nil {
+			return openCodeFamily{}, err
+		}
+	}
+	if family.idle() {
 		family.hasChildren, err = c.hasChildren(ctx, rootID)
 	}
 	return family, err
+}
+
+// openCodeJob is a background job. Only a shell job has a shell to stop.
+type openCodeJob struct {
+	Kind    string `json:"kind"`
+	ShellID string `json:"shellID"`
+}
+
+// runningJobs lists the running background jobs of the session and its
+// descendants, which /session/active does not show. A host without the
+// endpoint has none; a failed listing may hide some, so it yields a
+// placeholder job for this tick.
+func (c *openCodeClient) runningJobs(ctx context.Context, sessionID string) ([]openCodeJob, error) {
+	if !c.host.IsV2() {
+		return nil, nil
+	}
+	unknown := []openCodeJob{{Kind: "unknown"}}
+	resp, err := c.request(ctx, http.MethodGet, "/experimental/job?descendants=true&status=running&sessionID="+url.QueryEscape(sessionID), nil)
+	if err != nil {
+		if isManagedUnavailable(err) {
+			return nil, err
+		}
+		return unknown, nil
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest:
+		return nil, nil
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		return unknown, nil
+	}
+	var body struct {
+		Data []openCodeJob `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return unknown, nil
+	}
+	return body.Data, nil
+}
+
+// stopJobs terminates the shells of background jobs; failures are retried on
+// the next settle tick.
+func (c *openCodeClient) stopJobs(ctx context.Context, jobs []openCodeJob) {
+	for _, job := range jobs {
+		if job.ShellID != "" {
+			_ = c.json(ctx, http.MethodDelete, "/shell/"+url.PathEscape(job.ShellID), nil, nil)
+		}
+	}
 }
 
 type membership int
@@ -569,7 +625,9 @@ func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt
 				lastErr = fmt.Errorf("OpenCode session %s is still %s", sessionID, family.status)
 				if family.status == "idle" {
 					lastErr = fmt.Errorf("OpenCode session %s has active subagent sessions %v", sessionID, family.descendants)
-					if len(family.descendants) == 0 {
+					if len(family.jobs) > 0 {
+						lastErr = fmt.Errorf("OpenCode session %s has running background jobs", sessionID)
+					} else if len(family.descendants) == 0 {
 						lastErr = fmt.Errorf("OpenCode session %s has active sessions of unresolved ancestry %v", sessionID, family.unknown)
 					}
 				}
@@ -579,6 +637,7 @@ func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt
 					for _, id := range family.descendants {
 						_ = c.abort(ctx, id)
 					}
+					c.stopJobs(ctx, family.jobs)
 				}
 				// A child's report can start a new turn of an interrupted root.
 				if rootIdle && family.status != "idle" {

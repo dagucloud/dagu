@@ -261,7 +261,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 			statusFailures = 0
 			status := family.status
-			if status == "idle" && len(family.descendants)+len(family.unknown) > 0 {
+			if status == "idle" && (len(family.descendants)+len(family.unknown) > 0 || len(family.jobs) > 0) {
 				status = "busy"
 			}
 			seenBusy = seenBusy || status == "busy" || status == "retry"

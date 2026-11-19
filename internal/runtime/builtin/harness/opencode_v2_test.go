@@ -474,6 +474,136 @@ func TestV1FamilyNoWalk(t *testing.T) {
 	require.Zero(t, gets.Load())
 }
 
+// jobHost serves an idle v2 family whose job listing is the given handler.
+func jobHost(t *testing.T, version string, jobs http.HandlerFunc) (*openCodeClient, *atomic.Int32) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/api/session":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case "/api/experimental/job", "/experimental/job":
+			requests.Add(1)
+			jobs(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: version}, directory: "/workspace", http: server.Client()}, &requests
+}
+
+// A running background job keeps an otherwise idle family busy; a finished
+// one does not. Only the root's own family is asked about.
+func TestV2RunningJobBlocksIdle(t *testing.T) {
+	var running atomic.Bool
+	running.Store(true)
+	client, _ := jobHost(t, "2.3.2", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		require.Equal(t, "ses_root", query.Get("sessionID"))
+		require.Equal(t, "true", query.Get("descendants"))
+		require.Equal(t, "running", query.Get("status"))
+		if running.Load() {
+			_, _ = w.Write([]byte(`{"data":[{"kind":"shell","id":"job_1","status":"running"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+
+	family, err := client.family(t.Context(), "ses_root")
+	require.NoError(t, err)
+	require.False(t, family.idle())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, client.awaitIdle(ctx, "ses_root"), context.DeadlineExceeded)
+
+	running.Store(false)
+	family, err = client.family(t.Context(), "ses_root")
+	require.NoError(t, err)
+	require.True(t, family.idle())
+	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
+}
+
+// A host without the job endpoint has no jobs; a failing one may have some.
+func TestV2JobListingErrors(t *testing.T) {
+	for status, busy := range map[int]bool{http.StatusNotFound: false, http.StatusBadRequest: false, http.StatusInternalServerError: true} {
+		client, requests := jobHost(t, "2.3.2", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "no", status)
+		})
+
+		family, err := client.family(t.Context(), "ses_root")
+
+		require.NoError(t, err)
+		require.Equal(t, busy, len(family.jobs) > 0, status)
+		require.EqualValues(t, 1, requests.Load())
+	}
+}
+
+// An interrupt stops the shell jobs of a session Dagu owns; waiting on a
+// user's session leaves them running.
+func TestV2InterruptStopsJobs(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		var stopped atomic.Bool
+		var client *openCodeClient
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.URL.Path == "/api/session/active":
+				_, _ = w.Write([]byte(`{"data":{}}`))
+			case r.URL.Path == "/api/session":
+				_, _ = w.Write([]byte(`{"data":[]}`))
+			case r.URL.Path == "/api/session/ses_root/interrupt":
+				_, _ = w.Write([]byte(`{"interrupted":true}`))
+			case r.URL.Path == "/api/shell/sh_1" && r.Method == http.MethodDelete:
+				stopped.Store(true)
+				w.WriteHeader(http.StatusNoContent)
+			case r.URL.Path == "/api/experimental/job":
+				if stopped.Load() {
+					_, _ = w.Write([]byte(`{"data":[]}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"data":[{"kind":"shell","id":"job_1","shellID":"sh_1","status":"running"}]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		client = &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+
+		var err error
+		if owned {
+			err = client.interruptAndAwaitIdle(ctx, "ses_root")
+		} else {
+			err = client.interruptRootAndAwaitIdle(ctx, "ses_root")
+		}
+
+		cancel()
+		server.Close()
+		require.Equal(t, owned, stopped.Load())
+		require.Equal(t, owned, err == nil, "a user's job is waited on, not stopped")
+	}
+}
+
+// v1 has no background jobs, so none are requested.
+func TestV1NoJobRequest(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, directory: "/workspace", http: server.Client()}
+
+	family, err := client.family(t.Context(), "ses_root")
+
+	require.NoError(t, err)
+	require.True(t, family.idle())
+	require.EqualValues(t, 1, requests.Load(), "only the status request")
+}
+
 // subagentProvider scripts an OpenAI-compatible provider: a parent that
 // spawns a background child, a child that runs a slow shell command, and a
 // later parent turn woken by the child's report.
@@ -510,6 +640,10 @@ func subagentProvider(t *testing.T) *httptest.Server {
 		switch {
 		case len(request.Tools) == 0:
 			say(w, "title")
+		case strings.Contains(all, "BGROOT") && strings.Contains(all, `"role":"tool"`):
+			say(w, "BG_DONE")
+		case strings.Contains(all, "BGROOT"):
+			call(w, "shell", map[string]any{"command": "touch bg.started; sleep 3; echo done > bg.done", "description": "bg work", "background": true})
 		case strings.Contains(last, `"role":"tool"`) && strings.Contains(last, "ses_"):
 			say(w, "PARENT_LAUNCHED")
 		case strings.Contains(last, `"role":"tool"`):
@@ -628,6 +762,48 @@ func TestRealV2Subagent(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, active, "no session may run after the step is cancelled")
 	require.Never(t, func() bool { _, err := os.Stat(done); return err == nil }, 4*time.Second, 200*time.Millisecond, "the cancelled step's subagent kept running")
+}
+
+// A background shell job outlives its session's turn. A managed step settles
+// only once it finishes, and a cancelled step leaves none running.
+func TestRealV2BackgroundJob(t *testing.T) {
+	root, hostConfig := realSubagentHost(t, nil)
+	cfg := providerConfig{flags: map[string]any{"model": "dagutest/test"}}
+	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 90*time.Second)
+	defer cancel()
+	done, started := filepath.Join(root, "bg.done"), filepath.Join(root, "bg.started")
+
+	executor := &harnessExecutor{prompt: "BGROOT", workDir: root}
+	stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.FileExists(t, done, "the step succeeded before its background job finished")
+
+	require.NoError(t, os.Remove(done))
+	require.NoError(t, os.Remove(started))
+	cancelCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		for cancelCtx.Err() == nil {
+			if _, err := os.Stat(started); err == nil {
+				time.Sleep(500 * time.Millisecond)
+				cancelRun()
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+	defer func() { cancelRun(); <-watched }()
+	cancelled := &harnessExecutor{prompt: "BGROOT", workDir: root}
+	_, err = cancelled.runManagedOpenCode(cancelCtx, cfg, hostConfig)
+	require.ErrorIs(t, err, context.Canceled)
+	client := &openCodeClient{host: hostConfig, directory: root, http: newOpenCodeHTTPClient(3 * time.Second)}
+	jobs, err := client.runningJobs(ctx, cancelled.GetAgentSession().SessionID)
+	require.NoError(t, err)
+	require.Empty(t, jobs, "a background job runs after the step is cancelled")
+	require.Never(t, func() bool { _, err := os.Stat(done); return err == nil }, 4*time.Second, 200*time.Millisecond, "the cancelled step's job kept running")
 }
 
 func TestV2Messages(t *testing.T) {
