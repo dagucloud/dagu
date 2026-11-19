@@ -577,7 +577,8 @@ isolation. An agent worker always has isolation. A process with neither these ke
    - a new folder that git opens as a repository, the work directory included: Dagu removes its
      files `HEAD`, `commondir` and `gitdir`
    - a link to a path outside the work directory or into a git folder, by the text of its target or
-     by the path that it reaches through other links
+     by the path that it reaches through other links, where an entry that does not exist yet counts
+     as a folder
    - a file with more than one link
 
    A file of the restricted user loses the bits set-user-ID and set-group-ID.

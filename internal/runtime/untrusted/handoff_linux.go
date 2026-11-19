@@ -375,10 +375,11 @@ func (iso *isolation) badLink(e *fsEntry) (string, bool) {
 const maxLinks = 40
 
 // resolveLinks returns the path that the kernel reaches through the absolute
-// path, as filepath.EvalSymlinks does. From the first entry that does not
-// exist, the rest of the path is joined as text: a folder made there later
-// leads there. No process of the restricted user runs during the restore, so
-// the links cannot change under it.
+// path, as filepath.EvalSymlinks does. An entry that does not exist, or that
+// sits below a file, counts as a folder, as one made there later would be: a
+// ".." after it comes back to the entries that exist, and their links are
+// followed as the kernel will follow them then. No process of the restricted
+// user runs during the restore, so the links cannot change under it.
 func resolveLinks(path string) (string, error) {
 	resolved := "/"
 	rest := path
@@ -397,7 +398,8 @@ func resolveLinks(path string) (string, error) {
 		next := filepath.Join(resolved, part)
 		info, err := os.Lstat(next)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOTDIR) {
-			return filepath.Join(next, rest), nil
+			resolved = next
+			continue
 		}
 		if err != nil {
 			return "", err

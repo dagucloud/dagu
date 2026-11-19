@@ -585,6 +585,49 @@ func TestRestoreFollowsLinkChains(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(outside, "x"), "a trusted write through out stays in the work directory")
 }
 
+// An entry that does not exist in the path of a link can become a folder later.
+// The kernel then resolves the ".." after it through the links that exist:
+// with d -> .., the link l -> missing/../d/../secret reaches the folder above the
+// work directory once missing exists. The restore resolves l as if missing were
+// a folder, so l counts as leaving the work directory. It needs no root.
+func TestRestoreFollowsLinksPastMissingEntries(t *testing.T) {
+	t.Parallel()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	secret := filepath.Join(base, "secret")
+	require.NoError(t, os.WriteFile(secret, []byte("s"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(base, "work"), 0o755))
+	iso := selfIsolation(t, filepath.Join(base, "work"))
+	require.NoError(t, iso.handoff())
+
+	dir := filepath.Join(iso.workDir, "a")
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	require.NoError(t, os.Symlink("..", filepath.Join(dir, "d")))
+	link := filepath.Join(dir, "l")
+	require.NoError(t, os.Symlink("missing/../d/../secret", link))
+	missing := filepath.Join(dir, "missing")
+	require.NoError(t, os.Mkdir(missing, 0o755))
+	reached, err := filepath.EvalSymlinks(link)
+	require.NoError(t, err)
+	require.Equal(t, secret, reached, "once missing exists, the link leaves the work directory")
+	require.NoError(t, os.Remove(missing))
+
+	bad := map[string]bool{}
+	require.NoError(t, walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
+		if e.isLink() {
+			_, bad[e.name] = iso.badLink(e)
+		}
+		return false, nil
+	}))
+	assert.Equal(t, map[string]bool{"d": false, "l": true}, bad)
+
+	err = iso.restore(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "made the link "+link)
+	_, err = os.Lstat(link)
+	assert.ErrorIs(t, err, fs.ErrNotExist, "the restore removes the link")
+}
+
 // git follows a link at objects and refs, so a folder with HEAD, refs and a
 // link objects is a git folder. The work directory itself can become one. The
 // restore finds both and removes HEAD. It needs no root.
