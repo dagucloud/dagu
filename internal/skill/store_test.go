@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"io"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -721,6 +722,38 @@ func TestZip(t *testing.T) {
 		require.NoError(t, rc.Close())
 		require.Equal(t, big, got)
 	})
+	// A file above the size limit has no recorded hash, so a change that keeps
+	// its size is found by the times of the open file.
+	t.Run("file above the size limit changed during the stream stops the write", func(t *testing.T) {
+		rng := rand.New(rand.NewPCG(1, 2))
+		big := make([]byte, skill.MaxFileBytes+1)
+		for i := range big {
+			big[i] = byte(rng.Uint32())
+		}
+		path := filepath.Join(s.Root(), "huge", "assets", "big.bin")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(s.Root(), "huge", "SKILL.md"), []byte(strings.Replace(good, "name: demo", "name: huge", 1)), 0o644))
+		require.NoError(t, os.WriteFile(path, big, 0o644))
+		skills, err := s.DownloadSkills([]string{"huge"})
+		require.NoError(t, err)
+		// The data does not compress, so the output passes 64 KiB while the big
+		// file streams. The writer then rewrites it in place with its size.
+		changed := false
+		w := &watchWriter{onWrite: func(written int) {
+			if changed || written < 64<<10 {
+				return
+			}
+			changed = true
+			other := bytes.Clone(big)
+			other[len(other)-1]++
+			require.NoError(t, os.WriteFile(path, other, 0o644))
+			require.NoError(t, os.Chtimes(path, time.Unix(5, 0), time.Unix(5, 0)))
+		}}
+		err = skill.WriteZip(w, skills)
+		require.True(t, changed, "the stream ended before the change")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "assets/big.bin")
+	})
 	t.Run("file changed after the read stops the write", func(t *testing.T) {
 		g := create(t, s, "gamma")
 		_, err := s.WriteFile(ctx, "gamma", "references/r.md", []byte("ref\n"), skill.Precondition{IfMatch: g.Hash})
@@ -736,4 +769,17 @@ func TestZip(t *testing.T) {
 		require.Equal(t, "skills-2026-11-05.zip", skill.ZipFileName([]string{"alpha", "beta"}, now))
 		require.Equal(t, "skill.zip", skill.ZipFileName([]string{"données"}, now))
 	})
+}
+
+// watchWriter discards what it gets and calls onWrite with the number of bytes
+// written so far.
+type watchWriter struct {
+	written int
+	onWrite func(written int)
+}
+
+func (w *watchWriter) Write(p []byte) (int, error) {
+	w.written += len(p)
+	w.onWrite(w.written)
+	return len(p), nil
 }

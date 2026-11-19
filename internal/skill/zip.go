@@ -131,6 +131,12 @@ func writeEntry(zw *zip.Writer, root *os.Root, sk *Skill, f File) error {
 		_, err = fw.Write(data)
 		return err
 	}
+	// A file above the limit has no recorded hash: the size and the times of the
+	// open file tell a change during the stream.
+	before, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("skill %q: %w", sk.Name, err)
+	}
 	fw, err := zw.CreateHeader(header)
 	if err != nil {
 		return err
@@ -139,7 +145,11 @@ func writeEntry(zw *zip.Writer, root *os.Root, sk *Skill, f File) error {
 	if err != nil {
 		return fmt.Errorf("skill %q: %w", sk.Name, err)
 	}
-	if n != f.Size {
+	after, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("skill %q: %w", sk.Name, err)
+	}
+	if n != f.Size || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
 		return changed()
 	}
 	return nil
