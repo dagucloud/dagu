@@ -48,7 +48,10 @@ describe('readSchedule', () => {
       present: true,
       expressions: ['0 * * * *'],
       others: 1,
-      params: [{}],
+      entries: [
+        { expressionIndex: 0, params: {} },
+        { schedule: { kind: 'at', at: '2030-01-01T00:00:00Z' }, params: {} },
+      ],
     });
   });
 
@@ -59,7 +62,7 @@ describe('readSchedule', () => {
       present: true,
       expressions: [],
       others: 1,
-      params: [],
+      entries: [{ schedule: { kind: 'at' }, params: {} }],
     });
   });
 
@@ -187,7 +190,7 @@ steps:
       present: true,
       expressions: ['0 9 * * *'],
       others: 1,
-      params: [{}],
+      entries: [{ schedule: { kind: 'at' } }, { expressionIndex: 0 }],
     });
 
     const result = applyEdit(text, { kind: 'setSchedule', expressions: [] });
@@ -209,7 +212,7 @@ describe('schedule of a file with a quoted string with unindented lines', () => 
       present: true,
       expressions: ['0 1 * * *'],
       others: 0,
-      params: [{}],
+      entries: [{ expressionIndex: 0, params: {} }],
     });
   });
 
@@ -224,7 +227,7 @@ function setParam(
   text: string,
   index: number,
   name: string,
-  value: string | null
+  value: string | number | boolean | null
 ): string {
   const result = applyEdit(text, {
     kind: 'setScheduleParam',
@@ -234,6 +237,11 @@ function setParam(
   });
   if (!result.ok) throw new Error(`${result.code}: ${result.message}`);
   return result.text;
+}
+
+/** The overrides of each start entry, in the YAML order. */
+function overrides(text: string): Array<Record<string, string> | null> {
+  return readSchedule(text).entries.map((entry) => entry.params);
 }
 
 describe('schedule parameter overrides', () => {
@@ -247,7 +255,10 @@ describe('schedule parameter overrides', () => {
   it('reads the overrides next to their expressions', () => {
     const view = readSchedule(PARAMETERIZED);
     expect(view.expressions).toEqual(['0 5 * * *', '0 6 * * *']);
-    expect(view.params).toEqual([{ mode: 'y' }, {}]);
+    expect(view.entries.map((entry) => entry.params)).toEqual([
+      { mode: 'y' },
+      {},
+    ]);
     expect(view.others).toBe(0);
   });
 
@@ -265,14 +276,13 @@ describe('schedule parameter overrides', () => {
 
   it('turns a lone string into a list entry', () => {
     const next = setParam('schedule: "0 6 * * *"\n', 0, 'mode', 'z');
-    const view = readSchedule(next);
-    expect(view.expressions).toEqual(['0 6 * * *']);
-    expect(view.params).toEqual([{ mode: 'z' }]);
+    expect(readSchedule(next).expressions).toEqual(['0 6 * * *']);
+    expect(overrides(next)).toEqual([{ mode: 'z' }]);
   });
 
   it('keeps an override that equals the default as a pinned value', () => {
     const next = setParam(PARAMETERIZED, 1, 'mode', 'manual');
-    expect(readSchedule(next).params?.[1]).toEqual({ mode: 'manual' });
+    expect(overrides(next)[1]).toEqual({ mode: 'manual' });
   });
 
   it('clears one override and keeps the others and the order', () => {
@@ -284,7 +294,7 @@ describe('schedule parameter overrides', () => {
   - "0 6 * * *"
 `;
     const next = setParam(text, 0, 'mode', null);
-    expect(readSchedule(next).params).toEqual([{ level: '3' }, {}]);
+    expect(overrides(next)).toEqual([{ level: '3' }, {}]);
     expect(readSchedule(next).expressions).toEqual(['0 5 * * *', '0 6 * * *']);
   });
 
@@ -296,15 +306,71 @@ describe('schedule parameter overrides', () => {
 `);
   });
 
-  it('keeps other entries and indexes only editable ones', () => {
+  // The index counts every start entry, as the server numbers schedules.
+  it('sets and clears overrides of entries that are not plain cron', () => {
     const text = `schedule:
   - at: 2030-01-01T00:00:00Z
-  - "0 6 * * *"
+  - expression: "0 5 * * *"
+    calendar: jp
+    business_days: [1, -1]
+  - expression: "0 6 * * *"
+    profile: prod
+  - "0 7 * * *"
 `;
-    const next = setParam(text, 0, 'mode', 'z');
-    expect(next).toContain('at: 2030-01-01T00:00:00Z');
-    expect(readSchedule(next).params).toEqual([{ mode: 'z' }]);
-    expect(readSchedule(next).others).toBe(1);
+    let next = setParam(text, 0, 'mode', 'a');
+    next = setParam(next, 1, 'mode', 'b');
+    next = setParam(next, 2, 'mode', 'c');
+    next = setParam(next, 3, 'mode', 'd');
+    expect(next).toBe(`schedule:
+  - at: 2030-01-01T00:00:00Z
+    params:
+      mode: a
+  - expression: "0 5 * * *"
+    calendar: jp
+    business_days: [1, -1]
+    params:
+      mode: b
+  - expression: "0 6 * * *"
+    profile: prod
+    params:
+      mode: c
+  - expression: 0 7 * * *
+    params:
+      mode: d
+`);
+    expect(overrides(next)).toEqual([
+      { mode: 'a' },
+      { mode: 'b' },
+      { mode: 'c' },
+      { mode: 'd' },
+    ]);
+    expect(setParam(next, 0, 'mode', null)).toContain(
+      '  - at: 2030-01-01T00:00:00Z\n  - expression: "0 5 * * *"'
+    );
+  });
+
+  // The backend coerces a quoted value too, but YAML written by hand
+  // leaves numbers and booleans unquoted.
+  it('writes numbers and booleans as YAML scalars', () => {
+    let next = setParam('schedule: "0 6 * * *"\n', 0, 'count', 2);
+    next = setParam(next, 0, 'dry_run', true);
+    next = setParam(next, 0, 'label', '3');
+    expect(next).toBe(`schedule:
+  - expression: 0 6 * * *
+    params:
+      count: 2
+      dry_run: true
+      label: "3"
+`);
+  });
+
+  it('reads overrides that are not plain values as not editable', () => {
+    const text = `schedule:
+  - at: 2030-01-01T00:00:00Z
+    params:
+      tags: [a, b]
+`;
+    expect(overrides(text)).toEqual([null]);
   });
 
   it('refuses an index that has no entry', () => {
@@ -327,11 +393,12 @@ describe('schedule parameter overrides', () => {
       expressions: ['0 5 * * *'],
       removedIndex: 1,
     });
-    expect(kept.ok && readSchedule(kept.text).params).toEqual([{ mode: 'y' }]);
+    expect(kept.ok && overrides(kept.text)).toEqual([{ mode: 'y' }]);
   });
 
-  // An entry with keys other than expression and params stays in the YAML.
-  it('edits only entries with an expression and params', () => {
+  // An entry with keys other than expression and params is not edited as
+  // cron, but it is listed with its overrides.
+  it('edits only entries with an expression and params as cron', () => {
     const text = `schedule:
   - expression: "0 5 * * *"
     calendar: none
@@ -347,7 +414,22 @@ describe('schedule parameter overrides', () => {
       present: true,
       expressions: ['0 5 * * *'],
       others: 3,
-      params: [{ mode: 'b' }],
+      entries: [
+        {
+          schedule: { kind: 'cron', expression: '0 5 * * *', calendar: 'none' },
+          params: {},
+        },
+        {
+          schedule: { kind: 'cron', expression: '0 5 * * *', profile: '' },
+          params: {},
+        },
+        { schedule: { kind: 'cron', expression: '0 5 * * *' }, params: {} },
+        {
+          expressionIndex: 0,
+          schedule: { kind: 'cron', expression: '0 5 * * *' },
+          params: { mode: 'b' },
+        },
+      ],
     });
   });
 });

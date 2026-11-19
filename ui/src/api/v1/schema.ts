@@ -6523,6 +6523,20 @@ export interface components {
             /** @description Dates the run of this fire gets from the DAG's dates block, in declaration order. Absent when the DAG has none. */
             dates?: components["schemas"]["RunDateValue"][];
         };
+        /** @description A start schedule due at the same time as another one. The DAG starts one run per time, so this schedule starts none then. */
+        ScheduleCoincidence: {
+            /** @description Position in the DAG's schedule list of the entry that starts no run */
+            scheduleIndex: number;
+            /** @description Position in the DAG's schedule list of the entry that starts the run of that time */
+            precedingScheduleIndex: number;
+            /**
+             * Format: date-time
+             * @description First upcoming time both are due, with the offset of the zone the preceding schedule is evaluated in
+             */
+            time: string;
+            /** @description Name of the zone the preceding schedule is evaluated in */
+            timezone: string;
+        };
         /**
          * @description Numeric status code indicating current DAG-run state:
          *     0: "Not started"
@@ -6711,6 +6725,8 @@ export interface components {
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
             upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
+            /** @description Start schedules that are due at the same time as another one within the upcoming fires, one entry per schedule at its first such time. Only schedules active under the DAG's default runtime profile count. */
+            scheduleCoincidences?: components["schemas"]["ScheduleCoincidence"][];
             /** @description Names the DAG declares in its dates block, in order. Absent when it declares none. */
             dateNames?: string[];
             /** @description Latest fire times of the recurring start schedules at or before now, latest first, for the DAG's default runtime profile. These are the slots a manual run can be started for with scheduleTime. */

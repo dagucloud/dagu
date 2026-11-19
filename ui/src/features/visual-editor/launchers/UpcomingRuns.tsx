@@ -11,7 +11,11 @@ import {
   dateText,
 } from '@/features/dags/components/dag-execution/SlotDatesPreview';
 import dayjs from '@/lib/dayjs';
-import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
+import {
+  formatFireTime,
+  formatParamOverrides,
+  getScheduleSummary,
+} from '@/lib/dagSchedule';
 
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
@@ -73,7 +77,7 @@ export function UpcomingRuns({
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
             const notes = upcomingRunNotes(run, dayjsLocale, ts);
-            const params = Object.entries(schedule?.paramOverrides ?? {});
+            const params = formatParamOverrides(schedule?.paramOverrides);
             return (
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
@@ -92,15 +96,13 @@ export function UpcomingRuns({
                 {schedules.length > 1 && schedule && (
                   <span className="text-muted-foreground/80">
                     {' · '}
-                    {scheduleSummary(schedule)}
+                    {getScheduleSummary(schedule)}
                   </span>
                 )}
-                {params.length > 0 && (
+                {params && (
                   <span className="font-mono text-foreground/80">
                     {' · '}
-                    {params
-                      .map(([name, value]) => `${name}: ${value}`)
-                      .join(', ')}
+                    {params}
                   </span>
                 )}
                 {notes.length > 0 && (
@@ -158,9 +160,4 @@ function upcomingRunNotes(
     );
   }
   return notes;
-}
-
-function scheduleSummary(schedule: Schedule): string {
-  const label = getScheduleLabel(schedule);
-  return schedule.profile ? `${label} (${schedule.profile})` : label;
 }

@@ -42,6 +42,7 @@ const (
 	shutdownTimeout       = 30 * time.Second
 	finalShotLabel        = "final"
 	failureShotLabel      = "failure"
+	foundNothingShotLabel = "found-nothing"
 	openerShotLabel       = "failure-opener"
 	rehearsalShotLabel    = "rehearsal"
 	commitShotLabel       = "commit"
@@ -1048,6 +1049,13 @@ func (r *run) reportResult(ctx context.Context, result opResult) {
 	if result.Kind == opScreenshot {
 		r.timeline.Operation(result.Report)
 		return
+	}
+	// An extract that found nothing shows the page it read, unless the
+	// policy keeps no screenshots or report already captures each one.
+	if policy := r.cfg.screenshotPolicy(); result.FoundNothing && policy != screenshotsNever && policy != screenshotsEach && r.artifacts.Enabled() {
+		if rel, err := r.capture(ctx, foundNothingShotLabel); err == nil {
+			result.Files = append(result.Files, rel)
+		}
 	}
 	r.report(ctx, result.Report)
 }

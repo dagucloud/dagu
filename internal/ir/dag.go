@@ -644,14 +644,28 @@ type ScheduleFire struct {
 	// ExtraBusinessDay reports whether the fire falls on a business day only
 	// because its calendar lists it as one.
 	ExtraBusinessDay bool
+	// Coinciding lists the schedules active under the runtime profile in
+	// effect that are due at the same instant and start no run then.
+	Coinciding []Coincidence
+}
+
+// Coincidence is a start schedule that starts no run at an instant because an
+// active schedule preferred to it is due then too.
+type Coincidence struct {
+	// Index is the position in DAG.Schedule of the schedule that starts no run.
+	Index int
+	// PrecedingIndex is the position of the schedule that starts the run of
+	// the instant.
+	PrecedingIndex int
 }
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
 // earliest first. Schedules that fire at the same instant yield one fire,
 // attributed to a one-off if present, then to the first entry of that kind.
-// The result ignores scheduler state such as suspension, pauses, and consumed
-// one-off schedules.
-func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
+// Coinciding lists the schedules the scheduler would not start then while
+// profile is the runtime profile in effect. The result ignores scheduler
+// state such as suspension, pauses, and consumed one-off schedules.
+func (d *DAG) UpcomingFires(from time.Time, limit int, profile string) []ScheduleFire {
 	if limit <= 0 || len(d.Schedule) == 0 {
 		return nil
 	}
@@ -690,16 +704,51 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 		// A one-off's time carries its own offset, in which an unzoned cron
 		// would be evaluated; advance from the evaluation zone instead.
 		after := at.In(from.Location())
+		var due []int
 		for i, cursor := range cursors {
 			if cursor.at.IsZero() || cursor.at.After(at) {
 				continue
 			}
 			fire.SkippedHolidays = appendHolidays(fire.SkippedHolidays, cursor.skipped)
+			due = append(due, i)
 			cursors[i] = nextFireCursor(d.Schedule[i], after)
 		}
+		fire.Coinciding = d.coincidences(due, profile)
 		fires = append(fires, fire)
 	}
 	return fires
+}
+
+// coincidences returns the schedules of due, all due at one instant, that are
+// active under profile and start no run, because an active schedule preferred
+// to them starts it. A schedule without a profile is active under every one.
+func (d *DAG) coincidences(due []int, profile string) []Coincidence {
+	active := func(i int) bool {
+		return d.Schedule[i].Profile == "" || d.Schedule[i].Profile == profile
+	}
+	starting := -1
+	for _, i := range due {
+		if active(i) && (starting < 0 || d.takesInstantBefore(i, starting)) {
+			starting = i
+		}
+	}
+	var result []Coincidence
+	for _, j := range due {
+		if j != starting && active(j) {
+			result = append(result, Coincidence{Index: j, PrecedingIndex: starting})
+		}
+	}
+	return result
+}
+
+// takesInstantBefore reports whether schedule a starts the run of an instant
+// that schedule b is due at too: a one-off before a recurring schedule, then
+// the earlier entry.
+func (d *DAG) takesInstantBefore(a, b int) bool {
+	if oneOff := d.Schedule[a].IsOneOff(); oneOff != d.Schedule[b].IsOneOff() {
+		return oneOff
+	}
+	return a < b
 }
 
 // fireCursor is a schedule's next fire and the holidays skipped to reach it.

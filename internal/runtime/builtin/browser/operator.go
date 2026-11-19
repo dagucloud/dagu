@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
@@ -115,6 +116,9 @@ type opResult struct {
 	// Values are the values an extract read, limited to the properties its
 	// schema lists.
 	Values map[string]any
+	// FoundNothing is set when an extract found nothing the schema asks
+	// for: every value it read was null or empty.
+	FoundNothing bool
 }
 
 func (o *operator) runOperation(ctx context.Context, index int, op operation) (opResult, error) {
@@ -494,20 +498,26 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	}
 	data, err := o.eng.Extract(ctx, spec.Instruction, schema, timeout)
 	if err != nil {
-		return opResult{}, err
+		return opResult{}, o.onPage(ctx, err)
 	}
 	var values map[string]any
 	if err := json.Unmarshal(data, &values); err != nil {
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
+	if values == nil {
+		return opResult{}, errors.New("extract returned a non-object value: null")
+	}
+	// The detail shows the answer as the model wrote it, blank rows included.
 	detail := string(data)
+	// Later pages are compared with this one, so it is tidied as they are.
+	tidy(values)
 	if spec.Pages != nil {
 		pages, err := o.readPages(ctx, index, spec, schema, values, timeout)
 		if err != nil {
-			return opResult{}, err
+			return opResult{}, o.onPage(ctx, err)
 		}
-		all, _ := json.Marshal(values)
-		detail = fmt.Sprintf("%d pages: %s", pages, all)
+		settled, _ := jsonutil.MarshalUnescaped(values)
+		detail = fmt.Sprintf("%d pages: %s", pages, settled)
 	}
 	// Only the fields a schema lists are published, matching the output
 	// names known when the DAG loads.
@@ -519,13 +529,36 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 		}
 		published[name] = value
 	}
+	found := !blank(published)
+	if !found {
+		detail = "found nothing: " + detail
+		where := ""
+		if pageURL, err := o.eng.CurrentURL(ctx); err == nil {
+			where = " on " + pageURL
+		}
+		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was null or empty", where))
+	}
 	return opResult{
 		Report: agentstep.Report{
 			Index: index, Kind: opExtract, Subject: spec.Instruction, Status: agentstep.StatusCompleted, Via: agentstep.ViaModel,
 			Detail: detail, Tokens: o.bridge.totals().sub(before).total(), Duration: time.Since(began),
 		},
-		Values: published,
+		Values:       published,
+		FoundNothing: !found,
 	}, nil
+}
+
+// onPage adds the page an extract read to err when err tells how the
+// model's answer did not fit the schema.
+func (o *operator) onPage(ctx context.Context, err error) error {
+	if _, ok := errors.AsType[answerMismatch](err); !ok {
+		return err
+	}
+	pageURL, urlErr := o.eng.CurrentURL(ctx)
+	if urlErr != nil {
+		return err
+	}
+	return fmt.Errorf("%w, on %s", err, pageURL)
 }
 
 // readPages reads the pages of a list after the first, which values holds,
@@ -570,6 +603,8 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 		if err := json.Unmarshal(data, &page); err != nil {
 			return read, fmt.Errorf("extract returned a non-object value: %w", err)
 		}
+		// Tidied as the first page was, so the pages compare alike.
+		tidy(page)
 		items := pageItems(page, arrays)
 		if reflect.DeepEqual(items, last) {
 			return read, nil
