@@ -253,7 +253,7 @@ func TestLoad_Env(t *testing.T) {
 			BaseEnv:                cfg.Core.BaseEnv,     // Dynamic, copy from actual
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
-		// The defaults of the block agent_tools have their own test.
+		// The defaults of the blocks agent_tools and ai have their own tests.
 		AgentTools: cfg.AgentTools,
 		AI:         cfg.AI,
 		Server: Server{
@@ -1055,7 +1055,7 @@ scheduler:
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
-		// The defaults of the block agent_tools have their own test.
+		// The defaults of the blocks agent_tools and ai have their own tests.
 		AgentTools: cfg.AgentTools,
 		AI:         cfg.AI,
 		Server: Server{
