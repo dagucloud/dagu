@@ -18,8 +18,8 @@ var (
 	ErrNotFound = errors.New("AI endpoint not found")
 )
 
-// Reason is a name of the table of failure kinds of Spec 094, "Failure kinds".
-// This package gives the reasons that concern an endpoint.
+// Reason is the failure kind of a step that uses an endpoint or a MCP server
+// entry.
 type Reason string
 
 // The reasons that concern an endpoint.

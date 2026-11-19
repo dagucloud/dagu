@@ -2,13 +2,16 @@
 
 ## Status
 
-Implemented.
+Not implemented.
 
-This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
-Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent
-Workers](092-agent-workers.md), [Spec 093: AI Endpoints](093-ai-endpoints.md), [Spec 094: AI
-Gateway](094-ai-gateway.md) and [Spec 096: Skills](096-skills.md). It also uses [Spec 069: Secrets
-Providers](069-secrets-providers.md).
+The store and the service of the MCP server entries exist. No route, page or step uses them yet.
+
+Specs 090, 091, 094 and 096, which this spec cites, are not in this repository yet.
+
+This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), Spec 090: Agent
+Tools, Spec 091: Agent Node, [Spec 092: Agent Workers](092-agent-workers.md), [Spec 093: AI
+Endpoints](093-ai-endpoints.md), Spec 094: AI Gateway and Spec 096: Skills. It also uses [Spec 069:
+Secrets Providers](069-secrets-providers.md).
 
 Spec 093 defines the rules of the endpoints, which the entries of this spec follow for their scope,
 their name and their secrets. Spec 094 defines the gateway that carries the MCP traffic.
@@ -28,7 +31,7 @@ This spec does not define:
 - the AI page, the endpoints, the key rules, the scope rules and the block `ai`. See [Spec
   093](093-ai-endpoints.md).
 - the gateway: the stream to the coordinator, the identity checks, the limits, the failure kinds and
-  the audit line. See [Spec 094](094-ai-gateway.md).
+  the audit line. See Spec 094.
 - the key `allow`, the key `dags` and the tool map. See Spec 090.
 - the allow rules of the CLI and the tool bridge. See Spec 091.
 - the agent worker, the pools, the restricted user and the egress proxy. See Spec 092.
@@ -54,9 +57,8 @@ gateway and a target are as in Spec 094.
 
 ## Threat model
 
-Spec 094 gives the assets, the trust levels and the threats of the gateway. See [Threat
-model](094-ai-gateway.md#threat-model). This table gives the threats of the MCP servers with
-credentials.
+Spec 094 gives the assets, the trust levels and the threats of the gateway in its section "Threat
+model". This table gives the threats of the MCP servers with credentials.
 
 | Threat | Control | What remains |
 | --- | --- | --- |
@@ -255,7 +257,7 @@ forms](093-ai-endpoints.md#the-step-forms).
   action cannot`.
 - an `mcp` entry with no `url` and with `headers`
 
-These cases fail a step at run time, with the reasons of [Failure kinds](094-ai-gateway.md#failure-kinds):
+These cases fail a step at run time, with the reasons of the failure kinds of Spec 094:
 
 - a MCP server entry that does not exist, or that the DAG may not use: `mcp_server_unknown` and
   `mcp_server_forbidden`
@@ -286,7 +288,7 @@ steps:
             allow: [search]
 ```
 
-The agent step of [Spec 094](094-ai-gateway.md#an-agent-step-with-an-endpoint) uses the same entry.
+The agent step of Spec 094 uses the same entry.
 
 ## Conformance
 

@@ -2,12 +2,16 @@
 
 ## Status
 
-Implemented.
+Not implemented.
 
-This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
-Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent
-Workers](092-agent-workers.md), [Spec 094: AI Gateway](094-ai-gateway.md), [Spec 095: MCP
-Servers](095-mcp-servers.md) and [Spec 096: Skills](096-skills.md). It also uses [Spec 069: Secrets
+The stores and the services of the endpoints and of the MCP server entries, the models reader and
+the block `ai` of the configuration exist. No route, page or step uses them yet.
+
+Specs 090, 091, 094 and 096, which this spec cites, are not in this repository yet.
+
+This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), Spec 090: Agent
+Tools, Spec 091: Agent Node, [Spec 092: Agent Workers](092-agent-workers.md), Spec 094: AI Gateway,
+[Spec 095: MCP Servers](095-mcp-servers.md) and Spec 096: Skills. It also uses [Spec 069: Secrets
 Providers](069-secrets-providers.md) and [Spec 070: Runtime Profiles](070-runtime-profiles.md).
 
 Spec 094 defines the gateway that uses the endpoints of this spec. Spec 095 defines the MCP servers
@@ -30,8 +34,7 @@ This spec defines:
 
 This spec does not define:
 
-- the gateway: the relay in the worker and the stream to the coordinator. See [Spec
-  094](094-ai-gateway.md).
+- the gateway: the relay in the worker and the stream to the coordinator. See Spec 094.
 - the block `endpoint` of `agent.run` and of `chat.completion`, and the key `endpoint` of a model
   entry. See Spec 094.
 - the MCP servers with credentials, the tab MCP and the MCP relay. See [Spec
@@ -49,8 +52,7 @@ A workflow author names a model API in one key of a step. The author never write
 DAG, in a file of the worker or in the environment of an agent. An administrator adds the key one
 time, on the AI page, and chooses which DAGs may use it.
 
-The key stays in the coordinator. [Spec 094](094-ai-gateway.md) defines the gateway that adds the key
-to a request.
+The key stays in the coordinator. Spec 094 defines the gateway that adds the key to a request.
 
 ## Terms
 
@@ -73,8 +75,8 @@ are as in Spec 092. A local run is a run that one process does without a coordin
 
 ## Threat model
 
-Spec 094 gives the assets, the trust levels and the threats of the gateway. See [Threat
-model](094-ai-gateway.md#threat-model). This table gives the threat of the endpoint pages.
+Spec 094 gives the assets, the trust levels and the threats of the gateway in its section "Threat
+model". This table gives the threat of the endpoint pages.
 
 | Threat | Control | What remains |
 | --- | --- | --- |
@@ -451,7 +453,7 @@ value is always typeable. The model check of this section decides if the step ru
 
 #### The model check
 
-The model check is part of the [Start checks](094-ai-gateway.md#start-checks). It applies when all these conditions are
+The model check is part of the start checks of Spec 094. It applies when all these conditions are
 true:
 
 - the step names an endpoint, and the check of the endpoint passed
@@ -749,13 +751,13 @@ These cases stop a process at start with the exit code 1:
 
 - an invalid or unknown key of the block `ai`, or a contradiction of two keys
 
-These cases fail a step at run time, with the reasons of [Failure kinds](094-ai-gateway.md#failure-kinds):
+These cases fail a step at run time, with the reasons of the failure kinds of Spec 094:
 
 - a literal model that the models list of the endpoint lacks, at the start check, after one refresh on
   demand: the reason is `model_unknown`
 
-The errors of the block `endpoint` and of the relay are in [Spec 094](094-ai-gateway.md#errors). The
-errors of the MCP server entries are in [Spec 095](095-mcp-servers.md#errors).
+The errors of the block `endpoint` and of the relay are in Spec 094. The errors of the MCP server
+entries are in [Spec 095](095-mcp-servers.md#errors).
 
 ## Examples
 
