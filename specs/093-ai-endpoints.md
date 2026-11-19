@@ -371,7 +371,8 @@ Rules of the table:
 
 For each endpoint, the server keeps a list of model names and the date of its last good read. The
 list gives the author suggestions, and it decides if a step runs: once a read gave a list with a name,
-a step can name only a model of the list, after one refresh on a miss. With no such list, a step can
+a step can name only a model of the list, or a name that the check accepts for the CLI `claude`. A
+miss refreshes the list first, at most once a minute for an endpoint. With no such list, a step can
 name any model. See [The model check](#the-model-check).
 
 ### Read
