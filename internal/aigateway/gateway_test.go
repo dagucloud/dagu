@@ -431,15 +431,23 @@ func TestDo_StreamsChunkByChunk(t *testing.T) {
 
 // The audit record has the time of the first byte of the response. For a stream the
 // first byte comes long before the end, so the two times show that the response
-// streams.
+// streams. Each wait lies between the two times it separates, so a slow scheduler
+// only widens the gaps.
 func TestDo_AuditHasTheFirstByteTime(t *testing.T) {
 	t.Parallel()
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	const gap = 50 * time.Millisecond
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
+		time.Sleep(gap)
 		_, _ = io.WriteString(w, "event: ping\ndata: 1\n\n")
 		flusher.Flush()
-		time.Sleep(300 * time.Millisecond)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
 		_, _ = io.WriteString(w, "event: ping\ndata: 2\n\n")
 		flusher.Flush()
 	}))
@@ -448,10 +456,20 @@ func TestDo_AuditHasTheFirstByteTime(t *testing.T) {
 	records := make(chan aigateway.AuditRecord, 1)
 	g := newGateway(t, src, testLimits(), func(_ context.Context, r aigateway.AuditRecord) { records <- r })
 
-	require.Nil(t, g.Do(context.Background(), request("/v1/messages", `{}`), &recSink{}))
+	// The second event leaves only after the sink took the first one, and the sink
+	// takes it slowly, so the response ends at least gap after the first byte.
+	sink := &recSink{onChnk: func(n int) {
+		switch n {
+		case 1:
+			close(release)
+		case 2:
+			time.Sleep(gap)
+		}
+	}}
+	require.Nil(t, g.Do(context.Background(), request("/v1/messages", `{}`), sink))
 	record := <-records
-	assert.Less(t, record.FirstByteMs, int64(250), "the first byte leaves before the second event")
-	assert.GreaterOrEqual(t, record.DurationMs, int64(300), "the response lasts until the second event")
+	assert.GreaterOrEqual(t, record.FirstByteMs, gap.Milliseconds(), "the first byte comes after the upstream wait")
+	assert.GreaterOrEqual(t, record.DurationMs-record.FirstByteMs, gap.Milliseconds(), "the response lasts past the first byte")
 }
 
 func TestDo_ResponseTooLargeCutsTheStream(t *testing.T) {
