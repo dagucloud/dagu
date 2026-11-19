@@ -472,6 +472,8 @@ export function Picker({
   const triggerId = id ?? `${popoverId}-trigger`;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  // A disabled picker shuts, so that enabling it again opens nothing.
+  if (disabled && open) setOpen(false);
   const [up, setUp] = useState(false);
   const shut = useCallback((refocus: boolean) => {
     setOpen(false);

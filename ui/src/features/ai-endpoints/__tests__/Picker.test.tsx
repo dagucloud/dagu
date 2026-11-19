@@ -16,25 +16,41 @@ const MODELS: PickerItem[] = [
   },
 ];
 
+interface PickerProps {
+  items: readonly PickerItem[];
+  value: string;
+  disabled: boolean;
+}
+
 function renderPicker(
   items: readonly PickerItem[] = MODELS,
   value = 'claude-opus-5-5',
   disabled = false
 ) {
   const onSelect = vi.fn();
-  render(
+  let props: PickerProps = { items, value, disabled };
+  const picker = () => (
     <Picker
       label="Model"
-      items={items}
-      value={value}
+      items={props.items}
+      value={props.value}
       onSelect={onSelect}
-      disabled={disabled}
+      disabled={props.disabled}
       emptyText="Nothing matches."
     >
-      {value}
+      {props.value}
     </Picker>
   );
-  return { onSelect, trigger: screen.getByRole('combobox', { name: 'Model' }) };
+  const { rerender } = render(picker());
+  return {
+    onSelect,
+    trigger: screen.getByRole('combobox', { name: 'Model' }),
+    /** Renders the picker again with these props changed. */
+    update(next: Partial<PickerProps>) {
+      props = { ...props, ...next };
+      rerender(picker());
+    },
+  };
 }
 
 describe('Picker', () => {
@@ -177,5 +193,16 @@ describe('Picker', () => {
     fireEvent.click(trigger);
     fireEvent.keyDown(trigger, { key: 'ArrowDown' });
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  // Enabling the picker again must not open the list and take the focus
+  // without a new press.
+  it('shuts when it is disabled while open', () => {
+    const { trigger, update } = renderPicker();
+    fireEvent.click(trigger);
+    update({ disabled: true });
+    update({ disabled: false });
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 });
