@@ -653,6 +653,23 @@ func TestRestoreFollowsTheAliasOfTheWorkDirectory(t *testing.T) {
 	assert.ErrorIs(t, err, fs.ErrNotExist, "the restore removes the link")
 }
 
+// The restricted user chooses the target of a link, so the error quotes it: a
+// verb such as %d stays text and a newline cannot start a line of the log. It
+// needs no root.
+func TestRestoreQuotesTheLinkTarget(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	require.NoError(t, iso.handoff())
+
+	target := filepath.Join(t.TempDir(), "a%d\nb")
+	link := filepath.Join(iso.workDir, "out")
+	require.NoError(t, os.Symlink(target, link))
+
+	err := iso.restore(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "made the link "+link+" to "+strconv.Quote(target))
+}
+
 // git follows a link at objects and refs, so a folder with HEAD, refs and a
 // link objects is a git folder. The work directory itself can become one. The
 // restore finds both and removes HEAD. It needs no root.

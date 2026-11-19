@@ -315,7 +315,7 @@ func (iso *isolation) restore(verifyGit bool) error {
 			}
 			if verifyGit && e.isLink() {
 				if target, bad := iso.badLink(e); bad {
-					fail(iso.removeEntry(e, "the restricted user made the link %s to "+target))
+					fail(iso.removeEntry(e, "the restricted user made the link %s to %q", target))
 					return true, nil
 				}
 			}
@@ -423,9 +423,9 @@ func resolveLinks(path string) (string, error) {
 }
 
 // removeEntry removes the entry and returns the error of the step. format has
-// one %s for the path.
-func (iso *isolation) removeEntry(e *fsEntry, format string) error {
-	msg := fmt.Sprintf("untrusted step %q: "+format, iso.step, e.path)
+// a %s for the path, then a verb for each of args.
+func (iso *isolation) removeEntry(e *fsEntry, format string, args ...any) error {
+	msg := fmt.Sprintf("untrusted step %q: "+format, append([]any{iso.step, e.path}, args...)...)
 	if e.parent < 0 {
 		return fmt.Errorf("%s; Dagu cannot remove it: %w", msg, ErrRunAborted)
 	}
