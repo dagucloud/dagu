@@ -27,6 +27,11 @@ func TestEnvReferenceNames(t *testing.T) {
 		{`echo \${TOKEN} \$OTHER`, nil},
 		{"echo ${steps.build.outputs.x} ${params.p}", nil},
 		{"echo $1 ${A} $B_2", []string{"A", "B_2"}},
+		// The word of an operator such as :- can refer to more names, at any depth.
+		{"echo ${A:-$B}", []string{"A", "B"}},
+		{"echo ${A:-${B}}", []string{"A", "B"}},
+		{"echo ${A:-${env.B:-$C}} $B", []string{"A", "B", "C"}},
+		{`echo ${A:-\$B} ${A:-${steps.build.outputs.x}}`, []string{"A"}},
 		{"", nil},
 	} {
 		assert.Equal(t, tc.want, value.EnvReferenceNames(tc.raw), tc.raw)

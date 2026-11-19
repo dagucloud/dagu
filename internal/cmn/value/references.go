@@ -122,9 +122,9 @@ func HasAnyReference(raw string) bool {
 }
 
 // EnvReferenceNames returns the environment names that raw refers to with
-// ${NAME}, $NAME, ${NAME:-word} or ${env.NAME}, in order and without
-// duplicates. An escaped dollar is not a reference. A quoted reference counts,
-// because the text can reach a shell that expands it.
+// ${NAME}, $NAME, ${NAME:-word} or ${env.NAME}, including those in the word, in
+// order and without duplicates. An escaped dollar is not a reference. A quoted
+// reference counts, because the text can reach a shell that expands it.
 func EnvReferenceNames(raw string) []string {
 	var names []string
 	seen := make(map[string]struct{})
@@ -144,20 +144,42 @@ func EnvReferenceNames(raw string) []string {
 		}
 		switch {
 		case loc[2] >= 0:
-			expr := strings.TrimSpace(raw[loc[2]:loc[3]])
-			if after, ok := strings.CutPrefix(expr, "env."); ok {
-				expr = after
-			}
-			name := leadingEnvName(expr)
-			// A dotted expression other than env.NAME names another scope.
-			if name != "" && (len(name) == len(expr) || expr[len(name)] != '.') {
-				add(name)
-			}
+			addBracedEnvNames(raw[loc[2]:loc[3]], add)
 		case loc[4] >= 0:
 			add(raw[loc[4]:loc[5]])
 		}
 	}
 	return names
+}
+
+// addBracedEnvNames adds the names that the expression of a braced reference
+// refers to: its leading name, and the names in its word, such as B in
+// ${A:-$B}. The expression stops at the first closing brace, so a nested
+// braced reference in it, such as ${B in ${A:-${B}}, has no closing brace.
+func addBracedEnvNames(expr string, add func(string)) {
+	expr = strings.TrimSpace(expr)
+	if after, ok := strings.CutPrefix(expr, "env."); ok {
+		expr = after
+	}
+	name := leadingEnvName(expr)
+	// A dotted expression other than env.NAME names another scope.
+	if name != "" && (len(name) == len(expr) || expr[len(name)] != '.') {
+		add(name)
+	}
+	word := expr[len(name):]
+	nested := len(word)
+	for i := 0; i+1 < len(word); i++ {
+		if word[i] == '$' && word[i+1] == '{' && !isEscapedDollar(word, i) {
+			nested = i
+			break
+		}
+	}
+	for _, n := range EnvReferenceNames(word[:nested]) {
+		add(n)
+	}
+	if nested < len(word) {
+		addBracedEnvNames(word[nested+2:], add)
+	}
 }
 
 // StepValueReference is a reference to a value that a step published: the
